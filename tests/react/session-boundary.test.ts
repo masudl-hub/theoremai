@@ -6,8 +6,8 @@ import {
 } from '../../react/src/server/mod.ts';
 
 const checkpoint: ProviderCheckpoint = {
-  providerId: 'provider',
-  adapterId: 'fixture',
+  protocol: 'fixture',
+  provider: 'provider',
   version: 1,
   apiId: 'model',
   compatibilityKey: 'connection',

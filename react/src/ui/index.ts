@@ -37,6 +37,14 @@ export {
   type LiveComposerBarProps,
 } from './ChatComposerBar.tsx';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
+export {
+  ConsoleFrame,
+  type ConsoleFrameProps,
+  ConsoleRequestCard,
+  RequestCard,
+  ResponseColumn,
+  RunBar,
+} from './ConsoleFrame.tsx';
 export { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
 export { useDisclosureMotion } from './disclosure-motion.ts';
 export { tablerIcons } from './icons.ts';
@@ -77,5 +85,5 @@ export {
   type ToolDecision,
 } from './ToolGateCard.tsx';
 export { ToolResult } from './ToolResult.tsx';
-export { TraceGuardrailsView, TracePlacement } from './TraceInspectorPanel.tsx';
+export { TraceGuardrailsView, TracePlacement, useTraceInspector } from './TraceInspectorPanel.tsx';
 export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme.tsx';

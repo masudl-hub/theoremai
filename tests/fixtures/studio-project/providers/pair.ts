@@ -1,33 +1,17 @@
-import { defineProvider, openAIChat } from '@theoremjs/agents';
+import { localProvider, registerProvider } from '@theoremjs/agents';
 
-const shared = openAIChat({
-  capabilities: {
-    profileTypes: ['text'],
-    inputKinds: ['text'],
-    outputKinds: ['text'],
-    builtins: [],
-    features: {
-      streaming: 'supported',
-      clientTools: 'supported',
-      parallelTools: 'unknown',
-      structuredOutput: 'unknown',
-      thinking: 'supported',
-      summaries: 'unknown',
-      storedContinuation: 'unsupported',
-    },
-  },
-});
+/** What the two gateways share: one key slot. */
+const shared = { keySlot: 'pair_key' };
 
-export const left = defineProvider({
-  id: 'left',
-  connection: { baseURL: 'https://left.example/v1' },
-  keySlot: 'pair_key',
-  adapter: shared,
-});
-
-export const right = defineProvider({
-  id: 'right',
-  connection: { baseURL: 'https://right.example/v1' },
-  keySlot: 'pair_key',
-  adapter: shared,
-});
+export function registerPair(): void {
+  registerProvider(localProvider, {
+    id: 'left',
+    connection: { baseUrl: 'https://left.example/v1' },
+    ...shared,
+  });
+  registerProvider(localProvider, {
+    id: 'right',
+    connection: { baseUrl: 'https://right.example/v1' },
+    ...shared,
+  });
+}

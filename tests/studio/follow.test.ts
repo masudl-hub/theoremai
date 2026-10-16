@@ -30,14 +30,14 @@ function saved(files: Record<string, string>, subjects: SaveSubject[]) {
   };
 }
 
-const MODELS = `import { defineProvider } from '@theoremjs/agents';
-export const google = defineProvider({ id: 'google' });
+const MODELS = `import { geminiInteractions, geminiProvider, registerProvider } from '@theoremjs/agents';
+export const google = registerProvider(geminiProvider, { id: 'google' });
 export const BASE = { summaries: true, maxOutputTokens: 100 };
 const SLOT = 'fast';
 export function lite(effort: string) {
-  return google.model('flash-lite', { efforts: { normal: effort }, maxOutputTokens: 8192 });
+  return google.model(geminiInteractions, 'flash-lite', { efforts: { normal: effort }, maxOutputTokens: 8192 });
 }
-export const MODELS = { [SLOT]: google.model('flash', { ...BASE, keySlot: 'free' }) };
+export const MODELS = { [SLOT]: google.model(geminiInteractions, 'flash', { ...BASE, keySlot: 'free' }) };
 `;
 
 const HELPED = `import { defineProfile } from '@theoremjs/agents';
@@ -47,12 +47,14 @@ export const shop = defineProfile({ type: 'text', id: 'shop', models: { free: li
 `;
 
 const binding = (effort: string, maxOutputTokens = 8192) => ({
+  protocol: 'geminiInteractions',
   provider: 'google',
   apiId: 'flash-lite',
   efforts: { normal: effort },
   maxOutputTokens,
 });
 const fast = {
+  protocol: 'geminiInteractions',
   provider: 'google',
   apiId: 'flash',
   summaries: true,
@@ -154,8 +156,8 @@ Deno.test('a model call, a computed key and a spread constant are each written w
   assertEquals(
     text['models.ts'],
     MODELS.replace('maxOutputTokens: 100', 'maxOutputTokens: 200').replace(
-      "google.model('flash', { ...BASE, keySlot: 'free' })",
-      "google.model('flash-2', { ...BASE, keySlot: 'paid', temperature: 0 })",
+      "google.model(geminiInteractions, 'flash', { ...BASE, keySlot: 'free' })",
+      "google.model(geminiInteractions, 'flash-2', { ...BASE, keySlot: 'paid', temperature: 0 })",
     ),
   );
   const refused = saved(files, [
@@ -163,25 +165,25 @@ Deno.test('a model call, a computed key and a spread constant are each written w
       kind: 'profile',
       of: 'desk',
       before: desk(binding('low')),
-      after: desk(binding('low'), { ...fast, provider: 'openAi' }),
+      after: desk(binding('low'), { ...fast, provider: 'nowhere' }),
     },
   ]);
-  // No provider of the project is defined as that.
+  // No provider of the project is registered as that.
   assertEquals(refused.changes, ['desk models.fast.provider: code']);
   assertEquals(refused.plan.edits, []);
 });
 
 const ROUTED = MODELS.replace(
   'export const BASE',
-  "export const router = defineProvider({ id: 'openrouter' });\nconst hidden = defineProvider({ id: 'hidden' });\nexport const BASE",
+  "export const backup = registerProvider(geminiProvider, { id: 'backup', keySlot: 'spare' });\nconst hidden = registerProvider(geminiProvider, { id: 'hidden' });\nexport const BASE",
 );
-const INLINE = `import { defineProfile, defineProvider, registerProvider } from '@theoremjs/agents';
+const INLINE = `import { defineProfile, geminiInteractions, geminiProvider, registerProvider } from '@theoremjs/agents';
 import { google, lite } from './models.ts';
-registerProvider(defineProvider({ id: 'unnamed' }));
-export const desk = defineProfile({ type: 'text', id: 'desk', models: { free: lite('low'), fast: google.model('flash') } });
+registerProvider(geminiProvider, { id: 'unnamed' });
+export const desk = defineProfile({ type: 'text', id: 'desk', models: { free: lite('low'), fast: google.model(geminiInteractions, 'flash') } });
 export const shop = defineProfile({ type: 'text', id: 'shop', models: { free: lite('high') } });
 `;
-const plainFast = { provider: 'google', apiId: 'flash' };
+const plainFast = { protocol: 'geminiInteractions', provider: 'google', apiId: 'flash' };
 
 Deno.test('a changed provider rewrites the name the model is built on, and never the provider it names', () => {
   const files = { 'setup.ts': HELPED, 'models.ts': ROUTED };
@@ -190,11 +192,17 @@ Deno.test('a changed provider rewrites the name the model is built on, and never
       kind: 'profile',
       of: 'desk',
       before: desk(binding('low')),
-      after: desk(binding('low'), { ...fast, provider: 'openrouter' }),
+      after: desk(binding('low'), { ...fast, provider: 'backup' }),
     },
   ]);
   assertEquals(changes, ['desk models.fast.provider: written']);
-  assertEquals(text['models.ts'], ROUTED.replace("google.model('flash',", "router.model('flash',"));
+  assertEquals(
+    text['models.ts'],
+    ROUTED.replace(
+      "google.model(geminiInteractions, 'flash',",
+      "backup.model(geminiInteractions, 'flash',",
+    ),
+  );
 });
 
 Deno.test('a provider another file defines is imported where the model is written', () => {
@@ -208,13 +216,13 @@ Deno.test('a provider another file defines is imported where the model is writte
         after: desk(binding('low'), { ...plainFast, provider }),
       },
     ]);
-  const swapped = to('openrouter');
+  const swapped = to('backup');
   assertEquals(swapped.changes, ['desk models.fast.provider: written']);
   assertEquals(
     swapped.text['setup.ts'],
-    INLINE.replace('{ google, lite }', '{ google, lite, router }').replace(
-      "google.model('flash')",
-      "router.model('flash')",
+    INLINE.replace('{ google, lite }', '{ google, lite, backup }').replace(
+      "google.model(geminiInteractions, 'flash')",
+      "backup.model(geminiInteractions, 'flash')",
     ),
   );
   assertEquals(swapped.text['models.ts'], ROUTED);
@@ -228,7 +236,7 @@ Deno.test('a provider another file defines is imported where the model is writte
 
 Deno.test('the provider of a model a function builds changes only when each agent it builds for changes it', () => {
   const files = { 'setup.ts': HELPED, 'models.ts': ROUTED };
-  const routed = (effort: string) => ({ ...binding(effort), provider: 'openrouter' });
+  const routed = (effort: string) => ({ ...binding(effort), provider: 'backup' });
   const alone = saved(files, [
     { kind: 'profile', of: 'desk', before: desk(binding('low')), after: desk(routed('low')) },
   ]);
@@ -244,7 +252,10 @@ Deno.test('the provider of a model a function builds changes only when each agen
   ]);
   assertEquals(
     both.text['models.ts'],
-    ROUTED.replace("google.model('flash-lite',", "router.model('flash-lite',"),
+    ROUTED.replace(
+      "google.model(geminiInteractions, 'flash-lite',",
+      "backup.model(geminiInteractions, 'flash-lite',",
+    ),
   );
 });
 

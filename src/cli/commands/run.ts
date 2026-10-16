@@ -1,5 +1,5 @@
 import { getProfile, runTurn } from '../../kernel/default-scope.ts';
-import type { ProviderHostOptions } from '../../kernel/provider-contract.ts';
+import type { ProviderHostOptions } from '../../kernel/protocols/runtime.ts';
 import { requireModelProfile } from '../../kernel/registry/resolve.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
 import { createCliTraceCapture, printRunEvent, printTraceRecord } from '../event-log.ts';

@@ -1,7 +1,7 @@
 import { TheoremError } from '../../../../src/guardrails/error.ts';
 import { registerStructured } from '../../../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../../../src/kernel/engine/assert.ts';
-import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
+import type { ModelRequest } from '../../../../src/kernel/types.ts';
 import {
   buildChatMessages,
   httpErrorEvent,
@@ -12,7 +12,7 @@ import {
 import { HOST_BINDINGS } from '../../../fixtures/models.ts';
 import { resolvedStructured } from '../../../fixtures/provider-request.ts';
 
-function request(overrides: Partial<ProviderCompleteRequest>): ProviderCompleteRequest {
+function request(overrides: Partial<ModelRequest>): ModelRequest {
   return {
     model: 'gemini35FlashLite',
     apiId: HOST_BINDINGS.gemini35FlashLite.apiId,

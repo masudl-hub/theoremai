@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from '@std/assert';
-import { createKernelScope, defineProvider, googleAdapter, type TurnEvent, z } from '../../mod.ts';
+import { createKernelScope, geminiProvider, type TurnEvent, z } from '../../mod.ts';
 import {
   createMemorySessionStore,
   createTheoremSessionBoundary,
@@ -9,9 +9,7 @@ import { HOST_BINDINGS } from '../fixtures/models.ts';
 
 Deno.test('native live approval dispatch uses saved prepared input and settles one authoritative result', async () => {
   const scope = createKernelScope();
-  scope.providers.register(
-    defineProvider({ id: 'google', connection: {}, adapter: googleAdapter() }),
-  );
+  scope.providers.register(geminiProvider);
   scope.tools.register({
     type: 'function',
     name: 'page_write',
@@ -53,17 +51,15 @@ Deno.test('native live approval dispatch uses saved prepared input and settles o
       },
     },
   );
-  let called = () => {};
-  const ready = new Promise<void>((resolve) => {
-    called = resolve;
-  });
+  // The kernel mints the call's id; the wire's id ('call') never reaches the host.
+  const called = Promise.withResolvers<string>();
   let effects = 0;
   const events: TurnEvent[] = [];
   const drain = (async () => {
     for await (const event of session.events()) {
       events.push(event);
       if (event.type !== 'tool') continue;
-      if (event.tool.phase === undefined) called();
+      if (event.tool.phase === undefined) called.resolve(event.tool.callId);
       if (event.tool.phase !== 'dispatch') continue;
       const grant = event.tool;
       assert(grant.operationId);
@@ -86,18 +82,21 @@ Deno.test('native live approval dispatch uses saved prepared input and settles o
     socket.deliver({
       toolCall: { functionCalls: [{ id: 'call', name: 'page_write', args: { id: 'original' } }] },
     });
-    await ready;
-    const held = await session.executeTool({ callId: 'call' });
+    const callId = await called.promise;
+    assert(callId !== 'call');
+    const held = await session.executeTool({ callId });
     assertEquals(held.gated?.kind, 'confirmation');
     assertEquals(held.gated?.preparedArguments, { id: 'prepared' });
-    const completed = await session.executeTool({ callId: 'call', decision: 'approve' });
+    const completed = await session.executeTool({ callId, decision: 'approve' });
     assertEquals(completed.outputRaw, { ok: true });
     assertEquals(effects, 1);
-    await assertRejects(() => session.executeTool({ callId: 'call' }));
+    await assertRejects(() => session.executeTool({ callId }));
     const responses = socket.sent.flatMap(
       (frame) => JSON.parse(frame).toolResponse?.functionResponses ?? [],
     );
     assertEquals(responses.length, 1);
+    // The wire hears its own id back.
+    assertEquals(responses[0].id, 'call');
     const operation = Object.values((await store.load('owner'))?.state.operations ?? {})[0];
     assertEquals(operation.status, 'settled');
   } finally {

@@ -18,4 +18,8 @@ export const STUDIO_EXAMPLES = {
 		label: 'Jev decision',
 		description: 'Checks tool calls with the Jev decision model.',
 	},
+	'gemini-embedding-2': {
+		label: 'Gemini Embeddings 2',
+		description: 'Multimodal embedding preview with Gemini Embeddings 2.',
+	},
 } as const;

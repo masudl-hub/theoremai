@@ -3,8 +3,8 @@ import type { ToolRegistry } from '../tools/registry.ts';
 import type {
   BuiltInArgs,
   BuiltinToolId,
+  ModelRequest,
   ProviderBuiltin,
-  ProviderCompleteRequest,
   ResolvedGeneration,
 } from '../types.ts';
 
@@ -28,7 +28,7 @@ function providerCompleteRequest(
   tools: ToolRegistry,
   generation: ResolvedGeneration,
   system: string,
-): ProviderCompleteRequest {
+): ModelRequest {
   return {
     model: generation.model,
     apiId: generation.apiId,
@@ -47,8 +47,6 @@ function providerCompleteRequest(
     image: generation.image,
     speech: generation.speech,
     live: generation.live,
-    keySlot: generation.keySlot,
-    fallbackKeySlot: generation.fallbackKeySlot,
   };
 }
 

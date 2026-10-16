@@ -98,8 +98,9 @@ function runsOn(
 ): StudioRunsOn {
 	if (hasLocal && models.every((model) => model.local)) return { mode: 'local' };
 	if (!keys || hasLocal || hasKeys) return ON_OWN_KEYS;
-	const lent = models.every(
-		(model) => keys.violation({ ...model, builtInTools: model.builtInTools ?? [] }) === null,
+	const lent = models.every((model) =>
+		keys.runs(model.profileType, model.definition) &&
+		keys.violation({ ...model, builtInTools: model.builtInTools ?? [] }) === null
 	);
 	return lent ? { mode: 'demo', keys } : ON_OWN_KEYS;
 }
@@ -250,7 +251,7 @@ export function useProviderModels(
 			setState({ id, status: cached ? 'ready' : 'idle', models: cached ?? [] });
 			return;
 		}
-		if (provider === 'google' && !key) {
+		if (provider === 'gemini' && !key && type !== 'embedding') {
 			setState({ id, status: 'idle', models: [] });
 			return;
 		}
@@ -295,7 +296,7 @@ export function slotDescription(secret: string | undefined): string {
 
 /** The icon follows the pasted key; a key whose service its prefix doesn't show gets a plain key. */
 const KEY_KINDS = {
-	google: { icon: IconGemini, label: 'Gemini key' },
+	gemini: { icon: IconGemini, label: 'Gemini key' },
 	openrouter: { icon: IconOpenRouter, label: 'OpenRouter key' },
 };
 

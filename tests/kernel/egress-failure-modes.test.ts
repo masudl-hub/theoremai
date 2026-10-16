@@ -5,7 +5,7 @@ import { type LabelOverrides, labelDefault } from '../../src/guardrails/labels.t
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { eventsOf, finalStop } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
@@ -45,7 +45,7 @@ function findWhere(matches: (text: string) => boolean): HostFind {
   return (text) => (matches(text) ? [{ start: 0, end: text.length }] : []);
 }
 
-function says(...chunks: string[]): ModelProvider {
+function says(...chunks: string[]): TurnModel {
   return {
     async *complete() {
       for (const text of chunks) yield { type: 'text', text };
@@ -53,7 +53,7 @@ function says(...chunks: string[]): ModelProvider {
   };
 }
 
-async function collect(id: string, provider: ModelProvider): Promise<TurnEvent[]> {
+async function collect(id: string, provider: TurnModel): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   for await (const ev of runTurn({ profile: id, input: { text: 'q' } }, provider)) {
     events.push(ev);
@@ -151,7 +151,7 @@ Deno.test('a detector that reads the reply reads its text, not its thoughts', as
     findWhere((text) => text.includes('secret-thought')),
   );
 
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield { type: 'thought', text: 'secret-thought' };
       yield { type: 'text', text: 'safe visible text' };
@@ -173,7 +173,7 @@ Deno.test('a detector that reads the reply reads its text, not its thoughts', as
 Deno.test('a passing attempt delivers streamed media once', async () => {
   profile('fm_media_once', () => []);
   const media: TurnEvent = { type: 'media', media: { mimeType: 'image/png', data: 'AAAA' } };
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield media;
       yield { type: 'text', text: 'here it is' };
@@ -189,7 +189,7 @@ Deno.test('thoughts keep streaming after a block withholds the reply', async () 
     'fm_thought_after_block',
     findWhere((text) => text.includes('leak')),
   );
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield { type: 'text', text: 'leak' };
       yield { type: 'thought', text: 'still thinking' };
@@ -208,7 +208,7 @@ Deno.test('no tool draft shows after a block withholds the reply', async () => {
     'fm_draft_after_block',
     findWhere((text) => text.includes('leak')),
   );
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield { type: 'text', text: 'leak' };
       yield { type: 'tool_draft', callId: 'call_1', name: 'lookup', text: '{"q":"x"}' };

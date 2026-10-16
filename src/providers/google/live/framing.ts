@@ -9,8 +9,8 @@ import type {
   InteractionPart,
   LiveContextCompressionSpec,
   LiveVadSpec,
-  ProviderCompleteRequest,
-  ProviderEvent,
+  ModelEvent,
+  ModelRequest,
   TurnEventOf,
   TurnHistoryMessage,
   TurnTokens,
@@ -54,7 +54,10 @@ export function wireFunctionDeclaration(decl: WireFunctionTool): Record<string, 
  * one `functionDeclarations` entry. Which builtins a model takes is the API's
  * answer (probe 23/09/2026: a model without one closes the socket with 1007).
  */
-function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string, unknown>> {
+/** A live session's setup as Gemini frames it: the request, plus the handle it resumes from. */
+export type LiveSetupRequest = ModelRequest & { sessionResumptionHandle?: string };
+
+function wireLiveTools(req: ModelRequest): Array<Record<string, unknown>> {
   const tools: Array<Record<string, unknown>> = [];
   for (const builtin of req.builtins) {
     tools.push(liveBuiltinTool(builtin));
@@ -66,7 +69,7 @@ function wireLiveTools(req: ProviderCompleteRequest): Array<Record<string, unkno
   return tools;
 }
 
-function buildLiveGenerationConfig(req: ProviderCompleteRequest): Record<string, unknown> {
+function buildLiveGenerationConfig(req: ModelRequest): Record<string, unknown> {
   const generationConfig: Record<string, unknown> = {
     responseModalities: ['AUDIO'],
     temperature: req.temperature,
@@ -129,9 +132,7 @@ function buildLiveRealtimeInputConfig(vad: LiveVadSpec): Record<string, unknown>
   return Object.keys(config).length > 0 ? config : undefined;
 }
 
-function buildLiveSessionResumption(
-  req: ProviderCompleteRequest,
-): Record<string, unknown> | undefined {
+function buildLiveSessionResumption(req: LiveSetupRequest): Record<string, unknown> | undefined {
   if (req.sessionResumptionHandle) {
     return { handle: req.sessionResumptionHandle };
   }
@@ -146,7 +147,7 @@ function liveModelName(apiId: string): string {
 }
 
 function applyLiveOptionalFeatures(
-  live: ProviderCompleteRequest['live'],
+  live: ModelRequest['live'],
   setup: Record<string, unknown>,
 ): void {
   if (live?.transcription?.input) {
@@ -157,7 +158,7 @@ function applyLiveOptionalFeatures(
   }
 }
 
-export function buildGeminiLiveSetupMessage(req: ProviderCompleteRequest): Record<string, unknown> {
+export function buildGeminiLiveSetupMessage(req: LiveSetupRequest): Record<string, unknown> {
   const live = req.live;
   const realtimeInputConfig = live?.vad ? buildLiveRealtimeInputConfig(live.vad) : undefined;
   const tools = wireLiveTools(req);
@@ -436,7 +437,7 @@ export function extractLiveUsageTokens(metadata: Record<string, unknown>): TurnT
   });
 }
 
-function foldSessionUpdate(message: Record<string, unknown>, events: ProviderEvent[]): void {
+function foldSessionUpdate(message: Record<string, unknown>, events: ModelEvent[]): void {
   const sessionUpdate = asRecord(message.sessionResumptionUpdate);
   if (!sessionUpdate) return;
   const handle =
@@ -470,7 +471,7 @@ export function newLiveFold(): LiveFold {
 function foldToolCalls(
   message: Record<string, unknown>,
   fold: LiveFold,
-  events: ProviderEvent[],
+  events: ModelEvent[],
 ): void {
   const calls = asRecord(message.toolCall)?.functionCalls;
   if (!Array.isArray(calls)) return;
@@ -495,7 +496,7 @@ function foldToolCalls(
 function foldToolCancellations(
   message: Record<string, unknown>,
   fold: LiveFold,
-  events: ProviderEvent[],
+  events: ModelEvent[],
 ): void {
   const ids = asRecord(message.toolCallCancellation)?.ids;
   if (!Array.isArray(ids)) return;
@@ -523,7 +524,7 @@ function foldToolCancellations(
  * (probe 23/09/2026: gemini-3.1-flash-live only), as `evidence` with the
  * message as `raw`.
  */
-function foldVoiceActivity(message: Record<string, unknown>, events: ProviderEvent[]): void {
+function foldVoiceActivity(message: Record<string, unknown>, events: ModelEvent[]): void {
   const voiceActivity = asRecord(message.voiceActivity);
   if (!voiceActivity) return;
   events.push({
@@ -542,7 +543,7 @@ export function parseGoAwayTimeLeftMs(timeLeft: unknown): number | undefined {
   return match?.[1] ? Math.round(Number(match[1]) * 1000) : undefined;
 }
 
-function foldGoAway(message: Record<string, unknown>, events: ProviderEvent[]): void {
+function foldGoAway(message: Record<string, unknown>, events: ModelEvent[]): void {
   const goAway = asRecord(message.goAway);
   if (!goAway) return;
   const timeLeftMs = parseGoAwayTimeLeftMs(goAway.timeLeft);
@@ -560,7 +561,7 @@ function foldGoAway(message: Record<string, unknown>, events: ProviderEvent[]): 
  * (probes 23/09/2026, every Live model); it becomes WAV at the stated rate.
  * Thinking models mark reasoning text with `thought: true`.
  */
-function foldModelPart(part: Record<string, unknown>, events: ProviderEvent[]): void {
+function foldModelPart(part: Record<string, unknown>, events: ModelEvent[]): void {
   if (typeof part.text === 'string' && part.text) {
     events.push({ type: part.thought === true ? 'thought' : 'text', text: part.text });
   }
@@ -603,7 +604,7 @@ function transcriptionText(value: unknown): string | undefined {
 function foldTranscription(
   value: unknown,
   kind: 'input_transcription' | 'output_transcription',
-  events: ProviderEvent[],
+  events: ModelEvent[],
   interim?: boolean,
 ): void {
   const text = transcriptionText(value);
@@ -619,7 +620,7 @@ function foldTranscription(
   });
 }
 
-function foldLiveGrounding(serverContent: Record<string, unknown>, events: ProviderEvent[]): void {
+function foldLiveGrounding(serverContent: Record<string, unknown>, events: ModelEvent[]): void {
   events.push(...groundingFromLiveMetadata(serverContent.groundingMetadata));
   const urlContext = asRecord(serverContent.urlContextMetadata);
   if (urlContext) {
@@ -646,7 +647,7 @@ export function readLiveInteractionStatus(
   return undefined;
 }
 
-function foldInteractionStatus(message: Record<string, unknown>, events: ProviderEvent[]): void {
+function foldInteractionStatus(message: Record<string, unknown>, events: ModelEvent[]): void {
   const status = readLiveInteractionStatus(message);
   if (!status) return;
   events.push({
@@ -655,7 +656,7 @@ function foldInteractionStatus(message: Record<string, unknown>, events: Provide
   });
 }
 
-function foldServerContent(message: Record<string, unknown>, events: ProviderEvent[]): void {
+function foldServerContent(message: Record<string, unknown>, events: ModelEvent[]): void {
   const serverContent = asRecord(message.serverContent);
   if (!serverContent) return;
 
@@ -688,7 +689,7 @@ function foldServerContent(message: Record<string, unknown>, events: ProviderEve
   }
 }
 
-function foldUsageMetadata(message: Record<string, unknown>, events: ProviderEvent[]): void {
+function foldUsageMetadata(message: Record<string, unknown>, events: ModelEvent[]): void {
   const usageMetadata = asRecord(message.usageMetadata);
   const tokens = usageMetadata ? extractLiveUsageTokens(usageMetadata) : undefined;
   if (tokens) {
@@ -699,9 +700,9 @@ function foldUsageMetadata(message: Record<string, unknown>, events: ProviderEve
 export function foldGeminiLiveServerMessage(
   message: Record<string, unknown> | null | undefined,
   fold: LiveFold,
-): ProviderEvent[] {
+): ModelEvent[] {
   if (!message || typeof message !== 'object') return [];
-  const events: ProviderEvent[] = [];
+  const events: ModelEvent[] = [];
   foldGoAway(message, events);
   foldSessionUpdate(message, events);
   foldToolCalls(message, fold, events);

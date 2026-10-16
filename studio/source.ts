@@ -7,7 +7,7 @@ import { listsPatterns } from '@theoremjs/agents/guardrails';
 import type { CompiledStudio } from './compile.ts';
 import type { CompiledWorkspace } from './compile-workspace.ts';
 import { withoutStudioFills } from './policy.ts';
-import { adapterFactory, kernelAdapters, type StudioProvider } from './providers.ts';
+import { definitionFactory, kernelDefinitions, type StudioProvider } from './providers.ts';
 import type { ToolRegistration } from './registrations.ts';
 import type { ProjectOrigins, ProviderPlace } from './server/save-wire.ts';
 import { stubOutputFromSchema } from './stub.ts';
@@ -161,43 +161,50 @@ function toolSource(tool: ToolRegistration, indent = 0): string {
   return call({ ...functionFields, ...zod, handler });
 }
 
-/** What `defineProvider` and `registerProvider` take for `provider`, with the adapter `factory` makes. */
-function providerOptions(provider: StudioProvider, factory: string): string {
+/** The call that registers `provider` from the kernel definition `factory` names, at `indent`. */
+function registrationCall(provider: StudioProvider, factory: string, indent = 0): string {
+  const pad = '  '.repeat(indent);
   const held = Object.entries(provider.connection ?? {}).map(
     ([key, value]) => `${keySource(key)}: ${quoteSource(value)}`,
   );
-  const connection = held.length ? `{ ${held.join(', ')} }` : '{}';
-  const slots = (['keySlot', 'fallbackKeySlot'] as const).flatMap((slot) =>
-    provider[slot] === undefined ? [] : [`  ${slot}: ${quoteSource(provider[slot])},\n`]
-  );
-  // An adapter the provider tells what its models take is called with it.
-  const told = provider.support ? literal(provider.support, 1) : '';
-  return `{\n  id: ${quoteSource(provider.id)},\n  connection: ${connection},\n${slots.join('')}  adapter: ${factory}(${told}),\n}`;
+  const settings = [
+    `id: ${quoteSource(provider.id)}`,
+    ...(held.length ? [`connection: { ${held.join(', ')} }`] : []),
+    ...(['keySlot', 'fallbackKeySlot'] as const).flatMap((slot) =>
+      provider[slot] === undefined ? [] : [`${slot}: ${quoteSource(provider[slot])}`],
+    ),
+  ];
+  return `${pad}registerProvider(${factory}, {\n${settings.map((line) => `${pad}  ${line},\n`).join('')}${pad}});\n`;
 }
 
 /**
- * A provider's module: its definition under `name`, for the setup to register. `from` is where the
- * module imports the kernel from. None for an adapter that is the project's own.
+ * A provider's module: the function `name` that registers it, for the setup to call before every
+ * agent. `from` is where the module imports the kernel from. None for a definition that is the
+ * project's own.
  */
 export function providerModule(provider: StudioProvider, name: string, from = AGENTS_PACKAGE): string | undefined {
-  const factory = adapterFactory(provider.adapter);
+  const factory = definitionFactory(provider.definition);
   if (!factory) return undefined;
   return [
-    `import { defineProvider, ${factory} } from ${quoteSource(from)};\n`,
-    `export const ${name} = defineProvider(${providerOptions(provider, factory)});\n`,
+    `import { ${factory}, registerProvider } from ${quoteSource(from)};\n`,
+    `/** Registers the provider \`${provider.id}\`. Call it before any agent whose models name it. */\nexport function ${name}(): void {\n${
+      registrationCall(provider, factory, 1)
+    }}\n`,
   ].join('\n');
 }
 
-/** A provider as the code view shows it: its definition, or why the studio writes none. */
+/** A provider as the code view shows it: the call that registers it, or why the studio writes none. */
 export function providerSource(provider: StudioProvider): string {
-  return providerModule(provider, agentIdentifier(provider.id, new Set(), 'provider')) ??
-    `// The provider ${quoteSource(provider.id)} is defined on your own adapter ${quoteSource(provider.adapter)}, so its definition stays in your code.\n`;
+  const factory = definitionFactory(provider.definition);
+  return factory
+    ? registrationCall(provider, factory)
+    : `// The provider ${quoteSource(provider.id)} registers from your own definition ${quoteSource(provider.definition)}, so it stays in your code.\n`;
 }
 
 /**
  * The registration of each provider a model of `profiles` names. One the project's files define
  * (`places`) is imported under its own name, by its path from the project's folder, or named by
- * its line when the files do not export it. One whose adapter is the project's own is not the
+ * its line when the files do not export it. One whose definition is the project's own is not the
  * studio's to write: the code says so where its registration belongs.
  */
 function providerRegistrations(
@@ -231,16 +238,16 @@ function providerRegistrations(
       continue;
     }
     const provider = providers.find((held) => held.id === id);
-    const factory = provider && adapterFactory(provider.adapter);
+    const factory = provider && definitionFactory(provider.definition);
     if (!provider || !factory) {
       code.push(
-        `// Register the provider ${quoteSource(id)} here, before the agents: its adapter is the project's own.\n`,
+        `// Register the provider ${quoteSource(id)} here, before the agents: its definition is the project's own.\n`,
       );
       continue;
     }
     imports.add('registerProvider');
     imports.add(factory);
-    code.push(`registerProvider(${providerOptions(provider, factory)});\n`);
+    code.push(registrationCall(provider, factory));
   }
   return {
     imports: [...imports],
@@ -311,7 +318,7 @@ const UNNAMEABLE = new Set([
     .split(' '),
   ...'compileDetect DecisionQuestion defineProfile defineProvider registerProfile registerProvider registerProviders registerStructured registerTool registerToolLibrary z'
     .split(' '),
-  ...kernelAdapters().flatMap((adapter) => adapterFactory(adapter) ?? []),
+  ...kernelDefinitions().flatMap((definition) => definitionFactory(definition) ?? []),
 ]);
 
 /** A camelCase identifier for an id, unique among `taken`; `kind` leads one that starts with a digit. */

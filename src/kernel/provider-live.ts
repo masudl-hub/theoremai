@@ -1,48 +1,39 @@
 import { TheoremError } from '../guardrails/error.ts';
 import { labelText } from '../guardrails/labels.ts';
 import type { LiveConnection, LiveQueueItem } from '../providers/types.ts';
-import type {
-  ProviderCheckpoint,
-  ProviderContinuationPolicy,
-  ProviderHostOptions,
-  ProviderLiveConnection,
-  ProviderModelEvent,
-  RegisteredProvider,
-} from './provider-contract.ts';
-import { validateProviderModel } from './provider-contract.ts';
+import type { ProviderCheckpoint, ProviderContinuationPolicy } from './checkpoint.ts';
+import type { ModelBinding } from './protocols/binding.ts';
+import type { ProtocolEvent, ProtocolSession } from './protocols/protocol.ts';
+import type { RegisteredProvider } from './protocols/provider.ts';
+import type { ProviderHostOptions } from './protocols/runtime.ts';
 import {
-  assertProviderRequirements,
   checkpointProviderState,
-  createProviderOperations,
-  providerTurnRequest,
+  guardedCall,
+  kernelCall,
+  protocolOf,
+  protocolRequest,
   restoreProviderState,
-  snapshotRegisteredProvider,
-  validateProviderEvent,
   withProviderAbort,
 } from './provider-runtime.ts';
-import type { ModelBinding, ProviderCompleteRequest, ProviderEvent } from './types.ts';
+import type { ReasoningPart } from './turn-events.ts';
+import type { KeySlot, ModelEvent, ModelRequest } from './types.ts';
 
 async function liveTerminalBatch(
   provider: RegisteredProvider,
   binding: ModelBinding,
-  request: ProviderCompleteRequest,
-  event: Extract<ProviderModelEvent, { type: 'done' }>,
+  keySlot: KeySlot | undefined,
+  request: ModelRequest,
+  event: Extract<ProtocolEvent, { type: 'done' }>,
   failed: boolean,
-  pending: ProviderEvent[],
-  boundary: ProviderEvent[],
+  pending: ModelEvent[],
+  boundary: ModelEvent[],
 ): Promise<LiveQueueItem> {
   const success =
     !failed &&
     !event.interrupted &&
     (event.stop.kind === 'completed' || event.stop.kind === 'tool');
-  if (
-    success &&
-    pending.length > 1 &&
-    validateProviderModel(provider, binding, 'live').features.parallelTools !== 'supported'
-  )
-    throw new TheoremError('unsupported', labelText('provider.parallel_tools'));
   const checkpoint = success
-    ? await checkpointProviderState(provider, binding, event.state, request.history ?? [])
+    ? await checkpointProviderState(provider, binding, keySlot, event.state, request.history ?? [])
     : undefined;
   return {
     type: 'batch',
@@ -67,7 +58,7 @@ async function liveTerminalBatch(
 }
 
 function liveClosedItem(
-  closed: ReturnType<NonNullable<ProviderLiveConnection['closeInfo']>>,
+  closed: ReturnType<NonNullable<ProtocolSession['closeInfo']>>,
 ): LiveQueueItem {
   return {
     type: 'closed',
@@ -86,9 +77,9 @@ function liveClosedItem(
 }
 
 function rememberLiveCall(
-  call: Extract<ProviderModelEvent, { type: 'tool_call' }>['call'],
+  call: { callId: string; name: string },
   callNames: Map<string, string>,
-  history: ProviderCompleteRequest['history'],
+  history: ModelRequest['history'],
 ): void {
   if (
     callNames.has(call.callId) ||
@@ -101,14 +92,11 @@ function rememberLiveCall(
 export async function openRegisteredLiveSession(
   provider: RegisteredProvider,
   binding: ModelBinding,
-  request: ProviderCompleteRequest,
+  request: ModelRequest,
   host: ProviderHostOptions,
   initial?: ProviderCheckpoint,
-  policy: ProviderContinuationPolicy = { onMismatch: 'rebuild' },
+  policy: ProviderContinuationPolicy = {},
 ): Promise<LiveConnection> {
-  provider = snapshotRegisteredProvider(provider);
-  binding = { ...binding, providerOptions: structuredClone(binding.providerOptions ?? {}) };
-  assertProviderRequirements(provider, binding, 'live', request);
   const restored = await restoreProviderState(
     provider,
     binding,
@@ -116,19 +104,10 @@ export async function openRegisteredLiveSession(
     request.history ?? [],
     policy,
   );
-  const operations = await createProviderOperations(provider, binding, host, {
-    ...request,
-    liveConnection: true,
-  });
-  if (typeof operations.openSession !== 'function')
-    throw new TheoremError('unsupported', labelText('provider.session_unavailable'));
-  const session = await operations.openSession({
-    ...providerTurnRequest(request),
-    keySlot: binding.keySlot ?? provider.keySlot,
-    fallbackKeySlot: binding.fallbackKeySlot ?? provider.fallbackKeySlot,
-    state: restored.state,
-    stateHistoryLength: restored.covered,
-  });
+  const call = guardedCall(provider, binding, 'live', host, { ...request, liveConnection: true });
+  const session = await call.openSession(
+    protocolRequest(request, protocolOf(provider, binding), restored),
+  );
   let sends = Promise.resolve();
   const send = (fn: () => Promise<void>) => {
     sends = sends.then(() => withProviderAbort(fn, request.signal));
@@ -170,8 +149,9 @@ export async function openRegisteredLiveSession(
           events: [{ type: 'provider_warning', warning: restored.warning }],
         };
       const callNames = new Map<string, string>();
-      let pending: ProviderEvent[] = [];
-      let boundary: ProviderEvent[] = [];
+      let pending: ModelEvent[] = [];
+      let boundary: ModelEvent[] = [];
+      let reasoning: ReasoningPart[] = [];
       let failed = false;
       const iterator = session.events()[Symbol.asyncIterator]();
       try {
@@ -180,7 +160,13 @@ export async function openRegisteredLiveSession(
           if (next.done) break;
           const raw = next.value;
           await withProviderAbort(() => sends, request.signal);
-          const event = validateProviderEvent(raw);
+          const event = raw;
+          if (event.type === 'raw') continue;
+          if (event.type === 'reasoning') {
+            const { type: _type, ...part } = event;
+            reasoning.push(part as ReasoningPart);
+            continue;
+          }
           if (event.type === 'session' && event.session.kind === 'turn_complete') {
             boundary.push(event);
             continue;
@@ -197,7 +183,13 @@ export async function openRegisteredLiveSession(
           }
           if (event.type === 'tool_call') {
             rememberLiveCall(event.call, callNames, request.history);
-            pending.push({ type: 'tool', tool: event.call });
+            const tool = kernelCall(event.call);
+            // invariant: a step's signed reasoning rides on its first call, as in a turn.
+            const first = !pending.some((item) => item.type === 'tool');
+            pending.push({
+              type: 'tool',
+              tool: first && reasoning.length ? { ...tool, reasoning: reasoning.splice(0) } : tool,
+            });
             continue;
           }
           if (event.type === 'tool_cancel') {
@@ -234,6 +226,7 @@ export async function openRegisteredLiveSession(
             yield await liveTerminalBatch(
               provider,
               binding,
+              call.keySlot(),
               request,
               event,
               failed,
@@ -242,8 +235,10 @@ export async function openRegisteredLiveSession(
             );
             pending = [];
             boundary = [];
+            reasoning = [];
             failed = false;
-          } else yield { type: 'batch', row: {}, turnPhase: 'streaming', events: [event] };
+          } else
+            yield { type: 'batch', row: {}, turnPhase: 'streaming', events: [event as ModelEvent] };
         }
       } finally {
         const returned = iterator.return?.();

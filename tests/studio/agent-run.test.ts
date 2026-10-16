@@ -1,5 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
-import type { ModelProvider, Profile, TurnEvent } from '../../mod.ts';
+import type { Profile, TurnEvent, TurnModel } from '../../mod.ts';
 import { createSealedConversationStore } from '../../react/src/server/conversation-store.ts';
 import { createMemorySteerInbox } from '../../react/src/server/steer-inbox.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
@@ -31,6 +31,7 @@ function conciergeRun() {
     identity: { ...blank.identity, agentId: 'travel.helper', handle: 'helper' },
     modelBindings: blank.modelBindings.map((binding) => ({
       ...binding,
+      protocol: 'openRouter',
       provider: 'openrouter' as const,
       apiId: 'openrouter/free',
     })),
@@ -56,7 +57,7 @@ function conciergeRun() {
 }
 /** The concierge asks the helper once, then says what came back; the helper answers. */
 function providers(asked: string[]): StudioRuntime['provider'] {
-  return (profile: Profile): ModelProvider => {
+  return (profile: Profile): TurnModel => {
     asked.push(profile.id);
     if (profile.id === 'travel.helper') {
       return {

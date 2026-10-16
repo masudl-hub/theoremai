@@ -6,7 +6,7 @@ import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ToolStreamEvent } from '../../src/kernel/tools/types.ts';
-import type { ModelProvider, ProviderEvent, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelEvent, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const TOOL = 'write_report';
@@ -54,10 +54,10 @@ function registerReportProfile(id: string, mode?: 'sse' | 'buffered'): string {
 }
 
 /** First call: calls the tool; second: a short reply. */
-function callingProvider(): ModelProvider {
+function callingProvider(): TurnModel {
   let call = 0;
   return {
-    async *complete(): AsyncGenerator<ProviderEvent> {
+    async *complete(): AsyncGenerator<ModelEvent> {
       await Promise.resolve();
       if (call++ > 0) {
         yield { type: 'text', text: 'Done.' };

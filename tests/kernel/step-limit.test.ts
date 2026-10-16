@@ -4,12 +4,7 @@ import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { StepLimitMode } from '../../src/kernel/schema.ts';
-import type {
-  ModelProvider,
-  ProviderCompleteRequest,
-  ProviderEvent,
-  TurnEvent,
-} from '../../src/kernel/types.ts';
+import type { ModelEvent, ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { finalStop } from '../fixtures/events.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 
@@ -32,7 +27,7 @@ function stepLimitProfile(id: string, maxSteps: number, atStepLimit?: StepLimitM
   });
 }
 
-const SENSOR_CALL: ProviderEvent[] = [
+const SENSOR_CALL: ModelEvent[] = [
   {
     type: 'tool',
     tool: { name: 'fetch_sensor', arguments: { sensor: 'soil' }, callId: 'call_1' },
@@ -40,7 +35,7 @@ const SENSOR_CALL: ProviderEvent[] = [
   { type: 'done', stop: { kind: 'tool' } },
 ];
 
-const ANSWER: ProviderEvent[] = [
+const ANSWER: ModelEvent[] = [
   { type: 'text', text: 'Soil reads 22%.' },
   { type: 'done', stop: { kind: 'completed' } },
 ];
@@ -48,10 +43,10 @@ const ANSWER: ProviderEvent[] = [
 /** Runs the turn against a model that calls the sensor while it has it, and answers once it has not. */
 async function runToLimit(profile: string): Promise<{
   events: TurnEvent[];
-  requests: ProviderCompleteRequest[];
+  requests: ModelRequest[];
 }> {
-  const requests: ProviderCompleteRequest[] = [];
-  const provider: ModelProvider = {
+  const requests: ModelRequest[] = [];
+  const provider: TurnModel = {
     async *complete(request) {
       await Promise.resolve();
       requests.push(request);
@@ -99,8 +94,8 @@ Deno.test("atStepLimit 'answer' sends the last step without tools, so the turn a
 
 Deno.test("atStepLimit 'answer' leaves a turn that answers early untouched", async () => {
   registerProfile(stepLimitProfile('step_limit_early', 3, 'answer'));
-  const requests: ProviderCompleteRequest[] = [];
-  const provider: ModelProvider = {
+  const requests: ModelRequest[] = [];
+  const provider: TurnModel = {
     async *complete(request) {
       await Promise.resolve();
       requests.push(request);

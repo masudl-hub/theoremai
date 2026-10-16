@@ -26,8 +26,8 @@ import {
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { profileTypesForField } from '../../profile-scope.ts';
-import type { ProviderHostOptions } from '../../provider-contract.ts';
-import { hostAgentProvider, nestedRegisteredProvider } from '../../provider-dispatch.ts';
+import type { ProviderHostOptions } from '../../protocols/runtime.ts';
+import { hostAgentModel, nestedTurnModel } from '../../provider-dispatch.ts';
 import { profileInputs, requireModelBinding } from '../../registry/catalog.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
@@ -44,7 +44,6 @@ import type {
   ModelBinding,
   ModelId,
   ModelProfile,
-  ModelProvider,
   Profile,
   ProfileId,
   ResolvedGeneration,
@@ -52,6 +51,7 @@ import type {
   TurnEvent,
   TurnEventOf,
   TurnHistoryMessage,
+  TurnModel,
   TurnRequest,
   TurnTokens,
   TurnToolSnapshot,
@@ -67,7 +67,6 @@ import {
   shouldCompact,
   splitForCompaction,
 } from '../compaction.ts';
-import { type MediaTokenFamily, mediaTokenFamily } from '../token-estimate.ts';
 import {
   endThrownSpan,
   endTurnSpan,
@@ -134,7 +133,7 @@ function noTools(): TurnToolSnapshot {
 function runNestedTurn(args: {
   registry: KernelRegistry;
   req: TurnRequest;
-  provider: ModelProvider;
+  provider: TurnModel;
   parent: SpanHandle;
   canaries: string[];
   agentDepth: number;
@@ -151,7 +150,7 @@ function runNestedTurn(args: {
   ctx.observability = resolveObservabilityPolicy(ctx.known?.observability);
   return runTracedTurn(
     ctx,
-    nestedRegisteredProvider(args.provider, args.req.profile, args.req.model, args.req),
+    nestedTurnModel(args.provider, args.req.profile, args.req.model, args.req),
   );
 }
 
@@ -168,7 +167,7 @@ async function runCompactor(args: {
   model: ModelId;
   toCompact: TurnHistoryMessage[];
   spec: CompactionSpec;
-  provider: ModelProvider;
+  provider: TurnModel;
   parent: SpanHandle;
   canaries: string[];
   signal?: AbortSignal;
@@ -286,10 +285,9 @@ async function compactHistoryBeforeTurn(args: {
   owner: ProfileId;
   model: ModelId;
   spec: CompactionSpec;
-  family: MediaTokenFamily | undefined;
   history: TurnHistoryMessage[];
   input: TurnRequest['input'];
-  provider: ModelProvider;
+  provider: TurnModel;
   parent: SpanHandle;
   canaries: string[];
   signal?: AbortSignal;
@@ -297,7 +295,6 @@ async function compactHistoryBeforeTurn(args: {
   const decision = await resolveCompactionTokens({
     spec: args.spec,
     input: args.input,
-    family: args.family,
   });
   const needed = decision !== undefined && (await shouldCompact(decision, args.spec));
   const attributes = compactionDecision(args.spec, decision, needed);
@@ -305,7 +302,7 @@ async function compactHistoryBeforeTurn(args: {
     args.parent.event('theorem.compaction', attributes);
     return undefined;
   }
-  const split = await splitForCompaction(args.history, args.spec, args.family);
+  const split = await splitForCompaction(args.history, args.spec);
   if (split.toCompact.length === 0) {
     args.parent.event('theorem.compaction', attributes);
     return undefined;
@@ -337,7 +334,6 @@ async function attachAfterCompaction(
   event: TurnEventOf<'done'>,
   args: {
     spec: CompactionSpec;
-    family: MediaTokenFamily | undefined;
     history: TurnHistoryMessage[];
     input: TurnRequest['input'];
     seen: TurnEvent[];
@@ -350,7 +346,6 @@ async function attachAfterCompaction(
     spec: args.spec,
     input: args.input,
     prompt,
-    family: args.family,
   });
   const needed = decision !== undefined && (await shouldCompact(decision, args.spec));
   args.span.event('theorem.compaction', compactionDecision(args.spec, decision, needed));
@@ -375,9 +370,8 @@ async function* emitTurn(args: {
   profile: Profile;
   generation: ResolvedGeneration;
   system: BoundSystem;
-  provider: ModelProvider;
+  provider: TurnModel;
   trace: TurnTraceState;
-  mediaFamily: MediaTokenFamily | undefined;
   agents: AgentCaller | undefined;
   /** Filled when the turn opens, so `post_turn` (after compaction-after, or after an abort) reuses it. */
   outState: { state?: StepExecutionState };
@@ -389,7 +383,6 @@ async function* emitTurn(args: {
     profile,
     generation,
     trace: args.trace,
-    mediaFamily: args.mediaFamily,
     ...(args.agents ? { agents: args.agents } : {}),
   });
   args.outState.state = state;
@@ -452,7 +445,7 @@ async function* streamTurnEvents(
   ctx: TraceCtx,
   profile: Profile,
   gen: ResolvedGeneration,
-  provider: ModelProvider,
+  provider: TurnModel,
   compactionSpec: CompactionSpec | undefined,
 ): AsyncGenerator<TurnEvent> {
   if (!ctx.safe || ctx.system === undefined || !ctx.trace) return;
@@ -464,7 +457,6 @@ async function* streamTurnEvents(
     system: ctx.system,
     provider,
     trace: ctx.trace,
-    mediaFamily: ctx.mediaFamily,
     agents: ctx.agents,
     outState: ctx,
   })) {
@@ -524,7 +516,6 @@ type TraceCtx = {
   canaries: string[];
   system?: BoundSystem;
   generation?: ResolvedGeneration;
-  mediaFamily?: MediaTokenFamily;
   safe?: TurnRequest;
   observability?: ResolvedObservabilityPolicy;
   state?: StepExecutionState;
@@ -563,7 +554,7 @@ function endTurn(ctx: TraceCtx, thrown?: unknown): void {
 }
 
 /** Run a turn under `ctx.root` and close it; an abort ends as a cancelled `done`. */
-async function* runTracedTurn(ctx: TraceCtx, provider: ModelProvider): AsyncGenerator<TurnEvent> {
+async function* runTracedTurn(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<TurnEvent> {
   try {
     yield* runTurnBody(ctx, provider);
   } catch (err) {
@@ -585,7 +576,7 @@ async function* runTracedTurn(ctx: TraceCtx, provider: ModelProvider): AsyncGene
 async function* runTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
-  provider: ModelProvider,
+  provider: TurnModel,
   sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
   const tree = startTrace(`invoke_agent ${req.profile}`, {
@@ -635,7 +626,6 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
       profile,
       generation: gen,
       trace: ctx.trace,
-      mediaFamily: ctx.mediaFamily,
       allEmittedEvents: [...ctx.seen],
     });
   for await (const stageEv of applyTurnStage({
@@ -652,7 +642,7 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
   }
 }
 
-async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenerator<TurnEvent> {
+async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<TurnEvent> {
   const checkStart = performance.now();
   const sanitized = sanitizeTurnRequestWithEvents(
     ctx.req,
@@ -689,7 +679,6 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
   ctx.canary = gen.canary;
   ctx.canaries.push(gen.canary);
   const binding = profile.models[gen.model];
-  ctx.mediaFamily = binding ? mediaTokenFamily(binding) : undefined;
   ctx.trace = { root: ctx.root, attempt: 0, calls: 0, binding };
   if (!ctx.compacting) ctx.agents = agentCallerFor(ctx, provider, binding);
 
@@ -713,7 +702,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: ModelProvider): AsyncGenera
 /** The turn's agent tool calls: each runs nested under its tool's span, in this record. */
 function agentCallerFor(
   ctx: TraceCtx,
-  provider: ModelProvider,
+  provider: TurnModel,
   own: ModelBinding | undefined,
 ): AgentCaller {
   return createAgentCaller({
@@ -739,7 +728,7 @@ function invokeAgentCaller(
   return createAgentCaller({
     registry,
     req: request,
-    provider: request.provider ? hostAgentProvider(registry, request.provider) : undefined,
+    provider: request.provider ? hostAgentModel(registry, request.provider) : undefined,
     own: undefined,
     depth: 0,
     runNested: (nested) => runNestedTurn({ ...nested, registry, canaries }),
@@ -760,7 +749,7 @@ function sessionAgentCaller(
   return createAgentCaller({
     registry,
     req: { ...req, execution: options.execution },
-    provider: hostAgentProvider(registry, options),
+    provider: hostAgentModel(registry, options),
     own: undefined,
     depth: 0,
     runNested: (nested) => runNestedTurn({ ...nested, registry, canaries }),
@@ -775,9 +764,9 @@ function compactorProvider(
   ctx: TraceCtx,
   profile: ModelProfile,
   spec: CompactionSpec,
-  provider: ModelProvider,
-): ModelProvider {
-  return nestedRegisteredProvider(
+  provider: TurnModel,
+): TurnModel {
+  return nestedTurnModel(
     provider,
     spec.profile ?? profile.id,
     spec.profile ? undefined : ctx.req.model,
@@ -789,7 +778,7 @@ async function maybeCompactBefore(
   profile: ModelProfile,
   gen: ResolvedGeneration,
   compactionSpec: CompactionSpec | undefined,
-  provider: ModelProvider,
+  provider: TurnModel,
 ): Promise<TurnEventOf<'compaction'> | undefined> {
   if (!(compactionSpec?.timing === 'before' && ctx.safe)) return undefined;
   const compactor = compactorProvider(ctx, profile, compactionSpec, provider);
@@ -799,7 +788,6 @@ async function maybeCompactBefore(
     owner: profile.id,
     model: gen.model,
     spec: compactionSpec,
-    family: ctx.mediaFamily,
     history: gen.history,
     input: ctx.safe.input,
     provider: compactor,
@@ -822,7 +810,6 @@ async function maybeAttachAfter(
   }
   return await attachAfterCompaction(event, {
     spec: compactionSpec,
-    family: ctx.mediaFamily,
     history: gen.history ?? [],
     input: ctx.safe.input,
     seen: ctx.seen,
@@ -838,7 +825,7 @@ async function maybeAttachAfter(
 async function compactHistoryInRegistry(
   registry: KernelRegistry,
   req: CompactHistoryRequest,
-  provider: ModelProvider,
+  provider: TurnModel,
   sinkOverride?: TraceSink,
 ): Promise<CompactionResult | undefined> {
   const profile = registry.profiles.get(req.profile) as ModelProfile;
@@ -851,8 +838,7 @@ async function compactHistoryInRegistry(
       `Profile ${profile.id} model '${model}' has no compaction`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  const family = mediaTokenFamily(binding);
-  const split = await splitForCompaction(req.history, spec, family);
+  const split = await splitForCompaction(req.history, spec);
   if (split.toCompact.length === 0) return undefined;
 
   const turnReq: TurnRequest = {

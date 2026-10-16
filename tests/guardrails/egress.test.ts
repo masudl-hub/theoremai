@@ -11,7 +11,7 @@ import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
-import type { ProviderEvent } from '../../src/kernel/types.ts';
+import type { ModelEvent } from '../../src/kernel/types.ts';
 
 function egressCtx(canary?: string): GuardrailContext {
   return {
@@ -162,7 +162,7 @@ Deno.test('a reply read by default: allows clean structured output', () => {
 
 Deno.test('eventPromptLeakHits names a leak in any provider-run step by its evidence kind', () => {
   const canary = mintCanary();
-  const ran: ProviderEvent[] = [
+  const ran: ModelEvent[] = [
     { type: 'grounding', grounding: { metadata: { query: canary } } },
     {
       type: 'evidence',
@@ -197,7 +197,7 @@ Deno.test('eventPromptLeakHits names a leak in any provider-run step by its evid
       [EGRESS_RULES.providerToolLeak],
     );
   }
-  const spoken: ProviderEvent = {
+  const spoken: ModelEvent = {
     type: 'evidence',
     evidence: { provider: 'google', kind: 'output_transcription', raw: { text: canary } },
   };

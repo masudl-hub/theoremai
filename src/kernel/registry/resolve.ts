@@ -5,7 +5,6 @@ import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { DEFAULT_MAX_STEPS } from '../profile-presence.ts';
-import type { RegisteredProvider } from '../provider-contract.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
@@ -37,10 +36,9 @@ import {
 } from './ingress.ts';
 import type { KernelRegistry } from './kernel-registry.ts';
 import { resolveTurnSystemPrompt } from './system-prompt.ts';
-import { resolveKeySlot } from './vault.ts';
 
 function isModelProfile(profile: Profile): profile is ModelProfile {
-  return profile.type !== 'host' && profile.type !== 'decision';
+  return profile.type !== 'host' && profile.type !== 'decision' && profile.type !== 'embedding';
 }
 
 /** Returns the profile when it runs a model; throws a request error naming `door` for a host or decision profile. */
@@ -50,6 +48,12 @@ function requireModelProfile(profile: Profile, door: string): ModelProfile {
     throw new TheoremError(
       'request',
       `Profile ${profile.id}: type 'host' never runs a model — ${door} is not supported; execute tools with invokeTool`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (profile.type === 'embedding') {
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id}: type 'embedding' runs through runEmbedding — ${door} is not supported`, // labels-exempt: developer contract error
     );
   }
   throw new TheoremError(
@@ -211,14 +215,13 @@ function plantedCanary(profile: ModelProfile): string {
 }
 
 /**
- * The request's `builtInArgs`, each parsed by the schema the provider's adapter
- * declares for that tool. Args must name a tool the chosen model lists.
+ * The request's `builtInArgs`. Args must name a tool the chosen model lists; the protocol that
+ * writes the tool parses them.
  */
 function resolveBuiltInArgs(
   profile: ModelProfile,
   model: ModelId,
   binding: ModelBinding,
-  provider: RegisteredProvider,
   args: BuiltInArgs | undefined,
 ): BuiltInArgs | undefined {
   if (!args) {
@@ -232,25 +235,12 @@ function resolveBuiltInArgs(
         `Profile ${profile.id}: builtInArgs names '${id}', which model '${model}' does not list in builtInTools`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
-    const schema = provider.adapter.builtins?.[id]?.args;
-    if (!schema) {
-      throw new TheoremError(
-        'request',
-        `Profile ${profile.id}: builtin '${id}' takes no args on provider '${provider.id}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-    const parsed = schema.safeParse(value);
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      const at = ['builtInArgs', id, ...(issue?.path ?? [])].join('.');
-      throw new TheoremError('request', `Profile ${profile.id}: ${at}: ${issue?.message}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    }
-    resolved[id] = parsed.data;
+    resolved[id] = value;
   }
   return resolved;
 }
 
-/** `model` names the binding to resolve, past the profile's own selection rule: the turn check reads each. */
+/** `model` names the binding to resolve, past the profile's own selection rule. */
 function resolveTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
@@ -272,9 +262,7 @@ function resolveTurnInRegistry(
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
   assertSpeechRole(profile, safe);
-  const provider = registry.providers.require(binding.provider);
-  const builtInArgs = resolveBuiltInArgs(profile, picked, binding, provider, safe.builtInArgs);
-  const keys = resolveKeySlot(provider, binding);
+  const builtInArgs = resolveBuiltInArgs(profile, picked, binding, safe.builtInArgs);
   const transport = resolveTransport(profile, binding);
   return {
     profile,
@@ -303,7 +291,6 @@ function resolveTurnInRegistry(
       speech: resolveSpeech(profile, safe),
       live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
-      ...keys,
       canary: plantedCanary(profile),
       resolvedSystem: resolveTurnSystemPrompt(profile, safe),
       host: safe.host,

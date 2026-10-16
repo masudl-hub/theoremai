@@ -7,7 +7,7 @@ import { hasProfile, hasTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertRejects } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
@@ -52,7 +52,7 @@ function taggedScope(tag: string): KernelScope {
 async function* noEvents(): AsyncGenerator<TurnEvent> {}
 
 /** A provider that records the request it was given and answers with nothing. */
-function recordingProvider(into: ProviderCompleteRequest[]): ModelProvider {
+function recordingProvider(into: ModelRequest[]): TurnModel {
   return {
     complete(req) {
       into.push(req);
@@ -85,8 +85,8 @@ Deno.test('scopes with the same names keep their own tools, profiles and schemas
 Deno.test('a scope runs turns on its own registry, never the default one', async () => {
   const a = taggedScope('alpha');
   const b = taggedScope('beta');
-  const seenA: ProviderCompleteRequest[] = [];
-  const seenB: ProviderCompleteRequest[] = [];
+  const seenA: ModelRequest[] = [];
+  const seenB: ModelRequest[] = [];
 
   await Array.fromAsync(
     runScopedTurn(a, { profile: PROFILE, input: { text: 'hi' } }, recordingProvider(seenA)),

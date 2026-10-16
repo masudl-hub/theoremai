@@ -137,7 +137,7 @@ Deno.test('switching to decision loads the original Jev model and tool-call exam
     'modelBinding',
   );
   const back = setProfileType(decision, 'text', TEST_KEYS);
-  assertEquals(back.modelBindings[0].provider, 'google');
+  assertEquals(back.modelBindings[0].provider, 'gemini');
   assert(compileStudio(back, ON_OWN_KEYS).ok);
 });
 

@@ -1,6 +1,13 @@
 /** labels-exempt-file: adversarial corpus fixture — not runtime user or model copy (P2) */
-import { clearProfiles, getProfile, registerProfile } from '../../kernel/default-scope.ts';
+import {
+  clearProfiles,
+  getProfile,
+  getProvider,
+  registerProfile,
+  registerProvider,
+} from '../../kernel/default-scope.ts';
 import type { TurnRequest } from '../../kernel/types.ts';
+import { openRouterProvider } from '../../providers/openrouter/provider.ts';
 import { detectAt } from '../detect-at.ts';
 import { DETECT_DEFAULTS } from '../detectors.ts';
 import { injectionSpans } from '../injection.ts';
@@ -12,12 +19,14 @@ import type { InboundFuzzPayload, InboundFuzzResult } from './types.ts';
 const FUZZ_PROFILE_ID = '__fuzz__';
 
 function registerFuzzProfile(): void {
+  if (!getProvider('openrouter')) registerProvider(openRouterProvider);
   registerProfile({
     type: 'text',
     id: FUZZ_PROFILE_ID,
     identity: { handle: 'fuzz', system: 'Fuzz profile.' },
     models: {
       'fuzz-model': {
+        protocol: 'openRouter',
         provider: 'openrouter',
         apiId: 'fuzz-model',
         keySlot: 'fuzz',

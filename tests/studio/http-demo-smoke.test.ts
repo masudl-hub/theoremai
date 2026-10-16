@@ -1,7 +1,7 @@
 import { registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { executeRegisteredTool } from '../../src/kernel/tools/execute.ts';
-import type { Profile } from '../../src/kernel/types.ts';
+import type { TextProfile } from '../../src/kernel/types.ts';
 import {
   DEMO_ALLOWED_HOSTS,
   DEMO_HTTP_SAMPLE_INPUT,
@@ -9,12 +9,12 @@ import {
 } from '../../studio/concierge-demo.ts';
 import { zodFromJsonSchema } from '../../studio/tool-schema.ts';
 
-const profile: Profile = {
+const profile: TextProfile = {
   id: 'demo',
   type: 'text',
   identity: { handle: 'concierge' },
   models: {
-    default: { provider: 'openrouter', apiId: 'test' },
+    default: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' },
   },
   defaultModel: 'default',
   tools: { allow: [] },

@@ -1,10 +1,12 @@
 /**
  * Phoenix prices a span from its own model table, not the span's `llm.cost.total`, and the table
- * has no Jev: without this a Jev decision shows tokens but no cost. It sets the price the decision provider adapter
+ * has no Jev: without this a Jev decision shows tokens but no cost. It sets the price the TypeSafe provider
  * records, so Phoenix and `agents eval` agree; rerunning sets it again rather than adding one.
  */
 
-import { JEV_USD_PER_MILLION_INPUT_TOKENS } from '../../src/presets/typesafe.ts';
+import { typesafeProvider } from '../../src/providers/typesafe/provider.ts';
+
+const JEV_USD_PER_MILLION_INPUT_TOKENS = typesafeProvider.prices?.models['jev-*']?.input;
 
 const PHOENIX = 'http://localhost:6006';
 

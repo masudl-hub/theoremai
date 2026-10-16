@@ -17,7 +17,7 @@ function projectTool(
 
 function builtInToolIds(profile: Profile): ToolId[] {
   const seen = new Set<ToolId>();
-  if (profile.type === 'host' || profile.type === 'decision') {
+  if (profile.type === 'host' || profile.type === 'decision' || profile.type === 'embedding') {
     return [];
   }
   for (const binding of Object.values(profile.models)) {

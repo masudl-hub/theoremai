@@ -16,6 +16,7 @@ import {
   isHeldId,
   isInCall,
   isInTarget,
+  isKernelName,
   type Located,
   type ObjectShape,
   type ProjectSource,
@@ -166,6 +167,8 @@ class Reader {
         const named = entry.value && ts.isIdentifier(unwrapped(entry.receiver.node));
         if (!named) this.note('code', here, { node: entry.receiver.node, source: entry.receiver.source });
       } else if (!entry.value) this.note('code', here, place);
+      // A model's protocol is the kernel's name for it: Save rewrites the name.
+      else if (entry.key === 'protocol' && isKernelName(entry.value)) continue;
       else if (entry.property && ts.isShorthandPropertyAssignment(entry.property)) this.named(entry.value, here);
       else if (this.regionOf(entry.value) === region) this.walk(entry.value, here);
       else this.enter(entry.value, here, place);

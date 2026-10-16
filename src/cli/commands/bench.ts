@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import { registerProvider } from '../../kernel/default-scope.ts';
-import { defineProvider } from '../../kernel/provider-contract.ts';
-import { translateProviderEvent } from '../../providers/adapters.ts';
+import { defineProtocol, type ProtocolEvent } from '../../kernel/protocols/protocol.ts';
+import { defineProvider } from '../../kernel/protocols/provider.ts';
 // why: TTFE: time to first event (profile resolve + provider setup). TTFT: time to first text delta.
 // Overhead: total wall-clock delta vs. raw provider consumption.
 
@@ -10,7 +9,9 @@ import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import {
   clearProfiles,
   getProfile,
+  getProvider,
   registerProfile,
+  registerProvider,
   resolveTurn,
   runTurn,
 } from '../../kernel/default-scope.ts';
@@ -18,12 +19,7 @@ import { startCallUsage } from '../../kernel/engine/runner/usage.ts';
 import { startCallTrace } from '../../kernel/engine/turn-trace.ts';
 import { pickSystemRole } from '../../kernel/registry/system-role.ts';
 import { bindSystem } from '../../kernel/system-parts.ts';
-import type {
-  ModelProvider,
-  ProviderCompleteRequest,
-  TurnEvent,
-  TurnRequest,
-} from '../../kernel/types.ts';
+import type { ModelRequest, TurnEvent, TurnModel, TurnRequest } from '../../kernel/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import { buildRecord } from '../../observability/trace-record.ts';
 import { startTrace } from '../../observability/trace-span.ts';
@@ -51,7 +47,8 @@ function registerBenchProfile(): void {
     },
     models: {
       'bench-model': {
-        provider: 'openrouter',
+        protocol: 'bench',
+        provider: 'bench',
         apiId: 'bench-model',
         efforts: { normal: 'none' },
         summaries: false,
@@ -79,14 +76,39 @@ function generateChunks(count: number): TurnEvent[] {
   return events;
 }
 
-function createMockProvider(chunks: TurnEvent[]): ModelProvider {
+function createMockProvider(chunks: TurnEvent[]): TurnModel {
   return {
-    async *complete(_req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+    async *complete(_req: ModelRequest): AsyncGenerator<TurnEvent> {
       for (const chunk of chunks) {
         yield chunk;
       }
     },
   };
+}
+
+/** A protocol and provider that answer every turn with `chunks`, so the bench times the kernel alone. */
+function registerBenchProvider(chunks: TurnEvent[]): void {
+  if (getProvider('bench')) return;
+  const protocol = defineProtocol({
+    id: 'bench',
+    name: 'Bench',
+    description: 'Streams the bench chunks without a network.',
+    endpoints: { text: '/bench' },
+    options: z.strictObject({}),
+    create: () => ({
+      async *complete() {
+        yield* chunks as ProtocolEvent[];
+      },
+    }),
+  });
+  registerProvider(
+    defineProvider({
+      id: 'bench',
+      name: 'Bench',
+      description: 'Answers the bench in process.',
+      serves: () => [{ protocol, baseUrl: 'https://bench.invalid' }],
+    }),
+  );
 }
 
 function buildBenchRequest(): TurnRequest {
@@ -97,7 +119,7 @@ function buildBenchRequest(): TurnRequest {
 }
 
 /** What a bare consumer sends a provider: the bench prompt, no kernel shaping. */
-function benchProviderRequest(text: string): ProviderCompleteRequest {
+function benchProviderRequest(text: string): ModelRequest {
   return {
     model: 'bench-model',
     apiId: 'bench-model',
@@ -120,7 +142,7 @@ interface TimingResult {
   textEvents: number;
 }
 
-async function measureRawProvider(provider: ModelProvider): Promise<TimingResult> {
+async function measureRawProvider(provider: TurnModel): Promise<TimingResult> {
   const req = buildBenchRequest();
   const start = performance.now();
   let firstEvent = 0;
@@ -153,7 +175,7 @@ async function measureRawProvider(provider: ModelProvider): Promise<TimingResult
   };
 }
 
-async function measureKernelPipeline(_provider: ModelProvider): Promise<TimingResult> {
+async function measureKernelPipeline(_provider: TurnModel): Promise<TimingResult> {
   const req = buildBenchRequest();
   const start = performance.now();
   let firstEvent = 0;
@@ -537,49 +559,7 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
   const chunks = generateChunks(chunkCount);
   const provider = createMockProvider(chunks);
 
-  registerProvider(
-    defineProvider({
-      id: 'openrouter',
-      connection: {},
-      adapter: {
-        apiVersion: 1,
-        id: 'bench',
-        connectionSchema: z.strictObject({}),
-        optionsSchema: z.strictObject({}),
-        credentialSchema: z.string(),
-        capabilities: () => ({
-          profileTypes: ['text'],
-          features: {
-            streaming: 'supported',
-            clientTools: 'unsupported',
-            parallelTools: 'unsupported',
-            structuredOutput: 'unsupported',
-            thinking: 'unsupported',
-            summaries: 'unsupported',
-            storedContinuation: 'unsupported',
-          },
-          inputKinds: ['text'],
-          outputKinds: ['text'],
-          builtins: [],
-        }),
-        validateRequest() {},
-        create() {
-          return Promise.resolve().then(() => {
-            return {
-              async *complete(
-                request: import('../../kernel/provider-contract.ts').ProviderTurnRequest,
-              ) {
-                for await (const event of provider.complete(request)) {
-                  const converted = translateProviderEvent(event);
-                  if (converted) yield converted;
-                }
-              },
-            };
-          });
-        },
-      },
-    }),
-  );
+  registerBenchProvider(chunks);
   registerBenchProfile();
 
   for (let i = 0; i < warmup; i++) {

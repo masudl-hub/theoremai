@@ -9,7 +9,14 @@ Deno.test('browser live sessions resolve registered providers with the host sock
     id: 'browser.live',
     type: 'live',
     identity: { handle: 'Live' },
-    models: { main: { provider: 'google', apiId: 'gemini-3.8-live', keySlot: 'identity' } },
+    models: {
+      main: {
+        protocol: 'geminiLive',
+        provider: 'gemini',
+        apiId: 'gemini-3.8-live',
+        keySlot: 'identity',
+      },
+    },
     tools: { allow: [] },
     live: { voice: 'Aoede', ingress: { text: true, audio: false, video: false } },
   });

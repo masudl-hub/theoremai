@@ -1,32 +1,11 @@
 import type { TheoremError } from '../guardrails/error.ts';
-import type { InteractionPart, KeyVault, ProviderEvent } from '../kernel/types.ts';
-import type { Wait } from './shared/retry.ts';
-
-/** Settings for the OpenAI-compatible gateway provider: its base URL, the site URL and name sent as `HTTP-Referer` and `X-Title`, and the fetch and wait to use. */
-export interface OpenAiGatewayConfig {
-  baseUrl?: string;
-  siteUrl?: string;
-  siteName?: string;
-  fetch?: typeof fetch;
-  wait?: Wait;
-}
-
-/** Settings for a local OpenAI-compatible server: its base URL and an optional fetch. */
-export interface LocalProviderConfig {
-  /** e.g. `http://127.0.0.1:11434` for Ollama. */
-  baseUrl: string;
-  fetch?: typeof globalThis.fetch;
-}
-
-/** Internal codec settings resolved by a registered adapter. */
-export type OpenAiGatewayTransport = OpenAiGatewayConfig & { vault?: KeyVault };
-export type LocalTransport = LocalProviderConfig & { vault?: KeyVault };
+import type { InteractionPart, ModelEvent } from '../kernel/types.ts';
 
 /** Where a live model is in its reply when a frame arrives. */
 export type LiveTurnPhase = 'streaming' | 'complete' | 'abort';
 
-/** Tape row: setup on the pinned key was refused for quota, so the session opens on the fallback slot. */
-export const LIVE_FALLBACK_ROW = 'ws_fallback';
+/** Tape row: the first key was refused for quota, so the call starts again on the fallback slot. */
+export const KEY_FALLBACK_ROW = 'key_fallback';
 
 /** The provider's warning before it closed a live socket. */
 export interface LiveGoAway {
@@ -39,7 +18,7 @@ export interface LiveGoAway {
 export type LiveQueueItem =
   | {
       type: 'batch';
-      events: ProviderEvent[];
+      events: ModelEvent[];
       turnPhase: LiveTurnPhase;
       row: Record<string, unknown>;
     }

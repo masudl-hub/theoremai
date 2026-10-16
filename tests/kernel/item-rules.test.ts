@@ -8,11 +8,11 @@ import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import type {
-  ModelProvider,
+  ModelRequest,
   ProfileItemRule,
-  ProviderCompleteRequest,
   TurnEvent,
   TurnEventOf,
+  TurnModel,
 } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
@@ -65,7 +65,7 @@ const FIRST = {
 };
 
 /** Answers the first call with `FIRST` and each later call with the next of `rewrites`. */
-function provider(rewrites: unknown[], seen: ProviderCompleteRequest[] = []): ModelProvider {
+function provider(rewrites: unknown[], seen: ModelRequest[] = []): TurnModel {
   return {
     async *complete(req) {
       await Promise.resolve();
@@ -77,7 +77,7 @@ function provider(rewrites: unknown[], seen: ProviderCompleteRequest[] = []): Mo
   };
 }
 
-async function reply(scope: KernelScope, model: ModelProvider): Promise<TurnEventOf<'structured'>> {
+async function reply(scope: KernelScope, model: TurnModel): Promise<TurnEventOf<'structured'>> {
   const events: TurnEvent[] = [];
   for await (const event of runScopedTurn(
     scope,
@@ -92,7 +92,7 @@ async function reply(scope: KernelScope, model: ModelProvider): Promise<TurnEven
 }
 
 Deno.test('drop removes a refused item, keeps the rest and makes no second call', async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const event = await reply(scopeWith('drop'), provider([], seen));
   assertEquals(seen.length, 1);
   assertEquals(event.structured, {
@@ -108,7 +108,7 @@ Deno.test('drop removes a refused item, keeps the rest and makes no second call'
 });
 
 Deno.test('fix asks for the refused item alone and puts its rewrite back in place', async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const event = await reply(
     scopeWith('fix'),
     provider([{ claims: [{ claim: 'bare', source: 'b' }] }], seen),
@@ -136,7 +136,7 @@ Deno.test('fix asks for the refused item alone and puts its rewrite back in plac
 });
 
 Deno.test("the rewrite's guidance is the profile's own line when it sets one", async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   await reply(
     scopeWith('fix', 1, { 'repair.items_guidance': 'Cite these or leave them out.' }),
     provider([{ claims: [{ claim: 'bare', source: 'b' }] }], seen),
@@ -147,7 +147,7 @@ Deno.test("the rewrite's guidance is the profile's own line when it sets one", a
 });
 
 Deno.test('an item refused again after its one rewrite is removed', async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const event = await reply(
     scopeWith('fix', 3),
     provider([{ claims: [{ claim: 'still bare' }] }], seen),
@@ -166,7 +166,7 @@ Deno.test('an item refused again after its one rewrite is removed', async () => 
 });
 
 Deno.test('fix with no retries left removes the item', async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const event = await reply(scopeWith('fix', 0), provider([], seen));
   assertEquals(seen.length, 1);
   assertEquals(event.removed?.length, 1);
@@ -222,7 +222,7 @@ Deno.test('an agent tool returns what the called agent removed', async () => {
     }),
   );
   let callerStep = 0;
-  const model: ModelProvider = {
+  const model: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       if (!req.system.includes('CALLER')) {
@@ -311,7 +311,7 @@ Deno.test('a check reads what the tools of the turn returned', async () => {
     }),
   );
   let step = 0;
-  const model: ModelProvider = {
+  const model: TurnModel = {
     async *complete() {
       await Promise.resolve();
       step += 1;

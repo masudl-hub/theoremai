@@ -4,7 +4,7 @@ import {
   formatToolFailureForModel,
   formatToolResult,
 } from '../../../../src/kernel/tools/model-text.ts';
-import type { ProviderCompleteRequest } from '../../../../src/kernel/types.ts';
+import type { ModelRequest } from '../../../../src/kernel/types.ts';
 import {
   buildGeminiLiveClientContent,
   buildGeminiLiveRealtimeInput,
@@ -34,7 +34,7 @@ Deno.test('buildGeminiLiveWebSocketUrl encodes api key parameter', () => {
 });
 
 Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
-  const req: ProviderCompleteRequest = {
+  const req: ModelRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     temperature: 0.7,
@@ -106,7 +106,7 @@ Deno.test('buildGeminiLiveSetupMessage constructs standard setup frame', () => {
 });
 
 Deno.test('buildGeminiLiveSetupMessage omits VAD and compression when profile omits them', () => {
-  const req: ProviderCompleteRequest = {
+  const req: ModelRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     temperature: 0.7,
@@ -132,8 +132,8 @@ Deno.test('buildGeminiLiveSetupMessage omits VAD and compression when profile om
 });
 
 Deno.test('buildGeminiLiveSetupMessage sends summaries as includeThoughts, and no thinkingConfig when both are unset', () => {
-  const thinkingConfig = (overrides: Partial<ProviderCompleteRequest>) => {
-    const req: ProviderCompleteRequest = {
+  const thinkingConfig = (overrides: Partial<ModelRequest>) => {
+    const req: ModelRequest = {
       model: 'gemini-3.1-flash-live-preview',
       apiId: 'gemini-3.1-flash-live-preview',
       temperature: 0.7,
@@ -162,7 +162,7 @@ Deno.test('buildGeminiLiveSetupMessage sends summaries as includeThoughts, and n
 });
 
 Deno.test('buildGeminiLiveSetupMessage leaves an empty sliding window to Gemini defaults', () => {
-  const req: ProviderCompleteRequest = {
+  const req: ModelRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     temperature: 0.7,
@@ -183,7 +183,7 @@ Deno.test('buildGeminiLiveSetupMessage leaves an empty sliding window to Gemini 
 });
 
 Deno.test('buildGeminiLiveSetupMessage seeds historyConfig only when history is present', () => {
-  const req: ProviderCompleteRequest = {
+  const req: ModelRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     temperature: 0.7,
@@ -205,7 +205,7 @@ Deno.test('buildGeminiLiveSetupMessage seeds historyConfig only when history is 
 });
 
 Deno.test('buildGeminiLiveSetupMessage declares builtins as their own tools and functions together', () => {
-  const req: ProviderCompleteRequest = {
+  const req: ModelRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     system: '',
@@ -866,7 +866,7 @@ Deno.test('Live client-content history and realtime input reject media reference
 });
 
 Deno.test('wireLiveTools declares every live function NON_BLOCKING', () => {
-  const req: ProviderCompleteRequest = {
+  const req: ModelRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     system: '',
@@ -996,7 +996,7 @@ Deno.test('foldGeminiLiveServerMessage folds a codeExecutionResult part as evide
 });
 
 Deno.test('buildGeminiLiveSetupMessage refuses a thinking level Gemini does not take', () => {
-  const req: ProviderCompleteRequest = {
+  const req: ModelRequest = {
     model: 'gemini-3.1-flash-live-preview',
     apiId: 'gemini-3.1-flash-live-preview',
     temperature: 0.7,

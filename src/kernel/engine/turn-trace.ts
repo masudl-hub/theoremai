@@ -17,8 +17,8 @@ import type { ToolCallEvent, ToolCallRequest, ToolFailure } from '../tools/types
 import type {
   InteractionPart,
   ModelBinding,
-  ProviderCompleteRequest,
-  ProviderEvent,
+  ModelEvent,
+  ModelRequest,
   ProviderEvidence,
   ProviderTransport,
   TurnEvent,
@@ -123,7 +123,7 @@ class OutputFold {
   /** Each call's `tool_call` part by `callId`, for the failure that follows a malformed one. */
   private readonly calls = new Map<string, TracePart>();
 
-  add(event: ProviderEvent, nowUnixNano: string): void {
+  add(event: ModelEvent, nowUnixNano: string): void {
     switch (event.type) {
       case 'text':
         this.appendText('text', event.text);
@@ -305,7 +305,7 @@ function serverToolPart(evidence: ProviderEvidence, nowUnixNano: string): TraceP
 }
 
 /** The raw evidence payload is recorded only with `evidenceRaw`. */
-function groundingEvent(event: ProviderEvent): TraceAttributes | undefined {
+function groundingEvent(event: ModelEvent): TraceAttributes | undefined {
   switch (event.type) {
     case 'grounding': {
       const { searchHtml, metadata, chunks } = event.grounding;
@@ -468,7 +468,7 @@ function providerName(binding: ModelBinding | undefined): string | undefined {
   return binding.provider;
 }
 
-function outputType(req: ProviderCompleteRequest, transport: ProviderTransport): string {
+function outputType(req: ModelRequest, transport: ProviderTransport): string {
   // why: Live answers in audio: its setup asks for `responseModalities: ['AUDIO']` (live/framing.ts).
   if (transport === 'live') return 'speech';
   if (req.structured) return 'json';
@@ -478,7 +478,7 @@ function outputType(req: ProviderCompleteRequest, transport: ProviderTransport):
 }
 
 function requestAttributes(
-  req: ProviderCompleteRequest,
+  req: ModelRequest,
   binding: ModelBinding | undefined,
   transport: ProviderTransport,
 ): TraceAttributes {
@@ -488,16 +488,15 @@ function requestAttributes(
     ...optional('gen_ai.provider.name', provider),
     'gen_ai.request.model': req.apiId,
     'theorem.model.id': req.model,
+    ...optional('theorem.key_slot', binding?.keySlot),
     ...optional('gen_ai.request.temperature', req.temperature),
     ...optional('gen_ai.request.max_tokens', req.maxOutputTokens),
     ...optional('gen_ai.request.reasoning.level', req.thinking),
-    ...optional('gen_ai.request.previous_response.id', req.previousInteractionId),
     'gen_ai.system_instructions': [{ type: 'text', ...traceContent(req.system) }],
     ...(req.wireTools?.length
       ? { 'gen_ai.tool.definitions': traceContent(JSON.stringify(req.wireTools)) }
       : {}),
     'gen_ai.output.type': outputType(req, transport),
-    ...optional('theorem.key_slot', req.keySlot),
     ...controlAttributes(req),
   };
 }
@@ -507,17 +506,13 @@ function requestAttributes(
  * by id only; their args are left to the wire body (`outboundWire`): the Maps
  * location locates the user.
  */
-function controlAttributes(req: ProviderCompleteRequest): TraceAttributes {
-  const { cache, image, speech, live } = req;
+function controlAttributes(req: ModelRequest): TraceAttributes {
+  const { image, speech, live } = req;
   return {
     'theorem.request.builtins': req.builtins.map((b) => b.id),
-    ...optional('theorem.request.store', req.store),
     ...optional('theorem.request.summaries', req.summaries),
     ...optional('theorem.request.structured', req.structured?.id),
     ...optional('theorem.request.session_id', req.sessionId),
-    ...(cache
-      ? { 'theorem.request.cache': { mode: cache.mode, ...optional('ttl', cache.ttl) } }
-      : {}),
     ...(image
       ? {
           'theorem.request.image': {
@@ -548,8 +543,8 @@ function controlAttributes(req: ProviderCompleteRequest): TraceAttributes {
 
 /** Live session setup as sent. A resumption handle is a credential: only its presence is kept. */
 function liveAttributes(
-  live: NonNullable<ProviderCompleteRequest['live']>,
-  req: ProviderCompleteRequest,
+  live: NonNullable<ModelRequest['live']>,
+  req: ModelRequest,
 ): TraceAttributes {
   const { vad, transcription } = live;
   return {
@@ -754,7 +749,7 @@ interface CallTrace {
   /** Pass as the adapter's `tapUpstream`. */
   tap: (row: Record<string, unknown>) => void;
   /** Every provider event, before guardrails. */
-  observe: (event: ProviderEvent) => void;
+  observe: (event: ModelEvent) => void;
   /** A stream check's decision; it carries the time that check has spent on the call so far. */
   guardrail: (event: GuardrailEvent) => void;
   /** Add one run of a stream check to this call. */
@@ -830,7 +825,7 @@ function responseAttributes(
 function startCallTrace(
   open: (name: string, options: SpanOptions) => SpanHandle,
   args: {
-    req: ProviderCompleteRequest;
+    req: ModelRequest;
     usage: CallUsage;
     binding: ModelBinding | undefined;
     transport: ProviderTransport;

@@ -9,11 +9,36 @@ npx theorem-studio
 
 The command needs Deno. It opens the project's setup file: `studio.setup.ts` or `<name>.studio.setup.ts`. Add `"studio": "theorem-studio"` to your scripts to run it as `npm run studio`. The installed version must match `@theoremjs/agents` and `@theoremjs/react` exactly.
 
+### What a setup file exports
+
+Every export is optional. The studio reads only these:
+
+| Export | What the studio does with it |
+|---|---|
+| `default()` | Calls it once as it loads the project, before anything runs: register the project's profiles and tools here. It may be `async`. |
+| `provider` | The keys, network and limits every model call runs on (`ProviderHostOptions` from `@theoremjs/agents/kernel`). Without it, a run's model call fails for want of a key. |
+| `people`, `host` | Who a run's tools act for (below). |
+| `questions` | What each decision profile asks, by the profile's id: `{ [profileId]: { [questionId]: DecisionQuestion } }`. |
+
+### Keys a run uses
+
+A profile's model names a key slot. `provider.vault` holds a key for each slot, so a studio run signs with the key the same profile uses in your app. Load the keys however your start script does, and read them when the setup file loads; the studio never writes them down:
+
+```ts
+export const provider = {
+  vault: { openai: Deno.env.get('OPENAI_API_KEY') ?? '' },
+};
+```
+
+A slot can hold a function instead, called with the provider and slot when a call needs the key, for a key that comes from a secret store. A slot left out or empty fails that run with the slot's name, not a guess at another key.
+
 ### Who a run acts as
 
 A setup file can export `people` and `host` to let the builder pick who the project's tools act for:
 
 ```ts
+import type { StudioActingAs, StudioPeople } from '@theoremjs/studio/people';
+
 export const people: StudioPeople = {
   places: [{ id: 'stage', label: 'Stage' }],
   existing: (place) => [{ id: 'user-1', label: 'Test keeper' }], // optional

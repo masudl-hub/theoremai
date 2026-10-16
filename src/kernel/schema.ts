@@ -27,7 +27,15 @@ import { isProfileRootField, profileFieldScope } from './profile-scope.ts';
 
 export { BLOCKED_REPLY_ON_BLOCK, type BlockedReplyOnBlock };
 /** The kinds of profile: each fixes which fields and models a profile may use. */
-export const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'decision', 'host'] as const;
+export const PROFILE_TYPES = [
+  'text',
+  'image',
+  'speech',
+  'live',
+  'decision',
+  'embedding',
+  'host',
+] as const;
 /** One of {@linkcode PROFILE_TYPES}. */
 export type ProfileType = (typeof PROFILE_TYPES)[number];
 /** Reasoning effort levels, lowest to highest; a model accepts only the levels its catalog row lists. */
@@ -42,44 +50,10 @@ export const THINKING_LEVELS = [
 ] as const;
 /** One of {@linkcode THINKING_LEVELS}. */
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
-/** The wire protocols a model binding can speak. */
-export const PROTOCOLS = ['geminiInteractions', 'geminiLive', 'openAi', 'decision'] as const;
-/** One of {@linkcode PROTOCOLS}. */
-export type Protocol = (typeof PROTOCOLS)[number];
-/** First-party provider names used by the preset and studio catalogs. Model bindings accept registered IDs. */
-export const PROVIDERS = ['google', 'openrouter', 'local', 'typesafe'] as const;
-/** One of {@linkcode PROVIDERS}. */
-export type Provider = string;
 /** The longest a profile's `id` may be, in characters: room for a dotted or generated one. */
 export const PROFILE_ID_MAX_CHARS = 64;
 /** The longest a profile's `identity.handle` may be, in characters: it is a name people read. */
 export const PROFILE_HANDLE_MAX_CHARS = 32;
-/** First-party protocol metadata for catalogs; registered adapters own runtime compatibility. */
-export const PROTOCOL_PROVIDERS = {
-  geminiInteractions: ['google'],
-  geminiLive: ['google'],
-  openAi: ['openrouter', 'local'],
-  decision: ['typesafe', 'openrouter'],
-} as const satisfies Record<Protocol, readonly Provider[]>;
-/** The protocols each profile type may bind; `host` profiles bind no model. */
-export const PROFILE_TYPE_PROTOCOLS = {
-  text: ['geminiInteractions', 'openAi'],
-  image: ['geminiInteractions', 'openAi'],
-  speech: ['geminiInteractions', 'openAi'],
-  live: ['geminiLive'],
-  decision: ['decision'],
-  host: [],
-} as const satisfies Record<ProfileType, readonly Protocol[]>;
-/** The protocols a profile of type `T` may bind. */
-export type ProfileTypeProtocol<T extends ProfileType> = (typeof PROFILE_TYPE_PROTOCOLS)[T][number];
-/** The protocols a profile type may bind. */
-export function protocolsForProfileType(type: ProfileType): readonly Protocol[] {
-  return PROFILE_TYPE_PROTOCOLS[type];
-}
-/** True when a profile of this type may bind this protocol. */
-export function isValidProfileProtocol(type: ProfileType, protocol: Protocol): boolean {
-  return (PROFILE_TYPE_PROTOCOLS[type] as readonly string[]).includes(protocol);
-}
 /** A vault slot's name, chosen by the host. The profile names slots; the host fills them with keys. */
 export type KeySlot = string;
 /** Letters, digits, `-` and `_`, up to 32 characters, starting with a letter or digit. */
@@ -89,7 +63,7 @@ export function isKeySlotName(value: unknown): value is KeySlot {
   return typeof value === 'string' && KEY_SLOT_NAME.test(value);
 }
 /** The host-filled keys by slot name; a slot with no key is `undefined`. */
-export type KeyVault = import('./provider-contract.ts').ProviderVault;
+export type { KeyVault } from './registry/vault.ts';
 /** The kinds of media a model can take as input. */
 export const MEDIA_INPUT_KIND_VALUES = ['image', 'audio', 'video', 'document'] as const;
 /** One of {@linkcode MEDIA_INPUT_KIND_VALUES}. */
@@ -361,36 +335,6 @@ export const IMAGE_ATTACHMENT_ACCEPT_MIMES: readonly string[] = [
 ];
 /** The MIME types a voice profile's `accept` entries may list. */
 export const VOICE_ACCEPT_MIMES: readonly string[] = ['audio/*', ...mimesOf('audio')];
-/** The providers that can serve a protocol. */
-export function providersFor(protocol: Protocol): readonly Provider[] {
-  return PROTOCOL_PROVIDERS[protocol];
-}
-/** The protocols a provider can serve. */
-export function protocolsFor(provider: Provider): readonly Protocol[] {
-  const found: Protocol[] = [];
-  for (const protocol of PROTOCOLS) {
-    if ((PROTOCOL_PROVIDERS[protocol] as readonly Provider[]).includes(provider)) {
-      found.push(protocol);
-    }
-  }
-  return found;
-}
-/** True when the first-party catalog includes this protocol/provider pair. */
-export function isValidPair(protocol: Protocol, provider: Provider): boolean {
-  return (PROTOCOL_PROVIDERS[protocol] as readonly Provider[]).includes(provider);
-}
-/** When protocol changes, snap provider to a valid partner. */
-export function coerceProvider(protocol: Protocol, provider: Provider): Provider {
-  const allowed = providersFor(protocol);
-  const [first] = allowed;
-  return allowed.includes(provider) ? provider : first;
-}
-/** When provider changes, snap protocol to a valid partner. */
-export function coerceProtocol(protocol: Protocol, provider: Provider): Protocol {
-  const allowed = protocolsFor(provider);
-  const [first] = allowed;
-  return allowed.includes(protocol) ? protocol : first;
-}
 function unionType(values: readonly string[]): string {
   return values.map((value) => `'${value}'`).join(' | ');
 }
@@ -698,8 +642,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The name this profile is registered and looked up by, at most 64 characters; registering the same id again replaces it.',
   ),
   'profile.type': field(
-    "'text' | 'image' | 'speech' | 'live' | 'decision' | 'host'",
-    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision or host.',
+    "'text' | 'image' | 'speech' | 'live' | 'decision' | 'embedding' | 'host'",
+    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision, embedding or host.',
     PROFILE_TYPES,
     {
       text: 'A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way.',
@@ -709,6 +653,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
       live: 'For talking in real time. One continuous voice and video session, rather than separate turns.',
       decision:
         'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score or a number.',
+      embedding: 'For when your app needs vectors from text or provider-supported media.',
       host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP and in-app function tools under the same permissions and traces as any agent, guarded by detect and network.',
     },
   ),
@@ -740,58 +685,17 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'ModelBinding | DecisionModelBinding',
     'One model: how to reach it and the settings sent with it.',
   ),
-  'models.*.provider': field('string', 'The registered provider instance that runs this model.'),
-  'models.*.keySlot': field('KeySlot', 'Overrides the provider primary credential slot.'),
-  'models.*.fallbackKeySlot': field(
-    'KeySlot',
-    'Overrides an explicitly configured fallback credential slot.',
-  ),
-  'models.*.providerOptions': field(
+  'models.*.protocol': field('string', 'The API shape this model is spoken to in.'),
+  'models.*.provider': field('string', 'The registered provider that serves this model.'),
+  'models.*.keySlot': field('KeySlot', "Overrides the provider's primary key slot."),
+  'models.*.fallbackKeySlot': field('KeySlot', "Overrides the provider's fallback key slot."),
+  'models.*.options': field(
     'JsonObject',
-    'Adapter options validated by the selected provider schema.',
-  ),
-  'models.*.providerOptions.store': field(
-    'boolean',
-    'Whether the provider stores the interaction, where it can; a turn can override it.',
-  ),
-  'models.*.providerOptions.persistViaInteractionId': field(
-    'boolean',
-    'true: the provider builds the context from its stored interaction. false: each call sends the history. Only for a provider that stores interactions. true needs storing on.',
-  ),
-  'models.*.providerOptions.server': field(
-    'string',
-    "Which local server runs the model (ollama, vllm, …), recorded on traces; it doesn't change where requests go.",
-  ),
-  'models.*.providerOptions.cache': field(
-    'CacheSpec',
-    'Prompt caching for text profiles, where the provider has it. Reuses a prompt start it has seen. A cached system instruction, canary included, is shared across turns and users.',
-  ),
-  'models.*.providerOptions.cache.mode': field(
-    unionType(CACHE_MODES),
-    'Which part of the prompt is cached.',
-    CACHE_MODES,
-    {
-      automatic: 'The whole request, so the cached part grows with the conversation.',
-      system: "The system instruction only, with the kernel's notes after it.",
-    },
-  ),
-  'models.*.providerOptions.cache.ttl': field(
-    unionType(CACHE_TTLS),
-    'How long a cached prompt lasts.',
-    CACHE_TTLS,
-    {
-      '5m': 'Five minutes.',
-      '1h': 'One hour; writing the cache costs more, which pays off in long sessions.',
-    },
+    "The protocol's own settings, checked and described by its options schema.",
   ),
   providerContinuation: field(
     'ProviderContinuationPolicy',
-    'How incompatible provider checkpoints are handled.',
-  ),
-  'providerContinuation.onMismatch': field(
-    "'rebuild' | 'error'",
-    'Rebuild from portable history or reject an incompatible checkpoint.',
-    ['rebuild', 'error'],
+    'Who holds the conversation a saved provider state continues.',
   ),
   'providerContinuation.history': field(
     "'host' | 'stateless' | 'provider'",

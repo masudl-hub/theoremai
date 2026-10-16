@@ -17,9 +17,14 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { isModelProfile, requireModelProfile } from '../../src/kernel/registry/resolve.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
-import type { ModelProvider } from '../../src/kernel/types.ts';
+import type { ModelBinding, TurnModel } from '../../src/kernel/types.ts';
 import { googleEfforts, registerGooglePreset } from '../../src/presets/google.ts';
-import { geminiModels, HOST_BINDINGS, modelBindings } from '../fixtures/models.ts';
+import {
+  geminiModels,
+  HOST_BINDINGS,
+  modelBindings,
+  onGeminiInteractions,
+} from '../fixtures/models.ts';
 import { createTestKernelScope } from '../fixtures/provider-scope.ts';
 import { runTurn } from '../fixtures/registered-runner.ts';
 
@@ -53,10 +58,10 @@ Deno.test('defineProfile preserves explicit typed fields without defaults', () =
   });
   assertEquals(profile.id, 'host_profile');
   assertEquals(profile.type, 'text');
-  assertEquals(Object.hasOwn(profile.models.gemini35FlashLite, 'protocol'), false);
+  assertEquals(profile.models.gemini35FlashLite.protocol, 'scripted');
   assertEquals(profile.observability?.writeTo, false);
   assertEquals(profile.observability?.sampleRate, 0.5);
-  assertEquals(profile.models.gemini35FlashLite.provider, 'google');
+  assertEquals(profile.models.gemini35FlashLite.provider, 'scripted');
   assertEquals(profile.maxSteps, 1);
   assertEquals(profile.models.gemini35FlashLite.keySlot, 'slot_a');
   assertEquals(profile.identity.handle, 'host_profile');
@@ -200,7 +205,7 @@ Deno.test('defineProfile accepts an external provider ID as plain data', () => {
     tools: { allow: [] },
     inputs: { text: true },
     identity: { handle: 'External' },
-    models: { default: { provider: 'company-custom', apiId: 'deployment' } },
+    models: { default: { protocol: 'openAi', provider: 'company-custom', apiId: 'deployment' } },
   });
   assertEquals(profile.models.default.provider, 'company-custom');
 });
@@ -587,7 +592,7 @@ Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' p
   registerProfile({ type: 'host', id: 'host_refusals', tools: { allow: [] } });
   assertThrows(() => resolveTurn({ profile: 'host_refusals' }), TheoremError, "type 'host'");
   assertThrows(() => projectProfile('host_refusals'), TheoremError, "type 'host'");
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield { type: 'text', text: 'never' };
     },
@@ -615,7 +620,7 @@ Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' p
       id: 'model_gate_decision',
       identity: { handle: 'Decision' },
       models: {
-        jev: { provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+        jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
       },
       inputs: { state: 'json', maxStateBytes: 1000 },
       decision: { contract: 'test.v1' },
@@ -704,198 +709,46 @@ Deno.test('clearProfiles empties the process-local registry', () => {
   }
   assertEquals(hasProfile('temp_clear_bot'), false);
 });
-Deno.test('defineProfile accepts openrouter cache and rejects cache on google', () => {
-  const ok = defineProfile({
-    id: 'cache_or_bot',
+function textWith(id: string, binding: ModelBinding) {
+  return defineProfile({
+    id,
     type: 'text',
-    identity: { handle: 'cache_or_bot' },
-    models: {
-      sonar: {
-        ...HOST_BINDINGS.sonar,
-        providerOptions: {
-          cache: { mode: 'automatic', ttl: '1h' },
-        },
-      },
-    },
+    identity: { handle: id },
+    models: { main: binding },
     tools: { allow: [] },
     inputs: { text: true },
   });
-  assertEquals(ok.models.sonar.providerOptions?.cache, { mode: 'automatic', ttl: '1h' });
-  assertThrows(
-    () =>
-      createTestKernelScope().profiles.register(
-        defineProfile({
-          id: 'cache_google_bot',
-          type: 'text',
-          identity: { handle: 'cache_google_bot' },
-          models: {
-            gemini35FlashLite: {
-              ...HOST_BINDINGS.gemini35FlashLite,
-              providerOptions: {
-                cache: { mode: 'automatic' },
-              },
-            },
-          },
-          tools: { allow: [] },
-          inputs: { text: true },
-        }),
-      ),
-    Error,
-    'Unrecognized key',
+}
+Deno.test("a binding's options are checked by its protocol when the profile registers", () => {
+  const scope = createTestKernelScope();
+  const interactions = onGeminiInteractions(HOST_BINDINGS.gemini35FlashLite);
+  scope.profiles.register(
+    textWith('cache_or_bot', {
+      ...HOST_BINDINGS.sonar,
+      options: { cache: { mode: 'automatic', ttl: '1h' } },
+    }),
   );
+  scope.profiles.register(
+    textWith('store_google_bot', {
+      ...interactions,
+      options: { store: true, persistViaInteractionId: true },
+    }),
+  );
+  const refused: [string, ModelBinding][] = [
+    ['cache_google_bot', { ...interactions, options: { cache: { mode: 'automatic' } } }],
+    ['store_or_bot', { ...HOST_BINDINGS.sonar, options: { store: true } }],
+    ['cache_bad_mode', { ...HOST_BINDINGS.sonar, options: { cache: { mode: 'nope' } } }],
+    [
+      'cache_bad_ttl',
+      { ...HOST_BINDINGS.sonar, options: { cache: { mode: 'automatic', ttl: '2h' } } },
+    ],
+  ];
+  for (const [id, binding] of refused) {
+    const error = assertThrows(() => scope.profiles.register(textWith(id, binding)), TheoremError);
+    assertEquals(error.kind, 'config', id);
+  }
 });
-Deno.test('defineProfile accepts Interactions store/persist and rejects them on openrouter', () => {
-  const ok = defineProfile({
-    id: 'store_google_bot',
-    type: 'text',
-    identity: { handle: 'store_google_bot' },
-    models: {
-      gemini35FlashLite: {
-        ...HOST_BINDINGS.gemini35FlashLite,
-        providerOptions: {
-          store: true,
-          persistViaInteractionId: true,
-        },
-      },
-    },
-    tools: { allow: [] },
-    inputs: { text: true },
-  });
-  assertEquals(ok.models.gemini35FlashLite.providerOptions?.store, true);
-  assertEquals(ok.models.gemini35FlashLite.providerOptions?.persistViaInteractionId, true);
-  assertThrows(
-    () =>
-      createTestKernelScope().profiles.register(
-        defineProfile({
-          id: 'store_or_bot',
-          type: 'text',
-          identity: { handle: 'store_or_bot' },
-          models: {
-            sonar: {
-              ...HOST_BINDINGS.sonar,
-              providerOptions: {
-                store: true,
-              },
-            },
-          },
-          tools: { allow: [] },
-          inputs: { text: true },
-        }),
-      ),
-    Error,
-    'Unrecognized key',
-  );
-});
-Deno.test('defineProfile accepts server on local bindings and rejects it elsewhere', () => {
-  const localBinding = { provider: 'local', apiId: 'qwen3:8b' } as const;
-  const ok = defineProfile({
-    id: 'server_local_bot',
-    type: 'text',
-    identity: { handle: 'server_local_bot' },
-    models: {
-      qwen: {
-        ...localBinding,
-        providerOptions: {
-          server: 'ollama',
-        },
-      },
-    },
-    tools: { allow: [] },
-    inputs: { text: true },
-  });
-  assertEquals(ok.models.qwen.providerOptions?.server, 'ollama');
-  assertThrows(
-    () =>
-      createTestKernelScope().profiles.register(
-        defineProfile({
-          id: 'server_or_bot',
-          type: 'text',
-          identity: { handle: 'server_or_bot' },
-          models: {
-            sonar: {
-              ...HOST_BINDINGS.sonar,
-              providerOptions: {
-                server: 'ollama',
-              },
-            },
-          },
-          tools: { allow: [] },
-          inputs: { text: true },
-        }),
-      ),
-    Error,
-    'Unrecognized key',
-  );
-  assertThrows(
-    () =>
-      createTestKernelScope().profiles.register(
-        defineProfile({
-          id: 'server_blank_bot',
-          type: 'text',
-          identity: { handle: 'server_blank_bot' },
-          models: {
-            qwen: {
-              ...localBinding,
-              providerOptions: {
-                server: '  ',
-              },
-            },
-          },
-          tools: { allow: [] },
-          inputs: { text: true },
-        }),
-      ),
-    Error,
-    'Too small',
-  );
-});
-Deno.test('defineProfile rejects invalid cache.mode and cache.ttl', () => {
-  assertThrows(
-    () =>
-      createTestKernelScope().profiles.register(
-        defineProfile({
-          id: 'cache_bad_mode',
-          type: 'text',
-          identity: { handle: 'cache_bad_mode' },
-          models: {
-            sonar: {
-              ...HOST_BINDINGS.sonar,
-              providerOptions: {
-                cache: { mode: 'nope' as 'automatic' },
-              },
-            },
-          },
-          tools: { allow: [] },
-          inputs: { text: true },
-        }),
-      ),
-    Error,
-    'Invalid option',
-  );
-  assertThrows(
-    () =>
-      createTestKernelScope().profiles.register(
-        defineProfile({
-          id: 'cache_bad_ttl',
-          type: 'text',
-          identity: { handle: 'cache_bad_ttl' },
-          models: {
-            sonar: {
-              ...HOST_BINDINGS.sonar,
-              providerOptions: {
-                cache: { mode: 'automatic', ttl: '2h' as '1h' },
-              },
-            },
-          },
-          tools: { allow: [] },
-          inputs: { text: true },
-        }),
-      ),
-    Error,
-    'Invalid option',
-  );
-});
-Deno.test('resolveTurn leaves cache in provider options and projects sessionId', () => {
+Deno.test('resolveTurn leaves protocol options on the binding and projects sessionId', () => {
   registerProfile({
     id: 'cache_resolve_bot',
     type: 'text',
@@ -903,7 +756,7 @@ Deno.test('resolveTurn leaves cache in provider options and projects sessionId',
     models: {
       sonar: {
         ...HOST_BINDINGS.sonar,
-        providerOptions: {
+        options: {
           cache: { mode: 'system', ttl: '5m' },
         },
       },
@@ -919,6 +772,6 @@ Deno.test('resolveTurn leaves cache in provider options and projects sessionId',
   assertEquals('cache' in generation, false);
   const cached = getProfile('cache_resolve_bot');
   if (cached.type !== 'text') throw new Error('Expected text');
-  assertEquals(cached.models.sonar.providerOptions?.cache, { mode: 'system', ttl: '5m' });
+  assertEquals(cached.models.sonar.options?.cache, { mode: 'system', ttl: '5m' });
   assertEquals(generation.sessionId, 'sess-1');
 });

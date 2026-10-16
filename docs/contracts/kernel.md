@@ -2,7 +2,7 @@
 
 Type-first contracts for profiles, turns, tools, compaction, stop/resume, and
 `runTurn`. Import here when a host needs the kernel surface without pulling
-provider adapters.
+first-party protocols or providers.
 
 ## Export
 
@@ -26,7 +26,7 @@ provider adapters.
 products can run the same unforked kernel version; no end user and no model
 may observe a decision the host did not make.
 
-**Facts vs policy.** Provider facts may ship (model capabilities, wire shapes,
+**Facts vs policy.** Provider facts may ship (prices, wire shapes,
 protocol metadata — presets/google). Product policy may not (prompts, personas,
 end-user copy, demo apps, channel behavior). The kernel may ship overridable
 defaults for mechanism text via the guardrails labels; it may not ship
@@ -65,9 +65,9 @@ A `Profile` binds:
 
 | Block | Role |
 | --- | --- |
-| `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'` (`PROFILE_TYPES`) |
+| `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'`, or planned `'embedding'` (`PROFILE_TYPES`) |
 | `identity` | `handle`, optional `system` / `systemByRole` — absent on `host`; `handle` only on `speech` and `decision` |
-| `models` | Host-named `ModelBinding`s (each carries a registered `provider` ID and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` — absent on `host`; `decision` binds exactly one model and never selects |
+| `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` — absent on `host`; `decision` binds exactly one model and never selects |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image`; `parallel` on every type that takes `tools` |
 | `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. `{name}` in `identity.system` becomes the value the request chose for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
@@ -97,8 +97,8 @@ facet kinds. Drift is gated by `tests/kernel/profile-graph.test.ts` and
 ### Decision profile
 
 A `decision` profile is a separate, bounded execution path for typed decisions.
-Its `models` map binds exactly one registered provider ID and upstream `apiId`.
-Credentials inherit the provider definition's slots unless the model overrides them.
+Its `models` map binds exactly one model: the `systemOne` protocol, a registered provider ID and upstream `apiId`.
+Credentials inherit the provider registration's slots unless the model overrides them.
 The profile's `decision.contract` is the host's stable id for the decision it
 makes. The id names the decision on its trace (`theorem.decision.contract`);
 it is not sent to the provider and does not limit which questions a call asks. At call time,
@@ -107,15 +107,16 @@ it is not sent to the provider and does not limit which questions a call asks. A
 `validateDecisionRequest` exposes the same generic request checks for hosts to
 call before spending quota. TypeSafe uses `/v1/systemone`; OpenRouter uses
 `/api/alpha/decisions`. Bindings may set
-`timeoutMs`; omission leaves the kernel request unbounded. Retry configuration
-is rejected: a decision POST is never retried. The builder chooses questions
-compatible with its model. Provider-reported cost is used when available; the
-decision provider usage adapter prices direct TypeSafe Jev tokens at
-$0.042 per million input tokens with output free.
+`timeoutMs`; omission uses the operation limit (`ProviderLimits`).
+A binding has no retry field. The kernel retries a transient failure within its five-second wait budget.
+After a `rate_limit`, it tries the fallback slot once. The builder chooses questions
+compatible with its model. Provider-reported cost is used when available.
+Otherwise the provider's prices give an estimated cost.
+`typesafeProvider` prices `jev-*` models at $0.042 per million input tokens with output free.
 It has no prompt, conversation history, attachments, tools, streaming, or
 turn loop; its key comes only from the host's `vault` (`RunDecisionOptions.vault`)
 through that slot, and an empty slot throws
-`DecisionError('authentication', "the vault has no key in slot '<slot>'")`.
+`DecisionError('authentication', "The vault has no credential in slot '<slot>'")`.
 
 `decision.guardrails.disclosure` is a host hook immediately before the request
 leaves the process. It may return `allow` or `block`; a block prevents dispatch.
@@ -136,6 +137,122 @@ stored JSON content under the profile's scrub policy. Invalid local requests are
 the span `ERROR` with `error.type` its error kind. As with turns, a failed
 trace write never fails the decision.
 
+### Embedding profile
+
+An `embedding` profile is a first-class model profile with a separate
+runEmbedding execution door. It does not enter `runTurn`, `runSession`, or
+`runDecision`. The profile selects one or more embedding model bindings in the
+same way as other selectable model profiles.
+
+The profile has these fields:
+
+| Field | Contract |
+| --- | --- |
+| `type` | `'embedding'` |
+| `identity.handle` | The host-owned profile name |
+| `models` | One or more model bindings; registration fills `defaultModel` |
+| `allowModelSelect` | Allows the request to select a named embedding model |
+| `inputs` | Text and media kinds, accepted MIME patterns, and byte/file limits |
+| `guardrails` | Input and network policy that the embedding request can use |
+| `observability` | Trace destination, sampling, scrubbing, and usage inclusion |
+| `labels` | Host-owned wording for errors and other exposed text |
+
+An embedding profile has no `tools`, `outputs`, `turnBehaviour`, `speech`,
+`live`, `decision`, `system`, or `providerContinuation` block. It does not have
+generation settings such as temperature, output tokens, reasoning effort, or
+compaction.
+
+The input declaration is provider-neutral:
+
+```ts
+{
+  type: 'embedding',
+  id: 'documents',
+  identity: { handle: 'Document embeddings' },
+  inputs: {
+    text: true,
+    attachments: { accept: ['image/*', 'application/pdf'] },
+    maxFiles: 1,
+    maxBytes: 20_000_000,
+    maxTurnBytes: 20_000_000,
+  },
+  models: {
+    default: {
+      protocol: 'googleEmbedding',
+      provider: 'gemini',
+      apiId: 'gemini-embedding-2',
+      options: {
+        taskType: 'RETRIEVAL_DOCUMENT',
+        outputDimensionality: 768,
+      },
+    },
+  },
+}
+```
+
+The public request accepts one input or an ordered list of inputs. An input is
+text, media, or a list of text and media parts. Media is MIME-typed data or a
+provider-readable reference. It can represent an image, audio, video, document,
+or another provider-supported non-text input. The kernel does not require text
+when the selected model accepts only media.
+
+The kernel validates structure, MIME patterns, byte limits, and input order.
+The selected protocol encodes the parts for its provider or local runtime.
+Provider presets declare which modalities each model accepts.
+
+runEmbedding resolves the profile, selects the model binding, validates the
+input, and calls the protocol's embedding operation. The operation returns
+ordered vectors with their dimensions. The kernel rejects non-finite values,
+missing vectors, and a result whose order does not match the request.
+
+The operation uses a separate request shape, as `runDecision` does. The shared
+provider runtime still supplies credentials, key fallback, abort handling,
+budgets, retries, upstream taps, and transport. The embedding request does not
+carry turn history, tools, system prompts, or continuation state.
+
+The initial multimodal input vocabulary is:
+
+| Part | Meaning |
+| --- | --- |
+| `text` | Text supplied to the embedding model |
+| `media` | Inline base64 data with a MIME type |
+| `media-ref` | Provider-readable URI with a MIME type |
+
+The kernel does not choose a task type or output dimension. Provider presets
+validate those options and declare model capabilities.
+
+Embedding model bindings must not assume a network endpoint. A binding can name
+an in-process model, a worker, a native inference library, or a local service.
+The host supplies the local runtime. The kernel does not load model files or
+choose a device.
+
+#### Embedding verification still required
+
+The profile, request, protocol operation, and vector validation are implemented.
+Trace-specific embedding attributes and native local execution remain planned.
+The following facts need provider evidence before they become runtime claims:
+
+| Area | Unverified assumption | Evidence required |
+| --- | --- | --- |
+| Google | Gemini Embedding 2 accepts text and a text-plus-image request | Direct requests on 2026-10-16 returned vectors |
+| Google | Gemini Embedding 2 accepts `outputDimensionality: 768` | Direct request on 2026-10-16 returned a 768-value vector |
+| Google | Gemini Embedding 2 supports synchronous batch requests | A two-input request on 2026-10-16 returned two 3072-value vectors |
+| Google | Gemini Embedding 2 supports the planned audio, video, and PDF inputs | Real media requests are still required |
+| Google | A `gemma-embedding-2` model is available through this API | The 2026-10-16 model list showed no such model; confirm another service or model ID |
+| OpenRouter | Free text embeddings are available | `nvidia/nemotron-3-embed-1b:free` returned a 2048-value vector on 2026-10-16 |
+| OpenRouter | Free multimodal embeddings are available | `nvidia/llama-nemotron-embed-vl-1b-v2:free` returned a 2048-value vector for text plus image on 2026-10-16 |
+| OpenRouter | Free embedding model discovery is available | `/api/v1/embeddings/models` listed three free models on 2026-10-16 |
+| OpenRouter | The tested text embedding model accepts the planned batch input | `liquid/lfm-2.5-embedding-350m:free` returned two vectors on 2026-10-16 |
+| Local | A Gemma embedding deployment can use the normalized `embed` result | A local runtime fixture must return vectors for its native input shape |
+| Local | A local model can accept non-text input without a text placeholder | A model-specific fixture must exercise its image, audio, video, or document input |
+| Local | Model loading and device selection belong outside the kernel | A host integration must register an executor without adding filesystem or device logic to the kernel |
+| Batching | Both providers preserve input order and expose usable batch limits | Sentinel similarity checks and limit probes are still required |
+| Errors | Provider errors map cleanly to existing Theorem error kinds | Malformed, auth, rate-limit, quota, and unsupported-input probes |
+| Usage | Embedding token and cost fields are available and stable | Both providers returned usage for the tested text calls; more models need inspection |
+
+The implementation must keep unsupported facts as `unknown` or `unverified`.
+It must not infer a model capability from its name alone.
+
 Multimodal ingress uses provider-neutral `InteractionPart` values;
 `InteractionMediaPart.type` is `MediaInputKind` (`image` | `audio` | `video` |
 `document`). MIME → kind mapping lives in `MEDIA_INPUT_KINDS` (`schema.ts`)
@@ -153,7 +270,7 @@ documents `application/pdf`, `text/plain`, `text/html`, `text/css`,
 `text/x-python`/`application/x-python`, `application/json`), verified
 2026-09-12, plus
 provider alias essences (`image/jpg`, `audio/x-wav`, `video/x-ms-wmv`, …). The
-OpenAI-compat adapters forward a part's MIME verbatim on every `MediaInputKind`,
+The `openAi`, `openRouter` and `openRouterImages` protocols forward a part's MIME verbatim on every `MediaInputKind`,
 so their accepted set is open-ended and contributes no additional rows; what
 they cannot carry — a `uri` reference part — is refused at request time with
 `TheoremError` rather than by a second MIME table (see
@@ -191,28 +308,32 @@ provider file reference:
 | `InteractionMediaRefPart` | `{ type: MediaInputKind, mimeType, uri }` | Provider part emitted for a `TurnMediaRef`; `isMediaRefPart` narrows it |
 
 `wireInteractionPart` emits `{ type, mimeType, uri }` for a reference part; the
-Google Interactions adapter snake-cases it to the documented Files input
-`{ "type": "video", "uri": "files/<id>", "mime_type": "video/mp4" }`. Every other
-adapter (OpenAI compat, AI SDK, Gemini Live) throws `TheoremError` for reference
+`geminiInteractions` protocol snake-cases it to the documented Files input
+`{ "type": "video", "uri": "files/<id>", "mime_type": "video/mp4" }`. The `openAi`,
+`openRouter`, `openRouterImages` and `geminiLive` protocols throw `TheoremError` for reference
 parts — see `docs/contracts/providers.md`.
 
-`ModelBinding` contains registered `provider` and upstream `apiId` strings,
-shared generation settings, optional credential-slot overrides and JSON `providerOptions`.
-`modelBindingSchema` validates shared data; profile registration parses options using the
-registered adapter. A binding has no protocol enum. Cache, storage, persistence and local
-server settings belong to adapter options. Provider definitions own credential defaults.
+`ModelBinding` contains `protocol`, registered `provider` and upstream `apiId` strings,
+shared generation settings, optional credential-slot overrides and JSON `options`.
+`modelBindingSchema` validates shared data and refuses unknown fields.
+Profile registration checks that the provider serves the protocol and parses `options` with the protocol's schema.
+The protocol must have an endpoint for the profile type (`unsupported` otherwise).
+Cache, storage and persistence settings belong to protocol options.
+The registration owns credential defaults (`keySlot`, `fallbackKeySlot`), and a binding may override them.
 Provider vault lookup requires an own property for the selected slot. Inherited credentials and resolvers do not grant access.
 
-`defineProvider` returns a typed `.model()` helper. Scope `providers` supports registration,
-replacement, lookup and reset. The host registers definitions before profiles reference them.
-Each run snapshots its selected provider. Called agents and compactors resolve independently.
-The snapshot captures adapter methods with their receiver, including methods on a class prototype.
-Continuation methods retain their receiver. A replacement registration affects later runs, not the captured active definition.
-The snapshot does not isolate hidden mutable adapter state.
+`registerProvider` returns a `RegisteredProvider` with typed `.model()` and `.decisionModel()` helpers.
+The helpers check `options` against the protocol when the binding is made.
+Scope `providers` supports registration, replacement, lookup and listing.
+The host registers providers before profiles reference them.
+Registration validates the connection and freezes the result.
+Each run resolves its provider when it starts. Called agents and compactors resolve independently.
+A replacement registration affects later runs, not a run already started.
 
-`ProviderAdapter` owns normalized request encoding, transport and model event decoding.
-The kernel validates declared capabilities, operations and event authority before client tools run.
-Required features with unknown or unsupported support fail. The provider contract at
+A protocol owns request encoding and reply decoding. The provider owns the base URL and sign-in.
+The kernel owns the transport, keys, retries and limits.
+It validates operations and event authority before client tools run.
+The provider contract at
 `docs/contracts/providers.md` contains the schemas and credential-resolution rules.
 
 `TurnRequest.sessionId` is an optional sticky routing key forwarded to OpenRouter
@@ -230,13 +351,6 @@ guardrails default on, and Interactions streaming defaults to SSE
 
 `projectProfile` / `resolveTurn` project a registered profile + `TurnRequest`
 into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consume.
-
-`turnShortfalls(id)` checks each model of a turn-based profile (text, image,
-speech) against its provider the way a turn would, without running one: one
-line of text at the model's default effort, with the profile's tools. It returns
-a `TurnShortfall` (`{ model, message }`) for each model whose provider would
-refuse that turn as `unsupported`, and `[]` for any other profile. An effort a
-turn selects is checked when that turn runs.
 
 ## Turn lifecycle
 
@@ -269,9 +383,8 @@ Live sessions emit the same stage names around utterance cycles and
    profile guardrails (unless disabled).
 3. **Compaction (before)** — when `timing: 'before'` and threshold fires, kernel
    runs the compaction profile turn synchronously, then continues with the
-   history it leaves (see [Compaction](#compaction)). The history meter counts media by the turn model's family
-   (`mediaTokenFamily` of the resolved binding); media it cannot count is
-   reported as `unknownMedia`.
+   history it leaves (see [Compaction](#compaction)). The history meter counts text only;
+   it reports each media part as `unknownMedia`.
 4. **Canary bind** — while the `canary_leak` detector is above `ignore` somewhere, the turn's canary is the
    profile's (`profileCanary`: a hash of the profile id and the resolved system
    prompt, the same on every turn that sends that prompt, so a provider's prompt
@@ -300,7 +413,7 @@ Live sessions emit the same stage names around utterance cycles and
    began, so a tool the `tools.t2Loader` loads can be called from the next step. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
    The runner records tool calls and results in portable history.
-   The registered adapter validates native state and encodes the next request.
+   The kernel validates native state, and the model's protocol encodes the next request.
    Native continuation does not replace authoritative tool outcomes.
    Server-side `codeExecution` does not consume a runner step.
 8. **`before_end`** — stage before egress/validation; inject re-enters the step
@@ -360,8 +473,8 @@ compaction use the same host options and credential vault as other registered op
 
 ## Stream events
 
-`runTurn` yields `TurnEvent`. Adapters yield the narrower `ProviderModelEvent` union.
-The kernel validates adapter events before it releases them or executes client tools.
+`runTurn` yields `TurnEvent`. Protocols yield the narrower `ProtocolEvent` union.
+The kernel validates protocol events before it releases them or executes client tools.
 
 | `type` | Payload highlights |
 | --- | --- |
@@ -379,7 +492,7 @@ The kernel validates adapter events before it releases them or executes client t
 | `session` | Live control: `closing_soon` (optional `timeLeftMs`); `ended`, the provider's close after it warned of one — not an error: `ended { cause: 'go_away', code, closedAfterMs, errorKind? }` (`errorKind` when the code is not 1000), `timeLeftMs` (the last warning's window), `message` (the user's wording, labels `live.session_ended`) and the raw close as `errorInternal`; `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
 | `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
-| `response` | Adapter → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
+| `response` | Protocol → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
 | `compaction` | `timing: 'before'` ran the compactor: `outcome`, the `history` the turn used, `summary` when compacted, `failure` when not, `droppedMedia`, the meter's count and message counts (see [Compaction](#compaction)) |
 | `done` | Terminal or live boundary: `stop` (`completed` / `interrupted` / `generation_complete` / …), `compaction`, `tokens` (the turn's usage), optional `providerState`; when `stop.kind` is `tool` or `gate`, required `tools` (`TurnToolSnapshot`) for host `invokeTool` resume, absent otherwise |
 | `provider_checkpoint` | Live native checkpoint in `providerState`, with the covered portable `history` |
@@ -463,8 +576,8 @@ the raw reason instead ([host](host.md)). Pass a trace sink (`memorySink`, `json
 
 `content` and `parts` are sent together, never one instead of the other:
 `historyMessageParts` (`src/kernel/interaction-parts.ts`) puts `content` first as a
-text part, then `parts`. Every adapter (Interactions, Live, OpenAI-compat, AI
-SDK) builds history content from it, so a host that stores a text projection
+text part, then `parts`. Every first-party protocol (`geminiInteractions`, `geminiLive`,
+`openAi`, `openRouter`, `openRouterImages`) builds history content from it, so a host that stores a text projection
 alongside media does not lose either one.
 
 Google Interactions code execution (`codeExecution` builtin) is a server-side
@@ -500,9 +613,10 @@ returns the tiered spec (`t1Policy`, `t2Loader`) for `text` and `image` only;
 T2 loading see no tools on `speech` and `decision`, and `invokeTool` rejects
 `decision` explicitly.
 
-A provider's adapter declares every builtin it runs (`ProviderAdapter.builtins`) and owns how each is sent.
+The model's protocol writes each builtin the binding lists and owns how each is sent.
+It reports what it wrote (`SendInit.wroteTools`). The kernel refuses a listed builtin the protocol did not write (`unsupported`).
 A builtin's registered tool is its entry in the tool list: name, description, category, labels.
-A declared builtin may take args, with a schema. A request addresses them to the tool by id:
+A builtin may take args. A request addresses them to a tool the model lists, by id, and the protocol parses them:
 `runTurn({ profile, model, builtInArgs: { googleMaps: { location } } })`.
 Resolution refuses args for a builtin the chosen model does not list, args for a builtin that
 declares none, and args its schema rejects. It copies each builtin's id and parsed args onto the
@@ -653,7 +767,7 @@ agent's whole usage.
 
 Application context reaches tool hooks through one opaque slot. The kernel never
 reads, logs, traces, or serializes it — it is not on `TurnEvent`,
-pause `input`, `TraceRecord`, or `ProviderCompleteRequest`.
+pause `input`, `TraceRecord`, or `ProtocolRequest`.
 
 | Field | Reaches |
 | --- | --- |
@@ -750,7 +864,7 @@ A page gate cannot authorize a browser callback. A kernel-owned `dispatch` phase
 It returns `PageToolDispatch`: a grant ID and pending `PageAnswer`.
 The kernel emits final prepared arguments only after grant persistence succeeds.
 It checks cancellation before emission, then validates the returned answer through the tool output pipeline.
-The service is trusted host code. Profiles, browser request bodies, and adapters cannot inject it.
+The service is trusted host code. Profiles, browser request bodies, and protocols cannot inject it.
 Permission and sign-in resumes retain `gateKind`, so preparation that did not run before approval still runs before dispatch.
 The shared executor accepts an optional host-owned `ToolExecutionCoordinator` through trusted `execution` options.
 The host must reserve storage before returning an acquired claim. React handlers enforce finite capacity and reserve terminal evidence.
@@ -851,7 +965,7 @@ the gate (`ToolGate.request`) of a permission or confirmation gate, beside the
 tool's `access`; the approval card names the tool in words when the request is
 unset or a placeholder has no value.
 
-Builtins (`type: 'builtin'`) are provider-native — kernel pins capabilities in
+Builtins (`type: 'builtin'`) are provider-native — kernel pins them in
 `generation.builtins` but does not execute handlers.
 Function tools (`type: 'function'`) run host TypeScript handlers.
 A handler returns the type of the tool's `output` schema; any other return type fails to compile.
@@ -911,7 +1025,7 @@ closed unions in the tools module.
 
 ## Outputs and guardrails
 
-Profile `outputs` pins behavior the kernel enforces before adapters run:
+Profile `outputs` pins behavior the kernel enforces before the protocol runs:
 
 | Pin | Effect |
 | --- | --- |
@@ -934,7 +1048,7 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 | Block | On live? | Notes |
 | --- | --- | --- |
 | `identity` | yes | `handle`, `system` / `systemByRole` |
-| `model` | yes | A registered provider with verified live capabilities |
+| `model` | yes | A binding whose protocol has a `live` endpoint, such as `geminiLive` |
 | `live` | yes | Voice, VAD, transcription, resumption, compression, **`ingress`** (realtime mic / camera / text toggles; text off unless `ingress.text: true`) |
 | `tools` | yes | `{ allow: ToolId[]; parallel? }` — `parallel` orders a step a host runs through `invokeToolStep`. Every allowlisted id and every model `builtInTools` id is wired once at Gemini Live setup regardless of `loadTier` (declarations cannot be added mid-session, so on live every allowed tool is effectively T0) |
 | `guardrails` | optional | Canary, sanitize, egress (live outbound gate) |
@@ -1118,24 +1232,10 @@ carries the prompt media the estimate left out.
      estimate for every model family. `TOKEN_TEXT_ENCODING` identifies the
      method as `chars/4`; the name remains for API compatibility.
      `loadTokenEstimator` keeps its async API and loads no tokenizer data.
-   - **Media** — counted only by the model family's verified rule
-     (`mediaTokenFamily` of the turn's binding), measured against billed
-     usage. Gemini 3 flash / pro text models (`google` directly or `google/…`
-     via OpenRouter; live and other variants have no rule): images by the
-     1120-budget patch grid; audio `⌈25 × decoded seconds⌉` (raw PCM from its
-     MIME parameters; ADTS AAC runs 2–3 over); video a 70-budget grid per
-     second (rounded half up) plus the audio under those frames, for ISO-BMFF
-     (MP4 / MOV / 3GP) and Matroska / WebM identified by their bytes; PDF 520
-     per page; UTF-8 text documents as their text. Every other media part is
-     **unknown**: `uri` references, unreadable headers, other containers, video
-     whose audio length cannot be read exactly (Matroska audio other than
-     unlaced Opus) or shorter than half a second, PDFs whose page tree cannot be
-     read, non-UTF-8 text, inputs Gemini converts first (`text/md`, mono L16) or
-     refuses (`audio/alaw`, `audio/mulaw`, `audio/pcm` with parameters, L16
-     without `rate` / `channels`), and families without a rule. Unknown media is
-     left out of `tokens` and counted in `unknownMedia` on `CompactionTokens`,
-     `CompactionSignal`, `CompactionTriggerContext`, and the `compaction`
-     event. Rules and live verification: `src/kernel/engine/token-estimate.ts`.
+   - **Media** — not counted. Each media part is left out of `tokens` and counted in
+     `unknownMedia` on `CompactionTokens`, `CompactionSignal`,
+     `CompactionTriggerContext`, and the `compaction` event. Code:
+     `src/kernel/engine/token-estimate.ts`.
    - Current-turn attachments/voice are **not** history.
 
 ### `previousExchanges`
@@ -1256,7 +1356,7 @@ No signal is attached when the turn has no history. `timing: 'before'` emits no
 | `compactHistory` / `CompactHistoryRequest` / `CompactionResult` / `CompactionOutcome` / `CompactionFailure` | Run the compactor after the turn |
 | `CompactionSplit` / `CompactionTokens` | Split + resolved counts |
 | `compactionMeter` / `resolveHistoryTokens` / `resolveCompactionTokens` | Meter resolution |
-| `loadTokenEstimator` / `mediaTokenFamily` / `TOKEN_TEXT_ENCODING` / `MediaTokenFamily` / `TokenEstimator` / `TokenCount` / `MediaPayload` | Shared token estimator (text heuristic, verified media rules) |
+| `loadTokenEstimator` / `TOKEN_TEXT_ENCODING` / `TokenEstimator` / `TokenCount` | Shared token estimator (text heuristic; media is not counted) |
 | `sumTokens` | Total of several calls' `TurnTokens` (see Token usage) |
 | `compactionNeeded` / `shouldCompact` | Threshold / custom trigger |
 | `splitForCompaction` | `{ toCompact, toRetain }` |
@@ -1268,10 +1368,10 @@ compaction profile registered first and a text profile that takes text.
 
 ## Prompt cache (OpenRouter)
 
-The OpenRouter adapter validates per-model `providerOptions.cache`:
+The `openRouter` protocol validates per-model `options.cache`:
 
 ```ts
-providerOptions: { cache: { mode: "automatic" | "system", ttl?: "5m" | "1h" } }
+options: { cache: { mode: "automatic" | "system", ttl?: "5m" | "1h" } }
 ```
 
 - `automatic` — top-level `cache_control` on the OpenRouter request.
@@ -1364,11 +1464,11 @@ carries the turn's public error text after the `tool.agent_failed` line.
 ### Native state and portable history
 
 Save the provider checkpoint beside portable history. Pass both on the next turn or session request.
-`providerCheckpointSchema` identifies the provider, adapter, model, deployment, and state version.
+`providerCheckpointSchema` identifies the protocol, provider, model, key slot, connection and the protocol's continuation options (`compatibilityKey`), and state version.
 The kernel records the covered history prefix with its length and hash.
 
-On a mismatch, the default policy emits `provider_warning` and rebuilds from portable history.
-`providerContinuation.onMismatch: 'error'` rejects the mismatch instead.
+On a mismatch, the kernel emits `provider_warning` (`provider_state_rebuilt`, with a reason) and rebuilds from portable history.
+The reasons are `provider_changed`, `model_changed`, `version_changed`, `connection_changed`, `key_changed` and `history_changed`.
 `providerContinuation.history: 'provider'` resumes from the checkpoint alone; the covered-history check becomes "the request carries no history".
 `providerContinuation.history: 'stateless'` keeps no conversation: a turn or session request that carries history or a checkpoint is refused with a `request` error, and completion carries no `providerState` (live sessions emit no `provider_checkpoint`). Compatible checkpoints with malformed native data fail validation.
 Successful completion carries `providerState`. Live `provider_checkpoint` events also carry the covered portable history.
@@ -1401,21 +1501,20 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 - Each key in `models` is a host-named model id with a full `ModelBinding`.
 - Profiles with attachments or voice set `maxFiles`, `maxBytes`, `maxTurnBytes`;
   those and every `limitsByMime` value are positive integers.
-- Credential slots resolve from model overrides, then registered provider defaults.
-  Adapters validate required credential values when an operation runs.
+- Credential slots resolve from model overrides, then the provider registration's defaults.
+  The kernel reads the credential from the vault when an operation runs.
 - Each `efforts` level is one of `THINKING_LEVELS`. Which of those a model
-  takes is not the kernel's to say: the Google providers refuse a level
+  takes is not the kernel's to say: the Gemini protocols refuse a level
   outside `GOOGLE_THINKING_LEVELS` (`unsupported`).
 - A slot-mapped `outputs.structured` names a slot in `inputs.slots`, and its
   `map` keys are that slot's choices. At turn time `resolveTurn` rejects a slot
   the profile does not declare, or a value outside its choices (`request`).
-- Model bindings require registered provider IDs and upstream model IDs.
-  They reject the former protocol field and parse JSON options with the registered adapter.
-- Credential-slot overrides are names; the provider definition supplies defaults.
-- Required capability support must be verified before transport opens.
-  Live requirements include configured audio/video input and audio output.
-  Parallel live calls require verified parallel-tool support.
-- Adapters cannot manufacture guardrail, approval, stage or client-tool execution events.
+- Model bindings require a protocol, a registered provider ID and an upstream model ID.
+  The provider must serve the protocol, and the protocol parses the binding's `options`.
+- The protocol must have an endpoint for the profile type, or registration fails (`unsupported`).
+- Credential-slot overrides are names; the provider registration supplies defaults.
+- Protocols cannot manufacture guardrail, approval, stage or client-tool execution events.
+  The kernel refuses any event type outside `ProtocolEvent` (`provider.event_type`).
 - Pending tool calls require a valid successful terminal. Turn streams must also reach EOF
   without another event after that terminal.
 
@@ -1532,27 +1631,29 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Group | Symbols |
 | --- | --- |
 | Compaction | `compactHistory`, `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
-| Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
-| Runner | `registerProvider`, `registerProviders`, `getProvider`, `requireProvider`, `hasProvider`, `listProviders`, `resetProviders`, `defineProvider`, `ProviderAdapter`, `ProviderHostOptions`, `providerCheckpointSchema`, `runTurn`, `runSession`, `runDecision`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
-| Provider definitions | `ProviderAdapter`, `ProviderBuiltinSpec`, `ProviderDefinition`, `DefinedProvider`, `RegisteredProvider`, `ProviderRegistry`, `defineProvider`, `createProviderRegistry` |
-| Provider data | `JsonValue`, `JsonObject`, `CapabilitySupport`, `ProviderCapabilities`, `DeclarableFeature`, `DeclaredSupport`, `ModelSupport`, `ResolvedProviderModel`, `ProviderModelSettings` |
-| Provider vault | `ProviderCredential`, `CredentialContext`, `CredentialResolver`, `ProviderVault`, `ProviderWait`, `OpenProviderWebSocket` |
-| Provider operations | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits`, `ProviderContext`, `ProviderOperations`, `ProviderRequest`, `ProviderTurnRequest`, `ProviderSessionRequest`, `ProviderDecisionRequest`, `ProviderLiveConnection`, `ProviderToolResult` |
-| Provider output | `ProviderContentEvent`, `ProviderModelEvent`, `ProviderCheckpoint`, `ProviderWarning`, `ProviderContinuationPolicy` |
-| Provider schemas | `jsonValueSchema`, `jsonObjectSchema`, `keySlotSchema`, `commonModelSettingsSchema`, `modelBindingSchema`, `decisionModelBindingSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `providerCapabilitiesSchema`, `declaredSupportSchema`, `DECLARABLE_FEATURES` |
-| Provider limits | `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
+| Token estimate | `loadTokenEstimator`, `TOKEN_TEXT_ENCODING`, `TokenCount`, `TokenEstimator`, `sumTokens` |
+| Runner | `registerProvider`, `getProvider`, `listProviders`, `ProviderHostOptions`, `providerCheckpointSchema`, `runTurn`, `runSession`, `runDecision`, `runEmbedding`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `RunEmbeddingOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
+| Providers | `defineProvider`, `registerProvider`, `createProviderRegistry`, `getProvider`, `listProviders`, `listProtocols`, `Provider`, `ProviderDefinition`, `RegisteredProvider`, `Registration`, `ProviderRegistry`, `ProviderTransport`, `Serve`, `PriceTable`, `ModelPrice`, `Rates`, `costFromPrices` |
+| Provider sign-in | `Authorize`, `Signer`, `bearer`, `header`, `query`, `KeyCredential`, `ApiKeyCredential`, `BearerCredential`, `RuntimeAbilities`, `endpointUrlSchema` |
+| Protocols | `defineProtocol`, `extendProtocol`, `callProtocol`, `carriesTo`, `plainWebSocket`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `Continuation` |
+| Model bindings | `ModelBinding`, `DecisionModelBinding`, `ModelProfileType`, `ProviderGenerationConfig`, `ProviderBuiltin`, `checkBinding`, `keySlotsOf`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `DecisionModelSettings` |
+| Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `EstimatedCost` |
+| Provider vault | `KeySlot`, `keySlotSchema`, `KeyVault`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket` |
+| Protocol operations | `ProtocolOperations`, `ProtocolContext`, `ProtocolRequest`, `ProtocolCall`, `ProtocolSession`, `ProtocolSocket`, `SendInit`, `Outgoing`, `DecisionCall`, `EmbeddingCall`, `LiveToolResult`, `UpstreamFailure`, `CallSetup` |
+| Provider output | `ProtocolEvent`, `ProtocolContentEvent`, `ProviderCheckpoint`, `ProviderStateRebuilt`, `ProviderWarning`, `ProviderEvidence`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
+| Provider limits | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `ApiExportMeta`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `BLOCKED_REPLY_ON_BLOCK`, `BlockedReplyOnBlock` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `ApiExportMeta`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `BLOCKED_REPLY_ON_BLOCK`, `BlockedReplyOnBlock` |
 | Utilities | `base64ToBytes`, `bytesToBase64`, `isRecord`, `Equals` (compile-time type equality, for exact-shape checks) |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
-| Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `resolveKeySlot`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
-| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn`, `turnShortfalls`, `TurnShortfall` |
+| Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
 | Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
-| Turn events | `TurnEvent`, `TurnEventOf`, `TurnEventType`, `ProviderEvent`, `CallDone`, `DoneFields`, `SessionEvent`, `SessionEventOf`, `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `turnDoneOf`, `keptReply`, `AttemptReason`, `InvalidField`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) |
+| Turn events | `TurnEvent`, `TurnEventOf`, `TurnEventType`, `CallDone`, `DoneFields`, `SessionEvent`, `SessionEventOf`, `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `reasoningPartSchema`, `historyHash`, `turnDoneOf`, `keptReply`, `AttemptReason`, `InvalidField`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) |
 | Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `argumentsSoFar`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 
@@ -1651,9 +1752,7 @@ offered one.
       "supports": [
         { "kind": "source", "path": "src/kernel/engine/compaction.ts" },
         { "kind": "source", "path": "src/kernel/engine/token-estimate.ts" },
-        { "kind": "source", "path": "src/kernel/engine/media-probe" },
         { "kind": "contract_test", "path": "tests/kernel/token-estimate.test.ts" },
-        { "kind": "contract_test", "path": "tests/kernel/media-probe.test.ts" },
         { "kind": "contract_test", "path": "tests/kernel/compaction.test.ts" }
       ]
     },

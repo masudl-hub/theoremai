@@ -60,7 +60,7 @@ Deno.test('a builtin that is not registered, or is registered as something else,
   );
 });
 
-Deno.test('the kernel request omits vendor continuation and option fields', () => {
+Deno.test('the kernel request omits vendor continuation, option and key fields', () => {
   const generation = {
     model: 'm',
     apiId: 'a',
@@ -88,10 +88,8 @@ Deno.test('the kernel request omits vendor continuation and option fields', () =
     fallbackKeySlot: 'fk',
   };
   const tools = { get: () => undefined } as never;
-  const request = (over: object) =>
-    providerCompleteRequest(tools, { ...generation, ...over } as never, 'sys');
   check(
-    request({}),
+    providerCompleteRequest(tools, generation as never, 'sys'),
     {
       model: 'm',
       apiId: 'a',
@@ -110,16 +108,9 @@ Deno.test('the kernel request omits vendor continuation and option fields', () =
       image: 'im',
       speech: 'sp',
       live: 'lv',
-      keySlot: 'k',
-      fallbackKeySlot: 'fk',
     },
-    'interactions',
+    'request',
   );
-  const other = request({ transport: 'generateContent' }) as unknown as Record<string, unknown>;
-  for (const field of ['previousInteractionId', 'store', 'continuation']) {
-    check(other[field], undefined, `${field} off the interactions transport`);
-  }
-  check(other.model, 'm', 'the rest still goes');
 });
 
 Deno.test('a structured schema is registered once by id, refuses enforced and non-objects, and an unknown id says so', () => {

@@ -3,7 +3,7 @@ import { cwd } from 'node:process';
 import type { z } from 'zod';
 import { TheoremError } from '../guardrails/error.ts';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
-import type { ProviderHostOptions } from '../kernel/provider-contract.ts';
+import type { ProviderHostOptions } from '../kernel/protocols/runtime.ts';
 import type { StageHandler } from '../kernel/stages.ts';
 import { isRecord } from '../kernel/util/record.ts';
 import { type TraceRecord, traceRecordSchema } from '../observability/trace-schema.ts';

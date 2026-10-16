@@ -69,14 +69,18 @@ export function retryAfterMs(headers: Headers, now = Date.now()): number | undef
 /**
  * Retries a transient status (408, 429, 5xx gateway) or a network failure while the waits stay
  * within five seconds in all. Each wait is the response's `Retry-After` when it gives one, else
- * 1s, 2s, 4s then 8s; a wait that would pass the five seconds is not taken, and the last answer or
- * error goes back as it came. An abort ends the wait.
+ * 1s, 2s, 4s then 8s; a wait that would pass the five seconds, or the call's own time left, is not
+ * taken, and the last answer or error goes back as it came. An abort ends the wait.
  */
-export function retryTransient(send: typeof fetch, wait: Wait = waitDefault): typeof fetch {
+export function retryTransient(
+  send: typeof fetch,
+  wait: Wait = waitDefault,
+  timeLeft: () => number = () => Number.POSITIVE_INFINITY,
+): typeof fetch {
   return async (url, init) => {
     let waited = 0;
     for (let attempt = 0; ; attempt++) {
-      const left = WAIT_BUDGET_MS - waited;
+      const left = Math.min(WAIT_BUDGET_MS - waited, timeLeft());
       let delay: number;
       try {
         const res = await send(url, init);

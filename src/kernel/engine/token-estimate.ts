@@ -1,30 +1,13 @@
 /**
- * Text counts use a characters / 4 heuristic for all model families. Media is
- * counted only by a rule the family's billed usage was measured to follow; a family without one
- * reports media as `unknownMedia`, never a borrowed rate.
- *
- * The rules themselves are a provider's facts: each lives in that provider's preset, and the
- * estimator asks for the one that covers a binding.
+ * Text counts use a characters / 4 heuristic for all model families. Media is never estimated: a
+ * media part is reported as `unknownMedia`, and the upstream's own count is used when it gives one.
  */
 
-import { PROVIDER_FACTS } from '../../presets/facts.ts';
 import { historyMessageParts } from '../interaction-parts.ts';
-import type { Provider } from '../schema.ts';
 import type { InteractionPart, TurnHistoryMessage } from '../types.ts';
 
 /** Text estimation method; retained under this name for API compatibility. */
 export const TOKEN_TEXT_ENCODING = 'chars/4';
-
-/** A media file to count: its MIME type and either inline base64 `data` or a `uri`. */
-export type MediaPayload = { mimeType: string; data: string } | { mimeType: string; uri: string };
-
-/** A model family whose billed media usage follows a measured rule. */
-export interface MediaTokenFamily {
-  /** The family's name, such as `gemini-3`. */
-  name: string;
-  /** Token count of one media payload by the family's rule, or `undefined` when it covers none. */
-  media: (payload: MediaPayload, text: (value: string) => number) => Promise<number | undefined>;
-}
 
 /** A token count and the number of media parts left out of it. */
 export interface TokenCount {
@@ -37,51 +20,28 @@ export interface TokenCount {
 export interface TokenEstimator {
   /** Approximate tokens: UTF-16 code units divided by four, rounded up. */
   text: (text: string) => number;
-  /** Token count of one media payload, or `undefined` when unknown. */
-  media: (
-    payload: MediaPayload,
-    family: MediaTokenFamily | undefined,
-  ) => Promise<number | undefined>;
-  parts: (parts: InteractionPart[], family: MediaTokenFamily | undefined) => Promise<TokenCount>;
+  parts: (parts: InteractionPart[]) => TokenCount;
   /** Content, parts, and tool-call arguments across history messages. */
-  messages: (
-    messages: TurnHistoryMessage[],
-    family: MediaTokenFamily | undefined,
-  ) => Promise<TokenCount>;
-}
-
-/**
- * Media family for a model binding — `undefined` when no verified rule covers
- * it. A provider that routes to another's models answers with the routed model's family.
- */
-export function mediaTokenFamily(binding: {
-  provider: Provider;
-  apiId: string;
-}): MediaTokenFamily | undefined {
-  return PROVIDER_FACTS[binding.provider]?.mediaFamily?.(binding.apiId);
+  messages: (messages: TurnHistoryMessage[]) => TokenCount;
 }
 
 function buildEstimator(): TokenEstimator {
   const text = (value: string): number => Math.ceil(value.length / 4);
-  const media: TokenEstimator['media'] = async (payload, family) =>
-    family ? await family.media(payload, text) : undefined;
-  const parts: TokenEstimator['parts'] = async (list, family) => {
+  const parts: TokenEstimator['parts'] = (list) => {
     const count: TokenCount = { tokens: 0, unknownMedia: 0 };
     for (const part of list) {
       if (part.type === 'text') {
         count.tokens += text(part.text);
         continue;
       }
-      const n = await media(part, family);
-      if (n === undefined) count.unknownMedia += 1;
-      else count.tokens += n;
+      count.unknownMedia += 1;
     }
     return count;
   };
-  const messages: TokenEstimator['messages'] = async (list, family) => {
+  const messages: TokenEstimator['messages'] = (list) => {
     const count: TokenCount = { tokens: 0, unknownMedia: 0 };
     for (const msg of list) {
-      const fromParts = await parts(historyMessageParts(msg), family);
+      const fromParts = parts(historyMessageParts(msg));
       count.tokens += fromParts.tokens;
       count.unknownMedia += fromParts.unknownMedia;
       for (const tc of msg.tool_calls ?? []) {
@@ -90,7 +50,7 @@ function buildEstimator(): TokenEstimator {
     }
     return count;
   };
-  return { text, media, parts, messages };
+  return { text, parts, messages };
 }
 
 /** Returns the heuristic estimator; async for compatibility with existing callers. */

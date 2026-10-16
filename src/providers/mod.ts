@@ -1,72 +1,77 @@
-/** Registered model adapters and transport helpers.
+/**
+ * Protocols, providers, and what it takes to define either: a protocol owns the wire, a provider is
+ * where a service is and how to sign in to it.
  * @module
  */
 
 export type {
-  CapabilitySupport,
+  ProviderCheckpoint,
+  ProviderContinuationPolicy,
+  ProviderWarning,
+} from '../kernel/checkpoint.ts';
+export type { JsonObject, JsonValue } from '../kernel/json.ts';
+export { jsonObjectSchema, jsonValueSchema } from '../kernel/json.ts';
+export type { DecisionModelBinding, ModelBinding } from '../kernel/protocols/binding.ts';
+export type { ProviderLimits } from '../kernel/protocols/limits.ts';
+export type { ModelPrice, PriceTable, Rates } from '../kernel/protocols/prices.ts';
+export type {
+  Continuation,
+  DecisionCall,
+  EmbeddingCall,
+  ExtensionBodyAt,
+  ExtensionReader,
+  LiveToolResult,
+  ModelProfileType,
+  Protocol,
+  ProtocolContentEvent,
+  ProtocolContext,
+  ProtocolDefinition,
+  ProtocolEvent,
+  ProtocolExtension,
+  ProtocolOperations,
+  ProtocolRequest,
+  ProtocolSession,
+  ProtocolSocket,
+  SendInit,
+  UpstreamFailure,
+} from '../kernel/protocols/protocol.ts';
+export { carriesTo, defineProtocol, extendProtocol } from '../kernel/protocols/protocol.ts';
+export type {
+  Authorize,
+  Outgoing,
+  Provider,
+  ProviderDefinition,
+  ProviderRegistry,
+  RegisteredProvider,
+  Registration,
+  Serve,
+  Signer,
+} from '../kernel/protocols/provider.ts';
+export {
+  bearer,
+  createProviderRegistry,
+  defineProvider,
+  endpointUrlSchema,
+  header,
+  query,
+} from '../kernel/protocols/provider.ts';
+export type { OpenWebSocket, ProviderHostOptions } from '../kernel/protocols/runtime.ts';
+export type {
   CredentialContext,
   CredentialResolver,
-  DeclarableFeature,
-  DeclaredSupport,
-  DefinedProvider,
-  JsonObject,
-  JsonValue,
-  ModelSupport,
-  OpenProviderWebSocket,
-  ProviderAdapter,
-  ProviderBuiltinSpec,
-  ProviderCapabilities,
-  ProviderCheckpoint,
-  ProviderContentEvent,
-  ProviderContext,
-  ProviderContinuationPolicy,
-  ProviderCredential,
-  ProviderDecisionRequest,
-  ProviderDefinition,
-  ProviderHostOptions,
-  ProviderLimits,
-  ProviderLiveConnection,
-  ProviderModelEvent,
-  ProviderModelSettings,
-  ProviderOperations,
-  ProviderRegistry,
-  ProviderRequest,
-  ProviderSessionRequest,
-  ProviderToolResult,
-  ProviderTurnRequest,
-  ProviderVault,
-  ProviderWait,
-  ProviderWarning,
-  RegisteredProvider,
-  ResolvedProviderModel,
-} from '../kernel/provider-contract.ts';
-export {
-  commonModelSettingsSchema,
-  createProviderRegistry,
-  DECLARABLE_FEATURES,
-  decisionModelBindingSchema,
-  declaredSupportSchema,
-  defineProvider,
-  jsonObjectSchema,
-  jsonValueSchema,
-  keySlotSchema,
-  modelBindingSchema,
-  providerCapabilitiesSchema,
-  providerCheckpointSchema,
-  providerContinuationSchema,
-  providerLimitsSchema,
-  providerWarningSchema,
-  resolveProviderLimits,
-} from '../kernel/provider-contract.ts';
-export type { KeyVault } from '../kernel/types.ts';
-export {
-  googleAdapter,
-  openAIChat,
-  openRouterAdapter,
-  translateProviderEvent,
-  typesafeAdapter,
-} from './adapters.ts';
-export { isTransientHttp, isTransientThrown, retryTransient, waitDefault } from './shared/retry.ts';
-export { parseSseStream, readSseChunks } from './shared/sse.ts';
-export { historyToolArguments, parseToolArgumentsObject } from './shared/tool-args.ts';
-export { networkFetch, tapeHeaders, tapFetch } from './shared/upstream-tap.ts';
+  KeyCredential,
+  KeyVault,
+} from '../kernel/registry/vault.ts';
+export { geminiEmbedding } from './gemini/embedding-protocol.ts';
+export { geminiInteractions } from './gemini/interactions-protocol.ts';
+export { geminiLive } from './gemini/live-protocol.ts';
+export { geminiProvider } from './gemini/provider.ts';
+export { ollamaEmbedding } from './local/embedding-protocol.ts';
+export { localProvider } from './local/provider.ts';
+export { openAi } from './open-ai/protocol.ts';
+export { openRouterEmbedding } from './openrouter/embedding-protocol.ts';
+export { openRouterImages } from './openrouter/images-protocol.ts';
+export { openRouter } from './openrouter/protocol.ts';
+export { openRouterProvider } from './openrouter/provider.ts';
+export { systemOne } from './system-one/protocol.ts';
+export { typesafeProvider } from './typesafe/provider.ts';

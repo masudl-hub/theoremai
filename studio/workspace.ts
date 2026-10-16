@@ -1074,8 +1074,7 @@ export function providerUse(workspace: StudioWorkspace, id: string): { models: n
 
 /**
  * Who else calls the model `apiId` on the provider `id`, besides the model `bindingKey` of the
- * agent `agentKey`: that agent's other models, by id, and the other agents, by name. What the
- * provider says the model takes is the same for each of them.
+ * agent `agentKey`: that agent's other models, by id, and the other agents, by name.
  */
 export function modelSharers(
   workspace: Pick<StudioWorkspace, 'agents'>,
@@ -1094,9 +1093,9 @@ export function modelSharers(
   };
 }
 
-/** A provider on `adapter` under the first free id: what the + beside a provider picker adds. */
-export function newProvider(taken: Iterable<string>, adapter: string): StudioProvider {
-  return { id: freeName('provider', taken, (n) => `provider_${n}`), adapter, connection: {} };
+/** A provider from the kernel definition `definition` under the first free id: what the + beside a provider picker adds. */
+export function newProvider(taken: Iterable<string>, definition: string): StudioProvider {
+  return { id: freeName('provider', taken, (n) => `provider_${n}`), definition, connection: {} };
 }
 
 /** Adds a provider for every agent's models to pick, and opens it. One whose id is taken changes nothing. */

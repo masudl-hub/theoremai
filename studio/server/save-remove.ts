@@ -12,6 +12,7 @@ import {
   isRead,
   type ProjectSource,
   propertyName,
+  type SourceTarget,
   questionsExport,
   sourceOf,
   unwrapped,
@@ -243,12 +244,13 @@ class Removal {
   }
 
   /**
-   * Takes out a profile or a provider that `register` registers: the statement that registers it
-   * where it is written, or its named definition and each statement that registers the name.
-   * True when it went; a way of registering the studio cannot follow is noted instead.
+   * Takes out a profile `register` registers: the statement that registers it where it is written,
+   * or its named definition and each statement that registers the name. True when it went; a way of
+   * registering the studio cannot follow is noted instead.
    */
-  private defined(kind: 'profile' | 'provider', id: string, register: string): boolean {
-    const targets = (kind === 'profile' ? this.project.profiles : this.project.providers).get(id) ?? [];
+  private defined(id: string, register: string): boolean {
+    const kind = 'profile' as const;
+    const targets = this.project.profiles.get(id) ?? [];
     const [target] = targets;
     const unfollowed = (place?: { node: ts.Node; source: ts.SourceFile }) => {
       this.note(kind, id, 'removed', place);
@@ -272,11 +274,12 @@ class Removal {
   }
 
   profile(id: string) {
-    if (this.defined('profile', id, 'registerProfile')) this.unasked(id);
+    if (this.defined(id, 'registerProfile')) this.unasked(id);
   }
 
   provider(id: string) {
-    this.defined('provider', id, 'registerProvider');
+    // Registered under a name, it goes with each statement that reads the name.
+    this.registration('provider', id, this.project.providers, (target) => wrapped(target.options).parent);
   }
 
   /** A removed decision's entry in the setup's `questions`, under its id. */
@@ -291,24 +294,36 @@ class Removal {
   }
 
   tool(name: string) {
-    const targets = this.project.tools.get(name) ?? [];
+    // Written as a constant: it goes with each statement that registers it.
+    this.registration('tool', name, this.project.tools, (target) => target.options);
+  }
+
+  /**
+   * Takes out the call that registers a tool or a provider. A function that only makes the call
+   * goes with its calls; one nothing here calls is the setup's own, and keeps its name. A call that
+   * is not a statement of its own goes with the name `named` gives it, and each statement that reads it.
+   */
+  private registration(
+    kind: 'tool' | 'provider',
+    id: string,
+    held: Map<string, SourceTarget[]>,
+    named: (target: SourceTarget) => ts.Node,
+  ) {
+    const targets = held.get(id) ?? [];
     const [target] = targets;
-    if (!target) return this.note('tool', name, 'removed');
+    if (!target) return this.note(kind, id, 'removed');
     const at = { node: target.options, source: target.source };
-    if (targets.length > 1) return this.note('tool', name, 'removed', at);
+    if (targets.length > 1) return this.note(kind, id, 'removed', at);
     const statement = statementOf(wrapped(target.options).parent);
     if (statement) {
-      // A function that only registers this tool goes with its calls. One nothing here calls is the
-      // setup's own, and keeps its name.
       const register = wholeBodyOf(statement, target.source);
       if (!register || !this.named(register)) this.cut.set(statement, target.source);
     } else {
-      // Written as a constant: it goes with each statement that registers it.
-      const named = declared(target.options, target.source);
-      if (!named || !this.named(named)) return this.note('tool', name, 'removed', at);
+      const name = declared(named(target), target.source);
+      if (!name || !this.named(name)) return this.note(kind, id, 'removed', at);
     }
     this.homes.add(target.source);
-    this.note('tool', name, 'written', at);
+    this.note(kind, id, 'written', at);
   }
 
   private within(part: Part): boolean {

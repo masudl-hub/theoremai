@@ -5,18 +5,15 @@
 import {
   createKernelScope,
   defineProfile,
+  defineProtocol,
   defineProvider,
-  googleAdapter,
   type KernelScope,
-  openAIChat,
-  openRouterAdapter,
   type Profile,
   type ProfileDefinition,
-  type ProviderDefinition,
+  type Provider,
   type ResolveHost,
   TheoremError,
   type ToolExecutionCoordinator,
-  typesafeAdapter,
 } from '@theoremjs/agents';
 import {
   type DetectSpec,
@@ -27,33 +24,33 @@ import {
 import type {
   AgentCall,
   AgentCallHook,
-  ModelProvider,
+  ModelEvent,
+  ModelRequest,
+  ProtocolEvent,
   ProviderHostOptions,
+  TurnModel,
 } from '@theoremjs/agents/kernel';
-import { translateProviderEvent } from '@theoremjs/agents/providers';
+import { z } from 'zod';
 export interface StudioProviderOptions extends ProviderHostOptions {
-  gemini?: {
-    fetch?: typeof fetch;
-    wait?: (ms: number, signal?: AbortSignal | null) => Promise<void>;
-  };
-  openAiGateway?: { baseUrl?: string; siteUrl?: string; siteName?: string; fetch?: typeof fetch };
   local?: { baseUrl: string; fetch?: typeof fetch };
 }
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
 import { lentCompression, type StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
-import { EVERY_MEDIA_KIND, localProviderAddress, standInAdapter } from './providers.ts';
+import { localProviderAddress, registerStudioProvider, STUDIO_PROVIDERS } from './providers.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { registerStudioTools, type StudioToolHandlers } from './tools.ts';
 
 /** What a run holds besides what it runs on. */
 export interface StudioRuntimeBase {
-  providerDefinitions?: readonly ProviderDefinition[];
+  /** A project's own provider definitions, registered after the studio's. */
+  providerDefinitions?: readonly Provider[];
   execution?: ToolExecutionCoordinator;
   pageExecution?: import('@theoremjs/agents').PageToolExecution;
   providers?: StudioProviderOptions;
   hostOptions?: (profile: Profile, model?: string) => ProviderHostOptions;
-  provider?: (profile: Profile, model?: string) => ModelProvider;
+  /** Answers every model call with a scripted model, in place of the profile's provider. */
+  provider?: (profile: Profile, model?: string) => TurnModel;
   resolveHost?: ResolveHost;
   remoteTools?: boolean;
   /** Handlers the host runs for function tools, by name. A tool with none answers with its stub. */
@@ -65,62 +62,65 @@ export interface StudioRuntimeBase {
 /** A run, and what it runs on: a run on lent keys carries the keys it is held to. */
 export type StudioRuntime = StudioRuntimeBase & StudioRunsOn;
 
-/** The provider a profile's turn runs on: the runtime's own, or one from its vault. */
+/** The protocol event a scripted model's event stands for. */
+function protocolEvent(event: ModelEvent): ProtocolEvent {
+  if (event.type === 'tool') return { type: 'tool_call', call: event.tool } as ProtocolEvent;
+  if (event.type === 'done') {
+    return { type: 'done', stop: event.stop, ...(event.interrupted ? { interrupted: true } : {}) } as ProtocolEvent;
+  }
+  return event as ProtocolEvent;
+}
+
+/** A provider whose one protocol answers every call with `model`, sending nothing. */
+function scriptedProvider(id: string, protocolId: string, model: TurnModel): Provider {
+  const protocol = defineProtocol({
+    id: protocolId,
+    name: 'Scripted',
+    description: 'Answers with the events a scripted model gives.',
+    endpoints: { text: '/', image: '/', speech: '/' },
+    options: z.record(z.string(), z.json()),
+    create: (context) => ({
+      async *complete(request) {
+        let done = false;
+        // why: a scripted model writes whatever built-ins the binding names.
+        for await (const event of model.complete({ ...request, builtInTools: context.builtInTools } as unknown as ModelRequest)) {
+          if (event.type === 'done') done = true;
+          yield protocolEvent(event);
+        }
+        if (!done) yield { type: 'done', stop: { kind: 'completed' } };
+      },
+    }),
+  });
+  return defineProvider({
+    id,
+    name: 'Scripted',
+    description: 'Answers with a scripted model.',
+    serves: () => [{ protocol, baseUrl: 'https://scripted.invalid' }],
+  }) as Provider;
+}
+
+/**
+ * The host options a profile's turn runs with. A runtime with a scripted model registers it as a
+ * provider of its own and binds the profile's model to it.
+ */
 export function runtimeProvider(
   runtime: StudioRuntime,
   scope: KernelScope,
   profile: Profile,
   model?: string,
 ): ProviderHostOptions {
-  const mock = runtime.provider?.(profile, model);
-  if (mock && profile.type !== 'host') {
+  const scripted = runtime.provider?.(profile, model);
+  if (scripted && profile.type !== 'host') {
     const selected =
       model ?? ('defaultModel' in profile ? profile.defaultModel : Object.keys(profile.models)[0]);
     const binding = profile.models[selected];
-    const id = `demo:${profile.id}`;
-    scope.providers.register(
-      defineProvider({
-        id,
-        connection: {},
-        adapter: {
-          ...standInAdapter('studio-script'),
-          capabilities: () => ({
-            profileTypes: ['text', 'image', 'speech'],
-            features: {
-              streaming: 'supported',
-              clientTools: 'supported',
-              parallelTools: 'supported',
-              structuredOutput: 'supported',
-              thinking: 'supported',
-              summaries: 'supported',
-              storedContinuation: 'unsupported',
-            },
-            ...EVERY_MEDIA_KIND,
-            builtins: ['googleSearch', 'googleMaps', 'urlContext', 'codeExecution'],
-          }),
-          create(): Promise<import('@theoremjs/agents').ProviderOperations> {
-            return Promise.resolve().then(() => {
-              return {
-                async *complete(request) {
-                  let done = false;
-                  for await (const event of mock.complete(request)) {
-                    const converted = translateProviderEvent(event);
-                    if (converted) {
-                      if (converted.type === 'done') done = true;
-                      yield converted;
-                    }
-                  }
-                  if (!done) yield { type: 'done', stop: { kind: 'completed' } };
-                },
-              };
-            });
-          },
-        },
-      }),
-    );
+    const id = `scripted-${profile.id.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+    // why: a protocol id is letters and digits only; a provider id may hold hyphens.
+    const protocol = id.replaceAll('-', '');
+    scope.providers.replace(scriptedProvider(id, protocol, scripted));
     scope.profiles.register({
       ...profile,
-      models: { ...profile.models, [selected]: { ...binding, provider: id } },
+      models: { ...profile.models, [selected]: { ...binding, protocol, provider: id, options: {}, keySlot: undefined, fallbackKeySlot: undefined } },
     } as Profile);
   }
   const options = runtime.providers ?? {};
@@ -128,43 +128,21 @@ export function runtimeProvider(
   return {
     ...host,
     vault: host.vault ?? options.vault,
-    fetch:
-      host.fetch ??
-      options.fetch ??
-      options.gemini?.fetch ??
-      options.openAiGateway?.fetch ??
-      options.local?.fetch,
-    wait: host.wait ?? options.wait ?? options.gemini?.wait,
+    fetch: host.fetch ?? options.fetch ?? options.local?.fetch,
+    wait: host.wait ?? options.wait,
   };
 }
+/** The studio's providers, the local one at the runtime's address, then the project's own. */
 function registerRuntimeProviders(scope: KernelScope, runtime?: StudioRuntime) {
-  const options = runtime?.providers;
-  scope.providers.register(
-    defineProvider({ id: 'google', connection: {}, adapter: googleAdapter() }),
-  );
-  scope.providers.register(
-    defineProvider({
-      id: 'openrouter',
-      connection: Object.fromEntries(
-        Object.entries({
-          baseURL: options?.openAiGateway?.baseUrl,
-          siteUrl: options?.openAiGateway?.siteUrl,
-          siteName: options?.openAiGateway?.siteName,
-        }).filter(([, value]) => value !== undefined),
-      ),
-      adapter: openRouterAdapter(),
-    }),
-  );
-  scope.providers.register(
-    defineProvider({ id: 'typesafe', connection: {}, adapter: typesafeAdapter() }),
-  );
-  scope.providers.register(
-    defineProvider({
-      id: 'local',
-      connection: { baseURL: localProviderAddress(options?.local?.baseUrl) },
-      adapter: openAIChat(),
-    }),
-  );
+  const local = runtime?.providers?.local?.baseUrl;
+  for (const provider of STUDIO_PROVIDERS) {
+    registerStudioProvider(
+      scope.providers,
+      provider.definition === 'local' && local
+        ? { ...provider, connection: { baseUrl: localProviderAddress(local) } }
+        : provider,
+    );
+  }
   for (const definition of runtime?.providerDefinitions ?? []) scope.providers.register(definition);
 }
 
@@ -255,13 +233,8 @@ function runtimeProfileDefinition(
   def: ProfileDefinition,
   runtime: StudioRuntime,
 ): ProfileDefinition {
-  // Preserve narrowed guardrail types (speech forbids canaries; decisions have their own policy).
-  if (def.type === 'speech') {
-    return {
-      ...def,
-      guardrails: withHeldTaint(runtimeGuardrails(def.guardrails ?? {}, runtime), runtime),
-    };
-  }
+  // A speech, decision or embedding profile calls no tools: no network or taint hold governs it.
+  if (def.type === 'speech' || def.type === 'decision' || def.type === 'embedding') return def;
   // A host runs one tool per call, so a turn never reads before it acts; the kernel refuses taint there.
   if (def.type === 'host') {
     return {
@@ -269,7 +242,6 @@ function runtimeProfileDefinition(
       guardrails: runtimeGuardrails(def.guardrails ?? {}, runtime),
     };
   }
-  if (def.type === 'decision') return def;
   return {
     ...withLentCompression(def, runtime),
     guardrails: withHeldTaint(runtimeGuardrails(def.guardrails ?? {}, runtime), runtime),
@@ -379,8 +351,10 @@ async function registerDraft(
     for (const binding of Object.values(defined.models)) {
       const violation = modelBindingViolation(
         {
+          profileType: defined.type,
+          protocol: binding.protocol,
           provider: binding.provider,
-          adapter: scope.providers.require(binding.provider).adapter.id,
+          definition: scope.providers.require(binding.provider, binding.apiId).definition.id,
           apiId: binding.apiId,
           decision: defined.type === 'decision',
           builtInTools: 'builtInTools' in binding ? (binding.builtInTools ?? []) : [],

@@ -1,64 +1,125 @@
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
+import type { JsonObject, JsonValue } from '../json.ts';
+import type { ProfileType } from '../schema.ts';
+import type { ReasoningOrigin, ToolCallRequest } from '../turn-events.ts';
 import type {
-  JsonObject,
-  JsonValue,
-  ProviderDecisionRequest,
-  ProviderLimits,
-  ProviderLiveConnection,
-  ProviderModelEvent,
-  ProviderTurnRequest,
-} from '../provider-contract.ts';
-import type { ToolCallRequest } from '../turn-events.ts';
-import type { DecisionResult, TurnHistoryMessage } from '../types.ts';
+  DecisionRequest,
+  DecisionResult,
+  EmbeddingInput,
+  EmbeddingResult,
+  InteractionPart,
+  ModelRequest,
+  TurnContext,
+  TurnEvent,
+  TurnHistoryMessage,
+  TurnResponse,
+  TurnStop,
+} from '../types.ts';
+import type { ProviderLimits } from './limits.ts';
 
-/** The kinds of profile a protocol can serve, each at its own endpoint. */
-const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'decision'] as const;
-export type ProfileType = (typeof PROFILE_TYPES)[number];
+/** The kinds of profile a protocol can serve, each at its own endpoint: every type but `host`. */
+const MODEL_PROFILE_TYPES = [
+  'text',
+  'image',
+  'speech',
+  'live',
+  'decision',
+  'embedding',
+] as const satisfies readonly Exclude<ProfileType, 'host'>[];
+export type ModelProfileType = (typeof MODEL_PROFILE_TYPES)[number];
 
-/** Where a piece of signed reasoning came from. `protocol` decides where it may go back to. */
-export interface ReasoningOrigin {
-  protocol: string;
-  provider?: string;
-  apiId?: string;
-}
+/** The turn events a protocol yields as they are. */
+export type ProtocolContentEvent = Extract<
+  TurnEvent,
+  {
+    type:
+      | 'text'
+      | 'thought'
+      | 'structured'
+      | 'media'
+      | 'grounding'
+      | 'citation'
+      | 'evidence'
+      | 'tokens'
+      | 'session'
+      | 'tool_draft'
+      | 'error';
+  }
+>;
 
 /**
- * What a protocol streams back: today's model events, plus reasoning it must get back word for
- * word, content with no common shape, and (opted in) the wire rows themselves.
- * A protocol writes `custom.kind` and `extras` in its own terms; the kernel keys them by its id.
+ * What a protocol streams back: the model's events, reasoning it must get back word for word,
+ * content with no common shape, and (opted in) the wire rows themselves. A protocol writes
+ * `custom.kind` in its own terms; the kernel sets reasoning's origin and mints call ids.
  */
 export type ProtocolEvent<S = unknown> =
-  | (Exclude<ProviderModelEvent<S>, { type: 'tool_call' }> & { extras?: JsonObject })
-  | { type: 'tool_call'; call: ToolCallRequest & { wireCallId?: string }; extras?: JsonObject }
+  | ProtocolContentEvent
+  | { type: 'tool_call'; call: ToolCallRequest & { wireCallId?: string } }
+  | { type: 'tool_cancel'; callId: string }
+  | { type: 'response'; response: TurnResponse }
+  | { type: 'done'; stop: TurnStop; interrupted?: boolean; state?: S }
   | { type: 'reasoning'; text?: string; data: JsonValue; origin?: ReasoningOrigin }
   | { type: 'custom'; kind: string; data: JsonObject }
   | { type: 'raw'; row: JsonObject };
 
-/** Signed reasoning on an assistant message, kept word for word for the protocol that wrote it. */
-export interface ReasoningPart {
-  text?: string;
-  data: JsonValue;
-  origin: ReasoningOrigin;
+/**
+ * One turn as a protocol gets it: the kernel's request without what only the kernel uses (the
+ * checkpoint, the upstream tap), and the protocol's own saved state, if it is reused.
+ */
+export type ProtocolRequest<S = unknown> = Omit<ModelRequest, 'providerState' | 'tapUpstream'> & {
+  state?: S;
+  /** How much of `history` the reused state already holds. */
+  stateHistoryLength?: number;
+};
+
+export type DecisionCall = Pick<DecisionRequest, 'state' | 'questions'> & {
+  apiId: string;
+  signal?: AbortSignal;
+};
+
+/** One embedding request after profile resolution, before provider serialization. */
+export type EmbeddingCall = {
+  apiId: string;
+  input: EmbeddingInput | readonly EmbeddingInput[];
+  options?: JsonObject;
+  signal?: AbortSignal;
+};
+
+export type { EmbeddingResult };
+
+/** A tool's result, sent back into a live session. */
+export interface LiveToolResult {
+  callId: string;
+  name: string;
+  text: string;
+  parts?: InteractionPart[];
 }
 
-/** A history message; an assistant one may carry the reasoning written with it. */
-export type HistoryMessage = TurnHistoryMessage & { reasoning?: readonly ReasoningPart[] };
-
-export type TurnRequest<S = unknown> = Omit<ProviderTurnRequest<S>, 'history'> & {
-  history?: HistoryMessage[];
-};
-export type DecisionCall = ProviderDecisionRequest;
-
 /** A live session, as a protocol hands it back. */
-export interface LiveSession<S = unknown> extends Omit<ProviderLiveConnection<S>, 'events'> {
+export interface ProtocolSession<S = unknown> {
+  closeInfo?():
+    | {
+        code: number;
+        reason: string;
+        error?: Error;
+        warning?: { timeLeftMs?: number; closedAfterMs: number };
+      }
+    | undefined;
   events(): AsyncIterable<ProtocolEvent<S>>;
+  sendText(text: string): Promise<void>;
+  sendAudio(media: { data: string; mimeType: string }): Promise<void>;
+  sendVideo(media: { data: string; mimeType: string }): Promise<void>;
+  sendContext(context: TurnContext): Promise<void>;
+  sendToolResult(result: LiveToolResult): Promise<void>;
+  close(reason?: string): Promise<void>;
 }
 
 /** One open WebSocket: frames out and in are JSON objects. */
 export interface ProtocolSocket {
-  send(frame: JsonObject): void;
+  /** `input` is what the frame gives the model to read, for the trace; setup and control frames give none. */
+  send(frame: JsonObject, input?: readonly TurnHistoryMessage[]): void;
   frames(): AsyncIterable<JsonObject>;
   close(code?: number, reason?: string): void;
 }
@@ -74,7 +135,7 @@ export interface SendInit {
 
 /** What the kernel hands a protocol for one call. It never holds a key, a slot or a base URL. */
 export interface ProtocolContext<O = unknown> {
-  profileType: ProfileType;
+  profileType: ModelProfileType;
   apiId: string;
   options: O;
   /** The binding's `builtInTools`, for the protocol to write. */
@@ -88,15 +149,11 @@ export interface ProtocolContext<O = unknown> {
   tapUpstream(row: JsonObject): void;
 }
 
-/** A decision's result; a cost Theorem worked out from prices is marked `estimated`. */
-export type PricedDecision = Omit<DecisionResult, 'usage'> & {
-  usage?: NonNullable<DecisionResult['usage']> & { estimated?: true };
-};
-
 export interface ProtocolOperations<S = unknown> {
-  complete?(request: TurnRequest<S>): AsyncIterable<ProtocolEvent<S>>;
-  openSession?(request: TurnRequest<S>): Promise<LiveSession<S>>;
+  complete?(request: ProtocolRequest<S>): AsyncIterable<ProtocolEvent<S>>;
+  openSession?(request: ProtocolRequest<S>): Promise<ProtocolSession<S>>;
   decide?(request: DecisionCall): Promise<DecisionResult>;
+  embed?(request: EmbeddingCall): Promise<EmbeddingResult>;
 }
 
 /** An upstream answer that was not a success, for the protocol to type. */
@@ -121,14 +178,12 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
   /** One sentence, for the studio and docs. */
   description: string;
   /** The path each profile type uses. A type with no entry is not served. */
-  endpoints: Partial<Record<ProfileType, string>>;
+  endpoints: Partial<Record<ModelProfileType, string>>;
   /** Every field a binding may set, each described. */
   options: z.ZodType<O>;
   continuation?: Continuation<S>;
   /** The `data` of the reasoning parts it writes. */
   reasoning?: z.ZodType<JsonValue>;
-  /** What it attaches to transcript parts. */
-  extras?: z.ZodType<JsonObject>;
   /** Content it emits that has no common shape, by kind. */
   custom?: Readonly<Record<string, z.ZodType<JsonObject>>>;
   /**
@@ -138,8 +193,6 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
   framing?(response: Response, stream: boolean): AsyncIterable<JsonObject>;
   /** Types a failed answer. Absent: the kind follows the HTTP status. */
   error?(failure: UpstreamFailure): TheoremError;
-  /** Rewrites Theorem's tool-call ids for a wire with its own rules. */
-  callId?: { out(id: string): string; in(wireId: string): string };
   create(context: ProtocolContext<O>): ProtocolOperations<S>;
 }
 
@@ -155,7 +208,7 @@ const definitionShape = z.object({
   id: z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/),
   name: z.string().min(1),
   description: z.string().min(1),
-  endpoints: z.partialRecord(z.enum(PROFILE_TYPES), z.string().min(1)),
+  endpoints: z.partialRecord(z.enum(MODEL_PROFILE_TYPES), z.string().min(1)),
 });
 
 function refuse(id: string, issues: string): TheoremError {
@@ -190,11 +243,11 @@ function own<T>(
   return parsed.data;
 }
 
-type Writer = Pick<ProtocolDefinition, 'id' | 'reasoning' | 'extras' | 'custom'>;
+type Writer = Pick<ProtocolDefinition, 'id' | 'reasoning' | 'custom'>;
 
 /**
  * Marks an event a protocol wrote as its own: reasoning gets its origin, a custom kind its
- * protocol prefix, extras their key. Each is checked against the writer's schema.
+ * protocol prefix. Each is checked against the writer's schema.
  */
 function stamp<S>(writer: Writer, event: ProtocolEvent<S>): ProtocolEvent<S> {
   if (event.type === 'reasoning')
@@ -209,10 +262,6 @@ function stamp<S>(writer: Writer, event: ProtocolEvent<S>): ProtocolEvent<S> {
       kind: `${writer.id}.${event.kind}`,
       data: own(writer, event.kind, writer.custom?.[event.kind], event.data),
     };
-  if ('extras' in event && event.extras !== undefined) {
-    const extras = own(writer, 'extras', writer.extras, event.extras);
-    return { ...event, extras: { [writer.id]: extras } };
-  }
   return event;
 }
 
@@ -262,7 +311,7 @@ export function defineProtocol<O, S = unknown>(
 
 /** What an extension's `body` sees. */
 export interface ExtensionBodyAt<E> {
-  profileType: ProfileType;
+  profileType: ModelProfileType;
   apiId: string;
   options: E;
   /** The binding's built-in tool ids. */
@@ -270,7 +319,7 @@ export interface ExtensionBodyAt<E> {
   /** The request's headers, to add to. */
   headers: Headers;
   /** The turn being sent; absent for a decision and a live session's later frames. */
-  request?: TurnRequest<unknown>;
+  request?: ProtocolRequest<unknown>;
 }
 
 /** What an extension's reader keeps for one call: it sees each reply row before the base. */
@@ -282,20 +331,12 @@ export interface ExtensionReader<S = unknown> {
 export interface ProtocolExtension<E = unknown, S = unknown>
   extends Pick<
     ProtocolDefinition<E, S>,
-    | 'id'
-    | 'name'
-    | 'description'
-    | 'reasoning'
-    | 'extras'
-    | 'custom'
-    | 'framing'
-    | 'error'
-    | 'callId'
+    'id' | 'name' | 'description' | 'reasoning' | 'custom' | 'framing' | 'error'
   > {
   /** What it adds to the base's options. A field the base already has is refused. */
   options?: z.ZodObject & z.ZodType<E>;
   /** Its own paths, where they differ from the base's. */
-  endpoints?: Partial<Record<ProfileType, string>>;
+  endpoints?: Partial<Record<ModelProfileType, string>>;
   /** What it adds to the base's request (or a WebSocket's first frame), and the tools it wrote. */
   body?(
     body: JsonObject,
@@ -303,10 +344,10 @@ export interface ProtocolExtension<E = unknown, S = unknown>
   ): { body: JsonObject; wroteTools?: readonly string[] };
   /** One per call: reads each reply row before the base. */
   read?(at: {
-    profileType: ProfileType;
+    profileType: ModelProfileType;
     apiId: string;
     options: E;
-    request?: TurnRequest<unknown>;
+    request?: ProtocolRequest<unknown>;
   }): ExtensionReader<S>;
 }
 
@@ -364,7 +405,7 @@ function extendedCall<O, S, E>(
   extension: ProtocolExtension<E, S>,
   keys: MergedOptions<O, E>,
   context: ProtocolContext<O & E>,
-  request?: TurnRequest<S>,
+  request?: ProtocolRequest<S>,
 ): ExtendedCall<S> {
   const at = {
     profileType: context.profileType,
@@ -374,7 +415,7 @@ function extendedCall<O, S, E>(
   const pending: ProtocolEvent<S>[] = [];
   const reader = extension.read?.({
     ...at,
-    ...(request ? { request: request as TurnRequest<unknown> } : {}),
+    ...(request ? { request: request as ProtocolRequest<unknown> } : {}),
   });
   const take = (events: ProtocolEvent<S>[] | undefined) => {
     for (const event of events ?? []) pending.push(stamp(extension, event));
@@ -385,7 +426,7 @@ function extendedCall<O, S, E>(
       ...at,
       builtInTools: context.builtInTools,
       headers,
-      ...(request ? { request: request as TurnRequest<unknown> } : {}),
+      ...(request ? { request: request as ProtocolRequest<unknown> } : {}),
     });
     return { body: out.body, wroteTools: [...wrote, ...(out.wroteTools ?? [])] };
   };
@@ -430,7 +471,7 @@ function extendedCall<O, S, E>(
 
 /** The operations the base offers, each run as a fresh extended call. */
 function extendedOperations<S>(
-  call: (request?: TurnRequest<S>) => ExtendedCall<S>,
+  call: (request?: ProtocolRequest<S>) => ExtendedCall<S>,
 ): ProtocolOperations<S> {
   // invariant: Each call gets its own reader and pending events; the first only says which operations the base has.
   const offered = call().operations;
@@ -449,11 +490,13 @@ function extendedOperations<S>(
     };
   if (offered.decide)
     operations.decide = (request) => (call().operations.decide as Ops['decide'])(request);
+  if (offered.embed)
+    operations.embed = (request) => (call().operations.embed as Ops['embed'])(request);
   return operations;
 }
 
 /** The extension's own value for a field, else the base's; absent when neither has one. */
-function either<K extends 'framing' | 'error' | 'callId'>(
+function either<K extends 'framing' | 'error'>(
   key: K,
   extension: Partial<Record<K, unknown>>,
   base: Partial<Record<K, unknown>>,
@@ -464,8 +507,8 @@ function either<K extends 'framing' | 'error' | 'callId'>(
 
 /**
  * A new protocol built on a base it nearly matches. It has its own id, so what it sends has one
- * answer: its definition. Its options are the base's plus its own; its endpoints, framing, error
- * typing and id rewriting are the base's unless it gives its own.
+ * answer: its definition. Its options are the base's plus its own; its endpoints, framing and error
+ * typing are the base's unless it gives its own.
  */
 export function extendProtocol<O, S, E = JsonObject>(
   base: Protocol<O, S>,
@@ -483,11 +526,9 @@ export function extendProtocol<O, S, E = JsonObject>(
     options: keys.schema,
     ...(base.continuation ? { continuation: base.continuation } : {}),
     ...(extension.reasoning ? { reasoning: extension.reasoning } : {}),
-    ...(extension.extras ? { extras: extension.extras } : {}),
     ...(extension.custom ? { custom: extension.custom } : {}),
     ...either('framing', extension, base),
     ...either('error', extension, base),
-    ...either('callId', extension, base),
     base: base as Protocol,
     lineage: Object.freeze([extension.id, ...base.lineage]),
     create: (context: ProtocolContext<O & E>) =>

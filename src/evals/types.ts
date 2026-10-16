@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
-import type { ProviderHostOptions } from '../kernel/provider-contract.ts';
+import type { ProviderHostOptions } from '../kernel/protocols/runtime.ts';
 import type { TurnTokens } from '../kernel/turn-events.ts';
 import type { Equals } from '../kernel/util/exact-type.ts';
 import { isRecord } from '../kernel/util/record.ts';

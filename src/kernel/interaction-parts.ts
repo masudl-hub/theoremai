@@ -26,17 +26,25 @@ export function historyMessageParts(msg: TurnHistoryMessage): InteractionPart[] 
   return msg.content ? [{ type: 'text', text: msg.content }, ...parts] : [...parts];
 }
 
+/** One step's calls as the assistant message that made them, with the reasoning written before them. */
 export function historyToolCalls(
-  calls: readonly import('./turn-events.ts').ToolCallRequest[],
+  calls: readonly Pick<
+    import('./turn-events.ts').ToolCallRequest,
+    'callId' | 'name' | 'arguments' | 'reasoning'
+  >[],
 ): TurnHistoryMessage {
+  const reasoning = calls.flatMap((call) => call.reasoning ?? []);
   const tool_calls: NonNullable<TurnHistoryMessage['tool_calls']> = [];
   for (const call of calls) {
     tool_calls.push({
       id: call.callId,
       type: 'function',
       function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-      ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
     });
   }
-  return { role: 'assistant', tool_calls };
+  return {
+    role: 'assistant',
+    tool_calls,
+    ...(reasoning.length ? { reasoning: [...reasoning] } : {}),
+  };
 }

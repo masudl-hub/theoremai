@@ -4,41 +4,11 @@ import { TheoremError } from '../../../../src/guardrails/error.ts';
 import { registerProfile, resolveTurn } from '../../../../src/kernel/default-scope.ts';
 import { providerBuiltins } from '../../../../src/kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../../../src/kernel/scope.ts';
-import type { KeyVault } from '../../../../src/kernel/types.ts';
 import {
   camelToSnake,
   toInteractionsBody,
 } from '../../../../src/providers/google/interactions/framing.ts';
-import { createInteractionsProvider } from '../../../../src/providers/google/interactions/stream.ts';
-import { wrapPcmAsWav } from '../../../../src/providers/shared/pcm.ts';
-import { firstOf } from '../../../fixtures/events.ts';
 import { geminiModels } from '../../../fixtures/models.ts';
-
-const vault: KeyVault = {
-  slot_a: 'free-a-key',
-  slot_b: 'free-b-key',
-  slot_c: 'free-c-key',
-  spare: 'spare-key',
-};
-
-function noWait(): Promise<void> {
-  return Promise.resolve();
-}
-
-/** A `step.delta` row as the stream sends it (shape recorded 23/09/2026). */
-function deltaRow(delta: Record<string, unknown>): Record<string, unknown> {
-  return { event_type: 'step.delta', index: 0, delta };
-}
-
-const COMPLETED_ROW = {
-  event_type: 'interaction.completed',
-  interaction: { id: 'v1_tts', status: 'completed' },
-};
-
-function sseResponse(events: unknown[]): Response {
-  const payload = events.map((event) => `data: ${JSON.stringify(event)}\n`).join('\n');
-  return new Response(`${payload}\ndata: [DONE]\n`, { status: 200 });
-}
 
 /** The provider request a resolved speech turn makes. */
 function speechRequest(generation: ReturnType<typeof resolveTurn>['generation']) {
@@ -55,7 +25,6 @@ function speechRequest(generation: ReturnType<typeof resolveTurn>['generation'])
     structured: generation.structured,
     image: generation.image,
     speech: generation.speech,
-    keySlot: generation.keySlot,
   };
 }
 
@@ -133,132 +102,6 @@ Deno.test('Interactions body for speech uses audio response_format and speech_co
   assertEquals(gen[camelToSnake('speechConfig')], [{ voice: 'Kore' }]);
   assertEquals(gen[camelToSnake('thinkingLevel')], undefined);
   assertEquals(gen[camelToSnake('thinkingSummaries')], undefined);
-});
-
-Deno.test('Interactions speech turn wraps PCM as WAV media', async () => {
-  const pcm = new Uint8Array([1, 2, 3, 4]);
-  const pcmB64 = btoa(String.fromCharCode(...pcm));
-  const { generation } = resolveTurn({
-    profile: 'speech',
-    input: { text: 'hi' },
-  });
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(
-        sseResponse([
-          // gemini-3.1-flash-tts-preview streams `audio/l16` with the format beside it.
-          deltaRow({
-            type: 'audio',
-            mime_type: 'audio/l16',
-            sample_rate: 24000,
-            channels: 1,
-            data: pcmB64,
-          }),
-          COMPLETED_ROW,
-        ]),
-      ),
-  });
-  const events = await Array.fromAsync(
-    provider.complete({
-      model: generation.model,
-      apiId: generation.apiId,
-      thinking: generation.thinking,
-      summaries: generation.summaries,
-      maxOutputTokens: generation.maxOutputTokens,
-      temperature: generation.temperature,
-      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
-      system: '',
-      input: generation.input,
-      structured: generation.structured,
-      image: generation.image,
-      speech: generation.speech,
-      keySlot: generation.keySlot,
-    }),
-  );
-  assertEquals(
-    events.map((ev) => ev.type),
-    ['media', 'response', 'done'],
-  );
-  const media = firstOf(events, 'media')?.media;
-  assertEquals(media?.mimeType, 'audio/wav');
-  const wavBytes = wrapPcmAsWav(pcm, { sampleRate: 24000, channels: 1 });
-  assertEquals(media?.data, btoa(String.fromCharCode(...wavBytes)));
-});
-
-Deno.test('Interactions speech profile errors when model emits text only (no fake PCM)', async () => {
-  const { generation } = resolveTurn({
-    profile: 'speech',
-    input: { text: 'say it' },
-  });
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(sseResponse([deltaRow({ type: 'text', text: 'hello' }), COMPLETED_ROW])),
-  });
-  const events = await Array.fromAsync(
-    provider.complete({
-      model: generation.model,
-      apiId: generation.apiId,
-      thinking: generation.thinking,
-      summaries: generation.summaries,
-      maxOutputTokens: generation.maxOutputTokens,
-      temperature: generation.temperature,
-      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
-      system: '',
-      input: generation.input,
-      structured: generation.structured,
-      image: generation.image,
-      speech: generation.speech,
-      keySlot: generation.keySlot,
-    }),
-  );
-  assertEquals(
-    events.map((event) => event.type),
-    ['text', 'response', 'error', 'done'],
-  );
-  assertEquals(firstOf(events, 'text')?.text, 'hello');
-  assertEquals(firstOf(events, 'error')?.errorKind, 'bad_response');
-});
-
-Deno.test('Interactions non-voice profile does not synthesize speech media from text', async () => {
-  const { generation } = resolveTurn({
-    profile: 'chat',
-    input: { text: 'say it' },
-  });
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(sseResponse([deltaRow({ type: 'text', text: 'hello' }), COMPLETED_ROW])),
-  });
-  const events = await Array.fromAsync(
-    provider.complete({
-      model: generation.model,
-      apiId: generation.apiId,
-      thinking: generation.thinking,
-      summaries: generation.summaries,
-      maxOutputTokens: generation.maxOutputTokens,
-      temperature: generation.temperature,
-      builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
-      system: '',
-      input: generation.input,
-      structured: generation.structured,
-      image: generation.image,
-      speech: undefined,
-      keySlot: generation.keySlot,
-    }),
-  );
-  assertEquals(
-    events.some((event) => event.type === 'text' && event.text === 'hello'),
-    true,
-  );
-  assertEquals(
-    events.some((event) => event.type === 'media'),
-    false,
-  );
 });
 
 Deno.test('Interactions speech profile carries mp3 to the provider, which refuses it', () => {

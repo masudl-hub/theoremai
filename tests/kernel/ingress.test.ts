@@ -28,13 +28,7 @@ function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
 type Loose = Record<string, unknown>;
-const GEMINI = {
-  provider: 'google',
-  apiId: 'g',
-  providerOptions: {
-    persistViaInteractionId: false,
-  },
-} as const;
+const GEMINI = { protocol: 'scripted', provider: 'scripted', apiId: 'g' } as const;
 const LIMITS = { maxFiles: 5, maxBytes: 1000, maxTurnBytes: 2000 };
 function define(id: string, over: Loose = {}): void {
   registerProfile({

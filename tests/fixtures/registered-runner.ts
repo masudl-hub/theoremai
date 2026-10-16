@@ -1,143 +1,30 @@
-import { z } from 'zod';
-import { TheoremError } from '../../mod.ts';
-import type {
-  ProviderCapabilities,
-  ProviderModelEvent,
-} from '../../src/kernel/provider-contract.ts';
-import { defineProvider } from '../../src/kernel/provider-contract.ts';
+import type { KeyVault } from '../../src/kernel/registry/vault.ts';
 import { defaultKernelScope, type KernelScope } from '../../src/kernel/scope.ts';
-import type {
-  CompactHistoryRequest,
-  ModelProvider,
-  ProviderEvent,
-  TurnRequest,
-} from '../../src/kernel/types.ts';
+import type { CompactHistoryRequest, TurnModel, TurnRequest } from '../../src/kernel/types.ts';
 import type { TraceSink } from '../../src/observability/trace-sink.ts';
-import { translateProviderEvent } from '../../src/providers/adapters.ts';
 import { registerFixtureProviders } from './provider-scope.ts';
+import { scriptedFetch } from './scripted.ts';
 
 registerFixtureProviders(defaultKernelScope);
-const capabilities: ProviderCapabilities = {
-  profileTypes: ['text', 'image', 'speech', 'live', 'decision'],
-  features: {
-    streaming: 'supported',
-    clientTools: 'supported',
-    parallelTools: 'supported',
-    structuredOutput: 'supported',
-    thinking: 'supported',
-    summaries: 'supported',
-    storedContinuation: 'supported',
-  },
-  inputKinds: ['text', 'image', 'audio', 'video', 'document'],
-  outputKinds: ['text', 'image', 'audio'],
-  builtins: ['googleSearch', 'googleMaps', 'urlContext', 'codeExecution'],
-};
-const fixtureDispatches = new Map<string, { provider?: ModelProvider }>();
-const nativeAdapters = new Map<string, import('../../mod.ts').RegisteredProvider>();
-export function fixtureHostOptions(
-  provider: ModelProvider,
-  scope: KernelScope = defaultKernelScope,
-) {
-  const send: typeof fetch = (input) => {
-    const token = new URL(input instanceof Request ? input.url : String(input)).pathname.slice(1);
-    const dispatch = fixtureDispatches.get(token);
-    if (!dispatch) return Promise.reject(new Error('Unknown fixture dispatch'));
-    dispatch.provider = provider;
-    return Promise.resolve(new Response('fixture'));
-  };
-  const ids = new Set([
-    ...scope.providers.list().map((provider) => provider.id),
-    ...scope.profiles
-      .list()
-      .flatMap((profile) =>
-        profile.type === 'host'
-          ? []
-          : Object.values(profile.models).map((binding) => binding.provider),
-      ),
-  ]);
-  for (const id of ids) {
-    const existing = scope.providers.require(id);
-    if (existing.adapter.id !== 'runner-fixture') nativeAdapters.set(id, existing);
-    const native = nativeAdapters.get(id);
-    scope.providers.register(
-      defineProvider({
-        id,
-        keySlot: native?.keySlot,
-        fallbackKeySlot: native?.fallbackKeySlot,
-        connection: {},
-        adapter: {
-          apiVersion: 1,
-          id: 'runner-fixture',
-          connectionSchema: z.strictObject({}),
-          optionsSchema: z.record(z.string(), z.json()),
-          credentialSchema: z.string(),
-          capabilities: () => capabilities,
-          validateRequest() {},
-          create(context) {
-            const nativeOperations = () => {
-              if (!native) throw new TheoremError('unsupported', 'Missing native fixture adapter');
-              return native.adapter.create({
-                ...context,
-                connection: native.connection,
-                providerOptions: native.adapter.optionsSchema.parse(context.providerOptions),
-              });
-            };
-            return Promise.resolve({
-              async openSession(request) {
-                const operations = await nativeOperations();
-                if (!operations.openSession)
-                  throw new TheoremError('unsupported', 'Missing fixture live operation');
-                return operations.openSession(request);
-              },
-              async decide(request) {
-                const operations = await nativeOperations();
-                if (!operations.decide)
-                  throw new TheoremError('unsupported', 'Missing fixture decision operation');
-                return operations.decide(request);
-              },
-              async *complete(request): AsyncGenerator<ProviderModelEvent> {
-                const token = crypto.randomUUID();
-                const dispatch: { provider?: ModelProvider } = {};
-                fixtureDispatches.set(token, dispatch);
-                try {
-                  await context.fetch(`https://fixture.test/${token}`);
-                } finally {
-                  fixtureDispatches.delete(token);
-                }
-                const selected = dispatch.provider;
-                if (!selected) throw new Error('Fixture transport did not select a provider');
-                let terminal = false;
-                for await (const event of selected.complete(request)) {
-                  const converted = translateProviderEvent(event as ProviderEvent);
-                  if (!converted) continue;
-                  if (converted.type === 'done') terminal = true;
-                  yield converted;
-                }
-                if (!terminal) yield { type: 'done', stop: { kind: 'completed' } };
-              },
-            });
-          },
-        },
-      }),
-    );
-  }
-  return { fetch: send };
+
+/** The fixture bindings' slots, each holding a placeholder the scripted provider signs with. */
+export const FIXTURE_VAULT: KeyVault = { slot_a: 'key-a', slot_b: 'key-b', slot_c: 'key-c' };
+
+/** Host options under which the scripted protocol's calls are answered by `model`. */
+export function fixtureHostOptions(model: TurnModel) {
+  return { fetch: scriptedFetch(model), vault: FIXTURE_VAULT };
 }
-export function runTurn(request: TurnRequest, provider: ModelProvider, sink?: TraceSink) {
-  return defaultKernelScope.runTurn(request, fixtureHostOptions(provider), sink);
+export function runTurn(request: TurnRequest, model: TurnModel, sink?: TraceSink) {
+  return defaultKernelScope.runTurn(request, fixtureHostOptions(model), sink);
 }
-export function compactHistory(
-  request: CompactHistoryRequest,
-  provider: ModelProvider,
-  sink?: TraceSink,
-) {
-  return defaultKernelScope.compactHistory(request, fixtureHostOptions(provider), sink);
+export function compactHistory(request: CompactHistoryRequest, model: TurnModel, sink?: TraceSink) {
+  return defaultKernelScope.compactHistory(request, fixtureHostOptions(model), sink);
 }
 export function runScopedTurn(
   scope: KernelScope,
   request: TurnRequest,
-  provider: ModelProvider,
+  model: TurnModel,
   sink?: TraceSink,
 ) {
-  return scope.runTurn(request, fixtureHostOptions(provider, scope), sink);
+  return scope.runTurn(request, fixtureHostOptions(model), sink);
 }

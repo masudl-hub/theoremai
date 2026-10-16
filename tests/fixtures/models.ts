@@ -22,14 +22,22 @@ const IMAGE_INPUT_MIMES = [...GOOGLE_IMAGE_INPUT_MIMES];
 const VOICE_INPUT_MIMES = [...GOOGLE_VOICE_INPUT_MIMES];
 const IMAGE_ASPECT_RATIOS = [...GOOGLE_IMAGE_ASPECT_RATIOS];
 const IMAGE_RESOLUTIONS = [...GOOGLE_IMAGE_RESOLUTIONS];
-const GEMINI_INTERACTIONS = {
-  provider: 'google' as const,
-  providerOptions: {
-    persistViaInteractionId: true,
-  },
-};
+/**
+ * Text, image and speech bindings run on the scripted protocol, which answers with whatever model
+ * a test scripts; their apiIds and settings are Gemini's. `onGeminiInteractions` puts one on the
+ * real wire.
+ */
 function geminiBinding(spec: Omit<ModelBinding, 'protocol' | 'provider'>): ModelBinding {
-  return { ...GEMINI_INTERACTIONS, keySlot: spec.keySlot ?? 'slot_a', ...spec };
+  return { protocol: 'scripted', provider: 'scripted', keySlot: spec.keySlot ?? 'slot_a', ...spec };
+}
+/** The same binding on the Gemini Interactions wire, for tests that check what it sends. */
+function onGeminiInteractions(binding: ModelBinding): ModelBinding {
+  return {
+    ...binding,
+    protocol: 'geminiInteractions',
+    provider: 'gemini',
+    options: { persistViaInteractionId: true },
+  };
 }
 const gemini35FlashLite = geminiBinding({
   apiId: 'gemini-3.5-flash-lite',
@@ -82,7 +90,8 @@ const gemini31FlashTts = geminiBinding({
 });
 const gemini31FlashLive: ModelBinding = {
   keySlot: 'slot_a',
-  provider: 'google',
+  protocol: 'geminiLive',
+  provider: 'gemini',
   apiId: 'gemini-3.1-flash-live-preview',
   summaries: false,
   maxOutputTokens: 256,
@@ -91,6 +100,7 @@ const gemini31FlashLive: ModelBinding = {
 };
 const sonar: ModelBinding = {
   keySlot: 'slot_a',
+  protocol: 'openRouter',
   provider: 'openrouter',
   apiId: 'perplexity/sonar',
   efforts: { normal: 'low', high: 'high' },
@@ -118,7 +128,7 @@ function modelBindings(...ids: HostBindingId[]): Record<ModelId, ModelBinding> {
   }
   return models;
 }
-/** Gemini Interactions model fields for fixtures (protocol + provider live on each binding). */
+/** `{ models }` for a profile, from the named bindings. */
 function geminiModels(...ids: HostBindingId[]): {
   models: Record<ModelId, ModelBinding>;
 } {
@@ -136,5 +146,6 @@ export {
   IMAGE_INPUT_MIMES,
   IMAGE_RESOLUTIONS,
   modelBindings,
+  onGeminiInteractions,
   VOICE_INPUT_MIMES,
 };

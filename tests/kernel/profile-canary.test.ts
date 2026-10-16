@@ -7,11 +7,11 @@ import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import type {
-  ModelProvider,
+  ModelRequest,
   Profile,
-  ProviderCompleteRequest,
   TurnEvent,
   TurnHistoryMessage,
+  TurnModel,
 } from '../../src/kernel/types.ts';
 import { eventsOf, firstOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -20,7 +20,7 @@ const PROFILE = 'profile_canary';
 const SYSTEM =
   'You are the booking agent for Northwind Travel and answer questions about flights, hotels and car hire only.';
 
-function canaryOf(req: ProviderCompleteRequest): string {
+function canaryOf(req: ModelRequest): string {
   return /Your canary token is (\S+)\./.exec(req.system)?.[1] ?? '';
 }
 
@@ -60,7 +60,7 @@ function scopeWith(
 }
 
 /** Reads the page in its first step, then replies with `reply` of the canary. */
-function pageReader(seen: { canary: string }, reply: (canary: string) => string): ModelProvider {
+function pageReader(seen: { canary: string }, reply: (canary: string) => string): TurnModel {
   return {
     async *complete(req) {
       await Promise.resolve();
@@ -75,7 +75,7 @@ function pageReader(seen: { canary: string }, reply: (canary: string) => string)
 }
 
 /** Replies with `reply` of the canary straight away. */
-function replier(seen: { canary: string }, reply: (canary: string) => string): ModelProvider {
+function replier(seen: { canary: string }, reply: (canary: string) => string): TurnModel {
   return {
     async *complete(req) {
       await Promise.resolve();
@@ -87,7 +87,7 @@ function replier(seen: { canary: string }, reply: (canary: string) => string): M
 
 async function run(
   scope: KernelScope,
-  provider: ModelProvider,
+  provider: TurnModel,
   over: { text?: string; history?: TurnHistoryMessage[]; system?: string } = {},
 ): Promise<TurnEvent[]> {
   return await Array.fromAsync(
@@ -145,7 +145,7 @@ Deno.test('a profile binds the same canary on every turn that sends the same sys
 
 Deno.test('the canary note closes the system prompt', async () => {
   let system = '';
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       system = req.system;
@@ -235,7 +235,7 @@ Deno.test('a given canary still leaves the system prompt guarded against echo', 
 Deno.test('under the default detectors, a given canary passes in a tool call and the reply', async () => {
   const seen = { canary: '' };
   let step = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       seen.canary = canaryOf(req);
@@ -267,7 +267,7 @@ Deno.test('a canary in a tool call reaches neither the tool nor the host', async
     read = true;
     return 'ok';
   }, seen);
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       seen.canary = canaryOf(req);

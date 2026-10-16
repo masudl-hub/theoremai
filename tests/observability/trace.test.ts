@@ -2,7 +2,7 @@ import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { noopSink } from '../../src/observability/trace.ts';
 import { inlineContent, type TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
@@ -20,7 +20,7 @@ async function* fakeComplete(): AsyncGenerator<TurnEvent> {
     media: { mimeType: 'image/jpeg', data: MEDIA_BASE64 },
   };
 }
-const fake: ModelProvider = { complete: fakeComplete };
+const fake: TurnModel = { complete: fakeComplete };
 function modelCall(record: TraceRecord): TraceSpan {
   const span = record.spans.find(
     (s) => s.name.startsWith('generate_content') || s.name.startsWith('chat '),
@@ -83,7 +83,7 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
     inputs: { text: true },
     outputs: { structured: null, streaming: { streamThoughts: false } },
   });
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       await Promise.resolve();
       yield { type: 'thought', text: 'Private plan.' };
@@ -130,10 +130,10 @@ Deno.test('runTurn records what the host received on the turn root, beside what 
     ['reasoning', 'text', 'structured'],
   );
 });
-Deno.test('runTurn preserves host metadata without forwarding vendor continuation fields', async () => {
+Deno.test('runTurn keeps host metadata on the trace', async () => {
   const into: TraceRecord[] = [];
-  const seen: ProviderCompleteRequest[] = [];
-  const provider: ModelProvider = {
+  const seen: ModelRequest[] = [];
+  const provider: TurnModel = {
     async *complete(req) {
       seen.push(req);
       yield { type: 'text', text: 'continued' };
@@ -154,8 +154,6 @@ Deno.test('runTurn preserves host metadata without forwarding vendor continuatio
       catalogedSink(into),
     ),
   );
-  assertEquals(seen[0]?.previousInteractionId, undefined);
-  assertEquals(seen[0]?.store, undefined);
   assertEquals(into[0]?.metadata, {
     channel: 'imessage',
     deliveryPath: 'demo',

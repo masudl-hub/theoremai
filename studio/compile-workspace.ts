@@ -15,7 +15,7 @@ import {
   uncompiled,
 } from './compile.ts';
 import type { StudioRunsOn } from './lent-keys.ts';
-import { providerDefinition, providerProblems } from './providers.ts';
+import { kernelDefinition, providerProblems, registerStudioProvider } from './providers.ts';
 import { type StudioDependency, registerDefined } from './runtime-scope.ts';
 import { modelBindingNodeId, providerNodeId, toolSpecNodeId } from './tree.ts';
 import {
@@ -230,9 +230,15 @@ function kernelIssue(
   compiled: readonly { key: string; agent: CompiledStudio }[],
 ): StudioIssue | undefined {
   const scope = createKernelScope();
+  // why: a project's own definition is the project's; the server checks its agents when it opens.
+  const own = new Set<string>();
   for (const provider of workspace.providers) {
+    if (!kernelDefinition(provider.definition)) {
+      own.add(provider.id);
+      continue;
+    }
     try {
-      scope.providers.register(providerDefinition(provider));
+      registerStudioProvider(scope.providers, provider);
     } catch (err) {
       const message = err instanceof z.ZodError ? err.issues[0]?.message : err instanceof TheoremError ? err.message : undefined;
       if (message === undefined) throw err;
@@ -240,6 +246,8 @@ function kernelIssue(
     }
   }
   for (const { key, agent } of compiled) {
+    const { profile } = agent;
+    if (profile.type !== 'host' && Object.values(profile.models).some((binding) => own.has(binding.provider))) continue;
     try {
       registerDefined(
         scope,

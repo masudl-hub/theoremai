@@ -5,25 +5,21 @@ import { providerBuiltins } from '../../../../src/kernel/registry/provider-reque
 import { defaultKernelScope } from '../../../../src/kernel/scope.ts';
 import type { DistributiveOmit } from '../../../../src/kernel/tools/events.ts';
 import type { ProviderEvidence } from '../../../../src/kernel/turn-events.ts';
-import type {
-  KeyVault,
-  ProviderCompleteRequest,
-  ProviderEvent,
-} from '../../../../src/kernel/types.ts';
+import type { ModelEvent, ModelRequest } from '../../../../src/kernel/types.ts';
 import { base64ToBytes, bytesToBase64 } from '../../../../src/kernel/util/base64.ts';
 import {
   camelToSnake,
+  type InteractionsRequest,
   toInteractionsBody,
 } from '../../../../src/providers/google/interactions/framing.ts';
 import {
-  createInteractionsProvider,
   eventsFromStep,
+  finalizeStructured,
   foldBody,
   foldPayload,
   newStreamFold,
   openStepEvents,
 } from '../../../../src/providers/google/interactions/stream.ts';
-import { INTERACTIONS_JSON_URL, INTERACTIONS_URL } from '../../../../src/providers/google/urls.ts';
 import { wrapPcmAsWav } from '../../../../src/providers/shared/pcm.ts';
 import {
   citedUris,
@@ -34,32 +30,7 @@ import {
   toolEventsOf,
 } from '../../../fixtures/events.ts';
 
-const vault: KeyVault = {
-  slot_a: 'free-a-key',
-  slot_b: 'free-b-key',
-  slot_c: 'free-c-key',
-  spare: 'spare-key',
-  images: 'images-key',
-};
-
-const HTTP_OK = 200;
-const HTTP_SERVER = 500;
-const HTTP_QUOTA = 429;
-
-function noWait(): Promise<void> {
-  return Promise.resolve();
-}
-
-function sseResponse(events: unknown[], status = HTTP_OK): Response {
-  const payload = events.map((event) => `data: ${JSON.stringify(event)}\n`).join('\n');
-  return new Response(`${payload}\ndata: [DONE]\n`, { status });
-}
-
-function headerApiKey(init?: RequestInit): string {
-  return new Headers(init?.headers).get('x-goog-api-key') ?? '';
-}
-
-function fromChatProfile(): ProviderCompleteRequest {
+function fromChatProfile(): ModelRequest {
   const { generation } = resolveTurn({
     profile: 'chat',
     input: { text: 'hi' },
@@ -76,11 +47,10 @@ function fromChatProfile(): ProviderCompleteRequest {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    keySlot: generation.keySlot,
   };
 }
 
-Deno.test('host profile Interactions body streams JSON schema and never ships keySlot', () => {
+Deno.test('host profile Interactions body streams JSON schema and sends no store or previous id', () => {
   const req = fromChatProfile();
   const body = toInteractionsBody(req);
   const format = body[camelToSnake('responseFormat')] as unknown[];
@@ -90,15 +60,15 @@ Deno.test('host profile Interactions body streams JSON schema and never ships ke
   assertEquals(body.model, 'gemini-3.5-flash-lite');
   assertEquals(config[camelToSnake('maxOutputTokens')], req.maxOutputTokens);
   assertEquals(Array.isArray(format), true);
-  assertEquals(Object.hasOwn(body, camelToSnake('keySlot')), false);
-  assertEquals(Object.hasOwn(body, 'keySlot'), false);
   assertEquals(Object.hasOwn(body, camelToSnake('previousInteractionId')), false);
 });
 
 Deno.test('Interactions body passes explicit store and previous interaction id', () => {
-  const req = fromChatProfile();
-  req.store = false;
-  req.previousInteractionId = 'v1_prev';
+  const req: InteractionsRequest = {
+    ...fromChatProfile(),
+    store: false,
+    previousInteractionId: 'v1_prev',
+  };
   const body = toInteractionsBody(req);
   assertEquals(body.store, false);
   assertEquals(body[camelToSnake('previousInteractionId')], 'v1_prev');
@@ -124,7 +94,6 @@ Deno.test('chat voice audio wires as Interactions type audio', () => {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    keySlot: generation.keySlot,
   });
   const input = body.input as Array<{ content: Array<Record<string, unknown>> }>;
   const parts = input[0]?.content ?? [];
@@ -178,7 +147,6 @@ Deno.test('JSON Schema property names stay camelCase inside response_format.sche
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    keySlot: generation.keySlot,
   });
   const format = body[camelToSnake('responseFormat')] as Array<Record<string, unknown>>;
   const schema = format[0]?.schema as Record<string, unknown>;
@@ -204,7 +172,6 @@ Deno.test('a profile without structured output sends no response_format', () => 
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    keySlot: generation.keySlot,
   });
   assertEquals(body[camelToSnake('responseFormat')], undefined);
 });
@@ -228,7 +195,6 @@ Deno.test('pinned profile wires 3.5 minimal through theorem', () => {
     input: generation.input,
     structured: generation.structured,
     image: generation.image,
-    keySlot: generation.keySlot,
   });
   const config = body[camelToSnake('generationConfig')] as Record<string, unknown>;
   assertEquals(body.model, 'gemini-3.5-flash-lite');
@@ -243,37 +209,13 @@ function row(eventType: string, fields: Record<string, unknown>): Record<string,
 }
 
 /** The typed evidence in `events`, without the provider's raw payload. */
-function typedEvidence(
-  events: readonly ProviderEvent[],
-): DistributiveOmit<ProviderEvidence, 'raw'>[] {
+function typedEvidence(events: readonly ModelEvent[]): DistributiveOmit<ProviderEvidence, 'raw'>[] {
   return eventsOf(events, 'evidence').map(({ evidence: { raw: _raw, ...typed } }) => typed);
 }
 
-function completedRow(status = 'completed'): Record<string, unknown> {
-  return row('interaction.completed', { interaction: { id: 'v1_int', status } });
-}
-
-function foldRows(rows: Record<string, unknown>[]): ProviderEvent[] {
+function foldRows(rows: Record<string, unknown>[]): ModelEvent[] {
   const fold = newStreamFold();
   return rows.flatMap((r) => foldPayload(r, fold));
-}
-
-function imageRequest(): ProviderCompleteRequest {
-  const { generation } = resolveTurn({ profile: 'image', input: { text: 'fox' } });
-  return {
-    model: generation.model,
-    apiId: generation.apiId,
-    thinking: generation.thinking,
-    summaries: generation.summaries,
-    maxOutputTokens: generation.maxOutputTokens,
-    temperature: generation.temperature,
-    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
-    system: '',
-    input: generation.input,
-    structured: generation.structured,
-    image: generation.image,
-    keySlot: generation.keySlot,
-  };
 }
 
 function pcmBase64(bytes: number[]): string {
@@ -284,43 +226,29 @@ function wavBase64(bytes: number[], sampleRate: number): string {
   return bytesToBase64(wrapPcmAsWav(new Uint8Array(bytes), { sampleRate, channels: 1 }));
 }
 
-Deno.test('provider POSTs Interactions JSON when stream is false', async () => {
-  let href = '';
-  let postedStream: unknown;
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: (url, init) => {
-      href = String(url);
-      postedStream = JSON.parse(String(init?.body ?? '{}')).stream;
-      return Promise.resolve(
-        Response.json({
-          id: 'v1_batch',
-          status: 'completed',
-          steps: [
-            { type: 'thought', signature: 'sig' },
-            {
-              type: 'code_execution_call',
-              id: 'code_call_1',
-              arguments: { language: 'PYTHON', code: 'print(1)' },
-            },
-            {
-              type: 'code_execution_result',
-              call_id: 'code_call_1',
-              is_error: false,
-              result: '1\n',
-            },
-            { type: 'model_output', content: [{ type: 'text', text: 'One.' }] },
-          ],
-        }),
-      );
+Deno.test('a buffered body emits its code execution steps as evidence, once each', () => {
+  const events = foldBody(
+    {
+      id: 'v1_batch',
+      status: 'completed',
+      steps: [
+        { type: 'thought', signature: 'sig' },
+        {
+          type: 'code_execution_call',
+          id: 'code_call_1',
+          arguments: { language: 'PYTHON', code: 'print(1)' },
+        },
+        {
+          type: 'code_execution_result',
+          call_id: 'code_call_1',
+          is_error: false,
+          result: '1\n',
+        },
+        { type: 'model_output', content: [{ type: 'text', text: 'One.' }] },
+      ],
     },
-  });
-  const events = await Array.fromAsync(
-    provider.complete({ ...fromChatProfile(), structured: null, stream: false }),
+    newStreamFold(),
   );
-  assertEquals(href, INTERACTIONS_JSON_URL);
-  assertEquals(postedStream, false);
   assertEquals(
     events.map((e) => (e.type === 'evidence' ? `${e.evidence?.kind}` : e.type)),
     ['response', 'code_execution_call', 'code_execution_result', 'text', 'done'],
@@ -343,44 +271,39 @@ Deno.test('provider POSTs Interactions JSON when stream is false', async () => {
   ]);
 });
 
-Deno.test('buffered body emits its function_call steps as tool calls, the first with the thought signature', async () => {
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(
-        Response.json({
-          id: 'v1_tool',
-          status: 'requires_action',
-          steps: [
-            { type: 'thought', signature: 'sig' },
-            {
-              type: 'function_call',
-              id: 'call_1',
-              name: 'get_soil_moisture',
-              arguments: { plant: 'plant A' },
-            },
-            {
-              type: 'function_call',
-              id: 'call_2',
-              name: 'get_soil_moisture',
-              arguments: { plant: 'plant B' },
-            },
-          ],
-        }),
-      ),
-  });
-  const events = await Array.fromAsync(provider.complete({ ...fromChatProfile(), stream: false }));
+Deno.test('buffered body emits its function_call steps as tool calls, the thought signature as reasoning for the first', () => {
+  const events = foldBody(
+    {
+      id: 'v1_tool',
+      status: 'requires_action',
+      steps: [
+        { type: 'thought', signature: 'sig' },
+        {
+          type: 'function_call',
+          id: 'call_1',
+          name: 'get_soil_moisture',
+          arguments: { plant: 'plant A' },
+        },
+        {
+          type: 'function_call',
+          id: 'call_2',
+          name: 'get_soil_moisture',
+          arguments: { plant: 'plant B' },
+        },
+      ],
+    },
+    newStreamFold(),
+  );
   assertEquals(events, [
     { type: 'response', response: { id: 'v1_tool' } },
     {
+      type: 'reasoning',
+      data: { call: 0, signature: 'sig' },
+      origin: { protocol: 'geminiInteractions' },
+    },
+    {
       type: 'tool',
-      tool: {
-        callId: 'call_1',
-        name: 'get_soil_moisture',
-        arguments: { plant: 'plant A' },
-        thoughtSignature: 'sig',
-      },
+      tool: { callId: 'call_1', name: 'get_soil_moisture', arguments: { plant: 'plant A' } },
     },
     {
       type: 'tool',
@@ -442,170 +365,47 @@ Deno.test('buffered speech body emits its audio once, as WAV at the stated rate'
   assertEquals(fold.sawMedia, true);
 });
 
-Deno.test('provider POSTs Interactions SSE on the resolved key slot', async () => {
-  const used: string[] = [];
-  let href = '';
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: (url, init) => {
-      href = String(url);
-      used.push(headerApiKey(init));
-      return Promise.resolve(
-        sseResponse([
-          row('step.start', { index: 0, step: { type: 'thought' } }),
-          row('step.delta', {
-            index: 0,
-            delta: { type: 'thought_summary', content: { type: 'text', text: 'hmm' } },
-          }),
-          row('step.stop', { index: 0 }),
-          row('step.start', { index: 1, step: { type: 'model_output' } }),
-          row('step.delta', { index: 1, delta: { type: 'text', text: '{"message":"ok"}' } }),
-          row('step.stop', { index: 1 }),
-          completedRow(),
-        ]),
-      );
-    },
-  });
-  const events = await Array.fromAsync(provider.complete(fromChatProfile()));
-  assertEquals(href, INTERACTIONS_URL);
-  assertEquals(used, ['free-a-key']);
-  assertEquals(events, [
-    { type: 'thought', text: 'hmm' },
-    { type: 'text', text: '{"message":"ok"}' },
-    { type: 'response', response: { id: 'v1_int' } },
-    { type: 'structured', structured: { message: 'ok' } },
-    {
-      type: 'done',
-      stop: { kind: 'completed', native: 'completed' },
-      interactionId: 'v1_int',
-    },
-  ]);
-});
-
-Deno.test('provider emits grounding once from a buffered search body', async () => {
+Deno.test('a buffered search body emits its grounding once', () => {
   // Shape recorded from gemini-3.8-flash with google_search, stream: false (23/09/2026).
   const chipHtml = '<div class="chip">care</div>';
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(
-        Response.json({
-          id: 'v1_grounded',
-          status: 'completed',
-          steps: [
-            { type: 'google_search_call', id: 'call_1', arguments: { queries: ['care'] } },
+  const events = foldBody(
+    {
+      id: 'v1_grounded',
+      status: 'completed',
+      steps: [
+        { type: 'google_search_call', id: 'call_1', arguments: { queries: ['care'] } },
+        {
+          type: 'google_search_result',
+          call_id: 'call_1',
+          search_type: 'web_search',
+          result: [{ search_suggestions: chipHtml }],
+        },
+        {
+          type: 'model_output',
+          content: [
             {
-              type: 'google_search_result',
-              call_id: 'call_1',
-              search_type: 'web_search',
-              result: [{ search_suggestions: chipHtml }],
-            },
-            {
-              type: 'model_output',
-              content: [
+              type: 'text',
+              text: 'Water weekly.',
+              annotations: [
                 {
-                  type: 'text',
-                  text: 'Water weekly.',
-                  annotations: [
-                    {
-                      start_index: 0,
-                      end_index: 13,
-                      url: 'https://grounding.example/redirect/care',
-                      title: 'example.com',
-                      type: 'url_citation',
-                    },
-                  ],
+                  start_index: 0,
+                  end_index: 13,
+                  url: 'https://grounding.example/redirect/care',
+                  title: 'example.com',
+                  type: 'url_citation',
                 },
               ],
             },
           ],
-        }),
-      ),
-  });
-  const events = await Array.fromAsync(provider.complete({ ...fromChatProfile(), stream: false }));
+        },
+      ],
+    },
+    newStreamFold(),
+  );
   const grounding = eventsOf(events, 'grounding');
   assertEquals(grounding.length, 1);
   assertEquals(grounding[0]?.grounding.searchHtml, chipHtml);
   assertEquals(citedUris(events), ['https://grounding.example/redirect/care']);
-});
-
-Deno.test("provider retries on the profile's fallback slot only after 429 backoff", async () => {
-  const used: string[] = [];
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: (_url, init) => {
-      const key = headerApiKey(init);
-      used.push(key);
-      if (key !== 'spare-key') {
-        return Promise.resolve(new Response('no', { status: HTTP_QUOTA }));
-      }
-      return Promise.resolve(
-        sseResponse([row('step.delta', { index: 0, delta: { type: 'text', text: 'hi' } })]),
-      );
-    },
-  });
-  const events = await Array.fromAsync(
-    provider.complete({ ...fromChatProfile(), fallbackKeySlot: 'spare' }),
-  );
-  assertEquals(used, ['free-a-key', 'free-a-key', 'free-a-key', 'spare-key']);
-  assertEquals(events[0], { type: 'text', text: 'hi' });
-});
-
-Deno.test('non-OK Gemini response becomes an error event', async () => {
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () => Promise.resolve(new Response('nope', { status: HTTP_SERVER })),
-  });
-  const events = await Array.fromAsync(provider.complete(fromChatProfile()));
-  assertEquals(events, [
-    {
-      type: 'error',
-      errorKind: 'unavailable',
-      errorInternal: 'Gemini HTTP 500: nope',
-    },
-  ]);
-});
-
-Deno.test('thrown fetch errors become network errors', async () => {
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () => Promise.reject(new TypeError('fetch failed: dns')),
-  });
-  const events = await Array.fromAsync(provider.complete(fromChatProfile()));
-  assertEquals(events, [
-    {
-      type: 'error',
-      errorKind: 'network',
-      errorInternal: 'fetch failed: dns',
-    },
-  ]);
-});
-
-Deno.test('image delta yields media', async () => {
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(
-        sseResponse([
-          row('step.delta', {
-            index: 0,
-            delta: { type: 'image', mime_type: 'image/jpeg', data: 'abc' },
-          }),
-          row('interaction.completed', { interaction: { status: 'completed' } }),
-        ]),
-      ),
-  });
-  const events = await Array.fromAsync(provider.complete(imageRequest()));
-  assertEquals(events, [
-    { type: 'media', media: { mimeType: 'image/jpeg', data: 'abc' } },
-    { type: 'done', stop: { kind: 'completed', native: 'completed' } },
-  ]);
 });
 
 Deno.test('streamed audio deltas become WAV at the sample rate each delta reports', () => {
@@ -628,45 +428,23 @@ Deno.test('streamed audio deltas become WAV at the sample rate each delta report
   ]);
 });
 
-Deno.test('provider handles null body, completed usage, and structured resolution', async () => {
-  const nullBodyProvider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () => Promise.resolve(new Response(null, { status: 200 })),
-  });
-  const nullEvents = await Array.fromAsync(nullBodyProvider.complete(imageRequest()));
-  assertEquals(nullEvents.length, 1);
-  assertEquals(nullEvents[0]?.type, 'error');
-
-  const structProvider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(
-        sseResponse([
-          row('step.delta', {
-            index: 0,
-            delta: { type: 'text', text: '{"message": "success"}' },
-          }),
-          row('interaction.completed', {
-            interaction: {
-              id: 'v1_s',
-              status: 'completed',
-              usage: { total_input_tokens: 10, total_output_tokens: 20 },
-            },
-          }),
-        ]),
-      ),
-  });
-  const resultEvents = await Array.fromAsync(structProvider.complete(fromChatProfile()));
-  assertEquals(firstOf(resultEvents, 'tokens')?.tokens, {
-    input: 10,
-    output: 20,
-    total: 30,
-  });
-  assertEquals(firstOf(resultEvents, 'structured')?.structured, {
-    message: 'success',
-  });
+Deno.test('completed usage becomes tokens, and structured output resolves from the text', () => {
+  const fold = newStreamFold();
+  const events = [
+    row('step.delta', { index: 0, delta: { type: 'text', text: '{"message": "success"}' } }),
+    row('interaction.completed', {
+      interaction: {
+        id: 'v1_s',
+        status: 'completed',
+        usage: { total_input_tokens: 10, total_output_tokens: 20 },
+      },
+    }),
+  ].flatMap((r) => foldPayload(r, fold));
+  assertEquals(firstOf(events, 'tokens')?.tokens, { input: 10, output: 20, total: 30 });
+  assertEquals(
+    [...finalizeStructured(fromChatProfile(), fold)],
+    [{ type: 'structured', structured: { message: 'success' } }],
+  );
 });
 
 Deno.test('base64ToBytes decodes known base64 values', () => {
@@ -890,7 +668,7 @@ Deno.test('streamed function_call waits for step.stop and parses the streamed ar
   assertEquals(fold.steps.size, 0);
 });
 
-Deno.test('streamed thought_signature delta goes to the first function_call that follows it', () => {
+Deno.test('streamed thought_signature delta is reasoning for the first function_call that follows it', () => {
   // Row shapes from gemini-3.1-flash-lite, two parallel calls (probe 25/09/2026).
   const events = foldRows([
     row('step.start', { index: 0, step: { type: 'thought' } }),
@@ -918,13 +696,13 @@ Deno.test('streamed thought_signature delta goes to the first function_call that
   assertEquals(events, [
     { type: 'tool_draft', callId: 'call_1', name: 'geocode_city', text: '{"city":"Porto"}' },
     {
+      type: 'reasoning',
+      data: { call: 0, signature: 'sig' },
+      origin: { protocol: 'geminiInteractions' },
+    },
+    {
       type: 'tool',
-      tool: {
-        callId: 'call_1',
-        name: 'geocode_city',
-        arguments: { city: 'Porto' },
-        thoughtSignature: 'sig',
-      },
+      tool: { callId: 'call_1', name: 'geocode_city', arguments: { city: 'Porto' } },
     },
     { type: 'tool_draft', callId: 'call_2', name: 'geocode_city', text: '{"city":"Faro"}' },
     { type: 'tool', tool: { callId: 'call_2', name: 'geocode_city', arguments: { city: 'Faro' } } },
@@ -939,9 +717,11 @@ Deno.test('a function_call that carries its own signature keeps it; an empty one
     ),
     [
       {
-        type: 'tool',
-        tool: { callId: 'c1', name: 'water', arguments: {}, thoughtSignature: 'own' },
+        type: 'reasoning',
+        data: { call: 0, signature: 'own' },
+        origin: { protocol: 'geminiInteractions' },
       },
+      { type: 'tool', tool: { callId: 'c1', name: 'water', arguments: {} } },
     ],
   );
   assertEquals(
@@ -1049,77 +829,6 @@ Deno.test('a partial function_call is evidence and never a tool call', () => {
   ]);
 });
 
-Deno.test('a stream cut off before the interaction reports a status stops as stream_incomplete', async () => {
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(
-        sseResponse([
-          row('interaction.created', {
-            interaction: { id: 'v1_cut', status: 'in_progress', model: 'gemini-test-flash' },
-          }),
-          row('step.start', { index: 0, step: { type: 'model_output' } }),
-          row('step.delta', { index: 0, delta: { type: 'text', text: 'Checking.' } }),
-          row('step.stop', { index: 0 }),
-          row('step.start', {
-            index: 1,
-            step: { id: 'call_7', name: 'get_soil_moisture', arguments: {}, type: 'function_call' },
-          }),
-        ]),
-      ),
-  });
-  const events = await Array.fromAsync(
-    provider.complete({ ...fromChatProfile(), structured: null }),
-  );
-  assertEquals(
-    events.map((ev) => ev.type),
-    ['response', 'text', 'evidence', 'done'],
-  );
-  // `interaction.created` named the response before any output, so the cut stream still does.
-  assertEquals(eventAt(events, 0, 'response')?.response, {
-    id: 'v1_cut',
-    model: 'gemini-test-flash',
-  });
-  assertEquals(eventAt(events, 2, 'evidence')?.evidence?.partial, true);
-  const cut = eventAt(events, 2, 'evidence')?.evidence;
-  assertEquals(cut?.kind === 'provider_step' ? cut.step : undefined, 'function_call');
-  assertEquals(eventAt(events, 3, 'done')?.stop, { kind: 'stream_incomplete' });
-});
-
-Deno.test('a stream row that is not a JSON object is an error', async () => {
-  const encoder = new TextEncoder();
-  const provider = createInteractionsProvider({
-    vault,
-    wait: noWait,
-    fetch: () =>
-      Promise.resolve(
-        new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.enqueue(encoder.encode('data: not json\n\n'));
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
-        ),
-      ),
-  });
-  const events = await Array.fromAsync(
-    provider.complete({ ...fromChatProfile(), structured: null }),
-  );
-  assertEquals(
-    events.map((ev) => ev.type),
-    ['error'],
-  );
-  assertEquals(
-    eventAt(events, 0, 'error')?.errorInternal?.includes(
-      'Interactions stream row was not a JSON object',
-    ),
-    true,
-  );
-});
-
 Deno.test('lifecycle rows emit only the identity interaction.created names; stray usage emits nothing', () => {
   assertEquals(
     foldRows([
@@ -1159,27 +868,6 @@ Deno.test('foldPayload turns an SSE error event into an error event', () => {
   assertEquals(eventAt(events, 0, 'error')?.errorInternal, COMBINED_ERROR);
 });
 
-Deno.test('provider emits error event when SSE stream returns an API error payload', async () => {
-  const transport = {
-    vault,
-    wait: noWait,
-    fetch: () => {
-      const errorRow = JSON.stringify({
-        event_type: 'error',
-        error: { code: 'invalid_request', message: COMBINED_ERROR },
-      });
-      return Promise.resolve(
-        new Response(`event: error\ndata: ${errorRow}\n\n`, { status: HTTP_OK }),
-      );
-    },
-  };
-  const provider = createInteractionsProvider(transport);
-  const events = await Array.fromAsync(provider.complete(fromChatProfile()));
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'error');
-  assertEquals(eventAt(events, 0, 'error')?.errorInternal, COMBINED_ERROR);
-});
-
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, actual }, { label, actual: expected });
 }
@@ -1196,9 +884,12 @@ function callRows(index: number, id: string): Record<string, unknown>[] {
 }
 
 function signatureOfOnlyCall(rows: Record<string, unknown>[]): unknown {
-  const event = foldRows(rows).find((e) => e.type === 'tool');
-  if (event?.type !== 'tool') return 'no tool event';
-  return 'phase' in event.tool ? 'a phase, not a call request' : event.tool.thoughtSignature;
+  const events = foldRows(rows);
+  if (!events.some((e) => e.type === 'tool')) return 'no tool event';
+  const reasoning = events.find((e) => e.type === 'reasoning');
+  return reasoning?.type === 'reasoning'
+    ? (reasoning.data as { signature?: unknown }).signature
+    : undefined;
 }
 
 Deno.test('a thought signature is held only from a thought, only when non-empty, and survives a bare thought', () => {
@@ -1256,9 +947,11 @@ Deno.test('a call with an empty or non-string own signature takes the held thoug
       ),
       [
         {
-          type: 'tool',
-          tool: { callId: 'c', name: 'water', arguments: {}, thoughtSignature: 'held' },
+          type: 'reasoning',
+          data: { call: 0, signature: 'held' },
+          origin: { protocol: 'geminiInteractions' },
         },
+        { type: 'tool', tool: { callId: 'c', name: 'water', arguments: {} } },
       ],
       `own signature ${JSON.stringify(own)}`,
     );
@@ -1354,111 +1047,6 @@ Deno.test('a buffered body skips steps that are not objects and a steps value th
     ['response', 'done'],
     'steps not a list',
   );
-});
-
-type FetchFn = (url: string | URL | Request, init?: RequestInit) => Promise<Response>;
-
-function providerOf(fetch: FetchFn) {
-  return createInteractionsProvider({ vault, wait: noWait, fetch });
-}
-
-async function summaryOf(fetch: FetchFn, req: ProviderCompleteRequest): Promise<string[]> {
-  const events = await Array.fromAsync(providerOf(fetch).complete(req));
-  return events.map((e) => (e.type === 'error' ? `error:${e.errorInternal}` : e.type));
-}
-
-Deno.test('an image profile that returns no image fails, streamed and buffered', async () => {
-  const wanted = 'error:no image returned from image generation';
-  const streamed = await summaryOf(
-    () =>
-      Promise.resolve(
-        sseResponse([
-          row('step.delta', { index: 0, delta: { type: 'text', text: 'no' } }),
-          completedRow(),
-        ]),
-      ),
-    imageRequest(),
-  );
-  check(streamed, ['text', 'response', wanted, 'done'], 'streamed');
-  const buffered = await summaryOf(
-    () => Promise.resolve(Response.json({ id: 'v1_i', status: 'completed', steps: [] })),
-    { ...imageRequest(), stream: false },
-  );
-  check(buffered, ['response', wanted, 'done'], 'buffered');
-});
-
-Deno.test('an empty response body is named; rows after [DONE] are ignored', async () => {
-  check(
-    await summaryOf(() => Promise.resolve(new Response(null, { status: HTTP_OK })), imageRequest()),
-    ['error:empty response body'],
-    'null body',
-  );
-  const late = row('step.delta', { index: 0, delta: { type: 'text', text: 'late' } });
-  check(
-    await summaryOf(
-      () =>
-        Promise.resolve(
-          new Response(
-            `data: ${JSON.stringify(completedRow())}\n\ndata: [DONE]\n\ndata: ${JSON.stringify(late)}\n\n`,
-            { status: HTTP_OK },
-          ),
-        ),
-      { ...fromChatProfile(), structured: null },
-    ),
-    ['response', 'done'],
-    'nothing after [DONE]',
-  );
-});
-
-Deno.test('a request without a key slot is a config error and posts nothing', async () => {
-  let posted = false;
-  const { keySlot: _slot, ...withoutSlot } = fromChatProfile();
-  const events = await Array.fromAsync(
-    providerOf(() => {
-      posted = true;
-      return Promise.resolve(new Response('{}'));
-    }).complete(withoutSlot),
-  );
-  check(posted, false, 'posted');
-  check(
-    events.map((e) => (e.type === 'error' ? [e.errorKind, e.errorInternal] : e.type)),
-    [['config', 'Request requires keySlot']],
-    'events',
-  );
-});
-
-Deno.test('a buffered body that is an API error is an error, not a turn', async () => {
-  check(
-    await summaryOf(
-      () =>
-        Promise.resolve(
-          Response.json({ error: { code: 'invalid_request', message: COMBINED_ERROR } }),
-        ),
-      { ...fromChatProfile(), structured: null, stream: false },
-    ),
-    [`error:${COMBINED_ERROR}`],
-    'events',
-  );
-});
-
-Deno.test('an abort rethrows instead of becoming an error event', async () => {
-  const body = new ReadableStream({
-    start(controller) {
-      controller.error(new DOMException('The operation was aborted.', 'AbortError'));
-    },
-  });
-  let name = '';
-  try {
-    await Array.fromAsync(
-      providerOf(() => Promise.resolve(new Response(body, { status: HTTP_OK }))).complete({
-        ...fromChatProfile(),
-        structured: null,
-      }),
-    );
-  } catch (err) {
-    name = err instanceof Error ? err.name : String(err);
-  }
-  check(name, 'AbortError', 'thrown');
 });
 
 Deno.test('a function_call cut off mid-arguments previews them but never becomes a tool call', () => {

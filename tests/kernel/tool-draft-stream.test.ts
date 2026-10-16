@@ -5,12 +5,7 @@ import type { DetectSpec } from '../../src/guardrails/detectors.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type {
-  ModelProvider,
-  ProviderCompleteRequest,
-  ProviderEvent,
-  TurnEvent,
-} from '../../src/kernel/types.ts';
+import type { ModelEvent, ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 interface ToolProfileOptions {
@@ -39,10 +34,10 @@ interface Piece {
 }
 
 /** First call: drafts `pieces(canary)`, then the call they write; second call: a short reply. */
-function draftingProvider(pieces: (canary: string) => Array<string | Piece>): ModelProvider {
+function draftingProvider(pieces: (canary: string) => Array<string | Piece>): TurnModel {
   let call = 0;
   return {
-    async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
+    async *complete(req: ModelRequest): AsyncGenerator<ModelEvent> {
       await Promise.resolve();
       if (call++ > 0) {
         yield { type: 'text', text: 'Done.' };
@@ -69,7 +64,7 @@ function draftingProvider(pieces: (canary: string) => Array<string | Piece>): Mo
   };
 }
 
-async function collect(profile: string, provider: ModelProvider): Promise<TurnEvent[]> {
+async function collect(profile: string, provider: TurnModel): Promise<TurnEvent[]> {
   return await Array.fromAsync(runTurn({ profile, input: { text: 'Check soil' } }, provider));
 }
 
@@ -78,7 +73,7 @@ function draftText(events: TurnEvent[]): string {
 }
 
 function called(events: TurnEvent[]): boolean {
-  return events.some((e) => e.type === 'tool' && e.tool.callId === 'call_1');
+  return events.some((e) => e.type === 'tool' && e.tool.name === 'fetch_sensor');
 }
 
 Deno.test('a draft reaches the host before its call, and adds up to it', async () => {

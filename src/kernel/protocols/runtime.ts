@@ -3,28 +3,26 @@ import { labelText } from '../../guardrails/labels.ts';
 import { retryTransient, type Wait, waitDefault } from '../../providers/shared/retry.ts';
 import { readSseChunks } from '../../providers/shared/sse.ts';
 import { networkFetch, tapFetch } from '../../providers/shared/upstream-tap.ts';
-import {
-  type JsonObject,
-  type JsonValue,
-  type ProviderLimits,
-  type ProviderVault,
-  resolveProviderLimits,
-} from '../provider-contract.ts';
+import { KEY_FALLBACK_ROW } from '../../providers/types.ts';
+import { type JsonObject, type JsonValue, jsonValueSchema } from '../json.ts';
+import type { KeyVault } from '../registry/vault.ts';
 import type { DecisionResult, KeySlot } from '../types.ts';
 import { bytesToBase64 } from '../util/base64.ts';
-import type { DecisionModelBinding, ModelBinding } from './binding.ts';
+import { type DecisionModelBinding, keySlotsOf, type ModelBinding } from './binding.ts';
+import { type ProviderLimits, resolveProviderLimits } from './limits.ts';
 import { costFromPrices } from './prices.ts';
 import type {
   DecisionCall,
-  PricedDecision,
-  ProfileType,
+  EmbeddingCall,
+  EmbeddingResult,
+  ModelProfileType,
   Protocol,
   ProtocolContext,
   ProtocolEvent,
   ProtocolOperations,
+  ProtocolRequest,
   ProtocolSocket,
   SendInit,
-  TurnRequest,
 } from './protocol.ts';
 import type { Outgoing, RegisteredProvider, Serve, Signer } from './provider.ts';
 
@@ -34,20 +32,45 @@ export type OpenWebSocket = (
   init: { headers: Headers; protocols: string[] },
 ) => Promise<WebSocket>;
 
+/**
+ * The runtime's own WebSocket. It takes no headers, so a sign-in that needs them is refused; a host
+ * that can send them passes `openWebSocket`.
+ */
+export function plainWebSocket(provider: string): OpenWebSocket {
+  return (url, init) => {
+    if ([...init.headers.keys()].length)
+      throw new TheoremError('unsupported', labelText('protocol.ws_headers', { provider }));
+    return Promise.resolve(new WebSocket(url, init.protocols));
+  };
+}
+
+/** What a host lends every provider call: its keys, its network, its clock and its budgets. */
+export interface ProviderHostOptions {
+  limits?: Partial<ProviderLimits>;
+  vault?: KeyVault;
+  fetch?: typeof fetch;
+  wait?: Wait;
+  openWebSocket?: OpenWebSocket;
+}
+
 /** One call's setup: a checked binding on its registered provider, and the host's means. */
 export interface CallSetup {
   provider: RegisteredProvider;
   binding: ModelBinding | DecisionModelBinding;
-  profileType: ProfileType;
-  vault?: ProviderVault;
+  profileType: ModelProfileType;
+  vault?: KeyVault;
   fetch?: typeof fetch;
   wait?: Wait;
+  /** Milliseconds the call has left; a retry never waits past it, so the real cause is reported. */
+  timeLeft?(): number;
   openWebSocket?: OpenWebSocket;
   limits?: ProviderLimits;
   signal?: AbortSignal;
   tapUpstream?(row: JsonObject): void;
   /** Hands the wire rows to the stream as `raw` events, for looking around. */
   rawRows?: boolean;
+  /** Told the slot and key each attempt signs with, so the caller can redact it and key its state. */
+  onKey?(slot: KeySlot | undefined, key: unknown): void;
 }
 
 const CALL_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -75,6 +98,11 @@ function serveOf(setup: CallSetup): Serve {
 
 const signers = new WeakMap<RegisteredProvider, Map<string, { key: unknown; signer: Signer }>>();
 
+/** A slot's entry, only when the vault holds it itself: an inherited one is never a key. */
+function vaultEntry(vault: KeyVault | undefined, slot: string): KeyVault[string] | undefined {
+  return vault && Object.hasOwn(vault, slot) ? vault[slot] : undefined;
+}
+
 async function signerFor(
   setup: CallSetup,
   serve: Serve,
@@ -83,7 +111,7 @@ async function signerFor(
   const { definition } = setup.provider;
   const authorize = serve.authorize ?? definition.authorize;
   if (!definition.key || !authorize) return undefined;
-  const entry = slot ? setup.vault?.[slot] : undefined;
+  const entry = slot ? vaultEntry(setup.vault, slot) : undefined;
   const raw =
     typeof entry === 'function'
       ? await entry({
@@ -104,6 +132,7 @@ async function signerFor(
         : labelText('protocol.key_invalid', { slot: slot ?? '', provider: setup.provider.id }),
     );
   if (parsed.data === undefined) return undefined;
+  setup.onKey?.(slot, parsed.data);
   const cacheKey = `${serve.protocol.id}\u0000${slot ?? ''}`;
   const cache = signers.get(setup.provider) ?? new Map();
   signers.set(setup.provider, cache);
@@ -150,13 +179,14 @@ async function failure(
   } catch {
     // why: a body that is not JSON is passed on as text.
   }
-  return (
+  const error =
     protocol.error?.({ status: response.status, body, headers: response.headers }) ??
     new TheoremError(
       kindOfHttpStatus(response.status),
       labelText('protocol.http', { provider, status: response.status }),
-    )
-  );
+    );
+  // why: the host reads the upstream status beside the kind, e.g. a decision's 403 is `permission`.
+  return Object.assign(error, { status: response.status });
 }
 
 function refuseUnwritten(
@@ -227,8 +257,12 @@ function socketFrames(socket: WebSocket, tap: (row: JsonObject) => void): Protoc
     }),
   );
   return {
-    send(frame) {
-      tap({ eventType: 'ws_send', body: frame });
+    send(frame, input) {
+      tap({
+        eventType: 'ws_send',
+        body: frame,
+        ...(input?.length ? { input: jsonValueSchema.parse(input) } : {}),
+      });
       const text = JSON.stringify(frame);
       if (socket.readyState === WebSocket.CONNECTING) waiting.push(text);
       else socket.send(text);
@@ -253,6 +287,7 @@ function protocolContext(
   setup: CallSetup,
   slot: KeySlot | undefined,
   raw: JsonObject[],
+  wire: { sent: boolean } = { sent: false },
 ): ProtocolContext<unknown> {
   const serve = serveOf(setup);
   const { protocol } = serve;
@@ -304,7 +339,9 @@ function protocolContext(
           slot,
         ),
         setup.wait ?? waitDefault,
+        setup.timeLeft,
       );
+      wire.sent = true;
       const response = await post(outgoing.url, {
         method: 'POST',
         headers: outgoing.headers,
@@ -326,21 +363,13 @@ function protocolContext(
         protocols: [],
       };
       await (await signerFor(setup, serve, slot))?.sign(outgoing);
-      const url = outgoing.url.toString();
-      const headed = [...outgoing.headers.keys()].length > 0;
-      // why: a runtime's own WebSocket takes no headers; a host that can send them passes `openWebSocket`.
-      if (!setup.openWebSocket && headed)
-        throw new TheoremError(
-          'unsupported',
-          labelText('protocol.ws_headers', { provider: setup.provider.id }),
-        );
+      const open = setup.openWebSocket ?? plainWebSocket(setup.provider.id);
+      wire.sent = true;
       const socket = socketFrames(
-        setup.openWebSocket
-          ? await setup.openWebSocket(url, {
-              headers: outgoing.headers,
-              protocols: outgoing.protocols,
-            })
-          : new WebSocket(url, outgoing.protocols),
+        await open(outgoing.url.toString(), {
+          headers: outgoing.headers,
+          protocols: outgoing.protocols,
+        }),
         tap,
       );
       socket.send(setupFrame);
@@ -363,8 +392,7 @@ async function* withKeys<E>(
   setup: CallSetup,
   run: (slot: KeySlot | undefined, clean: boolean) => AsyncIterable<E>,
 ): AsyncIterable<E> {
-  const primary = setup.binding.keySlot ?? setup.provider.keySlot;
-  const fallback = setup.binding.fallbackKeySlot ?? setup.provider.fallbackKeySlot;
+  const { keySlot: primary, fallbackKeySlot: fallback } = keySlotsOf(setup.provider, setup.binding);
   let slot = primary;
   let clean = false;
   let refreshed = false;
@@ -378,7 +406,19 @@ async function* withKeys<E>(
       return;
     } catch (error) {
       if (started) throw error;
-      if (isKind(error, 'rate_limit') && fallback && slot !== fallback) {
+      if (
+        isKind(error, 'rate_limit') &&
+        fallback &&
+        slot !== fallback &&
+        holdsKey(setup, fallback)
+      ) {
+        setup.tapUpstream?.({
+          eventType: KEY_FALLBACK_ROW,
+          from: slot ?? null,
+          keySlot: fallback,
+          errorKind: (error as TheoremError).kind,
+          error: (error as TheoremError).message,
+        });
         slot = fallback;
         clean = true;
       } else if (isKind(error, 'auth') && !refreshed) {
@@ -393,12 +433,34 @@ async function* withKeys<E>(
   }
 }
 
-function cleanRequest<S>(request: TurnRequest<S>): TurnRequest<S> {
+/** Whether the vault has something under the slot; an empty slot is never tried. */
+function holdsKey(setup: CallSetup, slot: KeySlot): boolean {
+  const entry = vaultEntry(setup.vault, slot);
+  if (typeof entry === 'string') return entry.trim() !== '';
+  return typeof entry === 'function' || (typeof entry === 'object' && entry !== null);
+}
+
+/**
+ * A failure once the call is sent ends it as an `error` event, so the turn keeps what it showed
+ * and may resume. A cancel, a config mistake, or anything refused before sending still throws.
+ */
+function failureEvent(error: unknown): ProtocolEvent {
+  if (!(error instanceof TheoremError) || error.kind === 'cancelled' || error.kind === 'config')
+    throw error;
+  return {
+    type: 'error',
+    errorKind: error.kind,
+    error: error.message,
+    ...(error.copy ? { errorCopy: error.copy } : {}),
+  } as ProtocolEvent;
+}
+
+function cleanRequest<S>(request: ProtocolRequest<S>): ProtocolRequest<S> {
   if (request.state === undefined) return request;
   if (!request.history?.length)
     throw new TheoremError('request', labelText('protocol.history_needed'));
   const { state: _state, stateHistoryLength: _length, ...rest } = request;
-  return rest as TurnRequest<S>;
+  return rest as ProtocolRequest<S>;
 }
 
 /** Theorem's id on each call, the wire's kept beside it; origin and estimated cost filled in. */
@@ -412,7 +474,11 @@ function finishEvents(setup: CallSetup) {
     return minted;
   };
   const prices = setup.provider.definition.prices;
-  return (event: ProtocolEvent): ProtocolEvent => {
+  const wireOf = (id: string) => {
+    for (const [wire, minted] of ids) if (minted === id) return wire;
+    return id;
+  };
+  const finish = (event: ProtocolEvent): ProtocolEvent => {
     switch (event.type) {
       case 'tool_call':
         return {
@@ -440,14 +506,18 @@ function finishEvents(setup: CallSetup) {
         return event;
     }
   };
+  return { finish, wireOf };
 }
 
-/** A decision whose reply has no cost gets one from the provider's prices, marked estimated. */
-function pricedDecision(setup: CallSetup, result: DecisionResult): PricedDecision {
+/**
+ * A decision whose reply has no cost gets one from the provider's prices for the model the reply
+ * names, marked estimated; a model the prices don't cover stays unpriced.
+ */
+function pricedDecision(setup: CallSetup, result: DecisionResult): DecisionResult {
   const prices = setup.provider.definition.prices;
   if (!result.usage || result.usage.costUsd !== undefined || !prices) return result;
   const { inputTokens: input, outputTokens: output } = result.usage;
-  const cost = costFromPrices(prices, setup.binding.apiId, {
+  const cost = costFromPrices(prices, result.model, {
     input,
     output,
     total: input + output,
@@ -484,27 +554,39 @@ function operation<K extends keyof ProtocolOperations>(
  */
 /** What the kernel runs for one binding. */
 export type ProtocolCall = Required<Omit<ProtocolOperations, 'decide'>> & {
-  decide(request: DecisionCall): Promise<PricedDecision>;
+  decide(request: DecisionCall): Promise<DecisionResult>;
+  embed(request: EmbeddingCall): Promise<EmbeddingResult>;
 };
 
 export function callProtocol(setup: CallSetup): ProtocolCall {
   const protocol = protocolFor(setup);
   return {
     async *complete(request) {
-      const finish = finishEvents(setup);
+      const { finish } = finishEvents(setup);
       const raw: JsonObject[] = [];
+      const wire = { sent: false };
       const events = withKeys(setup, (slot, clean) => {
-        const operations = protocol.create(protocolContext(setup, slot, raw)) as ProtocolOperations;
+        wire.sent = false;
+        const operations = protocol.create(
+          protocolContext(setup, slot, raw, wire),
+        ) as ProtocolOperations;
         return operation(protocol, operations, 'complete')(clean ? cleanRequest(request) : request);
       });
-      for await (const event of events) {
+      try {
+        for await (const event of events) {
+          for (const row of raw.splice(0)) yield { type: 'raw', row };
+          yield finish(event);
+        }
+      } catch (error) {
         for (const row of raw.splice(0)) yield { type: 'raw', row };
-        yield finish(event);
+        if (!wire.sent) throw error;
+        yield failureEvent(error);
+        return;
       }
       for (const row of raw.splice(0)) yield { type: 'raw', row };
     },
     async openSession(request) {
-      const finish = finishEvents(setup);
+      const { finish, wireOf } = finishEvents(setup);
       const raw: JsonObject[] = [];
       let opened: Awaited<ReturnType<NonNullable<ProtocolOperations['openSession']>>> | undefined;
       for await (const session of withKeys(setup, (slot, clean) =>
@@ -523,6 +605,9 @@ export function callProtocol(setup: CallSetup): ProtocolCall {
       const session = opened as NonNullable<typeof opened>;
       return {
         ...session,
+        // why: the wire matches a result to the id it issued, never Theorem's.
+        sendToolResult: (result) =>
+          session.sendToolResult({ ...result, callId: wireOf(result.callId) }),
         async *events() {
           for await (const event of session.events()) {
             for (const row of raw.splice(0)) yield { type: 'raw', row };
@@ -539,6 +624,16 @@ export function callProtocol(setup: CallSetup): ProtocolCall {
         })(),
       ))
         return pricedDecision(setup, result);
+      throw new TheoremError('internal', labelText('provider.decision_failed'));
+    },
+    async embed(request) {
+      for await (const result of withKeys(setup, (slot) =>
+        (async function* () {
+          const operations = protocol.create(protocolContext(setup, slot, []));
+          yield await operation(protocol, operations, 'embed')(request);
+        })(),
+      ))
+        return result;
       throw new TheoremError('internal', labelText('provider.decision_failed'));
     },
   };

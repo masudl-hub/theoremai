@@ -6,9 +6,9 @@
  * Core: @astryxdesign/core@0.7.0
  */
 
-import { neutralTheme } from '@astryxdesign/theme-neutral/built';
+import { theoremTheme } from '@theoremjs/react/ui/theme';
 import { tablerIcons } from "../../../react/src/ui/icons.ts";
-const themeIcons = {...{...neutralTheme["icons"], ...tablerIcons}, ...tablerIcons};
+const themeIcons = {...theoremTheme["icons"], ...tablerIcons};
 /**
  * theorem-studio theme — built by `npx @astryxdesign/cli theme build`
  * Import the CSS file alongside this module:

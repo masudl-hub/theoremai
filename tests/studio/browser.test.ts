@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
-import { type ModelProvider, type ProviderEvent, TheoremError } from '../../mod.ts';
+import { type ModelEvent, TheoremError, type TurnModel } from '../../mod.ts';
 import { withPageToolDispatch } from '../../react/src/client/page-dispatch.ts';
 import type { ChatLine, ClientTurnEvent } from '../../react/src/client/transport.ts';
 import { issuedOperationId } from '../../react/src/client/turn-client.ts';
@@ -28,7 +28,7 @@ function payload() {
 function sealing() {
   return { conversationKey: newConversationKey() };
 }
-function provider(events: ProviderEvent[]): ModelProvider {
+function provider(events: ModelEvent[]): TurnModel {
   return {
     async *complete() {
       yield* events;
@@ -139,7 +139,7 @@ Deno.test('named primary and fallback slots include model overrides and isolate 
   );
   assertEquals(studioVault(slots, { primary: 'other' }).primary, 'other');
   const draft = createExampleDraft();
-  draft.modelBindings = draft.modelBindings.filter((model) => model.provider === 'google');
+  draft.modelBindings = draft.modelBindings.filter((model) => model.provider === 'gemini');
   draft.models.fallbackKey = 'backup';
   draft.modelBindings[0].keySlot = 'fast-key';
   draft.modelBindings[0].fallbackKeySlot = 'fast-backup';
@@ -155,7 +155,7 @@ Deno.test('named primary and fallback slots include model overrides and isolate 
   assertEquals(compiled.profile.models.fast.fallbackKeySlot, 'fast-backup');
 });
 Deno.test('a pasted key shows its service from the published prefix, and nothing else', () => {
-  assertEquals(keyKind(` ${TEST_GOOGLE_KEY}`), 'google');
+  assertEquals(keyKind(` ${TEST_GOOGLE_KEY}`), 'gemini');
   assertEquals(keyKind(TEST_OPENROUTER_KEY), 'openrouter');
   assertEquals(keyKind('some-other-key'), undefined);
   assertEquals(keyKind(''), undefined);
@@ -400,20 +400,20 @@ Deno.test('provider model lists keep the profile type and never put the key in t
     ]);
     assertEquals(seen[0].url, 'https://openrouter.ai/api/v1/models?output_modalities=image');
     assertEquals(await listProviderModels('openrouter', 'live', TEST_OPENROUTER_KEY), []);
-    assertEquals(await listProviderModels('google', 'text', TEST_GOOGLE_KEY), [
+    assertEquals(await listProviderModels('gemini', 'text', TEST_GOOGLE_KEY), [
       { id: 'gemini-flash', label: 'Gemini Flash' },
     ]);
-    assertEquals(await listProviderModels('google', 'live', TEST_GOOGLE_KEY), [
+    assertEquals(await listProviderModels('gemini', 'live', TEST_GOOGLE_KEY), [
       { id: 'gemini-live', label: 'Gemini Live' },
     ]);
     for (const request of seen.slice(1)) {
       assertEquals(request.url.includes(TEST_GOOGLE_KEY), false);
       assertEquals(request.headers.get('x-goog-api-key'), TEST_GOOGLE_KEY);
     }
-    await assertRejects(() => listProviderModels('google', 'text', undefined), TheoremError);
+    await assertRejects(() => listProviderModels('gemini', 'text', undefined), TheoremError);
     globalThis.fetch = () => Promise.resolve(new Response('', { status: 400 }));
     await assertRejects(
-      () => listProviderModels('google', 'text', TEST_GOOGLE_KEY),
+      () => listProviderModels('gemini', 'text', TEST_GOOGLE_KEY),
       TheoremError,
       'refused the key',
     );

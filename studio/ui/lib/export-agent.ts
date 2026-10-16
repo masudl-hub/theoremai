@@ -307,8 +307,8 @@ export function exportFiles(
 			: {
 					...file,
 					code: file.code.replace(
-						"baseURL: 'http://localhost:11434/v1'",
-						"baseURL: (process.env.LOCAL_MODEL_URL ?? 'http://127.0.0.1:11434').replace(/\\/$/, '') + '/v1'",
+						"baseUrl: 'http://localhost:11434/v1'",
+						"baseUrl: (process.env.LOCAL_MODEL_URL ?? 'http://127.0.0.1:11434').replace(/\\/$/, '') + '/v1'",
 					),
 				},
 	);

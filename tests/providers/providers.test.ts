@@ -1,12 +1,12 @@
 import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import type { JsonObject } from '../../src/kernel/json.ts';
 import {
   callProtocol,
   checkBinding,
   createProviderRegistry,
 } from '../../src/kernel/protocols/mod.ts';
 import type { Authorize } from '../../src/kernel/protocols/provider.ts';
-import type { JsonObject } from '../../src/kernel/provider-contract.ts';
 import { geminiProvider } from '../../src/providers/gemini/provider.ts';
 import { localProvider } from '../../src/providers/local/provider.ts';
 import { openRouterProvider } from '../../src/providers/openrouter/provider.ts';
@@ -19,9 +19,9 @@ interface Sent {
 
 function capture(reply: () => Response) {
   const sent: Sent[] = [];
-  const send: typeof fetch = async (input, init) => {
+  const send: typeof fetch = (input, init) => {
     sent.push({ url: String(input), headers: new Headers(init?.headers) });
-    return reply();
+    return Promise.resolve(reply());
   };
   return { sent, send };
 }
@@ -97,7 +97,7 @@ Deno.test('OpenRouter serves chat, images and decisions at its defaults, signed 
       .protocols()
       .map((protocol) => protocol.id)
       .sort(),
-    ['openAi', 'openRouter', 'openRouterImages', 'systemOne'],
+    ['openAi', 'openRouter', 'openRouterEmbedding', 'openRouterImages', 'systemOne'],
   );
   const sent = await chat(registry, 'openrouter', 'openRouter', { main: 'k-main' });
   assertEquals(sent.url, 'https://openrouter.ai/api/v1/chat/completions');
@@ -188,7 +188,14 @@ Deno.test('OpenRouter, TypeSafe and a local server share one registry and its pr
       .protocols()
       .map((protocol) => protocol.id)
       .sort(),
-    ['openAi', 'openRouter', 'openRouterImages', 'systemOne'],
+    [
+      'ollamaEmbedding',
+      'openAi',
+      'openRouter',
+      'openRouterEmbedding',
+      'openRouterImages',
+      'systemOne',
+    ],
   );
 });
 
@@ -216,7 +223,11 @@ Deno.test('Gemini signs Interactions with its key header and Live with the key i
   });
   assertEquals(
     registry.require('proxied', 'm').serves.map((serve) => serve.baseUrl),
-    ['https://gemini.gateway.test/v1beta', 'wss://gemini.gateway.test/ws'],
+    [
+      'https://gemini.gateway.test/v1beta',
+      'https://gemini.gateway.test/v1beta',
+      'wss://gemini.gateway.test/ws',
+    ],
   );
   assertThrows(
     () =>

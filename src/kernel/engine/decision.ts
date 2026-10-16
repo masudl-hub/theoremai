@@ -5,13 +5,8 @@ import { resolveTraceWriter } from '../../observability/policy.ts';
 import { writeSpans } from '../../observability/trace.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import { type SpanHandle, startTrace, traceJson } from '../../observability/trace-span.ts';
-import type { ProviderHostOptions } from '../provider-contract.ts';
-import { validateProviderModel } from '../provider-contract.ts';
-import {
-  createProviderOperations,
-  snapshotRegisteredProvider,
-  withProviderAbort,
-} from '../provider-runtime.ts';
+import type { ProviderHostOptions } from '../protocols/runtime.ts';
+import { guardedCall } from '../provider-runtime.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { soleModelId } from '../registry/sole-model.ts';
 import type {
@@ -387,63 +382,26 @@ async function decide(
   options: RunDecisionOptions,
 ): Promise<DecisionResult> {
   throwIfAborted(request.signal);
-  const selected = registry.providers.require(binding.provider);
-  const provider = snapshotRegisteredProvider(selected);
-  binding = { ...binding, providerOptions: structuredClone(binding.providerOptions ?? {}) };
+  const provider = registry.providers.require(binding.provider, binding.apiId);
   await enforceDisclosure(profile, modelId, binding.provider, request);
   throwIfAborted(request.signal);
-  validateProviderModel(provider, binding, 'decision');
-  provider.adapter.validateRequest(
-    {
-      apiId: binding.apiId,
-      state: request.state,
-      questions: request.questions,
-      signal: request.signal,
-    },
-    {
-      apiId: binding.apiId,
-      connection: provider.connection,
-      providerOptions: binding.providerOptions ?? {},
-    },
-  );
-  const controller = new AbortController();
-  const timeout = binding.timeoutMs
-    ? setTimeout(() => controller.abort(), binding.timeoutMs)
-    : undefined;
-  const abort = () => controller.abort();
-  request.signal?.addEventListener('abort', abort, { once: true });
   try {
-    const operations = await createProviderOperations(provider, binding, options, {
-      signal: controller.signal,
+    const call = guardedCall(provider, binding, 'decision', options, {
+      ...(request.signal ? { signal: request.signal } : {}),
+      ...(binding.timeoutMs ? { timeoutMs: binding.timeoutMs } : {}),
     });
-    const operation = operations.decide;
-    if (typeof operation !== 'function')
-      throw new DecisionError('invalid_request', labelText('provider.decision_unavailable'));
-    const payload = {
+    const result = await call.decide({
       apiId: binding.apiId,
       state: request.state,
       questions: request.questions,
-      signal: controller.signal,
-    };
-    provider.adapter.validateRequest(payload, {
-      apiId: binding.apiId,
-      connection: provider.connection,
-      providerOptions: binding.providerOptions ?? {},
     });
-    const result = await withProviderAbort(() => operation(payload), controller.signal);
     if (typeof result.model !== 'string' || !result.model.trim())
       throw new DecisionError('malformed_response', labelText('provider.decision_model_missing'));
     return { ...result, answers: validateAnswers(result.answers, request.questions) };
   } catch (error) {
-    if (controller.signal.aborted)
-      throw new DecisionError(
-        request.signal?.aborted ? 'cancelled' : 'timeout',
-        labelText('provider.decision_ended'),
-      );
+    if (request.signal?.aborted)
+      throw new DecisionError('cancelled', labelText('provider.decision_ended'));
     throw decisionProviderError(error);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-    request.signal?.removeEventListener('abort', abort);
   }
 }
 

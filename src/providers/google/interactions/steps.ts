@@ -1,12 +1,7 @@
 import { asRecord, nonEmptyString } from '../../../kernel/engine/record.ts';
 import { reportedTokens, usageCount } from '../../../kernel/engine/usage.ts';
 import { turnStopFromInteractionStatus } from '../../../kernel/stop.ts';
-import type {
-  ProviderEvent,
-  TurnEventOf,
-  TurnResponse,
-  TurnTokens,
-} from '../../../kernel/types.ts';
+import type { ModelEvent, TurnEventOf, TurnResponse, TurnTokens } from '../../../kernel/types.ts';
 import { groundingFromSteps } from '../grounding.ts';
 import { byModality, groundingCounts, modalityCounts } from '../usage.ts';
 
@@ -48,7 +43,7 @@ function interactionsMime(rec: Record<string, unknown>): string | undefined {
   return extra.length > 0 ? `${mime}; ${extra.join('; ')}` : mime;
 }
 
-function interactionsMedia(rec: Record<string, unknown>): ProviderEvent[] {
+function interactionsMedia(rec: Record<string, unknown>): ModelEvent[] {
   const mimeType = interactionsMime(rec);
   const { data } = rec;
   if (!mimeType || typeof data !== 'string' || !data) {
@@ -57,7 +52,7 @@ function interactionsMedia(rec: Record<string, unknown>): ProviderEvent[] {
   return [{ type: 'media', media: { mimeType, data } }];
 }
 
-function textEvent(type: 'thought' | 'text', text: string): ProviderEvent[] {
+function textEvent(type: 'thought' | 'text', text: string): ModelEvent[] {
   return text ? [{ type, text }] : [];
 }
 
@@ -109,7 +104,7 @@ function codeExecutionEvidence(raw: Record<string, unknown>): TurnEventOf<'evide
   };
 }
 
-function eventsFromDelta(deltaValue: unknown): ProviderEvent[] {
+function eventsFromDelta(deltaValue: unknown): ModelEvent[] {
   const delta = asRecord(deltaValue);
   if (!delta) {
     return [];
@@ -127,12 +122,12 @@ function eventsFromDelta(deltaValue: unknown): ProviderEvent[] {
   }
 }
 
-function eventsFromThoughtStep(step: Record<string, unknown>): ProviderEvent[] {
+function eventsFromThoughtStep(step: Record<string, unknown>): ModelEvent[] {
   const summary = Array.isArray(step.summary) ? step.summary : [];
   return summary.flatMap((block) => textEvent('thought', thoughtText(block)));
 }
 
-function eventsFromModelOutputStep(step: Record<string, unknown>): ProviderEvent[] {
+function eventsFromModelOutputStep(step: Record<string, unknown>): ModelEvent[] {
   const content = Array.isArray(step.content) ? step.content : [];
   return content.flatMap((block) => {
     const rec = asRecord(block);
@@ -191,8 +186,8 @@ function extractTokenEvent(
   };
 }
 
-function eventsFromInteractionEnd(interaction: Record<string, unknown>): ProviderEvent[] {
-  const events: ProviderEvent[] = [];
+function eventsFromInteractionEnd(interaction: Record<string, unknown>): ModelEvent[] {
+  const events: ModelEvent[] = [];
   const tokenEvent = extractTokenEvent(interaction);
   if (tokenEvent) events.push(tokenEvent);
   // why: Only a buffered body carries `steps[]`; streamed grounding arrives on deltas.
@@ -210,9 +205,7 @@ function interactionResponse(interaction: Record<string, unknown>): TurnResponse
   return { ...(id ? { id } : {}), ...(model ? { model } : {}) };
 }
 
-function doneFromInteractionStatus(
-  interaction: Record<string, unknown>,
-): ProviderEvent | undefined {
+function doneFromInteractionStatus(interaction: Record<string, unknown>): ModelEvent | undefined {
   const { status } = interaction;
   if (typeof status !== 'string') return undefined;
   return {

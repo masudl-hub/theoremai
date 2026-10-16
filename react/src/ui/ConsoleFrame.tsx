@@ -359,6 +359,32 @@ export function RequestCard({ title, view, hasFields, onView, onRun, children }:
   );
 }
 
+export function ConsoleRequestCard({
+  title,
+  onRun,
+  children,
+}: {
+  title: string;
+  onRun: () => void;
+  children: ReactNode;
+}) {
+  const framed = use(ConsoleChrome);
+  const body = (
+    <VStack gap={3} padding={framed ? undefined : 4} onKeyDown={runShortcut(onRun)}>
+      <Text type="supporting" color="secondary" as="h3">
+        {title}
+      </Text>
+      {children}
+    </VStack>
+  );
+  if (!framed) return body;
+  return (
+    <Card variant="muted" padding={4} className="theorem-console-card" style={CONSOLE_CARD}>
+      {body}
+    </Card>
+  );
+}
+
 /** The field reads as code: the body font is swapped for the code font inside it. */
 const CODE_FONT = { '--font-family-body': 'var(--font-family-code)' } as CSSProperties;
 

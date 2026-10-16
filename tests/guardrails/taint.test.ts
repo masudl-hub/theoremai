@@ -17,7 +17,7 @@ import {
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { eventsOf, failureOf, lastTool, toolEventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -120,7 +120,7 @@ function registerReadThenWrite(page = STEERING_PAGE): () => void {
   };
 }
 /** Model reads a page, then tries to act on what the page said. */
-function readThenWrite(): ModelProvider {
+function readThenWrite(): TurnModel {
   let step = 0;
   return {
     async *complete() {
@@ -310,12 +310,20 @@ async function liveReadThenSend(
   const until = async (done: () => boolean) => {
     for (let i = 0; i < 50 && !done(); i++) await new Promise((r) => setTimeout(r, 0));
   };
-  const call = async (callId: string, name: string, args: Record<string, unknown>) => {
+  /** The model calls `name`; the session runs it under the id the kernel minted for it. */
+  const call = async (wireId: string, name: string, args: Record<string, unknown>) => {
+    const from = events.length;
+    const issued = () =>
+      events
+        .slice(from)
+        .find((e) => e.type === 'tool' && e.tool.phase === undefined && e.tool.name === name);
     (mock as MockLiveWebSocket).deliver({
-      toolCall: { functionCalls: [{ id: callId, name, args }] },
+      toolCall: { functionCalls: [{ id: wireId, name, args }] },
     });
-    await until(() => events.some((e) => e.type === 'tool' && e.tool.callId === callId));
-    return await session.executeTool({ callId });
+    await until(() => issued() !== undefined);
+    const surfaced = issued();
+    if (surfaced?.type !== 'tool') throw new Error(`the session never surfaced call ${wireId}`);
+    return await session.executeTool({ callId: surfaced.tool.callId });
   };
   try {
     await session.sendText('read the page');
@@ -363,7 +371,7 @@ Deno.test('a write chosen beside a remote read runs; one chosen after it is refu
       }),
     );
     let step = 0;
-    const provider: ModelProvider = {
+    const provider: TurnModel = {
       async *complete() {
         step++;
         if (step === 1) {
@@ -394,10 +402,22 @@ Deno.test('a write chosen beside a remote read runs; one chosen after it is refu
     const events = await Array.fromAsync(
       runTurn({ profile: 'deputy_beside', input: { text: 'summarise' } }, provider),
     );
+    // The kernel mints each call's id; the calls surface in the order the model made them.
+    const issued = events.flatMap((e) =>
+      e.type === 'tool' && e.tool.phase === undefined ? [e.tool] : [],
+    );
+    assertEquals(
+      issued.map((t) => t.name),
+      ['web_fetch', 'send_email', 'send_email'],
+    );
+    const [, beside, after] = issued.map((t) => t.callId);
+    assertEquals(typeof beside, 'string');
+    assertEquals(typeof after, 'string');
+    assertEquals(new Set(issued.map((t) => t.callId)).size, 3);
     const refused = toolEventsOf(events, 'error').map((e) => [e.callId, e.failure.code]);
-    assertEquals(refused, [['c3', 'tainted_turn']]);
+    assertEquals(refused, [[after, 'tainted_turn']]);
     const sent = toolEventsOf(events, 'complete').map((e) => e.callId);
-    assertEquals(sent.includes('c2'), true);
+    assertEquals(sent.includes(beside as string), true);
   } finally {
     restore();
   }

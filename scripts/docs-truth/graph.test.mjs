@@ -92,7 +92,7 @@ test('React source and package changes require the React README', async () => {
 test('provider and session changes also require the React guide', async () => {
   const repoRoot = new URL('../..', import.meta.url).pathname;
   for (const file of [
-    'src/kernel/provider-contract.ts',
+    'src/kernel/protocols/provider.ts',
     'src/interface/session.ts',
     'src/kernel/provider-live.ts',
   ]) {

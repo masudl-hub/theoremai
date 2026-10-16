@@ -1,12 +1,9 @@
 /**
- * Everything provider-specific: each provider's facts, which the kernel's general rules read, and
- * host-convenience catalogs (provider builtins, media vocabularies).
+ * Host-convenience catalogs for first-party providers: provider builtins and media vocabularies.
  *
  * @module
  */
 
-export type { ProviderFacts } from './facts.ts';
-export { PROVIDER_FACTS } from './facts.ts';
 export type {
   GoogleBindingViolation,
   GoogleFreeTierGrounding,
@@ -47,4 +44,3 @@ export {
   OPENROUTER_IMAGES_INPUT_MIMES,
   registerOpenRouterPreset,
 } from './openrouter.ts';
-export { JEV_USD_PER_MILLION_INPUT_TOKENS } from './typesafe.ts';

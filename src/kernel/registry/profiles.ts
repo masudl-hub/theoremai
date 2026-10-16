@@ -12,16 +12,16 @@ import {
 } from '../../guardrails/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../../observability/types.ts';
+import { providerContinuationSchema } from '../checkpoint.ts';
 import { assertLiveIngressConfigured } from '../engine/live-ingress.ts';
 import { itemSchemaAt, schemaReaches } from '../engine/runner/schema-validation.ts';
 import { outOfScopeFields, profileKeysOf, profileTypesForField } from '../profile-scope.ts';
 import {
+  checkBinding,
   decisionModelBindingSchema,
   modelBindingSchema,
-  type ProviderRegistry,
-  providerContinuationSchema,
-  validateProviderModel,
-} from '../provider-contract.ts';
+} from '../protocols/binding.ts';
+import type { ProviderRegistry } from '../protocols/provider.ts';
 import {
   CONTEXT_SENDERS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
@@ -40,6 +40,7 @@ import type {
   CompactionSpec,
   DecisionModelBinding,
   DecisionProfile,
+  EmbeddingProfile,
   HostProfile,
   HostProfileToolsSpec,
   ImageInputsSpec,
@@ -73,7 +74,7 @@ export type ProfileDefinitionBase = {
   id: Profile['id'];
   identity: ProfileIdentity;
   models: Record<ModelId, ModelBinding>;
-  providerContinuation?: import('../provider-contract.ts').ProviderContinuationPolicy;
+  providerContinuation?: import('../checkpoint.ts').ProviderContinuationPolicy;
   defaultModel?: ModelId;
   allowModelSelect?: boolean;
   maxSteps?: number;
@@ -81,6 +82,16 @@ export type ProfileDefinitionBase = {
   guardrails?: ProfileGuardrailsSpec;
   observability?: ProfileObservabilitySpec;
   labels?: LabelOverrides;
+};
+
+/** What a host writes to define an embedding profile. */
+export type EmbeddingProfileDefinition = Omit<
+  ProfileDefinitionBase,
+  'identity' | 'outputs' | 'maxSteps'
+> & {
+  type: 'embedding';
+  identity: Pick<ProfileIdentity, 'handle'>;
+  inputs: EmbeddingProfile['inputs'];
 };
 
 /** What a host writes to define a text profile. */
@@ -150,6 +161,7 @@ export type ProfileDefinition =
   | SpeechProfileDefinition
   | LiveProfileDefinition
   | DecisionProfileDefinition
+  | EmbeddingProfileDefinition
   | HostProfileDefinition;
 
 function assertModelRoute(
@@ -160,6 +172,25 @@ function assertModelRoute(
 ): void {
   if (!binding.provider?.trim() || !binding.apiId?.trim())
     throw new TheoremError('config', labelText('provider.binding_identity'));
+}
+
+function defineEmbeddingProfile(input: EmbeddingProfileDefinition): EmbeddingProfile {
+  assertModelsNonEmpty(input.id, input.models);
+  assertObservability(input.id, input.observability);
+  for (const [modelId, binding] of Object.entries(input.models))
+    assertModelBinding(input.id, modelId, binding);
+  return {
+    type: 'embedding',
+    id: input.id,
+    identity: { handle: input.identity.handle },
+    models: input.models,
+    defaultModel: resolveDefaultModel(input.id, input),
+    allowModelSelect: input.allowModelSelect,
+    inputs: input.inputs,
+    guardrails: input.guardrails,
+    observability: input.observability,
+    labels: input.labels,
+  };
 }
 
 function assertBindingData(
@@ -333,7 +364,7 @@ function profileModelFields(input: ProfileDefinitionBase): ProfileModelFields {
   return {
     providerContinuation: input.providerContinuation
       ? providerContinuationSchema.parse(input.providerContinuation)
-      : { onMismatch: 'rebuild' },
+      : {},
     models: input.models,
     defaultModel: resolveDefaultModel(input.id, input),
     allowModelSelect: input.allowModelSelect,
@@ -470,7 +501,10 @@ function assertFieldScope(input: ProfileDefinition): void {
 
 function assertTurnBehaviour(
   profileId: string,
-  input: Exclude<ProfileDefinition, HostProfileDefinition | DecisionProfileDefinition>,
+  input: Exclude<
+    ProfileDefinition,
+    HostProfileDefinition | DecisionProfileDefinition | EmbeddingProfileDefinition
+  >,
 ): void {
   const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
   assertResumption(profileId, tb?.resumption);
@@ -562,7 +596,13 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
 }
 
 function assertIdentitySystem(input: ProfileDefinition): void {
-  if (input.type === 'host' || input.type === 'decision' || input.type === 'speech') return;
+  if (
+    input.type === 'host' ||
+    input.type === 'decision' ||
+    input.type === 'speech' ||
+    input.type === 'embedding'
+  )
+    return;
   const { system, systemByRole } = input.identity;
   if (system !== undefined) assertSystemPrompt(system, `Profile ${input.id} identity.system`);
   for (const [role, prompt] of Object.entries(systemByRole ?? {})) {
@@ -582,6 +622,8 @@ function defineProfile(input: LiveProfileDefinition): LiveProfile;
 function defineProfile(input: DecisionProfileDefinition): DecisionProfile;
 /** Validate a host definition and return the profile. */
 function defineProfile(input: HostProfileDefinition): HostProfile;
+/** Validate an embedding definition and return the profile. */
+function defineProfile(input: EmbeddingProfileDefinition): EmbeddingProfile;
 /** Validate a definition of any type except live and host, and return the profile. */
 function defineProfile(
   input: Exclude<ProfileDefinition, LiveProfileDefinition | HostProfileDefinition>,
@@ -609,6 +651,9 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   if (input.type === 'decision') {
     return defineDecisionProfile(input);
+  }
+  if (input.type === 'embedding') {
+    return defineEmbeddingProfile(input);
   }
   assertModelsNonEmpty(input.id, input.models);
   assertTurnBehaviour(input.id, input);
@@ -1068,14 +1113,26 @@ function createProfileRegistry(
 ): ProfileRegistry {
   const profiles = new Map<string, Profile>();
   const register = (profileInput: Profile | ProfileDefinition) => {
-    const profile = defineProfile(profileInput as ProfileDefinition);
-    if (providers && profile.type !== 'host') {
-      for (const binding of Object.values(profile.models))
-        validateProviderModel(providers.require(binding.provider), binding, profile.type);
-    }
+    const defined = defineProfile(profileInput as ProfileDefinition);
+    const profile: Profile =
+      providers && defined.type !== 'host'
+        ? ({
+            ...defined,
+            models: Object.fromEntries(
+              Object.entries(defined.models).map(([modelId, binding]) => [
+                modelId,
+                checkBinding(
+                  providers.require(binding.provider, binding.apiId),
+                  binding,
+                  defined.type,
+                ),
+              ]),
+            ),
+          } as Profile)
+        : defined;
     assertCustomToolsOnly(tools, profile);
     assertProfileToolLoader(tools, profile);
-    if (profile.type !== 'host' && profile.type !== 'decision') {
+    if (profile.type !== 'host' && profile.type !== 'decision' && profile.type !== 'embedding') {
       assertModelBuiltInTools(tools, profile);
       assertMediaLimits(profile);
       assertContextSpec(profile);

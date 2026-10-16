@@ -17,7 +17,7 @@ import { canariesSent, inboundMisses, leaksIn, shownText } from '../fixtures/gua
 import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
 export interface CassetteModel {
   apiId: string;
-  protocol: 'geminiInteractions' | 'openAi' | 'geminiLive';
+  protocol: 'geminiInteractions' | 'openRouter' | 'geminiLive';
   /** A thinking level the model requires; unset leaves it to the provider. */
   effort?: 'low';
 }
@@ -26,7 +26,7 @@ export const CASSETTE_MODELS: CassetteModel[] = [
   { apiId: 'gemini-3.5-flash-lite', protocol: 'geminiInteractions' },
   { apiId: 'gemma-4-26b-a4b-it', protocol: 'geminiInteractions' },
   { apiId: 'gemma-4-31b-it', protocol: 'geminiInteractions' },
-  { apiId: 'openrouter/free', protocol: 'openAi' },
+  { apiId: 'openrouter/free', protocol: 'openRouter' },
   { apiId: 'gemini-3.1-flash-live-preview', protocol: 'geminiLive' },
   { apiId: 'gemini-3.8-live', protocol: 'geminiLive' },
   { apiId: 'gemini-3.8-live-extended-thinking', protocol: 'geminiLive', effort: 'low' },
@@ -250,18 +250,16 @@ function registerTools(scope: KernelScope, effects: () => RemoteEffects): void {
   });
 }
 function textBinding(model: CassetteModel) {
-  return model.protocol === 'openAi'
-    ? { provider: 'openrouter' as const, apiId: model.apiId }
+  return model.protocol === 'openRouter'
+    ? { protocol: 'openRouter', provider: 'openrouter', apiId: model.apiId, keySlot: 'openrouter' }
     : {
-        provider: 'google' as const,
+        protocol: 'geminiInteractions',
+        provider: 'gemini',
         apiId: model.apiId,
-        keySlot: textKey(model),
-        providerOptions: {
-          persistViaInteractionId: true,
-        },
+        keySlot: 'slot_a',
+        options: { persistViaInteractionId: true },
       };
 }
-const textKey = (model: CassetteModel) => (model.protocol === 'openAi' ? 'openrouter' : 'slot_a');
 function registerTextProfiles(scope: KernelScope, model: CassetteModel): void {
   const common = {
     type: 'text' as const,
@@ -327,7 +325,8 @@ function registerLiveProfile(scope: KernelScope, model: CassetteModel): void {
       },
       models: {
         m: {
-          provider: 'google',
+          protocol: 'geminiLive',
+          provider: 'gemini',
           apiId: model.apiId,
           ...(model.effort ? { efforts: { normal: model.effort } } : {}),
           summaries: false,

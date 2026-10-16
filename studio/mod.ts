@@ -10,6 +10,10 @@ export {
 } from './compile.ts';
 export { unheldProblem } from './held-credentials.ts';
 export {
+  KNOWN_GEMINI_EMBEDDING_MODELS,
+  KNOWN_OPENROUTER_EMBEDDING_MODELS,
+} from './browser-connection.ts';
+export {
   agentToolTarget,
   COMPACTION_DRAFT_DEFAULTS,
   createBlankDraft,
@@ -71,6 +75,7 @@ export {
   createConsoleExampleDraft,
   createDecisionExampleDraft,
   createExampleDraft,
+  createGeminiEmbeddingExampleDraft,
   createLiveExampleDraft,
   createNarratorExampleDraft,
   createSpanExampleDraft,
@@ -80,6 +85,7 @@ export {
   type StudioConnectionMode,
   isGoogleRoute,
   isOpenRouterRoute,
+  firstServed,
   isProviderBuiltinId,
   modelBindingViolation,
   startingBinding,
@@ -101,28 +107,31 @@ export {
   type StudioRunsOn,
 } from './lent-keys.ts';
 export {
-  adapterFactory,
-  adapterOf,
   type ConnectionField,
   connectionFields,
-  kernelAdapters,
+  definitionFactory,
+  definitionOf,
+  definitionOfFactory,
+  kernelDefinition,
+  kernelDefinitions,
   modelSlots,
   LOCAL_PROVIDER_ID,
   localProviderAddress,
   onStudioLocal,
   type ModelRoute,
-  declarableFeatures,
-  declaresSupport,
-  modelCapabilities,
   modelRoute,
+  optionAt,
+  type ProtocolOptionField,
+  protocolOptionFields,
   type ProviderProblem,
   providerProblems,
-  modelSupport,
-  providerSupport,
+  registerStudioProvider,
+  servedProtocols,
   servesProfileType,
   STUDIO_PROVIDERS,
   type StudioProvider,
-  withSupport,
+  takesKey,
+  withOption,
 } from './providers.ts';
 export {
   bindingSlots,
@@ -351,6 +360,7 @@ export {
 } from './run-payload.ts';
 export { registerStudioTools, type StudioToolHandler, type StudioToolHandlers } from './tools.ts';
 export type { StudioSteerLine, StudioTransportOptions } from './transport.ts';
+export { createStudioEmbeddingTransport } from './transport.ts';
 export {
   createStudioDecisionTransport,
   createStudioHostTransport,
@@ -359,4 +369,3 @@ export {
   studioInterface,
   studioRunDefines,
 } from './transport.ts';
-

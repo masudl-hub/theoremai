@@ -12,6 +12,7 @@ import {
 	IconPhoto,
 	IconServer,
 	IconTool,
+	IconTopologyStar,
 	IconVolume,
 	IconWorld,
 } from '@tabler/icons-react';
@@ -26,6 +27,7 @@ export const PROFILE_TYPE_ICON = {
 	speech: IconVolume,
 	live: IconHeadset,
 	decision: IconGitBranch,
+	embedding: IconTopologyStar,
 	host: IconServer,
 } satisfies Record<StudioProfileType, IconType>;
 

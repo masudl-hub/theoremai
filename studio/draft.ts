@@ -27,13 +27,12 @@ import {
 import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
 import {
   CONTINUE_INSTRUCTION_TYPES,
+  type JsonObject,
   mimeAllowed,
   type ProfileItemRule,
   profileTypesForField,
 } from '@theoremjs/agents/kernel';
 import {
-  type CacheMode,
-  type CacheTtl,
   type CompactionMeter,
   type CompactionTiming,
   type ContextSender,
@@ -47,7 +46,6 @@ import {
   PROFILE_TYPES,
   type ProfileGraphFacetId,
   type ProfileType,
-  type Provider,
   type SpeechAudioFormat,
   type StepLimitMode,
   type StreamMode,
@@ -81,7 +79,6 @@ export interface IdentityDraft {
 }
 
 export interface ModelsDraft {
-  providerStateMismatch?: 'rebuild' | 'error';
   /** Who holds the conversation a saved state continues; unset is the kernel's default, the host. */
   providerHistory?: 'host' | 'stateless' | 'provider';
   defaultModel: string;
@@ -103,9 +100,13 @@ export interface ModelBindingDraft {
   /** Stable draft key; the model id is editable, so it cannot be the key. */
   key: string;
   modelId: string;
+  /** The API shape it is spoken to in, by the id of a protocol its provider serves. */
+  protocol: string;
   /** The provider that serves it, by the id one of the draft's `providers` has. */
-  provider: Provider;
+  provider: string;
   apiId: string;
+  /** What its protocol takes beyond the shared settings, as the protocol's own schema reads them. */
+  options: JsonObject;
   /** Decision request timeout; `null` uses the studio timeout. */
   timeoutMs: number | null;
   efforts: EffortDraft[];
@@ -116,24 +117,10 @@ export interface ModelBindingDraft {
   maxOutputTokens: number | null;
   temperature: number | null;
   builtInTools: string[];
-  /** Google stores the interaction: on, off, or `null` for Google's default. Gemini Interactions only. */
-  store: boolean | null;
-  /**
-   * Gemini Interactions only, and required there: `true` chains on Google's
-   * stored interaction so Google builds the context; `false` sends the host's
-   * history plus this turn's steps.
-   */
-  persistViaInteractionId: boolean;
   /** This model's own vault slot; `''` or absent uses the profile's. */
   keySlot?: KeySlot | '';
   /** This model's own fallback slot; `''` or absent uses the profile's. */
   fallbackKeySlot?: KeySlot | '';
-  /** Prompt caching, OpenRouter only; `''` or absent leaves it off. */
-  cacheMode?: CacheMode | '';
-  /** How long a cached prompt lasts; `''` or absent is the provider's default. */
-  cacheTtl?: CacheTtl | '';
-  /** The local server running the model, recorded on traces; local models only. */
-  server?: string;
   /** When the agent compacts its own history; `''` or absent leaves compaction off. Text only. */
   compactTiming?: CompactionTiming | '';
   /** The token budget `compactAt` is a fraction of. */
@@ -430,8 +417,10 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
   return {
     key: draftKey('model'),
     modelId: 'fast',
+    protocol: 'openRouter',
     provider: 'openrouter',
     apiId: '',
+    options: {},
     timeoutMs: null,
     efforts: [],
     defaultEffort: '',
@@ -440,8 +429,6 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
     maxOutputTokens: null,
     temperature: null,
     builtInTools: [],
-    store: null,
-    persistViaInteractionId: false,
     ...partial,
   };
 }
@@ -864,7 +851,8 @@ export function setProfileType(
   const kept = draft.modelBindings.filter(
     (binding) => {
       const route = modelRoute(draft.providers, type, binding);
-      return servesProfileType(route.adapter, type, route.apiId) && !listedForOthers(keys, type, route);
+      const provider = draft.providers.find((each) => each.id === binding.provider);
+      return servesProfileType(provider, type, binding.protocol) && !listedForOthers(keys, type, route);
     },
   );
   const retyped: StudioDraft = {
@@ -892,11 +880,11 @@ const MODEL_PROFILE_TYPES: readonly ModelProfileType[] = ['text', 'image', 'spee
 function listedForOthers(
   keys: ModelPicks | undefined,
   type: ModelProfileType,
-  route: { adapter: string | undefined; apiId: string },
+  route: { definition: string | undefined; apiId: string },
 ): boolean {
   if (!keys) return false;
   const listed = (each: ModelProfileType) =>
-    keys.models(each, route.adapter).some((model) => model.id === route.apiId.trim());
+    keys.models(each, route.definition).some((model) => model.id === route.apiId.trim());
   return !listed(type) && MODEL_PROFILE_TYPES.some((each) => each !== type && listed(each));
 }
 

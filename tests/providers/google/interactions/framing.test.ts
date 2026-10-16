@@ -3,7 +3,7 @@ import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
 import type {
   InteractionPart,
-  ProviderCompleteRequest,
+  ModelRequest,
   TurnHistoryMessage,
 } from '../../../../src/kernel/types.ts';
 import {
@@ -14,6 +14,7 @@ import {
   camelToSnake,
   historyStep,
   historySteps,
+  type InteractionsRequest,
   inputStepsFromRequest,
   jsonResponseFormat,
   toGoogleValue,
@@ -24,7 +25,7 @@ import {
 import { googleBuiltins, resolvedStructured } from '../../../fixtures/provider-request.ts';
 import { testWireTool } from '../../../fixtures/wire-tools.ts';
 
-function baseReq(overrides: Partial<ProviderCompleteRequest> = {}): ProviderCompleteRequest {
+function baseReq(overrides: Partial<InteractionsRequest> = {}): InteractionsRequest {
   return {
     model: 'gemini35FlashLite',
     apiId: 'gemini-3.5-flash-lite',
@@ -363,7 +364,7 @@ Deno.test('a tool result without a name takes its call name', () => {
   };
   const result: TurnHistoryMessage = { role: 'tool', tool_call_id: 't1', content: 'ok' };
   const orphan: TurnHistoryMessage = { role: 'tool', tool_call_id: 't9', content: 'ok' };
-  const results = (req: ProviderCompleteRequest) =>
+  const results = (req: InteractionsRequest) =>
     inputStepsFromRequest(req).filter((step) => step.type === 'function_result');
   assertEquals(
     results(baseReq({ history: [call, result, orphan], input: [] })).map((step) => step.name),
@@ -709,13 +710,15 @@ Deno.test('historySteps replays the thought signature as the thought step ahead 
         id: 'c1',
         type: 'function',
         function: { name: 'geocode_city', arguments: '{"city":"Porto"}' },
-        thoughtSignature: 'sig',
       },
       {
         id: 'c2',
         type: 'function',
         function: { name: 'geocode_city', arguments: '{"city":"Faro"}' },
       },
+    ],
+    reasoning: [
+      { data: { call: 0, signature: 'sig' }, origin: { protocol: 'geminiInteractions' } },
     ],
   });
   assertEquals(steps, [
@@ -796,7 +799,7 @@ Deno.test('applyOptionalRequestFields throws for a builtin Google does not run',
 });
 
 Deno.test('applyOptionalRequestFields sends Maps the location its args carry, and none without args', () => {
-  const tools = (builtins: ProviderCompleteRequest['builtins']) => {
+  const tools = (builtins: ModelRequest['builtins']) => {
     const body: Record<string, unknown> = {};
     applyOptionalRequestFields(baseReq({ builtins }), body);
     return body.tools;

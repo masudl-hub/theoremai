@@ -13,13 +13,13 @@ import {
 } from '../../../observability/trace-span.ts';
 import type { ResolvedObservabilityPolicy } from '../../../observability/types.ts';
 import { liveSentInput } from '../../../providers/live.ts';
-import { LIVE_FALLBACK_ROW, type LiveQueueItem } from '../../../providers/types.ts';
-import type { ProviderEvent, TurnEventOf } from '../../turn-events.ts';
+import { KEY_FALLBACK_ROW, type LiveQueueItem } from '../../../providers/types.ts';
+import type { ModelEvent, TurnEventOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
   ModelBinding,
+  ModelRequest,
   Profile,
-  ProviderCompleteRequest,
   ResolvedGeneration,
   SessionRequest,
   TurnEvent,
@@ -36,7 +36,7 @@ import {
   observeCallEvent,
   startCallUsage,
 } from '../runner/usage.ts';
-import type { MediaTokenFamily, TokenCount } from '../token-estimate.ts';
+import type { TokenCount } from '../token-estimate.ts';
 import {
   type CallTrace,
   endThrownSpan,
@@ -53,14 +53,13 @@ import { sumTokens } from '../usage.ts';
 type LiveCloser = 'host' | 'provider' | 'theorem';
 
 /** Events that are the model's output: they mark a response as answering. */
-const OUTPUT_EVENTS = new Set<ProviderEvent['type']>(['text', 'thought', 'media', 'tool']);
+const OUTPUT_EVENTS = new Set<ModelEvent['type']>(['text', 'thought', 'media', 'tool']);
 const MS_PER_S = 1000;
 
 interface LiveTraceBinding {
-  request: ProviderCompleteRequest;
+  request: ModelRequest;
   generation: ResolvedGeneration;
   binding: ModelBinding | undefined;
-  family: MediaTokenFamily | undefined;
   /** The system prompt as sent, canary bound. */
   system: string;
   canary: string;
@@ -150,7 +149,7 @@ function stringAttribute(key: string, value: unknown): TraceAttributes {
 }
 
 /** A provider session signal as `theorem.session` attributes, or `undefined` for a response event. */
-function sessionSignal(event: ProviderEvent): TraceAttributes | undefined {
+function sessionSignal(event: ModelEvent): TraceAttributes | undefined {
   if (event.type === 'session') {
     const { session } = event;
     if (session.kind === 'turn_complete') return undefined;
@@ -208,7 +207,7 @@ class LiveTrace {
   private lastResponse?: SpanHandle;
   private pendingFrames: PendingFrame[] = [];
   private pendingInput = new LiveInput();
-  private pendingHeard: ProviderEvent[] = [];
+  private pendingHeard: ModelEvent[] = [];
   /** What the provider holds from answered responses, for estimating unreported usage. */
   private held?: TokenCount;
   private readonly tokens: TurnTokens[] = [];
@@ -242,7 +241,7 @@ class LiveTrace {
 
   /** The adapter's `tapUpstream`: every frame sent, as it is sent. */
   readonly sent = (row: Record<string, unknown>): void => {
-    if (row.eventType === LIVE_FALLBACK_ROW) {
+    if (row.eventType === KEY_FALLBACK_ROW) {
       this.keyFallback(row);
       return;
     }
@@ -264,16 +263,16 @@ class LiveTrace {
 
   /** The pinned key was refused for quota at setup; the session reopens on the fallback slot, which its responses name. */
   private keyFallback(row: Record<string, unknown>): void {
-    const to = String(row.keySlot);
     this.root.event('theorem.session', {
       kind: 'key_fallback',
       key_slot: String(row.from),
-      to_key_slot: to,
+      to_key_slot: String(row.keySlot),
       'error.type': String(row.errorKind),
       error: String(row.error),
     });
     const bound = this.bound;
-    if (bound) this.bound = { ...bound, request: { ...bound.request, keySlot: to } };
+    if (bound?.binding)
+      this.bound = { ...bound, binding: { ...bound.binding, keySlot: String(row.keySlot) } };
   }
 
   setup(frame: Record<string, unknown>): void {
@@ -442,7 +441,7 @@ class LiveTrace {
     await this.writes;
   }
 
-  private route(event: ProviderEvent): void {
+  private route(event: ModelEvent): void {
     const signal = sessionSignal(event);
     if (signal) {
       this.root.event('theorem.session', signal);
@@ -564,10 +563,8 @@ class LiveTrace {
     this.responses += 1;
     response.usage.conversation = { history: response.input.messages(), input: [] };
     const answered = end.thrown === undefined && !end.cancelled;
-    const tokens = answered
-      ? await callTokensEvent(response.usage, bound.generation, bound.family)
-      : undefined;
-    if (answered) this.held = await heldAfter(response.usage, bound.family);
+    const tokens = answered ? await callTokensEvent(response.usage, bound.generation) : undefined;
+    if (answered) this.held = await heldAfter(response.usage);
     // why: Beside `output.messages` (what the model produced): what the host received of it.
     response.call.span.set({
       'theorem.output.delivered': [{ role: 'assistant', parts: response.delivered.parts }],

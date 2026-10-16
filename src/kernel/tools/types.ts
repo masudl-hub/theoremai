@@ -382,7 +382,7 @@ export interface AgentCallRequest
     >
   > {
   model?: ModelId;
-  provider?: import('../provider-contract.ts').ProviderHostOptions;
+  provider?: import('../protocols/runtime.ts').ProviderHostOptions;
 }
 
 /** Return nothing to run the agent on what the model sent; `refuse` is read back to the model. */
@@ -489,7 +489,7 @@ export interface InvokeToolRequest {
   /** Receives `pre_tool` / `post_tool` only. */
   onStage?: import('../stages.ts').StageHandler;
   /** Runs an agent tool's turn; an agent tool needs it, or `onAgentCall` returning one. */
-  provider?: import('../provider-contract.ts').ProviderHostOptions;
+  provider?: import('../protocols/runtime.ts').ProviderHostOptions;
   /** As `TurnRequest.onAgentCall`, for an agent tool this invoke runs. */
   onAgentCall?: AgentCallHook;
 }

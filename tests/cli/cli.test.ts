@@ -20,7 +20,7 @@ import {
 } from '../../src/cli/matrix/synthesizer.ts';
 import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, Profile, TurnEvent } from '../../src/kernel/types.ts';
+import type { Profile, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 const testProfile: Profile = {
@@ -200,7 +200,7 @@ Deno.test('runCommand exercises all stream event types and failure handling', as
     { type: 'error', errorKind: 'internal', error: 'Non-fatal error' },
     { type: 'done', stop: { kind: 'completed' } },
   ];
-  const mockProvider: ModelProvider = {
+  const mockProvider: TurnModel = {
     async *complete() {
       for (const ev of mockEvents) {
         yield ev;
@@ -272,7 +272,7 @@ Deno.test('testProfileCommand --all skips profiles that run no model turn', asyn
       id: 'cli_all_decision',
       identity: { handle: 'Decision' },
       models: {
-        jev: { provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+        jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
       },
       inputs: { state: 'json', maxStateBytes: 1000 },
       decision: { contract: 'test.v1' },

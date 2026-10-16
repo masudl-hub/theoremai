@@ -57,7 +57,7 @@ import {
   useDisclosureMotion,
 } from '@theoremjs/react/ui';
 import {
-	adapterFactory,
+	definitionFactory,
 	addAgent,
 	addArchitectExample,
 	addProvider,
@@ -71,6 +71,7 @@ import {
 	createConsoleExampleDraft,
 	createDecisionExampleDraft,
 	createExampleDraft,
+	createGeminiEmbeddingExampleDraft,
 	createLiveExampleDraft,
 	createNarratorExampleDraft,
 	createStudioRunId,
@@ -626,6 +627,12 @@ const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: AddAgent })[] = [
 		...STUDIO_EXAMPLES.decision,
 		icon: PROFILE_TYPE_ICON.decision,
 		add: addsDraft(createDecisionExampleDraft),
+	},
+	{
+		id: 'gemini-embedding-2',
+		...STUDIO_EXAMPLES['gemini-embedding-2'],
+		icon: PROFILE_TYPE_ICON.embedding,
+		add: addsDraft(createGeminiEmbeddingExampleDraft),
 	},
 ];
 
@@ -3501,7 +3508,7 @@ function ProviderCode({
 				key={provider.id}
 				text={providerSource(provider)}
 				hold={false}
-				isReadOnly={!isEditable || adapterFactory(provider.adapter) === undefined}
+				isReadOnly={!isEditable || definitionFactory(provider.definition) === undefined}
 				issues={issues}
 				onApply={apply}
 			/>

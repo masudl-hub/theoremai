@@ -1,12 +1,9 @@
-import { createKernelScope, defineProfile, defineProvider, openAIChat } from '../../../mod.ts';
+import { createKernelScope, defineProfile, localProvider, openAi } from '../../../mod.ts';
 
 const scope = createKernelScope();
-const provider = defineProvider({
-  id: 'local',
-  connection: { baseURL: 'http://127.0.0.1:9' },
-  adapter: openAIChat(),
+const local = scope.providers.register(localProvider, {
+  connection: { baseUrl: 'http://127.0.0.1:9/v1' },
 });
-scope.providers.register(provider);
 scope.profiles.register(
   defineProfile({
     id: 'zero-perm-bot',
@@ -14,7 +11,7 @@ scope.profiles.register(
     identity: { handle: 'z' },
     tools: { allow: [] },
     inputs: { text: true },
-    models: { default: provider.model('model') },
+    models: { default: local.model(openAi, 'model') },
   }),
 );
 console.log('ZERO_PERM_OK');

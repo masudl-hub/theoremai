@@ -102,7 +102,7 @@ Deno.test('interfaceFromProfile maps identity, inputs, model, and outputs', () =
   assertEquals(iface.inputs.maxFiles, CHAT_MEDIA_LIMITS.maxFiles);
   const projected = projectProfile(ATTACHMENT_PROFILE.id);
   assertEquals(Object.keys(projected.models), ['gemini35FlashLite']);
-  assertEquals(Object.hasOwn(projected.models.gemini35FlashLite, 'protocol'), false);
+  assertEquals(projected.models.gemini35FlashLite?.protocol, 'scripted');
   assertEquals(iface.outputs?.structured, undefined);
   assertEquals(streamThoughtsEnabled(iface.outputs), true);
   assertEquals(iface.canStop, true);
@@ -153,7 +153,8 @@ Deno.test('interfaceFromProfile maps live type without turn inputs', () => {
     identity: { handle: 'live_agent' },
     models: {
       'gemini-2.0-flash-exp': {
-        provider: 'google',
+        protocol: 'geminiLive',
+        provider: 'gemini',
         apiId: 'gemini-2.0-flash-exp',
         efforts: { normal: 'minimal' },
       },
@@ -217,7 +218,8 @@ Deno.test('interfaceFromProfile preserves live.ingress on projection', () => {
     identity: { handle: 'live_agent' },
     models: {
       'gemini-2.0-flash-exp': {
-        provider: 'google',
+        protocol: 'geminiLive',
+        provider: 'gemini',
         apiId: 'gemini-2.0-flash-exp',
         efforts: { normal: 'minimal' },
       },
@@ -1066,7 +1068,8 @@ Deno.test('appendAssistantEventsToHistory records a failed tool call so no tool_
   assertEquals(tool?.content?.includes('withheld by policy'), true);
   assertEquals(tool?.content?.includes('Tool error'), true);
 });
-Deno.test('history and the gate keep the thought signature a call was made with', () => {
+Deno.test('history and the gate keep the reasoning a call was made with', () => {
+  const reasoning = [{ data: { signature: 'sig' }, origin: { protocol: 'scripted' } }];
   const [, ...failed] = callEvents(
     { name: 'lookup', callId: 'c1' },
     { q: 'x' },
@@ -1078,10 +1081,10 @@ Deno.test('history and the gate keep the thought signature a call was made with'
   );
   const signed: TurnEvent = {
     type: 'tool',
-    tool: { name: 'lookup', callId: 'c1', arguments: { q: 'x' }, thoughtSignature: 'sig' },
+    tool: { name: 'lookup', callId: 'c1', arguments: { q: 'x' }, reasoning },
   };
   const history = appendAssistantEventsToHistory([], [signed, ...failed]);
-  assertEquals(history[0]?.tool_calls?.[0]?.thoughtSignature, 'sig');
+  assertEquals(history[0]?.reasoning, reasoning);
   const [, ...gate] = callEvents(
     { name: 'lookup', callId: 'c1' },
     { q: 'x' },
@@ -1092,7 +1095,7 @@ Deno.test('history and the gate keep the thought signature a call was made with'
     ...gate,
     { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('lookup') },
   ]);
-  assertEquals(gated?.thoughtSignature, 'sig');
+  assertEquals(gated?.reasoning, reasoning);
 });
 Deno.test('historyFromTranscriptBlocks records a failed tool block as a paired result', () => {
   const history = historyFromTranscriptBlocks([
@@ -1161,14 +1164,16 @@ Deno.test('pickMediaRecorderMime picks the first accepted format the browser rec
   });
 });
 Deno.test('a step replays as one assistant message: every call, then each result', () => {
-  const request = (callId: string, stepId: string, thoughtSignature?: string): TurnEvent => ({
+  const request = (callId: string, stepId: string, signature?: string): TurnEvent => ({
     type: 'tool',
     tool: {
       name: 'lookup',
       callId,
       arguments: { q: callId },
       stepId,
-      ...(thoughtSignature ? { thoughtSignature } : {}),
+      ...(signature
+        ? { reasoning: [{ data: { signature }, origin: { protocol: 'scripted' } }] }
+        : {}),
     },
   });
   const [, ...done1] = callEvents(
@@ -1215,10 +1220,10 @@ Deno.test('a step replays as one assistant message: every call, then each result
       m.role === 'tool'
         ? `tool:${m.content}`
         : m.tool_calls
-          ? m.tool_calls.map((c) => `${c.id}${c.thoughtSignature ? '*' : ''}`).join(',')
+          ? `${m.reasoning ? '*' : ''}${m.tool_calls.map((c) => c.id).join(',')}`
           : m.content,
     ),
-    ['a*,b', 'tool:A', 'tool:B', 'c*', 'tool:C', 'All done.'],
+    ['*a,b', 'tool:A', 'tool:B', '*c', 'tool:C', 'All done.'],
   );
 });
 Deno.test('a reply cites each source once, in one row per citer', () => {

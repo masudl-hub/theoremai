@@ -63,7 +63,7 @@ async function prepareInvokeSnapshot(
   profile: Profile,
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
-  if (profile.type === 'decision') {
+  if (profile.type === 'decision' || profile.type === 'embedding') {
     throw new TheoremError('request', `Profile ${profile.id}: type 'decision' cannot invoke tools`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const model = profile.type === 'host' ? undefined : pickModel(profile, request.model);

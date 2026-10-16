@@ -24,18 +24,19 @@ import {
   type ProviderHostOptions,
   type RegisteredProvider,
   registerTool,
-  turnShortfalls,
 } from '@theoremjs/agents';
+import { createProviderRegistry } from '@theoremjs/agents/kernel';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
 import {
   createSealedConversationStore,
   createTheoremDecisionHandler,
+  createTheoremEmbeddingHandler,
   createTheoremHandler,
   createTheoremHostHandler,
   type TheoremConversationStore,
 } from '@theoremjs/react/server';
 import { type StudioAsks, studioAsks } from '../asks.ts';
-import { adapterFactory, declaresSupport, providerDefinition, type StudioProvider, toldSupport } from '../providers.ts';
+import { kernelDefinition, registerStudioProvider, type StudioProvider } from '../providers.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
@@ -206,29 +207,25 @@ function replySchema(profile: Profile) {
   }
 }
 
-/** What a provider's models are told they take, as the kernel runs it: none when it is the adapter's defaults. */
-function toldTo(provider: RegisteredProvider): Pick<StudioProvider, 'support'> {
-  // A project's own adapter is not read: what it says is its code's.
-  if (!declaresSupport(provider.adapter.id)) return {};
-  const support = toldSupport(provider.adapter.id, provider.adapter.declared?.given);
-  return support ? { support } : {};
+/** Whether `provider` is registered from one of the kernel's own definitions, whose connection the page edits. */
+function onKernelDefinition(provider: RegisteredProvider): boolean {
+  return kernelDefinition(provider.definition.id) !== undefined;
 }
 
 /**
- * The project's providers as the page gets them: the adapter each is defined on, its key slots,
- * what it connects with when its adapter is the kernel's, and what its models support when its
- * adapter is told. What a project's own adapter connects with is its own to say, so it stays here.
+ * The project's providers as the page gets them: the definition each is registered from, its key
+ * slots, and what it connects with when its definition is the kernel's. What a project's own
+ * definition connects with is its own to say, so it stays here.
  */
 function registeredProviders(): StudioProvider[] {
   return listProviders().map((provider) => {
-    const connection = adapterFactory(provider.adapter.id) ? shownConnection(provider.connection) : undefined;
+    const connection = onKernelDefinition(provider) ? shownConnection(provider.connection) : undefined;
     return {
       id: provider.id,
-      adapter: provider.adapter.id,
+      definition: provider.definition.id,
       ...(connection ? { connection } : {}),
       ...(provider.keySlot ? { keySlot: provider.keySlot } : {}),
       ...(provider.fallbackKeySlot ? { fallbackKeySlot: provider.fallbackKeySlot } : {}),
-      ...toldTo(provider),
     };
   });
 }
@@ -277,32 +274,40 @@ function disagreements(workspace: StudioWorkspace): { differences: StudioDiffere
 }
 
 /**
- * Each opened provider that is not the one the project registered: the provider the kernel defines
- * from what the studio holds, beside the registered one. What a project's own adapter connects
- * with stays with the project, so only its adapter and its slots are compared.
+ * Each opened provider that is not the one the project registered: the provider the kernel registers
+ * from what the studio holds, beside the registered one. What a project's own definition connects
+ * with stays with the project, so only its definition and its slots are compared.
  */
 function providerDifferences(workspace: StudioWorkspace): StudioDifference[] {
   const registered = new Map(listProviders().map((provider) => [provider.id, provider]));
   const read = (provider: RegisteredProvider, connects: boolean) =>
     plainSetting({
-      adapter: provider.adapter.id,
+      definition: provider.definition.id,
       ...(connects ? { connection: provider.connection } : {}),
       keySlot: provider.keySlot,
       fallbackKeySlot: provider.fallbackKeySlot,
-      ...toldTo(provider),
     });
   return workspace.providers.flatMap((provider): StudioDifference[] => {
     const held = registered.get(provider.id);
     if (!held) return [];
-    const connects = adapterFactory(provider.adapter) !== undefined;
+    const kernel = kernelDefinition(provider.definition);
+    const definition = kernel ?? (held.definition.id === provider.definition ? held.definition : undefined);
+    if (!definition) return [{ kind: 'provider', of: provider.id, settings: ['definition'] }];
     let shown: RegisteredProvider;
     try {
-      shown = providerDefinition(provider);
+      shown = kernel
+        ? registerStudioProvider(createProviderRegistry(), provider, kernel)
+        : createProviderRegistry().register(definition, {
+            id: provider.id,
+            connection: held.connection,
+            ...(provider.keySlot ? { keySlot: provider.keySlot } : {}),
+            ...(provider.fallbackKeySlot ? { fallbackKeySlot: provider.fallbackKeySlot } : {}),
+          });
     } catch {
-      // The kernel took a connection the studio cannot define again: all of it is shown differently.
+      // The kernel took a connection the studio cannot register again: all of it is shown differently.
       return [{ kind: 'provider', of: provider.id, settings: ['connection'] }];
     }
-    const settings = differingSettings(read(held, connects), read(shown, connects));
+    const settings = differingSettings(read(held, kernel !== undefined), read(shown, kernel !== undefined));
     return settings.length ? [{ kind: 'provider', of: provider.id, settings }] : [];
   });
 }
@@ -380,12 +385,6 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
       ? { ...agent, modelBindings }
       : agent;
   });
-  // The kernel's own check as a turn starts, made now: a model its provider cannot run is said at open.
-  for (const agent of agents) {
-    for (const { model, message } of turnShortfalls(agent.identity.agentId)) {
-      modelProblems.push({ profile: agent.identity.agentId, model, message });
-    }
-  }
   // The project's own providers are the ones a model here can name.
   const registered = registeredProviders();
   const providers = registered.length > 0 ? registered : opened.providers;
@@ -606,6 +605,17 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
         if (options.upgrade) {
           served.set(profile.id, createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade));
         } else problems.push({ profile: profile.id, message: NO_SOCKET });
+        continue;
+      }
+      if (profile.type === 'embedding') {
+        served.set(
+          profile.id,
+          createTheoremEmbeddingHandler({
+            profile: tracedToPage(profile),
+            provider: options.provider,
+            clientEvents: STUDIO_READER,
+          }),
+        );
         continue;
       }
       // The page shows a run's trace, so the profile is served writing its records to the run.

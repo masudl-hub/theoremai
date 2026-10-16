@@ -1,8 +1,13 @@
-import { assertEquals } from '@std/assert';
-import { defaultKernelScope, openAIChat } from '../../mod.ts';
+import { assertEquals, assertStrictEquals } from '@std/assert';
+import {
+  createKernelScope,
+  defaultKernelScope,
+  localProvider,
+  openRouterProvider,
+} from '../../mod.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
-import { providerDefinition, withSupport } from '../../studio/providers.ts';
+import { registerStudioProvider } from '../../studio/providers.ts';
 import {
   changedSettings,
   editedQuestions,
@@ -135,130 +140,81 @@ Deno.test("a decision the setup does not name is asked the page's questions; the
 });
 
 Deno.test('a provider the builder changed runs as edited, with everything else as the project registered it', async () => {
-  const registered = defaultKernelScope.providers.register({
+  const registered = defaultKernelScope.providers.register(localProvider, {
     id: 'house',
-    connection: { baseURL: 'https://house.example/v1' },
+    connection: { baseUrl: 'https://house.example/v1' },
     keySlot: 'team',
-    adapter: openAIChat(),
   });
-  try {
-    const { workspace } = await described();
-    const provider = workspace.providers.find((each) => each.id === 'house');
-    if (!provider) throw new Error('The provider did not open.');
-    const edited = withProvider(workspace, {
-      ...provider,
-      connection: { baseURL: 'https://other.example/v1' },
-      keySlot: undefined,
-      fallbackKeySlot: 'spare',
-    });
-    // The example's models name providers this project does not register: only the provider is read.
-    const subjects = {
-      subjects: [
-        {
-          kind: 'provider' as const,
-          of: 'house',
-          before: providerSettings(provider),
-          after: providerSettings(providerOf(edited)),
-        },
-      ],
-      added: { agents: [], profiles: [], tools: [], providers: [] },
-    };
-    await registerEdits(defaultKernelScope, subjects);
-    const now = defaultKernelScope.providers.require('house');
-    assertEquals([now.keySlot, now.fallbackKeySlot], [undefined, 'spare']);
-    assertEquals(now.adapter, registered.adapter);
-    assertEquals(now.connection, { baseURL: 'https://other.example/v1' });
-    assertEquals(providerOf((await described()).workspace), providerOf(edited));
-  } finally {
-    defaultKernelScope.providers.reset();
-  }
+  const { workspace } = await described();
+  const provider = workspace.providers.find((each) => each.id === 'house');
+  if (!provider) throw new Error('The provider did not open.');
+  const edited = withProvider(workspace, {
+    ...provider,
+    connection: { baseUrl: 'https://other.example/v1' },
+    keySlot: undefined,
+    fallbackKeySlot: 'spare',
+  });
+  // The example's models name providers this project does not register: only the provider is read.
+  const subjects = {
+    subjects: [
+      {
+        kind: 'provider' as const,
+        of: 'house',
+        before: providerSettings(provider),
+        after: providerSettings(providerOf(edited)),
+      },
+    ],
+    added: { agents: [], profiles: [], tools: [], providers: [] },
+  };
+  await registerEdits(defaultKernelScope, subjects);
+  const now = defaultKernelScope.providers.require('house', 'house/model');
+  assertEquals([now.keySlot, now.fallbackKeySlot], [undefined, 'spare']);
+  assertStrictEquals(now.definition, registered.definition);
+  assertEquals(now.connection, { baseUrl: 'https://other.example/v1' });
+  assertEquals(providerOf((await described()).workspace), providerOf(edited));
 });
 
 Deno.test('a provider the builder added is registered for the run', async () => {
-  try {
-    const added = {
-      agents: [],
-      profiles: [],
-      tools: [],
-      providers: [{ id: 'spare-house', adapter: 'openrouter', connection: {}, keySlot: 'spare' }],
-    };
-    await registerEdits(defaultKernelScope, { subjects: [], added });
-    const now = defaultKernelScope.providers.require('spare-house');
-    assertEquals([now.adapter.id, now.keySlot], ['openrouter', 'spare']);
-  } finally {
-    defaultKernelScope.providers.reset();
-  }
+  const scope = createKernelScope();
+  const added = {
+    agents: [],
+    profiles: [],
+    tools: [],
+    providers: [{ id: 'spare-house', definition: 'openrouter', connection: {}, keySlot: 'spare' }],
+  };
+  await registerEdits(scope, { subjects: [], added });
+  const now = scope.providers.require('spare-house', 'openrouter/free');
+  assertStrictEquals(now.definition, openRouterProvider);
+  assertEquals(now.keySlot, 'spare');
 });
 
-Deno.test('a provider the builder moved to another adapter runs on it', async () => {
-  defaultKernelScope.providers.register(
-    providerDefinition({
-      id: 'moved',
-      adapter: 'openai-chat',
-      connection: { baseURL: 'https://one.example/v1' },
-      keySlot: 'team',
-    }),
-  );
-  try {
-    const before = {
-      adapter: 'openai-chat',
-      connection: { baseURL: 'https://one.example/v1' },
-      keySlot: 'team',
-    };
-    await registerEdits(defaultKernelScope, {
-      subjects: [
-        {
-          kind: 'provider',
-          of: 'moved',
-          before,
-          after: { adapter: 'openrouter', connection: {}, keySlot: 'team' },
-        },
-      ],
-      added: { agents: [], profiles: [], tools: [], providers: [] },
-    });
-    const now = defaultKernelScope.providers.require('moved');
-    assertEquals([now.adapter.id, now.connection, now.keySlot], ['openrouter', {}, 'team']);
-  } finally {
-    defaultKernelScope.providers.reset();
-  }
-});
-
-Deno.test('a provider told its models take tools runs on an adapter told so', async () => {
-  defaultKernelScope.providers.register(
-    providerDefinition({
-      id: 'told',
-      adapter: 'openai-chat',
-      connection: { baseURL: 'https://one.example/v1' },
-    }),
-  );
-  try {
-    const { workspace } = await described();
-    const provider = workspace.providers.find((each) => each.id === 'told');
-    if (!provider) throw new Error('The provider did not open.');
-    // Told nothing, it opens with nothing: its adapter's defaults.
-    assertEquals(provider.support, undefined);
-    const after = withSupport(provider, { clientTools: 'supported' }, 'told/tools');
-    await registerEdits(defaultKernelScope, {
-      subjects: [
-        {
-          kind: 'provider',
-          of: 'told',
-          before: providerSettings(provider),
-          after: providerSettings(after),
-        },
-      ],
-      added: { agents: [], profiles: [], tools: [], providers: [] },
-    });
-    const now = defaultKernelScope.providers.require('told');
-    const support = (apiId: string) =>
-      now.adapter.capabilities({ apiId, connection: now.connection, providerOptions: {} }).features
-        .clientTools;
-    assertEquals(support('told/tools'), 'supported');
-    assertEquals(support('told/other'), 'unknown');
-    assertEquals(now.connection, { baseURL: 'https://one.example/v1' });
-  } finally {
-    defaultKernelScope.providers.reset();
-  }
+Deno.test('a provider the builder moved to another definition runs on it', async () => {
+  const scope = createKernelScope();
+  registerStudioProvider(scope.providers, {
+    id: 'moved',
+    definition: 'local',
+    connection: { baseUrl: 'https://one.example/v1' },
+    keySlot: 'team',
+  });
+  const before = {
+    definition: 'local',
+    connection: { baseUrl: 'https://one.example/v1' },
+    keySlot: 'team',
+  };
+  await registerEdits(scope, {
+    subjects: [
+      {
+        kind: 'provider',
+        of: 'moved',
+        before,
+        after: { definition: 'openrouter', connection: {}, keySlot: 'team' },
+      },
+    ],
+    added: { agents: [], profiles: [], tools: [], providers: [] },
+  });
+  const now = scope.providers.require('moved', 'openrouter/free');
+  assertStrictEquals(now.definition, openRouterProvider);
+  assertEquals([now.connection, now.keySlot], [{}, 'team']);
 });
 
 const providerOf = (workspace: StudioWorkspace) => {

@@ -17,7 +17,7 @@ import {
   assertStringIncludes,
 } from '../../src/kernel/engine/assert.ts';
 import type { TurnEvent } from '../../src/kernel/turn-events.ts';
-import type { ModelProvider } from '../../src/kernel/types.ts';
+import type { TurnModel } from '../../src/kernel/types.ts';
 import { memorySink } from '../../src/observability/trace.ts';
 import { buildRecord, type TraceRecord } from '../../src/observability/trace-record.ts';
 import { startTrace } from '../../src/observability/trace-span.ts';
@@ -39,7 +39,7 @@ const TRANSLATIONS: Record<string, { lang: string; text: string }> = {
  * cases answer in English. Taps one streamed HTTP try the way an adapter does,
  * so the trace records the reply's first chunk.
  */
-function translator(options: { wrong?: string[]; costUsd?: number } = {}): ModelProvider {
+function translator(options: { wrong?: string[]; costUsd?: number } = {}): TurnModel {
   return {
     async *complete(req) {
       req.tapUpstream?.({
@@ -204,7 +204,7 @@ Deno.test("a live trial's turn carries the application context the suite module 
 Deno.test('a turn that fails still leaves a trace, and the trace is what gets graded', async () => {
   const loaded = await loadSuite(SUITE_PATH);
   // The stream rejects on its first read, as a dead upstream does.
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: () => ({
       [Symbol.asyncIterator]: () => ({
         next: () => Promise.reject(new TheoremError('unavailable', 'upstream down')),
@@ -289,7 +289,7 @@ Deno.test('concurrency runs trials side by side yet reports them in suite order'
   let peak = 0;
   const started: string[] = [];
   const inner = translator({ costUsd: 0.001 });
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       inFlight += 1;
       peak = Math.max(peak, inFlight);

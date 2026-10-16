@@ -1,13 +1,15 @@
-import type { ModelBinding, ModelProfile, Provider } from '../../src/kernel/types.ts';
+import type { ModelBinding, ModelProfile } from '../../src/kernel/types.ts';
 /** Minimal typed profile for provider / probe tests (no casts). */
 export function stubProfile(opts: {
-  provider: Provider;
+  protocol: string;
+  provider: string;
   role?: 'text' | 'speech' | 'image' | 'live';
   id?: string;
 }): ModelProfile {
   const role = opts.role ?? 'text';
   const id = opts.id ?? 'test-profile';
   const binding: ModelBinding = {
+    protocol: opts.protocol,
     provider: opts.provider,
     apiId: 'stub-model',
     efforts: { normal: 'minimal' },

@@ -1,9 +1,9 @@
-import { registerProfile, registerProvider, registerTool } from '@theoremjs/agents';
+import { registerProfile, registerTool } from '@theoremjs/agents';
 import type { ProviderHostOptions } from '@theoremjs/agents';
 import { desk } from './agents/desk.ts';
 import * as team from './agents/team.ts';
 import * as P from './providers/index.ts';
-import { own } from './providers/own.ts';
+import { registerOwn } from './providers/own.ts';
 import { registerKit } from './tools/kit.ts';
 import { wipe } from './tools/danger.ts';
 import { scripted } from './model.ts';
@@ -11,15 +11,13 @@ import { scripted } from './model.ts';
 export default function setup(): void {
   registerKit();
   registerTool(wipe);
-  registerProvider(P.house);
-  registerProvider(P.router);
-  registerProvider(P.left);
-  registerProvider(P.right);
-  registerProvider(P.spaced);
-  registerProvider(P.madeA);
-  registerProvider(P.madeB);
-  registerProvider(P.oddProvider);
-  registerProvider(own);
+  P.registerHouse();
+  P.registerRouter();
+  P.registerPair();
+  P.registerSpaced();
+  P.registerMade();
+  P.registerOddProvider();
+  registerOwn();
   registerProfile(desk);
   for (const profile of [team.concierge, team.gatekeeper, team.triage]) registerProfile(profile);
 }

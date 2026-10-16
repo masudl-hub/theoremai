@@ -2,13 +2,13 @@ import {
   defineProvider,
   getProfile,
   googleAdapter,
-  type ModelProvider,
   openAIChat,
   openRouterAdapter,
   type Profile,
   type ProviderHostOptions,
   registerProfile,
   registerProvider,
+  type TurnModel,
   typesafeAdapter,
   z,
 } from '../mod.ts';
@@ -77,7 +77,7 @@ export function scriptProviderOptions(
 
 export function scriptTurnOptions(
   profileId: string,
-  provider: ProviderHostOptions | ModelProvider,
+  provider: ProviderHostOptions | TurnModel,
 ): ProviderHostOptions {
   if (!('complete' in provider)) return provider;
   const profile = getProfile(profileId);

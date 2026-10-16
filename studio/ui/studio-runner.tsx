@@ -55,6 +55,7 @@ import {
 import { ChooseConflictsContext } from './studio-conflicts.tsx';
 import { decisionSeed, StudioDecision } from './studio-decision.tsx';
 import { clearRemoves, useProjectSave } from './studio-save.tsx';
+import { StudioEmbedding } from './studio-embedding.tsx';
 
 export interface StudioRunnerProps {
 	payload: StudioRunPayload;
@@ -168,6 +169,18 @@ export function StudioRunner({
 				flush={flush}
 				columns={columns}
 				note={note}
+			/>
+		);
+	if (payload.profile.type === 'embedding')
+		return (
+			<StudioEmbedding
+				payload={payload}
+				runtime={runtime}
+				traces={traces}
+				trace={trace}
+				flush={flush}
+				columns={columns}
+				className={className}
 			/>
 		);
 	return (

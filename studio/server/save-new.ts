@@ -123,9 +123,9 @@ function commonFolder(files: readonly string[], fallback: string): string {
   return best;
 }
 
-/** `registerLogWatering` for `log_watering`, unique among `taken`. */
-function registerName(tool: string, taken: Set<string>): string {
-  const words = tool.split(/[^A-Za-z0-9]+/).filter(Boolean);
+/** `registerLogWatering` for the tool `log_watering`, `registerGemini` for the provider `gemini`: unique among `taken`. */
+function registerName(id: string, taken: Set<string>): string {
+  const words = id.split(/[^A-Za-z0-9]+/).filter(Boolean);
   const base = `register${words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join('')}`;
   let name = base;
   for (let n = 2; taken.has(name); n++) name = `${base}${n}`;
@@ -406,19 +406,16 @@ class NewPlan {
     return true;
   }
 
-  /** A provider's file, and the setup's line that registers it before every profile. */
+  /** A provider's file, and the setup's call of the function in it that registers the provider before every profile. */
   private provider(provider: StudioProvider) {
-    const { agents, source } = this.ground;
-    const name = agentIdentifier(provider.id, this.taken, 'provider');
+    const register = registerName(provider.id, this.taken);
     const made = this.create(
       'provider',
       provider.id,
-      (file) => providerModule(provider, name, this.from(file).agents),
-      (specifier) => `import { ${name} } from '${specifier}';`,
+      (file) => providerModule(provider, register, this.from(file).agents),
+      (specifier) => `import { ${register} } from '${specifier}';`,
     );
-    if (!made) return;
-    const register = this.setup.needs('registerProvider', carried(agents.specifier, agents.file, source.fileName));
-    this.setup.beforeProfiles(`${register}(${name});`);
+    if (made) this.setup.beforeProfiles(`${register}();`);
   }
 
   /** A tool's file, and the setup's call of the function in it that registers the tool. */

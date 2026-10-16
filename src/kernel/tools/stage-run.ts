@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
-import { jsonObjectSchema } from '../provider-contract.ts';
+import { jsonObjectSchema } from '../json.ts';
 import type { ToolAccess } from '../schema.ts';
 import {
   type InjectUnit,

@@ -425,7 +425,7 @@ function decision(id: string): CompiledStudio {
       type: 'decision',
       id,
       identity: { handle: id },
-      models: { jev: { provider: 'typesafe', apiId: 'jev' } },
+      models: { jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev' } },
       inputs: { state: 'json' },
       decision: { contract: 'fixture.v1' },
     },
@@ -502,7 +502,13 @@ Deno.test('a new agent with an item rule is not written: its check is code the s
       type: 'text',
       id: 'a',
       identity: { handle: 'a' },
-      models: { fast: { provider: 'google', apiId: 'gemini-3.1-flash-lite' } },
+      models: {
+        fast: {
+          protocol: 'geminiInteractions',
+          provider: 'gemini',
+          apiId: 'gemini-3.1-flash-lite',
+        },
+      },
       tools: { allow: [] },
       inputs: {},
       // The studio holds what a refused item does, and never the check.
@@ -523,33 +529,34 @@ Deno.test('a new provider is a file, registered before every agent', () => {
       agents: [host('desk', ['list'])],
       profiles: [],
       tools: [],
-      providers: [{ id: 'house', adapter: 'openrouter', keySlot: 'HOUSE_KEY' }],
+      providers: [{ id: 'house', definition: 'openrouter', keySlot: 'HOUSE_KEY' }],
     },
   );
   assertEquals(statuses, [['house', 'written', 'house.ts']]);
   assertEquals(written, {
-    'house.ts': `import { defineProvider, openRouterAdapter } from '@theoremjs/agents';
+    'house.ts': `import { openRouterProvider, registerProvider } from '@theoremjs/agents';
 
-export const house = defineProvider({
-  id: 'house',
-  connection: {},
-  keySlot: 'HOUSE_KEY',
-  adapter: openRouterAdapter(),
-});
+/** Registers the provider \`house\`. Call it before any agent whose models name it. */
+export function registerHouse(): void {
+  registerProvider(openRouterProvider, {
+    id: 'house',
+    keySlot: 'HOUSE_KEY',
+  });
+}
 `,
-    'setup.ts': `import { defineProfile, registerProfile, registerTool, z, registerProvider } from '@theoremjs/agents';
-import { house } from './house';
+    'setup.ts': `import { defineProfile, registerProfile, registerTool, z } from '@theoremjs/agents';
+import { registerHouse } from './house';
 
 export default function register() {
   ${LIST}
-  registerProvider(house);
+  registerHouse();
   registerProfile(${DESK});
 }
 `,
   });
 });
 
-Deno.test('a new provider whose id is a reserved word, a name its file imports or a number is named apart from it', () => {
+Deno.test('a new provider whose register function would take a name the setup has, or a number, is named apart from it', () => {
   const { written } = planned(
     { 'setup.ts': INLINE },
     {
@@ -557,20 +564,22 @@ Deno.test('a new provider whose id is a reserved word, a name its file imports o
       profiles: [],
       tools: [],
       providers: [
-        { id: 'class', adapter: 'openrouter', keySlot: 'K' },
-        { id: 'google-adapter', adapter: 'google', keySlot: 'K' },
-        { id: '9lives', adapter: 'openrouter', keySlot: 'K' },
+        { id: 'profile', definition: 'openrouter', keySlot: 'K' },
+        { id: 'tool', definition: 'gemini', keySlot: 'K' },
+        { id: '9lives', definition: 'local', connection: { baseUrl: 'http://localhost:11434/v1' } },
       ],
     },
   );
   assertEquals(
     Object.values(written).flatMap((text) =>
-      [...text.matchAll(/export const (\w+)/g)].map((match) => match[1]),
+      [...text.matchAll(/export function (\w+)/g)].map((match) => match[1]),
     ),
-    ['class2', 'googleAdapter2', 'provider9lives'],
+    ['registerProfile2', 'registerTool2', 'register9lives'],
   );
   assertEquals(
-    written['setup.ts']?.includes('registerProvider(class2);\n  registerProvider(googleAdapter2);'),
+    written['setup.ts']?.includes(
+      'registerProfile2();\n  registerTool2();\n  register9lives();\n  registerProfile(',
+    ),
     true,
   );
 });

@@ -1,6 +1,6 @@
 import { getProfile, listProfiles, runTurn } from '../../kernel/default-scope.ts';
 import { sumTokens } from '../../kernel/engine/usage.ts';
-import type { ProviderHostOptions } from '../../kernel/provider-contract.ts';
+import type { ProviderHostOptions } from '../../kernel/protocols/runtime.ts';
 import { isModelProfile, requireModelProfile } from '../../kernel/registry/resolve.ts';
 import { profileToolAllow } from '../../kernel/tools/resolve.ts';
 import type { ModelProfile, TurnRequest, TurnTokens } from '../../kernel/types.ts';

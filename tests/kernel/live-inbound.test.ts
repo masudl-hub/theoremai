@@ -10,7 +10,8 @@ const profile: Profile = {
   identity: { handle: 'live' },
   models: {
     m: {
-      provider: 'google',
+      protocol: 'geminiLive',
+      provider: 'gemini',
       apiId: 'gemini-2.0-flash-exp',
       summaries: false,
       maxOutputTokens: 256,

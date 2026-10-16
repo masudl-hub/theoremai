@@ -15,7 +15,7 @@ import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-s
 import { eventsOf, firstOf, sessionEventOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
-import { googleLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
+import { geminiLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const PROFILE = 'live_trace_probe';
@@ -77,6 +77,8 @@ interface Harness {
   session: LiveSession;
   socket: MockLiveWebSocket;
   records: TraceRecord[];
+  /** The events read so far, as they arrive. */
+  seen: TurnEvent[];
   events: Promise<TurnEvent[]>;
 }
 async function open(extra: Partial<SessionRequest> = {}): Promise<Harness> {
@@ -95,12 +97,12 @@ async function open(extra: Partial<SessionRequest> = {}): Promise<Harness> {
     catalogedSink(records),
   );
   if (!socket) throw new Error('no socket');
+  const seen: TurnEvent[] = [];
   const events = (async () => {
-    const out: TurnEvent[] = [];
-    for await (const event of session.events()) out.push(event);
-    return out;
+    for await (const event of session.events()) seen.push(event);
+    return seen;
   })();
-  return { session, socket, records, events };
+  return { session, socket, records, seen, events };
 }
 async function deliver(harness: Harness, ...frames: unknown[]): Promise<void> {
   for (const frame of frames) harness.socket.deliver(frame);
@@ -274,7 +276,7 @@ Deno.test('transcripts are labelled parts beside what the model read and wrote',
   assertEquals(said?.['theorem.source'], 'output_transcription');
 });
 Deno.test('a resumption handle is never recorded', async () => {
-  const harness = await open({ providerState: googleLiveCheckpoint(API_ID, HANDLE_IN) });
+  const harness = await open({ providerState: geminiLiveCheckpoint(API_ID, HANDLE_IN) });
   await deliver(harness, { sessionResumptionUpdate: { newHandle: HANDLE_OUT, resumable: true } });
   await finish(harness);
   const stored = JSON.stringify(harness.records);
@@ -287,7 +289,12 @@ Deno.test('a resumption handle is never recorded', async () => {
 Deno.test('a tool call is its own record under the response that asked; the next response reads its result', async () => {
   const harness = await open();
   await deliver(harness, { toolCall: { functionCalls: [{ id: 'c1', name: TOOL, args: {} }] } });
-  await harness.session.executeTool({ callId: 'c1' });
+  // The kernel mints the call's id; the session runs it under that id, not the wire's.
+  const issued = harness.seen.find(
+    (e) => e.type === 'tool' && e.tool.phase === undefined && e.tool.name === TOOL,
+  );
+  if (issued?.type !== 'tool') throw new Error('the session never surfaced the call');
+  await harness.session.executeTool({ callId: issued.tool.callId });
   // As Live orders it: the asking response completes as the result lands, then the answer.
   await deliver(
     harness,

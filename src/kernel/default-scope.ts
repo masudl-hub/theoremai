@@ -1,13 +1,11 @@
 import type { TraceSink } from '../observability/trace-sink.ts';
 import type { RunDecisionOptions } from './engine/decision.ts';
+import type { RunEmbeddingOptions } from './engine/embedding.ts';
 import type { RunSessionOptions } from './engine/session/mod.ts';
-import type {
-  ProviderDefinition,
-  ProviderHostOptions,
-  RegisteredProvider,
-} from './provider-contract.ts';
+import type { Protocol } from './protocols/protocol.ts';
+import type { Provider, RegisteredProvider, Registration } from './protocols/provider.ts';
+import type { ProviderHostOptions } from './protocols/runtime.ts';
 import type { ProfileDefinition } from './registry/profiles.ts';
-import type { TurnShortfall } from './registry/turn-check.ts';
 import { defaultKernelScope as scope } from './scope.ts';
 import type {
   InvokeToolRequest,
@@ -20,6 +18,8 @@ import type {
   CompactionResult,
   DecisionRequest,
   DecisionResult,
+  EmbeddingRequest,
+  EmbeddingResult,
   LiveSession,
   Profile,
   ProjectedProfile,
@@ -153,9 +153,6 @@ function resolveTurn(req: TurnRequest): ReturnType<typeof scope.resolveTurn> {
 }
 
 /** Each model of profile `id` in the default scope that cannot run a plain turn on its provider, and why. */
-function turnShortfalls(id: string): TurnShortfall[] {
-  return scope.turnShortfalls(id);
-}
 
 /** The profile `id` projected for a client, with server-only fields removed. */
 function projectProfile(id: string): ProjectedProfile {
@@ -168,6 +165,14 @@ function runDecision(
   options: RunDecisionOptions,
 ): Promise<DecisionResult> {
   return scope.runDecision(request, options);
+}
+
+/** Create vectors for one or more inputs in the default scope. */
+function runEmbedding(
+  request: EmbeddingRequest,
+  options: RunEmbeddingOptions = {},
+): Promise<EmbeddingResult> {
+  return scope.runEmbedding(request, options);
 }
 
 export {
@@ -192,31 +197,25 @@ export {
   resetTools,
   resolveTurn,
   runDecision,
+  runEmbedding,
   runSession,
   runTurn,
-  turnShortfalls,
 };
 
-export function registerProvider<C, O, K, S>(
-  definition: ProviderDefinition<C, O, K, S>,
+/** Registers a provider in the default scope, with this project's connection and key slots. */
+export function registerProvider<C, K>(
+  provider: Provider<C, K>,
+  registration?: Registration<C>,
 ): RegisteredProvider {
-  return scope.providers.register(definition);
-}
-export function registerProviders(definitions: ProviderDefinition[]): RegisteredProvider[] {
-  return scope.providers.registerMany(definitions);
+  return scope.providers.register(provider, registration);
 }
 export function getProvider(id: string): RegisteredProvider | undefined {
   return scope.providers.get(id);
 }
-export function requireProvider(id: string): RegisteredProvider {
-  return scope.providers.require(id);
-}
-export function hasProvider(id: string): boolean {
-  return scope.providers.has(id);
-}
 export function listProviders(): RegisteredProvider[] {
   return scope.providers.list();
 }
-export function resetProviders(): void {
-  scope.providers.reset();
+/** Every protocol the default scope's providers serve. */
+export function listProtocols(): Protocol[] {
+  return scope.providers.protocols();
 }

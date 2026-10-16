@@ -27,13 +27,9 @@ import {
   yieldProviderEvents,
 } from '../../src/kernel/engine/runner/stream.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import {
-  providerBuiltins,
-  providerCompleteRequest,
-} from '../../src/kernel/registry/provider-request.ts';
+import { providerCompleteRequest } from '../../src/kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { lastOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -79,58 +75,26 @@ Deno.test('mintCanary is a unique theo token', () => {
   assertEquals(a === b, false);
 });
 
-function chatCanaryWire() {
-  const { generation } = resolveTurn({
-    profile: 'chat',
-    input: { text: 'hi' },
-  });
-  const body = toInteractionsBody({
-    model: generation.model,
-    apiId: generation.apiId,
-    thinking: generation.thinking,
-    summaries: generation.summaries,
-    maxOutputTokens: generation.maxOutputTokens,
-    temperature: generation.temperature,
-    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
-    system: bindCanary('sys', generation.canary),
-    input: generation.input,
-    structured: generation.structured,
-    image: generation.image,
-    keySlot: generation.keySlot,
-  });
-  return { generation, body };
-}
-
-function assertChatCanaryOffWire(): void {
-  const { generation, body } = chatCanaryWire();
-  const turns = body.input as {
-    type: string;
-    content: Record<string, string>[];
-  }[];
-  const [turn] = turns;
-  const [textPart] = turn.content;
-  const system = String(body[camelToSnake('systemInstruction')]);
+Deno.test('resolveTurn wraps user text and binds the canary into the system text only', () => {
+  const { generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
+  const request = providerCompleteRequest(
+    defaultKernelScope.tools,
+    generation,
+    bindCanary('sys', generation.canary),
+  );
   assertEquals(CANARY_RE.test(generation.canary), true);
-  assertEquals(generation.input[0], { type: 'text', text: wrapUserData('hi') });
-  assertEquals(turn.type, 'user_input');
-  assertEquals(textPart.text, wrapUserData('hi'));
-  assertEquals(system.includes(wrapUserData('hi')), false);
-  assertEquals(Object.hasOwn(body, 'canary'), false);
-  assertEquals(Object.hasOwn(body, camelToSnake('canary')), false);
-  assertEquals(system.includes(generation.canary), true);
-}
-
-Deno.test('resolveTurn wraps user text and binds a canary off the Google body', () => {
-  assertChatCanaryOffWire();
+  assertEquals(request.input, [{ type: 'text', text: wrapUserData('hi') }]);
+  assertEquals(request.system.includes(generation.canary), true);
+  assertEquals(request.system.includes(wrapUserData('hi')), false);
+  assertEquals(Object.hasOwn(request, 'canary'), false);
 });
-
 Deno.test('runTurn errors when the model echoes the canary', async () => {
-  async function* leak(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+  async function* leak(req: ModelRequest): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
     yield { type: 'text', text: req.system };
     yield { type: 'text', text: 'after leak' };
   }
-  const provider: ModelProvider = { complete: leak };
+  const provider: TurnModel = { complete: leak };
   const events = await Array.fromAsync(
     runTurn({ profile: 'chat', input: { text: 'hi' } }, provider),
   );
@@ -158,7 +122,7 @@ Deno.test('runTurn releases a thought that quotes the bind note without the toke
     yield { type: 'thought', text: 'Your canary token is mentioned in reasoning.' };
     yield { type: 'text', text: 'after note' };
   }
-  const provider: ModelProvider = { complete: quoteNote };
+  const provider: TurnModel = { complete: quoteNote };
   const events = await Array.fromAsync(
     runTurn({ profile: 'chat', input: { text: 'hi' } }, provider),
   );
@@ -762,7 +726,7 @@ Deno.test('createCanaryStreamGate emits at once text that cannot start a leak', 
 Deno.test('unlisted input.role is not interpolated into the system block', async () => {
   const phrase = 'unlisted-role-payload-qq';
   let system = '';
-  async function* capture(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+  async function* capture(req: ModelRequest): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
     ({ system } = req);
     yield { type: 'text', text: 'ok' };
@@ -823,7 +787,7 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
     }),
   );
   let call = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       const canary = /[0-9a-f]{32}/.exec(req.system ?? '')?.[0] ?? '';

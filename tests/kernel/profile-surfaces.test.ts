@@ -7,27 +7,27 @@ import { stubProfile } from '../fixtures/profiles.ts';
 const TEXT_TOOLS = { allow: ['lookup'], t2Loader: 'lookup' };
 const TEXT_INPUTS = { text: false };
 function textProfile(): Profile {
-  const base = stubProfile({ provider: 'openrouter', role: 'text' });
+  const base = stubProfile({ protocol: 'openRouter', provider: 'openrouter', role: 'text' });
   if (base.type !== 'text') throw new Error('stubProfile role text');
   return { ...base, tools: TEXT_TOOLS, inputs: TEXT_INPUTS };
 }
 function imageProfile(): Profile {
-  const base = stubProfile({ provider: 'openrouter', role: 'image' });
+  const base = stubProfile({ protocol: 'openRouterImages', provider: 'openrouter', role: 'image' });
   if (base.type !== 'image') throw new Error('stubProfile role image');
   return { ...base, tools: TEXT_TOOLS, inputs: TEXT_INPUTS };
 }
 function liveProfile(): Profile {
-  const base = stubProfile({ provider: 'google', role: 'live' });
+  const base = stubProfile({ protocol: 'geminiLive', provider: 'gemini', role: 'live' });
   if (base.type !== 'live') throw new Error('stubProfile role live');
   return { ...base, tools: { allow: ['live-tool'] } };
 }
-const speech = stubProfile({ provider: 'openrouter', role: 'speech' });
+const speech = stubProfile({ protocol: 'openRouter', provider: 'openrouter', role: 'speech' });
 const host: Profile = { type: 'host', id: 'host-test', tools: { allow: ['host-tool'] } };
 const decision: Profile = {
   type: 'decision',
   id: 'decision-test',
   identity: { handle: 'Decision test' },
-  models: { jev: { provider: 'typesafe', apiId: 'jev-latest' } },
+  models: { jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest' } },
   inputs: { state: 'json' },
   decision: { contract: 'test.v1' },
 };

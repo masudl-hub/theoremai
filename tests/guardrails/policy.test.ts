@@ -9,7 +9,7 @@ import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { prepareLiveInboundText } from '../../src/kernel/engine/live-inbound.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider } from '../../src/kernel/types.ts';
+import type { TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const OMITTED_INJECTION = '[omitted - injection]';
@@ -40,7 +40,7 @@ Deno.test('per-turn system text is read at its own boundary', () => {
  */
 Deno.test('identity.system reaches the provider verbatim; req.system does not', async () => {
   const upstream: Record<string, unknown>[] = [];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       upstream.push({ system: (req as { system?: string }).system ?? '' });
       yield { type: 'text', text: 'ok' };

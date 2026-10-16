@@ -1,6 +1,6 @@
-export { house } from './house.ts';
-export { router } from './router.ts';
+export { registerHouse } from './house.ts';
+export { registerRouter } from './router.ts';
 export * from './pair.ts';
-export { spaced } from './ns.ts';
-export { madeA, madeB } from './made.ts';
-export { odd as oddProvider } from './odd.ts';
+export { registerSpaced } from './ns.ts';
+export { registerMade } from './made.ts';
+export { registerOdd as registerOddProvider } from './odd.ts';

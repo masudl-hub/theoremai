@@ -1,4 +1,4 @@
-import type { ProviderEvent, ProviderEvidence } from '../kernel/types.ts';
+import type { ModelEvent, ProviderEvidence } from '../kernel/types.ts';
 import { canaryNoteMarker, guardedEventTexts, scanTextForCanaryLeak } from './canary.ts';
 import type { DetectAction, ResolvedDetect } from './detectors.ts';
 import { SYSTEM_BOUNDARY } from './egress-patterns.ts';
@@ -59,7 +59,7 @@ const PROVIDER_TOOL_EVIDENCE: ReadonlySet<ProviderEvidence['kind']> = new Set([
 ]);
 
 /** The provider's report of a built-in tool it already ran. What it carries has left. */
-function isProviderToolReport(event: ProviderEvent): boolean {
+function isProviderToolReport(event: ModelEvent): boolean {
   return (
     event.type === 'grounding' ||
     (event.type === 'evidence' && PROVIDER_TOOL_EVIDENCE.has(event.evidence.kind))
@@ -71,7 +71,7 @@ function isProviderToolReport(event: ProviderEvent): boolean {
  * (`guardedEventTexts`). In the report of a provider-side tool they are one
  * `egress.provider-tool-leak`: the call already ran.
  */
-function eventPromptLeakHits(event: ProviderEvent, scope: LeakScope): GuardrailHit[] {
+function eventPromptLeakHits(event: ModelEvent, scope: LeakScope): GuardrailHit[] {
   const hits = guardedEventTexts(event).flatMap((text) => promptLeakHits(text, scope));
   if (hits.length > 0 && isProviderToolReport(event)) {
     return [PROVIDER_TOOL_LEAK_HIT];
@@ -93,7 +93,7 @@ interface EventLeak {
  * is read whatever the actions are and always stops: the call already ran.
  */
 function eventLeak(
-  event: ProviderEvent,
+  event: ModelEvent,
   scope: LeakScope,
   detect: ResolvedDetect,
   boundary: 'reply' | 'live_reply',

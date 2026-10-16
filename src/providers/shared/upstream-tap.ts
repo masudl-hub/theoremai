@@ -4,7 +4,7 @@ import {
   isTimeoutError,
   TheoremError,
 } from '../../guardrails/error.ts';
-import type { KeySlot, ProviderCompleteRequest } from '../../kernel/types.ts';
+import type { KeySlot, ModelRequest } from '../../kernel/types.ts';
 
 const SECRET_HEADER = /key|auth|cookie|secret|token/i;
 
@@ -46,7 +46,7 @@ function tapeBody(body: RequestInit['body']): Record<string, unknown> {
 }
 
 export function tapFetch(
-  tap: ProviderCompleteRequest['tapUpstream'],
+  tap: ModelRequest['tapUpstream'],
   send: typeof fetch = fetch,
   keySlot?: KeySlot,
 ): typeof fetch {

@@ -8,7 +8,7 @@
  * @module
  */
 import {
-  type ModelProvider,
+  type TurnModel,
   type Profile,
   type ProfileDefinition,
   TheoremError,
@@ -27,8 +27,9 @@ import {
   sanitizeTurnRequestWithEvents,
   TOOL_RULES,
 } from '@theoremjs/agents/guardrails';
-import type { ProviderCompleteRequest, ProviderEvent } from '@theoremjs/agents/kernel';
+import { keySlotsOf, type ModelEvent, type ModelRequest } from '@theoremjs/agents/kernel';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
+import { firstServed } from './policy.ts';
 import { runtimeProvider, agentCallHook, type StudioDependency, writtenScope } from './runtime-scope.ts';
 
 /** Where a probe's text enters the turn. */
@@ -208,7 +209,7 @@ function remoteAgent(profile: ToolProfile | HostProfile): StudioDependency {
     profile.type === 'host'
       ? ({
           type: 'text',
-          models: { probe: { provider: 'google', apiId: 'probe' } },
+          models: { probe: { ...firstServed('gemini', 'text'), apiId: 'probe' } },
           defaultModel: 'probe',
           inputs: { text: true },
         } as const)
@@ -344,7 +345,7 @@ function remoteTool(): ToolRegistration {
   };
 }
 
-function call(name: string, args: Record<string, unknown>): ProviderEvent {
+function call(name: string, args: Record<string, unknown>): ModelEvent {
   return { type: 'tool', tool: { name, arguments: args, callId: `probe_${name}` } };
 }
 
@@ -358,7 +359,7 @@ function chunks(text: string): string[] {
 }
 
 /** What the scripted model says at each of its steps; past them it says `ok`. */
-function script({ boundary, text }: GuardrailProbe): ProviderEvent[][] {
+function script({ boundary, text }: GuardrailProbe): ModelEvent[][] {
   switch (boundary) {
     case 'tool_result_local':
       return [[call(LOCAL_TOOL, {})]];
@@ -376,7 +377,7 @@ function script({ boundary, text }: GuardrailProbe): ProviderEvent[][] {
   }
 }
 
-function scripted(steps: ProviderEvent[][], seen: ProviderCompleteRequest[]): ModelProvider {
+function scripted(steps: ModelEvent[][], seen: ModelRequest[]): TurnModel {
   let step = 0;
   return {
     async *complete(req) {
@@ -516,11 +517,8 @@ async function runLiveSession(
   const { boundary, text } = probe;
   const socket = new ProbeSocket();
   const binding = profile.models[profile.defaultModel];
-  const provider = scope.providers.require(binding.provider);
-  const slots = [
-    binding.keySlot ?? provider.keySlot,
-    binding.fallbackKeySlot ?? provider.fallbackKeySlot,
-  ].filter((slot): slot is string => slot !== undefined);
+  const named = keySlotsOf(scope.providers.require(binding.provider, binding.apiId), binding);
+  const slots = [named.keySlot, named.fallbackKeySlot].filter((slot): slot is string => slot !== undefined);
   if (boundary === 'history' || boundary === 'system') {
     // why: A session that refuses what it is seeded with throws before it reports anything, so a
     // blocked probe reads the request first to show what was found. Otherwise the session reports it.
@@ -615,7 +613,7 @@ function said(events: readonly TurnEvent[], type: 'text' | 'thought'): string | 
 function passed(
   boundary: ProbeBoundary,
   events: readonly TurnEvent[],
-  seen: readonly ProviderCompleteRequest[],
+  seen: readonly ModelRequest[],
 ): string | undefined {
   const [first] = seen;
   const users = (first?.history ?? []).filter((message) => message.role === 'user');
@@ -750,9 +748,9 @@ function probeStatus(guardrails: readonly GuardrailEvent[], refused: boolean): P
 function assertProbeable(
   profile: ProfileDefinition,
   probe: GuardrailProbe,
-): asserts profile is Exclude<ProfileDefinition, { type: 'decision' }> {
+): asserts profile is Exclude<ProfileDefinition, { type: 'decision' | 'embedding' }> {
   const refusal = probeRefusal(profile);
-  if (refusal || profile.type === 'decision') {
+  if (refusal || profile.type === 'decision' || profile.type === 'embedding') {
     throw new TheoremError('request', refusal ?? ''); // labels-exempt: builder diagnostic
   }
   if (!probeBoundariesOf(profile).includes(probe.boundary)) {
@@ -775,7 +773,7 @@ function probeStream(run: {
   probe: GuardrailProbe;
   signal?: AbortSignal;
   onAgentCall: ReturnType<typeof agentCallHook>;
-  provider: (asked: Profile) => ModelProvider;
+  provider: (asked: Profile) => TurnModel;
   sink: { write(record: TraceRecord): Promise<void> };
 }): AsyncGenerator<TurnEvent> {
   const { scope, profile, probe, signal, onAgentCall, sink } = run;
@@ -831,10 +829,10 @@ export async function runGuardrailProbe(args: {
   ]);
   if (!profile) throw new TheoremError('request', 'No agent to probe.'); // labels-exempt: builder diagnostic
 
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const model = scripted(script(probe), seen);
   const remote = scripted([[{ type: 'text', text: probe.text }]], []);
-  const provider = (asked: Profile): ModelProvider => (asked.id === REMOTE_AGENT ? remote : model);
+  const provider = (asked: Profile): TurnModel => (asked.id === REMOTE_AGENT ? remote : model);
 
   const events: TurnEvent[] = [];
   const traces: TraceRecord[] = [];

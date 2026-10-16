@@ -177,6 +177,13 @@ export {
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';
+export type { ProviderStateRebuilt } from './src/kernel/checkpoint.ts';
+export {
+  historyHash,
+  providerCheckpointSchema,
+  providerContinuationSchema,
+  providerWarningSchema,
+} from './src/kernel/checkpoint.ts';
 export {
   clearProfiles,
   compactHistory,
@@ -185,30 +192,27 @@ export {
   getStructured,
   getTool,
   hasProfile,
-  hasProvider,
   hasTool,
   invokeTool,
   invokeToolStep,
   listProfiles,
+  listProtocols,
   listProviders,
   listTools,
   projectProfile,
   registerProfile,
   registerProfiles,
   registerProvider,
-  registerProviders,
   registerStructured,
   registerTool,
   registerTools,
-  requireProvider,
   requireTool,
-  resetProviders,
   resetTools,
   resolveTurn,
   runDecision,
+  runEmbedding,
   runSession,
   runTurn,
-  turnShortfalls,
 } from './src/kernel/default-scope.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
@@ -232,14 +236,11 @@ export {
 } from './src/kernel/engine/live-ingress.ts';
 export type { RunSessionOptions, SignInGatePolicy } from './src/kernel/engine/session/mod.ts';
 export type {
-  MediaPayload,
-  MediaTokenFamily,
   TokenCount,
   TokenEstimator,
 } from './src/kernel/engine/token-estimate.ts';
 export {
   loadTokenEstimator,
-  mediaTokenFamily,
   TOKEN_TEXT_ENCODING,
 } from './src/kernel/engine/token-estimate.ts';
 export { sumTokens } from './src/kernel/engine/usage.ts';
@@ -254,62 +255,18 @@ export {
   profileGraphFacet,
   spineFacetsForProfileType,
 } from './src/kernel/profile-graph.ts';
-export type {
-  CapabilitySupport,
-  CredentialContext,
-  CredentialResolver,
-  DeclarableFeature,
-  DeclaredSupport,
-  DefinedProvider,
-  JsonObject,
-  JsonValue,
-  ModelSupport,
-  OpenProviderWebSocket,
-  ProviderAdapter,
-  ProviderBuiltinSpec,
-  ProviderCapabilities,
-  ProviderCheckpoint,
-  ProviderContentEvent,
-  ProviderContext,
-  ProviderContinuationPolicy,
-  ProviderCredential,
-  ProviderDecisionRequest,
-  ProviderDefinition,
-  ProviderHostOptions,
-  ProviderLimits,
-  ProviderLiveConnection,
-  ProviderModelEvent,
-  ProviderModelSettings,
-  ProviderOperations,
-  ProviderRegistry,
-  ProviderRequest,
-  ProviderSessionRequest,
-  ProviderToolResult,
-  ProviderTurnRequest,
-  ProviderVault,
-  ProviderWait,
-  ProviderWarning,
-  RegisteredProvider,
-  ResolvedProviderModel,
-} from './src/kernel/provider-contract.ts';
+export type { RuntimeAbilities } from './src/kernel/protocols/binding.ts';
 export {
+  checkBinding,
   commonModelSettingsSchema,
-  createProviderRegistry,
-  DECLARABLE_FEATURES,
   decisionModelBindingSchema,
-  declaredSupportSchema,
-  defineProvider,
-  jsonObjectSchema,
-  jsonValueSchema,
   keySlotSchema,
+  keySlotsOf,
   modelBindingSchema,
-  providerCapabilitiesSchema,
-  providerCheckpointSchema,
-  providerContinuationSchema,
-  providerLimitsSchema,
-  providerWarningSchema,
-  resolveProviderLimits,
-} from './src/kernel/provider-contract.ts';
+} from './src/kernel/protocols/binding.ts';
+export { providerLimitsSchema, resolveProviderLimits } from './src/kernel/protocols/limits.ts';
+export type { CallSetup, ProtocolCall } from './src/kernel/protocols/runtime.ts';
+export { callProtocol, plainWebSocket } from './src/kernel/protocols/runtime.ts';
 export type { AttachmentFacts, AttachmentRules } from './src/kernel/registry/attachments.ts';
 export {
   assertTurnAttachments,
@@ -337,6 +294,7 @@ export {
 export type { KernelRegistry } from './src/kernel/registry/kernel-registry.ts';
 export { createKernelRegistry } from './src/kernel/registry/kernel-registry.ts';
 export type {
+  EmbeddingProfileDefinition,
   ImageProfileDefinition,
   LiveProfileDefinition,
   ProfileDefinition,
@@ -349,7 +307,6 @@ export { createProfileRegistry, defineProfile } from './src/kernel/registry/prof
 export { pickModel } from './src/kernel/registry/resolve.ts';
 export type { SchemaRegistry } from './src/kernel/registry/schemas.ts';
 export { createSchemaRegistry } from './src/kernel/registry/schemas.ts';
-export type { TurnShortfall } from './src/kernel/registry/turn-check.ts';
 export type {
   AuthUnauthenticatedPolicy,
   ContinueStopKind,
@@ -374,8 +331,6 @@ export {
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
   catalogPathFor,
-  coerceProtocol,
-  coerceProvider,
   DYNAMIC_FIELD_PARENTS,
   EXTRA_FIELDS,
   fieldMeta,
@@ -385,8 +340,6 @@ export {
   isToolGateKind,
   isTurnInjectStage,
   isTurnStage,
-  isValidPair,
-  isValidProfileProtocol,
   KEY_SLOT_NAME,
   LIVE_ACTIVITY_HANDLINGS,
   LIVE_END_SENSITIVITIES,
@@ -397,14 +350,7 @@ export {
   PROFILE_FIELDS,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
-  PROFILE_TYPE_PROTOCOLS,
   PROFILE_TYPES,
-  PROTOCOL_PROVIDERS,
-  PROTOCOLS,
-  PROVIDERS,
-  protocolsFor,
-  protocolsForProfileType,
-  providersFor,
   REQUEST_FIELDS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
@@ -518,6 +464,7 @@ export {
   type GateReference,
   gateReferenceSchema,
   keptReply,
+  reasoningPartSchema,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
   turnDoneOf,
@@ -597,10 +544,4 @@ export {
   writeTrace,
 } from './src/observability/mod.ts';
 export * from './src/presets/mod.ts';
-export type { KeyVault } from './src/providers/mod.ts';
-export {
-  googleAdapter,
-  openAIChat,
-  openRouterAdapter,
-  typesafeAdapter,
-} from './src/providers/mod.ts';
+export * from './src/providers/mod.ts';

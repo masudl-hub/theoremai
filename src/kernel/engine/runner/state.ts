@@ -17,7 +17,6 @@ import type {
   TurnStop,
   TurnToolResult,
 } from '../../types.ts';
-import type { MediaTokenFamily } from '../token-estimate.ts';
 import type { ItemFailure } from './schema-validation.ts';
 import type { CallUsage } from './usage.ts';
 
@@ -40,8 +39,6 @@ interface StepExecutionState {
   stepCount: number;
   /** Model calls sent again this turn under the profile's resumption (`executeResumedStep`). */
   resumes: number;
-  /** Media family of the turn's model binding, for estimating unreported usage. */
-  mediaFamily: MediaTokenFamily | undefined;
   allEmittedEvents: TurnEvent[];
   attemptEvents: TurnEvent[];
   /**
@@ -73,7 +70,7 @@ interface StepExecutionState {
   toolResults: TurnToolResult[];
   /** Last provider stop from a discarded provider `done` event. */
   lastStop?: TurnStop;
-  providerState?: import('../../provider-contract.ts').ProviderCheckpoint;
+  providerState?: import('../../checkpoint.ts').ProviderCheckpoint;
   /** Usage of the last model call; a continuation's prompt estimate extends it. */
   lastCall?: CallUsage;
 }
@@ -122,7 +119,6 @@ function openTurnState(args: {
   profile: Profile;
   generation: ResolvedGeneration;
   trace: TurnTraceState;
-  mediaFamily: MediaTokenFamily | undefined;
   allEmittedEvents?: TurnEvent[];
   agents?: AgentCaller;
 }): StepExecutionState {
@@ -135,7 +131,6 @@ function openTurnState(args: {
     stepCount: 0,
     resumes: 0,
     toolResults: [],
-    mediaFamily: args.mediaFamily,
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
     released: '',

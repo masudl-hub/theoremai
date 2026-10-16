@@ -3,7 +3,7 @@ import '../fixtures/test-host.ts';
 import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import {
   clearTraceDestinations,
   registerTraceDestination,
@@ -20,7 +20,7 @@ async function* fakeComplete(): AsyncGenerator<TurnEvent> {
   yield { type: 'text', text: 'ok' };
 }
 
-const fake: ModelProvider = { complete: fakeComplete };
+const fake: TurnModel = { complete: fakeComplete };
 
 Deno.test('resolveObservabilityPolicy defaults scrub/include and record=false when omitted', () => {
   const policy = resolveObservabilityPolicy(undefined);

@@ -1,15 +1,16 @@
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
+import { type JsonObject, jsonObjectSchema } from '../../kernel/json.ts';
 import {
   defineProtocol,
-  type LiveSession,
+  type Protocol,
   type ProtocolContext,
   type ProtocolEvent,
+  type ProtocolRequest,
+  type ProtocolSession,
   type ProtocolSocket,
-  type TurnRequest,
 } from '../../kernel/protocols/mod.ts';
-import { type JsonObject, jsonObjectSchema } from '../../kernel/provider-contract.ts';
-import type { ProviderCompleteRequest, ProviderEvent } from '../../kernel/types.ts';
+import type { ModelEvent } from '../../kernel/types.ts';
 import { readGeminiApiError } from '../google/api-error.ts';
 import { GOOGLE_BUILTIN_IDS } from '../google/builtins.ts';
 import {
@@ -19,6 +20,8 @@ import {
   buildGeminiLiveSetupMessage,
   buildGeminiLiveToolResponse,
   foldGeminiLiveServerMessage,
+  type LiveSetupRequest,
+  liveFrameInput,
   newLiveFold,
 } from '../google/live/framing.ts';
 import { closeError, goAwayIn, turnPhaseFromMessage } from '../google/live/stream.ts';
@@ -71,7 +74,7 @@ async function setupComplete(frames: Frames, context: ProtocolContext): Promise<
   }
 }
 
-function wireRequest(context: ProtocolContext, request: TurnRequest<State>) {
+function wireRequest(context: ProtocolContext, request: ProtocolRequest<State>) {
   const handle = request.state?.liveHandle;
   const history = request.history ?? [];
   const builtins = request.builtins.filter((builtin) =>
@@ -90,7 +93,7 @@ function wireRequest(context: ProtocolContext, request: TurnRequest<State>) {
       ...request.live,
       transcription: { ...request.live?.transcription, input: true, output: true },
     },
-  } as ProviderCompleteRequest;
+  } as LiveSetupRequest;
   const setup = jsonObjectSchema.parse(
     JSON.parse(JSON.stringify(buildGeminiLiveSetupMessage(wire))),
   );
@@ -99,7 +102,7 @@ function wireRequest(context: ProtocolContext, request: TurnRequest<State>) {
 
 /** One server message's events, then the stop its turn phase calls for. */
 function* batch(
-  events: readonly ProviderEvent[],
+  events: readonly ModelEvent[],
   phase: LiveTurnPhase,
   handle: string | undefined,
 ): Generator<ProtocolEvent<State>> {
@@ -124,12 +127,12 @@ function session(
   frames: Frames,
   context: ProtocolContext,
   resumedFrom: string | undefined,
-): LiveSession<State> {
+): ProtocolSession<State> {
+  const send = (frame: Record<string, unknown>) => sendFrame(socket, frame);
   const fold = newLiveFold();
   let handle = resumedFrom;
   let goAway: { timeLeftMs?: number; atMs: number } | undefined;
-  let closed: ReturnType<NonNullable<LiveSession['closeInfo']>>;
-  const send = (frame: Record<string, unknown>) => socket.send(frame as JsonObject);
+  let closed: ReturnType<NonNullable<ProtocolSession['closeInfo']>>;
   return {
     closeInfo: () => closed,
     async *events() {
@@ -168,23 +171,29 @@ function session(
         yield* batch(events, turnPhaseFromMessage(frame, events), handle);
       }
     },
-    sendText: async (text) => send(buildGeminiLiveRealtimeInput({ type: 'text', text })),
-    sendAudio: async (media) => send(buildGeminiLiveRealtimeInput({ type: 'audio', ...media })),
-    sendVideo: async (media) => send(buildGeminiLiveRealtimeInput({ type: 'video', ...media })),
-    sendContext: async (value) =>
-      send(
-        buildGeminiLiveContext(
-          typeof value.server === 'string' ? value.server : JSON.stringify(value),
+    sendText: (text) => settled(() => send(buildGeminiLiveRealtimeInput({ type: 'text', text }))),
+    sendAudio: (media) =>
+      settled(() => send(buildGeminiLiveRealtimeInput({ type: 'audio', ...media }))),
+    sendVideo: (media) =>
+      settled(() => send(buildGeminiLiveRealtimeInput({ type: 'video', ...media }))),
+    sendContext: (value) =>
+      settled(() =>
+        send(
+          buildGeminiLiveContext(
+            typeof value.server === 'string' ? value.server : JSON.stringify(value),
+          ),
         ),
       ),
-    sendToolResult: async (result) =>
-      send(buildGeminiLiveToolResponse(result.callId, result.name, result.text, result.parts)),
-    close: async (reason) => socket.close(NORMAL_CLOSE, reason ?? 'session-closed'),
+    sendToolResult: (result) =>
+      settled(() =>
+        send(buildGeminiLiveToolResponse(result.callId, result.name, result.text, result.parts)),
+      ),
+    close: (reason) => settled(() => socket.close(NORMAL_CLOSE, reason ?? 'session-closed')),
   };
 }
 
 /** Gemini Live: a spoken session over one WebSocket. */
-export const geminiLive = defineProtocol({
+export const geminiLive: Protocol<Record<string, never>> = defineProtocol({
   id: 'geminiLive',
   name: 'Gemini Live',
   description: "Google's Live API for Gemini: a spoken session over one WebSocket.", // labels-exempt: builder field description, read by the studio and docs
@@ -210,11 +219,24 @@ export const geminiLive = defineProtocol({
         const history = wire.history?.length
           ? buildGeminiLiveClientContent(wire.history)
           : undefined;
-        if (history) socket.send(history as JsonObject);
-        for (const part of wire.input)
-          socket.send(buildGeminiLiveRealtimeInput(part) as JsonObject);
+        if (history) sendFrame(socket, history);
+        for (const part of wire.input) sendFrame(socket, buildGeminiLiveRealtimeInput(part));
         return session(socket, frames, context, wire.sessionResumptionHandle);
       },
     };
   },
 });
+
+/** A send that throws becomes a rejected promise, as the session's callers expect. */
+function settled(act: () => void): Promise<void> {
+  try {
+    act();
+    return Promise.resolve();
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
+function sendFrame(socket: ProtocolSocket, frame: Record<string, unknown>): void {
+  socket.send(frame as JsonObject, liveFrameInput(frame));
+}

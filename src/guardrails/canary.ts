@@ -2,12 +2,12 @@ import { sha256 } from '../kernel/engine/hash.ts';
 import { mapStrings } from '../kernel/engine/tree.ts';
 import type { ContextSender } from '../kernel/schema.ts';
 import {
-  type ProviderEvent,
+  type ModelEvent,
   type TurnEvent,
   type TurnEventOf,
   turnEventSchema,
 } from '../kernel/turn-events.ts';
-import type { ProviderCompleteRequest, SystemPiece } from '../kernel/types.ts';
+import type { ModelRequest, SystemPiece } from '../kernel/types.ts';
 import { OMIT_CANARY } from '../observability/spans.ts';
 import { type LabelOverrides, labelText } from './labels.ts';
 import { promptEchoScanFrom, scanTextForPromptEcho } from './prompt-echo.ts';
@@ -49,15 +49,15 @@ async function profileCanary(profileId: string, system: readonly SystemPiece[]):
 
 /**
  * Whether a request gives the model `canary` outside its system prompt: in
- * its input, or in a history or continuation message the model did not write.
+ * its input, or in a history message the model did not write.
  * `scanned` skips what an earlier step of the turn already read.
  */
 function requestGivesCanary(
-  request: Pick<ProviderCompleteRequest, 'input' | 'history' | 'continuation'>,
+  request: Pick<ModelRequest, 'input' | 'history'>,
   canary: string,
   scanned: WeakSet<object>,
 ): boolean {
-  const given = [request.input, ...(request.history ?? []), ...(request.continuation ?? [])];
+  const given = [request.input, ...(request.history ?? [])];
   for (const part of given) {
     if (('role' in part && part.role === 'assistant') || scanned.has(part)) continue;
     scanned.add(part);
@@ -1018,7 +1018,7 @@ function redactCanaryText(text: string, canary: string): string {
  * Nothing in a thought stops the turn: `thought-guard.ts` omits what in it
  * leaks. Every outbound gate reads this before scanning.
  */
-function isGuardedOutput(event: ProviderEvent): boolean {
+function isGuardedOutput(event: ModelEvent): boolean {
   return event.type !== 'thought';
 }
 
@@ -1027,7 +1027,7 @@ function isGuardedOutput(event: ProviderEvent): boolean {
  * every canary and prompt-leak scan reads. Builder-only fields
  * (`errorInternal`), counts, identities, and media bytes are not content.
  */
-function hostContentOf(event: ProviderEvent): unknown[] {
+function hostContentOf(event: ModelEvent): unknown[] {
   switch (event.type) {
     case 'text':
     case 'thought':
@@ -1051,6 +1051,10 @@ function hostContentOf(event: ProviderEvent): unknown[] {
       return [event.text];
     case 'error':
       return [event.error, event.errorCopy];
+    case 'custom':
+      return [event.data];
+    case 'reasoning':
+      return [event.text];
     case 'attempt':
     case 'media':
     case 'tokens':
@@ -1072,7 +1076,7 @@ function hostContentOf(event: ProviderEvent): unknown[] {
  * The text of each field of an event's host content (`hostContentOf`), one
  * string per field. Unguarded output (`isGuardedOutput`) carries none.
  */
-function guardedEventTexts(event: ProviderEvent): string[] {
+function guardedEventTexts(event: ModelEvent): string[] {
   if (!isGuardedOutput(event)) {
     return [];
   }
@@ -1085,7 +1089,7 @@ function guardedEventTexts(event: ProviderEvent): string[] {
  * Whether any field of an event's host content (`guardedEventTexts`) carries
  * a leak. Unguarded output (`isGuardedOutput`) never carries one.
  */
-function eventHasCanary(event: ProviderEvent, canary: string): boolean {
+function eventHasCanary(event: ModelEvent, canary: string): boolean {
   if (!canary) {
     return false;
   }
@@ -1177,7 +1181,7 @@ type StreamedReplyEvent = TurnEventOf<'text' | 'evidence'>;
  * (Live `output_transcription` evidence). The one stream the outbound gates
  * scan progressively; everything else is scanned whole per event.
  */
-function isStreamedCanaryEvent(event: ProviderEvent): event is StreamedReplyEvent {
+function isStreamedCanaryEvent(event: ModelEvent): event is StreamedReplyEvent {
   return (
     event.type === 'text' ||
     (event.type === 'evidence' && event.evidence.kind === 'output_transcription')

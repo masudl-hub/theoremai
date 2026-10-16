@@ -3,20 +3,20 @@ import { z } from 'zod';
 import {
   defineProfile,
   defineProvider,
-  openRouterAdapter,
+  geminiProvider,
+  openRouterProvider,
   PROFILE_FIELDS,
-  type ProviderAdapter,
   registerProfile,
   registerStructured,
   registerTool,
-  typesafeAdapter,
+  typesafeProvider,
 } from '../../mod.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
 import { LABEL_KEYS, labelPlaceholders } from '../../src/guardrails/labels.ts';
 import { catalogPathFor } from '../../src/kernel/schema.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
-import { connectionFields, kernelAdapters } from '../../studio/providers.ts';
+import { connectionFields, kernelDefinitions } from '../../studio/providers.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 
@@ -28,29 +28,27 @@ import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 const HOST = '127.0.0.1:4983';
 registerFixtureProviders(defaultKernelScope);
 
-/** Providers that between them set everything a provider on a kernel adapter can hold. */
+/** Providers that between them set everything a provider on a kernel definition connects with. */
 function registerEveryProvider() {
-  defaultKernelScope.providers.register(
-    defineProvider({
-      id: 'every-router',
-      connection: {
-        decisionURL: 'https://decide.example/v1',
-        baseURL: 'https://router.example/v1',
-        siteUrl: 'https://garden.example',
-        siteName: 'Garden',
-      },
-      keySlot: 'slot_a',
-      fallbackKeySlot: 'slot_b',
-      adapter: openRouterAdapter(),
-    }),
-  );
-  defaultKernelScope.providers.register(
-    defineProvider({
-      id: 'every-typesafe',
-      connection: { baseURL: 'https://typesafe.example/v1' },
-      adapter: typesafeAdapter(),
-    }),
-  );
+  defaultKernelScope.providers.register(openRouterProvider, {
+    id: 'every-router',
+    connection: {
+      decisionUrl: 'https://decide.example/v1',
+      baseUrl: 'https://router.example/v1',
+      siteUrl: 'https://garden.example',
+      siteName: 'Garden',
+    },
+    keySlot: 'slot_a',
+    fallbackKeySlot: 'slot_b',
+  });
+  defaultKernelScope.providers.register(typesafeProvider, {
+    id: 'every-typesafe',
+    connection: { baseUrl: 'https://typesafe.example/v1' },
+  });
+  defaultKernelScope.providers.register(geminiProvider, {
+    id: 'every-gemini',
+    connection: { host: 'https://gemini.example' },
+  });
 }
 registerEveryProvider();
 
@@ -178,7 +176,9 @@ const PROFILES = [
     type: 'text',
     id: 'every-compactor',
     identity: { handle: 'compactor' },
-    models: { main: { provider: 'google', apiId: 'gemini-3.5-flash' } },
+    models: {
+      main: { protocol: 'geminiInteractions', provider: 'gemini', apiId: 'gemini-3.5-flash' },
+    },
     defaultModel: 'main',
     inputs: {},
     tools: { allow: [] },
@@ -188,7 +188,9 @@ const PROFILES = [
     type: 'text',
     id: 'every-label',
     identity: { handle: 'worded' },
-    models: { main: { provider: 'google', apiId: 'gemini-3.5-flash' } },
+    models: {
+      main: { protocol: 'geminiInteractions', provider: 'gemini', apiId: 'gemini-3.5-flash' },
+    },
     defaultModel: 'main',
     inputs: {},
     tools: { allow: [] },
@@ -211,11 +213,12 @@ const PROFILES = [
     },
     models: {
       main: {
-        provider: 'google',
+        protocol: 'geminiInteractions',
+        provider: 'gemini',
         apiId: 'gemini-3.5-flash',
         keySlot: 'slot_a',
         fallbackKeySlot: 'slot_b',
-        providerOptions: { store: true, persistViaInteractionId: true },
+        options: { store: true, persistViaInteractionId: true },
         efforts: { quick: 'low', deep: 'high' },
         defaultEffort: 'quick',
         allowEffortSelect: true,
@@ -233,20 +236,17 @@ const PROFILES = [
         },
       },
       cached: {
+        protocol: 'openRouter',
         provider: 'openrouter',
         apiId: 'anthropic/claude-sonnet-4.5',
-        providerOptions: { cache: { mode: 'system', ttl: '1h' } },
+        options: { cache: { mode: 'system', ttl: '1h' } },
       },
-      second: {
-        provider: 'local',
-        apiId: 'local-model',
-        providerOptions: { server: 'http://127.0.0.1:1234' },
-      },
+      second: { protocol: 'openAi', provider: 'local', apiId: 'local-model' },
     },
     defaultModel: 'main',
     allowModelSelect: true,
     maxSteps: 12,
-    providerContinuation: { onMismatch: 'error', history: 'provider' },
+    providerContinuation: { history: 'provider' },
     tools: { allow: ['every_fetch', 'every_load'], t2Loader: 'every_load', parallel: true },
     inputs: {
       text: false,
@@ -294,7 +294,13 @@ const PROFILES = [
     type: 'image',
     id: 'every-image',
     identity: { handle: 'painter', system: 'You paint.' },
-    models: { main: { provider: 'google', apiId: 'gemini-3.1-flash-lite-image' } },
+    models: {
+      main: {
+        protocol: 'geminiInteractions',
+        provider: 'gemini',
+        apiId: 'gemini-3.1-flash-lite-image',
+      },
+    },
     defaultModel: 'main',
     tools: { allow: [] },
     inputs: {},
@@ -317,7 +323,13 @@ const PROFILES = [
     type: 'speech',
     id: 'every-speech',
     identity: { handle: 'reader' },
-    models: { main: { provider: 'google', apiId: 'gemini-3.1-flash-tts-preview' } },
+    models: {
+      main: {
+        protocol: 'geminiInteractions',
+        provider: 'gemini',
+        apiId: 'gemini-3.1-flash-tts-preview',
+      },
+    },
     defaultModel: 'main',
     speech: { voice: 'Kore', style: 'Warm and unhurried.', speed: 1.1, format: 'pcm' },
   } as never),
@@ -325,7 +337,9 @@ const PROFILES = [
     type: 'live',
     id: 'every-live',
     identity: { handle: 'caller', system: 'You take calls.' },
-    models: { main: { provider: 'google', apiId: 'gemini-3.1-flash-live-preview' } },
+    models: {
+      main: { protocol: 'geminiLive', provider: 'gemini', apiId: 'gemini-3.1-flash-live-preview' },
+    },
     defaultModel: 'main',
     tools: { allow: [] },
     live: {
@@ -349,7 +363,9 @@ const PROFILES = [
     type: 'decision',
     id: 'every-decision',
     identity: { handle: 'judge' },
-    models: { main: { provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 } },
+    models: {
+      main: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+    },
     inputs: { state: 'json', maxStateBytes: 1000 },
     decision: { contract: 'every.v1' },
   } as never),
@@ -408,43 +424,36 @@ async function described(): Promise<StudioDescription> {
   return (await handler(request)).json();
 }
 
-Deno.test('the providers here set everything a kernel adapter connects with', () => {
+Deno.test('the providers here set everything a kernel definition connects with', () => {
   const registered = defaultKernelScope.providers.list();
-  const missing = kernelAdapters().flatMap((adapter) =>
-    (connectionFields(adapter) ?? [])
+  const missing = kernelDefinitions().flatMap((definition) =>
+    (connectionFields(definition) ?? [])
       .filter(
         (field) =>
           !registered.some(
             (provider) =>
-              provider.adapter.id === adapter &&
+              provider.definition.id === definition &&
               field.name in (provider.connection as Record<string, unknown>),
           ),
       )
-      .map((field) => `${adapter}.${field.name}`),
+      .map((field) => `${definition}.${field.name}`),
   );
   assertEquals(missing, []);
 });
 
 Deno.test('a provider the studio cannot hold whole is named with what it shows differently', async () => {
-  // A project's own adapter under a kernel adapter's id, connecting with what is not text.
+  // A project's own definition under a kernel definition's id, connecting with what is not text.
+  // The scope keeps no way to take a provider out, so this test is the file's last.
   defaultKernelScope.providers.register(
     defineProvider({
-      id: 'wrapped',
-      connection: { retries: 3 },
-      adapter: {
-        ...typesafeAdapter(),
-        connectionSchema: z.strictObject({ retries: z.number() }),
-      } as unknown as ProviderAdapter<{ retries: number }, Record<string, never>, string>,
+      ...typesafeProvider,
+      connection: z.strictObject({ retries: z.number() }),
+      serves: () => typesafeProvider.serves({}),
     }),
+    { id: 'wrapped', connection: { retries: 3 } },
   );
-  try {
-    const { differences } = await described();
-    assertEquals(differences, [
-      { kind: 'provider', of: 'wrapped', settings: ['connection.retries'] },
-    ]);
-  } finally {
-    defaultKernelScope.providers.reset();
-    registerFixtureProviders(defaultKernelScope);
-    registerEveryProvider();
-  }
+  const { differences } = await described();
+  assertEquals(differences, [
+    { kind: 'provider', of: 'wrapped', settings: ['connection.retries'] },
+  ]);
 });

@@ -4,10 +4,10 @@ import { labelDefault } from '../../src/guardrails/labels.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { firstOf } from '../fixtures/events.ts';
 
-function canaryOf(req: ProviderCompleteRequest): string {
+function canaryOf(req: ModelRequest): string {
   return /Your canary token is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
 }
 
@@ -15,8 +15,8 @@ async function hostEvents(
   stream: (canary: string) => TurnEvent[],
 ): Promise<{ events: TurnEvent[]; canary: string }> {
   let canary = '';
-  const provider: ModelProvider = {
-    async *complete(req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    async *complete(req: ModelRequest) {
       await Promise.resolve();
       canary = canaryOf(req);
       yield* stream(canary);

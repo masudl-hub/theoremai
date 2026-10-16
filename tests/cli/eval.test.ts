@@ -1,14 +1,14 @@
 import { assertEquals, assertMatch, assertStringIncludes } from '@std/assert';
 import { evalCommand } from '../../src/cli/commands/eval.ts';
 import { main } from '../../src/cli/index.ts';
-import type { ModelProvider } from '../../src/kernel/types.ts';
+import type { TurnModel } from '../../src/kernel/types.ts';
 import { turnRecord } from '../evals/fixture.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
 const SUITE = 'tests/evals/translator/suite.ts';
 
 /** Translates into whatever the case asks, with the first chunk tapped. */
-const translator: ModelProvider = {
+const translator: TurnModel = {
   async *complete(req) {
     req.tapUpstream?.({
       eventType: 'http_request',
@@ -166,7 +166,7 @@ Deno.test('the CLI router runs eval over recorded traces and the help names it',
 });
 
 Deno.test('eval says a cost went unreported rather than printing zero', async () => {
-  const unpriced: ModelProvider = {
+  const unpriced: TurnModel = {
     async *complete(req) {
       for await (const event of translator.complete(req)) {
         yield event.type === 'tokens'
@@ -185,7 +185,7 @@ Deno.test('eval says a cost went unreported rather than printing zero', async ()
   assertStringIncludes(priced.out, '4/4 cases passed; cost $0.0080');
   // A reported $0 is a cost: free calls beside unreported ones are not "not reported".
   let calls = 0;
-  const mixed: ModelProvider = {
+  const mixed: TurnModel = {
     async *complete(req) {
       const reports = calls++ % 2 === 0;
       for await (const event of translator.complete(req)) {
@@ -213,7 +213,7 @@ Deno.test('eval says a cost went unreported rather than printing zero', async ()
 });
 
 /** Says every record is correct, for a cost of its own. */
-const affirmingJudge: ModelProvider = {
+const affirmingJudge: TurnModel = {
   async *complete() {
     await Promise.resolve();
     yield { type: 'tokens', tokens: { input: 200, output: 20, total: 220, cost: { usd: 0.002 } } };
@@ -247,7 +247,7 @@ Deno.test('eval hands a judged suite the judge provider the host passes, and its
   assertEquals(verdict?.passed, true);
 
   // Without a judge provider the agent's provider judges; a dead one is an error, not a crash.
-  const dead: ModelProvider = {
+  const dead: TurnModel = {
     complete: () => ({
       [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new Error('judge is down')) }),
     }),

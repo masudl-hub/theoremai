@@ -26,7 +26,9 @@ for (const id of ['triage-desk', 'unasked-desk']) {
     type: 'decision',
     id,
     identity: { handle: 'triage' },
-    models: { jev: { provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 } },
+    models: {
+      jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+    },
     inputs: { state: 'json', maxStateBytes: 200 },
     decision: { contract: 'test.v1' },
   });
@@ -63,7 +65,7 @@ const handler = createStudioHandler({
     vault: { slot_a: 'k' },
     fetch: (_url, init) => {
       asked.push(JSON.parse(String(init?.body)));
-      return Promise.resolve(new Response(JSON.stringify(jevReply)));
+      return Promise.resolve(Response.json(jevReply));
     },
   },
 });

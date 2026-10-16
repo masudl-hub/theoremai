@@ -1,10 +1,8 @@
 import { TheoremError, throwIfAborted } from '../guardrails/error.ts';
 import { labelText } from '../guardrails/labels.ts';
-import type {
-  OpenProviderWebSocket,
-  ProviderLimits,
-  ProviderModelEvent,
-} from './provider-contract.ts';
+import type { ProviderLimits } from './protocols/limits.ts';
+import type { ProtocolEvent } from './protocols/protocol.ts';
+import type { OpenWebSocket } from './protocols/runtime.ts';
 
 function combinedSignal(signals: AbortSignal[]) {
   const controller = new AbortController();
@@ -60,6 +58,11 @@ export class ProviderBudget {
       throwIfAborted(this.signal);
     }
     this.startTimer(remaining);
+  }
+
+  /** Milliseconds before the running timer ends the call. */
+  timeLeft(): number {
+    return (this.timerDeadline ?? this.deadline) - performance.now();
   }
 
   startTimer(ms: number): void {
@@ -120,7 +123,7 @@ export class ProviderBudget {
       this.fail();
   }
 
-  event(event: ProviderModelEvent): void {
+  event(event: ProtocolEvent): void {
     this.value(event);
     if (event.type === 'tool_call') this.calls.add(event.call.callId);
     if (event.type === 'tool_cancel') this.calls.delete(event.callId);
@@ -135,34 +138,10 @@ export class ProviderBudget {
     this.stopTimer();
   }
 
-  socket(open?: OpenProviderWebSocket): OpenProviderWebSocket {
-    return async (url) => {
-      const ws = open
-        ? await open(url)
-        : await new Promise<WebSocket>((resolve, reject) => {
-            const socket = new WebSocket(url);
-            const abort = () => {
-              socket.close();
-              reject(this.signal.reason);
-            };
-            this.signal.addEventListener('abort', abort, { once: true });
-            socket.addEventListener(
-              'open',
-              () => {
-                this.signal.removeEventListener('abort', abort);
-                resolve(socket);
-              },
-              { once: true },
-            );
-            socket.addEventListener(
-              'error',
-              () => {
-                this.signal.removeEventListener('abort', abort);
-                reject(new TheoremError('unavailable', labelText('error.unavailable')));
-              },
-              { once: true },
-            );
-          });
+  socket(open: OpenWebSocket): OpenWebSocket {
+    return async (url, init) => {
+      throwIfAborted(this.signal);
+      const ws = await open(url, init);
       if (this.signal.aborted) {
         ws.close();
         throwIfAborted(this.signal);

@@ -21,11 +21,12 @@ import { traceAttributesSchema } from '../observability/trace-schema.ts';
 import type { ProfileInterface } from './types.ts';
 
 const modelBinding = z.object({
+  protocol: z.string(),
   provider: z.string(),
+  apiId: z.string(),
+  options: z.record(z.string(), z.json()).optional(),
   keySlot: z.string().optional(),
   fallbackKeySlot: z.string().optional(),
-  providerOptions: z.record(z.string(), z.json()).optional(),
-  apiId: z.string(),
   efforts: z.record(z.string(), z.enum(THINKING_LEVELS)).optional(),
   defaultEffort: z.string().optional(),
   allowEffortSelect: z.boolean().optional(),
@@ -140,7 +141,6 @@ const tools = z.object({
 const common = {
   providerContinuation: z
     .object({
-      onMismatch: z.enum(['rebuild', 'error']),
       history: z.enum(['host', 'stateless', 'provider']).optional(),
     })
     .optional(),

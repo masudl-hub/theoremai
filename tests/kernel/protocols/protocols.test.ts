@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../../src/guardrails/error.ts';
+import type { JsonObject } from '../../../src/kernel/json.ts';
 import {
   bearer,
   type CallSetup,
@@ -14,10 +15,10 @@ import {
   extendProtocol,
   header,
   type ProtocolEvent,
+  type ProtocolRequest,
   query,
-  type TurnRequest,
 } from '../../../src/kernel/protocols/mod.ts';
-import type { JsonObject } from '../../../src/kernel/provider-contract.ts';
+import { failureOf } from '../../fixtures/failure.ts';
 
 /** A protocol that posts the request's text and streams back what each row says. */
 const echo = defineProtocol({
@@ -27,7 +28,6 @@ const echo = defineProtocol({
   endpoints: { text: '/echo', live: '/live' },
   options: z.strictObject({ loud: z.boolean().optional().describe('Shout.') }),
   reasoning: z.strictObject({ signature: z.string() }),
-  extras: z.strictObject({ tag: z.string() }),
   custom: { note: z.strictObject({ said: z.string() }) },
   create: (context) => ({
     async *complete() {
@@ -97,14 +97,14 @@ interface Sent {
 
 function fakeFetch(answer: (sent: Sent, count: number) => Response) {
   const sent: Sent[] = [];
-  const send: typeof fetch = async (input, init) => {
+  const send: typeof fetch = (input, init) => {
     const entry = {
       url: String(input),
       headers: new Headers(init?.headers),
       body: JSON.parse(String(init?.body)) as JsonObject,
     };
     sent.push(entry);
-    return answer(entry, sent.length);
+    return Promise.resolve(answer(entry, sent.length));
   };
   return { sent, send };
 }
@@ -146,7 +146,7 @@ const request = {
   builtins: [],
   structured: null,
   image: null,
-} as unknown as TurnRequest;
+} as unknown as ProtocolRequest;
 
 async function collect(events: AsyncIterable<ProtocolEvent>): Promise<ProtocolEvent[]> {
   const out: ProtocolEvent[] = [];
@@ -358,7 +358,7 @@ Deno.test('out of quota before the first event, a call retries once on the fallb
       ...request,
       history: [{ role: 'user', content: 'hi' }],
       state: { id: 1 },
-    } as TurnRequest),
+    } as ProtocolRequest),
   );
   assertEquals(
     events.map((event) => event.type),
@@ -366,10 +366,40 @@ Deno.test('out of quota before the first event, a call retries once on the fallb
   );
   assertEquals(sent.at(-1)?.headers.get('authorization'), 'Bearer k-spare');
   await assertRejects(
-    () => collect(callProtocol(setup).complete({ ...request, state: { id: 1 } } as TurnRequest)),
+    () =>
+      collect(callProtocol(setup).complete({ ...request, state: { id: 1 } } as ProtocolRequest)),
     TheoremError,
     'needs the conversation',
   );
+});
+
+Deno.test('a fallback key kept as an object is tried like a string one', async () => {
+  const fielded = defineProvider({
+    id: 'fielded',
+    name: 'Fielded',
+    description: 'Signs in with a key of several fields.',
+    key: z.object({ token: z.string() }),
+    authorize: ({ token }) => ({
+      sign: (outgoing: { headers: Headers }) => outgoing.headers.set('authorization', token),
+    }),
+    serves: () => [{ protocol: echo, baseUrl: 'https://f.test' }],
+  });
+  const registry = createProviderRegistry();
+  registry.register(fielded, { keySlot: 'main', fallbackKeySlot: 'spare' });
+  const { sent, send } = fakeFetch((entry) =>
+    entry.headers.get('authorization') === 'f-main'
+      ? new Response('{}', { status: 429 })
+      : sse([{ text: 'ok' }]),
+  );
+  const setup = setupFor(registry, { protocol: 'echo', provider: 'fielded', apiId: 'm' }, send, {
+    vault: { main: { token: 'f-main' }, spare: { token: 'f-spare' } },
+  });
+  const events = await collect(callProtocol(setup).complete(request));
+  assertEquals(
+    events.map((event) => event.type),
+    ['text', 'done'],
+  );
+  assertEquals(sent.at(-1)?.headers.get('authorization'), 'f-spare');
 });
 
 Deno.test('an auth refusal drops the minted token and retries once', async () => {
@@ -414,11 +444,7 @@ Deno.test('a failed answer is typed by its status, and raw rows come only when a
   registry.register(host, { keySlot: 'main' });
   const { send } = fakeFetch(() => new Response('{"error":"bad"}', { status: 400 }));
   const setup = setupFor(registry, { protocol: 'echo', provider: 'host', apiId: 'm' }, send);
-  const error = await assertRejects(
-    () => collect(callProtocol(setup).complete(request)),
-    TheoremError,
-  );
-  assertEquals(error.kind, 'unsupported');
+  assertEquals(failureOf(await collect(callProtocol(setup).complete(request))).kind, 'unsupported');
   const { send: ok } = fakeFetch(() => sse([{ text: 'a' }]));
   const raw = await collect(
     callProtocol(setupFor(registry, setup.binding, ok, { rawRows: true })).complete(request),

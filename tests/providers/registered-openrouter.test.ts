@@ -1,11 +1,5 @@
 import { assertEquals } from '@std/assert';
-import {
-  createKernelScope,
-  defineProfile,
-  defineProvider,
-  openRouterAdapter,
-  z,
-} from '../../mod.ts';
+import { createKernelScope, defineProfile, openRouterProvider, z } from '../../mod.ts';
 
 function stream(rows: Record<string, unknown>[]): Response {
   return new Response(
@@ -20,13 +14,10 @@ function stream(rows: Record<string, unknown>[]): Response {
 }
 Deno.test('registered OpenRouter replays encrypted reasoning with its matching portable tool history', async () => {
   const scope = createKernelScope();
-  const provider = defineProvider({
+  const provider = scope.providers.register(openRouterProvider, {
     id: 'router',
-    connection: {},
     keySlot: 'router',
-    adapter: openRouterAdapter(),
   });
-  scope.providers.register(provider);
   scope.tools.register({
     type: 'function',
     name: 'lookup',
@@ -45,7 +36,7 @@ Deno.test('registered OpenRouter replays encrypted reasoning with its matching p
       id: 'worker',
       type: 'text',
       identity: { handle: 'Worker' },
-      models: { main: provider.model('vendor/model') },
+      models: { main: provider.model('openRouter', 'vendor/model') },
       inputs: { text: true },
       tools: { allow: ['lookup'] },
       maxSteps: 2,

@@ -257,7 +257,7 @@ function describeReply(blocks: readonly TranscriptBlock[]) {
 }
 
 /** Each key slot the draft uses, and what uses it. */
-/** `binding` as the run policy reads it: its provider's adapter, and whether the agent decides. */
+/** `binding` as the run policy reads it: its protocol, its provider's definition, and whether the agent decides. */
 function routed(draft: StudioDraft, binding: StudioDraft['modelBindings'][number]) {
   return {
     ...modelRoute(draft.providers, draft.identity.profileType, binding),

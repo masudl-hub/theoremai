@@ -10,6 +10,7 @@
 import ts from 'typescript';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { SharedSetting } from './save-wire.ts';
+import { definitionOfFactory } from '../providers.ts';
 
 /** One call the studio can write to: its options object, in its file. */
 export interface SourceTarget {
@@ -41,7 +42,7 @@ export interface ProjectSource {
   profiles: Map<string, SourceTarget[]>;
   /** The `registerTool` calls, by tool name. */
   tools: Map<string, SourceTarget[]>;
-  /** The providers written out, in `defineProvider` or straight into `registerProvider`, by provider id. */
+  /** The providers registered, each by the settings of its `registerProvider` call, by provider id. */
   providers: Map<string, SourceTarget[]>;
 }
 
@@ -196,6 +197,14 @@ export function calleeName(call: ts.CallExpression): string | undefined {
   return undefined;
 }
 
+/** Whether `at` is a name its file imports from the kernel by name, such as a protocol: Save rewrites it in place. */
+export function isKernelName(at: Located): boolean {
+  const node = unwrapped(at.node);
+  if (!ts.isIdentifier(node) || at.env?.bound.has(node.text)) return false;
+  const binding = bindingsOf(at.source).get(node.text);
+  return binding !== undefined && binding !== 'own' && binding.imported !== '*' && binding.imported !== undefined && mayBeKernel(binding.module);
+}
+
 /** Where `source` imports the kernel's `name` from, and the name it is called by there. */
 export function kernelImportOf(source: ts.SourceFile, name: string): { specifier: string; local: string } | undefined {
   for (const [local, binding] of bindingsOf(source)) {
@@ -206,8 +215,6 @@ export function kernelImportOf(source: ts.SourceFile, name: string): { specifier
 
 /** The calls a profile's options are written in: where it is defined, or where it is registered without being defined first. */
 const PROFILE_CALLS = new Set(['defineProfile', 'registerProfile']);
-/** The calls a provider is written out in. */
-const PROVIDER_CALLS = new Set(['defineProvider', 'registerProvider']);
 
 /** Whether a call is one a profile's options may be written straight into. */
 function takesProfile(call: ts.CallExpression): boolean {
@@ -311,10 +318,16 @@ function calledValue(project: ProjectSource, call: ts.CallExpression, at: Locate
   return { node: fn.value, source: fn.source, env: { bound, depth } };
 }
 
-/** A provider's `model(apiId, settings)`: it returns the settings with the provider's id and the API id. */
+/** The calls a registered provider makes a model with. */
+const MODEL_CALLS = new Set(['model', 'decisionModel']);
+
+/**
+ * A registered provider's `model(protocol, apiId, settings)` or `decisionModel(…)`: it returns the
+ * settings with the protocol, the provider's id and the API id.
+ */
 function isModelCall(node: ts.Node): node is ts.CallExpression {
   return ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
-    node.expression.name.text === 'model' && (node.arguments.length === 1 || node.arguments.length === 2) &&
+    MODEL_CALLS.has(node.expression.name.text) && (node.arguments.length === 2 || node.arguments.length === 3) &&
     !node.arguments.some(ts.isSpreadElement);
 }
 
@@ -359,11 +372,11 @@ function keyOf(project: ProjectSource, property: ts.ObjectLiteralElementLike, at
   return ts.isStringLiteralLike(held.node) || ts.isNumericLiteral(held.node) ? held.node.text : undefined;
 }
 
-/** Where a provider's id is written: the `id` of the `defineProvider` call the name stands for. */
+/** Where a provider's id is written: the `id` of the `registerProvider` call the name stands for. */
 function providerId(project: ProjectSource, at: Located, depth: number): Located | undefined {
   const held = step(project, at, depth + 1);
-  if (held === MISSING || !ts.isCallExpression(held.node) || calleeName(held.node) !== 'defineProvider') return undefined;
-  const [options] = held.node.arguments;
+  if (held === MISSING || !ts.isCallExpression(held.node) || calleeName(held.node) !== 'registerProvider') return undefined;
+  const [, options] = held.node.arguments;
   const id = options && ts.isObjectLiteralExpression(options)
     ? options.properties.findLast((property) => propertyName(property) === 'id')
     : undefined;
@@ -422,7 +435,7 @@ export function shapeOf(project: ProjectSource, at: Located, depth = 0): ObjectS
     }
     return shape;
   }
-  const [apiId, settings] = node.arguments;
+  const [protocol, apiId, settings] = node.arguments;
   if (settings) {
     spread(settings, settings);
     const direct = unwrapped(settings);
@@ -431,6 +444,7 @@ export function shapeOf(project: ProjectSource, at: Located, depth = 0): ObjectS
   const receiver = inside((node.expression as ts.PropertyAccessExpression).expression);
   const provider = providerId(project, receiver, depth);
   put({ key: 'provider', source: at.source, receiver, ...(provider ? { value: provider } : {}) });
+  if (protocol) put({ key: 'protocol', source: at.source, value: inside(protocol) });
   if (apiId) put({ key: 'apiId', source: at.source, value: inside(apiId) });
   return shape;
 }
@@ -675,7 +689,7 @@ function isWrittenIn(project: ProjectSource, node: ts.Node, value: ts.Expression
   return true;
 }
 
-/** A provider the project defines under a name: the top-level `const` set to its `defineProvider` call. */
+/** A provider the project registers under a name: the top-level `const` set to its `registerProvider` call. */
 export interface NamedProvider {
   name: string;
   source: ts.SourceFile;
@@ -755,7 +769,7 @@ export function isHeldId(kind: SubjectKind, path: readonly string[], at: Located
   const property = at.node.parent;
   const call = property.parent.parent;
   return ts.isPropertyAssignment(property) && propertyName(property) === 'id' &&
-    ts.isCallExpression(call) && calleeName(call) === 'defineProvider';
+    ts.isCallExpression(call) && calleeName(call) === 'registerProvider';
 }
 
 /** Whether `at` is written inside a call's options. */
@@ -998,8 +1012,19 @@ export function projectOf(files: Map<string, ts.SourceFile>, entry: string, root
           const target = { file: written.source.fileName, source: written.source, options };
           if (takesProfile(node)) calls.push({ into: project.profiles, key: 'id', target });
           if (name === 'registerTool') calls.push({ into: project.tools, key: 'name', target });
-          if (name && PROVIDER_CALLS.has(name)) calls.push({ into: project.providers, key: 'id', target });
         }
+      }
+      // A provider's settings follow its definition; left without an id, it has the definition's.
+      const settings = ts.isCallExpression(node) && calleeName(node) === 'registerProvider' && node.arguments[1]
+        ? unwrapped(node.arguments[1])
+        : undefined;
+      if (settings && ts.isObjectLiteralExpression(settings)) {
+        const target = { file: source.fileName, source, options: settings };
+        const definition = unwrapped((node as ts.CallExpression).arguments[0] as ts.Expression);
+        const unnamed = !settings.properties.some((property) => propertyName(property) === 'id');
+        const own = unnamed && ts.isIdentifier(definition) ? definitionOfFactory(definition.text) : undefined;
+        if (own) project.providers.set(own, [...(project.providers.get(own) ?? []), target]);
+        else calls.push({ into: project.providers, key: 'id', target });
       }
       ts.forEachChild(node, visit);
     };

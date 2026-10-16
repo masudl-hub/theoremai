@@ -5,7 +5,7 @@ import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../../src/kernel/registry/resolve.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes } from '../../src/observability/trace-span.ts';
 import { guardrailAt } from '../fixtures/events.ts';
@@ -16,7 +16,7 @@ async function* fakeComplete(): AsyncGenerator<TurnEvent> {
   yield { type: 'text', text: 'ok' };
 }
 
-const fake: ModelProvider = { complete: fakeComplete };
+const fake: TurnModel = { complete: fakeComplete };
 
 /** Hits of the input guardrail event on the turn's root span. */
 function inputGuardrailHits(record: TraceRecord | undefined): TraceAttributes[] {
@@ -172,7 +172,7 @@ Deno.test('a find that throws blocks the reply, and what it threw reaches neithe
     }),
   );
   const requests: string[] = [];
-  const recording: ModelProvider = {
+  const recording: TurnModel = {
     async *complete(...args: unknown[]): AsyncGenerator<TurnEvent> {
       requests.push(JSON.stringify(args));
       await Promise.resolve();

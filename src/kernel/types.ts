@@ -1,8 +1,5 @@
-import type {
-  JsonObject,
-  ProviderCheckpoint,
-  ProviderContinuationPolicy,
-} from './provider-contract.ts';
+import type { ProviderCheckpoint, ProviderContinuationPolicy } from './checkpoint.ts';
+import type { JsonObject } from './json.ts';
 import type {
   CacheMode,
   CacheTtl,
@@ -19,9 +16,6 @@ import type {
   LiveStartSensitivity,
   MediaInputKind,
   ProfileType,
-  ProfileTypeProtocol,
-  Protocol,
-  Provider,
   SpeechAudioFormat,
   StreamMode,
   SummaryMode,
@@ -71,7 +65,7 @@ import type {
   InteractionPart,
   InteractionTextPart,
   InvalidField,
-  ProviderEvent,
+  ModelEvent,
   ProviderEvidence,
   RemovedItem,
   SessionEnded,
@@ -128,12 +122,9 @@ export type {
   LiveProfileToolsSpec,
   LiveStartSensitivity,
   MediaInputKind,
+  ModelEvent,
   ProfileToolsSpec,
   ProfileType,
-  ProfileTypeProtocol,
-  Protocol,
-  Provider,
-  ProviderEvent,
   ProviderEvidence,
   RegisteredTool,
   RemovedItem,
@@ -214,25 +205,12 @@ export interface ProfileImageSpec {
   includeText?: boolean;
 }
 
-/** One model a profile can run: its registered provider and upstream model id it calls, with its generation settings. */
-export interface ModelBinding {
-  provider: Provider;
-  apiId: string;
-  keySlot?: KeySlot;
-  fallbackKeySlot?: KeySlot;
-  providerOptions?: JsonObject;
-  efforts?: Record<string, ThinkingLevel>;
-  defaultEffort?: string;
-  allowEffortSelect?: boolean;
-  summaries?: boolean;
-  maxOutputTokens?: number;
-  temperature?: number;
-  builtInTools?: BuiltinToolId[];
-  compaction?: CompactionSpec;
-}
+import type { DecisionModelBinding, ModelBinding } from './protocols/binding.ts';
+
+export type { DecisionModelBinding, ModelBinding };
 
 /**
- * OpenRouter prompt-cache policy (`models.*.providerOptions.cache`).
+ * OpenRouter prompt-cache policy (`models.*.options.cache`).
  *
  * - `automatic` — top-level `cache_control`; breakpoint advances with the conversation.
  * - `system` — explicit breakpoint on the system instruction only.
@@ -631,15 +609,6 @@ export type DecisionJson =
   | DecisionJson[]
   | { [key: string]: DecisionJson };
 
-/** A decision model binding follows the same protocol/provider/apiId spine as turn models. */
-export interface DecisionModelBinding extends Pick<ModelBinding, 'apiId'> {
-  provider: string;
-  keySlot?: KeySlot;
-  providerOptions?: JsonObject;
-  fallbackKeySlot?: KeySlot;
-  timeoutMs?: number;
-}
-
 /** What a decision profile accepts: JSON state up to a byte cap. */
 export interface DecisionInputsSpec {
   state: 'json';
@@ -730,8 +699,64 @@ export type DecisionAnswer =
 export interface DecisionResult {
   model: string;
   answers: Record<string, DecisionAnswer>;
-  /** Provider-reported tokens and cost, or a provider adapter's known model tariff. */
-  usage?: { inputTokens: number; outputTokens: number; costUsd?: number };
+  /** Provider-reported tokens and cost; a cost worked out from the provider's prices is `estimated`. */
+  usage?: { inputTokens: number; outputTokens: number; costUsd?: number; estimated?: true };
+}
+
+/** One provider-neutral input part for an embedding request. */
+export type EmbeddingPart =
+  | { type: 'text'; text: string }
+  | { type: 'media'; mimeType: string; data: string }
+  | { type: 'media-ref'; mimeType: string; uri: string };
+
+/** One embedding input. Media-only inputs remain valid for native local models. */
+export type EmbeddingInput = string | { parts: readonly EmbeddingPart[] };
+
+/** A profile's accepted embedding input kinds and limits. */
+export interface EmbeddingInputsSpec {
+  text?: boolean;
+  attachments?: { accept: string[] };
+  maxFiles?: number;
+  maxBytes?: number;
+  maxTurnBytes?: number;
+}
+
+/** A profile that returns vectors instead of a model turn. */
+export interface EmbeddingProfile extends Omit<ProfileCommon, 'identity' | 'outputs' | 'maxSteps'> {
+  type: 'embedding';
+  identity: Pick<ProfileIdentity, 'handle'>;
+  inputs: EmbeddingInputsSpec;
+}
+
+/** A request to `runEmbedding`. */
+export interface EmbeddingRequest {
+  profile: ProfileId;
+  model?: ModelId;
+  input: EmbeddingInput | readonly EmbeddingInput[];
+  signal?: AbortSignal;
+  metadata?: Record<string, unknown>;
+  traceparent?: string;
+}
+
+/** One vector returned for one ordered embedding input. */
+export interface EmbeddingVector {
+  index: number;
+  values: readonly number[];
+  dimensions: number;
+}
+
+/** Provider usage for an embedding call. */
+export interface EmbeddingUsage {
+  inputTokens?: number;
+  costUsd?: number;
+  estimated?: true;
+}
+
+/** The normalized result of `runEmbedding`. */
+export interface EmbeddingResult {
+  model: string;
+  embeddings: readonly EmbeddingVector[];
+  usage?: EmbeddingUsage;
 }
 
 /** A profile that runs text turns. */
@@ -802,10 +827,11 @@ export type Profile =
   | SpeechProfile
   | LiveProfile
   | DecisionProfile
+  | EmbeddingProfile
   | HostProfile;
 
 /** Profiles that run a model turn — every type except `host` and `decision` (which runs through `runDecision`). */
-export type ModelProfile = Exclude<Profile, HostProfile | DecisionProfile>;
+export type ModelProfile = Exclude<Profile, HostProfile | DecisionProfile | EmbeddingProfile>;
 
 /** The image a profile asks the model to return. */
 export interface ImageResponseFormat {
@@ -1020,12 +1046,6 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   live?: ProfileLiveSpec;
   input: InteractionPart[];
   /**
-   * Vault key slot; every model but a local one without a key names one. Never sent on the wire.
-   */
-  keySlot?: KeySlot;
-  /** The slot a quota refusal on `keySlot` retries on once, when the profile names one. */
-  fallbackKeySlot?: KeySlot;
-  /**
    * The canary bound into the system prompt; empty with the canary off. A turn
    * binds the profile's (`profileCanary`), the same for the same prompt; a
    * Live session binds this one, minted for it.
@@ -1037,44 +1057,29 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   host?: unknown;
 }
 
-/**
- * `previousInteractionId`, `store`, `stream`, `summaries` and `continuation` are
- * Google Interactions-only and absent otherwise. `keySlot` is required for every
- * provider but local; it is never sent on the wire.
- */
-export interface ProviderCompleteRequest
-  extends Omit<ProviderGenerationConfig, 'summaries' | 'builtins'> {
-  previousInteractionId?: string;
-  store?: boolean;
-  cache?: CacheSpec;
-  /** The turn's builtins with the args addressed to each; adapters read no registry. */
+/** One model call as the engine asks it: the resolved generation, the conversation and the tools. */
+export interface ModelRequest extends Omit<ProviderGenerationConfig, 'summaries' | 'builtins'> {
+  /** The turn's builtins with the args addressed to each. */
   builtins: ProviderBuiltin[];
   summaries?: SummaryMode;
   providerState?: ProviderCheckpoint;
-  state?: unknown;
   system: string;
   input: InteractionPart[];
   history?: TurnHistoryMessage[];
-  /** Sent after `previousInteractionId` instead of history + user parts; mapped like history. */
-  continuation?: TurnHistoryMessage[];
   wireTools?: WireFunctionTool[];
   structured: ResolvedStructured | null;
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
-  sessionResumptionHandle?: string;
-  keySlot?: KeySlot;
-  /** The slot a quota refusal on `keySlot` retries on once. Never sent on the wire. */
-  fallbackKeySlot?: KeySlot;
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;
-  /** Host abort signal — adapters should pass this into fetch / SDK calls. */
+  /** Host abort signal. */
   signal?: AbortSignal;
 }
 
-/** A provider adapter: one `complete` call that streams the model's events. */
-export interface ModelProvider {
-  complete: (req: ProviderCompleteRequest) => AsyncIterable<ProviderEvent>;
+/** One model call, streamed as the model's events. */
+export interface TurnModel {
+  complete: (req: ModelRequest) => AsyncIterable<ModelEvent>;
 }
 
 /**

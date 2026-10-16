@@ -78,30 +78,23 @@ The package does not include the Figtree font. The theme uses Figtree, and falls
 
 ### 1. Register the provider and create the handler
 
-Register the provider before you create the handler. The profile binds models through the provider's `.model()` helper.
-Pass credential values through the handler's vault.
+Register the provider before you create the handler. The profile binds models through the registered provider's `.model()` helper.
+The helper takes the protocol and the model ID. Pass credential values through the handler's vault.
 Supply vault slots as own properties. The server ignores inherited credentials and resolvers.
-You can register an object adapter or a class adapter that implements `ProviderAdapter`.
-The server preserves method receivers. Replacing the registration affects later runs; an active run retains its captured adapter methods.
+Replacing the registration affects later runs. An active run keeps the registration that it started with.
 
 ```ts
-import { defineProfile, defineProvider, googleAdapter, registerProvider } from '@theoremjs/agents';
+import { defineProfile, geminiProvider, registerProvider } from '@theoremjs/agents';
 import { createMemoryConversationStore, createTheoremHandler } from '@theoremjs/react/server';
 
-const google = defineProvider({
-  id: 'company-google',
-  connection: {},
-  keySlot: 'main',
-  adapter: googleAdapter(),
-});
-registerProvider(google);
+const gemini = registerProvider(geminiProvider, { keySlot: 'main' });
 
 const support = defineProfile({
   type: 'text',
   id: 'support.agent',
   identity: { handle: 'support', system: 'You help customers with their account.' },
   models: {
-    fast: google.model('gemini-3.5-flash-lite'),
+    fast: gemini.model('geminiInteractions', 'gemini-3.5-flash-lite'),
   },
   defaultModel: 'fast',
   tools: { allow: [] },
@@ -343,10 +336,9 @@ The runner shows `reconnecting`. It tries five times, after 0.5, 1, 2, 4, and 8 
 If all attempts fail, it reports a `network` error.
 The relay receives the absence duration. If the profile sets `live.resumed`, the agent announces its return after the configured `afterMs`.
 
-The kernel validates native state before resumption. A provider, model, or history mismatch rebuilds from portable history by default.
+The kernel validates native state before resumption. A protocol, provider, model, connection, key slot or history mismatch rebuilds from portable history.
 It emits `provider_warning`. The client then discards the incompatible checkpoint and retains the history.
 A rebuilt session with history does not repeat the initial greeting.
-The profile can reject mismatches with `providerContinuation.onMismatch: 'error'`.
 
 A failed call does not reconnect. Without `live.sessionResumption`, a provider-ended call is complete.
 

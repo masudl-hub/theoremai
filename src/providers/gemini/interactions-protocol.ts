@@ -1,18 +1,22 @@
 import { z } from 'zod';
 import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
+import { jsonObjectSchema } from '../../kernel/json.ts';
 import {
   defineProtocol,
-  type HistoryMessage,
+  type Protocol,
   type ProtocolContext,
   type ProtocolEvent,
-  type TurnRequest,
+  type ProtocolRequest,
 } from '../../kernel/protocols/mod.ts';
-import { jsonObjectSchema } from '../../kernel/provider-contract.ts';
-import type { ProviderCompleteRequest, ProviderEvent } from '../../kernel/types.ts';
+import type { ModelEvent } from '../../kernel/types.ts';
 import { readGeminiApiError } from '../google/api-error.ts';
 import { GOOGLE_BUILTIN_IDS } from '../google/builtins.ts';
-import { toInteractionsBody } from '../google/interactions/framing.ts';
+import {
+  type InteractionsRequest,
+  thoughtSignature,
+  toInteractionsBody,
+} from '../google/interactions/framing.ts';
 import {
   finalizeStructured,
   foldBody,
@@ -27,13 +31,13 @@ import { asProtocolEvent } from '../shared/protocol-events.ts';
 const state = z.strictObject({ interactionId: z.string().min(1) });
 type State = z.infer<typeof state>;
 
-/** A thought's signature, for the tool call at `call` in the same assistant message. */
-const reasoning = z.strictObject({
-  call: z.number().int().min(0),
-  signature: z.string().min(1),
-});
+/** What a `geminiInteractions` binding sets in `options`. */
+export interface GeminiInteractionsOptions {
+  store?: boolean;
+  persistViaInteractionId?: boolean;
+}
 
-const options = z
+const options: z.ZodType<GeminiInteractionsOptions> = z
   .strictObject({
     store: z
       .boolean()
@@ -49,25 +53,8 @@ const options = z
   );
 type Options = z.infer<typeof options>;
 
-/** Puts each replayed thought signature back on the tool call it was written with. */
-function withSignatures(history: readonly HistoryMessage[]): HistoryMessage[] {
-  return history.map((message) => {
-    const signed = (message.reasoning ?? []).flatMap((part) => {
-      if (part.origin.protocol !== 'geminiInteractions') return [];
-      const parsed = reasoning.safeParse(part.data);
-      return parsed.success ? [parsed.data] : [];
-    });
-    if (!signed.length || !message.tool_calls) return message;
-    const calls = message.tool_calls.map((call, index) => {
-      const signature = signed.find((item) => item.call === index)?.signature;
-      return signature ? { ...call, thoughtSignature: signature } : call;
-    });
-    return { ...message, tool_calls: calls };
-  });
-}
-
-function wireRequest(context: ProtocolContext<Options>, request: TurnRequest<State>) {
-  const history = withSignatures(request.history ?? []);
+function wireRequest(context: ProtocolContext<Options>, request: ProtocolRequest<State>) {
+  const history = request.history ?? [];
   const previous = context.options.persistViaInteractionId
     ? request.state?.interactionId
     : undefined;
@@ -89,7 +76,7 @@ function wireRequest(context: ProtocolContext<Options>, request: TurnRequest<Sta
           ...request.input.map((part) => ({ role: 'user' as const, parts: [part] })),
         ]
       : undefined,
-  } as ProviderCompleteRequest;
+  } as InteractionsRequest;
   const body = jsonObjectSchema.parse(JSON.parse(JSON.stringify(toInteractionsBody(wire))));
   return { wire, body, wroteTools: builtins.map((builtin) => builtin.id) };
 }
@@ -97,49 +84,38 @@ function wireRequest(context: ProtocolContext<Options>, request: TurnRequest<Sta
 /** What one reply has given so far, beyond the shared fold. */
 interface Reply {
   fold: StreamFold;
-  calls: number;
   done?: Extract<ProtocolEvent<State>, { type: 'done' }>;
 }
 
-/** Old-shape events as protocol events: a call's thought signature becomes its own reasoning. */
+/** The shared reader's events as protocol events; the `done` waits for the end, with the state to keep. */
 function asProtocolEvents(
-  events: readonly ProviderEvent[],
+  events: readonly ModelEvent[],
   reply: Reply,
   persist: boolean,
 ): ProtocolEvent<State>[] {
   return events.flatMap((event): ProtocolEvent<State>[] => {
-    if (event.type === 'done') {
-      const { interactionId, ...done } = event as typeof event & { interactionId?: string };
-      reply.done = {
-        ...(done as Extract<ProtocolEvent<State>, { type: 'done' }>),
-        ...(persist && interactionId ? { state: { interactionId } } : {}),
-      };
-      return [];
-    }
-    if (event.type !== 'tool' || event.tool.phase !== undefined) {
+    if (event.type !== 'done') {
       const converted = asProtocolEvent<State>(event);
       return converted ? [converted] : [];
     }
-    const { thoughtSignature, ...call } = event.tool;
-    const index = reply.calls++;
-    return [
-      ...(thoughtSignature
-        ? [{ type: 'reasoning' as const, data: { call: index, signature: thoughtSignature } }]
-        : []),
-      { type: 'tool_call', call },
-    ];
+    const { interactionId, ...done } = event as typeof event & { interactionId?: string };
+    reply.done = {
+      ...(done as Extract<ProtocolEvent<State>, { type: 'done' }>),
+      ...(persist && interactionId ? { state: { interactionId } } : {}),
+    };
+    return [];
   });
 }
 
 /** Gemini's Interactions API: text, images and speech, all at `/interactions`. */
-export const geminiInteractions = defineProtocol({
+export const geminiInteractions: Protocol<GeminiInteractionsOptions> = defineProtocol({
   id: 'geminiInteractions',
   name: 'Gemini Interactions',
   description: "Google's Interactions API for Gemini: text, images and speech at one endpoint.", // labels-exempt: builder field description, read by the studio and docs
   endpoints: { text: '/interactions', image: '/interactions', speech: '/interactions' },
   options,
   continuation: { version: 1, schema: state, keyOptions: ['store', 'persistViaInteractionId'] },
-  reasoning,
+  reasoning: thoughtSignature,
   error(failure) {
     const kind = kindOfHttpStatus(failure.status);
     const record = asRecord(failure.body);
@@ -155,7 +131,7 @@ export const geminiInteractions = defineProtocol({
         const { wire, body, wroteTools } = wireRequest(context, request);
         const stream = request.stream !== false;
         const persist = Boolean(context.options.persistViaInteractionId);
-        const reply: Reply = { fold: newStreamFold(), calls: 0 };
+        const reply: Reply = { fold: newStreamFold() };
         const init = { stream, wroteTools, ...(stream ? { path: '/interactions?alt=sse' } : {}) };
         for await (const row of context.send(body, init)) {
           // why: an error row before any output is thrown, so the kernel can fall back to the other key.

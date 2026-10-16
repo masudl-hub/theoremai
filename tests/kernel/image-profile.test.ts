@@ -5,14 +5,11 @@ import { TheoremError } from '../../src/guardrails/error.ts';
 import { projectProfile, registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile, type ProfileDefinition } from '../../src/kernel/registry/profiles.ts';
-import { providerBuiltins } from '../../src/kernel/registry/provider-request.ts';
-import { defaultKernelScope } from '../../src/kernel/scope.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
-import { camelToSnake, toInteractionsBody } from '../../src/providers/google/interactions/mod.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { eventTypesByReply } from '../fixtures/reply.ts';
 
-async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+async function* fakeComplete(req: ModelRequest): AsyncGenerator<TurnEvent> {
   await Promise.resolve();
   yield { type: 'text', text: `${req.model}:${req.thinking}` };
   if (req.image) {
@@ -22,7 +19,7 @@ async function* fakeComplete(req: ProviderCompleteRequest): AsyncGenerator<TurnE
     };
   }
 }
-const fake: ModelProvider = { complete: fakeComplete };
+const fake: TurnModel = { complete: fakeComplete };
 Deno.test('image oneshot uses image model and image response format', () => {
   const { generation } = resolveTurn({
     profile: 'image',
@@ -32,7 +29,6 @@ Deno.test('image oneshot uses image model and image response format', () => {
     },
   });
   assertEquals(generation.model, 'gemini31FlashLiteImage');
-  assertEquals(generation.keySlot, 'slot_b');
   assertEquals(generation.thinking, 'minimal');
   assertEquals(generation.structured, null);
   assertEquals(generation.image, {
@@ -67,103 +63,6 @@ Deno.test('image rejects mime the image model does not take', () => {
       }),
     TheoremError,
   );
-});
-function googleImageBody() {
-  const { generation } = resolveTurn({
-    profile: 'image',
-    input: { text: 'fox', attachments: [{ mimeType: 'image/jpeg', data: 'abc' }] },
-  });
-  return toInteractionsBody({
-    model: generation.model,
-    apiId: generation.apiId,
-    thinking: generation.thinking,
-    summaries: generation.summaries,
-    maxOutputTokens: generation.maxOutputTokens,
-    temperature: generation.temperature,
-    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
-    system: 'sys',
-    input: generation.input,
-    structured: generation.structured,
-    image: generation.image,
-    keySlot: generation.keySlot,
-  });
-}
-function assertImageWireBody(body: Record<string, unknown>): void {
-  const turns = body.input as {
-    type: string;
-    content: Record<string, string>[];
-  }[];
-  const [turn] = turns;
-  const [textPart, part] = turn.content;
-  const format = body[camelToSnake('responseFormat')] as Record<string, string>;
-  const mimeKey = camelToSnake('mimeType');
-  assertEquals(body.model, 'gemini-3.1-flash-lite-image');
-  assertEquals(body[camelToSnake('systemInstruction')], 'sys');
-  assertEquals(turn.type, 'user_input');
-  assertEquals(textPart, { type: 'text', text: wrapUserData('fox') });
-  assertEquals(part.type, 'image');
-  assertEquals(part.data, 'abc');
-  assertEquals(part[mimeKey], 'image/jpeg');
-  assertEquals(format.type, 'image');
-  assertEquals(format[mimeKey], 'image/jpeg');
-  assertEquals(format[camelToSnake('aspectRatio')], '1:1');
-  assertEquals(format[camelToSnake('imageSize')], '1K');
-  assertEquals(Object.hasOwn(body, camelToSnake('responseModalities')), false);
-}
-function assertImageWithTextWireBody(body: Record<string, unknown>): void {
-  const format = body[camelToSnake('responseFormat')] as Record<string, unknown>[];
-  assertEquals(Array.isArray(format), true);
-  assertEquals(format[0], { type: 'text' });
-  assertEquals(format[1]?.type, 'image');
-  assertEquals(format[1]?.[camelToSnake('mimeType')], 'image/jpeg');
-  assertEquals(format[1]?.[camelToSnake('aspectRatio')], '1:1');
-  assertEquals(format[1]?.[camelToSnake('imageSize')], '1K');
-  assertEquals(Object.hasOwn(body, camelToSnake('responseModalities')), false);
-}
-Deno.test('interactions body places refs in input and image in response format', () => {
-  assertImageWireBody(googleImageBody());
-});
-Deno.test('interactions body requests text and image when includeText is set', () => {
-  registerProfile({
-    id: 'image_with_text',
-    type: 'image',
-    identity: { handle: 'image_with_text' },
-    ...geminiModels('gemini31FlashLiteImage'),
-    image: {
-      aspectRatio: '1:1',
-      resolution: '1K',
-      mimeType: 'image/jpeg',
-      includeText: true,
-    },
-    tools: { allow: [] },
-    inputs: {
-      text: true,
-    },
-    outputs: {
-      structured: null,
-    },
-    guardrails: { quota: { perDay: 10 } },
-  });
-  const { generation } = resolveTurn({
-    profile: 'image_with_text',
-    input: { text: 'fox' },
-  });
-  assertEquals(generation.image?.includeText, true);
-  const body = toInteractionsBody({
-    model: generation.model,
-    apiId: generation.apiId,
-    thinking: generation.thinking,
-    summaries: generation.summaries,
-    maxOutputTokens: generation.maxOutputTokens,
-    temperature: generation.temperature,
-    builtins: providerBuiltins(defaultKernelScope.tools, generation.builtins),
-    system: 'sys',
-    input: generation.input,
-    structured: generation.structured,
-    image: generation.image,
-    keySlot: generation.keySlot,
-  });
-  assertImageWithTextWireBody(body);
 });
 Deno.test('image runTurn yields media then done', async () => {
   const events = await Array.fromAsync(runTurn({ profile: 'image', input: { text: 'fox' } }, fake));

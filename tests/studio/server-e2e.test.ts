@@ -8,7 +8,6 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assert, assertEquals, assertNotEquals } from '@std/assert';
-import { withSupport } from '../../studio/providers.ts';
 import type { StudioDescription } from '../../studio/server/handler.ts';
 import type { SaveDone, SaveRefusal, SaveReview } from '../../studio/server/save-wire.ts';
 import { removeLibraryTool, type StudioWorkspace, setToolAllowed } from '../../studio/workspace.ts';
@@ -195,10 +194,10 @@ function withProvider(
 }
 
 const atBase =
-  (baseURL: string) =>
+  (baseUrl: string) =>
   (provider: Provider): Provider => ({
     ...provider,
-    connection: { ...provider.connection, baseURL },
+    connection: { ...provider.connection, baseUrl },
   });
 
 type Tool = StudioWorkspace['toolSpecs'][number];
@@ -365,13 +364,8 @@ Deno.test(
           ['wipe_desk', 'function'],
         ]);
         assertEquals([opened.problems, opened.unregistered], [[], []]);
-        assertEquals(opened.modelProblems, [
-          {
-            profile: 'desk',
-            model: 'fifth',
-            message: "Provider 'own' has no verified 'clientTools' support",
-          },
-        ]);
+        // Every model runs as the files set it, the one on the project's own definition too.
+        assertEquals(opened.modelProblems, undefined);
         assertEquals(
           opened.shared?.map((setting) => [setting.name, setting.tools]),
           [['READ', ['lookup_city', 'fetch_rates']]],
@@ -411,7 +405,7 @@ Deno.test(
             JSON.stringify(turn),
           );
           assert(replyOf(turn).startsWith('Found:'), JSON.stringify(turn));
-          // Two providers share one adapter and one key slot; the second agent reaches the script on it.
+          // Two providers share one definition and one key slot; the second agent reaches the script on it.
           const concierge = await lines(
             studio,
             '/api/studio/profiles/concierge/turn',
@@ -575,7 +569,7 @@ Deno.test(
             {
               workspace: {
                 ...workspace,
-                providers: [{ ...workspace.providers[0], connection: { baseURL: 7 } }],
+                providers: [{ ...workspace.providers[0], connection: { baseUrl: 7 } }],
               },
             },
             { workspace: { ...workspace, starts: null } },
@@ -615,16 +609,10 @@ Deno.test(
       await step(
         'a save to a file with carriage returns and tabs keeps them, and undo is byte for byte',
         async () => {
-          // The gateway is said to take no tools after all: desk's model on it can no longer run.
           const workspace = withProvider(opened.workspace, 'house', (provider) => ({
-            ...withSupport(
-              withSupport(atBase('https://changed.example/v1')(provider), {
-                clientTools: 'unsupported',
-              }),
-              { thinking: 'unsupported' },
-              'house/model-2',
-            ),
+            ...atBase('https://changed.example/v1')(provider),
             keySlot: 'changed_key',
+            fallbackKeySlot: 'changed_spare',
           }));
           const review = await studio.post<SaveReview>(SAVE, { workspace });
           assert(review.body.writable, JSON.stringify(review.body));
@@ -632,35 +620,24 @@ Deno.test(
           assertEquals(done.body, { ok: true, written: ['providers/house.ts'] });
           const written = Deno.readTextFileSync(join(studio.root, 'providers/house.ts'));
           assert(!/[^\r]\n/.test(written), 'a line lost its carriage return');
-          // A block the file did not hold is written in its tabs, quotes and line endings.
-          assert(
-            written.includes(
-              '\t\tmodels: {\r\n\t\t\t"house/model-2": {\r\n\t\t\t\tthinking: "unsupported",\r\n',
-            ),
-            written,
-          );
-          assert(written.includes('\t\tbaseURL: "https://changed.example/v1",\r\n'), written);
-          assert(written.includes('\tkeySlot: "changed_key",\r\n'), written);
-          assert(written.includes('\t\t\t\tclientTools: "unsupported",\r\n'), written);
+          assert(written.includes('\t\t\tbaseUrl: "https://changed.example/v1",\r\n'), written);
+          // The comment above the address stays where the builder wrote it.
+          assert(written.includes('\t\t\t// where the gateway listens\r\n'), written);
+          assert(written.includes('\t\tkeySlot: "changed_key",\r\n'), written);
+          // A setting the file did not hold is written in its tabs, quotes and line endings.
+          assert(written.includes('\t\tfallbackKeySlot: "changed_spare",\r\n'), written);
           const reopened = await open(studio);
           const house = reopened.workspace.providers.find((provider) => provider.id === 'house');
-          assertEquals(house?.support?.capabilities?.features.clientTools, 'unsupported');
-          assertEquals(house?.support?.models, { 'house/model-2': { thinking: 'unsupported' } });
+          assertEquals(house, {
+            id: 'house',
+            definition: 'local',
+            connection: { baseUrl: 'https://changed.example/v1' },
+            keySlot: 'changed_key',
+            fallbackKeySlot: 'changed_spare',
+          });
           assertEquals(
-            { ...house, support: undefined },
-            {
-              id: 'house',
-              adapter: 'openai-chat',
-              connection: { baseURL: 'https://changed.example/v1' },
-              keySlot: 'changed_key',
-              support: undefined,
-            },
-          );
-          assertEquals(
-            reopened.modelProblems?.find(
-              (problem) => problem.profile === 'desk' && problem.model === 'primary',
-            )?.message,
-            "Provider 'house' has no verified 'clientTools' support",
+            reopened.modelProblems?.filter((problem) => problem.profile === 'desk') ?? [],
+            [],
           );
           assertEquals((await studio.post(`${SAVE}/undo`, {})).body, {
             ok: true,

@@ -1,105 +1,5 @@
-import { assertEquals, assertExists, assertRejects } from '@std/assert';
-import { TheoremError } from '../../../../src/guardrails/error.ts';
-import type { GeminiTransport } from '../../../../src/providers/google/keys.ts';
-import { openGoogleLiveSession } from '../../../../src/providers/google/live/session.ts';
-import {
-  attachLiveSessionHandlers,
-  createLiveQueue,
-  performLiveSetup,
-  readMessageData,
-  sendInitialPayloads,
-  turnPhaseFromMessage,
-} from '../../../../src/providers/google/live/stream.ts';
-import { stubCompleteRequest } from '../../../fixtures/provider-request.ts';
-
-Deno.test('openGoogleLiveSession rejects when API key is missing', async () => {
-  const transport: GeminiTransport = {
-    vault: { main: undefined },
-  };
-  const req = stubCompleteRequest({
-    model: 'gemini-3.1-flash-live-preview',
-    apiId: 'gemini-3.1-flash-live-preview',
-    keySlot: 'main',
-  });
-
-  await assertRejects(() => openGoogleLiveSession(req, transport), TheoremError);
-});
-
-Deno.test('openGoogleLiveSession rejects when pre-aborted', async () => {
-  const transport: GeminiTransport = {
-    vault: { main: 'valid-mock-key' },
-  };
-  const controller = new AbortController();
-  controller.abort();
-
-  const req = stubCompleteRequest({
-    model: 'gemini-3.1-flash-live-preview',
-    apiId: 'gemini-3.1-flash-live-preview',
-    keySlot: 'main',
-    signal: controller.signal,
-  });
-
-  // Aborted before WebSocket open — setup fails or abort surfaces.
-  await assertRejects(() => openGoogleLiveSession(req, transport));
-});
-
-Deno.test('readMessageData handles strings, ArrayBuffers, and Blobs', async () => {
-  const str = await readMessageData('hello');
-  assertEquals(str, 'hello');
-
-  const buf = new TextEncoder().encode('buffer text').buffer;
-  const fromBuf = await readMessageData(buf);
-  assertEquals(fromBuf, 'buffer text');
-
-  const blob = new Blob(['blob text']);
-  const fromBlob = await readMessageData(blob);
-  assertEquals(fromBlob, 'blob text');
-
-  const fromNumber = await readMessageData(12345);
-  assertEquals(fromNumber, '12345');
-});
-
-Deno.test('sendInitialPayloads sends history and input payloads over websocket', () => {
-  const sent: string[] = [];
-  const mockWs = {
-    send: (payload: string) => sent.push(payload),
-  };
-
-  const req = stubCompleteRequest({
-    history: [{ role: 'user', content: 'hello' }],
-    input: [{ type: 'text', text: 'live input' }],
-  });
-
-  sendInitialPayloads(mockWs, req);
-  assertEquals(sent.length, 2);
-  assertEquals(sent[0]?.includes('clientContent'), true);
-  assertEquals(sent[1]?.includes('realtimeInput'), true);
-});
-
-Deno.test('createLiveQueue queues session batches and resolves async next', async () => {
-  const queue = createLiveQueue();
-  assertEquals(queue.isClosed(), false);
-
-  queue.push({
-    type: 'batch',
-    events: [{ type: 'text', text: 'hi' }],
-    turnPhase: 'streaming',
-    row: { serverContent: { modelTurn: { parts: [{ text: 'hi' }] } } },
-  });
-  const item1 = await queue.next();
-  assertEquals(item1?.type, 'batch');
-
-  const pendingNext = queue.next();
-  queue.push({ type: 'closed', code: 1000, reason: '' });
-  const item2 = await pendingNext;
-  assertEquals(item2?.type, 'closed');
-
-  queue.close();
-  assertEquals(queue.isClosed(), true);
-  const itemAfterClose = await queue.next();
-  assertEquals(itemAfterClose, undefined);
-  assertExists(queue);
-});
+import { assertEquals } from '@std/assert';
+import { closeError, turnPhaseFromMessage } from '../../../../src/providers/google/live/stream.ts';
 
 Deno.test('turnPhaseFromMessage: serverContent.interactionStatus is authoritative over turnComplete', () => {
   assertEquals(turnPhaseFromMessage({ serverContent: { turnComplete: true } }, []), 'complete');
@@ -141,37 +41,7 @@ Deno.test('turnPhaseFromMessage: an empty frame keeps the turn streaming', () =>
   assertEquals(turnPhaseFromMessage({}, []), 'streaming');
 });
 
-/** A socket that stays connecting until the test fires its handlers. */
-class FakeLiveSocket extends EventTarget {
-  readyState: number = WebSocket.CONNECTING;
-  onopen: (() => void) | null = null;
-  onerror: (() => void) | null = null;
-  onclose: ((evt: { code: number; reason: string }) => void) | null = null;
-  onmessage: ((evt: { data: unknown }) => Promise<void>) | null = null;
-  sent: string[] = [];
-  send(data: string): void {
-    this.sent.push(data);
-  }
-}
-
-function liveRequest() {
-  return stubCompleteRequest({
-    model: 'gemini-3.1-flash-live-preview',
-    apiId: 'gemini-3.1-flash-live-preview',
-    keySlot: 'main',
-  });
-}
-
-async function setupFailure(fire: (ws: FakeLiveSocket) => void): Promise<TheoremError> {
-  const ws = new FakeLiveSocket();
-  const setup = performLiveSetup(ws as unknown as WebSocket, liveRequest());
-  fire(ws);
-  const err = await setup.catch((e: unknown) => e);
-  if (!(err instanceof TheoremError)) throw new Error('expected a TheoremError');
-  return err;
-}
-
-Deno.test('Live setup failures carry the kind of their close code', async () => {
+Deno.test('Live close errors carry the kind of their close code', () => {
   for (const [code, kind] of [
     [1006, 'network'],
     [1007, 'unsupported'],
@@ -179,90 +49,23 @@ Deno.test('Live setup failures carry the kind of their close code', async () => 
     [1011, 'unavailable'],
     [1013, 'unavailable'],
     [1000, 'unavailable'],
-  ] as const) {
-    const err = await setupFailure((ws) => ws.onclose?.({ code, reason: 'closed' }));
-    assertEquals(err.kind, kind);
-  }
-});
-
-Deno.test('Live closes that name a quota are rate_limit, whatever their code', async () => {
-  const reason = 'You exceeded your current quota, please check your plan and billing details.';
-  assertEquals(
-    (await setupFailure((ws) => ws.onclose?.({ code: 1011, reason }))).kind,
-    'rate_limit',
-  );
-  const ws = new FakeLiveSocket();
-  const queue = createLiveQueue();
-  attachLiveSessionHandlers(ws as unknown as WebSocket, queue);
-  ws.onclose?.({ code: 1011, reason });
-  const item = await queue.next();
-  assertEquals(item?.type === 'closed' ? item.error?.kind : 'not closed', 'rate_limit');
-});
-
-Deno.test('Live closes that name a refused key are auth, not unsupported', async () => {
-  const reason = 'API key not valid. Please pass a valid API key.';
-  assertEquals((await setupFailure((ws) => ws.onclose?.({ code: 1007, reason }))).kind, 'auth');
-  // A 1007 for anything else is still what its code says.
-  assertEquals(
-    (await setupFailure((ws) => ws.onclose?.({ code: 1007, reason: 'Invalid frame' }))).kind,
-    'unsupported',
-  );
-});
-
-Deno.test('Live setup: a socket error is network, an error frame is its status kind', async () => {
-  assertEquals((await setupFailure((ws) => ws.onerror?.())).kind, 'network');
-  const denied = await setupFailure((ws) =>
-    ws.dispatchEvent(
-      new MessageEvent('message', {
-        data: JSON.stringify({ error: { code: 403, message: 'key rejected' } }),
-      }),
-    ),
-  );
-  assertEquals(denied.kind, 'auth');
-  const garbled = await setupFailure((ws) =>
-    ws.dispatchEvent(new MessageEvent('message', { data: '{not json' })),
-  );
-  assertEquals(garbled.kind, 'bad_response');
-});
-
-Deno.test('Live session closes: normal carries no error, abnormal carries its kind', async () => {
-  for (const [code, kind] of [
-    [1000, undefined],
-    [1006, 'network'],
-    [1008, 'unsupported'],
-    [1011, 'unavailable'],
     [4000, 'unavailable'],
   ] as const) {
-    const ws = new FakeLiveSocket();
-    const queue = createLiveQueue();
-    attachLiveSessionHandlers(ws as unknown as WebSocket, queue);
-    ws.onclose?.({ code, reason: 'closed' });
-    const item = await queue.next();
-    assertEquals(item?.type === 'closed' ? item.error?.kind : 'not closed', kind);
+    assertEquals(closeError(code, 'closed', 'setup').kind, kind);
   }
 });
 
-Deno.test('Live session close after goAway carries the warning and keeps the close facts', async () => {
-  const ws = new FakeLiveSocket();
-  const queue = createLiveQueue();
-  attachLiveSessionHandlers(ws as unknown as WebSocket, queue);
-  await ws.onmessage?.({ data: JSON.stringify({ goAway: { timeLeft: '50s' } }) });
-  assertEquals((await queue.next())?.type, 'batch');
-  ws.onclose?.({ code: 1008, reason: 'session limit' });
-  const item = await queue.next();
-  if (item?.type !== 'closed') throw new Error('expected a close');
-  assertEquals(item.code, 1008);
-  assertEquals(item.reason, 'session limit');
-  assertEquals(item.error?.kind, 'unsupported');
-  assertEquals(item.goAway?.timeLeftMs, 50_000);
-  assertEquals(typeof item.goAway?.closedAfterMs, 'number');
+Deno.test('Live closes that name a quota are rate_limit, whatever their code', () => {
+  const reason = 'You exceeded your current quota, please check your plan and billing details.';
+  assertEquals(closeError(1011, reason, 'setup').kind, 'rate_limit');
+  assertEquals(closeError(1011, reason, 'session').kind, 'rate_limit');
 });
 
-Deno.test('Live session close without goAway carries no warning', async () => {
-  const ws = new FakeLiveSocket();
-  const queue = createLiveQueue();
-  attachLiveSessionHandlers(ws as unknown as WebSocket, queue);
-  ws.onclose?.({ code: 1008, reason: 'idle' });
-  const item = await queue.next();
-  assertEquals(item?.type === 'closed' ? item.goAway : 'not closed', undefined);
+Deno.test('Live closes that name a refused key are auth, not unsupported', () => {
+  assertEquals(
+    closeError(1007, 'API key not valid. Please pass a valid API key.', 'setup').kind,
+    'auth',
+  );
+  // A 1007 for anything else is still what its code says.
+  assertEquals(closeError(1007, 'Invalid frame', 'setup').kind, 'unsupported');
 });

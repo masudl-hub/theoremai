@@ -12,7 +12,7 @@ import type { RegisteredTool } from '@theoremjs/agents/kernel';
 import type { CompiledStudio } from '../compile.ts';
 import { heldSetting, unheldProblem } from '../held-credentials.ts';
 import type { ToolRegistration } from '../registrations.ts';
-import { providerDefinition, type StudioProvider } from '../providers.ts';
+import { registerStudioProvider, type StudioProvider } from '../providers.ts';
 import type { ProjectQuestions } from './handler.ts';
 import { withCompiledPatterns } from '../runtime-scope.ts';
 import { zodFromJsonSchema, type JsonSchema } from '../tool-schema.ts';
@@ -143,16 +143,15 @@ async function registerAgent(scope: KernelScope, agent: CompiledStudio, subject:
 
 /**
  * A provider with the builder's edits over the one the project registered. What the page was not
- * shown stays as registered: anything it connects with that is not text. Told something else
- * about what its models support, its adapter is made again with that. Moved to another kernel
- * adapter, it is that adapter with what the page holds.
+ * shown stays as registered: anything it connects with that is not text. Moved to another kernel
+ * definition, it is that definition with what the page holds.
  */
 function registerProvider(scope: KernelScope, subject: SaveSubject): void {
-  const { model: _model, ...registered } = scope.providers.require(subject.of);
+  const registered = scope.providers.get(subject.of);
   const [before, after] = [subject.before as Json, subject.after as Json];
-  if (after.adapter !== before.adapter) {
-    // On another adapter, nothing the project connected with before carries over.
-    scope.providers.register(providerDefinition({ ...(after as Omit<StudioProvider, 'id'>), id: subject.of }));
+  if (!registered || after.definition !== before.definition) {
+    // On another definition, nothing the project connected with before carries over.
+    registerStudioProvider(scope.providers, { ...(after as unknown as StudioProvider), id: subject.of }, undefined, 'replace');
     return;
   }
   const [shown, edited] = [isRecord(before.connection) ? before.connection : {}, isRecord(after.connection) ? after.connection : {}];
@@ -161,20 +160,8 @@ function registerProvider(scope: KernelScope, subject: SaveSubject): void {
     if (key in edited) connection[key] = edited[key];
     else delete connection[key];
   }
-  const { keySlot: _keySlot, fallbackKeySlot: _fallbackKeySlot, ...rest } = registered;
-  // Told something else about its models, the adapter is made again with what the page holds.
-  const told = canonical(before.support) === canonical(after.support) ? {} : {
-    adapter: providerDefinition({
-      id: subject.of,
-      adapter: String(after.adapter),
-      // As registered, with the edits: the adapter's own schema reads it.
-      connection: connection as Record<string, string>,
-      support: after.support as StudioProvider['support'],
-    }).adapter,
-  };
-  scope.providers.register({
-    ...rest,
-    ...told,
+  scope.providers.replace(registered.definition, {
+    id: subject.of,
     connection,
     ...(typeof after.keySlot === 'string' ? { keySlot: after.keySlot } : {}),
     ...(typeof after.fallbackKeySlot === 'string' ? { fallbackKeySlot: after.fallbackKeySlot } : {}),
@@ -187,7 +174,7 @@ function registerProvider(scope: KernelScope, subject: SaveSubject): void {
  * order the kernel checks them in.
  */
 export async function registerEdits(scope: KernelScope, edits: ProjectEdits): Promise<void> {
-  for (const provider of edits.added.providers) scope.providers.register(providerDefinition(provider));
+  for (const provider of edits.added.providers) registerStudioProvider(scope.providers, provider);
   for (const held of edits.subjects) if (held.kind === 'provider') registerProvider(scope, held);
   const subject = (kind: SaveSubject['kind'], named: (after: Json) => unknown, name: string) =>
     edits.subjects.find((held) => held.kind === kind && named(held.after as Json) === name);

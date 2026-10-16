@@ -1,5 +1,6 @@
 import { assertEquals } from '@std/assert';
 import { z } from 'zod';
+import type { JsonObject } from '../../../src/kernel/json.ts';
 import {
   bearer,
   type CallSetup,
@@ -9,9 +10,8 @@ import {
   createProviderRegistry,
   defineProvider,
   type ProtocolEvent,
-  type TurnRequest,
+  type ProtocolRequest,
 } from '../../../src/kernel/protocols/mod.ts';
-import type { JsonObject } from '../../../src/kernel/provider-contract.ts';
 import { openAi } from '../../../src/providers/open-ai/protocol.ts';
 import { openRouter } from '../../../src/providers/openrouter/protocol.ts';
 
@@ -31,9 +31,9 @@ function sse(rows: JsonObject[]): Response {
 
 function setup(rows: JsonObject[], options: JsonObject = {}) {
   const sent: JsonObject[] = [];
-  const send: typeof fetch = async (_input, init) => {
+  const send: typeof fetch = (_input, init) => {
     sent.push(JSON.parse(String(init?.body)) as JsonObject);
-    return sse(rows);
+    return Promise.resolve(sse(rows));
   };
   const registry = createProviderRegistry();
   registry.register(router, { keySlot: 'main' });
@@ -78,7 +78,7 @@ const request = {
     },
     { role: 'tool', tool_call_id: 'c1', name: 'weather', content: 'Sunny.' },
   ],
-} as unknown as TurnRequest;
+} as unknown as ProtocolRequest;
 
 async function collect(events: AsyncIterable<ProtocolEvent>): Promise<ProtocolEvent[]> {
   const out: ProtocolEvent[] = [];
@@ -160,12 +160,56 @@ Deno.test('openRouter sends speech as openAi does', async () => {
     ),
     profileType: 'speech',
     vault: { main: 'k-main' },
-    fetch: async (_input, init) => {
+    fetch: (_input, init) => {
       sent.push(JSON.parse(String(init?.body)) as JsonObject);
-      return new Response(new Uint8Array([1]), { headers: { 'content-type': 'audio/mpeg' } });
+      return Promise.resolve(
+        new Response(new Uint8Array([1]), { headers: { 'content-type': 'audio/mpeg' } }),
+      );
     },
     wait: async () => {},
   });
-  await collect(call.complete({ ...request, history: [] } as unknown as TurnRequest));
+  await collect(call.complete({ ...request, history: [] } as unknown as ProtocolRequest));
   assertEquals(sent[0], { model: 'tts-1', input: 'And tomorrow?' });
+});
+
+Deno.test('a quota refusal backs off on the primary key before the fallback slot, taping every try with its slot', async () => {
+  const seen: (string | null)[] = [];
+  const taped: unknown[] = [];
+  const waits: number[] = [];
+  const registry = createProviderRegistry();
+  const provider = registry.register(router, { keySlot: 'main', fallbackKeySlot: 'spare' });
+  const call = callProtocol({
+    provider,
+    binding: checkBinding(
+      provider,
+      { protocol: 'openRouter', provider: 'router', apiId: 'm-1' },
+      'text',
+    ),
+    profileType: 'text',
+    vault: { main: 'main-key', spare: 'spare-key' },
+    wait: (ms) => {
+      waits.push(ms);
+      return Promise.resolve();
+    },
+    tapUpstream: (row) => {
+      if (row.eventType === 'http_request') taped.push(row.keySlot);
+    },
+    fetch: (_input, init) => {
+      const auth = new Headers(init?.headers).get('authorization');
+      seen.push(auth);
+      return Promise.resolve(
+        auth === 'Bearer main-key'
+          ? new Response('{}', { status: 429 })
+          : sse([{ choices: [{ delta: { content: 'Rain.' }, finish_reason: 'stop' }] }]),
+      );
+    },
+  });
+  const events = await collect(call.complete(request));
+  assertEquals(
+    events.map((event) => event.type),
+    ['text', 'done'],
+  );
+  assertEquals(seen, ['Bearer main-key', 'Bearer main-key', 'Bearer main-key', 'Bearer spare-key']);
+  assertEquals(taped, ['main', 'main', 'main', 'spare']);
+  assertEquals(waits, [1000, 2000]);
 });

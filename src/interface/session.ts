@@ -1,6 +1,7 @@
 import { isAwaitingUserInput } from '../kernel/stages.ts';
 import type { ToolGateAuth } from '../kernel/tools/gate-answer.ts';
 import type { ToolGate, TurnToolSnapshot } from '../kernel/tools/types.ts';
+import type { ReasoningPart } from '../kernel/turn-events.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { findLast } from '../kernel/util/find-last.ts';
 import { historyFromTranscriptBlocks } from './history.ts';
@@ -16,8 +17,8 @@ export type GatedToolContext = {
   name: string;
   callId: string;
   arguments: Record<string, unknown>;
-  /** The call's `ToolCallRequest.thoughtSignature`, for recording the call in history. */
-  thoughtSignature?: string;
+  /** The call's `ToolCallRequest.reasoning`, for recording the call in history. */
+  reasoning?: ReasoningPart[];
   gateKind: ToolGate['kind'];
   permission?: ToolGate['permission'];
   summary?: string;
@@ -38,7 +39,7 @@ export type AwaitingToolContext = {
 /** The state a client keeps between turns: portable history, native checkpoint and permissions. */
 export type InterfaceTurnSession = {
   history: TurnHistoryMessage[];
-  providerState?: import('../kernel/provider-contract.ts').ProviderCheckpoint;
+  providerState?: import('../kernel/checkpoint.ts').ProviderCheckpoint;
   sessionPermissions: string[];
   /** Last turn `tokens.input` for compaction meter `timing: 'before'`. */
   inputTokens?: number;
@@ -93,7 +94,7 @@ function gatedToolsFromEvents(events: readonly TurnEvent[]): GatedToolContext[] 
         callId: call.callId,
         ...(call.operationId ? { operationId: call.operationId } : {}),
         arguments: gate.preparedArguments ?? call.arguments,
-        ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
+        ...(call.reasoning ? { reasoning: call.reasoning } : {}),
         gateKind: gate.kind,
         permission: gate.permission,
         summary: gate.summary,

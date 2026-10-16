@@ -20,7 +20,7 @@ import {
   DETECTORS,
   recordOf,
 } from '@theoremjs/agents/guardrails';
-import { declaredSupportSchema, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
+import { type JsonObject, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
 import {
   CONTEXT_SENDERS,
   type ContextSender,
@@ -44,7 +44,12 @@ import {
   type ToolSpecDraft,
 } from './draft.ts';
 import { canonical } from './canonical.ts';
-import { adapterOfFactory, declaresSupport, type StudioProvider, SUPPORT_KEYS, toldSupport } from './providers.ts';
+import {
+  definitionFactory,
+  definitionOfFactory,
+  kernelDefinitions,
+  type StudioProvider,
+} from './providers.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
@@ -201,7 +206,7 @@ interface ParsedModule {
   tools: Record<string, unknown>[];
   structured?: { id: string; spec: Record<string, unknown> };
   profile?: Record<string, unknown>;
-  provider?: Record<string, unknown>;
+  provider?: { definition: string; spec: Record<string, unknown> };
   questions?: Record<string, unknown>;
   spans: StudioSourceSpan[];
 }
@@ -397,16 +402,12 @@ function namedCall(
   src: Src,
   spans: readonly StudioSourceSpan[],
 ): unknown {
-  const adapter = adapterOfFactory(callee);
-  if (adapter && args.length === 0) return { kind: 'adapter', id: adapter };
-  // An adapter told what its models take is called with that and nothing else.
-  const [told] = args;
-  if (adapter && args.length === 1 && isRecord(told) && Object.keys(told).every((key) => SUPPORT_KEYS.has(key))) {
-    return { kind: 'adapter', id: adapter, support: told };
-  }
   if (src.of === 'provider') {
-    if (callee !== 'defineProvider') return src.fail(`'${callee}' isn't part of a provider's file.`);
-    return { kind: 'provider', spec: objectArg(args, src, 'defineProvider() needs the provider object.') };
+    if (callee !== 'registerProvider') return src.fail(`'${callee}' isn't part of a provider's code.`);
+    const [definition, spec = {}] = args;
+    if (typeof definition !== 'string') src.fail('registerProvider() needs the definition it registers from.');
+    if (!isRecord(spec) || args.length > 2) src.fail('registerProvider() takes the definition and its settings.');
+    return { kind: 'provider', definition, spec };
   }
   if (callee === 'compileDetect') {
     return objectArg(args, src, 'compileDetect() needs the detect object.');
@@ -546,11 +547,8 @@ function readConst(src: Src, parsed: ParsedModule): void {
   const value = parseExpr(src, '', parsed.spans);
   if (src.eat('satisfies') || src.eat('as')) skipTypeClause(src);
   src.eat(';');
-  if (isRecord(value) && value.kind === 'provider' && isRecord(value.spec)) {
-    if (parsed.provider) src.fail('This file defines two providers.');
-    parsed.provider = value.spec;
-  } else if (src.of === 'provider') {
-    src.fail("A provider's file holds only its defineProvider().");
+  if (src.of === 'provider') {
+    src.fail("A provider's code is its registerProvider() call and nothing else.");
   } else if (name === 'profile') {
     if (!isRecord(value)) src.fail('profile has to be the defineProfile() object.');
     if (parsed.profile) src.fail('This file defines two profiles.');
@@ -565,6 +563,11 @@ function readCall(src: Src, parsed: ParsedModule): void {
   const value = parseExpr(src, '', parsed.spans);
   src.eat(';');
   if (!isRecord(value)) return;
+  if (value.kind === 'provider' && typeof value.definition === 'string' && isRecord(value.spec)) {
+    if (parsed.provider) src.fail('This code registers two providers.');
+    parsed.provider = { definition: value.definition, spec: value.spec };
+    return;
+  }
   if (value.kind === 'registerTool') {
     const tool = value.tool;
     if (!isRecord(tool)) src.fail('registerTool() needs the tool object.');
@@ -593,7 +596,7 @@ function parseModule(text: string, of: Src['of'] = 'profile'): ParsedModule {
     else readCall(src, parsed);
   }
   if (of === 'provider') {
-    if (!parsed.provider) src.fail('This file needs defineProvider().');
+    if (!parsed.provider) src.fail('This code needs registerProvider().');
   } else if (!parsed.profile) src.fail('This file needs defineProfile().');
   return parsed;
 }
@@ -810,16 +813,16 @@ function bindingOf(
         level: level as ModelBindingDraft['efforts'][number]['level'],
       }))
     : [];
-  const options = record(spec.providerOptions) ?? {};
-  const cache = isRecord(options.cache) ? options.cache : undefined;
   const compaction = isRecord(spec.compaction) ? spec.compaction : undefined;
   const compactWith = text(compaction?.profile);
   const timeout = whole(spec.timeoutMs);
   return {
     ...base,
     modelId,
-    provider: text(spec.provider, base.provider) as ModelBindingDraft['provider'],
+    protocol: text(spec.protocol, base.protocol),
+    provider: text(spec.provider, base.provider),
     apiId: text(spec.apiId),
+    options: (record(spec.options) ?? {}) as JsonObject,
     timeoutMs: timeout,
     efforts,
     defaultEffort: text(spec.defaultEffort),
@@ -830,13 +833,8 @@ function bindingOf(
     builtInTools: Array.isArray(spec.builtInTools)
       ? spec.builtInTools.filter((tool): tool is string => typeof tool === 'string')
       : [],
-    store: typeof options.store === 'boolean' ? options.store : null,
-    persistViaInteractionId: options.persistViaInteractionId === true,
     keySlot: text(spec.keySlot),
     fallbackKeySlot: text(spec.fallbackKeySlot),
-    cacheMode: text(cache?.mode) as ModelBindingDraft['cacheMode'],
-    cacheTtl: text(cache?.ttl) as ModelBindingDraft['cacheTtl'],
-    server: text(options.server),
     compactTiming: text(compaction?.timing) as ModelBindingDraft['compactTiming'],
     compactMaxTokens: whole(compaction?.maxTokens),
     compactAt: typeof compaction?.compactAt === 'number' ? compaction.compactAt : undefined,
@@ -1082,10 +1080,6 @@ function identityOf(
 
 function modelsOf(profile: Record<string, unknown>): StudioDraft['models'] {
   return {
-    ...(isRecord(profile.providerContinuation) &&
-    profile.providerContinuation.onMismatch === 'error'
-      ? { providerStateMismatch: 'error' as const }
-      : {}),
     ...(isRecord(profile.providerContinuation) &&
     (profile.providerContinuation.history === 'provider' ||
       profile.providerContinuation.history === 'stateless')
@@ -1366,25 +1360,29 @@ function failAt(spans: readonly StudioSourceSpan[], path: string, message: strin
   throw new ReadFail(message, at.line, at.column);
 }
 
-const PROVIDER_SETTINGS = new Set(['id', 'connection', 'keySlot', 'fallbackKeySlot', 'adapter']);
+const PROVIDER_SETTINGS = new Set(['id', 'connection', 'keySlot', 'fallbackKeySlot']);
 
-function providerFrom(spec: Record<string, unknown>, current: StudioProvider, spans: readonly StudioSourceSpan[]): StudioProvider {
+function providerFrom(
+  written: { definition: string; spec: Record<string, unknown> },
+  current: StudioProvider,
+  spans: readonly StudioSourceSpan[],
+): StudioProvider {
+  const { spec } = written;
   for (const key of Object.keys(spec)) {
     if (!PROVIDER_SETTINGS.has(key)) failAt(spans, key, `'${key}' isn't a provider setting the studio holds.`);
   }
   if (spec.id !== current.id) {
     failAt(spans, 'id', `The id stays '${current.id}': models and code name the provider by it.`);
   }
-  const { adapter, told } = adapterFrom(spec.adapter, spans);
-  const held = connectionFrom(spec.connection, spans);
-  // An empty connection is what the file has to say for one that opened with none.
+  const definition = definitionOfFactory(written.definition);
+  if (!definition) {
+    const named = kernelDefinitions().flatMap((id) => definitionFactory(id) ?? []).join(', ');
+    failAt(spans, '', `'${written.definition}' isn't one of the kernel's providers: ${named}.`);
+  }
+  const held = spec.connection === undefined ? {} : connectionFrom(spec.connection, spans);
+  // An empty connection is what the code has to say for one that opened with none.
   const empty = Object.keys(held).length === 0 && current.connection === undefined;
-  const provider: StudioProvider = {
-    id: current.id,
-    adapter,
-    ...(empty ? {} : { connection: held }),
-    ...(told ? { support: told } : {}),
-  };
+  const provider: StudioProvider = { id: current.id, definition, ...(empty ? {} : { connection: held }) };
   for (const slot of ['keySlot', 'fallbackKeySlot'] as const) {
     const value = spec[slot];
     if (value === undefined) continue;
@@ -1392,24 +1390,6 @@ function providerFrom(spec: Record<string, unknown>, current: StudioProvider, sp
     provider[slot] = value;
   }
   return provider;
-}
-
-/** The kernel adapter a provider's file calls, and what it tells that adapter each model takes. */
-function adapterFrom(written: unknown, spans: readonly StudioSourceSpan[]) {
-  const adapter = isRecord(written) && written.kind === 'adapter' ? written.id : undefined;
-  if (typeof adapter !== 'string') {
-    failAt(spans, 'adapter', 'adapter is one of the kernel adapters, called with nothing or with what its models take.');
-  }
-  const given = isRecord(written) ? written.support : undefined;
-  if (given !== undefined && !declaresSupport(adapter)) {
-    failAt(spans, 'adapter', `The ${adapter} adapter knows what each model takes: it is called with nothing.`);
-  }
-  const parsed = given === undefined ? undefined : declaredSupportSchema.safeParse(given);
-  if (parsed && !parsed.success) {
-    const [issue] = parsed.error.issues;
-    failAt(spans, 'adapter', `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'not what an adapter is told.'}`);
-  }
-  return { adapter, told: toldSupport(adapter, parsed?.data) };
 }
 
 /** A provider's connection: text settings, by name. */
@@ -1428,7 +1408,8 @@ function connectionFrom(connection: unknown, spans: readonly StudioSourceSpan[])
 export function readProviderSource(source: string, current: StudioProvider): ProviderSourceRead {
   try {
     const parsed = parseModule(source, 'provider');
-    return { ok: true, provider: providerFrom(parsed.provider ?? {}, current, parsed.spans), spans: parsed.spans };
+    if (!parsed.provider) throw new ReadFail('This code needs registerProvider().', 1, 1);
+    return { ok: true, provider: providerFrom(parsed.provider, current, parsed.spans), spans: parsed.spans };
   } catch (error) {
     if (error instanceof ReadFail) {
       return { ok: false, errors: [{ message: error.message, line: error.line, column: error.column }] };

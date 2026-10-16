@@ -15,7 +15,7 @@ function profile(id = 'decision-handler-test'): DecisionProfileDefinition {
     id,
     identity: { handle: 'triage' },
     models: {
-      jev: { provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
     },
     inputs: { state: 'json', maxStateBytes: 200 },
     decision: { contract: 'test.v1' },
@@ -52,7 +52,7 @@ function jev(status = 200, body: unknown = jevReply) {
   const calls: unknown[] = [];
   const fetch: typeof globalThis.fetch = (_url, init) => {
     calls.push(JSON.parse(String(init?.body)));
-    return Promise.resolve(new Response(JSON.stringify(body), { status }));
+    return Promise.resolve(Response.json(body, { status }));
   };
   return { calls, fetch };
 }

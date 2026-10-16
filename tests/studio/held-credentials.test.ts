@@ -214,8 +214,8 @@ Deno.test("Save writes an edit beside a masked credential with the file's own va
 
 Deno.test('a provider connection is told with its credentials masked, and only what is text', () => {
   assertEquals(
-    shownConnection({ baseURL: 'https://user:secret@models.example/v1?api_key=abc', retries: 3 }),
-    { baseURL: `https://${MASK}:${MASK}@models.example/v1?api_key=${MASK}` },
+    shownConnection({ baseUrl: 'https://user:secret@models.example/v1?api_key=abc', retries: 3 }),
+    { baseUrl: `https://${MASK}:${MASK}@models.example/v1?api_key=${MASK}` },
   );
   assertEquals(shownConnection({ siteName: 'Desk' }), { siteName: 'Desk' });
 });
@@ -244,7 +244,7 @@ Deno.test('a provider the builder changed is a Save subject over what its defini
       after: { ...settings, keySlot: 'team' },
     },
   ]);
-  assertEquals(['id' in settings, settings.adapter], [false, provider.adapter]);
+  assertEquals(['id' in settings, settings.definition], [false, provider.definition]);
   // Every definition holds a connection: one left out and one emptied are the same, and no change.
   const { connection: _, ...unconnected } = provider;
   assertEquals(providerSettings(unconnected).connection, {});
@@ -260,7 +260,7 @@ Deno.test('a provider the builder changed is a Save subject over what its defini
   const masked = saveSubjects(
     withProvider(workspace, {
       ...provider,
-      adapter: 'openrouter',
+      definition: 'openrouter',
       connection: { siteUrl: `https://${MASK}@house.example` },
     }),
     names,

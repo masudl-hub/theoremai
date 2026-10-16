@@ -4,12 +4,12 @@ import { assertEquals } from '@std/assert';
 import { createCliTraceCapture, printTraceRecord } from '../../src/cli/event-log.ts';
 import { forClient } from '../../src/host/client-turn.ts';
 
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 
 Deno.test('createCliTraceCapture records turns and supports jsonl mirror', async () => {
   const dir = await Deno.makeTempDir();
   const capture = createCliTraceCapture(dir);
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield { type: 'text', text: 'ok' };
       yield { type: 'done', stop: { kind: 'completed' } };

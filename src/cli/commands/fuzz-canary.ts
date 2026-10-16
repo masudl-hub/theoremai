@@ -25,7 +25,9 @@ import { scanTextOf } from '../../guardrails/serialize.ts';
 import {
   clearProfiles,
   getProfile,
+  getProvider,
   registerProfile,
+  registerProvider,
   resolveTurn,
 } from '../../kernel/default-scope.ts';
 import {
@@ -36,7 +38,8 @@ import {
 import { providerCompleteRequest } from '../../kernel/registry/provider-request.ts';
 import { defaultKernelScope } from '../../kernel/scope.ts';
 import { shownToolArguments } from '../../kernel/tools/execute.ts';
-import type { ProviderEvent, ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
+import type { ModelEvent, ResolvedGeneration, TurnEvent } from '../../kernel/types.ts';
+import { openRouterProvider } from '../../providers/openrouter/provider.ts';
 
 const FUZZ_PROFILE_ID = '__fuzz_canary__';
 
@@ -50,12 +53,14 @@ export interface ChannelResult {
 }
 
 function registerFuzzCanaryProfile(): void {
+  if (!getProvider('openrouter')) registerProvider(openRouterProvider);
   registerProfile({
     type: 'text',
     id: FUZZ_PROFILE_ID,
     identity: { handle: 'fuzz-canary', system: 'Canary fuzz profile.' },
     models: {
       'fuzz-model': {
+        protocol: 'openRouter',
         provider: 'openrouter',
         apiId: 'fuzz-model',
         keySlot: 'fuzz',
@@ -81,7 +86,7 @@ function resolveFuzzGeneration(canary: string): ResolvedGeneration {
 }
 
 /** The model's tool call as a host is shown it: its arguments as the tool gets them. */
-function callShown<E extends ProviderEvent>(event: E, canary: string): E {
+function callShown<E extends ModelEvent>(event: E, canary: string): E {
   if (event.type !== 'tool' || event.tool.phase !== undefined) return event;
   const shown = shownToolArguments({
     tools: defaultKernelScope.tools,
@@ -94,7 +99,7 @@ function callShown<E extends ProviderEvent>(event: E, canary: string): E {
 }
 
 /** The structured output as the read of the whole reply leaves it; none when that read stops it. */
-function structuredShown<E extends ProviderEvent>(event: E, canary: string): E[] {
+function structuredShown<E extends ModelEvent>(event: E, canary: string): E[] {
   if (event.type !== 'structured') return [event];
   const policy = resolveGuardrailPolicy(getProfile(FUZZ_PROFILE_ID).guardrails);
   const read = readReply({ text: '', structured: event.structured }, policy.detect, {
@@ -110,7 +115,7 @@ function structuredShown<E extends ProviderEvent>(event: E, canary: string): E[]
  * whole reply and never reach the client. A tool call and a structured output
  * are read at their own boundaries.
  */
-async function reachingClient<E extends ProviderEvent>(
+async function reachingClient<E extends ModelEvent>(
   control: OutboundStreamControl,
   canary: string,
   gen: AsyncIterable<E>,
@@ -169,7 +174,7 @@ function channelResult(
   };
 }
 
-async function* replay(turn: ProviderEvent[]): AsyncGenerator<ProviderEvent> {
+async function* replay(turn: ModelEvent[]): AsyncGenerator<ModelEvent> {
   await Promise.resolve();
   yield* turn;
 }
@@ -204,7 +209,9 @@ async function runStreamChannel(
       }),
     );
     // why: The runner reads the call's `done`; the client never receives it.
-    const turnEvents = streamed.flatMap((event) => (event.type === 'done' ? [] : [event]));
+    const turnEvents = streamed.flatMap((event) =>
+      event.type === 'done' || event.type === 'reasoning' ? [] : [event],
+    );
     events.push(...turnEvents);
     if (control.withholdVisible || turnEvents.some((event) => event.type === 'error')) {
       return channelResult(attack, 'runTurn.stream', true, events);

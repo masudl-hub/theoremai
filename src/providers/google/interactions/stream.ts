@@ -1,23 +1,13 @@
-import { isAbortError, TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
+import { TheoremError, toErrorEvent } from '../../../guardrails/error.ts';
 import { asRecord } from '../../../kernel/engine/record.ts';
-import type {
-  ModelProvider,
-  ProviderCompleteRequest,
-  ProviderEvent,
-  TurnEventOf,
-  TurnResponse,
-} from '../../../kernel/types.ts';
+import type { ModelEvent, ModelRequest, TurnEventOf, TurnResponse } from '../../../kernel/types.ts';
 import { pcmMediaAsWav } from '../../shared/pcm.ts';
 import { foldResponse } from '../../shared/response-identity.ts';
-import { readSseChunks } from '../../shared/sse.ts';
 import { structuredEvent } from '../../shared/structured-output.ts';
 import { toolCallEvents } from '../../shared/tool-args.ts';
 import { toolDraftEvents } from '../../shared/tool-draft.ts';
-import { readGeminiApiError, readNonOkError } from '../api-error.ts';
+import { readGeminiApiError } from '../api-error.ts';
 import { groundingFromDelta } from '../grounding.ts';
-import { fetchGemini, type GeminiTransport } from '../keys.ts';
-import { INTERACTIONS_JSON_URL, INTERACTIONS_URL } from '../urls.ts';
-import { toInteractionsBody } from './framing.ts';
 import {
   codeExecutionEvidence,
   eventsFromDelta,
@@ -29,8 +19,6 @@ import {
   isGoogleBuiltinStepType,
   rawStepEvidence,
 } from './steps.ts';
-
-const HTTP_OK = 200;
 
 /*probed 2026-09-23:
  * One step, two deliveries (probes 23/09/2026, gemini-3.8-flash and
@@ -64,10 +52,12 @@ export interface StreamFold {
   response?: TurnResponse;
   /** The signature of the last thought, until the `function_call` that follows it takes it. */
   thoughtSignature?: string;
+  /** Function calls read so far: a signature names its call by this position. */
+  calls: number;
 }
 
 export function newStreamFold(): StreamFold {
-  return { text: '', steps: new Map(), sawMedia: false, sawDone: false };
+  return { text: '', steps: new Map(), sawMedia: false, sawDone: false, calls: 0 };
 }
 
 function isMergedStepType(type: string): boolean {
@@ -100,13 +90,25 @@ function takeThoughtSignature(step: Record<string, unknown>, fold: StreamFold): 
   return signature;
 }
 
-export function eventsFromStep(step: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
+export function eventsFromStep(step: Record<string, unknown>, fold: StreamFold): ModelEvent[] {
   const type = String(step.type ?? '');
   if (type === 'function_call') {
     const id = typeof step.id === 'string' ? step.id : undefined;
     const name = typeof step.name === 'string' ? step.name : '';
-    const thoughtSignature = takeThoughtSignature(step, fold);
-    return toolCallEvents({ id, name, thoughtSignature }, step.arguments);
+    const signature = takeThoughtSignature(step, fold);
+    const call = fold.calls++;
+    return [
+      ...(signature
+        ? [
+            {
+              type: 'reasoning' as const,
+              data: { call, signature },
+              origin: { protocol: 'geminiInteractions' },
+            },
+          ]
+        : []),
+      ...toolCallEvents({ id, name }, step.arguments),
+    ];
   }
   if (isCodeExecutionType(type)) {
     return [codeExecutionEvidence(step)];
@@ -140,7 +142,7 @@ function foldStepStart(payload: Record<string, unknown>, fold: StreamFold): void
   }
 }
 
-function foldStepDelta(payload: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
+function foldStepDelta(payload: Record<string, unknown>, fold: StreamFold): ModelEvent[] {
   const delta = asRecord(payload.delta);
   if (!delta) {
     return [];
@@ -170,7 +172,7 @@ function foldStepDelta(payload: Record<string, unknown>, fold: StreamFold): Prov
   return [];
 }
 
-function foldStepStop(payload: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
+function foldStepStop(payload: Record<string, unknown>, fold: StreamFold): ModelEvent[] {
   const index = stepIndex(payload);
   const step = fold.steps.get(index);
   if (!step) {
@@ -187,13 +189,13 @@ function partialStepEvidence(step: Record<string, unknown>): TurnEventOf<'eviden
   return { ...event, evidence: { ...event.evidence, partial: true } };
 }
 
-export function openStepEvents(fold: StreamFold): ProviderEvent[] {
+export function openStepEvents(fold: StreamFold): ModelEvent[] {
   const events = [...fold.steps.values()].map(partialStepEvidence);
   fold.steps.clear();
   return events;
 }
 
-function delivered(events: ProviderEvent[], fold: StreamFold): ProviderEvent[] {
+function delivered(events: ModelEvent[], fold: StreamFold): ModelEvent[] {
   return events.map((ev) => {
     if (ev.type === 'done') {
       fold.sawDone = true;
@@ -209,7 +211,7 @@ function delivered(events: ProviderEvent[], fold: StreamFold): ProviderEvent[] {
   });
 }
 
-function eventsFromStreamRow(payload: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
+function eventsFromStreamRow(payload: Record<string, unknown>, fold: StreamFold): ModelEvent[] {
   if (payload.eventType === 'sse_unparsed') {
     // why: Every observed Interactions row is a JSON object; anything else is a wire change.
     return [
@@ -249,17 +251,17 @@ function eventsFromStreamRow(payload: Record<string, unknown>, fold: StreamFold)
   return events;
 }
 
-function identityEvents(interaction: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
+function identityEvents(interaction: Record<string, unknown>, fold: StreamFold): ModelEvent[] {
   const identity = foldResponse(fold.response, interactionResponse(interaction));
   fold.response = identity.known;
   return identity.event ? [identity.event] : [];
 }
 
-export function foldPayload(payload: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
+export function foldPayload(payload: Record<string, unknown>, fold: StreamFold): ModelEvent[] {
   return delivered(eventsFromStreamRow(payload, fold), fold);
 }
 
-export function foldBody(body: Record<string, unknown>, fold: StreamFold): ProviderEvent[] {
+export function foldBody(body: Record<string, unknown>, fold: StreamFold): ModelEvent[] {
   const steps = Array.isArray(body.steps) ? body.steps : [];
   const fromSteps = steps.flatMap((value) => {
     const step = asRecord(value);
@@ -271,25 +273,19 @@ export function foldBody(body: Record<string, unknown>, fold: StreamFold): Provi
   );
 }
 
-export function* finalizeStructured(
-  req: ProviderCompleteRequest,
-  fold: StreamFold,
-): Generator<ProviderEvent> {
+export function* finalizeStructured(req: ModelRequest, fold: StreamFold): Generator<ModelEvent> {
   if (!req.structured || !fold.text) {
     return;
   }
   yield structuredEvent(fold.text);
 }
 
-export function isVoiceProfile(req: ProviderCompleteRequest): boolean {
+function isVoiceProfile(req: ModelRequest): boolean {
   return Boolean(req.speech?.voice);
 }
 
 /** What the profile asked for and the model did not return; even an empty turn fails. */
-export function missingMediaError(
-  req: ProviderCompleteRequest,
-  fold: StreamFold,
-): ProviderEvent | undefined {
+export function missingMediaError(req: ModelRequest, fold: StreamFold): ModelEvent | undefined {
   if (fold.sawMedia) return undefined;
   if (isVoiceProfile(req)) {
     return toErrorEvent(
@@ -302,112 +298,4 @@ export function missingMediaError(
     );
   }
   return undefined;
-}
-
-async function* parseInteractionsSse(
-  response: Response,
-  req: ProviderCompleteRequest,
-): AsyncGenerator<ProviderEvent> {
-  if (!response.body) {
-    yield toErrorEvent(new TheoremError('bad_response', 'empty response body'));
-    return;
-  }
-  const fold = newStreamFold();
-  let terminal: Extract<ProviderEvent, { type: 'done' }> | undefined;
-  for await (const row of readSseChunks(response.body)) {
-    req.tapUpstream?.(row);
-    if (row.eventType === 'sse_done') {
-      break;
-    }
-    const events = foldPayload(row, fold);
-    for (const event of events) {
-      if (event.type === 'done') terminal = event;
-      else yield event;
-    }
-    if (events.some((ev) => ev.type === 'error')) {
-      yield* openStepEvents(fold);
-      return;
-    }
-  }
-  yield* openStepEvents(fold);
-  yield* finalizeStructured(req, fold);
-  const missing = missingMediaError(req, fold);
-  if (missing) yield missing;
-  yield terminal ?? { type: 'done', stop: { kind: 'stream_incomplete' } };
-}
-
-async function postInteractions(
-  url: string,
-  req: ProviderCompleteRequest,
-  transport: GeminiTransport,
-): Promise<Response> {
-  if (!req.keySlot) {
-    throw new TheoremError('config', 'Request requires keySlot');
-  }
-  const init: RequestInit = {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(toInteractionsBody(req)),
-    signal: req.signal,
-  };
-  const response = await fetchGemini(
-    url,
-    init,
-    req.keySlot,
-    transport,
-    req.tapUpstream,
-    req.fallbackKeySlot,
-  );
-  if (response.status !== HTTP_OK) {
-    throw await readNonOkError(response);
-  }
-  return response;
-}
-
-async function* fetchInteractionsOnce(
-  req: ProviderCompleteRequest,
-  transport: GeminiTransport,
-): AsyncGenerator<ProviderEvent> {
-  const response = await postInteractions(INTERACTIONS_JSON_URL, req, transport);
-  const text = await response.text();
-  const parsed = JSON.parse(text) as Record<string, unknown>;
-  const apiError = readGeminiApiError(parsed);
-  if (apiError) {
-    throw apiError;
-  }
-  req.tapUpstream?.(parsed);
-  const fold = newStreamFold();
-  const events = foldBody(parsed, fold);
-  yield* events.filter((event) => event.type !== 'done');
-  yield* finalizeStructured(req, fold);
-  const missing = missingMediaError(req, fold);
-  if (missing) yield missing;
-  yield* events.filter((event) => event.type === 'done');
-}
-
-async function* streamInteractions(
-  req: ProviderCompleteRequest,
-  transport: GeminiTransport,
-): AsyncGenerator<ProviderEvent> {
-  const response = await postInteractions(INTERACTIONS_URL, req, transport);
-  yield* parseInteractionsSse(response, req);
-}
-
-export function createInteractionsProvider(transport: GeminiTransport): ModelProvider {
-  return {
-    async *complete(req: ProviderCompleteRequest): AsyncGenerator<ProviderEvent> {
-      try {
-        if (req.stream === false) {
-          yield* fetchInteractionsOnce(req, transport);
-        } else {
-          yield* streamInteractions(req, transport);
-        }
-      } catch (err) {
-        if (isAbortError(err)) {
-          throw err;
-        }
-        yield toErrorEvent(err);
-      }
-    },
-  };
 }

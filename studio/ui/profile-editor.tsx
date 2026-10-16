@@ -45,10 +45,10 @@ import {
 	IconBulbOff,
 	IconCertificate,
 	IconChartBar,
+	IconCheck,
 	IconChevronRight,
 	IconCircleDashed,
 	IconDatabase,
-	IconDatabaseOff,
 	IconDeviceDesktop,
 	IconEraser,
 	IconEye,
@@ -72,7 +72,6 @@ import {
 	IconInputAi,
 	IconKey,
 	IconLayersUnion,
-	IconLink,
 	IconListCheck,
 	IconLockOpen,
 	IconMessage,
@@ -170,7 +169,7 @@ import {
 	includableFacets,
 	includeFacet,
 	inputLimitsRequired,
-	adapterOf,
+	definitionOf,
 	isGoogleRoute,
 	isOpenRouterRoute,
 	type LentKeys,
@@ -179,7 +178,12 @@ import {
 	modelRoute,
 	onStudioLocal,
 	servesProfileType,
-	kernelAdapters,
+	kernelDefinitions,
+	optionAt,
+	type ProtocolOptionField,
+	protocolOptionFields,
+	servedProtocols,
+	withOption,
 	bindingSlots,
 	type StudioProvider,
 	modelSlots,
@@ -273,7 +277,6 @@ import {
 	type WorkspaceAgent,
 	WorkspaceContext,
 } from './inspector-context.ts';
-import { ModelSupportSection } from './support-rows.tsx';
 import { PROFILE_TYPE_ICON, TOOL_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { AddProviderButton } from './add-provider.tsx';
 import { useProject } from './lib/studio-project.ts';
@@ -301,6 +304,7 @@ const PROFILE_TYPE_SEGMENTS: Segment<StudioProfileType>[] = [
 	{ value: 'speech', label: 'Speech', icon: PROFILE_TYPE_ICON.speech },
 	{ value: 'live', label: 'Live', icon: PROFILE_TYPE_ICON.live },
 	{ value: 'decision', label: 'Decision', icon: PROFILE_TYPE_ICON.decision },
+	{ value: 'embedding', label: 'Embedding', icon: PROFILE_TYPE_ICON.embedding },
 	{ value: 'host', label: 'Host', icon: PROFILE_TYPE_ICON.host },
 ];
 
@@ -312,17 +316,17 @@ const HISTORY_HOLDER_SEGMENTS: Segment<'host' | 'stateless' | 'provider'>[] = [
 
 /** How the studio's own providers are named. A project's provider is named by its id. */
 const PROVIDER_LABEL: Record<string, string> = {
-	google: 'Google',
+	gemini: 'Gemini',
 	openrouter: 'OpenRouter',
 	[LOCAL_PROVIDER_ID]: 'Local',
 	typesafe: 'TypeSafe',
 };
 
-/** The mark of the service an adapter talks to. */
-const ADAPTER_ICON: Record<string, Segment<string>['icon']> = {
-	google: IconGoogle,
+/** The mark of the service a kernel definition reaches. */
+const DEFINITION_ICON: Record<string, Segment<string>['icon']> = {
+	gemini: IconGoogle,
 	openrouter: IconOpenRouter,
-	'openai-chat': IconOpenAi,
+	local: IconOpenAi,
 	typesafe: IconGitBranch,
 };
 
@@ -354,19 +358,6 @@ function providerDefaultSegment(value: boolean | null): keyof typeof PROVIDER_DE
 	if (value === null) return 'default';
 	return value ? 'on' : 'off';
 }
-
-/** Gemini Interactions storage: on, off, or left to Google (`null` in the draft). */
-const STORAGE_SEGMENTS: Segment<'default' | 'on' | 'off'>[] = [
-	{ value: 'default', label: 'Provider default', icon: IconCircleDashed },
-	{ value: 'on', label: 'On', icon: IconDatabase },
-	{ value: 'off', label: 'Off', icon: IconDatabaseOff },
-];
-
-/** Gemini Interactions context: the draft's `persistViaInteractionId`, false or true. */
-const CONTEXT_SEGMENTS: Segment<'history' | 'chain'>[] = [
-	{ value: 'history', label: 'Resend history', icon: IconRefresh },
-	{ value: 'chain', label: 'Google chains', icon: IconLink },
-];
 
 const KIND_TITLE: Record<AcceptSection['kind'], string> = {
 	image: 'Image',
@@ -400,8 +391,10 @@ function useLentKeys(): LentKeys | undefined {
 }
 
 /**
- * Moves a binding to another provider. On lent keys it takes their first model there and keeps the
- * built-ins that model may use; otherwise the builder picks the model, and only Google keeps them.
+ * Moves a binding to another provider. It keeps its protocol where the new provider serves it, and
+ * that protocol's options with it; otherwise it takes the first protocol served and starts with no
+ * options. On lent keys it takes their first model there and keeps the built-ins that model may
+ * use; otherwise the builder picks the model, and only Google keeps them.
  */
 function reprovide(
 	binding: ModelBindingDraft,
@@ -409,16 +402,21 @@ function reprovide(
 	provider: StudioProvider,
 	keys: LentKeys | undefined,
 ): Partial<ModelBindingDraft> {
-	const apiId = keys?.models(type, provider.adapter)[0]?.id ?? '';
+	const served = servedProtocols(provider, type);
+	const kept = !served || served.some((protocol) => protocol.id === binding.protocol);
+	const protocol = kept ? binding.protocol : (served[0]?.id ?? binding.protocol);
+	const apiId = keys?.models(type, provider.definition)[0]?.id ?? '';
 	const allowed = new Set(
 		keys
 			? keys.builtins(apiId)
-			: isGoogleRoute(provider)
+			: isGoogleRoute({ protocol })
 				? GOOGLE_BUILTIN_TOOLS.map((tool) => tool.name)
 				: [],
 	);
 	return {
 		provider: provider.id,
+		protocol,
+		options: kept ? binding.options : {},
 		apiId,
 		builtInTools: binding.builtInTools.filter((id) => allowed.has(id)),
 	};
@@ -523,7 +521,15 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
 }
 
 /** The policy every model of the profile shares: default, switching, steps and key slots. */
-function ModelPolicySection({ draft, set }: { draft: StudioDraft; set: SetSection<'models'> }) {
+function ModelPolicySection({
+	draft,
+	type,
+	set,
+}: {
+	draft: StudioDraft;
+	type: ListedProfileType;
+	set: SetSection<'models'>;
+}) {
 	const { models } = draft;
 	return (
 		<InspectorSection title="Policy">
@@ -547,42 +553,32 @@ function ModelPolicySection({ draft, set }: { draft: StudioDraft; set: SetSectio
 					set({ allowModelSelect });
 				}}
 			/>
-			<SegmentedRow<'host' | 'stateless' | 'provider'>
-				label="Conversation history kept by"
-				path="providerContinuation.history"
-				field="providerHistory"
-				value={models.providerHistory ?? 'host'}
-				segments={HISTORY_HOLDER_SEGMENTS}
-				onChange={(providerHistory) => {
-					set({ providerHistory });
-				}}
-			/>
-			<ChoiceRow
-				label="Incompatible saved state"
-				path="providerContinuation.onMismatch"
-				field="providerStateMismatch"
-				value={models.providerStateMismatch ?? 'rebuild'}
-				isDisabled={models.providerHistory === 'stateless'}
-				options={[
-					{ value: 'rebuild', label: 'Continue from history' },
-					{ value: 'error', label: 'Stop with an error' },
-				]}
-				onChange={(value) => {
-					if (value === 'rebuild' || value === 'error') set({ providerStateMismatch: value });
-				}}
-			/>
-			<NumberRow
-				label="Max steps"
-				path="profile.maxSteps"
-				units="steps"
-				field="maxSteps"
-				value={models.maxSteps}
-				min={1}
-				isIntegerOnly
-				onChange={(maxSteps) => {
-					set({ maxSteps });
-				}}
-			/>
+			{type !== 'embedding' && (
+				<>
+					<SegmentedRow<'host' | 'stateless' | 'provider'>
+						label="Conversation history kept by"
+						path="providerContinuation.history"
+						field="providerHistory"
+						value={models.providerHistory ?? 'host'}
+						segments={HISTORY_HOLDER_SEGMENTS}
+						onChange={(providerHistory) => {
+							set({ providerHistory });
+						}}
+					/>
+					<NumberRow
+						label="Max steps"
+						path="profile.maxSteps"
+						units="steps"
+						field="maxSteps"
+						value={models.maxSteps}
+						min={1}
+						isIntegerOnly
+						onChange={(maxSteps) => {
+							set({ maxSteps });
+						}}
+					/>
+				</>
+			)}
 			<SlotRow
 				label="Key slot"
 				path="models.*.keySlot"
@@ -639,7 +635,13 @@ function ModelsEditor({
 					onClick={addModel}
 				/>
 			</InspectorSection>
-			{draft.identity.profileType !== 'decision' && <ModelPolicySection draft={draft} set={set} />}
+			{draft.identity.profileType !== 'decision' && (
+				<ModelPolicySection
+					draft={draft}
+					type={bindingProfileType(draft.identity.profileType)}
+					set={set}
+				/>
+			)}
 		</>
 	);
 }
@@ -647,11 +649,11 @@ function ModelsEditor({
 /** A decision binding's wire model: picked from the demo's list, typed outside the demo. */
 function DecisionApiModelRow({
 	binding,
-	adapter,
+	definition,
 	set,
 }: {
 	binding: ModelBindingDraft;
-	adapter: string | undefined;
+	definition: string | undefined;
 	set: SetBinding;
 }) {
 	const keys = useLentKeys();
@@ -674,7 +676,7 @@ function DecisionApiModelRow({
 			path="models.*.apiId"
 			field="apiId"
 			value={binding.apiId}
-			options={keys.models('decision', adapter).map((model) => ({
+			options={keys.models('decision', definition).map((model) => ({
 				value: model.id,
 				label: model.label,
 				description: model.id,
@@ -715,7 +717,9 @@ function DecisionModelEditor({
 				}}
 			/>
 			<ProviderRow providers={draft.providers} binding={binding} type="decision" set={set} />
-			<DecisionApiModelRow binding={binding} adapter={adapterOf(draft.providers, binding.provider)} set={set} />
+			<ProtocolRow providers={draft.providers} binding={binding} type="decision" set={set} />
+			<DecisionApiModelRow binding={binding} definition={definitionOf(draft.providers, binding.provider)} set={set} />
+			<ProtocolOptionRows providers={draft.providers} binding={binding} type="decision" set={set} />
 			<SlotRow
 				label="Key slot"
 				path="models.*.keySlot"
@@ -802,20 +806,20 @@ export function SlotRow({
  * is typed.
  */
 function ProviderModelRow({
-	adapter,
+	definition,
 	type,
 	slot,
 	value,
 	onChange,
 }: {
-	adapter: string | undefined;
+	definition: string | undefined;
 	type: ListedProfileType;
 	slot: string;
 	value: string;
 	onChange: (apiId: string) => void;
 }) {
 	const connection = useContext(LocalConnection);
-	const listed = adapter === 'google' || adapter === 'openrouter' ? adapter : undefined;
+	const listed = definition === 'gemini' || definition === 'openrouter' ? definition : undefined;
 	const models = useProviderModels(listed, type, slot ? connection?.vault[slot] : undefined);
 	if (models.status === 'idle' || models.status === 'error')
 		return (
@@ -825,7 +829,7 @@ function ProviderModelRow({
 				field="apiId"
 				value={value}
 				isRequired
-				placeholder={listed === 'google' ? 'Choose a key to list models' : 'Provider model id'}
+				placeholder={listed === 'gemini' ? 'Choose a key to list models' : 'Provider model id'}
 				status={models.status === 'error' ? { type: 'error', message: models.error } : undefined}
 				onChange={onChange}
 			/>
@@ -869,7 +873,7 @@ function providerSegment(
 	return {
 		value: provider.id,
 		label: PROVIDER_LABEL[provider.id] ?? provider.id,
-		icon: local ? IconDeviceDesktop : (ADAPTER_ICON[provider.adapter] ?? IconServer),
+		icon: local ? IconDeviceDesktop : (DEFINITION_ICON[provider.definition] ?? IconServer),
 		isDisabled: !studioRunsProvider(type, provider, local ? { mode: 'local' } : on),
 		disabledMessage:
 			on.mode === 'demo' && !local
@@ -895,12 +899,15 @@ function ProviderRow({
 	const inProject = useProject() !== null;
 	const add = useContext(WorkspaceContext)?.addProvider;
 	const serving = providers.filter(
-		(provider) => provider.id === binding.provider || servesProfileType(provider.adapter, type),
+		(provider) => provider.id === binding.provider || servesProfileType(provider, type),
 	);
-	// A new provider starts on the adapter of the one the model is on, so the model keeps its API id.
-	const now = providers.find((provider) => provider.id === binding.provider)?.adapter;
-	const serves = kernelAdapters().filter((adapter) => servesProfileType(adapter, type));
-	const adapters = now && serves.includes(now) ? [now, ...serves.filter((adapter) => adapter !== now)] : serves;
+	// A new provider starts on the definition of the one the model is on, so the model keeps its API id.
+	const now = providers.find((provider) => provider.id === binding.provider)?.definition;
+	const serves = kernelDefinitions().filter((definition) =>
+		servesProfileType({ id: definition, definition }, type),
+	);
+	const definitions =
+		now && serves.includes(now) ? [now, ...serves.filter((definition) => definition !== now)] : serves;
 	return (
 		<SegmentedRow<string>
 			label="Provider"
@@ -917,7 +924,7 @@ function ProviderRow({
 					<AddProviderButton
 						isCompact
 						taken={providers.map((provider) => provider.id)}
-						adapters={adapters}
+						definitions={definitions}
 						// The model moves to it, and its editor opens for what it connects with.
 						onAdd={(provider) => {
 							set(reprovide(binding, type, provider, keys));
@@ -1046,13 +1053,13 @@ function LocalApiModelRow({
 function LentApiModelRow({
 	binding,
 	type,
-	adapter,
+	definition,
 	keys,
 	set,
 }: {
 	binding: ModelBindingDraft;
 	type: ListedProfileType;
-	adapter: string | undefined;
+	definition: string | undefined;
 	keys: LentKeys;
 	set: SetBinding;
 }) {
@@ -1062,7 +1069,7 @@ function LentApiModelRow({
 			path="models.*.apiId"
 			field="apiId"
 			value={binding.apiId}
-			options={keys.models(type, adapter).map((model) => ({
+			options={keys.models(type, definition).map((model) => ({
 				value: model.id,
 				label: model.label,
 				description: model.id,
@@ -1090,14 +1097,14 @@ function ApiModelRow({
 	const keys = useLentKeys();
 	const localConnection = useContext(LocalConnection);
 	const inProject = useProject() !== null;
-	const { adapter } = modelRoute(draft.providers, type, binding);
+	const { definition } = modelRoute(draft.providers, type, binding);
 	if (onStudioLocal(binding.provider, inProject) && localConnection)
 		return <LocalApiModelRow binding={binding} localConnection={localConnection} set={set} />;
 	if (keys)
-		return <LentApiModelRow binding={binding} type={type} adapter={adapter} keys={keys} set={set} />;
+		return <LentApiModelRow binding={binding} type={type} definition={definition} keys={keys} set={set} />;
 	return (
 		<ProviderModelRow
-			adapter={adapter}
+			definition={definition}
 			type={type}
 			slot={bindingSlots(draft, binding).keySlot ?? ''}
 			value={binding.apiId}
@@ -1108,31 +1115,194 @@ function ApiModelRow({
 	);
 }
 
-/** A local model's remote tools switch and server. */
-function LocalServerRows({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
+/** Whether a local model may call the project's remote tools. */
+function RemoteToolsRow() {
 	const localConnection = useContext(LocalConnection);
+	if (!localConnection) return null;
 	return (
-		<>
-			{localConnection && (
-				<SwitchRow
-					label="Remote tools"
-					path="studio.remoteTools"
-					value={localConnection.remoteTools}
-					onChange={localConnection.setRemoteTools}
-				/>
-			)}
+		<SwitchRow
+			label="Remote tools"
+			path="studio.remoteTools"
+			value={localConnection.remoteTools}
+			onChange={localConnection.setRemoteTools}
+		/>
+	);
+}
+
+/**
+ * The protocol the model is spoken to in, picked from those its provider serves for this kind of
+ * agent. Shown when there is a choice, or when the model names one the provider doesn't serve; a
+ * provider from a project's own definition takes the protocol typed.
+ */
+function ProtocolRow({
+	providers,
+	binding,
+	type,
+	set,
+}: {
+	providers: readonly StudioProvider[];
+	binding: ModelBindingDraft;
+	type: ListedProfileType | 'decision';
+	set: SetBinding;
+}) {
+	const provider = providers.find((each) => each.id === binding.provider);
+	const served = provider && servedProtocols(provider, type);
+	if (!served)
+		return (
 			<TextRow
-				label="Server"
-				path="models.*.providerOptions.server"
-				field="server"
-				value={binding.server ?? ''}
-				placeholder="ollama"
-				onChange={(server) => {
-					set({ server });
+				label="Protocol"
+				path="models.*.protocol"
+				field="protocol"
+				value={binding.protocol}
+				isRequired
+				onChange={(protocol) => {
+					set({ protocol, options: {} });
 				}}
 			/>
+		);
+	if (served.length === 1 && served[0]?.id === binding.protocol) return null;
+	return (
+		<ChoiceRow
+			label="Protocol"
+			path="models.*.protocol"
+			field="protocol"
+			value={binding.protocol}
+			options={served.map((protocol) => ({
+				value: protocol.id,
+				label: protocol.name,
+				description: protocol.description,
+			}))}
+			isRequired
+			onChange={(protocol) => {
+				if (protocol !== binding.protocol) set({ protocol, options: {} });
+			}}
+		/>
+	);
+}
+
+/** The protocol's own options, a row per setting its schema describes; a provider of the project's own leaves them to code. */
+function ProtocolOptionRows({
+	providers,
+	binding,
+	type,
+	set,
+}: {
+	providers: readonly StudioProvider[];
+	binding: ModelBindingDraft;
+	type: ListedProfileType | 'decision';
+	set: SetBinding;
+}) {
+	const protocol = protocolOf(providers, binding, type);
+	if (!protocol) return null;
+	return (
+		<>
+			{protocolOptionFields(protocol).map((option) => (
+				<ProtocolOptionRow key={option.path} option={option} binding={binding} set={set} />
+			))}
 		</>
 	);
+}
+
+/** The protocol `binding` is spoken to in, where its provider is one of the kernel's own and serves it. */
+function protocolOf(
+	providers: readonly StudioProvider[],
+	binding: ModelBindingDraft,
+	type: ListedProfileType | 'decision',
+) {
+	const provider = providers.find((each) => each.id === binding.provider);
+	return provider && servedProtocols(provider, type)?.find((each) => each.id === binding.protocol);
+}
+
+/** A model's protocol options, as a section of their own, named for the protocol. */
+function ProtocolOptionsSection({
+	providers,
+	binding,
+	type,
+	set,
+}: {
+	providers: readonly StudioProvider[];
+	binding: ModelBindingDraft;
+	type: ListedProfileType;
+	set: SetBinding;
+}) {
+	const protocol = protocolOf(providers, binding, type);
+	if (!protocol || protocolOptionFields(protocol).length === 0) return null;
+	return (
+	<InspectorSection title={protocol.name} path="models.*.options">
+			<ProtocolOptionRows providers={providers} binding={binding} type={type} set={set} />
+		</InspectorSection>
+	);
+}
+
+/** A setting a boolean option takes: left to the protocol, on, or off. */
+const OPTION_SWITCH_SEGMENTS: Segment<'default' | 'on' | 'off'>[] = [
+	{ value: 'default', label: 'Protocol default', icon: IconCircleDashed },
+	{ value: 'on', label: 'On', icon: IconCheck },
+	{ value: 'off', label: 'Off', icon: IconX },
+];
+
+/** One protocol option, edited by the row its kind takes. */
+function ProtocolOptionRow({
+	option,
+	binding,
+	set,
+}: {
+	option: ProtocolOptionField;
+	binding: ModelBindingDraft;
+	set: SetBinding;
+}) {
+	const value = optionAt(binding.options, option.path);
+	const field = `options.${option.path}`;
+	const write = (next: string | number | boolean | undefined) => {
+		set({ options: withOption(binding.options, option.path, next) });
+	};
+	const common = { label: option.label, path: 'models.*.options', field, isRequired: option.required };
+	switch (option.kind) {
+		case 'boolean':
+			return (
+				<SegmentedRow<'default' | 'on' | 'off'>
+					{...common}
+					value={value === undefined ? 'default' : value ? 'on' : 'off'}
+					segments={OPTION_SWITCH_SEGMENTS}
+					onChange={(segment) => {
+						write(segment === 'default' ? undefined : segment === 'on');
+					}}
+				/>
+			);
+		case 'choice':
+			return (
+				<ChoiceRow<string>
+					{...common}
+					value={option.choiceType === 'number' && typeof value === 'number' ? String(value) : typeof value === 'string' ? value : ''}
+					options={option.choices ?? []}
+					onChange={(next) => {
+						write(next ? option.choiceType === 'number' ? Number(next) : next : undefined);
+					}}
+				/>
+			);
+		case 'number':
+			return (
+				<NumberRow
+					{...common}
+					value={typeof value === 'number' ? value : null}
+					hint={option.description}
+					onChange={(next) => {
+						write(next ?? undefined);
+					}}
+				/>
+			);
+		case 'text':
+			return (
+				<TextRow
+					{...common}
+					value={typeof value === 'string' ? value : ''}
+					hint={option.description}
+					onChange={(next) => {
+						write(next || undefined);
+					}}
+				/>
+			);
+	}
 }
 
 /** A Google model's built-ins: on lent keys, those its model may use on them. */
@@ -1184,12 +1354,13 @@ function ModelSection({
 				}}
 			/>
 			<ProviderRow providers={draft.providers} binding={binding} type={type} set={set} />
+			<ProtocolRow providers={draft.providers} binding={binding} type={type} set={set} />
 			{local ? <LocalEndpointRows /> : <KeySlotRows providers={draft.providers} binding={binding} set={set} />}
 			<ApiModelRow draft={draft} binding={binding} type={type} set={set} />
 
-			{local && <LocalServerRows binding={binding} set={set} />}
+			{local && type !== 'embedding' && <RemoteToolsRow />}
 
-			{google && <BuiltinsRow binding={binding} set={set} />}
+			{google && type !== 'embedding' && <BuiltinsRow binding={binding} set={set} />}
 		</InspectorSection>
 	);
 }
@@ -1228,40 +1399,6 @@ function GenerationSection({ binding, set }: { binding: ModelBindingDraft; set: 
 				segments={SUMMARIES_SEGMENTS}
 				onChange={(segment) => {
 					set({ summaries: PROVIDER_DEFAULT_SEGMENT[segment] });
-				}}
-			/>
-		</InspectorSection>
-	);
-}
-
-/** A Gemini Interactions model's context and Google storage. */
-function ConversationStateSection({
-	binding,
-	set,
-}: {
-	binding: ModelBindingDraft;
-	set: SetBinding;
-}) {
-	return (
-		<InspectorSection title="Conversation state">
-			<SegmentedRow
-				label="Context"
-				path="models.*.providerOptions.persistViaInteractionId"
-				field="persistViaInteractionId"
-				value={binding.persistViaInteractionId ? 'chain' : 'history'}
-				segments={CONTEXT_SEGMENTS}
-				onChange={(segment) => {
-					set({ persistViaInteractionId: segment === 'chain' });
-				}}
-			/>
-			<SegmentedRow
-				label="Google storage"
-				path="models.*.providerOptions.store"
-				field="store"
-				value={providerDefaultSegment(binding.store)}
-				segments={STORAGE_SEGMENTS}
-				onChange={(segment) => {
-					set({ store: PROVIDER_DEFAULT_SEGMENT[segment] });
 				}}
 			/>
 		</InspectorSection>
@@ -1408,21 +1545,13 @@ function ModelBindingEditor({
 	const set = (change: Partial<ModelBindingDraft>) => {
 		setDraft((current) => updateModelBinding(current, bindingKey, change));
 	};
-	const route = modelRoute(draft.providers, type, binding);
-
 	return (
 		<>
 			<ModelSection draft={draft} binding={binding} type={type} set={set} />
-			<ModelSupportSection providers={draft.providers} binding={binding} />
-			<GenerationSection binding={binding} set={set} />
-			{isGoogleRoute(route) && draft.identity.profileType !== 'live' && (
-				<ConversationStateSection binding={binding} set={set} />
-			)}
-			{isOpenRouterRoute(route) && (
-				<PromptCacheSection binding={binding} set={set} />
-			)}
+			{type !== 'embedding' && <GenerationSection binding={binding} set={set} />}
+			<ProtocolOptionsSection providers={draft.providers} binding={binding} type={type} set={set} />
 			{type === 'text' && <CompactionSection binding={binding} set={set} />}
-			<EffortsSection binding={binding} set={set} />
+			{type !== 'embedding' && <EffortsSection binding={binding} set={set} />}
 			{/* A profile runs on at least one model, so the last one stays. */}
 			{draft.modelBindings.length > 1 && (
 				<Section variant="transparent" padding={3}>
@@ -1691,38 +1820,6 @@ const SLOTS_PLACEHOLDER = `{
 
 type SetBinding = (change: Partial<ModelBindingDraft>) => void;
 
-/** Prompt caching, on OpenRouter's openAi route only. */
-function PromptCacheSection({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
-	return (
-		<InspectorSection title="Prompt cache" path="models.*.providerOptions.cache">
-			<ChoiceRow
-				label="Cache"
-				path="models.*.providerOptions.cache.mode"
-				field="cacheMode"
-				isRequired={false}
-				placeholder={fieldMeta('models.*.providerOptions.cache')?.unset}
-				value={binding.cacheMode ?? ''}
-				options={catalogChoices<CacheMode>('models.*.providerOptions.cache.mode')}
-				onChange={(cacheMode) => {
-					set({ cacheMode });
-				}}
-			/>
-			{binding.cacheMode && (
-				<ChoiceRow
-					label="Lasts"
-					path="models.*.providerOptions.cache.ttl"
-					field="cacheTtl"
-					value={binding.cacheTtl ?? ''}
-					options={catalogChoices<CacheTtl>('models.*.providerOptions.cache.ttl')}
-					onChange={(cacheTtl) => {
-						set({ cacheTtl });
-					}}
-				/>
-			)}
-		</InspectorSection>
-	);
-}
-
 /** The agents another agent can name: every one but itself, each by its id. */
 function otherAgents(
 	agents: readonly WorkspaceAgent[],
@@ -1847,8 +1944,6 @@ function CompactionSection({ binding, set }: { binding: ModelBindingDraft; set: 
 	);
 }
 
-type CacheMode = Exclude<NonNullable<ModelBindingDraft['cacheMode']>, ''>;
-type CacheTtl = Exclude<NonNullable<ModelBindingDraft['cacheTtl']>, ''>;
 type CompactionTiming = Exclude<NonNullable<ModelBindingDraft['compactTiming']>, ''>;
 type CompactionMeter = Exclude<NonNullable<ModelBindingDraft['compactMeter']>, ''>;
 

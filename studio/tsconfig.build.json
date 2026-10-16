@@ -1,5 +1,5 @@
 {
-	// why: Deno checks these files (`deno check --config deno.json`); tsc only writes the JavaScript an install runs, since Deno runs no TypeScript from `node_modules`.
+	// why: Deno checks these files (`deno check --config deno.json`); tsc only writes the JavaScript an install runs, and the declarations a setup file is checked against, since Deno runs no TypeScript from `node_modules`.
 	"compilerOptions": {
 		"target": "ES2022",
 		"module": "ESNext",
@@ -8,8 +8,9 @@
 		"rewriteRelativeImportExtensions": true,
 		"verbatimModuleSyntax": true,
 		"noCheck": true,
+		"declaration": true,
 		"rootDir": ".",
 		"outDir": "npm"
 	},
-	"files": ["server/serve.ts", "server/project.ts"]
+	"files": ["server/serve.ts", "server/project.ts", "people.ts"]
 }

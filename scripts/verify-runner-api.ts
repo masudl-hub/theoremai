@@ -4,12 +4,7 @@ import type { LabelOverrides } from '../src/guardrails/labels.ts';
 import { getProfile, registerProfile, runTurn } from '../src/kernel/default-scope.ts';
 import { loadTokenEstimator } from '../src/kernel/engine/token-estimate.ts';
 import { defineProfile, type TextProfileDefinition } from '../src/kernel/registry/profiles.ts';
-import type {
-  ModelProvider,
-  TurnEvent,
-  TurnEventOf,
-  TurnHistoryMessage,
-} from '../src/kernel/types.ts';
+import type { TurnEvent, TurnEventOf, TurnHistoryMessage, TurnModel } from '../src/kernel/types.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV } from './host-env.ts';
 import { scriptProviderOptions, scriptTurnOptions } from './provider-options.ts';
 
@@ -238,8 +233,8 @@ function makeProvider(profileId: string): import('../mod.ts').ProviderHostOption
     },
   });
 }
-function countingProvider(base: ModelProvider | import('../mod.ts').ProviderHostOptions): {
-  provider: ModelProvider | import('../mod.ts').ProviderHostOptions;
+function countingProvider(base: TurnModel | import('../mod.ts').ProviderHostOptions): {
+  provider: TurnModel | import('../mod.ts').ProviderHostOptions;
   calls: () => number;
 } {
   let n = 0;
@@ -263,7 +258,7 @@ function countingProvider(base: ModelProvider | import('../mod.ts').ProviderHost
   };
 }
 /** Real models won't reliably emit a magic marker on command, so egress repair uses this stub. */
-function markerThenCleanProvider(): ModelProvider {
+function markerThenCleanProvider(): TurnModel {
   let attempt = 0;
   return {
     async *complete() {
@@ -283,7 +278,7 @@ function markerThenCleanProvider(): ModelProvider {
 }
 async function runOnce(
   profileId: string,
-  provider: ModelProvider | import('../mod.ts').ProviderHostOptions,
+  provider: TurnModel | import('../mod.ts').ProviderHostOptions,
   input: {
     text?: string;
     history?: TurnHistoryMessage[];
@@ -304,7 +299,7 @@ async function runOnce(
 }
 async function runCounting(
   profileId: string,
-  provider: ModelProvider | import('../mod.ts').ProviderHostOptions,
+  provider: TurnModel | import('../mod.ts').ProviderHostOptions,
   input: Parameters<typeof runOnce>[2],
 ): Promise<{
   events: TurnEvent[];

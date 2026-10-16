@@ -1,6 +1,7 @@
 import { assertEquals, assertRejects } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../../src/guardrails/error.ts';
+import type { JsonObject } from '../../../src/kernel/json.ts';
 import {
   bearer,
   callProtocol,
@@ -8,7 +9,6 @@ import {
   createProviderRegistry,
   defineProvider,
 } from '../../../src/kernel/protocols/mod.ts';
-import type { JsonObject } from '../../../src/kernel/provider-contract.ts';
 import { systemOne } from '../../../src/providers/system-one/protocol.ts';
 
 const decider = defineProvider({
@@ -35,9 +35,9 @@ function decide(reply: JsonObject, apiId = 'jev-1') {
     ),
     profileType: 'decision',
     vault: { main: 'k-main' },
-    fetch: async (input, init) => {
+    fetch: (input, init) => {
       sent.push({ url: String(input), body: JSON.parse(String(init?.body)) as JsonObject });
-      return Response.json(reply);
+      return Promise.resolve(Response.json(reply));
     },
     wait: async () => {},
   });

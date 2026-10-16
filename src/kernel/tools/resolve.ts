@@ -170,7 +170,10 @@ export function resolveTurnTools(
 ): TurnToolSnapshot {
   const customAllowed = resolveAllowedCustomToolIds(tools, profile, req);
   const modelBuiltins =
-    profile.type === 'host' || profile.type === 'decision' || modelId === undefined
+    profile.type === 'host' ||
+    profile.type === 'decision' ||
+    profile.type === 'embedding' ||
+    modelId === undefined
       ? []
       : resolveModelBuiltinIds(tools, profile, req, modelId);
   const gated = [...customAllowed, ...modelBuiltins];

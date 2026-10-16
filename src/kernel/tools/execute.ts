@@ -20,7 +20,7 @@ import {
   type ToolCallEnd,
   type ToolOutcome,
 } from '../engine/tool-trace.ts';
-import { jsonObjectSchema } from '../provider-contract.ts';
+import { jsonObjectSchema } from '../json.ts';
 import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
 import type { Source } from '../turn-events.ts';
 import type { InteractionPart, Profile, ToolId, TurnEvent, TurnTokens } from '../types.ts';

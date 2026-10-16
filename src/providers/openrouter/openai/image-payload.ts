@@ -5,7 +5,7 @@ import type {
   InteractionMediaPart,
   InteractionMediaRefPart,
   InteractionPart,
-  ProviderCompleteRequest,
+  ModelRequest,
 } from '../../../kernel/types.ts';
 
 export function extractPromptText(input: InteractionPart[]): string {
@@ -90,7 +90,7 @@ export function attachImagePins(
   }
 }
 
-export function buildImagesPayload(req: ProviderCompleteRequest): Record<string, unknown> {
+export function buildImagesPayload(req: ModelRequest): Record<string, unknown> {
   if (!req.image) {
     throw new Error('buildImagesPayload requires req.image');
   }

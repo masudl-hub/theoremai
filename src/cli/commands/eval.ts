@@ -4,7 +4,7 @@ import { loadSuite, readTraceRecords } from '../../evals/suite.ts';
 import { summarizeRun } from '../../evals/summary.ts';
 import type { EvalMediaResolver, EvalPassRule } from '../../evals/types.ts';
 import type { RunDecisionOptions } from '../../kernel/engine/decision.ts';
-import type { ProviderHostOptions } from '../../kernel/provider-contract.ts';
+import type { ProviderHostOptions } from '../../kernel/protocols/runtime.ts';
 import { jsonlSink } from '../../observability/jsonl.ts';
 
 export interface EvalOptions {

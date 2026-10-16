@@ -1,33 +1,7 @@
-import { registerProvider } from '../../src/kernel/default-scope.ts';
-import { defineProvider } from '../../src/kernel/provider-contract.ts';
-import {
-  googleAdapter,
-  openAIChat,
-  openRouterAdapter,
-  typesafeAdapter,
-} from '../../src/providers/adapters.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from './provider-scope.ts';
 
-registerProvider(
-  defineProvider({ id: 'google', connection: {}, keySlot: 'slot_a', adapter: googleAdapter() }),
-);
-registerProvider(
-  defineProvider({
-    id: 'openrouter',
-    connection: {},
-    keySlot: 'slot_a',
-    adapter: openRouterAdapter(),
-  }),
-);
-registerProvider(
-  defineProvider({ id: 'typesafe', connection: {}, keySlot: 'slot_a', adapter: typesafeAdapter() }),
-);
-registerProvider(
-  defineProvider({
-    id: 'local',
-    connection: { baseURL: 'http://localhost:11434' },
-    adapter: openAIChat(),
-  }),
-);
+registerFixtureProviders(defaultKernelScope);
 
 import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
 import type { ProfileDefinition } from '../../src/kernel/registry/profiles.ts';

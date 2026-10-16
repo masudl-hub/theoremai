@@ -3,12 +3,7 @@ import '../fixtures/test-host.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type {
-  ModelProvider,
-  ProviderEvent,
-  TurnEvent,
-  TurnTokens,
-} from '../../src/kernel/types.ts';
+import type { ModelEvent, TurnEvent, TurnModel, TurnTokens } from '../../src/kernel/types.ts';
 import { finalStop } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
@@ -29,7 +24,7 @@ function registerToolProfile(id: string): string {
 }
 
 /** Provider answering each call from `calls`, in order. */
-function scriptedProvider(calls: TurnEvent[][]): ModelProvider {
+function scriptedProvider(calls: TurnEvent[][]): TurnModel {
   let call = 0;
   return {
     async *complete() {
@@ -39,7 +34,7 @@ function scriptedProvider(calls: TurnEvent[][]): ModelProvider {
   };
 }
 
-async function collect(profile: string, provider: ModelProvider): Promise<TurnEvent[]> {
+async function collect(profile: string, provider: TurnModel): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   for await (const event of runTurn({ profile, input: { text: 'Check soil' } }, provider)) {
     events.push(event);
@@ -165,11 +160,11 @@ Deno.test('runTurn ends a call the provider failed as provider_error, even after
 Deno.test('runTurn estimates the portable tool-loop history', async () => {
   const profile = registerToolProfile('usage_continuation');
   let requests = 0;
-  const calls: ProviderEvent[][] = [
+  const calls: ModelEvent[][] = [
     [SENSOR_CALL, { type: 'done', stop: { kind: 'tool' }, interactionId: 'v1_sensor' }],
     [{ type: 'text', text: 'Soil reads 22%.' }],
   ];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       if (requests === 1)

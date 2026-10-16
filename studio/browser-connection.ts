@@ -12,9 +12,9 @@ export interface StudioBrowserConnection {
 }
 
 /** Which service a pasted key belongs to, from its published prefix; `undefined` when unknown. */
-export function keyKind(secret: string | undefined): 'google' | 'openrouter' | undefined {
+export function keyKind(secret: string | undefined): 'gemini' | 'openrouter' | undefined {
   const key = secret?.trim() ?? '';
-  if (key.startsWith('AIza')) return 'google';
+  if (key.startsWith('AIza')) return 'gemini';
   if (key.startsWith('sk-or-')) return 'openrouter';
   return undefined;
 }
@@ -76,7 +76,7 @@ export async function listLocalStudioModels(local: StudioBrowserConnection['loca
 }
 
 /** The profile types a model runs for; a provider's list is filtered to the one being edited. */
-export type ListedProfileType = 'text' | 'image' | 'speech' | 'live';
+export type ListedProfileType = 'text' | 'image' | 'speech' | 'live' | 'embedding';
 
 /** A model a provider lists, as the studio's picker shows it. */
 export interface ProviderModel {
@@ -86,9 +86,20 @@ export interface ProviderModel {
 }
 
 /** The providers whose models the studio can list from the browser. */
-export type ListedProvider = 'google' | 'openrouter';
+export type ListedProvider = 'gemini' | 'openrouter';
 
 const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+const OPENROUTER_EMBEDDING_MODELS_URL = 'https://openrouter.ai/api/v1/embeddings/models';
+
+export const KNOWN_GEMINI_EMBEDDING_MODELS: readonly ProviderModel[] = [
+  { id: 'gemini-embedding-2-preview', label: 'Gemini Embeddings 2 (preview)' },
+  { id: 'gemini-embedding-001', label: 'Gemini Embedding 001' },
+];
+export const KNOWN_OPENROUTER_EMBEDDING_MODELS: readonly ProviderModel[] = [
+  { id: 'liquid/lfm-2.5-embedding-350m:free', label: 'Liquid LFM 2.5 Embedding 350M (free)' },
+  { id: 'nvidia/nemotron-3-embed-1b:free', label: 'NVIDIA Nemotron 3 Embed 1B (free)' },
+  { id: 'nvidia/llama-nemotron-embed-vl-1b-v2:free', label: 'NVIDIA Llama Nemotron Embed VL 1B v2 (free)' },
+];
 
 /**
  * OpenRouter's `output_modalities` for each profile type: chat models for text, `/images` models
@@ -99,6 +110,7 @@ const OPENROUTER_OUTPUT: Record<ListedProfileType, string | undefined> = {
   image: 'image',
   speech: 'speech',
   live: undefined,
+  embedding: undefined,
 };
 
 const openRouterModelList = z.object({
@@ -109,6 +121,9 @@ const openRouterModelList = z.object({
       architecture: z.object({ output_modalities: z.array(z.string()).optional() }).optional(),
     }),
   ),
+});
+const openRouterEmbeddingModelList = z.object({
+  data: z.array(z.object({ id: z.string().min(1), name: z.string().optional() })),
 });
 
 const geminiModelList = z.object({
@@ -152,7 +167,26 @@ export async function listProviderModels(
   signal?: AbortSignal,
 ): Promise<ProviderModel[]> {
   const secret = key?.trim();
+  if (profileType === 'embedding' && provider === 'openrouter' && !secret) {
+    return [...KNOWN_OPENROUTER_EMBEDDING_MODELS];
+  }
+  if (profileType === 'embedding' && provider === 'gemini' && !secret) {
+    return [...KNOWN_GEMINI_EMBEDDING_MODELS];
+  }
   if (provider === 'openrouter') {
+    if (profileType === 'embedding') {
+      const parsed = openRouterEmbeddingModelList.safeParse(
+        await listedJson('OpenRouter', OPENROUTER_EMBEDDING_MODELS_URL, {
+          signal,
+          headers: {
+            Accept: 'application/json',
+            ...(secret ? { Authorization: ['Bearer', secret].join(' ') } : {}),
+          },
+        }),
+      );
+      if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid embedding model list.');
+      return parsed.data.data.map((model) => ({ id: model.id, label: model.name ?? model.id }));
+    }
     const output = OPENROUTER_OUTPUT[profileType];
     if (!output) return [];
     const parsed = openRouterModelList.safeParse(
@@ -160,7 +194,7 @@ export async function listProviderModels(
         signal,
         headers: {
           Accept: 'application/json',
-          ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
+          ...(secret ? { Authorization: ['Bearer', secret].join(' ') } : {}),
         },
       }),
     );
@@ -170,7 +204,12 @@ export async function listProviderModels(
       .map((model) => ({ id: model.id, label: model.name ?? model.id }));
   }
   if (!secret) throw new TheoremError('auth', 'Choose a key to list Gemini models.'); // labels-exempt: builder diagnostic
-  const method = profileType === 'live' ? 'bidiGenerateContent' : 'generateContent';
+  const method =
+    profileType === 'live'
+      ? 'bidiGenerateContent'
+      : profileType === 'embedding'
+        ? 'embedContent'
+        : 'generateContent';
   const models: ProviderModel[] = [];
   let pageToken: string | undefined;
   for (let page = 0; page < GEMINI_MODEL_PAGES; page++) {

@@ -26,7 +26,7 @@ import {
 } from '../../src/kernel/engine/assert.ts';
 import type { RunDecisionOptions } from '../../src/kernel/engine/decision.ts';
 import { historyMessageParts } from '../../src/kernel/interaction-parts.ts';
-import type { InteractionPart, ModelProvider } from '../../src/kernel/types.ts';
+import type { InteractionPart, TurnModel } from '../../src/kernel/types.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 import { memorySink } from '../../src/observability/trace.ts';
@@ -41,7 +41,7 @@ const SUITE_PATH = 'tests/evals/translator/suite.ts';
 const JUDGE_COST = 0.002;
 
 /** The translator answers every case in Spanish, at a fixed cost. */
-const translator: ModelProvider = {
+const translator: TurnModel = {
   async *complete(req) {
     req.tapUpstream?.({
       eventType: 'http_request',
@@ -62,7 +62,7 @@ const translator: ModelProvider = {
  */
 function scriptedJudge(
   answer: (prompt: string, call: number) => unknown,
-): ModelProvider & { prompts: string[]; seen: InteractionPart[][] } {
+): TurnModel & { prompts: string[]; seen: InteractionPart[][] } {
   const prompts: string[] = [];
   const seen: InteractionPart[][] = [];
   return {
@@ -104,8 +104,8 @@ function scriptedJev(
     fetch: (_url, init) => {
       bodies.push(JSON.parse(String(init?.body)));
       return Promise.resolve(
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             model: 'jev-1.13.0',
             answers: {
               verdict: {
@@ -116,7 +116,7 @@ function scriptedJev(
               },
             },
             usage: { input_tokens: 500_000, output_tokens: 39 },
-          }),
+          },
           { status },
         ),
       );
@@ -309,7 +309,7 @@ Deno.test('a label the rubric did not declare is a bad response, as is a reply t
 });
 
 Deno.test('a judge whose turn fails reports that failure, not a verdict', async () => {
-  const dead: ModelProvider = {
+  const dead: TurnModel = {
     complete: () => ({
       [Symbol.asyncIterator]: () => ({
         next: () => Promise.reject(new TheoremError('unavailable', 'judge down')),
@@ -610,7 +610,7 @@ Deno.test("a trial's judges run at once, and their records come back in grader o
   let inFlight = 0;
   let most = 0;
   let calls = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       const call = calls++;
       inFlight += 1;
@@ -823,7 +823,7 @@ Deno.test('a failed Jev call is an error on the result that still names the deci
 async function jevTrial(
   grader: EvalGrader,
   probabilities: Record<string, number>,
-  judgeProvider?: ModelProvider,
+  judgeProvider?: TurnModel,
 ) {
   const run = await runSuite(await judged([grader], JEV_JUDGE), {
     provider: fixtureHostOptions(translator),
@@ -866,7 +866,7 @@ Deno.test('wrongPassCost moves the line: a wrong pass three times worse needs th
 Deno.test('escalate hands what Jev is unsure of to the text judge, and the result names both judge calls', async () => {
   const loaded = await loadSuite('tests/evals/judge/both.ts');
   const written: TraceRecord[] = [];
-  const both = (probabilities: Record<string, number>, text: ModelProvider) =>
+  const both = (probabilities: Record<string, number>, text: TurnModel) =>
     runSuite(
       { ...loaded, cases: loaded.cases.slice(0, 1) },
       {

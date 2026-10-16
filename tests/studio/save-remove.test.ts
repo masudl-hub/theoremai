@@ -373,44 +373,44 @@ Deno.test('entries on one line leave the commas the list needs', () => {
   assertEquals(left(['a', 'b']), 'export const questions = { c };');
 });
 
-Deno.test('a provider goes where it is registered, and one registered in a list is named instead', () => {
+Deno.test('a provider goes where it is registered, and one its models still read is named instead', () => {
   const setup = lines(
-    "import { defineProvider, googleAdapter, registerProvider } from '@theoremjs/agents';",
-    "import { spare } from './spare.ts';",
+    "import { geminiProvider, registerProvider } from '@theoremjs/agents';",
+    "import { registerSpare } from './spare.ts';",
     '',
-    "registerProvider({ id: 'inline', adapter: googleAdapter });",
-    "const named = defineProvider({ id: 'named', adapter: googleAdapter });",
-    'registerProvider(named);',
-    'registerProvider(spare);',
-    "registerProvider({ id: 'kept', adapter: googleAdapter });",
+    "registerProvider(geminiProvider, { id: 'inline' });",
+    'registerSpare();',
+    "registerProvider(geminiProvider, { id: 'kept' });",
   );
   const spare = lines(
-    "import { defineProvider, googleAdapter } from '@theoremjs/agents';",
-    "export const spare = defineProvider({ id: 'spare', adapter: googleAdapter });",
+    "import { geminiProvider, registerProvider } from '@theoremjs/agents';",
+    '',
+    'export function registerSpare(): void {',
+    "  registerProvider(geminiProvider, { id: 'spare' });",
+    '}',
   );
   const plan = planned(
     { 'setup.ts': setup, 'spare.ts': spare },
-    { providers: ['inline', 'named', 'spare'] },
+    { providers: ['inline', 'spare'] },
   );
   assertEquals(plan.statuses, [
     ['inline', 'written'],
-    ['named', 'written'],
     ['spare', 'written'],
   ]);
   assertEquals(plan.gone, ['spare.ts']);
   assertEquals(plan.written, {
     'setup.ts': lines(
-      "import { defineProvider, googleAdapter, registerProvider } from '@theoremjs/agents';",
+      "import { geminiProvider, registerProvider } from '@theoremjs/agents';",
       '',
-      "registerProvider({ id: 'kept', adapter: googleAdapter });",
+      "registerProvider(geminiProvider, { id: 'kept' });",
     ),
   });
 
-  const listed = lines(
-    "import { defineProvider, googleAdapter, registerProviders } from '@theoremjs/agents';",
-    "const house = defineProvider({ id: 'house', adapter: googleAdapter });",
-    'registerProviders([house]);',
+  const read = lines(
+    "import { geminiInteractions, geminiProvider, registerProvider } from '@theoremjs/agents';",
+    "const house = registerProvider(geminiProvider, { id: 'house' });",
+    "export const fast = house.model(geminiInteractions, 'gemini-3.1-flash-lite');",
   );
-  const list = planned({ 'setup.ts': listed }, { providers: ['house'] });
-  assertEquals([list.statuses, list.written, list.gone], [[['house', 'removed']], {}, []]);
+  const held = planned({ 'setup.ts': read }, { providers: ['house'] });
+  assertEquals([held.statuses, held.written, held.gone], [[['house', 'removed']], {}, []]);
 });

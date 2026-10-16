@@ -4,12 +4,12 @@ import {
   defaultKernelScope,
   type LabelKey,
   labelDefault,
-  type ModelProvider,
   type ProfileDefinition,
   registerTool,
   TheoremError,
   type TurnEvent,
   type TurnHistoryMessage,
+  type TurnModel,
 } from '../../mod.ts';
 import { withPageToolDispatch } from '../../react/src/client/page-dispatch.ts';
 import { sessionAfter } from '../../react/src/client/run-commit.ts';
@@ -34,8 +34,8 @@ import type { TranscriptBlock } from '../../src/interface/mod.ts';
 import type { ToolCallState } from '../../src/interface/types.ts';
 import type { OAuth2Credential } from '../../src/kernel/auth/types.ts';
 import { eventsOf, failureOf, lastTool, toolEventsOf, toolPhases } from '../fixtures/events.ts';
-import { PrototypeAdapter } from '../fixtures/prototype-adapter.ts';
 import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
+import { scriptedProvider } from '../fixtures/scripted.ts';
 import { sqliteSessionStore } from '../fixtures/sqlite-session-store.ts';
 
 const SYSTEM = 'secret persona instructions';
@@ -45,7 +45,7 @@ function profile(id: string, allow: string[] = []): ProfileDefinition {
     id,
     identity: { handle: 'helper', system: SYSTEM },
     models: {
-      stub: { provider: 'openrouter', apiId: 'stub-model' },
+      stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' },
     },
     tools: { allow },
     inputs: { text: true },
@@ -57,7 +57,7 @@ function textProvider(
   seen?: {
     system?: string;
   }[],
-): ModelProvider {
+): TurnModel {
   return {
     complete: (req) =>
       (async function* () {
@@ -161,25 +161,26 @@ Deno.test('describe returns the interface without server-only identity', async (
   assertEquals(iface.identity, { handle: 'helper' });
   assertEquals(JSON.stringify(iface).includes(SYSTEM), false);
 });
-Deno.test('React handler runs a registered class adapter through its transport', async () => {
+Deno.test('React handler runs a provider registered under its own id through its transport', async () => {
+  defaultKernelScope.providers.register(scriptedProvider, {
+    id: 'handler-renamed',
+    keySlot: 'slot_c',
+  });
+  const text = profile('handler-renamed-provider');
+  if (text.type !== 'text') throw new Error('expected a text profile');
   const handler = handlerFor({
-    profile: profile('handler-class-adapter'),
-    provider: () => {
-      const options = fixtureHostOptions(textProvider('class handler reply'));
-      const registered = defaultKernelScope.providers.require('openrouter');
-      defaultKernelScope.providers.register({
-        ...registered,
-        adapter: new PrototypeAdapter(registered.adapter),
-      });
-      return options;
+    profile: {
+      ...text,
+      models: { stub: { protocol: 'scripted', provider: 'handler-renamed', apiId: 'stub-model' } },
     },
+    provider: () => fixtureHostOptions(textProvider('renamed handler reply')),
   });
   const events = await collect((onEvent) =>
     transportFor(handler).turn({ input: { text: 'hello' } }, onEvent),
   );
   assertEquals(
     events.filter((event) => event.type === 'text').map((event) => event.text),
-    ['class handler reply'],
+    ['renamed handler reply'],
   );
 });
 Deno.test("describe sends a tool's id, never its definition", async () => {
@@ -238,7 +239,7 @@ Deno.test("a turn carries the page's slots and context, and the host's context a
     system?: string;
     sent?: string;
   }[] = [];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: (req) =>
       (async function* () {
         seen.push({ system: req.system, sent: req.history?.at(-1)?.content });
@@ -251,7 +252,7 @@ Deno.test("a turn carries the page's slots and context, and the host's context a
       type: 'text',
       id: 'handler-context',
       identity: { handle: 'helper', system: 'Reply in {language}.' },
-      models: { stub: { provider: 'openrouter', apiId: 'stub-model' } },
+      models: { stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' } },
       tools: { allow: [] },
       guardrails: { detect: 'ignore' },
       inputs: {
@@ -290,25 +291,22 @@ Deno.test('provider failures reach the client in the labels wording for their ki
 Deno.test('React provider vault does not resolve inherited credentials', async () => {
   let resolved = 0;
   let completed = 0;
+  defaultKernelScope.providers.register(scriptedProvider, {
+    id: 'handler-identity',
+    keySlot: 'identity',
+  });
+  const text = profile('handler-inherited-vault');
+  if (text.type !== 'text') throw new Error('expected a text profile');
   const handler = handlerFor({
-    profile: profile('handler-inherited-vault'),
+    profile: {
+      ...text,
+      models: { stub: { protocol: 'scripted', provider: 'handler-identity', apiId: 'stub-model' } },
+    },
     provider: () => {
       const options = fixtureHostOptions({
         async *complete() {
           completed++;
           yield { type: 'done', stop: { kind: 'completed' } };
-        },
-      });
-      const registered = defaultKernelScope.providers.require('openrouter');
-      defaultKernelScope.providers.register({
-        ...registered,
-        keySlot: 'identity',
-        adapter: {
-          ...registered.adapter,
-          async create(context) {
-            await context.resolveCredential('primary');
-            return await registered.adapter.create(context);
-          },
         },
       });
       return {
@@ -500,7 +498,7 @@ Deno.test('live profiles are rejected at construction', () => {
         id: 'handler-live',
         identity: { handle: 'live' },
         models: {
-          stub: { provider: 'google', apiId: 'stub' },
+          stub: { protocol: 'geminiLive', provider: 'gemini', apiId: 'stub' },
         },
         live: { voice: 'Aoede' },
         tools: { allow: [] },
@@ -549,7 +547,7 @@ registerTool({
   }),
 });
 /** Model that calls `tool` with `{ id }` whenever the last message isn't a tool result. */
-function toolCallingProvider(tool: string, id: string): ModelProvider {
+function toolCallingProvider(tool: string, id: string): TurnModel {
   return {
     complete: (req) =>
       (async function* () {
@@ -780,7 +778,7 @@ Deno.test('eight session conflicts fail without invoking a tool', async () => {
   assertEquals(ran, []);
   assertEquals(
     Object.values((await memory.load('contended'))?.state.gates ?? {}).map((gate) => gate.callId),
-    ['call-1'],
+    [pausedGate(turn).callId],
   );
 });
 
@@ -867,7 +865,7 @@ Deno.test('the host settles a denied call: declined, never run, and the gate is 
   assertEquals(ran, []);
 });
 /** Model that calls `handler_delete` on its first request and answers in text after; `seen` keeps each request's history. */
-function walkAwayProvider(seen: (TurnHistoryMessage[] | undefined)[]): ModelProvider {
+function walkAwayProvider(seen: (TurnHistoryMessage[] | undefined)[]): TurnModel {
   return {
     complete: (req) =>
       (async function* () {
@@ -1535,8 +1533,49 @@ Deno.test('a refreshed OAuth token is saved to the store before the call goes on
 });
 
 Deno.test('a checkpoint survives approval and a recreated handler without executing a tool twice', async () => {
+  const { defineProtocol, defineProvider, registerProvider, defineProfile } = await import(
+    '../../mod.ts'
+  );
+  const executed: string[] = [];
+  const seen: unknown[] = [];
+  const checkpointed = defineProtocol({
+    id: 'checkpointFixture',
+    name: 'Checkpoint fixture',
+    description: 'Asks for one tool, then finishes, keeping a cursor between calls.',
+    endpoints: { text: '/turn' },
+    options: z.strictObject({}),
+    continuation: { version: 1, schema: z.strictObject({ cursor: z.string() }) },
+    create: () => ({
+      async *complete(request) {
+        seen.push(request.state);
+        if (request.history?.some((message) => message.role === 'tool')) {
+          yield { type: 'text', text: 'Finished.' };
+          yield { type: 'done', stop: { kind: 'completed' }, state: { cursor: 'finished' } };
+        } else {
+          yield {
+            type: 'tool_call',
+            call: {
+              callId: 'saved-call',
+              name: 'checkpoint_write',
+              arguments: { id: 'original' },
+            },
+          };
+          yield { type: 'done', stop: { kind: 'tool' }, state: { cursor: 'waiting' } };
+        }
+      },
+    }),
+  });
+  const deployment = registerProvider(
+    defineProvider({
+      id: 'checkpoint-reload',
+      name: 'Checkpoint reload',
+      description: 'Serves the checkpoint fixture with no key.',
+      serves: () => [{ protocol: checkpointed, baseUrl: 'https://checkpoint.test' }],
+    }),
+  );
   for (const edit of [false, true]) {
-    const { defineProvider, registerProvider, defineProfile } = await import('../../mod.ts');
+    executed.length = 0;
+    seen.length = 0;
     const { createMemorySessionStore, createMemorySteerInbox } = await import(
       '../../react/src/server/mod.ts'
     );
@@ -1548,61 +1587,6 @@ Deno.test('a checkpoint survives approval and a recreated handler without execut
     );
     const { unskippedView } = await import('../fixtures/stream-view.ts');
     const { defaultKernelScope } = await import('../../src/kernel/scope.ts');
-    const executed: string[] = [];
-    const seen: unknown[] = [];
-    const deployment = defineProvider({
-      id: 'checkpoint-reload',
-      connection: {},
-      adapter: {
-        apiVersion: 1,
-        id: 'checkpoint-fixture',
-        connectionSchema: z.strictObject({}),
-        optionsSchema: z.strictObject({}),
-        credentialSchema: z.string(),
-        capabilities: () => ({
-          profileTypes: ['text'],
-          inputKinds: ['text'],
-          outputKinds: ['text'],
-          builtins: [],
-          features: {
-            streaming: 'supported',
-            clientTools: 'supported',
-            parallelTools: 'supported',
-            structuredOutput: 'supported',
-            thinking: 'unsupported',
-            summaries: 'unsupported',
-            storedContinuation: 'supported',
-          },
-        }),
-        validateRequest() {},
-        continuation: {
-          version: 1,
-          schema: z.strictObject({ cursor: z.string() }),
-          compatibilityKey: (model) => model.apiId,
-        },
-        create: () =>
-          Promise.resolve({
-            async *complete(request) {
-              seen.push(request.state);
-              if (request.history?.some((message) => message.role === 'tool')) {
-                yield { type: 'text', text: 'Finished.' };
-                yield { type: 'done', stop: { kind: 'completed' }, state: { cursor: 'finished' } };
-              } else {
-                yield {
-                  type: 'tool_call',
-                  call: {
-                    callId: 'saved-call',
-                    name: 'checkpoint_write',
-                    arguments: { id: 'original' },
-                  },
-                };
-                yield { type: 'done', stop: { kind: 'tool' }, state: { cursor: 'waiting' } };
-              }
-            },
-          }),
-      },
-    });
-    registerProvider(deployment);
     registerTool({
       type: 'function',
       name: 'checkpoint_write',
@@ -1623,7 +1607,7 @@ Deno.test('a checkpoint survives approval and a recreated handler without execut
       id: 'checkpoint-reload-worker',
       type: 'text',
       identity: { handle: 'Worker' },
-      models: { main: deployment.model('model') },
+      models: { main: deployment.model(checkpointed, 'model') },
       tools: { allow: ['checkpoint_write'] },
       inputs: { text: true },
       guardrails: { detect: 'ignore' },
@@ -1688,7 +1672,7 @@ Deno.test('a checkpoint survives approval and a recreated handler without execut
   }
 });
 
-Deno.test('operation identity refuses an old answer to a reused call ID', async () => {
+Deno.test('operation identity refuses an old answer when the wire reuses a call ID', async () => {
   ran.length = 0;
   let target = 'first';
   const handler = handlerFor({
@@ -1709,9 +1693,20 @@ Deno.test('operation identity refuses an old answer to a reused call ID', async 
   const second = pausedGate(
     await collect((sink) => transport.turn({ input: { text: 'second' } }, sink)),
   );
-  assertEquals(second.callId, first.callId);
+  // The model sends 'call-1' both times; the kernel mints each call its own id.
+  assertEquals(second.callId === first.callId, false);
   assertEquals(second.operationId === first.operationId, false);
-  // The old answer's call id matches the waiting call; its operation does not.
+  // The old answer names the waiting call, but its operation is not the waiting one.
+  await assertRefused(
+    () =>
+      collect((sink) =>
+        transport.invoke(
+          { gateId: second.callId, operationId: first.operationId, decision: 'approve' },
+          sink,
+        ),
+      ),
+    'session.gate_expired',
+  );
   await assertRefused(
     () =>
       collect((sink) =>
@@ -1742,7 +1737,7 @@ Deno.test('operation identity refuses an old answer to a reused call ID', async 
   assertEquals(ran, ['first', 'second']);
 });
 
-Deno.test('operation identity keeps two pending actions distinct despite call ID reuse', async () => {
+Deno.test('operation identity keeps two pending actions distinct when the wire reuses a call ID', async () => {
   ran.length = 0;
   let target = 'first-pending';
   const handler = handlerFor({
@@ -1756,7 +1751,8 @@ Deno.test('operation identity keeps two pending actions distinct despite call ID
   const first = pausedGate(await collect((sink) => one.turn({ input: { text: 'first' } }, sink)));
   target = 'second-pending';
   const second = pausedGate(await collect((sink) => two.turn({ input: { text: 'second' } }, sink)));
-  assertEquals(first.callId, second.callId);
+  // The model sends 'call-1' in both chats; the kernel mints each call its own id.
+  assertEquals(first.callId === second.callId, false);
   assertEquals(first.operationId === second.operationId, false);
   await collect((sink) =>
     one.invoke({ gateId: first.callId, operationId: first.operationId, decision: 'approve' }, sink),
@@ -1772,7 +1768,7 @@ Deno.test('operation identity keeps two pending actions distinct despite call ID
 });
 
 /** Model that answers each message with `reply:<its text>`; `seen` keeps each request's history. */
-function echoProvider(seen: (TurnHistoryMessage[] | undefined)[]): ModelProvider {
+function echoProvider(seen: (TurnHistoryMessage[] | undefined)[]): TurnModel {
   return {
     complete: (req) =>
       (async function* () {
@@ -1810,7 +1806,7 @@ Deno.test('the model reads the conversation the host kept, and the page draws it
   assertEquals(seen.at(-1)?.length, 1);
 });
 /** A model whose reply stops after its first words until `held` resolves. */
-function heldReply(held: Promise<void>): ModelProvider {
+function heldReply(held: Promise<void>): TurnModel {
   return {
     complete: () =>
       (async function* () {
@@ -1952,7 +1948,7 @@ Deno.test('a stateless chat keeps nothing: no ref, and a ref is refused', async 
   if (text.type !== 'text') throw new Error('expected a text profile');
   const stateless: ProfileDefinition = {
     ...text,
-    providerContinuation: { onMismatch: 'rebuild', history: 'stateless' },
+    providerContinuation: { history: 'stateless' },
   };
   assertThrows(
     () =>

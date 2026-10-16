@@ -8,6 +8,9 @@ import {
   type ChatLineSink,
   createTraceFeed,
   decisionInterface,
+  embeddingInterface,
+  failedTraces,
+  type EmbeddingTransport,
   type DecisionTransport,
   hostError,
   hostInterface,
@@ -27,10 +30,11 @@ import { clientError, forClient } from '@theoremjs/agents/host';
 import type { RunDecisionOptions } from '@theoremjs/agents/kernel';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
+import type { StudioRuntimeBase } from './runtime-scope.ts';
 import {
-  failedDecisionTraces,
   rewindStudio,
   runStudioDecision,
+  runStudioEmbedding,
   streamStudioCall,
   streamStudioHostInvoke,
   streamStudioInvoke,
@@ -38,7 +42,6 @@ import {
   studioConversation,
   withFailedTraces,
 } from './runtime.ts';
-import type { StudioRuntimeBase } from './runtime-scope.ts';
 import type { StudioTraceLine } from './traces.ts';
 import {
   type StudioSteerLine,
@@ -279,7 +282,44 @@ export function createBrowserStudioDecisionTransport(
         return await runStudioDecision(payload, state, runtime.decision ?? {}, runSignal(runtime, signal));
       } catch (err) {
         // The failure keeps the trace the kernel left.
-        throw withFailedTraces(failed(err, payload), failedDecisionTraces(err));
+        throw withFailedTraces(failed(err, payload), failedTraces(err));
+      }
+    },
+    traces,
+  };
+}
+
+export function createBrowserStudioEmbeddingTransport(
+  payload: StudioRunPayload,
+  runtime: StudioBrowserRuntime,
+  options: { traces?: TraceFeed } = {},
+): EmbeddingTransport {
+  const traces = options.traces ?? createTraceFeed();
+  return {
+    describe: () =>
+      Promise.resolve(
+        embeddingInterface(
+          defineProfile(payload.profile) as Extract<
+            ReturnType<typeof defineProfile>,
+            { type: 'embedding' }
+          >,
+        ),
+      ),
+    embed: async (input, model, signal) => {
+      try {
+        const response = await runStudioEmbedding(
+          payload,
+          {
+            input,
+            ...(model === undefined ? {} : { model }),
+            signal: runSignal(runtime, signal),
+          },
+          withBrowserExecution(runtime).runtime,
+        );
+        for (const record of response.traces) traces.push(record);
+        return { result: response.result, traces: response.traces };
+      } catch (error) {
+        throw withFailedTraces(failed(error, payload), failedTraces(error));
       }
     },
     traces,

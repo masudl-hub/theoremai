@@ -1,12 +1,7 @@
 import { z } from 'zod';
 import { publicError, TheoremError } from '../../guardrails/error.ts';
 import { errorKindSchema, guardrailHit, provenance } from '../../guardrails/event-schemas.ts';
-import {
-  type JsonObject,
-  type JsonValue,
-  jsonObjectSchema,
-  jsonValueSchema,
-} from '../provider-contract.ts';
+import { type JsonObject, type JsonValue, jsonObjectSchema, jsonValueSchema } from '../json.ts';
 import type { GateReference, TurnEventOf } from '../turn-events.ts';
 import {
   interactionPartSchema,

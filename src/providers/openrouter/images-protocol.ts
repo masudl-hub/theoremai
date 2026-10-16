@@ -1,15 +1,16 @@
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
+import type { JsonObject } from '../../kernel/json.ts';
 import {
   defineProtocol,
+  type Protocol,
   type ProtocolContext,
   type ProtocolEvent,
-  type TurnRequest,
+  type ProtocolRequest,
 } from '../../kernel/protocols/mod.ts';
-import type { JsonObject } from '../../kernel/provider-contract.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
-import type { ImageResponseFormat, ProviderCompleteRequest } from '../../kernel/types.ts';
+import type { ImageResponseFormat, ModelRequest } from '../../kernel/types.ts';
 import { imagesFromChatMessage, imagesFromImagesBody, OPENROUTER_IMAGE_TOOL } from './image.ts';
 import { buildChatMessages } from './openai/compat.ts';
 import {
@@ -33,10 +34,8 @@ function noImage(): TheoremError {
 }
 
 /** `/images`: the picture alone, answered whole. */
-async function* images(context: ProtocolContext, request: TurnRequest) {
-  const body = json(
-    buildImagesPayload({ ...request, apiId: context.apiId } as ProviderCompleteRequest),
-  );
+async function* images(context: ProtocolContext, request: ProtocolRequest) {
+  const body = json(buildImagesPayload({ ...request, apiId: context.apiId } as ModelRequest));
   for await (const row of context.send(body, { stream: false })) {
     const media = imagesFromImagesBody(row);
     if (!media.length) throw noImage();
@@ -50,14 +49,14 @@ async function* images(context: ProtocolContext, request: TurnRequest) {
 /** Text with the picture: Chat Completions with OpenRouter's image tool, on the chat path. */
 async function* withText(
   context: ProtocolContext,
-  request: TurnRequest,
+  request: ProtocolRequest,
   image: ImageResponseFormat,
 ) {
   const body = json({
     model: context.apiId,
     stream: false,
     provider: { require_parameters: true },
-    messages: buildChatMessages({ ...request, state: undefined } as ProviderCompleteRequest),
+    messages: buildChatMessages(request),
     temperature: request.temperature,
     max_tokens: request.maxOutputTokens,
     ...(request.thinking ? { reasoning: { effort: request.thinking } } : {}),
@@ -80,7 +79,7 @@ async function* withText(
 }
 
 /** OpenRouter's image generation: `/images`, or the chat path with its image tool when text is wanted too. */
-export const openRouterImages = defineProtocol({
+export const openRouterImages: Protocol<Record<string, never>> = defineProtocol({
   id: 'openRouterImages',
   name: 'OpenRouter Images',
   description: "OpenRouter's image generation, with or without text beside the picture.", // labels-exempt: builder field description, read by the studio and docs

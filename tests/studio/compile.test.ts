@@ -70,7 +70,7 @@ function compiled(draft: StudioDraft) {
   const result = compileStudio(draft, ON_OWN_KEYS);
   if (!result.ok) throw new Error(`unexpected issues: ${JSON.stringify(result.issues)}`);
   const { profile } = result;
-  if (profile.type === 'decision' || profile.type === 'host')
+  if (profile.type === 'decision' || profile.type === 'host' || profile.type === 'embedding')
     throw new Error('expected a turn profile');
   return { ...result, profile };
 }
@@ -291,52 +291,57 @@ Deno.test('summaries compile on, off, or left to the provider', () => {
   assertEquals(summaries(false), false);
   assertEquals(summaries(null), undefined);
 });
-Deno.test('a Gemini Interactions binding compiles chaining only when on, and storage only when set', () => {
+Deno.test("a binding compiles its protocol's options only when set", () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
+  assertEquals(fast.protocol, 'geminiInteractions');
   const model = (patch: Partial<typeof fast>) =>
     compiled({ ...draft, modelBindings: [{ ...fast, ...patch }, ...rest] }).profile.models[
       fast.modelId
     ];
-  const unset = model({});
-  assertEquals(unset.providerOptions?.persistViaInteractionId, undefined);
-  assertEquals(unset.providerOptions?.store, undefined);
-  const chained = model({ store: true, persistViaInteractionId: true });
-  assertEquals(
-    [chained.providerOptions?.store, chained.providerOptions?.persistViaInteractionId],
-    [true, true],
-  );
-  assertEquals(model({ store: false }).providerOptions?.store, false);
+  assertEquals(model({}).options, undefined);
+  assertEquals(model({ options: { store: true, persistViaInteractionId: true } }).options, {
+    store: true,
+    persistViaInteractionId: true,
+  });
+  assertEquals(model({ options: { store: false } }).options, { store: false });
 });
-Deno.test('chaining with storage off is an issue on its binding', () => {
+Deno.test("options the protocol's schema refuses are an issue on their binding", () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
   const result = compileStudio(
     {
       ...draft,
-      modelBindings: [{ ...fast, store: false, persistViaInteractionId: true }, ...rest],
+      modelBindings: [
+        { ...fast, options: { store: false, persistViaInteractionId: true } },
+        ...rest,
+      ],
     },
     ON_OWN_KEYS,
   );
   assertEquals(issueNodes(result), [modelBindingNodeId(fast.key)]);
-  assert(!result.ok && result.issues[0].field === 'persistViaInteractionId');
+  assert(!result.ok);
+  assertEquals(
+    result.issues.map((issue) => [issue.field, issue.message]),
+    [['options', 'persistViaInteractionId needs store']],
+  );
 });
-Deno.test('chaining and storage compile only on Gemini Interactions', () => {
+Deno.test('an option its protocol does not take is an issue at that option', () => {
   const draft = createExampleDraft();
   const [fast, ...rest] = draft.modelBindings;
   const routed = {
     ...fast,
-    provider: 'openrouter' as const,
+    protocol: 'openRouter',
+    provider: 'openrouter',
     apiId: 'openrouter/free',
-    store: true,
-    persistViaInteractionId: true,
+    options: { store: true },
   };
-  const model = compiled({ ...draft, modelBindings: [routed, ...rest] }).profile.models[
-    fast.modelId
-  ];
+  const result = compileStudio({ ...draft, modelBindings: [routed, ...rest] }, ON_OWN_KEYS);
+  assertEquals(issueNodes(result), [modelBindingNodeId(fast.key)]);
+  assert(!result.ok);
   assertEquals(
-    [model.providerOptions?.store, model.providerOptions?.persistViaInteractionId],
-    [undefined, undefined],
+    result.issues.map((issue) => issue.field),
+    ['options.store'],
   );
 });
 Deno.test('a duplicate tool name is keyed to the second tool', () => {
@@ -348,7 +353,10 @@ Deno.test('a duplicate tool name is keyed to the second tool', () => {
 Deno.test('setProfileType to live swaps bindings and hides facets live lacks', () => {
   const live = setProfileType(createExampleDraft(), 'live', TEST_KEYS);
   assertEquals(live.modelBindings.length, 1);
-  assertEquals(live.modelBindings[0].provider, 'google');
+  assertEquals(
+    [live.modelBindings[0].protocol, live.modelBindings[0].provider],
+    ['geminiLive', 'gemini'],
+  );
   assertEquals(live.modelBindings[0].apiId, TEST_KEYS.start('live').apiId);
   assertEquals(live.models.defaultModel, live.modelBindings[0].modelId);
   assertEquals(live.models.key, createExampleDraft().models.key);
@@ -697,20 +705,21 @@ Deno.test('studioSource writes a module that registers the profile', () => {
   assertStringIncludes(source, "name: 'geocode_city',");
   assertStringIncludes(source, 'registerProfile(profile);');
 });
-Deno.test('studioSource registers each provider by its adapter, and says which one is not its to write', () => {
+Deno.test('studioSource registers each provider from its definition, and says which one is not its to write', () => {
   const draft = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   const named = (
     provider: string,
-    adapter: string,
+    definition: string,
     slots: { keySlot?: string; fallbackKeySlot?: string } = {},
   ) => {
     const result = compileStudio(
       {
         ...draft,
         identity: { ...draft.identity, agentId: 'desk', handle: 'Desk' },
-        providers: [{ id: provider, adapter, ...slots }],
+        providers: [{ id: provider, definition, ...slots }],
         modelBindings: draft.modelBindings.map((binding) => ({
           ...binding,
+          protocol: 'openRouter',
           provider,
           apiId: 'openrouter/free',
         })),
@@ -720,39 +729,23 @@ Deno.test('studioSource registers each provider by its adapter, and says which o
     assert(result.ok, JSON.stringify(!result.ok && result.issues));
     return studioSource(result);
   };
+  const mine = named('mine', 'openrouter');
+  assertStringIncludes(mine, "registerProvider(openRouterProvider, {\n  id: 'mine',\n});");
   assertStringIncludes(
-    named('mine', 'openrouter'),
-    "registerProvider({\n  id: 'mine',\n  connection: {},\n  adapter: openRouterAdapter(),\n});",
+    mine,
+    "  registerProvider,\n  openRouterProvider,\n} from '@theoremjs/agents';",
   );
   // Its slots are part of what it runs with, so the code holds them.
   assertStringIncludes(
     named('mine', 'openrouter', { keySlot: 'team', fallbackKeySlot: 'spare' }),
-    "registerProvider({\n  id: 'mine',\n  connection: {},\n  keySlot: 'team',\n  fallbackKeySlot: 'spare',\n  adapter: openRouterAdapter(),\n});",
+    "registerProvider(openRouterProvider, {\n  id: 'mine',\n  keySlot: 'team',\n  fallbackKeySlot: 'spare',\n});",
   );
   const own = named('theirs', 'acme');
-  assertStringIncludes(own, "// Register the provider 'theirs' here, before the agents");
+  assertStringIncludes(
+    own,
+    "// Register the provider 'theirs' here, before the agents: its definition is the project's own.",
+  );
   assertEquals(own.includes('registerProvider'), false);
-});
-Deno.test('a built-in tool its provider does not offer is an issue on the model', () => {
-  const draft = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
-  const moved = compileStudio(
-    {
-      ...draft,
-      identity: { ...draft.identity, agentId: 'desk', handle: 'Desk' },
-      modelBindings: draft.modelBindings.map((binding) => ({
-        ...binding,
-        provider: 'openrouter',
-        apiId: 'openrouter/free',
-        builtInTools: ['googleSearch'],
-      })),
-    },
-    ON_OWN_KEYS,
-  );
-  assert(!moved.ok);
-  assertEquals(
-    moved.issues.map((issue) => `${issue.field}: ${issue.message}`),
-    ["builtInTools: openrouter doesn't offer the built-in tool googleSearch."],
-  );
 });
 Deno.test('studioSource writes structured output and function stubs', () => {
   const draft = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
@@ -828,7 +821,10 @@ Deno.test('a new text profile starts where the keys say', () => {
 });
 Deno.test('a new image profile starts where the keys say', () => {
   const draft = setProfileType(createBlankDraft(), 'image', TEST_KEYS);
-  assertEquals(draft.modelBindings[0].provider, 'google');
+  assertEquals(
+    [draft.modelBindings[0].protocol, draft.modelBindings[0].provider],
+    ['geminiInteractions', 'gemini'],
+  );
   assertEquals(draft.modelBindings[0].apiId, TEST_KEYS.start('image').apiId);
   assert(isKeySlotName(draft.models.key));
 });
@@ -1373,17 +1369,17 @@ Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () =
   const draft = createExampleDraft();
   const withCache = (index: number) =>
     updateModelBinding(draft, draft.modelBindings[index].key, {
-      cacheMode: 'system',
-      cacheTtl: '1h',
+      options: { cache: { mode: 'system', ttl: '1h' } },
     });
+  assertEquals(draft.modelBindings[2].protocol, 'openRouter');
   const { profile } = compiled(withCache(2));
-  assertEquals(profile.models.open.providerOptions?.cache, { mode: 'system', ttl: '1h' });
-  assertEquals(profile.models.fast.providerOptions?.cache, undefined);
+  assertEquals(profile.models.open.options, { cache: { mode: 'system', ttl: '1h' } });
+  assertEquals(profile.models.fast.options, undefined);
   const refused = compileStudio(withCache(0), ON_OWN_KEYS);
   assert(!refused.ok);
   assertEquals(
     refused.issues.map((issue) => issue.field),
-    ['cacheMode'],
+    ['options.cache'],
   );
 });
 Deno.test('compaction compiles as the agent compacting itself, and registers', () => {
@@ -1426,13 +1422,6 @@ Deno.test('compaction reports a missing budget, a bad start and a bad keep on th
     'compactKeep',
     'compactMaxTokens',
   ]);
-});
-Deno.test('a local server name compiles only on a local model', () => {
-  const draft = createExampleDraft();
-  const { profile } = compiled(
-    updateModelBinding(draft, draft.modelBindings[2].key, { server: 'ollama' }),
-  );
-  assertEquals(profile.models.open.providerOptions?.server, undefined);
 });
 Deno.test('a prompt leak action, schemes, taint and trace resource compile when set', () => {
   const draft = createExampleDraft();

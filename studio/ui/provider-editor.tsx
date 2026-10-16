@@ -6,8 +6,9 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { useState } from 'react';
 import {
 	connectionFields,
-	kernelAdapters,
+	kernelDefinitions,
 	providerUse,
+	takesKey,
 	type StudioIssue,
 	type StudioProvider,
 	type StudioWorkspace,
@@ -21,7 +22,6 @@ import {
 	TextRow,
 } from './inspector.tsx';
 import { IssueBanners, SlotRow } from './profile-editor.tsx';
-import { SupportSection } from './support-rows.tsx';
 
 /** A connection setting's name as a row labels it: `baseURL` is Base URL. */
 function settingLabel(name: string): string {
@@ -51,14 +51,13 @@ function withConnection(provider: StudioProvider, name: string, value: string): 
 }
 
 /**
- * `provider` on the kernel adapter `adapter`, keeping what it connects with that the adapter also
- * takes. What the old adapter was told its models take goes with it.
+ * `provider` registered from the kernel definition `definition`, keeping what it connects with
+ * that the definition also takes.
  */
-function withAdapter(provider: StudioProvider, adapter: string): StudioProvider {
-	const takes = new Set(connectionFields(adapter)?.map((field) => field.name));
+function withDefinition(provider: StudioProvider, definition: string): StudioProvider {
+	const takes = new Set(connectionFields(definition)?.map((field) => field.name));
 	const kept = Object.entries(provider.connection ?? {}).filter(([name]) => takes.has(name));
-	const { support: _told, ...rest } = provider;
-	return { ...rest, adapter, connection: Object.fromEntries(kept) };
+	return { ...provider, definition, connection: Object.fromEntries(kept) };
 }
 
 /**
@@ -123,21 +122,24 @@ export function ProviderEditor({
 	onChange?: (next: StudioProvider) => void;
 	onRename?: (id: string) => void;
 }) {
-	const held = connectionFields(provider.adapter);
+	const held = connectionFields(provider.definition);
 	const set = onChange ?? (() => undefined);
-	// A setting its adapter does not take still gets a row, so its issue shows and it can be cleared.
+	// A setting its definition does not take still gets a row, so its issue shows and it can be cleared.
 	const extra = Object.keys(provider.connection ?? {})
 		.filter((name) => !held?.some((field) => field.name === name))
 		.map((name) => ({ name, required: false, url: false }));
 	// The studio's own show only what they are set with: a blank row would say more than the studio knows.
 	const fields = held && [...held, ...extra].filter((field) => onChange || provider.connection?.[field.name]);
-	const slots = (['keySlot', 'fallbackKeySlot'] as const).filter((slot) => onChange || provider[slot]);
+	// A definition that signs in with no key reads no slot; one set anyway still shows, so its issue can be cleared.
+	const slots = (['keySlot', 'fallbackKeySlot'] as const).filter(
+		(slot) => provider[slot] || (onChange && takesKey(provider.definition)),
+	);
 	const rows = (
 		<>
 			{fields === undefined ? (
 				<InspectorSection
 					title="Connection"
-					note="Its adapter is the project's own, so what it connects with is the adapter's to say."
+					note="Its definition is the project's own, so what it connects with is the definition's to say."
 				>
 					{null}
 				</InspectorSection>
@@ -180,8 +182,6 @@ export function ProviderEditor({
 					))}
 				</InspectorSection>
 			)}
-			{/* The studio's own say only what they are told: rows of defaults would say more than the studio knows. */}
-			{(onChange || provider.support) && <SupportSection provider={provider} onChange={set} />}
 		</>
 	);
 	return (
@@ -202,19 +202,19 @@ export function ProviderEditor({
 					)}
 					{onChange && held ? (
 						<ChoiceRow
-							label="Adapter"
-							path="adapter"
-							field="adapter"
+							label="Definition"
+							path="definition"
+							field="definition"
 							isRequired
-							value={provider.adapter}
-							options={kernelAdapters()}
+							value={provider.definition}
+							options={kernelDefinitions()}
 							onChange={(next) => {
-								if (next && next !== provider.adapter) onChange(withAdapter(provider, next));
+								if (next && next !== provider.definition) onChange(withDefinition(provider, next));
 							}}
 						/>
 					) : (
-						<InspectorRow label="Adapter" path="adapter">
-							<Text>{provider.adapter}</Text>
+						<InspectorRow label="Definition" path="definition">
+							<Text>{provider.definition}</Text>
 						</InspectorRow>
 					)}
 				</InspectorSection>

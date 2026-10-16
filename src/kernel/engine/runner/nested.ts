@@ -8,10 +8,7 @@ import {
 } from '../../../guardrails/error.ts';
 import { labelText } from '../../../guardrails/labels.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
-import {
-  nestedRegisteredProvider,
-  resolveRegisteredTurnProvider,
-} from '../../provider-dispatch.ts';
+import { nestedTurnModel, resolveRegisteredTurnModel } from '../../provider-dispatch.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import {
   type AgentCaller,
@@ -23,10 +20,10 @@ import {
 import type { AgentCallRequest, ToolFailure } from '../../tools/types.ts';
 import type {
   ModelBinding,
-  ModelProvider,
   Profile,
   TurnEvent,
   TurnEventOf,
+  TurnModel,
   TurnRequest,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
@@ -42,7 +39,7 @@ function turnError(events: readonly TurnEvent[]): TurnEventOf<'error'> | undefin
 /** Runs one turn of a profile under a parent span, sharing the parent's record and canaries. */
 type RunNestedTurn = (args: {
   req: TurnRequest;
-  provider: ModelProvider;
+  provider: TurnModel;
   parent: SpanHandle;
   agentDepth: number;
 }) => AsyncGenerator<TurnEvent>;
@@ -56,7 +53,7 @@ type RunNestedTurn = (args: {
 function createAgentCaller(args: {
   registry: KernelRegistry;
   req: Pick<TurnRequest, 'onAgentCall' | 'metadata' | 'execution' | 'pageExecution'>;
-  provider: ModelProvider | undefined;
+  provider: TurnModel | undefined;
   own: ModelBinding | undefined;
   /** 0 for the host's own turn or invoke. */
   depth: number;
@@ -152,15 +149,15 @@ function createAgentCaller(args: {
 
 /** The provider an agent's turn runs on: the host's for this call, else the caller's, else the registry's. */
 function agentProvider(
-  from: { registry: KernelRegistry; provider: ModelProvider | undefined },
+  from: { registry: KernelRegistry; provider: TurnModel | undefined },
   profileId: string,
   model: AgentCallRequest['model'],
   hostProvider: AgentCallRequest['provider'],
-): ModelProvider {
+): TurnModel {
   if (hostProvider)
-    return resolveRegisteredTurnProvider(from.registry, profileId, model, hostProvider);
-  if (from.provider) return nestedRegisteredProvider(from.provider, profileId, model);
-  return resolveRegisteredTurnProvider(from.registry, profileId, model, {});
+    return resolveRegisteredTurnModel(from.registry, profileId, model, hostProvider);
+  if (from.provider) return nestedTurnModel(from.provider, profileId, model);
+  return resolveRegisteredTurnModel(from.registry, profileId, model, {});
 }
 
 /** The agent's reply, or why there is none. Errors only the host can fix are thrown. */

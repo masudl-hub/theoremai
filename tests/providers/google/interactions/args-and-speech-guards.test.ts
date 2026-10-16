@@ -2,7 +2,6 @@ import '../../../fixtures/test-host.ts';
 import { assertEquals } from '../../../../src/kernel/engine/assert.ts';
 import {
   finalizeStructured,
-  isVoiceProfile,
   missingMediaError,
   newStreamFold,
 } from '../../../../src/providers/google/interactions/stream.ts';
@@ -24,7 +23,6 @@ Deno.test('F-04 pressure: missing-media gate matrix', () => {
     return ev?.type === 'error' ? ev.errorInternal : ev;
   };
 
-  assertEquals(isVoiceProfile(voice), true);
   assertEquals(reason(voice, text), 'speech audio was not returned by the model');
   assertEquals(reason(voice, empty), 'speech audio was not returned by the model');
   assertEquals(reason(voice, media), undefined);

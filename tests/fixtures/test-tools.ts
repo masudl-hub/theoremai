@@ -305,6 +305,7 @@ function withProfileTools(
     Profile,
     | import('../../src/kernel/types.ts').SpeechProfile
     | import('../../src/kernel/types.ts').DecisionProfile
+    | import('../../src/kernel/types.ts').EmbeddingProfile
   >,
   extraAllow: string[],
 ): typeof profile {

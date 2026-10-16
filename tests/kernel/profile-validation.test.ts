@@ -13,11 +13,9 @@ function check(actual: unknown, expected: unknown, label: string): void {
 }
 type Loose = Record<string, unknown>;
 const BINDING = {
-  provider: 'google',
+  protocol: 'geminiInteractions',
+  provider: 'gemini',
   apiId: 'gemini-3.5-flash-lite',
-  providerOptions: {
-    persistViaInteractionId: false,
-  },
 } as const;
 const textProfile = (over: Loose = {}): Loose => ({
   id: 'p',
@@ -30,23 +28,18 @@ const textProfile = (over: Loose = {}): Loose => ({
   ...over,
 });
 const modelWith = (over: Loose): Loose => ({ models: { m: { ...BINDING, ...over } } });
-/** A local model, clearing the Gemini-only chaining field `BINDING` carries. */
-const _LOCAL = {
-  provider: 'local',
-  providerOptions: {},
-};
 const decisionProfile = (over: Loose = {}): Loose => ({
   id: 'd',
   type: 'decision',
   identity: { handle: 'd' },
-  models: { m: { provider: 'openrouter', apiId: 'x/y' } },
+  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' } },
   inputs: { state: 'json' },
   decision: { contract: 'decide' },
   ...over,
 });
-const DECISION_BINDING = { provider: 'openrouter', apiId: 'x/y' };
+const DECISION_BINDING = { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' };
 const decisionModel = (over: Loose): Loose => ({
-  models: { m: { provider: 'openrouter', apiId: 'x/y', ...over } },
+  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y', ...over } },
 });
 /** The message, with its kind when that is not `config`: every profile error is a config error. */
 function refusal(err: TheoremError): string {
@@ -89,7 +82,6 @@ function table(rows: [label: string, definition: Loose, message: string][]): voi
       label.startsWith('decision no provider') ||
       label.startsWith('decision no apiId') ||
       label.startsWith('decision blank apiId') ||
-      label === 'decision wrong protocol' ||
       label === 'decision retry' ||
       label.startsWith('decision timeout') ||
       label === 'decision key name' ||
@@ -117,12 +109,12 @@ Deno.test('a definition must be an object with an id and a known type', () => {
   }
   check(
     said(textProfile({ type: 'video' })),
-    'Profile p: type must be one of text, image, speech, live, decision, host',
+    'Profile p: type must be one of text, image, speech, live, decision, embedding, host',
     'unknown type',
   );
   check(
     said(textProfile({ type: undefined })),
-    'Profile p: type must be one of text, image, speech, live, decision, host',
+    'Profile p: type must be one of text, image, speech, live, decision, embedding, host',
     'no type',
   );
 });
@@ -135,11 +127,11 @@ Deno.test('maxSteps is a whole number of 1 or more, or left out', () => {
   check(said(textProfile({ maxSteps: 3 })), 'defined', 'maxSteps 3');
   check(said(textProfile({ maxSteps: undefined })), 'defined', 'no maxSteps');
 });
-Deno.test('model bindings require an ID and reject obsolete protocol fields', () => {
+Deno.test('model bindings need a protocol, a provider and a model', () => {
   for (const binding of [
-    { provider: '', apiId: 'model' },
-    { provider: 'company', apiId: '' },
-    { provider: 'company', apiId: 'model', protocol: 'openAi' },
+    { protocol: 'openAi', provider: '', apiId: 'model' },
+    { protocol: 'openAi', provider: 'company', apiId: '' },
+    { provider: 'company', apiId: 'model' },
   ]) {
     let rejected = false;
     try {
@@ -249,18 +241,26 @@ Deno.test('efforts are thinking levels with a default among them', () => {
     'a choice of two',
   );
 });
-Deno.test('vendor fields must be inside JSON providerOptions', () => {
+Deno.test("a protocol's settings go in options, never on the binding itself", () => {
   for (const over of [
     { cache: { mode: 'automatic' } },
     { store: true },
     { persistViaInteractionId: true },
-    { server: 'local' },
+    { providerOptions: {} },
   ])
-    check(said(textProfile(modelWith(over))) !== 'defined', true, 'obsolete vendor field');
+    check(said(textProfile(modelWith(over))) !== 'defined', true, 'not a binding field');
   check(
-    said(textProfile(modelWith({ providerOptions: { cache: { mode: 'automatic' } } }))),
+    said(
+      textProfile(
+        modelWith({
+          protocol: 'openRouter',
+          provider: 'openrouter',
+          options: { cache: { mode: 'automatic' } },
+        }),
+      ),
+    ),
     'defined',
-    'options are parsed by the registered adapter',
+    "options are the protocol's to check",
   );
 });
 Deno.test('resumption lists name only continue stop kinds', () => {
@@ -369,11 +369,6 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
       "Profile d: type 'decision' must declare exactly one model",
     ],
     [
-      'obsolete decision protocol',
-      decisionProfile(decisionModel({ protocol: 'decision' })),
-      'invalid binding',
-    ],
-    [
       'decision no provider',
       decisionProfile(decisionModel({ provider: '' })),
       "Profile d: type 'decision' must set models.*.provider",
@@ -387,11 +382,6 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
       'decision blank apiId',
       decisionProfile(decisionModel({ apiId: '  ' })),
       `${at} must set apiId`,
-    ],
-    [
-      'decision wrong protocol',
-      decisionProfile(decisionModel({ protocol: 'openAi' })),
-      `${at}: type 'decision' cannot use protocol 'openAi'. Supported: decision`,
     ],
     [
       'decision retry',
@@ -737,7 +727,7 @@ Deno.test('a live profile checks its context compression numbers and window', ()
     id: 'l',
     type: 'live',
     identity: { handle: 'l' },
-    models: { m: { provider: 'google', apiId: 'lv' } },
+    models: { m: { protocol: 'geminiLive', provider: 'gemini', apiId: 'lv' } },
     tools: { allow: [] },
     live: { voice: 'Aoede', contextCompression },
   });
@@ -823,7 +813,7 @@ Deno.test('a required field is named when null, empty or missing, shallowest fir
       textProfile({
         identity: { handle: '' },
         inputs: undefined,
-        models: { m: { provider: 'google', apiId: 'x' } },
+        models: { m: { protocol: 'geminiInteractions', provider: 'gemini', apiId: 'x' } },
       }),
     ),
     "Profile p: type 'text' must set inputs",
@@ -850,12 +840,7 @@ Deno.test('a field the type may carry only as its off value names that value', (
       textProfile({
         type: 'live',
         models: {
-          m: {
-            ...BINDING,
-            providerOptions: {
-              persistViaInteractionId: undefined,
-            },
-          },
+          m: { ...BINDING, protocol: 'geminiLive' },
         },
         inputs: { text: true },
       }),
@@ -891,7 +876,7 @@ Deno.test('a live profile defines without compression, a speech profile carries 
     id: 'l',
     type: 'live',
     identity: { handle: 'l', system: 'hi' },
-    models: { m: { provider: 'google', apiId: 'lv' } },
+    models: { m: { protocol: 'geminiLive', provider: 'gemini', apiId: 'lv' } },
     tools: { allow: [] },
     live: { voice: 'Aoede' },
   };
@@ -913,7 +898,7 @@ Deno.test('a cache needs openrouter, a live profile needs a channel, a label key
       id: 'l',
       type: 'live',
       identity: { handle: 'l' },
-      models: { m: { provider: 'google', apiId: 'lv' } },
+      models: { m: { protocol: 'geminiLive', provider: 'gemini', apiId: 'lv' } },
       tools: { allow: [] },
       live: { voice: 'Aoede', ingress: { audio: false, video: false, text: false } },
     }),
@@ -995,7 +980,7 @@ Deno.test('a trigger above the window defines, a profile compacting itself must 
     id: 'l',
     type: 'live',
     identity: { handle: 'l' },
-    models: { m: { provider: 'google', apiId: 'lv' } },
+    models: { m: { protocol: 'geminiLive', provider: 'gemini', apiId: 'lv' } },
     tools: { allow: [] },
     live: { voice: 'Aoede', contextCompression: compression },
   });

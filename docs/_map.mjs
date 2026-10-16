@@ -62,8 +62,8 @@ const graph = {
       owns: ['react/src/', 'react/package.json'],
       watches: [
         {
-          path: 'src/kernel/provider-contract.ts',
-          reason: 'React setup uses provider definitions and host options',
+          path: 'src/kernel/protocols/provider.ts',
+          reason: 'React setup registers provider definitions and host options',
           sections: ['Quick start'],
         },
         {
@@ -160,7 +160,6 @@ const graph = {
           paths: [
             'src/kernel/engine/compaction.ts',
             'src/kernel/engine/token-estimate.ts',
-            'src/kernel/engine/media-probe/**',
           ],
           sections: ['Compaction'],
         },
@@ -187,39 +186,42 @@ const graph = {
       ],
     },
 
-    providerTesting: {
-      export: './providers/testing',
-      doc: 'docs/contracts/providers.md',
-      owns: ['src/providers/testing.ts'],
-      validates: ['tests/providers/conformance.test.ts'],
-    },
     providers: {
       export: './providers',
       doc: 'docs/contracts/providers.md',
       owns: ['src/providers/'],
-      owns_except: ['src/providers/local/mod.ts', 'src/providers/google/live/mod.ts', 'src/providers/testing.ts'],
       watches: [
         {
           path: 'src/kernel/registry/vault.ts',
-          reason: 'Key slot resolution feeds every adapter',
+          reason: 'Key slot resolution feeds every provider',
           sections: ['Key vault (provider-neutral)', 'Registered providers'],
+        },
+        {
+          path: 'src/kernel/protocols/**',
+          reason: 'Protocols, providers and bindings are defined and run by the kernel',
+          sections: ['Registered providers', 'Model bindings', 'Protocol contract', 'Saved provider state'],
         },
       ],
       validates: [
+        'tests/kernel/protocols/protocols.test.ts',
+        'tests/kernel/protocols/checkpoints.test.ts',
+        'tests/providers/providers.test.ts',
         'tests/providers/create-provider.test.ts',
-        'tests/providers/create-provider-import-isolation.test.ts',
-        'tests/providers/google/keys.test.ts',
+        'tests/providers/registered-openrouter.test.ts',
+        'tests/providers/embedding-protocol.test.ts',
+        'tests/providers/gemini/interactions-protocol.test.ts',
+        'tests/providers/gemini/live-protocol.test.ts',
         'tests/providers/google/interactions/framing.test.ts',
         'tests/providers/google/interactions/stream.test.ts',
         'tests/providers/google/interactions/speech.test.ts',
         'tests/providers/google/live/framing.test.ts',
         'tests/providers/google/live/stream.test.ts',
-        'tests/providers/local/local.test.ts',
-        'tests/providers/openrouter/chat.test.ts',
-        'tests/providers/openrouter/speech.test.ts',
+        'tests/providers/open-ai/protocol.test.ts',
+        'tests/providers/openrouter/protocol.test.ts',
+        'tests/providers/openrouter/images-protocol.test.ts',
         'tests/providers/openrouter/openai/compat.test.ts',
-        'tests/providers/extensions.test.ts',
         'tests/providers/openrouter/openai/usage.test.ts',
+        'tests/providers/system-one/protocol.test.ts',
         'tests/providers/shared/pcm.test.ts',
         'tests/providers/shared/sse.test.ts',
         'tests/providers/shared/upstream-tape.test.ts',
@@ -230,62 +232,56 @@ const graph = {
         'Ownership',
         'Package boundary',
         'Registered providers',
+        'Model bindings',
+        'Protocol contract',
         'OpenRouter',
         'Google Interactions',
         'Google Live',
         'Local provider',
         'Speech roles',
         'Key vault (provider-neutral)',
+        'Saved provider state',
         'Exported API',
       ],
       section_triggers: [
         {
-          paths: ['src/providers/adapters.ts'],
+          paths: ['src/providers/mod.ts', 'src/providers/*/provider.ts'],
           sections: ['Registered providers', 'Package boundary'],
         },
         {
           paths: [
-            'src/providers/openrouter/chat.ts',
+            'src/providers/openrouter/protocol.ts',
+            'src/providers/openrouter/images-protocol.ts',
             'src/providers/openrouter/openai/usage.ts',
+            'src/providers/system-one/protocol.ts',
           ],
           sections: ['OpenRouter'],
         },
         {
-          paths: ['src/providers/local/local.ts', 'src/providers/local/mod.ts'],
+          paths: ['src/providers/local/provider.ts', 'src/providers/open-ai/protocol.ts'],
           sections: ['Local provider'],
         },
         {
           paths: [
+            'src/providers/gemini/interactions-protocol.ts',
             'src/providers/google/interactions/framing.ts',
             'src/providers/google/interactions/stream.ts',
-            'src/providers/google/interactions/mod.ts',
           ],
           sections: ['Google Interactions'],
         },
         {
           paths: [
+            'src/providers/gemini/live-protocol.ts',
             'src/providers/google/live/framing.ts',
             'src/providers/google/live/stream.ts',
-            'src/providers/google/live/mod.ts',
+            'src/kernel/engine/session/mod.ts',
           ],
           sections: ['Google Live'],
         },
         {
-          paths: ['src/providers/openrouter/speech.ts'],
-          sections: ['Speech roles'],
+          paths: ['src/providers/*/embedding-protocol.ts', 'src/kernel/engine/embedding.ts'],
+          sections: ['Embedding protocols'],
         },
-      ],
-    },
-
-    'providers-local': {
-      export: './providers/local',
-      doc: 'docs/contracts/providers.md',
-      owns: ['src/providers/local/mod.ts'],
-      validates: ['tests/providers/local/local.test.ts'],
-      required_sections: [
-        'Export',
-        'Local provider',
-        'Exported API',
       ],
     },
 
@@ -625,39 +621,6 @@ const graph = {
           sections: ['Running a suite'],
         },
       ],
-    },
-
-    'providers-google-live': {
-      export: './providers/google/live',
-      doc: 'docs/contracts/providers.md',
-      owns: ['src/providers/google/live/mod.ts'],
-      watches: [
-        {
-          path: 'src/providers/google/live/framing.ts',
-          reason: 'Live wire helpers re-exported by the Google Live entry',
-          sections: ['Google Live'],
-        },
-        {
-          path: 'src/providers/google/live/stream.ts',
-          reason: 'Shared Live WebSocket transport helpers for runSession',
-          sections: ['Google Live'],
-        },
-        {
-          path: 'src/providers/google/live/session.ts',
-          reason: 'openGoogleLiveSession — long-lived Gemini Live socket',
-          sections: ['Google Live'],
-        },
-        {
-          path: 'src/kernel/engine/session/mod.ts',
-          reason: 'runSession door — gated live session over shared resolve/tools/gates',
-          sections: ['Google Live'],
-        },
-      ],
-      validates: [
-        'tests/providers/google/live/framing.test.ts',
-        'tests/providers/google/live/stream.test.ts',
-      ],
-      required_sections: ['Export', 'Google Live', 'Exported API'],
     },
   },
 };

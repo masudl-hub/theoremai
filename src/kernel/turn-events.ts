@@ -3,7 +3,7 @@ import {
   type ProviderWarning,
   providerCheckpointSchema,
   providerWarningSchema,
-} from './provider-contract.ts';
+} from './checkpoint.ts';
 // invariant: Each type is paired with a zod schema checked against it (`Equals`), so a field in one and
 // not the other fails the build. Schemas are plain `z.object`, never `.strict()`: an unlisted
 // field is dropped. An unmapped provider step is `evidence` of kind `provider_step`.
@@ -17,6 +17,7 @@ import {
   guardrailEventSchema,
 } from '../guardrails/event-schemas.ts';
 import type { ErrorKind } from '../guardrails/theorem-error.ts';
+import { type JsonObject, type JsonValue, jsonObjectSchema, jsonValueSchema } from './json.ts';
 import {
   AWAITING_USER_INPUT_STATUS,
   COMPACTION_METERS,
@@ -25,7 +26,6 @@ import {
   type CompactionOutcome,
   MEDIA_INPUT_KIND_VALUES,
   type MediaInputKind,
-  type Provider,
   STAGE_APPLY_WARNING_CODES,
   type StageApplyWarningCode,
   TOOL_ACCESS,
@@ -92,6 +92,40 @@ true satisfies Equals<z.infer<typeof interactionPart>, InteractionPart>;
 export const interactionPartSchema: z.ZodType<InteractionPart> = interactionPart;
 
 /** One message of a conversation history the host replays into a turn. */
+/** Where a piece of signed reasoning came from. `protocol` decides where it may go back to. */
+export interface ReasoningOrigin {
+  protocol: string;
+  provider?: string;
+  apiId?: string;
+}
+const reasoningOrigin = z.object({
+  protocol: z.string().min(1),
+  provider: z.string().min(1).optional(),
+  apiId: z.string().min(1).optional(),
+});
+true satisfies Equals<z.infer<typeof reasoningOrigin>, ReasoningOrigin>;
+
+/**
+ * Signed reasoning a model wrote, kept word for word: Gemini's thought signatures, OpenRouter's
+ * `reasoning_details`. It goes back only to the protocol that wrote it, or one extended from it;
+ * `data` is that protocol's own shape, checked against its `reasoning` schema.
+ */
+export interface ReasoningPart {
+  text?: string;
+  data: JsonValue;
+  origin: ReasoningOrigin;
+}
+export const reasoningPartSchema: z.ZodObject<{
+  text: z.ZodOptional<z.ZodString>;
+  data: z.ZodType<JsonValue>;
+  origin: z.ZodType<ReasoningOrigin>;
+}> = z.object({
+  text: z.string().optional(),
+  data: jsonValueSchema,
+  origin: reasoningOrigin,
+});
+true satisfies Equals<z.infer<typeof reasoningPartSchema>, ReasoningPart>;
+
 export interface TurnHistoryMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content?: string;
@@ -100,9 +134,9 @@ export interface TurnHistoryMessage {
     id: string;
     type: 'function';
     function: { name: string; arguments: string };
-    /** The call's `ToolCallRequest.thoughtSignature`, replayed with it. */
-    thoughtSignature?: string;
   }[];
+  /** On an assistant message: the signed reasoning written with it, to go back with it. */
+  reasoning?: ReasoningPart[];
   tool_call_id?: string;
   name?: string;
   metadata?: Record<string, unknown>;
@@ -117,10 +151,10 @@ const turnHistoryMessage = z.object({
         id: z.string(),
         type: z.literal('function'),
         function: z.object({ name: z.string(), arguments: z.string() }),
-        thoughtSignature: z.string().optional(),
       }),
     )
     .optional(),
+  reasoning: z.array(reasoningPartSchema).optional(),
   tool_call_id: z.string().optional(),
   name: z.string().optional(),
   metadata: jsonObject.optional(),
@@ -285,7 +319,8 @@ const groundingEvent = z.object({
 true satisfies Equals<z.infer<typeof groundingEvent>, GroundingEvent>;
 
 export interface EvidenceBase {
-  provider: Provider;
+  /** The registered provider's id. */
+  provider: string;
   /** The provider's own payload, for the builder: `forClient` strips it unless `includeEvidenceRaw`. */
   raw?: Record<string, unknown>;
   /**
@@ -612,12 +647,11 @@ export interface ToolCallRequest extends ToolEventBase {
    */
   arguments: Record<string, unknown>;
   /**
-   * Google's opaque signature for the thought that led to this call, when the
-   * provider sent one. Only the first call of a step carries it: the model
-   * thinks once before all of that step's calls. Replaying a call without it
-   * fails on Google (probe 25/09/2026).
+   * On a step's first call: the signed reasoning the model wrote before the step's calls (a Gemini
+   * thought signature, OpenRouter's `reasoning_details`). It goes back on the assistant message
+   * holding the step's calls, word for word; a host keeping its own history keeps it there.
    */
-  thoughtSignature?: string;
+  reasoning?: ReasoningPart[];
   /**
    * The model step that made this call: calls sharing it were made together,
    * in one model response, and replay as one assistant message. Unique within
@@ -635,7 +669,7 @@ const toolCallRequest = z.object({
   ...toolEventBase,
   phase: z.undefined().optional(),
   arguments: jsonObject,
-  thoughtSignature: z.string().min(1).optional(),
+  reasoning: z.array(reasoningPartSchema).optional(),
   stepId: z.string().min(1).optional(),
   stepCallCount: z.number().int().min(1).optional(),
 });
@@ -905,6 +939,8 @@ export type TurnEvent =
     }
   | { type: 'text'; text: string }
   | { type: 'thought'; text: string }
+  /** Content a protocol emits with no common shape; `kind` is `<protocol>.<kind>`. */
+  | { type: 'custom'; kind: string; data: JsonObject }
   /** The profile's structured-output schema validates `structured`. */
   | {
       type: 'structured';
@@ -1007,14 +1043,15 @@ export interface CallDone {
 }
 
 /**
- * What a provider yields: the host events, its call's `done`, and the
- * response's identity (`response`, recorded on the call's trace), which hosts
- * never receive.
+ * What a model call yields to the engine: the host events, its call's `done`, the response's
+ * identity (`response`, recorded on the call's trace) and the signed reasoning it wrote, which the
+ * engine puts on the step's first call. Hosts never receive the last three as they are.
  */
-export type ProviderEvent =
+export type ModelEvent =
   | Exclude<TurnEvent, { type: 'done' }>
   | ({ type: 'done' } & CallDone)
-  | { type: 'response'; response: TurnResponse };
+  | { type: 'response'; response: TurnResponse }
+  | ({ type: 'reasoning' } & ReasoningPart);
 
 /** A `done` before its stop decides whether it carries the turn's tools. */
 export type DoneFields = DoneBase & { stop: TurnStop };
@@ -1077,6 +1114,11 @@ const TURN_EVENTS = {
   }),
   text: z.object({ type: z.literal('text'), text: z.string() }),
   thought: z.object({ type: z.literal('thought'), text: z.string() }),
+  custom: z.object({
+    type: z.literal('custom'),
+    kind: z.string().min(1),
+    data: jsonObjectSchema,
+  }),
   structured: z.object({
     type: z.literal('structured'),
     structured: z.unknown(),
@@ -1178,6 +1220,7 @@ const turnEvent = z.union([
     TURN_EVENTS.provider_checkpoint,
     TURN_EVENTS.text,
     TURN_EVENTS.thought,
+    TURN_EVENTS.custom,
     TURN_EVENTS.structured,
     TURN_EVENTS.structured_draft,
     TURN_EVENTS.attempt,

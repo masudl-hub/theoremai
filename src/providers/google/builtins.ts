@@ -1,13 +1,12 @@
 /**
- * The tools Gemini runs itself: what each takes from a request's `builtInArgs`
- * and how each is sent on Interactions and on Live.
+ * The tools Gemini runs itself, and how each is sent on Interactions and on Live, with what it
+ * takes from a request's `builtInArgs`.
  *
  * @module
  */
 
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
-import type { ProviderBuiltinSpec } from '../../kernel/provider-contract.ts';
 import type { ProviderBuiltin } from '../../kernel/types.ts';
 
 const googleMapsArgs: z.ZodType<{ location: { latitude: number; longitude: number } }> =
@@ -19,14 +18,7 @@ const googleMapsArgs: z.ZodType<{ location: { latitude: number; longitude: numbe
     }),
   });
 
-const GOOGLE_BUILTINS = {
-  googleSearch: {},
-  googleMaps: { args: googleMapsArgs },
-  urlContext: {},
-  codeExecution: {},
-} satisfies Record<string, ProviderBuiltinSpec>;
-
-type GoogleBuiltinId = keyof typeof GOOGLE_BUILTINS;
+type GoogleBuiltinId = 'googleSearch' | 'googleMaps' | 'urlContext' | 'codeExecution';
 
 const GOOGLE_BUILTIN_IDS: readonly GoogleBuiltinId[] = [
   'googleSearch',
@@ -71,4 +63,4 @@ function liveBuiltinTool(builtin: ProviderBuiltin): Record<string, unknown> {
 }
 
 export type { GoogleBuiltinId };
-export { GOOGLE_BUILTIN_IDS, GOOGLE_BUILTINS, interactionsBuiltinTool, liveBuiltinTool };
+export { GOOGLE_BUILTIN_IDS, interactionsBuiltinTool, liveBuiltinTool };

@@ -18,7 +18,7 @@ import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { eventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
@@ -54,7 +54,7 @@ function register(id: string, onBlock?: 'refuse'): string {
 }
 
 /** Streams the canary a few characters at a time. */
-const leaksCanary: ModelProvider = {
+const leaksCanary: TurnModel = {
   async *complete(req) {
     await Promise.resolve();
     for (const piece of `Sure: ${canaryIn(req.system ?? '')} ok`.match(/.{1,4}/gs) ?? []) {
@@ -109,7 +109,7 @@ Deno.test('a provider tool report carrying the canary is an incident, not a prev
       inputs: { text: true },
     }),
   );
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       yield {

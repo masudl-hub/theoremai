@@ -16,7 +16,7 @@ import { MASK, unmaskUrl } from '@theoremjs/agents/surface';
 import { AGENTS_PACKAGE, type SourceStyle, valueSource } from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import { canonical } from '../canonical.ts';
-import { adapterFactory, declaresSupport, modelCapabilities, SUPPORT_KEYS } from '../providers.ts';
+import { definitionFactory } from '../providers.ts';
 import {
   declares,
   definedAs,
@@ -574,9 +574,8 @@ class Planner {
       const change: KeyChange = { key, before: before[key], after: after[key], here: [...path, key] };
       const schema = this.subject.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[key] : undefined;
       const entry = shape.entries.get(key);
-      if (this.subject.kind === 'provider' && key === 'support' && at.node === unwrapped(this.target.options)) {
-        this.told(shape, at, change);
-      } else if (schema) this.toolSchema(shape, at, schema, change);
+      if (this.subject.kind === 'provider' && path.length === 0 && key === 'definition') this.redefine(change);
+      else if (schema) this.toolSchema(shape, at, schema, change);
       else if (!entry) {
         if (this.isAdded(shape, at, change)) inserts.push([key, change.after]);
       } else {
@@ -612,8 +611,9 @@ class Planner {
     const { open, own } = shape;
     const { property, value } = entry;
     const place = this.placeIn(shape, at, key);
-    if (this.subject.kind === 'provider' && here.length === 1 && key === 'adapter') this.readapt(value, change, place);
-    else if (entry.receiver && !(open && !open.after.has(key))) this.reprovide(entry.receiver, value, change);
+    if (key === 'protocol' && value && ts.isIdentifier(unwrapped(value.node))) {
+      this.swapKernelName(value, before, after, here, place);
+    } else if (entry.receiver && !(open && !open.after.has(key))) this.reprovide(entry.receiver, value, change);
     else if (!value || (open && !open.after.has(key))) this.note('code', here, place);
     else if (property && ts.isShorthandPropertyAssignment(property)) this.named(value, key, before, after, here);
     else if (after === undefined) {
@@ -646,26 +646,31 @@ class Planner {
   }
 
   /**
-   * A provider's adapter, changed by calling the other kernel factory where its definition calls
-   * this one, imported from the kernel package. The new factory is imported beside the old, in
-   * place of it when nothing else in the file reads the old one. An adapter made any other way is
-   * code's to change.
+   * A provider's definition, changed by registering the other kernel definition where its call
+   * names this one.
    */
-  private readapt(at: Located | undefined, { before, after, here }: KeyChange, place: Place) {
-    const from = typeof before === 'string' ? adapterFactory(before) : undefined;
-    const to = typeof after === 'string' ? adapterFactory(after) : undefined;
-    const call = at && unwrapped(at.node);
-    // What a told adapter was told goes with it (`told`): nothing else in the call may.
-    const [told, ...more] = call && ts.isCallExpression(call) ? call.arguments : [];
-    const onlyTold = told === undefined ||
-      (typeof before === 'string' && declaresSupport(before) && !more.length && isOnlyTold(told));
-    if (!at || !from || !to || !call || !ts.isCallExpression(call) || !onlyTold || !ts.isIdentifier(call.expression)) {
-      return this.note('code', here, place);
-    }
+  private redefine({ before, after, here }: KeyChange) {
+    const call = this.target.options.parent;
+    const definition = ts.isCallExpression(call) ? call.arguments[0] : undefined;
+    const { source } = this.target;
+    if (!definition) return this.note('code', here, { source, node: this.target.options });
+    const name = (value: unknown) => (typeof value === 'string' ? definitionFactory(value) : undefined);
+    this.swapKernelName({ node: definition, source }, name(before), name(after), here, { source, node: definition });
+  }
+
+  /**
+   * A name the kernel package exports, written at `at`, changed to another of its exports: a
+   * provider's definition (`geminiProvider`) or a model's protocol (`geminiInteractions`). The new
+   * name is imported beside the old, in place of it when nothing else in the file reads the old one.
+   * A name the file does not import from the kernel is code's to change.
+   */
+  private swapKernelName(at: Located, before: unknown, after: unknown, here: string[], place: Place) {
+    const node = unwrapped(at.node);
+    const [from, to] = [before, after].map((value) => (typeof value === 'string' ? value : undefined));
+    if (!from || !to || !ts.isIdentifier(node) || at.env?.bound.has(node.text)) return this.note('code', here, place);
     const { source } = at;
     const imported = namedImports(source);
-    const callee = call.expression;
-    const old = imported.find((element) => element.name.text === callee.text);
+    const old = imported.find((element) => element.name.text === node.text);
     if (!old) return this.note('code', here, place);
     if ((old.propertyName ?? old.name).text !== from) return this.note('changed', here, place);
     const held = imported.find((element) => (element.propertyName ?? element.name).text === to);
@@ -673,58 +678,15 @@ class Planner {
     if (!name) {
       name = to;
       if (declares(source, to)) return this.note('code', here, place);
-      // The import of the old factory is the only other place that reads it: the new one takes its place.
-      if (reads(source, callee.text) === 2) this.edit(source, old.getStart(source), old.end, to);
+      // The import of the old name is the only other place that reads it: the new one takes its place.
+      if (reads(source, node.text) === 2) this.edit(source, old.getStart(source), old.end, to);
       else {
         const last = (old.parent as ts.NamedImports).elements.at(-1) ?? old;
         this.edit(source, last.end, last.end, `, ${to}`);
       }
     }
-    this.edit(source, callee.getStart(source), callee.end, name);
+    this.edit(source, node.getStart(source), node.end, name);
     this.note('written', here, place);
-  }
-
-  /**
-   * What a provider's models take, told to its adapter: changed in the call that makes the
-   * adapter, wherever that call is written. A call with nothing in it is given the whole; one
-   * already told has each part that changed written where it stands. An adapter that is not told,
-   * or one made any other way, is code's to change.
-   */
-  private told(shape: ObjectShape, at: Located, change: KeyChange) {
-    const { after, here } = change;
-    const entry = shape.entries.get('adapter');
-    const adapter = (this.subject.after as Json).adapter;
-    const place = this.placeIn(shape, at, 'adapter');
-    if (!entry?.value || typeof adapter !== 'string' || (after !== undefined && !declaresSupport(adapter))) {
-      return this.note('code', here, place);
-    }
-    const origin = followed(this.project, entry.value);
-    const call = unwrapped(origin.node);
-    if (!ts.isCallExpression(call) || call.arguments.length > 1) return this.note('code', here, place);
-    const located: Located = { ...origin, node: call };
-    if (call === unwrapped(entry.value.node) && origin.source === entry.value.source) this.toldIn(located, change);
-    else this.within(located, here, () => this.toldIn(located, change));
-  }
-
-  private toldIn(at: Located, { before, after, here }: KeyChange) {
-    const call = at.node as ts.CallExpression;
-    const { source } = at;
-    const [told] = call.arguments;
-    if (!told) {
-      if (after === undefined) return;
-      const start = call.arguments.pos;
-      this.edit(source, start, call.arguments.end, valueSource(after, this.style(source, call.getStart(source))));
-      return this.note('written', here, { source, node: call });
-    }
-    if (after === undefined) {
-      // Told nothing now, on another adapter or back to its defaults: the call says nothing.
-      if (!isOnlyTold(told)) return this.note('code', here, { source, node: told });
-      this.edit(source, call.arguments.pos, call.arguments.end, '');
-      return this.note('written', here, { source, node: told });
-    }
-    // A file that writes the defaults out reads as told nothing: what it writes is the defaults.
-    const was = before ?? { capabilities: modelCapabilities(String((this.subject.after as Json).adapter), '') };
-    this.walk({ ...at, node: told }, was, after, here);
   }
 
   /** The name `source` reads the provider `to` by, importing it when the file does not yet. Undefined when it cannot. */
@@ -1184,13 +1146,6 @@ export function diffHunks(text: string, edits: readonly SourceEdit[]): DiffHunk[
       trail: lines.slice(after, after + CONTEXT_LINES),
     }];
   });
-}
-
-/** Whether an adapter's argument holds what its models take (`SUPPORT_KEYS`) and nothing else. */
-function isOnlyTold(argument: ts.Expression): boolean {
-  const object = unwrapped(argument);
-  return ts.isObjectLiteralExpression(object) &&
-    object.properties.every((property) => SUPPORT_KEYS.has(propertyName(property) ?? ''));
 }
 
 /** Each name the file imports by name from the kernel package, as values. */

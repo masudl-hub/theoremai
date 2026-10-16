@@ -24,7 +24,7 @@ import {
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -248,7 +248,7 @@ function registerEchoProfile(id: string, promptEcho?: boolean): string {
   return id;
 }
 /** A model that dumps the host's system prompt word by word, leaving the canary out. */
-const dumpsPrompt: ModelProvider = {
+const dumpsPrompt: TurnModel = {
   async *complete() {
     await Promise.resolve();
     for (const word of `My instructions: ${SYSTEM}`.split(' '))
@@ -305,7 +305,7 @@ async function echoToolTurn(id: string, detect?: DetectSpec) {
     }),
   );
   let step = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       await Promise.resolve();
       step += 1;
@@ -401,7 +401,7 @@ function registerMarkedProfile(id: string): string {
   );
   return id;
 }
-function says(text: string): ModelProvider {
+function says(text: string): TurnModel {
   return {
     async *complete() {
       await Promise.resolve();
@@ -442,7 +442,7 @@ Deno.test("runTurn stops a reply repeating Theorem's notes after a shareable par
     }),
   );
   let notes = '';
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       notes = req.system.slice(req.system.indexOf(VOICE) + VOICE.length + 1);

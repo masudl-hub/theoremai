@@ -21,13 +21,7 @@ function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
 type Loose = Record<string, unknown>;
-const GEMINI = {
-  provider: 'google',
-  apiId: 'g',
-  providerOptions: {
-    persistViaInteractionId: true,
-  },
-} as const;
+const GEMINI = { protocol: 'scripted', provider: 'scripted', apiId: 'g' } as const;
 function define(id: string, over: Loose = {}): void {
   registerProfile({
     id,
@@ -62,7 +56,7 @@ Deno.test('a host or decision profile never resolves a turn, and the refusal nam
     id: 'd',
     type: 'decision',
     identity: { handle: 'd' },
-    models: { m: { provider: 'openrouter', apiId: 'x/y' } },
+    models: { m: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest' } },
     inputs: { state: 'json' },
     decision: { contract: 'decide' },
   } as never);
@@ -169,7 +163,7 @@ Deno.test('turn generation contains portable history and no native provider fiel
   check('previousInteractionId' in generation, false, 'native ID is adapter-owned');
   check('chains' in generation, false, 'kernel does not chain vendor conversations');
 });
-const LIVE = { provider: 'google', apiId: 'lv' } as const;
+const LIVE = { protocol: 'geminiLive', provider: 'gemini', apiId: 'lv' } as const;
 Deno.test('a live profile streams over the live transport, takes its own spec, and refuses continueFrom', () => {
   clearProfiles();
   define('lv', {

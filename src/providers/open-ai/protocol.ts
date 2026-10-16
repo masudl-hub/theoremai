@@ -1,15 +1,16 @@
 import { z } from 'zod';
 import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
+import type { JsonObject } from '../../kernel/json.ts';
 import {
   defineProtocol,
+  type Protocol,
   type ProtocolContext,
   type ProtocolEvent,
-  type TurnRequest,
+  type ProtocolRequest,
 } from '../../kernel/protocols/mod.ts';
-import type { JsonObject } from '../../kernel/provider-contract.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
-import type { ProviderCompleteRequest, ProviderEvent, TurnResponse } from '../../kernel/types.ts';
+import type { ModelEvent, TurnResponse } from '../../kernel/types.ts';
 import { base64ToBytes, bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
 import {
@@ -37,18 +38,18 @@ interface Reply {
 }
 
 /** Old-shape events from the shared helpers, as protocol events. */
-function asProtocolEvents(events: readonly ProviderEvent[]): ProtocolEvent[] {
+function asProtocolEvents(events: readonly ModelEvent[]): ProtocolEvent[] {
   return events.flatMap((event) => asProtocolEvent(event) ?? []);
 }
 
-function requestBody(context: ProtocolContext, request: TurnRequest): JsonObject {
+function requestBody(context: ProtocolContext, request: ProtocolRequest): JsonObject {
   const stream = request.stream !== false;
   const tools = wireTools(request.wireTools);
   const format = resolveResponseFormat(request.structured);
   const body: Record<string, unknown> = {
     model: context.apiId,
     // why: replayed reasoning belongs to the protocol that wrote it, never to plain Chat Completions.
-    messages: buildChatMessages({ ...request, state: undefined } as ProviderCompleteRequest),
+    messages: buildChatMessages(request),
     stream,
     ...(stream ? { stream_options: { include_usage: true } } : {}),
     ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
@@ -101,7 +102,7 @@ function mergeCalls(part: Record<string, unknown>, reply: Reply): void {
 function partEvents(
   part: Record<string, unknown>,
   reply: Reply,
-  request: TurnRequest,
+  request: ProtocolRequest,
 ): ProtocolEvent[] {
   const events: ProtocolEvent[] = [];
   const thought = part.reasoning ?? part.reasoning_content;
@@ -116,7 +117,7 @@ function partEvents(
   return events;
 }
 
-function rowEvents(row: JsonObject, reply: Reply, request: TurnRequest, stream: boolean) {
+function rowEvents(row: JsonObject, reply: Reply, request: ProtocolRequest, stream: boolean) {
   errorRow(row);
   const events: ProtocolEvent[] = [];
   const identity = foldResponse(reply.response, openAiResponse(row));
@@ -144,7 +145,7 @@ function rowEvents(row: JsonObject, reply: Reply, request: TurnRequest, stream: 
 }
 
 /** The calls, the structured reply and the stop, once the rows are done. */
-function endEvents(reply: Reply, request: TurnRequest): ProtocolEvent[] {
+function endEvents(reply: Reply, request: ProtocolRequest): ProtocolEvent[] {
   const events: ProtocolEvent[] = [];
   // why: some compatible servers end a tool-calling reply with `stop`, so the calls go out whatever the finish.
   for (const [index, call] of reply.calls)
@@ -153,7 +154,7 @@ function endEvents(reply: Reply, request: TurnRequest): ProtocolEvent[] {
     );
   const stop = turnStopFromOpenAiFinishReason(reply.finish, reply.native);
   if (request.structured && reply.text && stop.kind === 'completed') {
-    const structured = asProtocolEvents([structuredEvent(reply.text) as ProviderEvent]);
+    const structured = asProtocolEvents([structuredEvent(reply.text) as ModelEvent]);
     events.push(...structured);
     if (structured[0]?.type === 'error') return events;
   }
@@ -164,7 +165,7 @@ function endEvents(reply: Reply, request: TurnRequest): ProtocolEvent[] {
 /** `/audio/speech`: the input's text read aloud, answered whole. Raw PCM with a stated rate becomes WAV. */
 async function* speech(
   context: ProtocolContext,
-  request: TurnRequest,
+  request: ProtocolRequest,
 ): AsyncGenerator<ProtocolEvent> {
   const text = request.input
     .flatMap((part) => (part.type === 'text' ? [part.text] : []))
@@ -196,7 +197,7 @@ async function* speech(
 }
 
 /** OpenAI Chat Completions: the shape most compatible servers speak. */
-export const openAi = defineProtocol({
+export const openAi: Protocol<Record<string, never>> = defineProtocol({
   id: 'openAi',
   name: 'OpenAI Chat Completions',
   description: 'The Chat Completions shape that OpenAI and most compatible servers speak.', // labels-exempt: builder field description, read by the studio and docs

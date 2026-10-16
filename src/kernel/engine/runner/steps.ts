@@ -37,13 +37,14 @@ import {
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
 import { profileToolsParallel } from '../../tools/resolve.ts';
 import type { ModelToolResult, ToolCallEvent, ToolFailure } from '../../tools/types.ts';
+import type { ReasoningPart } from '../../turn-events.ts';
 import type {
-  ModelProvider,
   Profile,
   ResolvedGeneration,
   TurnEvent,
   TurnEventOf,
   TurnHistoryMessage,
+  TurnModel,
   TurnRequest,
   TurnStop,
 } from '../../types.ts';
@@ -92,7 +93,6 @@ function isAnswerOnlyStep(profile: Profile, generation: ResolvedGeneration, step
  */
 interface ModelCall extends ToolCallBase {
   arguments: Record<string, unknown>;
-  thoughtSignature?: string;
   failure?: ToolFailure;
 }
 
@@ -106,7 +106,6 @@ function holdModelCall(calls: ModelCall[], tool: ToolCallEvent): boolean {
       name: tool.name,
       callId: tool.callId,
       arguments: tool.arguments,
-      ...(tool.thoughtSignature ? { thoughtSignature: tool.thoughtSignature } : {}),
     });
     return true;
   }
@@ -150,6 +149,8 @@ function startProviderCall(
 /** What a model call left: its tool calls, its structured reply, and whether it is to be sent again. */
 interface StepOutcome {
   calls: ModelCall[];
+  /** The signed reasoning the call wrote, to go back on the assistant message with its calls. */
+  reasoning: ReasoningPart[];
   latestStructured?: unknown;
   resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined };
 }
@@ -175,6 +176,7 @@ const REPLY_EVENTS: ReadonlySet<TurnEvent['type']> = new Set([
 /** What one model call has given so far. */
 interface CallTally {
   calls: ModelCall[];
+  reasoning: ReasoningPart[];
   latestStructured?: unknown;
   /** The stop the call ended with after gates: a canary block or provider error outranks what the provider reported. */
   stop?: TurnStop;
@@ -263,7 +265,7 @@ async function* executeAutonomousStep(
     profile: Profile;
     generation: ResolvedGeneration;
     system: BoundSystem;
-    provider: ModelProvider;
+    provider: TurnModel;
     signal?: AbortSignal;
     /** True while the turn has a re-send left under the profile's resumption. */
     mayResume: boolean;
@@ -281,7 +283,7 @@ async function* executeAutonomousStep(
     state,
     isAnswerOnlyStep(profile, generation, state.stepCount),
   );
-  const tally: CallTally = { calls: [], failures: [], replied: false };
+  const tally: CallTally = { calls: [], reasoning: [], failures: [], replied: false };
   const control: OutboundStreamControl = {
     withholdVisible: false,
     ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
@@ -309,6 +311,11 @@ async function* executeAutonomousStep(
       tools: state.tools,
     })) {
       if (observeCallEvent(usage, event)) continue;
+      if (event.type === 'reasoning') {
+        const { type: _type, ...part } = event;
+        tally.reasoning.push(part);
+        continue;
+      }
       if (event.type === 'done') {
         state.providerState = event.providerState;
         tally.stop = event.stop;
@@ -341,7 +348,7 @@ async function* executeAutonomousStep(
       if (!buffer.holdLate) yield failure;
     }
   }
-  const tokens = await callTokensEvent(usage, generation, state.mediaFamily);
+  const tokens = await callTokensEvent(usage, generation);
   call.end({ tokens: tokens?.tokens, stop: tally.stop });
   if (tokens) {
     recordStepEvent(tokens, state);
@@ -350,6 +357,7 @@ async function* executeAutonomousStep(
 
   return {
     calls: tally.calls,
+    reasoning: tally.reasoning,
     latestStructured: tally.latestStructured,
     ...(resume ? { resume } : {}),
   };
@@ -507,7 +515,7 @@ function* applyToolSettlement(
  * once every result that did come back is recorded.
  */
 async function* handleModelCalls(
-  upstreamCalls: ModelCall[],
+  { calls: upstreamCalls, reasoning }: Pick<StepOutcome, 'calls' | 'reasoning'>,
   generation: ResolvedGeneration,
   profile: Profile,
   state: StepExecutionState,
@@ -515,7 +523,11 @@ async function* handleModelCalls(
   { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
   if (upstreamCalls.length > 0) {
-    state.currentHistory.push(historyToolCalls(upstreamCalls));
+    state.currentHistory.push(
+      historyToolCalls(
+        upstreamCalls.map((call, index) => (index === 0 ? { ...call, reasoning } : call)),
+      ),
+    );
   }
   const stepId = crypto.randomUUID();
   const leakScope = {
@@ -537,9 +549,9 @@ async function* handleModelCalls(
           scope: leakScope,
         }),
   }));
-  for (const call of calls) {
+  for (const [index, call] of calls.entries()) {
     const request = toolCallRequestEvent(call, call.shown, {
-      thoughtSignature: call.thoughtSignature,
+      ...(index === 0 && reasoning.length ? { reasoning } : {}),
       stepId,
       stepCallCount: calls.length,
     });
@@ -644,7 +656,7 @@ async function* executeAttempt(args: {
   profile: Profile;
   generation: ResolvedGeneration;
   system: BoundSystem;
-  provider: ModelProvider;
+  provider: TurnModel;
   state: StepExecutionState;
 }): AsyncGenerator<TurnEvent, { latestStructured?: unknown }> {
   const { profile, generation, system, provider, state } = args;
@@ -676,7 +688,7 @@ async function* executeAttempt(args: {
       latestStructured = stepResult.latestStructured;
     }
     const executed = yield* handleModelCalls(
-      stepResult.calls,
+      stepResult,
       generation,
       profile,
       state,

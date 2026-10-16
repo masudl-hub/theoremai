@@ -14,7 +14,6 @@ import {
   withAgentDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
-import { modelCapabilities, withSupport } from '../../studio/providers.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 /** The file the printer emits, read back, prints as the same file. */
@@ -266,29 +265,13 @@ Deno.test('context and a tool the page answers read back', () => {
   });
 });
 
-Deno.test('saved-state mismatch policy survives a Studio source round trip', () => {
-  const draft = createExampleDraft();
-  draft.models.providerStateMismatch = 'error';
-  const compiled = compileStudio(draft, ON_OWN_KEYS);
-  assert(compiled.ok);
-  assert(compiled.profile.type === 'text');
-  assertEquals(compiled.profile.providerContinuation, { onMismatch: 'error' });
-  const read = readStudioSource(studioSource(compiled), createExampleDraft());
-  assert(read.ok);
-  assertEquals(read.draft.models.providerStateMismatch, 'error');
-  roundTrip(draft);
-});
-
 Deno.test('who holds the conversation survives a Studio source round trip', () => {
   const draft = createExampleDraft();
   draft.models.providerHistory = 'provider';
   const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   assert(compiled.profile.type === 'text');
-  assertEquals(compiled.profile.providerContinuation, {
-    onMismatch: 'rebuild',
-    history: 'provider',
-  });
+  assertEquals(compiled.profile.providerContinuation, { history: 'provider' });
   const read = readStudioSource(studioSource(compiled), createExampleDraft());
   assert(read.ok);
   assertEquals(read.draft.models.providerHistory, 'provider');
@@ -301,10 +284,7 @@ Deno.test('a stateless profile survives a Studio source round trip', () => {
   const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   assert(compiled.profile.type === 'text');
-  assertEquals(compiled.profile.providerContinuation, {
-    onMismatch: 'rebuild',
-    history: 'stateless',
-  });
+  assertEquals(compiled.profile.providerContinuation, { history: 'stateless' });
   const read = readStudioSource(studioSource(compiled), createExampleDraft());
   assert(read.ok);
   assertEquals(read.draft.models.providerHistory, 'stateless');
@@ -314,99 +294,69 @@ Deno.test('a stateless profile survives a Studio source round trip', () => {
 Deno.test("a provider's file reads back as the provider, and an edit to it is what the provider becomes", () => {
   const house = {
     id: 'house',
-    adapter: 'openai-chat',
-    connection: { baseURL: 'https://one.example/v1' },
+    definition: 'local',
+    connection: { baseUrl: 'https://one.example/v1' },
     keySlot: 'team',
   };
   const source = providerSource(house);
+  assertEquals(
+    source,
+    "registerProvider(localProvider, {\n  id: 'house',\n  connection: { baseUrl: 'https://one.example/v1' },\n  keySlot: 'team',\n});\n",
+  );
   const read = readProviderSource(source, house);
   assert(read.ok);
   assertEquals(read.provider, house);
 
   const moved = readProviderSource(
-    source.replaceAll('openAIChat', 'openRouterAdapter').replace("  keySlot: 'team',\n", ''),
+    source.replace('localProvider', 'openRouterProvider').replace("  keySlot: 'team',\n", ''),
     house,
   );
   assert(moved.ok);
   assertEquals(moved.provider, {
     id: 'house',
-    adapter: 'openrouter',
+    definition: 'openrouter',
     connection: house.connection,
   });
 
   // One that opened with no connection reads back with none.
-  const bare = { id: 'bare', adapter: 'google', keySlot: 'gemini' };
+  const bare = { id: 'bare', definition: 'gemini', keySlot: 'gemini' };
   const again = readProviderSource(providerSource(bare), bare);
   assert(again.ok);
   assertEquals(again.provider, bare);
 });
 
-Deno.test("a provider's file reads back what its adapter is told its models support", () => {
-  const capabilities = modelCapabilities('openai-chat', '');
-  if (!capabilities) throw new Error('The adapter has no capabilities.');
-  const told = {
-    id: 'house',
-    adapter: 'openai-chat',
-    connection: { baseURL: 'https://one.example/v1' },
-    support: {
-      capabilities: {
-        ...capabilities,
-        features: { ...capabilities.features, clientTools: 'supported' as const },
-      },
-      models: { 'house/small': { clientTools: 'unsupported' as const } },
-    },
-  };
-  const read = readProviderSource(providerSource(told), told);
-  assert(read.ok);
-  assertEquals(read.provider, told);
-
-  // Set back to its adapter's defaults, it is told nothing, and the file says nothing.
-  const defaults = withSupport(read.provider, { clientTools: 'unknown' });
-  assertEquals(defaults.support, { models: told.support.models });
-  const back = withSupport(defaults, { clientTools: undefined }, 'house/small');
-  assertEquals(back.support, undefined);
-  assertEquals(providerSource(back).includes('openAIChat()'), true);
-
-  // An adapter that knows each model's support is told nothing.
-  const google = providerSource({ ...told, adapter: 'google', connection: {} });
-  const refused = readProviderSource(google, told);
-  assert(!refused.ok);
-  assertEquals(
-    refused.errors.map((error) => error.message),
-    ['The google adapter knows what each model takes: it is called with nothing.'],
-  );
-});
-
-Deno.test("a provider's file keeps its id, a kernel adapter and only what a provider holds", () => {
-  const house = { id: 'house', adapter: 'openrouter', connection: {} };
+Deno.test("a provider's file keeps its id, a kernel definition and only what a provider holds", () => {
+  const house = { id: 'house', definition: 'openrouter', connection: { siteName: 'House' } };
   const source = providerSource(house);
   const errors = (text: string) => {
     const read = readProviderSource(text, house);
     return read.ok ? [] : read.errors.map((error) => `${String(error.line)}: ${error.message}`);
   };
   assertEquals(errors(source.replace("id: 'house'", "id: 'home'")), [
-    "4: The id stays 'house': models and code name the provider by it.",
+    "2: The id stays 'house': models and code name the provider by it.",
   ]);
-  assertEquals(errors(source.replace('openRouterAdapter()', 'houseAdapter()')), [
-    "6: 'houseAdapter' isn't part of a provider's file.",
+  assertEquals(errors(source.replace('openRouterProvider', 'houseProvider')), [
+    "1: 'houseProvider' isn't one of the kernel's providers: geminiProvider, openRouterProvider, localProvider, typesafeProvider.",
   ]);
-  assertEquals(errors(source.replace('connection: {}', "connection: {}, model: 'x'")), [
-    "5: 'model' isn't a provider setting the studio holds.",
+  const connected = "connection: { siteName: 'House' }";
+  assertEquals(errors(source.replace(connected, `${connected}, model: 'x'`)), [
+    "3: 'model' isn't a provider setting the studio holds.",
   ]);
-  assertEquals(errors(`${source}registerProvider(house);\n`), [
-    "8: 'registerProvider' isn't part of a provider's file.",
+  assertEquals(errors(`${source}registerTool(house);\n`), [
+    "5: 'registerTool' isn't part of a provider's code.",
   ]);
+  assertEquals(errors(`${source}${source}`), ['8: This code registers two providers.']);
   // What the file would run with is what it reads as: a name is not its own text, a key is set
   // once, and `__proto__` is no setting. `undefined` is none, and a byte-order mark is no text.
-  const slotted = source.replace('connection: {}', "connection: {},\n  keySlot: 'k'");
+  const slotted = source.replace(connected, `${connected},\n  keySlot: 'k'`);
   assertEquals(errors(slotted.replace("keySlot: 'k'", 'keySlot: SLOT')), [
-    "6: 'SLOT' is set somewhere else. Write its value here.",
+    "4: 'SLOT' is set somewhere else. Write its value here.",
   ]);
   assertEquals(errors(slotted.replace("keySlot: 'k'", "keySlot: 'k', keySlot: 'j'")), [
-    "6: 'keySlot' is set twice.",
+    "4: 'keySlot' is set twice.",
   ]);
-  assertEquals(errors(source.replace('connection: {}', "connection: { __proto__: 'x' }")), [
-    "5: '__proto__' sets what an object inherits, not a setting.",
+  assertEquals(errors(source.replace(connected, "connection: { __proto__: 'x' }")), [
+    "3: '__proto__' sets what an object inherits, not a setting.",
   ]);
   const unset = readProviderSource(
     `\ufeff${slotted.replace("keySlot: 'k'", 'fallbackKeySlot: undefined')}`,

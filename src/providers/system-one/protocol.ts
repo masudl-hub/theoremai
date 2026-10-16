@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
-import { defineProtocol } from '../../kernel/protocols/mod.ts';
-import { jsonObjectSchema } from '../../kernel/provider-contract.ts';
+import { jsonObjectSchema } from '../../kernel/json.ts';
+import { defineProtocol, type Protocol } from '../../kernel/protocols/mod.ts';
 import type { DecisionResult } from '../../kernel/types.ts';
 
 const count = z.number().int().nonnegative();
@@ -21,7 +21,7 @@ const reply = z.object({
 });
 
 /** TypeSafe's decision API: questions about a state, answered in one call. */
-export const systemOne = defineProtocol({
+export const systemOne: Protocol<Record<string, never>> = defineProtocol({
   id: 'systemOne',
   name: 'System One',
   description: "TypeSafe's decision API: questions about a state, answered in one call.", // labels-exempt: builder field description, read by the studio and docs

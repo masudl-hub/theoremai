@@ -12,11 +12,20 @@ export {
   type DecisionTransport,
   decisionInterface,
   failedDecisionTraces,
+  failedTraces,
   postDecision,
   readDecisionReply,
   withFailedTraces,
 } from './decision-transport.ts';
 export { type ComposerDraftFields, composerFieldsFromDraft } from './decode-composer-draft.ts';
+export {
+  createEmbeddingTransport,
+  type EmbeddingInterface,
+  type EmbeddingReply,
+  type EmbeddingTransport,
+  embeddingInterface,
+  readEmbeddingReply,
+} from './embedding-transport.ts';
 export { encodeComposerDraft } from './encode-composer-draft.ts';
 export { filesToPending, pendingAttachmentsToFiles } from './encode-files.ts';
 export { type ClientFailure, clientFailure, type TurnFailure } from './failure.ts';

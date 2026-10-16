@@ -6,6 +6,7 @@
  */
 
 import {
+  reasoningPartSchema,
   TURN_STOP_KINDS,
   type TurnEvent,
   type TurnStop,
@@ -46,7 +47,7 @@ const toolCall = z.object({
   callId: z.string(),
   arguments: argumentsRecord,
   draft: z.string().optional(),
-  thoughtSignature: z.string().optional(),
+  reasoning: z.array(reasoningPartSchema).optional(),
   stepId: z.string().optional(),
   edited: z.object({ from: argumentsRecord, to: argumentsRecord }).optional(),
   activity: z.string().optional(),

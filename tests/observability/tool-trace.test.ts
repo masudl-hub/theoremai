@@ -9,7 +9,7 @@ import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../src/kernel/engine/hash.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ToolCallRequest } from '../../src/kernel/turn-events.ts';
-import type { ModelProvider, ProviderEvent } from '../../src/kernel/types.ts';
+import type { ModelEvent, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import {
   contentOf,
   inlineContent,
@@ -20,8 +20,9 @@ import {
   type TraceAttributes,
   type TraceSpan,
 } from '../../src/observability/trace-span.ts';
+import { asProtocolEvent } from '../../src/providers/shared/protocol-events.ts';
 import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
-import { lastOf } from '../fixtures/events.ts';
+import { lastOf, rawCallsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
@@ -165,7 +166,7 @@ registerTool({
 });
 
 /** A provider that yields `events` once. */
-function asking(events: readonly ProviderEvent[]): ModelProvider {
+function asking(events: readonly ModelEvent[]): TurnModel {
   return {
     async *complete() {
       yield* events;
@@ -178,10 +179,19 @@ function turnRecord(...calls: ToolCallRequest[]): Promise<TraceRecord> {
   return recordOf(asking(calls.map((tool) => ({ type: 'tool', tool }))));
 }
 
-async function recordOf(provider: ModelProvider): Promise<TraceRecord> {
+/** The id Theorem gave the turn's first call to `name`. */
+function callIdOf(events: readonly TurnEvent[], name: string): string {
+  const callId = rawCallsOf(events).find((call) => call.name === name)?.callId;
+  if (!callId) throw new Error(`no call to ${name}`);
+  return callId;
+}
+
+async function recordOf(provider: TurnModel, events: TurnEvent[] = []): Promise<TraceRecord> {
   const into: TraceRecord[] = [];
-  await Array.fromAsync(
-    runTurn({ profile: PROFILE, input: { text: 'go' } }, provider, catalogedSink(into)),
+  events.push(
+    ...(await Array.fromAsync(
+      runTurn({ profile: PROFILE, input: { text: 'go' } }, provider, catalogedSink(into)),
+    )),
   );
   const [record] = into;
   if (!record) throw new Error('no record');
@@ -199,18 +209,20 @@ function toolSpan(record: TraceRecord): TraceSpan {
 }
 
 Deno.test('a tool call is one span under the turn, with what went in and came back', async () => {
-  const record = await turnRecord({
-    callId: 'c1',
-    name: 'lookup_order',
-    arguments: { orderId: 'A1' },
-  });
+  const events: TurnEvent[] = [];
+  const record = await recordOf(
+    asking([
+      { type: 'tool', tool: { callId: 'c1', name: 'lookup_order', arguments: { orderId: 'A1' } } },
+    ]),
+    events,
+  );
   const [root] = record.spans;
   const span = toolSpan(record);
   assertEquals(span.name, 'execute_tool lookup_order');
   assertEquals(span.parentSpanId, root?.spanId);
   assertEquals(span.status, { code: 'OK' });
   const a = span.attributes;
-  assertEquals(a['gen_ai.tool.call.id'], 'c1');
+  assertEquals(a['gen_ai.tool.call.id'], callIdOf(events, 'lookup_order'));
   assertEquals(a['gen_ai.tool.type'], 'function');
   assertEquals(contentOf(record, a['gen_ai.tool.call.arguments']), '{"orderId":"A1"}');
   assertEquals(inlineContent(record, a['theorem.tool.data']), { finding: 'shipped' });
@@ -376,7 +388,7 @@ Deno.test('a redirect into a private network is recorded as a timed block of the
 Deno.test('the model reads back the same text the span records', async () => {
   const into: TraceRecord[] = [];
   const seen: string[] = [];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       const tool = req.history?.findLast((m) => m.role === 'tool');
       if (tool?.content) {
@@ -424,7 +436,7 @@ Deno.test('a failing tool is ERROR with its kind and code and no raw output', as
 
 Deno.test('a provider error types the turn and the call by its kind', async () => {
   const into: TraceRecord[] = [];
-  const failing: ModelProvider = {
+  const failing: TurnModel = {
     async *complete() {
       yield { type: 'error', errorKind: 'rate_limit', errorInternal: 'upstream 429' };
     },
@@ -476,7 +488,7 @@ Deno.test('a tool that cites sources streams the citation and records it on its 
   assertEquals(lastOf(events, 'citation'), {
     type: 'citation',
     sources: [CITED],
-    callId: 'c1',
+    callId: callIdOf(events, 'tool_trace_cites'),
   });
   const [record] = into;
   if (!record) throw new Error('no record');
@@ -500,8 +512,16 @@ Deno.test('every warning of a call is recorded on its span, from the tool and fr
 
 Deno.test('malformed provider arguments cannot manufacture a client tool trace', async () => {
   const record = await recordOf(
+    // What a protocol streams for a call whose arguments do not parse.
     asking(
-      malformedToolCall({ name: 'lookup_order', callId: 'c1' }, 'bad json', '{"orderId": "A1'),
+      malformedToolCall(
+        { name: 'lookup_order', callId: 'c1' },
+        'bad json',
+        '{"orderId": "A1',
+      ).flatMap((event) => {
+        const streamed = asProtocolEvent(event);
+        return streamed ? [streamed as ModelEvent] : [];
+      }),
     ),
   );
   assertEquals(

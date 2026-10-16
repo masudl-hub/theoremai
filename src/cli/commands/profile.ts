@@ -1,8 +1,8 @@
 import { getProfile, listProfiles } from '../../kernel/default-scope.ts';
 import { profileToolAllow } from '../../kernel/tools/resolve.ts';
-import type { ModelProfile, Profile } from '../../kernel/types.ts';
+import type { EmbeddingProfile, ModelProfile, Profile } from '../../kernel/types.ts';
 
-function formatProfileInputs(p: ModelProfile): string {
+function formatProfileInputs(p: ModelProfile | EmbeddingProfile): string {
   if (p.type === 'speech') {
     return 'text (speech)';
   }
@@ -15,7 +15,7 @@ function formatProfileInputs(p: ModelProfile): string {
     return 'none';
   }
   if (spec.text !== false) inputs.push('text');
-  if (p.type !== 'image' && p.inputs?.voice) inputs.push('voice');
+  if (p.type !== 'image' && p.type !== 'embedding' && p.inputs?.voice) inputs.push('voice');
   if (spec.attachments) {
     inputs.push(`attachments [${spec.attachments.accept?.join(', ')}]`);
   }
@@ -43,7 +43,10 @@ function printProfileCard(p: Profile): void {
     return;
   }
   const models = Object.keys(p.models).join(', ') || 'default';
-  const structured = p.type === 'live' || p.type === 'speech' ? undefined : p.outputs?.structured;
+  const structured =
+    p.type === 'live' || p.type === 'speech' || p.type === 'embedding'
+      ? undefined
+      : p.outputs?.structured;
   const structuredLabel =
     typeof structured === 'string' ? structured : structured ? 'custom' : 'none';
 

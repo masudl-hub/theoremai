@@ -122,18 +122,20 @@ const replySchema = z.object({
 });
 
 /** The trace records a failed decision left, by the failure thrown for it. */
-const failedTraces = new WeakMap<object, readonly TraceRecord[]>();
+const traceFailures = new WeakMap<object, readonly TraceRecord[]>();
 
 /** Marks a decision's failure with the trace records it left, for the page's inspector. */
 export function withFailedTraces(err: unknown, traces: readonly TraceRecord[]): unknown {
-  if (traces.length > 0 && typeof err === 'object' && err !== null) failedTraces.set(err, traces);
+  if (traces.length > 0 && typeof err === 'object' && err !== null) traceFailures.set(err, traces);
   return err;
 }
 
 /** The trace records a failed decision left; none when its host sent none. */
-export function failedDecisionTraces(err: unknown): readonly TraceRecord[] {
-  return (typeof err === 'object' && err !== null && failedTraces.get(err)) || [];
+export function failedTraces(err: unknown): readonly TraceRecord[] {
+  return (typeof err === 'object' && err !== null && traceFailures.get(err)) || [];
 }
+
+export const failedDecisionTraces = failedTraces;
 
 const failedBody = z.object({ traces: z.array(traceRecordSchema) });
 

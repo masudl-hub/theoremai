@@ -59,6 +59,10 @@ export {
   type TheoremDecisionHandlerOptions,
 } from './decision-handler.ts';
 export {
+  createTheoremEmbeddingHandler,
+  type TheoremEmbeddingHandlerOptions,
+} from './embedding-handler.ts';
+export {
   createTheoremHandler,
   createTheoremHostHandler,
   readBody,

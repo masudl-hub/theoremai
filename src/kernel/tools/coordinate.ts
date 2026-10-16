@@ -1,6 +1,6 @@
 import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
-import { type JsonObject, jsonObjectSchema } from '../provider-contract.ts';
+import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import type { TurnEvent } from '../types.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
 import {

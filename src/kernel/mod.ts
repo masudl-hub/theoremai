@@ -5,6 +5,18 @@
  */
 
 export * from './auth/mod.ts';
+export type {
+  ProviderCheckpoint,
+  ProviderContinuationPolicy,
+  ProviderStateRebuilt,
+  ProviderWarning,
+} from './checkpoint.ts';
+export {
+  historyHash,
+  providerCheckpointSchema,
+  providerContinuationSchema,
+  providerWarningSchema,
+} from './checkpoint.ts';
 export {
   clearProfiles,
   compactHistory,
@@ -13,30 +25,27 @@ export {
   getStructured,
   getTool,
   hasProfile,
-  hasProvider,
   hasTool,
   invokeTool,
   invokeToolStep,
   listProfiles,
+  listProtocols,
   listProviders,
   listTools,
   projectProfile,
   registerProfile,
   registerProfiles,
   registerProvider,
-  registerProviders,
   registerStructured,
   registerTool,
   registerTools,
-  requireProvider,
   requireTool,
-  resetProviders,
   resetTools,
   resolveTurn,
   runDecision,
+  runEmbedding,
   runSession,
   runTurn,
-  turnShortfalls,
 } from './default-scope.ts';
 export type { CompactionSplit, CompactionTokens } from './engine/compaction.ts';
 export {
@@ -49,6 +58,7 @@ export {
 } from './engine/compaction.ts';
 export type { RunDecisionOptions } from './engine/decision.ts';
 export { DecisionError, validateDecisionRequest } from './engine/decision.ts';
+export type { RunEmbeddingOptions } from './engine/embedding.ts';
 export type { LiveIngressChannel } from './engine/live-ingress.ts';
 export {
   assertLiveIngress,
@@ -59,19 +69,15 @@ export {
   liveIngressEnabledFromSpec,
 } from './engine/live-ingress.ts';
 export type { RunSessionOptions, SignInGatePolicy } from './engine/session/mod.ts';
-export type {
-  MediaPayload,
-  MediaTokenFamily,
-  TokenCount,
-  TokenEstimator,
-} from './engine/token-estimate.ts';
+export type { TokenCount, TokenEstimator } from './engine/token-estimate.ts';
 export {
   loadTokenEstimator,
-  mediaTokenFamily,
   TOKEN_TEXT_ENCODING,
 } from './engine/token-estimate.ts';
 export { sumTokens } from './engine/usage.ts';
 export { isMediaRefPart, wireInteractionPart } from './interaction-parts.ts';
+export type { JsonObject, JsonValue } from './json.ts';
+export { jsonObjectSchema, jsonValueSchema } from './json.ts';
 export type {
   ProfileGraphEditor,
   ProfileGraphFacet,
@@ -85,62 +91,69 @@ export {
 } from './profile-graph.ts';
 export { unsetValue } from './profile-presence.ts';
 export { outOfScopeFields, profileTypesForField } from './profile-scope.ts';
-export type {
-  CapabilitySupport,
-  CredentialContext,
-  CredentialResolver,
-  DeclarableFeature,
-  DeclaredSupport,
-  DefinedProvider,
-  JsonObject,
-  JsonValue,
-  ModelSupport,
-  OpenProviderWebSocket,
-  ProviderAdapter,
-  ProviderBuiltinSpec,
-  ProviderCapabilities,
-  ProviderCheckpoint,
-  ProviderContentEvent,
-  ProviderContext,
-  ProviderContinuationPolicy,
-  ProviderCredential,
-  ProviderDecisionRequest,
-  ProviderDefinition,
-  ProviderHostOptions,
-  ProviderLimits,
-  ProviderLiveConnection,
-  ProviderModelEvent,
-  ProviderModelSettings,
-  ProviderOperations,
-  ProviderRegistry,
-  ProviderRequest,
-  ProviderSessionRequest,
-  ProviderToolResult,
-  ProviderTurnRequest,
-  ProviderVault,
-  ProviderWait,
-  ProviderWarning,
-  RegisteredProvider,
-  ResolvedProviderModel,
-} from './provider-contract.ts';
+export type { DecisionModelBinding, ModelBinding, RuntimeAbilities } from './protocols/binding.ts';
 export {
+  checkBinding,
   commonModelSettingsSchema,
-  createProviderRegistry,
-  DECLARABLE_FEATURES,
   decisionModelBindingSchema,
-  declaredSupportSchema,
-  defineProvider,
-  jsonObjectSchema,
-  jsonValueSchema,
   keySlotSchema,
+  keySlotsOf,
   modelBindingSchema,
-  providerCapabilitiesSchema,
-  providerCheckpointSchema,
-  providerContinuationSchema,
-  providerLimitsSchema,
-  providerWarningSchema,
-  resolveProviderLimits,
-} from './provider-contract.ts';
+} from './protocols/binding.ts';
+export type { ProviderLimits } from './protocols/limits.ts';
+export { providerLimitsSchema, resolveProviderLimits } from './protocols/limits.ts';
+export type { EstimatedCost, ModelPrice, PriceTable, Rates } from './protocols/prices.ts';
+export { costFromPrices } from './protocols/prices.ts';
+export type {
+  Continuation,
+  DecisionCall,
+  EmbeddingCall,
+  ExtensionBodyAt,
+  ExtensionReader,
+  LiveToolResult,
+  ModelProfileType,
+  Protocol,
+  ProtocolContentEvent,
+  ProtocolContext,
+  ProtocolDefinition,
+  ProtocolEvent,
+  ProtocolExtension,
+  ProtocolOperations,
+  ProtocolRequest,
+  ProtocolSession,
+  ProtocolSocket,
+  SendInit,
+  UpstreamFailure,
+} from './protocols/protocol.ts';
+export { carriesTo, defineProtocol, extendProtocol } from './protocols/protocol.ts';
+export type {
+  Authorize,
+  DecisionModelSettings,
+  ModelSettings,
+  Outgoing,
+  Provider,
+  ProviderDefinition,
+  ProviderRegistry,
+  RegisteredProvider,
+  Registration,
+  Serve,
+  Signer,
+} from './protocols/provider.ts';
+export {
+  bearer,
+  createProviderRegistry,
+  defineProvider,
+  endpointUrlSchema,
+  header,
+  query,
+} from './protocols/provider.ts';
+export type {
+  CallSetup,
+  OpenWebSocket,
+  ProtocolCall,
+  ProviderHostOptions,
+} from './protocols/runtime.ts';
+export { callProtocol, plainWebSocket } from './protocols/runtime.ts';
 export type { MediaInputChannel } from './registry/catalog.ts';
 export {
   clampThinkingLevel,
@@ -156,6 +169,7 @@ export type { KernelRegistry } from './registry/kernel-registry.ts';
 export { createKernelRegistry } from './registry/kernel-registry.ts';
 export type {
   DecisionProfileDefinition,
+  EmbeddingProfileDefinition,
   HostProfileDefinition,
   ImageProfileDefinition,
   LiveProfileDefinition,
@@ -169,8 +183,7 @@ export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
 export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';
 export type { SchemaRegistry } from './registry/schemas.ts';
 export { createSchemaRegistry } from './registry/schemas.ts';
-export type { TurnShortfall } from './registry/turn-check.ts';
-export { resolveKeySlot } from './registry/vault.ts';
+export type { CredentialContext, CredentialResolver, KeyCredential } from './registry/vault.ts';
 export type {
   AuthUnauthenticatedPolicy,
   CustomToolType,
@@ -194,8 +207,6 @@ export {
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
   catalogPathFor,
-  coerceProtocol,
-  coerceProvider,
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
@@ -204,8 +215,6 @@ export {
   isToolGateKind,
   isTurnInjectStage,
   isTurnStage,
-  isValidPair,
-  isValidProfileProtocol,
   KEY_SLOT_NAME,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
@@ -213,14 +222,7 @@ export {
   PROFILE_FIELDS,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
-  PROFILE_TYPE_PROTOCOLS,
   PROFILE_TYPES,
-  PROTOCOL_PROVIDERS,
-  PROTOCOLS,
-  PROVIDERS,
-  protocolsFor,
-  protocolsForProfileType,
-  providersFor,
   REQUEST_FIELDS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
@@ -358,6 +360,7 @@ export {
   type GateReference,
   gateReferenceSchema,
   keptReply,
+  reasoningPartSchema,
   TURN_EVENT_SCHEMAS,
   toolGateSchema,
   turnDoneOf,

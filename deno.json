@@ -1,7 +1,7 @@
 {
   "name": "@theoremjs/agents",
   "version": "0.3.1",
-  "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, provider adapters, guardrails, and host-injected traces.",
+  "description": "A flat TypeScript agent kernel for typed profiles, deterministic turn execution, registered tools, protocols and providers, guardrails, and host-injected traces.",
   "license": "MIT",
   "keywords": [
     "agent",
@@ -18,8 +18,6 @@
     ".": "./mod.ts",
     "./kernel": "./src/kernel/mod.ts",
     "./providers": "./src/providers/mod.ts",
-    "./providers/testing": "./src/providers/testing.ts",
-    "./providers/local": "./src/providers/local/mod.ts",
     "./guardrails": "./src/guardrails/mod.ts",
     "./guardrails/testing": "./src/guardrails/testing.ts",
     "./guardrails/compile": "./src/guardrails/compile-egress.ts",
@@ -35,8 +33,7 @@
     "./presets/google": "./src/presets/google.ts",
     "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
     "./schema": "./src/kernel/schema.ts",
-    "./evals": "./src/evals/mod.ts",
-    "./providers/google/live": "./src/providers/google/live/mod.ts"
+    "./evals": "./src/evals/mod.ts"
   },
   "publish": {
     "exclude": [

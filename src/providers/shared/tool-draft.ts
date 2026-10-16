@@ -1,4 +1,4 @@
-import type { ProviderEvent } from '../../kernel/types.ts';
+import type { ModelEvent } from '../../kernel/types.ts';
 
 /** A tool call a provider is streaming: its id and name as far as they have come, and its arguments' text. */
 export interface StreamingToolCall {
@@ -15,7 +15,7 @@ export interface StreamingToolCall {
  * and its draft is joined to it by that id alone. Whatever came before then goes out in the first
  * draft.
  */
-export function toolDraftEvents(call: StreamingToolCall): ProviderEvent[] {
+export function toolDraftEvents(call: StreamingToolCall): ModelEvent[] {
   const name = call.name.trim();
   const from = call.drafted ?? 0;
   if (!(call.id && name) || call.args.length <= from) return [];

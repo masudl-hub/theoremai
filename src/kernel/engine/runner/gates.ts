@@ -27,12 +27,12 @@ import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import type { BoundSystem } from '../../system-parts.ts';
 import type {
   AttemptReason,
-  ModelProvider,
   Profile,
   ProfileOutputsSpec,
   ResolvedGeneration,
   TurnEvent,
   TurnEventOf,
+  TurnModel,
   TurnRequest,
   TurnStop,
 } from '../../types.ts';
@@ -604,7 +604,7 @@ async function* executeSingleAttemptCycle(args: {
   state: StepExecutionState;
   profile: Profile;
   system: BoundSystem;
-  provider: ModelProvider;
+  provider: TurnModel;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
   const { flow, state, profile, system, provider } = args;
   const validation = profileTurnOutputs(profile)?.validation;
@@ -705,7 +705,7 @@ async function* runAttemptsWithValidation(
   profile: Profile,
   generation: ResolvedGeneration,
   system: BoundSystem,
-  provider: ModelProvider,
+  provider: TurnModel,
   state: StepExecutionState,
 ): AsyncGenerator<TurnEvent> {
   const { blockedReply } = resolveGuardrailPolicy(profile.guardrails);

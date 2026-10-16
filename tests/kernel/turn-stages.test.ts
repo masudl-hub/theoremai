@@ -4,12 +4,12 @@ import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
-  ModelProvider,
-  ProviderCompleteRequest,
+  ModelRequest,
   TurnEvent,
   TurnHistoryMessage,
+  TurnModel,
 } from '../../src/kernel/types.ts';
-import { eventsOf } from '../fixtures/events.ts';
+import { eventsOf, rawCallsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
@@ -35,7 +35,7 @@ Deno.test('stages: emits pre_turn / before_end / post_turn on a plain text turn'
     }),
   );
 
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* () {
       yield { type: 'text', text: 'ok' };
       yield { type: 'done', stop: { kind: 'completed' } };
@@ -68,8 +68,8 @@ Deno.test('stages: allowSteering false still emits stages but rejects inject', a
 
   let staged = 0;
   let seenHistory: TurnHistoryMessage[] | undefined;
-  const provider: ModelProvider = {
-    complete: async function* (req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
       seenHistory = req.history;
       yield { type: 'text', text: 'ok' };
       yield { type: 'done', stop: { kind: 'completed' } };
@@ -113,8 +113,8 @@ Deno.test('stages: onStage inject at pre_turn reaches the provider history', asy
   );
 
   let seenHistory: TurnHistoryMessage[] | undefined;
-  const provider: ModelProvider = {
-    complete: async function* (req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
       seenHistory = req.history;
       yield { type: 'text', text: 'acked' };
       yield { type: 'done', stop: { kind: 'completed' } };
@@ -169,8 +169,8 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
   const stages: string[] = [];
   let call = 0;
   let continuation: TurnHistoryMessage[] | undefined;
-  const provider: ModelProvider = {
-    complete: async function* (req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
       call++;
       if (call === 1) {
         yield {
@@ -223,11 +223,14 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
     ['tool', 'user'],
   );
   assertEquals(continuation?.[1]?.content, 'also do this');
+  const [stubCall] = rawCallsOf(events);
+  assertEquals(stubCall?.name, 'stub_tool');
+  assertEquals(continuation?.[0]?.tool_call_id, stubCall?.callId);
   assertEquals(injectedOf(events), [
     {
       type: 'stage',
       stage: 'post_tool',
-      callId: 'c1',
+      callId: stubCall?.callId,
       toolName: 'stub_tool',
       injected: [{ id: 'steer-2' }],
     },
@@ -248,8 +251,8 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
   );
 
   let call = 0;
-  const provider: ModelProvider = {
-    complete: async function* (req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
       call++;
       if (call === 1) {
         assertEquals(
@@ -311,7 +314,7 @@ Deno.test('stages: before_end inject cannot exceed maxSteps across re-entry', as
   );
 
   let call = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* () {
       call++;
       yield { type: 'text', text: `reply-${call}` };
@@ -358,7 +361,7 @@ Deno.test('stages: inject_not_allowed yields stageWarnings', async () => {
     }),
   );
 
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* () {
       yield { type: 'text', text: 'ok' };
       yield { type: 'done', stop: { kind: 'completed' } };

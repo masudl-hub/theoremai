@@ -17,7 +17,7 @@ import type {
   TurnToolSnapshot,
 } from '../../src/kernel/turn-events.ts';
 import type {
-  ProviderEvent,
+  ModelEvent,
   ToolCallEvent,
   ToolFailure,
   ToolGate,
@@ -108,7 +108,7 @@ function isPhase<P extends ToolCallPhase>(tool: ToolCallEvent, phase: P): tool i
 
 /** Every tool event of one phase, across calls, in order (host or provider stream). */
 export function toolEventsOf<P extends ToolCallPhase>(
-  events: readonly (TurnEvent | ProviderEvent)[],
+  events: readonly (TurnEvent | ModelEvent)[],
   phase: P,
 ): PhaseOf<P>[] {
   return events.flatMap((event) =>
@@ -133,7 +133,7 @@ export function outputOf(state: ToolCallState | undefined): unknown {
 }
 
 /** Every raw call the model made, in order (host or provider stream). */
-export function rawCallsOf(events: readonly (TurnEvent | ProviderEvent)[]): ToolCallRequest[] {
+export function rawCallsOf(events: readonly (TurnEvent | ModelEvent)[]): ToolCallRequest[] {
   return events.flatMap((event) =>
     event.type === 'tool' && event.tool.phase === undefined ? [event.tool] : [],
   );

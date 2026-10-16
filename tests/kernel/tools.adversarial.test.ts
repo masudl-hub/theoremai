@@ -18,13 +18,22 @@ import {
   resolveTurnTools,
 } from '../../src/kernel/tools/resolve.ts';
 import type {
-  ModelProvider,
+  ModelEvent,
   ProfileToolsSpec,
   TurnEvent,
   TurnHistoryMessage,
+  TurnModel,
 } from '../../src/kernel/types.ts';
+import { asProtocolEvent } from '../../src/providers/shared/protocol-events.ts';
 import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
-import { failureOf, lastOf, lastTool, outputOf, toolEventsOf } from '../fixtures/events.ts';
+import {
+  failureOf,
+  lastOf,
+  lastTool,
+  outputOf,
+  rawCallsOf,
+  toolEventsOf,
+} from '../fixtures/events.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
@@ -61,13 +70,17 @@ Deno.test('adversarial/runTurn: provider malformed_arguments skips handler execu
     },
   });
   flashProfile('malformed_args_profile', 2, { allow: ['malformed_args_probe'] });
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
-      yield* malformedToolCall(
+      // What a protocol streams for a call whose arguments do not parse.
+      for (const event of malformedToolCall(
         { name: 'malformed_args_probe', callId: 'c_bad' },
         'malformed tool arguments JSON',
         '{bad',
-      );
+      )) {
+        const streamed = asProtocolEvent(event);
+        if (streamed) yield streamed as ModelEvent;
+      }
       yield {
         type: 'tokens',
         tokens: { input: 1, output: 0, total: 1 },
@@ -90,7 +103,7 @@ Deno.test('adversarial/runTurn: load_tools + record_lookup in same provider batc
     allow: ['load_tools', 'record_lookup'],
     t2Loader: 'load_tools',
   });
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield {
         type: 'tool',
@@ -115,7 +128,7 @@ Deno.test('adversarial/runTurn: load_tools + record_lookup in same provider batc
 });
 Deno.test('adversarial/runTurn: first tool error does not block second tool', async () => {
   flashProfile('batch_error_probe', 4, { allow: ['crashing_tool', 'stub_tool'] });
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield { type: 'tool', tool: { name: 'crashing_tool', arguments: { id: '1' }, callId: 'c1' } };
       yield { type: 'tool', tool: { name: 'stub_tool', arguments: {}, callId: 'c2' } };
@@ -136,7 +149,7 @@ Deno.test('adversarial/runTurn: first tool error does not block second tool', as
 Deno.test('adversarial/runTurn: a gate holds only its own call; the other calls of the step run, each gate waits', async () => {
   flashProfile('batch_pause_probe', 4, { allow: ['always_confirm_tool', 'stub_tool'] });
   let providerCalls = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       providerCalls++;
       yield { type: 'tool', tool: { name: 'always_confirm_tool', arguments: {}, callId: 'c1' } };
@@ -152,13 +165,16 @@ Deno.test('adversarial/runTurn: a gate holds only its own call; the other calls 
   const events = await Array.fromAsync(
     runTurn({ profile: 'batch_pause_probe', input: { text: 'x' } }, provider),
   );
+  const ids = rawCallsOf(events).map((call) => call.callId);
+  assertEquals(ids.length, 3);
+  assertEquals(new Set(ids).size, 3);
   assertEquals(
     toolEventsOf(events, 'gate').map((tool) => tool.callId),
-    ['c1', 'c3'],
+    [ids[0], ids[2]],
   );
   assertEquals(
     toolEventsOf(events, 'complete').map((tool) => tool.callId),
-    ['c2'],
+    [ids[1]],
   );
   assertEquals(lastOf(events, 'done')?.stop?.kind, 'gate');
   // The turn waits on the gates: the model is not called again.
@@ -167,7 +183,7 @@ Deno.test('adversarial/runTurn: a gate holds only its own call; the other calls 
 Deno.test('adversarial/runTurn: maxSteps caps provider rounds not tools per round', async () => {
   flashProfile('maxsteps_probe', 1, { allow: ['ping_tool'] });
   let providerCalls = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       providerCalls++;
       yield {
@@ -378,7 +394,7 @@ Deno.test('adversarial/promote: invalid id in batch does not unlock later tools'
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield {
         type: 'tool',
@@ -422,7 +438,7 @@ Deno.test('adversarial/runTurn: geminiInteractions T2 promotion expands wire on 
   );
   let callCount = 0;
   const seenWire: string[][] = [];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       callCount++;
       seenWire.push((req.wireTools ?? []).map((t) => t.name));
@@ -518,7 +534,7 @@ Deno.test('adversarial/runTurn: tool error still feeds provider continuation tex
   flashProfile('error_continuation_probe', 2, { allow: ['crashing_tool'] });
   let secondInput: TurnHistoryMessage[] | undefined;
   let calls = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       calls++;
       if (calls === 1) {
@@ -568,7 +584,7 @@ Deno.test('adversarial/runTurn: builtin function_call surfaces provider_native e
   );
   let secondInput: TurnHistoryMessage[] | undefined;
   let calls = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       calls++;
       if (calls === 1) {

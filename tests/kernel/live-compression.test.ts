@@ -7,7 +7,8 @@ const liveBase = {
   identity: { handle: 'live', system: 'hi' },
   models: {
     gemini31FlashLive: {
-      provider: 'google' as const,
+      protocol: 'geminiLive',
+      provider: 'gemini',
       apiId: 'gemini-3.1-flash-live-preview',
       summaries: false,
       builtInTools: [],

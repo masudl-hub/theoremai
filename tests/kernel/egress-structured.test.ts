@@ -7,7 +7,7 @@ import { labelDefault } from '../../src/guardrails/labels.ts';
 import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 registerStructured('egressStructured', { jsonSchema: { type: 'object' } });
@@ -33,7 +33,7 @@ function secretAt(action: DetectAction) {
 }
 
 /** Provider that answers only in structured output — no user-visible text. */
-function structuredProvider(structured: unknown): ModelProvider {
+function structuredProvider(structured: unknown): TurnModel {
   return {
     async *complete() {
       yield { type: 'structured', structured };
@@ -61,7 +61,7 @@ function registerStructuredEgressProfile(id: string, onBlock: 'refuse'): void {
   );
 }
 
-async function collect(profile: string, provider: ModelProvider): Promise<TurnEvent[]> {
+async function collect(profile: string, provider: TurnModel): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   for await (const ev of runTurn({ profile, input: { text: 'How did you do that?' } }, provider)) {
     events.push(ev);
@@ -101,7 +101,7 @@ Deno.test('a reply detector set to redact releases the reply without what it mat
       },
     }),
   );
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield { type: 'text', text: `I used ${SECRET} to look that up.` };
     },

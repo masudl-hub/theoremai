@@ -1,42 +1,30 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import { z } from 'zod';
-import { defineProvider, modelBindingSchema } from '../../mod.ts';
-import { resolveKeySlot } from '../../src/kernel/registry/vault.ts';
-import { openRouterAdapter } from '../../src/providers/mod.ts';
+import { createProviderRegistry, modelBindingSchema, openRouterProvider } from '../../mod.ts';
+import { TheoremError } from '../../src/guardrails/error.ts';
 
-Deno.test('model credential slot overrides provider defaults without an implied fallback', () => {
-  assertEquals(
-    resolveKeySlot(
-      { keySlot: 'company', fallbackKeySlot: 'backup' },
-      { provider: 'company', apiId: 'model', keySlot: 'own' },
-    ),
-    { keySlot: 'own', fallbackKeySlot: 'backup' },
-  );
-  assertEquals(resolveKeySlot({}, { provider: 'company', apiId: 'model' }), {});
-  assertEquals(resolveKeySlot({ keySlot: 'company' }, { provider: 'company', apiId: 'model' }), {
-    keySlot: 'company',
-  });
-});
-Deno.test('definitions and bindings validate slot names', () => {
+Deno.test('bindings and registrations validate slot names', () => {
   assertThrows(
-    () => modelBindingSchema.parse({ provider: 'company', apiId: 'model', keySlot: 'bad slot' }),
+    () =>
+      modelBindingSchema.parse({
+        protocol: 'openRouter',
+        provider: 'openrouter',
+        apiId: 'model',
+        keySlot: 'bad slot',
+      }),
     z.ZodError,
   );
   assertThrows(
-    () =>
-      defineProvider({ id: 'company', connection: {}, keySlot: '', adapter: openRouterAdapter() }),
+    () => createProviderRegistry().register(openRouterProvider, { keySlot: '' }),
     z.ZodError,
   );
-  assertThrows(
+  const error = assertThrows(
     () =>
-      defineProvider({
-        id: 'company',
-        connection: {},
+      createProviderRegistry().register(openRouterProvider, {
         keySlot: 'same',
         fallbackKeySlot: 'same',
-        adapter: openRouterAdapter(),
       }),
-    Error,
-    'must differ',
+    TheoremError,
   );
+  assertEquals(error.kind, 'config');
 });

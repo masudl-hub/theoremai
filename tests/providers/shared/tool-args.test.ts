@@ -1,6 +1,6 @@
 import { TheoremError } from '../../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../../src/kernel/engine/assert.ts';
-import type { ProviderEvent, ToolFailure } from '../../../src/kernel/types.ts';
+import type { ModelEvent, ToolFailure } from '../../../src/kernel/types.ts';
 import {
   historyToolArguments,
   parseToolArgumentsObject,
@@ -8,11 +8,11 @@ import {
 } from '../../../src/providers/shared/tool-args.ts';
 
 /** The call id each event carries, and the failure a malformed call settled with. */
-function callIds(events: readonly ProviderEvent[]): string[] {
+function callIds(events: readonly ModelEvent[]): string[] {
   return events.flatMap((event) => (event.type === 'tool' ? [event.tool.callId] : []));
 }
 
-function failureIn(events: readonly ProviderEvent[]): ToolFailure | undefined {
+function failureIn(events: readonly ModelEvent[]): ToolFailure | undefined {
   const last = events.at(-1);
   return last?.type === 'tool' && last.tool.phase === 'error' ? last.tool.failure : undefined;
 }

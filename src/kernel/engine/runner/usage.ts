@@ -1,13 +1,13 @@
 import type { ToolCallRequest } from '../../tools/types.ts';
 import type {
   InteractionPart,
-  ProviderEvent,
+  ModelEvent,
   ResolvedGeneration,
   TurnEventOf,
   TurnHistoryMessage,
   TurnTokens,
 } from '../../types.ts';
-import { loadTokenEstimator, type MediaTokenFamily, type TokenCount } from '../token-estimate.ts';
+import { loadTokenEstimator, type TokenCount } from '../token-estimate.ts';
 
 // why: A continuation's model also reads the stored interaction it extends, not only what was sent.
 type CallConversation =
@@ -52,7 +52,7 @@ function startCallUsage(
  * Record one provider event. Returns true for a `tokens` event, which the
  * runner holds instead of streaming; `callTokensEvent` emits it at call end.
  */
-function observeCallEvent(usage: CallUsage, event: ProviderEvent): boolean {
+function observeCallEvent(usage: CallUsage, event: ModelEvent): boolean {
   switch (event.type) {
     case 'tokens':
       usage.reported = event.tokens;
@@ -118,20 +118,17 @@ async function countOutput(usage: CallUsage, thoughts: boolean): Promise<TokenCo
   return count;
 }
 
-async function countConversation(
-  usage: CallUsage,
-  family: MediaTokenFamily | undefined,
-): Promise<TokenCount> {
+async function countConversation(usage: CallUsage): Promise<TokenCount> {
   const estimator = await loadTokenEstimator();
   const { conversation } = usage;
   if ('previous' in conversation) {
-    const earlier = await countConversation(conversation.previous, family);
+    const earlier = await countConversation(conversation.previous);
     const replayed = await countOutput(conversation.previous, false);
-    const continuation = await estimator.messages(conversation.continuation, family);
+    const continuation = estimator.messages(conversation.continuation);
     return addCounts(addCounts(earlier, replayed), continuation);
   }
-  const history = await estimator.messages(conversation.history, family);
-  const sent = addCounts(history, await estimator.parts(conversation.input, family));
+  const history = estimator.messages(conversation.history);
+  const sent = addCounts(history, estimator.parts(conversation.input));
   return usage.held ? addCounts(usage.held, sent) : sent;
 }
 
@@ -140,25 +137,18 @@ async function countConversation(
  * what was sent for the call, and the call's output (not thoughts), counted
  * as a continuation replays it.
  */
-async function heldAfter(
-  usage: CallUsage,
-  family: MediaTokenFamily | undefined,
-): Promise<TokenCount> {
-  return addCounts(await countConversation(usage, family), await countOutput(usage, false));
+async function heldAfter(usage: CallUsage): Promise<TokenCount> {
+  return addCounts(await countConversation(usage), await countOutput(usage, false));
 }
 
-async function countPrompt(
-  usage: CallUsage,
-  generation: ResolvedGeneration,
-  family: MediaTokenFamily | undefined,
-): Promise<TokenCount> {
+async function countPrompt(usage: CallUsage, generation: ResolvedGeneration): Promise<TokenCount> {
   const estimator = await loadTokenEstimator();
   const wire = generation.tools.wire;
   const tools = wire.length > 0 ? estimator.text(JSON.stringify(wire)) : 0;
   const schema = generation.structured
     ? estimator.text(JSON.stringify(generation.structured.jsonSchema))
     : 0;
-  const conversation = await countConversation(usage, family);
+  const conversation = await countConversation(usage);
   return {
     tokens: estimator.text(usage.system) + tools + schema + conversation.tokens,
     unknownMedia: conversation.unknownMedia,
@@ -172,16 +162,13 @@ async function countPrompt(
 async function callTokensEvent(
   usage: CallUsage,
   generation: ResolvedGeneration,
-  family: MediaTokenFamily | undefined,
 ): Promise<TurnEventOf<'tokens'> | undefined> {
   const reported = usage.reported;
   if (!reported && usage.failed) return undefined;
   const estimated = reported ? (reported.estimated ?? []) : (['input', 'output'] as const);
   if (reported && estimated.length === 0) return { type: 'tokens', tokens: reported };
 
-  const prompt = estimated.includes('input')
-    ? await countPrompt(usage, generation, family)
-    : undefined;
+  const prompt = estimated.includes('input') ? await countPrompt(usage, generation) : undefined;
   const written = estimated.includes('output') ? await countOutput(usage, true) : undefined;
   const input = prompt?.tokens ?? reported?.input ?? 0;
   const output = written?.tokens ?? reported?.output ?? 0;

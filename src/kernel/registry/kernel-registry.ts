@@ -1,4 +1,4 @@
-import { createProviderRegistry, type ProviderRegistry } from '../provider-contract.ts';
+import { createProviderRegistry, type ProviderRegistry } from '../protocols/provider.ts';
 import { createToolRegistry, type ToolRegistry } from '../tools/registry.ts';
 import { createProfileRegistry, type ProfileRegistry } from './profiles.ts';
 import { createSchemaRegistry, type SchemaRegistry } from './schemas.ts';

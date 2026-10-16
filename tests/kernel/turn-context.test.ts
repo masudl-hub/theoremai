@@ -4,7 +4,7 @@ import { labelDefault } from '../../src/guardrails/labels.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertRejects, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent, TurnInput } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnInput, TurnModel } from '../../src/kernel/types.ts';
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
@@ -30,7 +30,7 @@ async function turn(
 ): Promise<{ sent: string; system: string; events: TurnEvent[] }> {
   let sent = '';
   let system = '';
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       sent = req.history?.at(-1)?.content ?? '';

@@ -1,7 +1,7 @@
 import { errorKind, TheoremError } from '../guardrails/error.ts';
 import { getProfile, runTurn } from '../kernel/default-scope.ts';
 import type { RunDecisionOptions } from '../kernel/engine/decision.ts';
-import type { ProviderHostOptions } from '../kernel/provider-contract.ts';
+import type { ProviderHostOptions } from '../kernel/protocols/runtime.ts';
 import { isModelProfile } from '../kernel/registry/resolve.ts';
 import type { TurnRequest } from '../kernel/types.ts';
 import { isRecord } from '../kernel/util/record.ts';

@@ -6,7 +6,7 @@ import { labelDefault } from '../../src/guardrails/labels.ts';
 import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnEvent } from '../../src/kernel/types.ts';
+import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { readAt } from '../fixtures/detect.ts';
 import { eventsOf, finalStop, lastOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -42,7 +42,7 @@ async function turn(
       },
     }),
   );
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       await Promise.resolve();
       yield* reply;

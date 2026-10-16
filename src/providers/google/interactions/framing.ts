@@ -1,8 +1,9 @@
+import { z } from 'zod';
 import { TheoremError } from '../../../guardrails/error.ts';
 import { historyMessageParts, wireInteractionPart } from '../../../kernel/interaction-parts.ts';
 import type {
   InteractionPart,
-  ProviderCompleteRequest,
+  ModelRequest,
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
@@ -11,6 +12,14 @@ import { withCarriedToolFiles } from '../../shared/carried-tool-files.ts';
 import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
 import { interactionsBuiltinTool } from '../builtins.ts';
 import { assertGoogleThinkingLevel } from '../thinking.ts';
+
+/** A turn as Interactions frames it: the request, plus whether Google keeps it and what it continues. */
+export type InteractionsRequest = ModelRequest & {
+  store?: boolean;
+  previousInteractionId?: string;
+  /** What came after the stored interaction, sent in place of the whole history. */
+  continuation?: TurnHistoryMessage[];
+};
 
 export function camelToSnake(key: string): string {
   return key.replaceAll(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`);
@@ -73,20 +82,32 @@ function functionResultStep(msg: TurnHistoryMessage): Record<string, unknown> {
  * the call; a `thought` step with the signature ahead of it is accepted (probe
  * 25/09/2026, gemini-3.1-flash-lite, `store: false`).
  */
-function functionCallSteps(call: {
-  id: string;
-  function: { name: string; arguments: string };
-  thoughtSignature?: string;
-}): Record<string, unknown>[] {
+function functionCallSteps(
+  call: { id: string; function: { name: string; arguments: string } },
+  signature: string | undefined,
+): Record<string, unknown>[] {
   const step = {
     type: 'function_call',
     id: call.id,
     name: call.function.name,
     arguments: historyToolArguments(call.function.arguments),
   };
-  return call.thoughtSignature
-    ? [{ type: 'thought', signature: call.thoughtSignature }, step]
-    : [step];
+  return signature ? [{ type: 'thought', signature }, step] : [step];
+}
+
+/** A thought's signature, for the tool call at `call` in the same assistant message. */
+export const thoughtSignature: z.ZodType<{ call: number; signature: string }> = z.strictObject({
+  call: z.number().int().min(0),
+  signature: z.string().min(1),
+});
+
+/** The signature written with the message's call at `index`, if its reasoning holds one. */
+function signatureAt(msg: TurnHistoryMessage, index: number): string | undefined {
+  for (const part of msg.reasoning ?? []) {
+    const parsed = thoughtSignature.safeParse(part.data);
+    if (parsed.success && parsed.data.call === index) return parsed.data.signature;
+  }
+  return undefined;
 }
 
 function textOrPartsStep(
@@ -105,8 +126,8 @@ function nonToolSteps(msg: TurnHistoryMessage): Record<string, unknown>[] {
     if (historyMessageParts(msg).length > 0) {
       steps.push(textOrPartsStep('assistant', msg));
     }
-    for (const call of msg.tool_calls) {
-      steps.push(...functionCallSteps(call));
+    for (const [index, call] of msg.tool_calls.entries()) {
+      steps.push(...functionCallSteps(call, signatureAt(msg, index)));
     }
     return steps;
   }
@@ -142,7 +163,7 @@ export function jsonResponseFormat(schema: Record<string, unknown>): unknown[] {
 }
 
 export function attachResponseFormat(
-  req: ProviderCompleteRequest,
+  req: InteractionsRequest,
   camel: Record<string, unknown>,
 ): void {
   if (req.speech) {
@@ -197,7 +218,7 @@ export function attachResponseFormat(
 }
 
 export function attachSpeechConfig(
-  req: ProviderCompleteRequest,
+  req: InteractionsRequest,
   generationConfig: Record<string, unknown>,
 ): void {
   if (!req.speech) {
@@ -237,7 +258,7 @@ function wireInteractionsFunctionTool(decl: WireFunctionTool): Record<string, un
   };
 }
 
-function wireInteractionsTools(req: ProviderCompleteRequest): Record<string, unknown>[] {
+function wireInteractionsTools(req: InteractionsRequest): Record<string, unknown>[] {
   const tools: Record<string, unknown>[] = [];
   for (const builtin of req.builtins) {
     tools.push(interactionsBuiltinTool(builtin));
@@ -262,7 +283,7 @@ function withToolNames(messages: readonly TurnHistoryMessage[]): TurnHistoryMess
   });
 }
 
-export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<string, unknown>[] {
+export function inputStepsFromRequest(req: InteractionsRequest): Record<string, unknown>[] {
   if (req.continuation && req.continuation.length > 0) {
     return historyStepsOf(withToolNames(req.continuation));
   }
@@ -275,7 +296,7 @@ export function inputStepsFromRequest(req: ProviderCompleteRequest): Record<stri
 }
 
 export function applyOptionalRequestFields(
-  req: ProviderCompleteRequest,
+  req: InteractionsRequest,
   camel: Record<string, unknown>,
 ): void {
   if (req.store !== undefined) {
@@ -293,7 +314,7 @@ export function applyOptionalRequestFields(
   }
 }
 
-export function baseInteractionsBody(req: ProviderCompleteRequest): Record<string, unknown> {
+export function baseInteractionsBody(req: InteractionsRequest): Record<string, unknown> {
   const generationConfig: Record<string, unknown> = {
     temperature: req.temperature,
     maxOutputTokens: req.maxOutputTokens,
@@ -321,7 +342,7 @@ export function baseInteractionsBody(req: ProviderCompleteRequest): Record<strin
   };
 }
 
-export function toInteractionsBody(req: ProviderCompleteRequest): Record<string, unknown> {
+export function toInteractionsBody(req: InteractionsRequest): Record<string, unknown> {
   const body = baseInteractionsBody(req);
   attachResponseFormat(req, body);
   applyOptionalRequestFields(req, body);

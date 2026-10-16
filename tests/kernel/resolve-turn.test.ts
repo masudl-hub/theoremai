@@ -22,14 +22,8 @@ function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
 type Loose = Record<string, unknown>;
-const GEMINI = {
-  provider: 'google',
-  apiId: 'g',
-  providerOptions: {
-    persistViaInteractionId: true,
-  },
-} as const;
-const SONAR = { provider: 'openrouter', apiId: 'x/y' } as const;
+const GEMINI = { protocol: 'scripted', provider: 'scripted', apiId: 'g' } as const;
+const SONAR = { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' } as const;
 function define(id: string, over: Loose = {}): void {
   registerProfile({
     id,
@@ -276,13 +270,7 @@ Deno.test('image, speech and live profiles carry their own spec onto the generat
     type: 'image',
     image: { aspectRatio: '1:1' },
     models: {
-      m: {
-        provider: 'google',
-        apiId: 'gi',
-        providerOptions: {
-          persistViaInteractionId: false,
-        },
-      },
+      m: { protocol: 'scripted', provider: 'scripted', apiId: 'gi' },
     },
     outputs: { structured: null },
   });

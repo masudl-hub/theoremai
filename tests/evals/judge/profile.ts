@@ -51,7 +51,13 @@ registerProfile({
   id: JEV_JUDGE,
   identity: { handle: 'jev judge' },
   models: {
-    jev: { provider: 'typesafe', keySlot: 'jev', apiId: 'jev-latest', timeoutMs: 10000 },
+    jev: {
+      protocol: 'systemOne',
+      provider: 'typesafe',
+      keySlot: 'jev',
+      apiId: 'jev-latest',
+      timeoutMs: 10000,
+    },
   },
   inputs: { state: 'json', maxStateBytes: 64000 },
   decision: { contract: 'eval.judgment.v1' },

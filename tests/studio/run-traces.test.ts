@@ -85,7 +85,7 @@ registerProfile({
   observability: { writeTo: 'bench-store' },
   identity: { handle: 'Bench', system: 'You reply.' },
   inputs: { text: true },
-  models: { main: { provider: 'openrouter', apiId: 'test/model' } },
+  models: { main: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test/model' } },
   tools: { allow: [] },
 });
 

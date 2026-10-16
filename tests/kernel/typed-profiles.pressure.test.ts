@@ -16,13 +16,13 @@ Deno.test('pressure-test: registration rejects unsupported provider operations',
           id: 'invalid_live',
           type: 'live',
           identity: { handle: 'Live' },
-          models: { main: { provider: 'openrouter', apiId: 'model' } },
+          models: { main: { protocol: 'openRouter', provider: 'openrouter', apiId: 'model' } },
           tools: { allow: [] },
           live: { voice: 'Aoede' },
         }),
       ),
     TheoremError,
-    'cannot run',
+    "has no endpoint for 'live' profiles",
   );
 });
 Deno.test('pressure-test: image and speech profiles may compact', () => {
@@ -212,7 +212,8 @@ Deno.test('pressure-test: turnBehaviour.resumption maxContinues enforcement', ()
     identity: { handle: 'live_bot' },
     models: {
       'gemini-2.0-flash-exp': {
-        provider: 'google',
+        protocol: 'geminiLive',
+        provider: 'gemini',
         apiId: 'gemini-2.0-flash-exp',
         efforts: { normal: 'minimal' },
       },
@@ -241,6 +242,7 @@ Deno.test('pressure-test: turnBehaviour.allowSteering rejected on image', () => 
         identity: { handle: 'img' },
         models: {
           'openai/dall-e-3': {
+            protocol: 'openRouterImages',
             provider: 'openrouter',
             apiId: 'openai/dall-e-3',
             efforts: { normal: 'minimal' },
@@ -284,6 +286,7 @@ Deno.test('pressure-test: turnBehaviour.resumption rejects non-ContinueStopKind'
         identity: { handle: 't', system: 's' },
         models: {
           'openai/gpt-4o-mini': {
+            protocol: 'openRouter',
             provider: 'openrouter',
             apiId: 'openai/gpt-4o-mini',
             efforts: { normal: 'minimal' },

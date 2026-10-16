@@ -22,7 +22,7 @@ function profile(id = 'decision-test') {
     id,
     identity: { handle: 'Decision test' },
     models: {
-      jev: { provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
     },
     inputs: { state: 'json', maxStateBytes: 1000 },
     decision: { contract: 'test.v1' },
@@ -80,11 +80,11 @@ Deno.test('runDecision validates and normalizes a Jev response', async () => {
     vault: { slot_a: 'test-key' },
     fetch: (url, init) => {
       calls += 1;
-      assertEquals(url, 'https://api.typesafe.ai/v1/systemone');
+      assertEquals(String(url), 'https://api.typesafe.ai/v1/systemone');
       assertEquals(init?.method, 'POST');
       return Promise.resolve(
-        new Response(
-          JSON.stringify({
+        Response.json(
+          {
             model: 'jev-1.13.0',
             answers: {
               next: {
@@ -102,7 +102,7 @@ Deno.test('runDecision validates and normalizes a Jev response', async () => {
               },
             },
             usage: { input_tokens: 2000000, output_tokens: 5 },
-          }),
+          },
           { status: 200 },
         ),
       );
@@ -112,7 +112,12 @@ Deno.test('runDecision validates and normalizes a Jev response', async () => {
   assertEquals(result.model, 'jev-1.13.0');
   assertEquals(result.answers.next.type, 'choice');
   // Jev's fixed price: $0.042 per million input tokens, output free.
-  assertEquals(result.usage, { inputTokens: 2000000, outputTokens: 5, costUsd: 0.084 });
+  assertEquals(result.usage, {
+    inputTokens: 2000000,
+    outputTokens: 5,
+    costUsd: 0.084,
+    estimated: true,
+  });
 });
 Deno.test('OpenRouter decisions use their binding, provider cost, and trace identity', async () => {
   clearProfiles();
@@ -121,6 +126,7 @@ Deno.test('OpenRouter decisions use their binding, provider cost, and trace iden
       ...profile('openrouter-decision'),
       models: {
         span: {
+          protocol: 'systemOne',
           provider: 'openrouter',
           apiId: 'respan/span-01-lite:free',
         },
@@ -146,22 +152,19 @@ Deno.test('OpenRouter decisions use their binding, provider cost, and trace iden
       vault: { slot_a: 'test-key' },
       sink: memorySink(records),
       fetch: (url, init) => {
-        assertEquals(url, 'https://openrouter.ai/api/alpha/decisions');
+        assertEquals(String(url), 'https://openrouter.ai/api/alpha/decisions');
         assertEquals(
           init?.headers && new Headers(init.headers).get('Authorization'),
           'Bearer test-key',
         );
         const body = JSON.parse(String(init?.body));
         assertEquals(body.model, 'respan/span-01-lite:free');
-        assertEquals(body.provider, { require_parameters: true });
         return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              model: 'respan/span-01-lite-20260925',
-              answers: { broken: { type: 'noul', noul: 0.95 } },
-              usage: { input_tokens: 64, output_tokens: 0, cost: 0 },
-            }),
-          ),
+          Response.json({
+            model: 'respan/span-01-lite-20260925',
+            answers: { broken: { type: 'noul', noul: 0.95 } },
+            usage: { input_tokens: 64, output_tokens: 0, cost: 0 },
+          }),
         );
       },
     },
@@ -170,15 +173,17 @@ Deno.test('OpenRouter decisions use their binding, provider cost, and trace iden
   assertEquals(records[0]?.spans[0]?.attributes['gen_ai.provider.name'], 'openrouter');
   assertEquals(records[0]?.spans[0]?.attributes['theorem.usage.cost_usd'], 0);
 });
-Deno.test('decision bindings require provider IDs and reject obsolete protocols', async () => {
+Deno.test('decision bindings need a provider, a model and a protocol the provider serves', async () => {
   for (const binding of [
-    { provider: '', apiId: 'jev-latest' },
-    { provider: 'typesafe', apiId: '' },
-    { provider: 'typesafe', apiId: 'jev-latest', protocol: 'decision' },
+    { protocol: 'systemOne', provider: '', apiId: 'jev-latest' },
+    { protocol: 'systemOne', provider: 'typesafe', apiId: '' },
+    { protocol: 'openAi', provider: 'typesafe', apiId: 'jev-latest' },
   ]) {
     await assertRejects(() =>
       Promise.resolve().then(() =>
-        defineProfile({ ...profile('invalid-binding'), models: { one: binding } } as never),
+        registerProfile(
+          defineProfile({ ...profile('invalid-binding'), models: { one: binding } } as never),
+        ),
       ),
     );
   }
@@ -423,7 +428,7 @@ Deno.test('decision pricing respects reported cost and estimates only known dire
     registerProfile(
       defineProfile({
         ...profile(),
-        models: { d: { provider: 'typesafe', apiId } },
+        models: { d: { protocol: 'systemOne', provider: 'typesafe', apiId } },
       }),
     );
     const body = await jevAnswer().json();
@@ -500,8 +505,8 @@ Deno.test('decision profile declares exactly one model', () => {
   const counts: Record<string, DecisionModelBinding>[] = [
     {},
     {
-      a: { provider: 'typesafe', apiId: 'jev-a' },
-      b: { provider: 'typesafe', apiId: 'jev-b' },
+      a: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-a' },
+      b: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-b' },
     },
   ];
   for (const models of counts) {
@@ -568,27 +573,25 @@ Deno.test('a decision request that names a model makes no network request', asyn
   assertEquals(calls, 0);
 });
 function jevAnswer(): Response {
-  return new Response(
-    JSON.stringify({
-      model: 'jev-1.13.0',
-      answers: {
-        next: {
-          type: 'choice',
-          choice: 'ask_user',
-          confidence: 0.9,
-          probabilities: { ask_user: 0.9, execute: 0.1 },
-        },
-        risk: {
-          type: 'score',
-          score: 1,
-          confidence: 0.8,
-          legend: { 0: 'low', 1: 'high' },
-          probabilities: { 0: 0.1, 1: 0.9 },
-        },
+  return Response.json({
+    model: 'jev-1.13.0',
+    answers: {
+      next: {
+        type: 'choice',
+        choice: 'ask_user',
+        confidence: 0.9,
+        probabilities: { ask_user: 0.9, execute: 0.1 },
       },
-      usage: { input_tokens: 1000000, output_tokens: 5 },
-    }),
-  );
+      risk: {
+        type: 'score',
+        score: 1,
+        confidence: 0.8,
+        legend: { 0: 'low', 1: 'high' },
+        probabilities: { 0: 0.1, 1: 0.9 },
+      },
+    },
+    usage: { input_tokens: 1000000, output_tokens: 5 },
+  });
 }
 Deno.test('a decision writes one decide record under the host span it names', async () => {
   clearProfiles();

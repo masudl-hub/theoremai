@@ -1,12 +1,12 @@
 import type { TraceSink } from '../observability/trace-sink.ts';
 import { type RunDecisionOptions, runDecisionInRegistry } from './engine/decision.ts';
+import { type RunEmbeddingOptions, runEmbeddingInRegistry } from './engine/embedding.ts';
 import { compactHistoryInRegistry, runTurnInRegistry } from './engine/runner/mod.ts';
 import { type RunSessionOptions, runSessionInRegistry } from './engine/session/mod.ts';
-import type { ProviderHostOptions } from './provider-contract.ts';
-import { resolveRegisteredTurnProvider } from './provider-dispatch.ts';
+import type { ProviderHostOptions } from './protocols/runtime.ts';
+import { resolveRegisteredTurnModel } from './provider-dispatch.ts';
 import { createKernelRegistry, type KernelRegistry } from './registry/kernel-registry.ts';
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
-import { type TurnShortfall, turnShortfallsInRegistry } from './registry/turn-check.ts';
 import { invokeTool, invokeToolStep } from './tools/invoke.ts';
 import type { InvokeToolRequest, InvokeToolStepRequest } from './tools/types.ts';
 import type {
@@ -14,6 +14,8 @@ import type {
   CompactionResult,
   DecisionRequest,
   DecisionResult,
+  EmbeddingRequest,
+  EmbeddingResult,
   LiveSession,
   ProjectedProfile,
   SessionRequest,
@@ -44,10 +46,9 @@ interface KernelScope extends KernelRegistry {
     sinkOverride?: TraceSink,
   ): AsyncGenerator<TurnEvent>;
   resolveTurn(req: TurnRequest): ReturnType<typeof resolveTurnInRegistry>;
-  /** Each model of profile `id` that cannot run a plain turn on its provider, and why. */
-  turnShortfalls(id: string): TurnShortfall[];
   projectProfile(id: string): ProjectedProfile;
   runDecision(request: DecisionRequest, options: RunDecisionOptions): Promise<DecisionResult>;
+  runEmbedding(request: EmbeddingRequest, options?: RunEmbeddingOptions): Promise<EmbeddingResult>;
 }
 
 /** Isolated from every other scope: a host that registers per request gives each its own. */
@@ -55,9 +56,9 @@ function selectedTurnProvider(
   registry: KernelRegistry,
   req: TurnRequest,
   options: ProviderHostOptions,
-): import('./types.ts').ModelProvider {
+): import('./types.ts').TurnModel {
   try {
-    return resolveRegisteredTurnProvider(registry, req.profile, req.model, options, req);
+    return resolveRegisteredTurnModel(registry, req.profile, req.model, options, req);
   } catch (error) {
     return {
       complete() {
@@ -82,15 +83,15 @@ function createKernelScope(): KernelScope {
       compactHistoryInRegistry(
         registry,
         req,
-        resolveRegisteredTurnProvider(registry, req.profile, req.model, options),
+        resolveRegisteredTurnModel(registry, req.profile, req.model, options),
         sinkOverride,
       ),
     invokeTool: (request, sinkOverride) => invokeTool(registry, request, sinkOverride),
     invokeToolStep: (request, sinkOverride) => invokeToolStep(registry, request, sinkOverride),
     resolveTurn: (req) => resolveTurnInRegistry(registry, req),
-    turnShortfalls: (id) => turnShortfallsInRegistry(registry, id),
     projectProfile: (id) => projectProfileInRegistry(registry, id),
     runDecision: (request, options) => runDecisionInRegistry(registry, request, options),
+    runEmbedding: (request, options = {}) => runEmbeddingInRegistry(registry, request, options),
   };
 }
 

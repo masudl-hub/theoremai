@@ -35,7 +35,7 @@ function profileOf(allow: string[], guardrails?: Profile['guardrails']): Profile
     id: 'exec-c',
     type: 'text',
     identity: { handle: 'exec-c' },
-    models: { m: { provider: 'openrouter', apiId: 'test' } },
+    models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' } },
     defaultModel: 'm',
     tools: { allow },
     inputs: { text: true },

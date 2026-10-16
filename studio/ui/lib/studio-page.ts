@@ -62,7 +62,7 @@ export function contextErrorOf(contextJson: string): string | undefined {
 /** What the compiled agent takes from a page, or null when it takes nothing. */
 export function pageInputsOf(payload: StudioRunPayload): PageInputs | null {
 	const { profile } = payload;
-	if (profile.type === 'decision' || profile.type === 'host') return null;
+	if (profile.type === 'decision' || profile.type === 'host' || profile.type === 'embedding') return null;
 	const inputs = 'inputs' in profile ? profile.inputs : undefined;
 	const slots = inputs?.slots ?? {};
 	const takesContext = inputs?.context?.from.includes('client') ?? false;

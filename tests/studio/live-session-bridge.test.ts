@@ -105,8 +105,8 @@ Deno.test('checkpoint ownership is saved before a live checkpoint reaches the br
   const checkpoint: TurnEvent = {
     type: 'provider_checkpoint',
     providerState: {
-      providerId: 'provider',
-      adapterId: 'adapter',
+      protocol: 'protocol',
+      provider: 'provider',
       version: 1,
       apiId: 'model',
       compatibilityKey: 'deployment',
@@ -134,8 +134,8 @@ Deno.test('a failed ownership write never advertises resumable native state', as
   const checkpoint: TurnEvent = {
     type: 'provider_checkpoint',
     providerState: {
-      providerId: 'provider',
-      adapterId: 'adapter',
+      protocol: 'protocol',
+      provider: 'provider',
       version: 1,
       apiId: 'model',
       compatibilityKey: 'deployment',

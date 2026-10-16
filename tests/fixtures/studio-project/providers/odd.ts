@@ -1,10 +1,11 @@
-import { defineProvider, googleAdapter, typesafeAdapter } from '@theoremjs/agents';
+import { geminiProvider, registerProvider, typesafeProvider } from '@theoremjs/agents';
 
-export const spareAdapter = typesafeAdapter();
+export const spareDefinition = typesafeProvider;
 
-export const odd = defineProvider({
-  'id': 'odd',
-  "connection": {} as Record<string, string>,
-  keySlot: 'odd_key', // the odd one
-  adapter: (googleAdapter()),
-});
+export function registerOdd(): void {
+  registerProvider((geminiProvider), {
+    'id': 'odd',
+    "connection": {} as Record<string, string>,
+    keySlot: 'odd_key', // the odd one
+  });
+}

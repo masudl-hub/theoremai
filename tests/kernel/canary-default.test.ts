@@ -4,7 +4,7 @@ import { detects } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import { getProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 
 Deno.test('chat fixture resolves canary on and binds into system', async () => {
   const policy = resolveGuardrailPolicy(getProfile('chat').guardrails);
@@ -15,8 +15,8 @@ Deno.test('chat fixture resolves canary on and binds into system', async () => {
     await Promise.resolve();
     yield { type: 'text', text: 'hi' };
   }
-  const wrap: ModelProvider = {
-    async *complete(req: ProviderCompleteRequest) {
+  const wrap: TurnModel = {
+    async *complete(req: ModelRequest) {
       system = req.system ?? '';
       yield* fake();
     },

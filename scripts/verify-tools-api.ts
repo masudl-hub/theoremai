@@ -9,12 +9,7 @@ import {
   runTurn,
 } from '../src/kernel/default-scope.ts';
 import { defineProfile } from '../src/kernel/registry/profiles.ts';
-import type {
-  InvokeToolRequest,
-  ModelProvider,
-  TurnEvent,
-  TurnRequest,
-} from '../src/kernel/types.ts';
+import type { InvokeToolRequest, TurnEvent, TurnModel, TurnRequest } from '../src/kernel/types.ts';
 import { failureOf, gateOf, lastTool, outputOf, toolPhases } from '../tests/fixtures/events.ts';
 import { geminiModels, HOST_BINDINGS } from '../tests/fixtures/models.ts';
 import { scriptProviderOptions, scriptTurnOptions } from './provider-options.ts';
@@ -252,7 +247,7 @@ async function runInvoke(req: InvokeToolRequest): Promise<CaseResult> {
 
 async function runLive(
   req: TurnRequest,
-  provider: ModelProvider | import('../mod.ts').ProviderHostOptions,
+  provider: TurnModel | import('../mod.ts').ProviderHostOptions,
 ): Promise<CaseResult> {
   const start = Date.now();
   try {
@@ -561,7 +556,7 @@ function buildInvokeCases(): Case[] {
 
 function sequentialToolProvider(
   tools: Array<{ name: string; arguments: Record<string, unknown> }>,
-): ModelProvider {
+): TurnModel {
   let call = 0;
   return {
     async *complete() {
@@ -584,7 +579,7 @@ function sequentialToolProvider(
   };
 }
 
-function singleToolProvider(name: string, args: Record<string, unknown>): ModelProvider {
+function singleToolProvider(name: string, args: Record<string, unknown>): TurnModel {
   return sequentialToolProvider([{ name, arguments: args }]);
 }
 

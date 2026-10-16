@@ -15,7 +15,6 @@ import {
   libraryDraft,
   modelBindingNodeId,
   modelSharers,
-  modelSupport,
   newProvider,
   newToolSpec,
   providerNodeId,
@@ -246,15 +245,15 @@ Deno.test('a provider is added for every agent, and removed only once no model r
   const start = workspaceFromDraft(createExampleDraft());
   const house = {
     id: 'house',
-    adapter: 'openai-chat',
-    connection: { baseURL: 'https://models.example/v1' },
+    definition: 'local',
+    connection: { baseUrl: 'https://models.example/v1' },
   };
   const added = addProvider(start, house);
   assertEquals(added.providers.at(-1), house);
   assertEquals(added.selected, providerNodeId('house'));
   assertEquals(providerUse(added, 'house'), { models: 0, agents: 0 });
   // An id that is taken is not added twice.
-  assertEquals(addProvider(added, { ...house, adapter: 'google' }), added);
+  assertEquals(addProvider(added, { ...house, definition: 'gemini' }), added);
   const removed = removeProvider(added, 'house');
   assertEquals(removed.providers, start.providers);
   assertEquals(removed.starts.providers.house, undefined);
@@ -271,14 +270,14 @@ Deno.test('a new provider takes a free id, and a rename moves the models that ru
   const start = workspaceFromDraft(createExampleDraft());
   const first = newProvider(
     start.providers.map((provider) => provider.id),
-    'openai-chat',
+    'local',
   );
-  assertEquals(first, { id: 'provider', adapter: 'openai-chat', connection: {} });
+  assertEquals(first, { id: 'provider', definition: 'local', connection: {} });
   const added = addProvider(start, first);
   assertEquals(
     newProvider(
       added.providers.map((provider) => provider.id),
-      'google',
+      'gemini',
     ).id,
     'provider_2',
   );
@@ -314,7 +313,7 @@ Deno.test('a new provider takes a free id, and a rename moves the models that ru
 Deno.test('an agent put back to its start brings back the provider its models started on', () => {
   const start = addProvider(workspaceFromDraft(createExampleDraft()), {
     id: 'house',
-    adapter: 'google',
+    definition: 'gemini',
   });
   const [agent] = start.agents;
   const key = must(agent).key;
@@ -339,7 +338,7 @@ Deno.test('an agent put back to its start brings back the provider its models st
   }
 });
 
-Deno.test("a model's own support names everyone it changes, and shows only where it says something", () => {
+Deno.test('a model names every other model and agent that calls it on the same provider', () => {
   const start = workspaceFromDraft(createExampleDraft());
   const [agent] = start.agents;
   const [first] = must(agent).modelBindings;
@@ -361,20 +360,4 @@ Deno.test("a model's own support names everyone it changes, and shows only where
     models: ['thinking'],
     agents: ['Team'],
   });
-
-  const house = {
-    id: 'house',
-    adapter: 'openai-chat',
-    connection: { baseURL: 'https://h.example/v1' },
-  };
-  // Told nothing where the builder cannot change it, the model has no rows.
-  assertEquals(modelSupport(house, 'house/one', false), undefined);
-  assertEquals(modelSupport(house, 'house/one', true)?.told, {});
-  const told = {
-    ...house,
-    support: { models: { 'house/one': { clientTools: 'unsupported' as const } } },
-  };
-  assertEquals(modelSupport(told, 'house/one', false)?.told, { clientTools: 'unsupported' });
-  // An adapter that knows each model's own takes no rows.
-  assertEquals(modelSupport({ id: 'g', adapter: 'google' }, 'gemini', true), undefined);
 });

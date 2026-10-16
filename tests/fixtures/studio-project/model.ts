@@ -57,6 +57,6 @@ function refused(url: URL, init?: RequestInit): Response | undefined {
 export function scripted(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const url = new URL(input instanceof Request ? input.url : String(input));
   const answer = refused(url, init) ??
-    (url.hostname === 'api.typesafe.ai' ? new Response(JSON.stringify(DECIDED)) : chat(init?.body));
+    (url.hostname === 'api.typesafe.ai' ? Response.json(DECIDED) : chat(init?.body));
   return Promise.resolve(answer);
 }

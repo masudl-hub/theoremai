@@ -17,7 +17,7 @@ import { caseVerdict } from '../../src/evals/verdict.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertRejects } from '../../src/kernel/engine/assert.ts';
 import { historyMessageParts } from '../../src/kernel/interaction-parts.ts';
-import type { InteractionPart, ModelProvider } from '../../src/kernel/types.ts';
+import type { InteractionPart, TurnModel } from '../../src/kernel/types.ts';
 import { type TurnFixtureOptions, turnRecord } from './fixture.ts';
 
 const NO_JUDGE: EvalGradeContext = { traced: () => undefined };
@@ -378,7 +378,7 @@ Deno.test('a suite without an answer grader reports no answer counts', () => {
 });
 
 /** Answers every turn with `name` as its structured `label`, keeping the media each turn carried. */
-function namer(name: string): ModelProvider & { seen: InteractionPart[][] } {
+function namer(name: string): TurnModel & { seen: InteractionPart[][] } {
   const seen: InteractionPart[][] = [];
   return {
     seen,

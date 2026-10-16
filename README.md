@@ -59,7 +59,7 @@ Install `jsr:@theoremjs/agents` from JSR or `@theoremjs/agents` from npm.
 | Describe the whole agent in one place | Six profile types, several models per profile, typed file inputs, and outputs that a schema checks | [Profile types](#profile-types) |
 | Stop a prompt injection or a data leak | Input scanning by trust level, canary tokens, and egress checks that can send the model back to try again | [Guardrails](#guardrails) |
 | Let the model act, safely | One tool registry for function, HTTP, MCP and provider tools, gated in layers, with OAuth 2.1 and PKCE built in | [Tools](#tools) |
-| Connect model servers | Registered adapters for Google, OpenRouter, compatible endpoints and external protocols | [Providers](#providers) |
+| Connect model servers | Protocols for Gemini, OpenRouter, TypeSafe and OpenAI-compatible servers, and providers that you define | [Providers](#providers) |
 | See what happened | Traces to JSONL, memory or your own sink, with sampling, scrubbing and retention | [Observability](#observability) |
 | Trust the kernel | A kernel that imports with every Deno permission denied. A test proves it. | [Package Boundary](#package-boundary) |
 
@@ -107,29 +107,22 @@ registerTool({
 
 ### Register a provider
 
-A **provider definition** holds the adapter, connection settings, and credential-slot names. Register it before the profile.
-An **adapter** converts Theorem requests and model responses to and from an upstream protocol.
+A **provider** is data about a model service: its address, the protocols that it serves, and how to sign in.
+A **protocol** is the code for one API shape. It writes each request and reads each reply.
+Register the provider before the profile. The registration sets its connection and its credential slots.
 
 ```ts
-import { defineProvider, openRouterAdapter, registerProvider } from "@theoremjs/agents";
+import { openRouterProvider, registerProvider } from "@theoremjs/agents";
 
-const router = defineProvider({
-  id: "company-router",
-  connection: {},
-  keySlot: "openrouter",
-  adapter: openRouterAdapter(),
-});
-registerProvider(router);
+const router = registerProvider(openRouterProvider, { keySlot: "openrouter" });
 ```
 
-An external `ProviderAdapter` can use object methods or class prototype methods.
-The kernel preserves method receivers and captures the selected adapter for each run.
-Replacing a provider registration affects later runs. Keep hidden adapter configuration stable while a run is active.
+Each run captures the registered provider. A later registration affects later runs only.
 
 ### Define a profile
 
 The profile selects models and tools. It also declares inputs, outputs, and guardrails.
-The provider's `.model()` helper checks model settings and returns plain binding data.
+The registered provider's `.model()` helper takes a protocol and a model ID. It checks the settings and returns plain binding data.
 
 ```ts
 import { defineProfile, registerProfile } from "@theoremjs/agents";
@@ -142,7 +135,7 @@ const support = defineProfile({
     system: "You help customers with their account. Cite the docs you used.",
   },
   models: {
-    main: router.model("openrouter/free"),
+    main: router.model("openRouter", "openrouter/free"),
   },
   defaultModel: "main",
   tools: { allow: ["search_tickets"] },
@@ -177,16 +170,16 @@ Every event is typed. A `structured` event arrives only after validation and the
 
 Use the `type` field to choose what the agent does. The type sets the shape of the profile and picks the runner.
 
-| Type | Runner | Takes | Returns | First-party adapters |
+| Type | Runner | Takes | Returns | First-party protocols |
 | :--- | :--- | :--- | :--- | :--- |
-| `text` | `runTurn` | text, attachments, voice notes, slots, history | text, thoughts, validated JSON, tool calls | `googleAdapter`, `openRouterAdapter`, `openAIChat` |
-| `image` | `runTurn` | prompt + reference images | images, optionally with interleaved text | `googleAdapter`, `openRouterAdapter` |
-| `speech` | `runTurn` | text | audio (WAV, or MP3 on OpenRouter) | `googleAdapter`, `openRouterAdapter` |
-| `live` | `runSession` | realtime mic audio, camera frames, typed text | streamed audio, transcripts, tool calls | `googleAdapter` |
+| `text` | `runTurn` | text, attachments, voice notes, slots, history | text, thoughts, validated JSON, tool calls | `geminiInteractions`, `openRouter`, `openAi` |
+| `image` | `runTurn` | prompt + reference images | images, optionally with interleaved text | `geminiInteractions`, `openRouterImages` |
+| `speech` | `runTurn` | text | audio (WAV, or MP3 on OpenRouter) | `geminiInteractions`, `openRouter`, `openAi` |
+| `live` | `runSession` | realtime mic audio, camera frames, typed text | streamed audio, transcripts, tool calls | `geminiLive` |
 | `host` | `invokeTool`, `invokeToolStep` | tool calls from your own code, one at a time or as a step | guarded tool results | none; it never calls a model |
-| `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, or `noul` | `typesafeAdapter`, `openRouterAdapter` |
+| `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, or `noul` | `systemOne` |
 
-An external adapter can provide the same model operations. Its capability declaration determines which profile types and features it accepts.
+A protocol that you define can serve the same profile types. Its `endpoints` name the profile types that it serves.
 
 `defineProfile` rejects a field that does not belong to the type. Quota, canary or egress on a `host` profile, attachments on `live`, and steering on `image` all fail at startup, not halfway through a turn.
 
@@ -200,7 +193,7 @@ Provider call IDs remain available for correlation. Approval clients preserve bo
 These IDs distinguish actions. A host-owned execution coordinator retains their claims and outcomes.
 The React handler creates that coordinator from its atomic session store. Process restarts require durable shared storage.
 
-The runner is one deterministic path for one agent turn. A profile is a declaration that the host owns. Registered adapters supply model operations; `runSession` opens live sessions. Traces go to destinations that the host registers. There are no environment variables and no bundled database.
+The runner is one deterministic path for one agent turn. A profile is a declaration that the host owns. Registered providers and their protocols supply model operations; `runSession` opens live sessions. Traces go to destinations that the host registers. There are no environment variables and no bundled database.
 
 ```text
  request
@@ -249,7 +242,7 @@ Use tools to let the model act: look something up, call an API, change a record.
 | `mcp` | One tool on a remote MCP server over Streamable HTTP. |
 | `builtin` | A provider-native tool (Google Search, Maps, URL context, code execution) from a preset. |
 
-Every client-tool call uses the same gated pipeline. Provider-native tools execute upstream through the adapter. Six layers decide whether the model can call a tool, and each layer has one owner.
+Every client-tool call uses the same gated pipeline. Provider-native tools execute upstream through the protocol. Six layers decide whether the model can call a tool, and each layer has one owner.
 
 | Layer | Owner | What it decides |
 | :--- | :--- | :--- |
@@ -293,31 +286,48 @@ Host options can set finite `limits` for provider setup, credentials, transport,
 Defaults bound each operation to 120 seconds and each live connection opening to 30 seconds.
 Retries share the deadline and byte budget. Limits do not enter the profile.
 
-Use a first-party adapter, configure a compatible endpoint, or register your own adapter.
-The profile selects a registered provider ID. Each runner resolves that provider from the selected model binding.
+A model call uses a **protocol**, a **provider** and a **binding**.
+The protocol is the code for one API shape. The provider is data: an address, the protocols that it serves, and a sign-in.
+The binding under `models` names the protocol, the registered provider ID and the model.
 
-| Factory | Operations |
-| :--- | :--- |
-| `googleAdapter` | Interactions text, image, and speech; live WebSocket sessions |
-| `openRouterAdapter` | Official SDK chat; native image, speech, and decision endpoints |
-| `openAIChat` | Compatible chat endpoint with declared deployment capabilities |
-| `typesafeAdapter` | Native decisions |
-| External `ProviderAdapter` | Operations declared by its contract and capabilities |
+| Provider | ID | Protocols |
+| :--- | :--- | :--- |
+| `geminiProvider` | `gemini` | `geminiInteractions` (text, image, speech), `geminiLive` (live) |
+| `openRouterProvider` | `openrouter` | `openRouter` (text, speech), `openRouterImages` (image), `systemOne` (decision) |
+| `typesafeProvider` | `typesafe` | `systemOne` (decision) |
+| `localProvider` | `local` | `openAi` (text, speech), for a server such as Ollama |
 
-Register definitions before profiles. Put shared generation settings on the binding.
-Put adapter-specific settings in `providerOptions`. The adapter validates these settings.
-Required features fail before transport opens if declared support is unknown or unsupported.
+Register providers before profiles. `registerProvider(provider, { id, connection, keySlot, fallbackKeySlot })` returns the registered provider.
+`registerProfile` refuses a binding whose provider does not serve its protocol, or whose protocol has no endpoint for the profile type.
+Put shared generation settings on the binding. Put protocol-specific settings in `options`. The protocol's schema validates them.
 
-Unknown Google models need capability declarations passed to `googleAdapter`.
-Compatible endpoints need verified declarations for tools, structured output, or reasoning.
-For a different protocol, implement `ProviderAdapter` and register it under your own ID.
-Test that adapter with `verifyProviderAdapter` from `@theoremjs/agents/providers/testing`.
-Supply offline fixtures for the operations and failure cases you require. The report keeps missing evidence unverified.
+```ts
+import { bearer, defineProvider, localProvider, openAi, registerProvider } from "@theoremjs/agents";
+import { z } from "zod";
+
+registerProvider(localProvider, { connection: { baseUrl: "http://127.0.0.1:11434/v1" } });
+
+const gateway = defineProvider({
+  id: "gateway",
+  name: "Company gateway",
+  description: "The chat gateway of the company.",
+  connection: z.strictObject({ baseUrl: z.string() }),
+  key: z.string().trim().min(1),
+  authorize: bearer(),
+  serves: (at) => [{ protocol: openAi, baseUrl: at.baseUrl }],
+});
+registerProvider(gateway, { connection: { baseUrl: "https://gateway.example/v1" }, keySlot: "gateway" });
+```
+
+Use `defineProvider` for a server that speaks a protocol that Theorem has. `bearer`, `header` and `query` put the key on each request.
+Use `extendProtocol` for an API that nearly matches a protocol. Use `defineProtocol` for a new API shape.
+A protocol never holds a key or an address. The kernel signs and sends each request.
 
 ### Supply credentials
 
 Pass the vault in host options to `runTurn`, `runSession`, or `runDecision`.
-Provider definitions name default credential slots. Bindings can override them with `keySlot` and `fallbackKeySlot`.
+Provider registrations name default credential slots. Bindings can override them with `keySlot` and `fallbackKeySlot`.
+After a quota refusal (HTTP 429), the kernel retries once with the key in `fallbackKeySlot`, if the vault holds it.
 The vault accepts strings, JSON credential objects, or asynchronous resolvers. The host owns credential caching and refresh.
 Supply each slot as an own property of the vault. The runtime ignores inherited entries.
 
@@ -332,17 +342,16 @@ const events = runTurn(
 
 ### Save continuation state
 
-Keep portable conversation history when an adapter supplies native state.
+Keep portable conversation history when a protocol supplies native state.
 A **checkpoint** contains versioned native state and identifies its covered history prefix.
 Save the returned `providerState` checkpoint beside that history. Send both on the next request.
-The kernel validates the checkpoint's provider, model, deployment, version, and covered history.
+The kernel validates the checkpoint's protocol, provider, model, connection, key slot, version, and covered history.
 
-On a mismatch, the default policy rebuilds from portable history and emits a warning.
-Set `providerContinuation.onMismatch` to `error` to reject the mismatch instead.
+On a mismatch, the kernel rebuilds from portable history and emits a `provider_state_rebuilt` warning.
 Set `providerContinuation.history` to `provider` to resume from the checkpoint alone when the provider stores the conversation.
 A failed or incomplete model step cannot authorize pending client tools.
 
-See [the provider contract](https://github.com/masudl-hub/theoremai/blob/main/docs/contracts/providers.md) for the adapter schemas and operation boundaries.
+See [the provider contract](https://github.com/masudl-hub/theoremai/blob/main/docs/contracts/providers.md) for the protocol and provider schemas and the operation boundaries.
 
 ---
 
@@ -395,8 +404,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | :--- | :--- |
 | `jsr:@theoremjs/agents` / `@theoremjs/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
 | `jsr:@theoremjs/agents/kernel` / `@theoremjs/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
-| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | Provider definitions, adapters, vault contracts and transport helpers. |
-| `jsr:@theoremjs/agents/providers/local` / `@theoremjs/agents/providers/local` | Direct local OpenAI-compat adapter (`createLocalProvider`). |
+| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | Protocols, first-party providers, provider definitions, sign-in helpers and vault contracts. |
 | `jsr:@theoremjs/agents/guardrails` / `@theoremjs/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
 | `jsr:@theoremjs/agents/guardrails/testing` / `@theoremjs/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
 | `jsr:@theoremjs/agents/observability` / `@theoremjs/agents/observability` | Trace sinks, trace record helpers and OTLP/JSON export. |
@@ -410,7 +418,6 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/presets/google` / `@theoremjs/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) as tool-list entries. |
 | `jsr:@theoremjs/agents/presets/google/speech-voices` / `@theoremjs/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
-| `jsr:@theoremjs/agents/providers/google/live` / `@theoremjs/agents/providers/google/live` | Gemini Live framing and session helpers (`openGoogleLiveSession`); live runs through `runSession`. |
 
 The studio is a separate package, `@theoremjs/studio`. It is never part of the kernel package. Install it beside the kernel to open your project's agents in a local studio: `npm install -D @theoremjs/studio`, then `npx theorem-studio`. It needs Deno. Demo fixtures, such as the travel concierge seeds and local handlers, are only in the repo: a host that needs them links `file:../theoremai/studio`.
 
@@ -439,26 +446,27 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Sanitize | `sanitizeProjectId`, `sanitizeTurnRequest`, `sanitizeTurnRequestWithEvents`, `SanitizedTurnRequest`, `guardrailFromHits`, `guardrailFromVerdict`, `guardrailTurnEvent`, `projectGuardrailTurnEvent`, `hitFromSpan`, `projectGuardrailEvent` |
 | Canary / egress | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `redactCanary`, `OMIT_CANARY`, `createCanaryStreamGate`, `eventHasCanary`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Compaction | `compactHistory`, `CompactionSplit`, `CompactionTokens`, `compactionMeter`, `compactionNeeded`, `resolveCompactionTokens`, `resolveHistoryTokens`, `shouldCompact`, `splitForCompaction` |
-| Token estimate | `loadTokenEstimator`, `mediaTokenFamily`, `TOKEN_TEXT_ENCODING`, `MediaPayload`, `MediaTokenFamily`, `TokenCount`, `TokenEstimator`, `sumTokens` |
-| Runner | `runTurn`, `runSession`, `runDecision`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
+| Token estimate | `loadTokenEstimator`, `TOKEN_TEXT_ENCODING`, `TokenCount`, `TokenEstimator`, `sumTokens` |
+| Runner | `runTurn`, `runSession`, `runDecision`, `runEmbedding`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Attachments | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `requireModelBinding` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `PROFILE_TYPE_PROTOCOLS`, `protocolsForProfileType`, `isValidProfileProtocol`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `PROTOCOLS`, `PROVIDERS`, `PROTOCOL_PROVIDERS`, `providersFor`, `protocolsFor`, `isValidPair`, `coerceProvider`, `coerceProtocol`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_START_SENSITIVITIES`, `LIVE_END_SENSITIVITIES` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_START_SENSITIVITIES`, `LIVE_END_SENSITIVITIES` |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
-| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel`, `turnShortfalls`, `TurnShortfall` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
 | Tools | `ToolContext`, `GateReference`, `gateReferenceSchema`, `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `GATE_DECISIONS`, `GateDecision`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `uncheckedOutput`, `UncheckedOutput` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `StepLimitMode`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](https://github.com/masudl-hub/theoremai/blob/main/docs/contracts/stages.md) |
-| Turn events | `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `turnDoneOf`, `keptReply` (a turn's events without the replies a retry threw away), `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) — the event types themselves come through `export type *` from `src/kernel/types.ts` |
+| Turn events | `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `reasoningPartSchema`, `historyHash`, `turnDoneOf`, `keptReply` (a turn's events without the replies a retry threw away), `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) — the event types themselves come through `export type *` from `src/kernel/types.ts` |
 | Observability | `memorySink`, `noopSink`, `readTraceparent`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `ScrubSwitch`, `ResolvedScrubSwitch`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` (file sink: `@theoremjs/agents/observability/jsonl` → `jsonlSink`, `JsonlSinkOptions`) |
-| Providers | `registerProvider`, `registerProviders`, `getProvider`, `requireProvider`, `hasProvider`, `listProviders`, `resetProviders`, `defineProvider`, `ProviderAdapter`, `ProviderContext`, `ProviderHostOptions`, `KeyVault`, `openRouterAdapter`, `googleAdapter`, `openAIChat`, `typesafeAdapter` (local: `@theoremjs/agents/providers/local` → `createLocalProvider`) |
-| Provider definitions | `ProviderAdapter`, `ProviderBuiltinSpec`, `ProviderDefinition`, `DefinedProvider`, `RegisteredProvider`, `ProviderRegistry`, `defineProvider`, `createProviderRegistry` |
-| Provider data | `JsonValue`, `JsonObject`, `CapabilitySupport`, `ProviderCapabilities`, `DeclarableFeature`, `DeclaredSupport`, `ModelSupport`, `ResolvedProviderModel`, `ProviderModelSettings` |
-| Provider vault | `ProviderCredential`, `CredentialContext`, `CredentialResolver`, `ProviderVault`, `ProviderWait`, `OpenProviderWebSocket` |
-| Provider operations | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits`, `ProviderContext`, `ProviderOperations`, `ProviderRequest`, `ProviderTurnRequest`, `ProviderSessionRequest`, `ProviderDecisionRequest`, `ProviderLiveConnection`, `ProviderToolResult` |
-| Provider output | `ProviderContentEvent`, `ProviderModelEvent`, `ProviderCheckpoint`, `ProviderWarning`, `ProviderContinuationPolicy` |
-| Provider schemas | `jsonValueSchema`, `jsonObjectSchema`, `keySlotSchema`, `commonModelSettingsSchema`, `modelBindingSchema`, `decisionModelBindingSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `providerCapabilitiesSchema`, `declaredSupportSchema`, `DECLARABLE_FEATURES` |
+| Providers | `registerProvider`, `getProvider`, `listProviders`, `listProtocols`, `createProviderRegistry`, `defineProvider`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
+| Provider sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `geminiInteractions`, `geminiLive`, `geminiEmbedding`, `openAi`, `openRouter`, `openRouterImages`, `openRouterEmbedding`, `ollamaEmbedding`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `LiveToolResult`, `callProtocol`, `ProtocolCall`, `CallSetup` |
+| Model bindings | `ModelBinding`, `DecisionModelBinding`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `keySlotSchema`, `checkBinding`, `keySlotsOf`, `RuntimeAbilities` |
+| Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |
+| Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket`, `plainWebSocket` |
+| Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderStateRebuilt`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
 | Provider limits | `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
 
 </details>
@@ -480,13 +488,13 @@ ambient_secret_reads = false
 business_logic_in_kernel = false
 unownable_user_or_model_copy = false
 provider_keys_host_owned = true
-provider_adapters_lazy = true
+protocols_hold_keys = false
 trace_sinks_host_injected = true
-live_sessions = "registered adapter via runSession; host owns mic, camera, and playback"
+live_sessions = "registered provider via runSession; host owns mic, camera, and playback"
 session_memory_in_kernel = false
 ```
 
-**Facts and policy.** Provider facts may ship, such as model capabilities, wire shapes and protocol metadata. For example, see `@theoremjs/agents/presets/google`. Product policy may not ship: prompts, personas, end-user copy, demo apps and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
+**Facts and policy.** Provider facts may ship, such as prices, wire shapes and protocol metadata. For example, see `@theoremjs/agents/presets/google`. Product policy may not ship: prompts, personas, end-user copy, demo apps and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
 
 Four properties are invariant. Where a test or a lint checks one, the table names it.
 
@@ -497,7 +505,7 @@ Four properties are invariant. Where a test or a lint checks one, the table name
 | P3 | No buried policy — behavioral defaults are declared profile-schema fields | `PROFILE_FIELDS` / schema |
 | P4 | Inert extras — optional entrypoints removable without behavior change | publish-bundle gate excludes `studio/` |
 
-First-party operation implementations load lazily. Provider definition and registration perform validation without opening transport (`src/providers/adapters.ts`). Implementation modules, such as `google/interactions/`, `openrouter/` and `local/`, are not pulled in when you import.
+Provider definition and registration validate without opening transport (`src/kernel/protocols/provider.ts`). A protocol never holds a key, a key slot or a base URL. The kernel signs each request with the registered provider's sign-in.
 
 Domain rules, delivery policy, product copy, database access and session memory belong in your application, not in Theorem.
 

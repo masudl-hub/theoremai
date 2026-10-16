@@ -6,7 +6,7 @@
  */
 
 import type { TurnHistoryMessage } from '../kernel/turn-events.ts';
-import type { ProviderCompleteRequest } from '../kernel/types.ts';
+import type { ModelRequest } from '../kernel/types.ts';
 import { type LabelOverrides, labelText } from './labels.ts';
 import { TOOL_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
@@ -189,13 +189,12 @@ function addHistoryDestinations(
 /** Notes what a provider request gives the model. `own` holds what quotes the model's own words. */
 function addRequestDestinations(
   turn: TurnDestinations,
-  request: Pick<ProviderCompleteRequest, 'system' | 'input' | 'history' | 'continuation'>,
+  request: Pick<ModelRequest, 'system' | 'input' | 'history'>,
   own: WeakSet<object>,
 ): void {
   addGivenDestinations(turn, request.system);
   if (!own.has(request.input)) addGivenDestinations(turn, textForScan(request.input).text);
   addHistoryDestinations(turn, request.history ?? [], own);
-  addHistoryDestinations(turn, request.continuation ?? [], own);
 }
 
 /**

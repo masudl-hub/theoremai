@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
-import { jsonValueSchema, keySlotSchema } from '../provider-contract.ts';
+import { jsonValueSchema } from '../json.ts';
 import type { KeySlot } from '../types.ts';
 import {
   type DecisionModelBinding,
   decisionModelBindingSchema,
+  keySlotSchema,
   type ModelBinding,
   modelBindingSchema,
 } from './binding.ts';
@@ -177,7 +178,10 @@ export interface RegisteredProvider {
 }
 
 export interface ProviderRegistry {
+  /** Refuses an id already registered. */
   register<C, K>(provider: Provider<C, K>, registration?: Registration<C>): RegisteredProvider;
+  /** Registers in place of the provider with the same id, for a tool that edits a project. */
+  replace<C, K>(provider: Provider<C, K>, registration?: Registration<C>): RegisteredProvider;
   get(id: string): RegisteredProvider | undefined;
   require(id: string, apiId: string): RegisteredProvider;
   list(): RegisteredProvider[];
@@ -210,78 +214,85 @@ export function createProviderRegistry(): ProviderRegistry {
     return lineage;
   };
 
-  return {
-    register(provider, registration = {}) {
-      const id = registration.id ?? provider.id;
-      if (providers.has(id))
-        throw new TheoremError('config', labelText('protocol.provider_id_clash', { provider: id }));
-      const parsed = provider.connection
-        ? provider.connection.safeParse(registration.connection)
-        : { success: true as const, data: undefined };
-      if (!parsed.success)
+  const add = <C, K>(
+    provider: Provider<C, K>,
+    registration: Registration<C>,
+    replacing: boolean,
+  ): RegisteredProvider => {
+    const id = registration.id ?? provider.id;
+    if (!replacing && providers.has(id))
+      throw new TheoremError('config', labelText('protocol.provider_id_clash', { provider: id }));
+    const parsed = provider.connection
+      ? provider.connection.safeParse(registration.connection)
+      : { success: true as const, data: undefined };
+    if (!parsed.success)
+      throw new TheoremError(
+        'config',
+        labelText('protocol.connection', { provider: id, issues: z.prettifyError(parsed.error) }),
+      );
+    if (parsed.data !== undefined) jsonValueSchema.parse(parsed.data);
+    if (registration.keySlot !== undefined) keySlotSchema.parse(registration.keySlot);
+    if (registration.fallbackKeySlot !== undefined)
+      keySlotSchema.parse(registration.fallbackKeySlot);
+    if (registration.keySlot && registration.keySlot === registration.fallbackKeySlot)
+      throw new TheoremError('config', labelText('provider.fallback_slot'));
+    if ((registration.keySlot || registration.fallbackKeySlot) && !provider.key)
+      throw new TheoremError('config', labelText('protocol.no_key', { provider: id }));
+    const serves = Object.freeze(
+      provider.serves(parsed.data as never).map((serve) => Object.freeze({ ...serve }) as Serve),
+    );
+    const claimed = serves.flatMap((serve) => claim(serve.protocol));
+    const optionsOf = (protocol: Protocol | string, apiId: string, options: unknown) => {
+      const { protocol: spoken } = served(
+        { id, serves },
+        typeof protocol === 'string' ? protocol : protocol.id,
+      );
+      const checked = spoken.options.safeParse(options ?? {});
+      if (!checked.success)
         throw new TheoremError(
           'config',
-          labelText('protocol.connection', { provider: id, issues: z.prettifyError(parsed.error) }),
-        );
-      if (parsed.data !== undefined) jsonValueSchema.parse(parsed.data);
-      if (registration.keySlot !== undefined) keySlotSchema.parse(registration.keySlot);
-      if (registration.fallbackKeySlot !== undefined)
-        keySlotSchema.parse(registration.fallbackKeySlot);
-      if (registration.keySlot && registration.keySlot === registration.fallbackKeySlot)
-        throw new TheoremError('config', labelText('provider.fallback_slot'));
-      if ((registration.keySlot || registration.fallbackKeySlot) && !provider.key)
-        throw new TheoremError('config', labelText('protocol.no_key', { provider: id }));
-      const serves = Object.freeze(
-        provider.serves(parsed.data as never).map((serve) => Object.freeze({ ...serve }) as Serve),
-      );
-      const claimed = serves.flatMap((serve) => claim(serve.protocol));
-      const optionsOf = (protocol: Protocol | string, apiId: string, options: unknown) => {
-        const { protocol: spoken } = served(
-          { id, serves },
-          typeof protocol === 'string' ? protocol : protocol.id,
-        );
-        const checked = spoken.options.safeParse(options ?? {});
-        if (!checked.success)
-          throw new TheoremError(
-            'config',
-            labelText('protocol.options', {
-              apiId,
-              protocol: spoken.id,
-              issues: z.prettifyError(checked.error),
-            }),
-          );
-        return { protocol: spoken.id, options: checked.data };
-      };
-      const registered: RegisteredProvider = Object.freeze({
-        id,
-        definition: provider as Provider,
-        connection: parsed.data,
-        ...(registration.keySlot ? { keySlot: registration.keySlot } : {}),
-        ...(registration.fallbackKeySlot ? { fallbackKeySlot: registration.fallbackKeySlot } : {}),
-        serves,
-        model(protocol, apiId, settings = {}) {
-          const { options, ...rest } = settings;
-          return modelBindingSchema.parse({
-            ...rest,
-            provider: id,
+          labelText('protocol.options', {
             apiId,
-            ...optionsOf(protocol, apiId, options),
-          });
-        },
-        decisionModel(protocol, apiId, settings = {}) {
-          const { options, ...rest } = settings;
-          return decisionModelBindingSchema.parse({
-            ...rest,
-            provider: id,
-            apiId,
-            ...optionsOf(protocol, apiId, options),
-          });
-        },
-      });
-      for (const protocol of claimed) protocols.set(protocol.id, protocol);
-      providers.set(id, registered);
-      return registered;
-    },
+            protocol: spoken.id,
+            issues: z.prettifyError(checked.error),
+          }),
+        );
+      return { protocol: spoken.id, options: checked.data };
+    };
+    const registered: RegisteredProvider = Object.freeze({
+      id,
+      definition: provider as Provider,
+      connection: parsed.data,
+      ...(registration.keySlot ? { keySlot: registration.keySlot } : {}),
+      ...(registration.fallbackKeySlot ? { fallbackKeySlot: registration.fallbackKeySlot } : {}),
+      serves,
+      model(protocol, apiId, settings = {}) {
+        const { options, ...rest } = settings;
+        return modelBindingSchema.parse({
+          ...rest,
+          provider: id,
+          apiId,
+          ...optionsOf(protocol, apiId, options),
+        });
+      },
+      decisionModel(protocol, apiId, settings = {}) {
+        const { options, ...rest } = settings;
+        return decisionModelBindingSchema.parse({
+          ...rest,
+          provider: id,
+          apiId,
+          ...optionsOf(protocol, apiId, options),
+        });
+      },
+    });
+    for (const protocol of claimed) protocols.set(protocol.id, protocol);
+    providers.set(id, registered);
+    return registered;
+  };
+
+  return {
+    register: (provider, registration = {}) => add(provider, registration, false),
+    replace: (provider, registration = {}) => add(provider, registration, true),
     get: (id) => providers.get(id),
     require(id, apiId) {
       const provider = providers.get(id);

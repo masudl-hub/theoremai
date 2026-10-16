@@ -1,36 +1,6 @@
-import { z } from 'zod';
-import type { JsonObject } from '../../../kernel/provider-contract.ts';
-import { jsonObjectSchema } from '../../../kernel/provider-contract.ts';
+import { type JsonObject, jsonObjectSchema } from '../../../kernel/json.ts';
 import { isRecord } from '../../../kernel/util/record.ts';
 
-export const reasoningStateSchema: z.ZodType<ReasoningState> = z.strictObject({
-  replay: z.array(
-    z.strictObject({
-      callIds: z.array(z.string().min(1)).min(1),
-      details: z.array(jsonObjectSchema).optional(),
-      content: z.string().optional(),
-    }),
-  ),
-});
-export interface ReasoningState {
-  replay: { callIds: string[]; details?: JsonObject[]; content?: string }[];
-}
-export function applyReasoningReplay(messages: Record<string, unknown>[], raw: unknown): void {
-  if (raw === undefined) return;
-  const state = reasoningStateSchema.parse(raw);
-  for (const message of messages) {
-    if (message.role !== 'assistant' || !Array.isArray(message.tool_calls)) continue;
-    const ids = message.tool_calls.map((call) => (isRecord(call) ? call.id : undefined));
-    const replay = state.replay.find(
-      (record) =>
-        record.callIds.length === ids.length &&
-        record.callIds.every((id, index) => id === ids[index]),
-    );
-    if (!replay) continue;
-    if (replay.details) message.reasoning_details = replay.details;
-    if (replay.content) message.reasoning = replay.content;
-  }
-}
 export function collectReasoning(
   row: Record<string, unknown>,
   details: Map<string, JsonObject>,

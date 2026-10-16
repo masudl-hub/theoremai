@@ -46,7 +46,7 @@ interface Compiled {
 }
 
 /**
- * What Save writes of a provider: its adapter, what it connects with and its key slots, as the
+ * What Save writes of a provider: its definition, what it connects with and its key slots, as the
  * fields its definition holds them in. Its id is what code and models name it by, so it stays.
  * Every definition holds a connection, so one the page leaves out is written as an empty one.
  */

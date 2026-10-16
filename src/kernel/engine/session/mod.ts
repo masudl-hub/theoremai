@@ -46,8 +46,8 @@ import type { TraceSink } from '../../../observability/trace-sink.ts';
 import { liveToolReadBack } from '../../../providers/live.ts';
 import type { LiveConnection, LiveGoAway, LiveQueueItem } from '../../../providers/types.ts';
 import { memoryCredentialSource, type ToolCredentialSource } from '../../auth/credential-source.ts';
-import type { ProviderHostOptions } from '../../provider-contract.ts';
-import { historyHash } from '../../provider-contract.ts';
+import { historyHash } from '../../checkpoint.ts';
+import type { ProviderHostOptions } from '../../protocols/runtime.ts';
 import { openRegisteredLiveSession } from '../../provider-live.ts';
 import { assertHistoryKept } from '../../provider-runtime.ts';
 import { assertTurnContext } from '../../registry/ingress.ts';
@@ -92,7 +92,7 @@ import type {
   ToolPhaseEvent,
   TurnToolSnapshot,
 } from '../../tools/types.ts';
-import { type ProviderEvent, turnDoneOf } from '../../turn-events.ts';
+import { type ModelEvent, turnDoneOf } from '../../turn-events.ts';
 import type {
   InteractionPart,
   KeyVault,
@@ -101,8 +101,8 @@ import type {
   LiveExecuteToolResult,
   LiveProfile,
   LiveSession,
+  ModelRequest,
   Profile,
-  ProviderCompleteRequest,
   ResolvedGeneration,
   SessionRequest,
   TurnContext,
@@ -113,7 +113,6 @@ import type {
 import { prepareLiveContext, prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
 import { sessionAgentCaller } from '../runner/mod.ts';
-import { mediaTokenFamily } from '../token-estimate.ts';
 import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace.ts';
 
 export type { LiveSession, SessionRequest };
@@ -131,8 +130,6 @@ export interface RunSessionOptions extends ProviderHostOptions {
   pageExecution?: PageToolExecution;
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault?: KeyVault;
-  /** Override socket open (Cloudflare fetch-upgrade, tests). Default: `new WebSocket(url)`. */
-  openWebSocket?: (url: string) => Promise<WebSocket>;
   /**
    * Milliseconds a gated call waits for its decision (default 30 minutes). A later decision is
    * refused (`session.gate_expired`), and the model reads the call as abandoned.
@@ -401,9 +398,9 @@ function liveReadBack(
  * A provider batch as the host receives it: a call's `done` becomes the
  * host's (`turnDoneOf`); `response` stays with the trace, which read the batch.
  */
-function hostEventsOf(events: readonly ProviderEvent[], snapshot: TurnToolSnapshot): TurnEvent[] {
+function hostEventsOf(events: readonly ModelEvent[], snapshot: TurnToolSnapshot): TurnEvent[] {
   return events.flatMap((ev): TurnEvent[] => {
-    if (ev.type === 'response') return [];
+    if (ev.type === 'response' || ev.type === 'reasoning') return [];
     if (ev.type !== 'done') return [ev];
     const { type: _done, ...done } = ev;
     return [turnDoneOf(done, snapshot)];
@@ -742,7 +739,7 @@ function buildLiveSession(args: {
    * (malformed arguments) is settled here: the model reads its failure. A
    * provider cancel lets go of a call that is not running.
    */
-  const holdCalls = (events: readonly ProviderEvent[]) => {
+  const holdCalls = (events: readonly ModelEvent[]) => {
     for (const ev of events) {
       if (ev.type !== 'tool') continue;
       const tool = ev.tool;
@@ -1147,7 +1144,7 @@ function buildLiveSession(args: {
     item: Extract<LiveQueueItem, { type: 'batch' }>,
   ): AsyncGenerator<TurnEvent> {
     const identities = new Map<string, string>();
-    const events = item.events.map((event): ProviderEvent => {
+    const events = item.events.map((event): ModelEvent => {
       if (event.type !== 'tool') return event;
       const { tool } = event;
       if (tool.phase === undefined) {
@@ -1489,7 +1486,7 @@ async function openTracedSession(
     userDataNote(profile.labels),
     profile.inputs?.context ? contextNote(profile.labels) : '',
   ]);
-  const completeReq: ProviderCompleteRequest = {
+  const completeReq: ModelRequest = {
     ...providerCompleteRequest(registry.tools, generation, system.text),
     signal: safe.signal,
     tapUpstream: trace.sent,
@@ -1499,7 +1496,6 @@ async function openTracedSession(
     request: completeReq,
     generation,
     binding,
-    family: binding ? mediaTokenFamily(binding) : undefined,
     system: system.text,
     canary: generation.canary,
   });
@@ -1518,7 +1514,7 @@ async function openTracedSession(
     ownToolsOf(registry.tools, profile),
   );
   assertHistoryKept(profile.providerContinuation, req.providerState, req.history);
-  const definition = registry.providers.require(binding.provider);
+  const definition = registry.providers.require(binding.provider, binding.apiId);
   const connection = await openRegisteredLiveSession(
     definition,
     { ...binding },

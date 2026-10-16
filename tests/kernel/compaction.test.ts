@@ -15,7 +15,6 @@ import {
   shouldCompact,
   splitForCompaction,
 } from '../../src/kernel/engine/compaction.ts';
-import { mediaTokenFamily } from '../../src/kernel/engine/token-estimate.ts';
 import {
   compactionMeter as publicCompactionMeter,
   compactionNeeded as publicCompactionNeeded,
@@ -27,12 +26,12 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
   CompactionSpec,
   ModelBinding,
-  ModelProvider,
-  ProviderCompleteRequest,
-  ProviderEvent,
+  ModelEvent,
+  ModelRequest,
   TurnEvent,
   TurnHistoryMessage,
   TurnInput,
+  TurnModel,
 } from '../../src/kernel/types.ts';
 import { bytesToBase64 } from '../../src/kernel/util/base64.ts';
 import { contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
@@ -42,10 +41,6 @@ import { pngBytes } from '../fixtures/media-bytes.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
-/** Media family of the fixture speaker model (`gemini-3.5-flash-lite`). */
-const FAMILY = mediaTokenFamily({ provider: 'google', apiId: 'gemini-3.5-flash-lite' });
-/** Live `countTokens` for a 1920×1080 image on Gemini 3 (22/09/2026). */
-const HD_IMAGE_TOKENS = 1100;
 function hdImage(): {
   type: 'image';
   mimeType: string;
@@ -81,29 +76,29 @@ Deno.test('compactionNeeded returns false at exact threshold', () => {
 });
 Deno.test('resolveHistoryTokens prefers host historyTokens over estimate', async () => {
   assertEquals(
-    await resolveHistoryTokens({ historyTokens: 12345, history: [msg('user', 'short')] }, FAMILY),
+    await resolveHistoryTokens({ historyTokens: 12345, history: [msg('user', 'short')] }),
     { tokens: 12345, unknownMedia: 0 },
   );
 });
 Deno.test('resolveHistoryTokens uses the text heuristic', async () => {
   const sample = 'x'.repeat(21);
-  assertEquals(await resolveHistoryTokens({ history: [msg('user', sample)] }, FAMILY), {
+  assertEquals(await resolveHistoryTokens({ history: [msg('user', sample)] }), {
     tokens: 6,
     unknownMedia: 0,
   });
 });
 Deno.test('resolveHistoryTokens is 0 for empty or missing history', async () => {
   const none = { tokens: 0, unknownMedia: 0 };
-  assertEquals(await resolveHistoryTokens(undefined, FAMILY), none);
-  assertEquals(await resolveHistoryTokens({}, FAMILY), none);
-  assertEquals(await resolveHistoryTokens({ history: [] }, FAMILY), none);
+  assertEquals(await resolveHistoryTokens(undefined), none);
+  assertEquals(await resolveHistoryTokens({}), none);
+  assertEquals(await resolveHistoryTokens({ history: [] }), none);
 });
 Deno.test('resolveHistoryTokens ignores inputTokens under history meter', async () => {
   const input: TurnInput = {
     inputTokens: 50000,
     history: [msg('user', 'abcd')],
   };
-  assertEquals(await resolveHistoryTokens(input, FAMILY), {
+  assertEquals(await resolveHistoryTokens(input), {
     tokens: 1,
     unknownMedia: 0,
   });
@@ -116,32 +111,20 @@ Deno.test('splitForCompaction retains last N exchanges by count', async () => {
     ...exchange('topic B', 'answer B'),
     ...exchange('topic C', 'answer C'),
   ];
-  const result = await splitForCompaction(
-    history,
-    { ...DEFAULT_SPEC, previousExchanges: 3 },
-    FAMILY,
-  );
+  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 3 });
   assertEquals(result.toCompact.length, 4);
   assertEquals(result.toRetain.length, 6);
   assertEquals(result.toRetain[0].content, 'topic A');
 });
 Deno.test('splitForCompaction retains all when fewer exchanges than requested', async () => {
   const history = [...exchange('hello', 'hi'), ...exchange('bye', 'later')];
-  const result = await splitForCompaction(
-    history,
-    { ...DEFAULT_SPEC, previousExchanges: 5 },
-    FAMILY,
-  );
+  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 5 });
   assertEquals(result.toCompact.length, 0);
   assertEquals(result.toRetain.length, 4);
 });
 Deno.test('splitForCompaction compacts everything when previousExchanges is 0', async () => {
   const history = [...exchange('a', 'b'), ...exchange('c', 'd')];
-  const result = await splitForCompaction(
-    history,
-    { ...DEFAULT_SPEC, previousExchanges: 0 },
-    FAMILY,
-  );
+  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 0 });
   assertEquals(result.toCompact.length, 4);
   assertEquals(result.toRetain.length, 0);
 });
@@ -149,30 +132,16 @@ Deno.test('splitForCompaction retains exchanges within token budget fraction', a
   const shortExchange = exchange('hi', 'hello');
   const longExchange = exchange('x'.repeat(2000), 'y'.repeat(2000));
   const history = [...longExchange, ...shortExchange, ...shortExchange];
-  const result = await splitForCompaction(
-    history,
-    { ...DEFAULT_SPEC, previousExchanges: 0.5, maxTokens: 100 },
-    FAMILY,
-  );
-  assertEquals(result.toRetain.length, 4);
-  assertEquals(result.toCompact.length, 2);
-});
-Deno.test('splitForCompaction fraction counts media parts in the retain budget', async () => {
-  const imageExchange: TurnHistoryMessage[] = [
-    { role: 'user', parts: [hdImage()] },
-    msg('assistant', 'ok'),
-  ];
-  const shortExchange = exchange('hi', 'hello');
-  const result = await splitForCompaction(
-    [...imageExchange, ...shortExchange, ...shortExchange],
-    { ...DEFAULT_SPEC, previousExchanges: 0.5, maxTokens: 2 * HD_IMAGE_TOKENS },
-    FAMILY,
-  );
+  const result = await splitForCompaction(history, {
+    ...DEFAULT_SPEC,
+    previousExchanges: 0.5,
+    maxTokens: 100,
+  });
   assertEquals(result.toRetain.length, 4);
   assertEquals(result.toCompact.length, 2);
 });
 Deno.test('splitForCompaction handles empty history', async () => {
-  const result = await splitForCompaction([], DEFAULT_SPEC, FAMILY);
+  const result = await splitForCompaction([], DEFAULT_SPEC);
   assertEquals(result.toCompact.length, 0);
   assertEquals(result.toRetain.length, 0);
 });
@@ -185,11 +154,7 @@ Deno.test('splitForCompaction groups tool messages with their exchange', async (
     msg('user', 'thanks'),
     msg('assistant', 'welcome'),
   ];
-  const result = await splitForCompaction(
-    history,
-    { ...DEFAULT_SPEC, previousExchanges: 1 },
-    FAMILY,
-  );
+  const result = await splitForCompaction(history, { ...DEFAULT_SPEC, previousExchanges: 1 });
   assertEquals(result.toCompact.length, 4);
   assertEquals(result.toRetain.length, 2);
   assertEquals(result.toRetain[0].content, 'thanks');
@@ -360,7 +325,7 @@ function registerCompactionPair(
   );
   return speakerId;
 }
-function tokenProvider(inputTokens: number): ModelProvider {
+function tokenProvider(inputTokens: number): TurnModel {
   return {
     complete: () =>
       (async function* () {
@@ -376,7 +341,7 @@ function tokenProvider(inputTokens: number): ModelProvider {
 async function collectEvents(
   profile: string,
   input: TurnInput,
-  provider: ModelProvider,
+  provider: TurnModel,
 ): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   for await (const ev of runTurn({ profile, input }, provider)) {
@@ -396,7 +361,7 @@ Deno.test('timing before compacts history before the turn', async () => {
   const speaker = registerCompactionPair('compaction.runner', BEFORE_SPEC);
   let compactionTurnFired = false;
   let callCount = 0;
-  const mockProvider: ModelProvider = {
+  const mockProvider: TurnModel = {
     complete: () => {
       callCount++;
       const isCompactionCall = callCount === 1;
@@ -437,7 +402,7 @@ Deno.test('timing before estimates large history and does not require historyTok
   const speaker = registerCompactionPair('compaction.before.estimate', BEFORE_SPEC);
   let compactionTurnFired = false;
   let callCount = 0;
-  const mockProvider: ModelProvider = {
+  const mockProvider: TurnModel = {
     complete: () => {
       callCount++;
       if (callCount === 1) {
@@ -471,7 +436,7 @@ Deno.test('timing before estimates large history and does not require historyTok
 Deno.test('timing before ignores inputTokens and large provider tokens', async () => {
   const speaker = registerCompactionPair('compaction.before.ignore_api', BEFORE_SPEC);
   let callCount = 0;
-  const mockProvider: ModelProvider = {
+  const mockProvider: TurnModel = {
     complete: () => {
       callCount++;
       return (async function* () {
@@ -564,7 +529,7 @@ Deno.test('timing after fires from history estimate without historyTokens', asyn
   assertEquals(doneEvent?.compaction?.needed, true);
   assertEquals(
     doneEvent?.compaction?.tokens,
-    (await resolveHistoryTokens({ history: longHistory }, FAMILY)).tokens,
+    (await resolveHistoryTokens({ history: longHistory })).tokens,
   );
   assertEquals(doneEvent?.compaction?.promptTokens, 50000);
   assertEquals(doneEvent?.compaction?.meter, 'history');
@@ -572,7 +537,7 @@ Deno.test('timing after fires from history estimate without historyTokens', asyn
 async function tracedTurn(
   profile: string,
   input: TurnInput,
-  provider: ModelProvider,
+  provider: TurnModel,
 ): Promise<{
   record: TraceRecord;
   decision: TraceAttributes | undefined;
@@ -589,7 +554,7 @@ async function tracedTurn(
 Deno.test('a compaction that ran records its decision, what it replaced, and the summary', async () => {
   const speaker = registerCompactionPair('compaction.trace.before', BEFORE_SPEC);
   let calls = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: () => {
       calls++;
       const text = calls === 1 ? 'Summary of old conversation' : 'response';
@@ -678,8 +643,8 @@ Deno.test('orchid 2000@0.75 threshold is strict greater-than 1500', () => {
   assertEquals(compactionNeeded(1500, spec), false);
   assertEquals(compactionNeeded(1501, spec), true);
 });
-Deno.test('resolveHistoryTokens counts text parts, tool_call arguments, and verified media', async () => {
-  const count = (history: TurnHistoryMessage[]) => resolveHistoryTokens({ history }, FAMILY);
+Deno.test('resolveHistoryTokens counts text parts and tool_call arguments, and reports media as unknown', async () => {
+  const count = (history: TurnHistoryMessage[]) => resolveHistoryTokens({ history });
   assertEquals(await count([{ role: 'user', parts: [{ type: 'text', text: 'abcdefgh' }] }]), {
     tokens: 2,
     unknownMedia: 0,
@@ -697,7 +662,7 @@ Deno.test('resolveHistoryTokens counts text parts, tool_call arguments, and veri
   );
   assertEquals(
     await count([{ role: 'user', parts: [{ type: 'text', text: 'abcd' }, hdImage()] }]),
-    { tokens: 1 + HD_IMAGE_TOKENS, unknownMedia: 0 },
+    { tokens: 1, unknownMedia: 1 },
   );
 });
 Deno.test('resolveHistoryTokens reports media it cannot count instead of guessing', async () => {
@@ -711,30 +676,24 @@ Deno.test('resolveHistoryTokens reports media it cannot count instead of guessin
       ],
     },
   ];
-  assertEquals(await resolveHistoryTokens({ history: unreadable }, FAMILY), {
+  assertEquals(await resolveHistoryTokens({ history: unreadable }), {
     tokens: 1,
     unknownMedia: 2,
   });
-  assertEquals(
-    await resolveHistoryTokens({ history: [{ role: 'user', parts: [hdImage()] }] }, undefined),
-    {
-      tokens: 0,
-      unknownMedia: 1,
-    },
-  );
+  assertEquals(await resolveHistoryTokens({ history: [{ role: 'user', parts: [hdImage()] }] }), {
+    tokens: 0,
+    unknownMedia: 1,
+  });
 });
 Deno.test('resolveHistoryTokens: historyTokens 0 wins over a large estimate', async () => {
   assertEquals(
-    await resolveHistoryTokens(
-      { historyTokens: 0, history: [msg('user', 'x'.repeat(8000))] },
-      FAMILY,
-    ),
+    await resolveHistoryTokens({ historyTokens: 0, history: [msg('user', 'x'.repeat(8000))] }),
     { tokens: 0, unknownMedia: 0 },
   );
 });
 Deno.test('resolveHistoryTokens: inputTokens does not suppress a large estimate', async () => {
   const history = [msg('user', 'abcdefgh')];
-  assertEquals(await resolveHistoryTokens({ inputTokens: 1, history }, FAMILY), {
+  assertEquals(await resolveHistoryTokens({ inputTokens: 1, history }), {
     tokens: 2,
     unknownMedia: 0,
   });
@@ -763,33 +722,6 @@ Deno.test('sanitizeTurnRequest preserves historyTokens and inputTokens', () => {
   );
   assertEquals(safe.input.historyTokens, 1501);
   assertEquals(safe.input.inputTokens, 99999);
-});
-Deno.test('orchid after: history images count by the model rule, not payload size', async () => {
-  const speaker = registerCompactionPair('compaction.orchid.image', ORCHID_SPEC);
-  const oneImage: TurnHistoryMessage[] = [
-    { role: 'user', parts: [hdImage()] },
-    msg('assistant', 'ok'),
-  ];
-  const twoImages: TurnHistoryMessage[] = [
-    { role: 'user', parts: [hdImage(), hdImage()] },
-    msg('assistant', 'ok'),
-  ];
-  const oneEvents = await collectEvents(
-    speaker,
-    { text: 'q', history: oneImage },
-    tokenProvider(12),
-  );
-  const twoEvents = await collectEvents(
-    speaker,
-    { text: 'q', history: twoImages },
-    tokenProvider(12),
-  );
-  assertEquals(firstOf(oneEvents, 'done')?.compaction, undefined);
-  const signal = firstOf(twoEvents, 'done')?.compaction;
-  assertEquals(signal?.needed, true);
-  assertEquals(signal?.tokens, (await resolveHistoryTokens({ history: twoImages }, FAMILY)).tokens);
-  assertEquals(signal?.tokens !== undefined && signal.tokens > 2 * HD_IMAGE_TOKENS, true);
-  assertEquals(signal?.unknownMedia, 0);
 });
 Deno.test('orchid after: API prompt tokens over 1500 with short history do not fire', async () => {
   const speaker = registerCompactionPair('compaction.orchid.api', ORCHID_SPEC);
@@ -857,7 +789,7 @@ Deno.test('orchid after: inputTokens under threshold does not hide a large histo
   assertEquals(done?.compaction?.needed, true);
   assertEquals(
     done?.compaction?.tokens,
-    (await resolveHistoryTokens({ history: longHistory }, FAMILY)).tokens,
+    (await resolveHistoryTokens({ history: longHistory })).tokens,
   );
   assertEquals(done?.compaction?.promptTokens, 1);
 });
@@ -931,7 +863,7 @@ Deno.test('orchid after: signal history is request history, not this turn output
 Deno.test('orchid previousExchanges 8 keeps last 8 of 10 exchanges', async () => {
   const spec: CompactionSpec = { ...ORCHID_SPEC, profile: 'x' };
   const history = Array.from({ length: 10 }, (_, i) => exchange(`u${i}`, `a${i}`)).flat();
-  const { toCompact, toRetain } = await splitForCompaction(history, spec, FAMILY);
+  const { toCompact, toRetain } = await splitForCompaction(history, spec);
   assertEquals(toCompact.length, 4);
   assertEquals(toRetain.length, 16);
   assertEquals(toRetain[0].content, 'u2');
@@ -951,7 +883,7 @@ Deno.test('timing after omits promptTokens when provider reports input 0', async
 Deno.test('timing before: historyTokens 0 skips nested compact on large history', async () => {
   const speaker = registerCompactionPair('compaction.before.zero', BEFORE_SPEC);
   let callCount = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: () => {
       callCount++;
       return (async function* () {
@@ -1038,7 +970,7 @@ Deno.test('nested compacting turn does not recurse even if compacting profile ha
     }),
   );
   const profiles: string[] = [];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: (req) => {
       profiles.push(req.model);
       return (async function* () {
@@ -1088,7 +1020,6 @@ Deno.test('resolveCompactionTokens input meter prefers the last call then host i
       spec,
       input: { inputTokens: 100 },
       prompt: { input: 900, output: 10, total: 910 },
-      family: FAMILY,
     }),
     { meter: 'input', tokens: 900, unknownMedia: 0 },
   );
@@ -1103,24 +1034,19 @@ Deno.test('resolveCompactionTokens input meter prefers the last call then host i
         estimated: ['input', 'output'],
         unknownMedia: { input: 2, output: 1 },
       },
-      family: FAMILY,
     }),
     { meter: 'input', tokens: 900, unknownMedia: 2 },
   );
-  assertEquals(
-    await resolveCompactionTokens({ spec, input: { inputTokens: 100 }, family: FAMILY }),
-    {
-      meter: 'input',
-      tokens: 100,
-      unknownMedia: 0,
-    },
-  );
-  assertEquals(await resolveCompactionTokens({ spec, input: {}, family: FAMILY }), undefined);
+  assertEquals(await resolveCompactionTokens({ spec, input: { inputTokens: 100 } }), {
+    meter: 'input',
+    tokens: 100,
+    unknownMedia: 0,
+  });
+  assertEquals(await resolveCompactionTokens({ spec, input: {} }), undefined);
   assertEquals(
     await resolveCompactionTokens({
       spec: { ...DEFAULT_SPEC, meter: 'history' },
       input: { history: [msg('user', 'abcd')], inputTokens: 50000 },
-      family: FAMILY,
     }),
     { meter: 'history', tokens: 1, unknownMedia: 0 },
   );
@@ -1167,15 +1093,6 @@ Deno.test('shouldCompact awaits async trigger', async () => {
   };
   assertEquals(await shouldCompact({ meter: 'input', unknownMedia: 0, tokens: 80000 }, spec), true);
 });
-Deno.test('resolveHistoryTokens media-only history does not require host historyTokens', async () => {
-  assertEquals(
-    await resolveHistoryTokens({ history: [{ role: 'user', parts: [hdImage()] }] }, FAMILY),
-    {
-      tokens: HD_IMAGE_TOKENS,
-      unknownMedia: 0,
-    },
-  );
-});
 Deno.test('meter input after fires from provider tokens.input', async () => {
   const speaker = registerCompactionPair('compaction.input.after', INPUT_AFTER_SPEC);
   const events = await collectEvents(
@@ -1193,7 +1110,7 @@ Deno.test('meter input after fires from provider tokens.input', async () => {
 Deno.test('meter input after fires from the estimate when the provider reports no usage', async () => {
   const speaker = registerCompactionPair('compaction.input.after.estimated', INPUT_AFTER_SPEC);
   const history = exchange(bulky(), 'ok');
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: () =>
       (async function* () {
         yield { type: 'text' as const, text: 'response' };
@@ -1223,7 +1140,7 @@ Deno.test('meter input before compacts when host inputTokens exceed threshold', 
   const speaker = registerCompactionPair('compaction.input.before', INPUT_BEFORE_SPEC);
   let compactionTurnFired = false;
   let callCount = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: () => {
       callCount++;
       if (callCount === 1) {
@@ -1259,7 +1176,7 @@ Deno.test('meter input before compacts when host inputTokens exceed threshold', 
 Deno.test('meter input before does not compact without inputTokens even if history is large', async () => {
   const speaker = registerCompactionPair('compaction.input.before.missing', INPUT_BEFORE_SPEC);
   let callCount = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: () => {
       callCount++;
       return (async function* () {
@@ -1337,9 +1254,9 @@ Deno.test('a message with nothing the compactor can read is left out', () => {
   );
 });
 function compactorScript(
-  compactor: () => AsyncGenerator<ProviderEvent>,
-  seen: ProviderCompleteRequest[] = [],
-): ModelProvider {
+  compactor: () => AsyncGenerator<ModelEvent>,
+  seen: ModelRequest[] = [],
+): TurnModel {
   return {
     complete: (req) => {
       seen.push(req);
@@ -1351,7 +1268,7 @@ function compactorScript(
     },
   };
 }
-function compactorSays(...events: ProviderEvent[]): () => AsyncGenerator<ProviderEvent> {
+function compactorSays(...events: ModelEvent[]): () => AsyncGenerator<ModelEvent> {
   return async function* () {
     for (const event of events) yield event;
   };
@@ -1363,17 +1280,17 @@ const RECENT = [
 ];
 async function compactBefore(
   prefix: string,
-  compactor: () => AsyncGenerator<ProviderEvent>,
+  compactor: () => AsyncGenerator<ModelEvent>,
   input: TurnInput,
 ): Promise<{
   events: TurnEvent[];
   compaction: TurnEvent & {
     type: 'compaction';
   };
-  seen: ProviderCompleteRequest[];
+  seen: ModelRequest[];
 }> {
   const speaker = registerCompactionPair(prefix, BEFORE_SPEC);
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const events = await collectEvents(speaker, input, compactorScript(compactor, seen));
   const compaction = firstOf(events, 'compaction');
   if (!compaction) throw new Error('no compaction event');
@@ -1472,7 +1389,7 @@ Deno.test('a compactor that throws is a failure with its error kind', async () =
 for (const kind of ['config', 'request', 'auth', 'internal'] as const) {
   Deno.test(`a compactor that throws ${kind} throws before the turn's model call`, async () => {
     const speaker = registerCompactionPair(`compaction.throws.${kind}`, BEFORE_SPEC);
-    const seen: ProviderCompleteRequest[] = [];
+    const seen: ModelRequest[] = [];
     const provider = compactorScript(async function* () {
       yield { type: 'text', text: 'partial' };
       throw new TheoremError(kind, 'set up wrong');
@@ -1491,7 +1408,7 @@ for (const kind of ['config', 'request', 'auth', 'internal'] as const) {
   });
   Deno.test(`a compactor that reports ${kind} throws it`, async () => {
     const speaker = registerCompactionPair(`compaction.reports.${kind}`, BEFORE_SPEC);
-    const seen: ProviderCompleteRequest[] = [];
+    const seen: ModelRequest[] = [];
     const provider = compactorScript(
       compactorSays(
         { type: 'error', errorKind: kind, error: 'Sorry.', errorInternal: 'no key in slot' },
@@ -1590,7 +1507,7 @@ Deno.test('a failed compaction is recorded with how it failed', async () => {
 Deno.test('the host aborting during compaction cancels the turn', async () => {
   const speaker = registerCompactionPair('compaction.abort', BEFORE_SPEC);
   const controller = new AbortController();
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const provider = compactorScript(async function* () {
     controller.abort();
     yield { type: 'text', text: 'x' };
@@ -1735,8 +1652,8 @@ for (const type of ['speech', 'image'] as const) {
       type,
       `compaction.${type}.compactor`,
     );
-    const compactorSeen: ProviderCompleteRequest[] = [];
-    const speakerSeen: ProviderCompleteRequest[] = [];
+    const compactorSeen: ModelRequest[] = [];
+    const speakerSeen: ModelRequest[] = [];
     const events: TurnEvent[] = [];
     for await (const ev of runTurn(
       {
@@ -1819,7 +1736,7 @@ Deno.test('a profile with no compaction profile compacts itself, on its own mode
     system: string;
     tools: number;
   }[] = [];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: (req) => {
       calls.push({ model: req.model, system: req.system, tools: req.wireTools?.length ?? 0 });
       return (async function* () {

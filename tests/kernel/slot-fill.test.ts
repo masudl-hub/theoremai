@@ -3,7 +3,7 @@ import '../fixtures/test-host.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertRejects, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, TurnInput } from '../../src/kernel/types.ts';
+import type { TurnInput, TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 registerProfile(
@@ -19,7 +19,7 @@ registerProfile(
 /** The system text the model was sent for one turn. */
 async function systemFor(input: TurnInput): Promise<string> {
   let system = '';
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       system = req.system ?? '';

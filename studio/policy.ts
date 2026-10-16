@@ -4,9 +4,17 @@
  */
 
 import { GOOGLE_BUILTIN_TOOLS } from '@theoremjs/agents/presets/google';
+import { geminiInteractions, geminiLive, openRouter, openRouterImages } from '@theoremjs/agents/providers';
 import type { ModelBindingDraft } from './draft.ts';
 import type { LentBinding, ModelBindingViolation, ModelProfileType, ModelStart, StudioRunsOn } from './lent-keys.ts';
-import { LOCAL_PROVIDER_ID, type ModelRoute, servesProfileType } from './providers.ts';
+import {
+  LOCAL_PROVIDER_ID,
+  type ModelRoute,
+  STUDIO_PROVIDERS,
+  servedProtocols,
+  servesProfileType,
+  type StudioProvider,
+} from './providers.ts';
 
 export type StudioConnectionMode = StudioRunsOn['mode'];
 
@@ -56,14 +64,14 @@ function withoutFill(
 /** Provider builtin ids — they belong on `models.*.builtInTools`, never on a custom tool. */
 const GOOGLE_BUILTIN_IDS = new Set<string>(GOOGLE_BUILTIN_TOOLS.map((tool) => tool.name));
 
-/** A model served through Google's adapter. */
-export function isGoogleRoute(route: Pick<ModelRoute, 'adapter'>): boolean {
-  return route.adapter === 'google';
+/** A model spoken to in one of Gemini's protocols. */
+export function isGoogleRoute(route: Pick<ModelRoute, 'protocol'>): boolean {
+  return route.protocol === geminiInteractions.id || route.protocol === geminiLive.id;
 }
 
-/** A model served through OpenRouter's adapter. */
-export function isOpenRouterRoute(route: Pick<ModelRoute, 'adapter'>): boolean {
-  return route.adapter === 'openrouter';
+/** A model spoken to in one of OpenRouter's protocols. */
+export function isOpenRouterRoute(route: Pick<ModelRoute, 'protocol'>): boolean {
+  return route.protocol === openRouter.id || route.protocol === openRouterImages.id;
 }
 
 export function isProviderBuiltinId(name: string): boolean {
@@ -72,14 +80,14 @@ export function isProviderBuiltinId(name: string): boolean {
 
 /**
  * Whether the studio runs agents of `type` on a provider: on lent keys, what the keys run; on
- * the builder's own keys or machine, the adapter's answer.
+ * the builder's own keys or machine, whether the provider serves the type.
  */
 export function studioRunsProvider(
   type: ModelProfileType,
-  provider: Pick<ModelRoute, 'adapter'>,
+  provider: StudioProvider | undefined,
   on: StudioRunsOn,
 ): boolean {
-  return on.mode === 'demo' ? on.keys.runs(type, provider.adapter) : servesProfileType(provider.adapter, type);
+  return on.mode === 'demo' ? on.keys.runs(type, provider?.definition) : servesProfileType(provider, type);
 }
 
 /** The model id a new binding of `type` takes. */
@@ -89,6 +97,7 @@ const MODEL_IDS: Record<ModelProfileType, string> = {
   speech: 'voice',
   live: 'live',
   decision: 'decision',
+  embedding: 'embedding',
 };
 
 /**
@@ -98,9 +107,17 @@ const MODEL_IDS: Record<ModelProfileType, string> = {
 export function startingBinding(
   type: ModelProfileType,
   start?: ModelStart,
-): Pick<ModelBindingDraft, 'modelId' | 'provider' | 'apiId'> {
-  const begun = start?.(type) ?? { provider: type === 'decision' ? 'typesafe' : 'google', apiId: '' };
+): Pick<ModelBindingDraft, 'modelId' | 'protocol' | 'provider' | 'apiId'> {
+  const begun = start?.(type) ?? { ...firstServed(type === 'decision' ? 'typesafe' : 'gemini', type), apiId: '' };
   return { modelId: MODEL_IDS[type], ...begun };
+}
+
+/** The studio provider `id`, on the first protocol it serves agents of `type` on. */
+export function firstServed(id: string, type: ModelProfileType): { protocol: string; provider: string } {
+  const provider = STUDIO_PROVIDERS.find((each) => each.id === id);
+  const protocol = provider && servedProtocols(provider, type)?.[0];
+  if (!protocol) throw new Error(`The studio provider '${id}' serves no ${type} agents.`); // labels-exempt: developer contract error
+  return { protocol: protocol.id, provider: id };
 }
 
 /** `null` when `binding` can run on `on`: a local run on local models, a lent run on what the keys allow. */

@@ -3,8 +3,8 @@ import { bindingSlots, createExampleDraft, keySlotUnset, modelSlots } from '../.
 import type { StudioProvider } from '../../studio/providers.ts';
 
 const providers: StudioProvider[] = [
-  { id: 'openrouter', adapter: 'openrouter', keySlot: 'team', fallbackKeySlot: 'spare' },
-  { id: 'local', adapter: 'openai-chat' },
+  { id: 'openrouter', definition: 'openrouter', keySlot: 'team', fallbackKeySlot: 'spare' },
+  { id: 'local', definition: 'local' },
 ];
 
 Deno.test("a model that names no key slot reads its provider's", () => {

@@ -1,22 +1,31 @@
 import '../fixtures/test-host.ts';
 import { assert, assertEquals, assertRejects } from '@std/assert';
-import { defineProfile, defineProvider, memorySink, openAIChat } from '../../mod.ts';
+import {
+  defineProfile,
+  defineProvider,
+  geminiProvider,
+  memorySink,
+  openAi,
+  type Provider,
+} from '../../mod.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   compileStudio,
+  createBlankDraft,
   createExampleDraft,
+  createGeminiEmbeddingExampleDraft,
   createLiveExampleDraft,
   lentCompression,
+  setProfileType,
 } from '../../studio/mod.ts';
 import {
+  runtimeProvider,
   type StudioRuntime,
   studioNetworkNote,
   studioScope,
   studioTaintNote,
 } from '../../studio/runtime-scope.ts';
 import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
-import { PrototypeAdapter } from '../fixtures/prototype-adapter.ts';
-import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 
 function afterRemoteRead(guardrails: object | undefined): unknown {
   return guardrails && 'taint' in guardrails
@@ -98,6 +107,20 @@ Deno.test('lent keys refuse what they hold after a remote read, and a stricter p
   assertEquals(studioTaintNote(open), undefined);
 });
 
+Deno.test('on lent keys, a profile that calls no tools runs with the guardrails it was written with', async () => {
+  const blank = setProfileType(createBlankDraft(), 'speech', TEST_KEYS);
+  const speech = {
+    ...blank,
+    identity: { ...blank.identity, agentId: 'held.speech', handle: 'speech' },
+  };
+  for (const draft of [speech, createGeminiEmbeddingExampleDraft()]) {
+    const compiled = compileStudio(draft, ON_TEST_KEYS);
+    assert(compiled.ok, JSON.stringify(!compiled.ok && compiled.issues));
+    const { profile } = await studioScope(compiled.profile, [], undefined, ON_TEST_KEYS);
+    assertEquals(afterRemoteRead(profile.guardrails), undefined);
+  }
+});
+
 Deno.test('a Live session on lent keys compresses where the editor shows, and as written on own keys', async () => {
   const draft = createLiveExampleDraft();
   draft.live = {
@@ -127,44 +150,44 @@ Deno.test('a Live session on lent keys compresses where the editor shows, and as
   assertEquals(lentCompression(TEST_KEYS, { triggerTokens: 20_000 }).targetTokens, 10_000);
 });
 
-Deno.test('Studio compiled profiles run through a class adapter in their isolated scope', async () => {
+Deno.test('Studio compiled profiles run on a scripted model in their isolated scope', async () => {
   const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   assert(compiled.ok);
+  const runtime: StudioRuntime = {
+    ...ON_TEST_KEYS,
+    provider: () => ({
+      async *complete() {
+        yield { type: 'text', text: 'studio scripted reply' };
+        yield { type: 'done', stop: { kind: 'completed' } };
+      },
+    }),
+  };
   const { scope, profile } = await studioScope(
     compiled.profile,
     compiled.customTools,
     compiled.structured,
-    ON_TEST_KEYS,
+    runtime,
   );
   if (profile.type !== 'text') throw new Error('Expected a text profile');
-  const options = fixtureHostOptions(
-    {
-      async *complete() {
-        yield { type: 'text', text: 'studio class reply' };
-        yield { type: 'done', stop: { kind: 'completed' } };
-      },
-    },
-    scope,
+  const options = runtimeProvider(runtime, scope, profile);
+  const ran = scope.profiles.get(profile.id);
+  assert(ran.type === 'text');
+  const binding = ran.models[ran.defaultModel];
+  const scripted = scope.providers.require(binding.provider, binding.apiId);
+  assert(binding.provider !== profile.models[profile.defaultModel].provider);
+  assertEquals(
+    scripted.serves.map((serve) => serve.protocol.id),
+    [binding.protocol],
   );
-  const id = profile.models[profile.defaultModel].provider;
-  const registered = scope.providers.require(id);
-  scope.providers.register({ ...registered, adapter: new PrototypeAdapter(registered.adapter) });
   const events = await Array.fromAsync(
-    scope.runTurn(
-      {
-        profile: profile.id,
-        input: { text: 'hello' },
-      },
-      options,
-      memorySink([]),
-    ),
+    scope.runTurn({ profile: profile.id, input: { text: 'hello' } }, options, memorySink([])),
   );
   assertEquals(
     events
       .filter((event) => event.type === 'text')
       .map((event) => event.text)
       .join(''),
-    'studio class reply',
+    'studio scripted reply',
   );
 });
 
@@ -178,37 +201,22 @@ Deno.test('Studio runtime vault does not resolve inherited credentials', async (
     ON_TEST_KEYS,
   );
   if (profile.type !== 'text') throw new Error('Expected a text profile');
+  const binding = profile.models[profile.defaultModel];
+  assertEquals(binding.provider, 'gemini');
+  const slot = binding.keySlot ?? 'identity';
+  scope.providers.replace(geminiProvider, { id: binding.provider, keySlot: slot });
   let resolved = 0;
-  let completed = 0;
-  const options = fixtureHostOptions(
-    {
-      async *complete() {
-        completed++;
-        yield { type: 'done', stop: { kind: 'completed' } };
-      },
-    },
-    scope,
-  );
-  const registered = scope.providers.require(profile.models[profile.defaultModel].provider);
-  const slot = profile.models[profile.defaultModel].keySlot ?? 'identity';
-  scope.providers.register({
-    ...registered,
-    keySlot: slot,
-    adapter: {
-      ...registered.adapter,
-      async create(context) {
-        await context.resolveCredential('primary');
-        return await registered.adapter.create(context);
-      },
-    },
-  });
+  let fetched = 0;
   await assertRejects(
     () =>
       Array.fromAsync(
         scope.runTurn(
           { profile: profile.id, input: { text: 'hello' } },
           {
-            ...options,
+            fetch: () => {
+              fetched++;
+              return Promise.resolve(new Response('{}'));
+            },
             vault: Object.create({
               [slot]: () => {
                 resolved++;
@@ -223,40 +231,57 @@ Deno.test('Studio runtime vault does not resolve inherited credentials', async (
     slot,
   );
   assertEquals(resolved, 0);
-  assertEquals(completed, 0);
+  assertEquals(fetched, 0);
 });
 
 Deno.test('host authoring runtime registers external providers before plain-data profiles', async () => {
   const provider = defineProvider({
     id: 'company-endpoint',
-    connection: { baseURL: 'https://fixture.test/v1' },
-    adapter: openAIChat(),
-  });
+    name: 'Company endpoint',
+    description: "The company's own Chat Completions endpoint.",
+    serves: () => [{ protocol: openAi, baseUrl: 'https://fixture.test/v1' }],
+  }) as Provider;
   const definition = {
     id: 'external-authoring',
     type: 'text' as const,
     identity: { handle: 'External' },
-    models: { default: provider.model('company-model', { summaries: false }) },
+    models: {
+      default: {
+        protocol: 'openAi',
+        provider: provider.id,
+        apiId: 'company-model',
+        summaries: false,
+      },
+    },
     inputs: { text: true },
     tools: { allow: [] },
   };
   const runtime: StudioRuntime = { mode: 'byok', providerDefinitions: [provider] };
   const { scope, profile } = await studioScope(definition, [], undefined, runtime);
-  assertEquals(scope.providers.require(provider.id).adapter.id, 'openai-chat');
+  const registered = scope.providers.require(provider.id, 'company-model');
+  assertEquals(registered.definition, provider);
+  assertEquals(
+    registered.serves.map((serve) => serve.protocol.id),
+    ['openAi'],
+  );
   assertEquals(profile.type === 'text' && profile.models.default.provider, provider.id);
+  const urls: string[] = [];
   const events = await Array.fromAsync(
     scope.runTurn(
       { profile: profile.id, input: { text: 'hello' } },
       {
-        fetch: () =>
-          Promise.resolve(
+        fetch: (input) => {
+          urls.push(input instanceof Request ? input.url : String(input));
+          return Promise.resolve(
             new Response(
               'data: {"choices":[{"delta":{"content":"external"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
               { headers: { 'content-type': 'text/event-stream' } },
             ),
-          ),
+          );
+        },
       },
     ),
   );
+  assertEquals(urls, ['https://fixture.test/v1/chat/completions']);
   assert(events.some((event) => event.type === 'text' && event.text === 'external'));
 });

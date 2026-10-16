@@ -1,18 +1,14 @@
 import { z } from 'zod';
 import { asRecord } from '../../kernel/engine/record.ts';
-import {
-  extendProtocol,
-  type HistoryMessage,
-  type ProtocolEvent,
-} from '../../kernel/protocols/mod.ts';
-import { type JsonObject, jsonObjectSchema } from '../../kernel/provider-contract.ts';
+import { type JsonObject, jsonObjectSchema } from '../../kernel/json.ts';
+import { extendProtocol, type Protocol, type ProtocolEvent } from '../../kernel/protocols/mod.ts';
 import { CACHE_MODES, CACHE_TTLS } from '../../kernel/schema.ts';
-import type { Source } from '../../kernel/types.ts';
+import type { CacheSpec, Source, TurnHistoryMessage } from '../../kernel/types.ts';
 import { openAi } from '../open-ai/protocol.ts';
 import { collectReasoning } from './openai/reasoning-state.ts';
 
 // labels-exempt: builder field description, read by the studio and docs
-const cache = z
+const cache: z.ZodType<CacheSpec> = z
   .strictObject({
     mode: z
       .enum(CACHE_MODES)
@@ -32,7 +28,7 @@ const reasoning = z.strictObject({
   content: z.string().optional(),
 });
 
-function cacheControl(spec: z.infer<typeof cache>): JsonObject {
+function cacheControl(spec: CacheSpec): JsonObject {
   return spec.ttl ? { type: 'ephemeral', ttl: spec.ttl } : { type: 'ephemeral' };
 }
 
@@ -42,7 +38,7 @@ function callIds(message: unknown): string[] {
 }
 
 /** Puts the reasoning OpenRouter wrote back on the assistant message it came with, matched by its calls. */
-function replay(messages: JsonObject[], history: readonly HistoryMessage[]): void {
+function replay(messages: JsonObject[], history: readonly TurnHistoryMessage[]): void {
   for (const message of messages) {
     const ids = callIds(message);
     if (message.role !== 'assistant' || !ids.length) continue;
@@ -51,8 +47,9 @@ function replay(messages: JsonObject[], history: readonly HistoryMessage[]): voi
         item.role === 'assistant' &&
         JSON.stringify((item.tool_calls ?? []).map((call) => call.id)) === JSON.stringify(ids),
     );
-    const part = source?.reasoning?.find((item) => item.origin.protocol === 'openRouter');
-    const data = part ? reasoning.safeParse(part.data) : undefined;
+    const data = (source?.reasoning ?? [])
+      .map((item) => reasoning.safeParse(item.data))
+      .find((parsed) => parsed.success);
     if (!data?.success) continue;
     message.reasoning_details = data.data.details;
     if (data.data.content) message.reasoning = data.data.content;
@@ -108,8 +105,13 @@ function thinking(row: JsonObject): string {
     .join('');
 }
 
+/** What an `openRouter` binding sets in `options`. */
+export interface OpenRouterOptions {
+  cache?: CacheSpec;
+}
+
 /** Chat Completions with OpenRouter's caching, routing, web search, citations and reasoning. */
-export const openRouter = extendProtocol(openAi, {
+export const openRouter: Protocol<OpenRouterOptions> = extendProtocol(openAi, {
   id: 'openRouter',
   name: 'OpenRouter Chat Completions',
   description:

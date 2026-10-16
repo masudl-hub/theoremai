@@ -4,7 +4,6 @@ import {
   defineProfile,
   describeError,
   type ImageProfileDefinition,
-  jsonObjectSchema,
   type LabelKey,
   type LabelOverrides,
   liveIngressChannelDefault,
@@ -42,8 +41,8 @@ import {
   activityLabelProblem,
   agentToolInputFor,
   agentToolOutput,
-  type CacheSpec,
   type DecisionProfileDefinition,
+  type EmbeddingProfileDefinition,
   type HostProfileDefinition,
   jsonSchemaFromZod,
   type LiveContextCompressionSpec,
@@ -102,12 +101,11 @@ import {
   takesContinueInstruction,
 } from './draft.ts';
 import type { LentKeys, StudioRunsOn } from './lent-keys.ts';
-import { isGoogleRoute, isOpenRouterRoute, isProviderBuiltinId, modelBindingViolation } from './policy.ts';
+import { isGoogleRoute, isProviderBuiltinId, modelBindingViolation } from './policy.ts';
 import {
-  LOCAL_PROVIDER_ID,
   type ModelRoute,
-  modelCapabilities,
   modelRoute,
+  servedProtocols,
   servesProfileType,
   type StudioProvider,
 } from './providers.ts';
@@ -132,6 +130,7 @@ export type StudioProfileDefinition =
   | SpeechProfileDefinition
   | LiveProfileDefinition
   | DecisionProfileDefinition
+  | EmbeddingProfileDefinition
   | HostProfileDefinition;
 
 /** A profile that runs a model turn: every studio type but decision and host. */
@@ -224,7 +223,7 @@ function checkIdentity(draft: StudioDraft, report: Report): void {
   }
 }
 
-/** The model's provider is one the workspace has, and its adapter serves this kind of agent with the model. */
+/** The model's provider is one the workspace has, and it serves this kind of agent on the model's protocol. */
 function checkBindingRoute(
   binding: ModelBindingDraft,
   type: Exclude<StudioProfileType, 'host'>,
@@ -232,13 +231,14 @@ function checkBindingRoute(
   report: Report,
 ): ModelRoute {
   const nodeId = modelBindingNodeId(binding.key);
-  const route = modelRoute(providers, type, { provider: binding.provider, apiId: binding.apiId.trim() });
-  if (!providers.some((provider) => provider.id === binding.provider)) {
+  const route = modelRoute(providers, type, { ...binding, apiId: binding.apiId.trim() });
+  const provider = providers.find((each) => each.id === binding.provider);
+  if (!provider) {
     report(nodeId, `No provider is defined as ${binding.provider}.`, 'provider');
-  } else if (!servesProfileType(route.adapter, type)) {
+  } else if (!servesProfileType(provider, type)) {
     report(nodeId, `${binding.provider} doesn't serve ${type} agents.`, 'provider');
-  } else if (route.apiId && !servesProfileType(route.adapter, type, route.apiId)) {
-    report(nodeId, `${route.apiId} doesn't serve ${type} agents.`, 'apiId');
+  } else if (!servesProfileType(provider, type, binding.protocol)) {
+    report(nodeId, `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`, 'protocol');
   }
   if (!route.apiId) {
     report(nodeId, 'API model is required.', 'apiId');
@@ -284,15 +284,6 @@ function compileEfforts(
   return { efforts, defaultEffort };
 }
 
-/** A built-in tool is its provider's: one left on a model whose provider does not offer it would fail the run. */
-function checkBuiltInTools(binding: ModelBindingDraft, route: ModelRoute, nodeId: string, report: Report): void {
-  const offered = modelCapabilities(route.adapter, route.apiId)?.builtins;
-  if (!offered) return;
-  for (const tool of binding.builtInTools.filter((id) => !offered.includes(id))) {
-    report(nodeId, `${binding.provider} doesn't offer the built-in tool ${tool}.`, 'builtInTools');
-  }
-}
-
 function compileBinding(
   binding: ModelBindingDraft,
   type: Exclude<StudioProfileType, 'host'>,
@@ -303,7 +294,6 @@ function compileBinding(
   const nodeId = modelBindingNodeId(binding.key);
   const route = checkBindingRoute(binding, type, providers, report);
   const { apiId } = route;
-  const chained = onGoogleInteractions(route, type);
   const { efforts, defaultEffort } = compileEfforts(binding, route, nodeId, report);
   const effortCount = Object.keys(efforts).length;
   checkWhole(report, nodeId, 'maxOutputTokens', 'Max output tokens', binding.maxOutputTokens, 1);
@@ -313,15 +303,11 @@ function compileBinding(
   ) {
     report(nodeId, 'Temperature must be zero or more.', 'temperature');
   }
-  if (chained && binding.persistViaInteractionId && binding.store === false) {
-    report(nodeId, 'Chaining needs Google storage on.', 'persistViaInteractionId');
-  }
-  checkBuiltInTools(binding, route, nodeId, report);
-  const cache = compileCache(binding, route, nodeId, report);
+  checkOptions(binding, providers, type, nodeId, report);
   const compaction = compileCompaction(binding, type, nodeId, report, agentIdOf);
-  const server = binding.provider === LOCAL_PROVIDER_ID ? binding.server?.trim() : undefined;
 
   return {
+    protocol: binding.protocol,
     provider: binding.provider,
     apiId,
     ...(binding.keySlot ? { keySlot: binding.keySlot } : {}),
@@ -333,34 +319,28 @@ function compileBinding(
     ...(binding.maxOutputTokens !== null ? { maxOutputTokens: binding.maxOutputTokens } : {}),
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
-    providerOptions: jsonObjectSchema.parse({
-      ...(cache ? { cache } : {}),
-      ...(server ? { server } : {}),
-      ...(chained
-        ? {
-            ...(binding.store !== null ? { store: binding.store } : {}),
-            // Unset is off to the kernel, so only on is written.
-            ...(binding.persistViaInteractionId ? { persistViaInteractionId: true } : {}),
-          }
-        : {}),
-    }),
+    ...(Object.keys(binding.options).length ? { options: binding.options } : {}),
     ...(compaction ? { compaction } : {}),
   };
 }
 
-/** Prompt caching runs only on OpenRouter's openAi route. */
-function compileCache(
-  binding: ModelBindingDraft,
-  route: ModelRoute,
+/**
+ * The binding's options, as its protocol's own schema reads them, each problem at the option it is
+ * about. A protocol the studio does not hold is the project's to judge.
+ */
+function checkOptions(
+  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'options'>,
+  providers: readonly StudioProvider[],
+  type: Exclude<StudioProfileType, 'host'>,
   nodeId: string,
   report: Report,
-): CacheSpec | undefined {
-  if (!binding.cacheMode) return undefined;
-  // A provider on an adapter the studio does not hold is the project's to judge.
-  if (route.adapter !== undefined && !isOpenRouterRoute(route)) {
-    report(nodeId, 'Prompt caching runs only on OpenRouter.', 'cacheMode');
+): void {
+  const provider = providers.find((each) => each.id === binding.provider);
+  const protocol = provider && servedProtocols(provider, type)?.find((each) => each.id === binding.protocol);
+  for (const issue of protocol?.options.safeParse(binding.options).error?.issues ?? []) {
+    const name = issue.code === 'unrecognized_keys' ? issue.keys[0] : issue.path[0];
+    report(nodeId, issue.message, typeof name === 'string' ? `options.${name}` : 'options');
   }
-  return { mode: binding.cacheMode, ...(binding.cacheTtl ? { ttl: binding.cacheTtl } : {}) };
 }
 
 /** The agent compacts its own history, or another agent of the workspace writes the summary. */
@@ -411,11 +391,6 @@ function compileCompaction(
     timing,
     ...(binding.compactMeter ? { meter: binding.compactMeter } : {}),
   };
-}
-
-/** A turn model on Google: the kind that can store its interactions and chain from them. */
-function onGoogleInteractions(route: ModelRoute, type: StudioProfileType): boolean {
-  return isGoogleRoute(route) && type !== 'live';
 }
 
 function validateModelPolicy(
@@ -477,14 +452,7 @@ function compileModels(
   return {
     models,
     ...(defaultModel ? { defaultModel } : {}),
-    ...(policy.providerStateMismatch === 'error' || heldElsewhere
-      ? {
-          providerContinuation: {
-            onMismatch: policy.providerStateMismatch ?? ('rebuild' as const),
-            ...(heldElsewhere ? { history: heldElsewhere } : {}),
-          },
-        }
-      : {}),
+    ...(heldElsewhere ? { providerContinuation: { history: heldElsewhere } } : {}),
     ...(policy.allowModelSelect ? { allowModelSelect: true } : {}),
     ...(policy.maxSteps !== null ? { maxSteps: policy.maxSteps } : {}),
   };
@@ -1856,6 +1824,7 @@ function compileDecision(
   const nodeId = binding ? modelBindingNodeId(binding.key) : 'models';
   if (binding) {
     checkBindingRoute(binding, 'decision', draft.providers, report);
+    checkOptions(binding, draft.providers, 'decision', nodeId, report);
     if (!binding.modelId.trim()) {
       report(nodeId, 'Model id is required.', 'modelId');
     }
@@ -1871,8 +1840,10 @@ function compileDecision(
     models: binding
       ? {
           [binding.modelId.trim()]: {
+            protocol: binding.protocol,
             provider: binding.provider,
             apiId: binding.apiId.trim(),
+            ...(Object.keys(binding.options).length ? { options: binding.options } : {}),
             ...(binding.keySlot || draft.models.key
               ? { keySlot: binding.keySlot || draft.models.key }
               : {}),
@@ -2016,22 +1987,22 @@ export function compileStudio(
   if (keySlots.size > STUDIO_KEY_SLOT_CAP) {
     report('models', 'The studio supports up to 32 key slots.', 'key');
   }
-  if (draft.identity.profileType !== 'host') {
+  const type = draft.identity.profileType;
+  if (!type) {
+    report('identity', 'Pick a profile type.', 'profileType');
+    return { ok: false, issues };
+  }
+  if (type !== 'host') {
     for (const binding of draft.modelBindings) {
       if (!binding.apiId.trim()) continue;
       const violation = modelBindingViolation(
-        { ...modelRoute(draft.providers, draft.identity.profileType, binding), builtInTools: binding.builtInTools },
+        { ...modelRoute(draft.providers, type, binding), builtInTools: binding.builtInTools },
         on,
       );
       if (violation) {
         report(modelBindingNodeId(binding.key), violation.message, violation.field);
       }
     }
-  }
-  const type = draft.identity.profileType;
-  if (!type) {
-    report('identity', 'Pick a profile type.', 'profileType');
-    return { ok: false, issues };
   }
   const compiled =
     type === 'decision'

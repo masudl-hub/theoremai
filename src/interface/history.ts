@@ -92,7 +92,16 @@ function toolCallEntry(tool: ToolCallRequest) {
     id: tool.callId,
     type: 'function' as const,
     function: { name: tool.name, arguments: JSON.stringify(tool.arguments) },
-    ...(tool.thoughtSignature ? { thoughtSignature: tool.thoughtSignature } : {}),
+  };
+}
+
+/** The assistant message holding a step's calls, with the reasoning the model wrote before them. */
+function assistantCalls(tools: readonly ToolCallRequest[]): TurnHistoryMessage {
+  const reasoning = tools.flatMap((tool) => tool.reasoning ?? []);
+  return {
+    role: 'assistant',
+    tool_calls: tools.map(toolCallEntry),
+    ...(reasoning.length ? { reasoning } : {}),
   };
 }
 
@@ -105,11 +114,7 @@ function appendToolCallPair(
   tool: ToolCallRequest,
   content: string,
 ): TurnHistoryMessage[] {
-  return [
-    ...history,
-    { role: 'assistant', tool_calls: [toolCallEntry(tool)] },
-    toolResultMessage(tool, content),
-  ];
+  return [...history, assistantCalls([tool]), toolResultMessage(tool, content)];
 }
 
 /** The history with a tool call and its result added. */
@@ -125,7 +130,7 @@ function historyToolCall(call: ToolCall): ToolCallRequest {
     name: call.name,
     callId: call.callId,
     arguments: toolCallRanWith(call),
-    ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
+    ...(call.reasoning ? { reasoning: call.reasoning } : {}),
   };
 }
 
@@ -153,8 +158,8 @@ function settledToolContent(call: ToolCall): string | undefined {
 
 /**
  * One model step's settled calls: a single assistant message holding every call
- * the step made, then each result. Google replays a step's calls only this way,
- * with the step's thought signature on its first call. With `gated: 'open'`, a
+ * the step made, with the reasoning written before them, then each result. Google replays a
+ * step's calls only this way. With `gated: 'open'`, a
  * call waiting on its gate joins the message too, left without a result.
  */
 function appendToolStepToHistory(
@@ -172,7 +177,7 @@ function appendToolStepToHistory(
   if (entries.length === 0) return history;
   return [
     ...history,
-    { role: 'assistant', tool_calls: entries.map(({ tool }) => toolCallEntry(tool)) },
+    assistantCalls(entries.map(({ tool }) => tool)),
     ...entries.flatMap(({ tool, content }) =>
       content === undefined ? [] : [toolResultMessage(tool, content)],
     ),

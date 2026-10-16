@@ -247,8 +247,8 @@ Deno.test("a provider's settings answer with the kernel's own rules, each at its
   const issues = issuesOf(
     withProvider(start, {
       id: 'local',
-      adapter: 'openai-chat',
-      connection: { baseURL: 'nowhere', region: 'eu' },
+      definition: 'local',
+      connection: { baseUrl: 'nowhere', region: 'eu' },
       keySlot: 'has space',
       fallbackKeySlot: 'has space',
     }),
@@ -256,8 +256,8 @@ Deno.test("a provider's settings answer with the kernel's own rules, each at its
   assertEquals(
     issues.map(({ nodeId, field, message }) => [nodeId, field, message]),
     [
-      [providerNodeId('local'), 'connection.baseURL', 'Invalid URL'],
-      [providerNodeId('local'), 'connection.region', "This adapter takes no 'region'."],
+      [providerNodeId('local'), 'connection.baseUrl', 'Invalid URL'],
+      [providerNodeId('local'), 'connection.region', "This provider takes no 'region'."],
       [
         providerNodeId('local'),
         'keySlot',
@@ -276,31 +276,37 @@ Deno.test("a provider's settings answer with the kernel's own rules, each at its
     ],
   );
   assertEquals(
-    issuesOf(withProvider(start, { id: 'local', adapter: 'openai-chat', connection: {} })).map(
+    issuesOf(withProvider(start, { id: 'local', definition: 'local', connection: {} })).map(
       ({ field, message }) => [field, message],
     ),
-    [['connection.baseURL', 'baseURL is required.']],
+    [['connection.baseUrl', 'baseUrl is required.']],
   );
   assertEquals(
     issuesOf(
       withProvider(start, {
         id: 'local',
-        adapter: 'openai-chat',
-        connection: { baseURL: 'ftp://files.test' },
+        definition: 'local',
+        connection: { baseUrl: 'ftp://files.test' },
       }),
     ).map(({ message }) => message),
-    ['Endpoints must use HTTP and exclude credentials'],
+    ['An endpoint must use HTTP and hold no credentials; keys go in the vault'],
   );
 });
 
-Deno.test('a connection form is read from the adapter the kernel holds', () => {
-  assertEquals(connectionFields('openai-chat'), [{ name: 'baseURL', required: true, url: true }]);
-  assertEquals(connectionFields('google'), []);
+Deno.test('a connection form is read from the definition the kernel holds', () => {
+  assertEquals(
+    must(connectionFields('local')).map((field) => [field.name, field.required, field.url]),
+    [['baseUrl', true, true]],
+  );
+  assertEquals(
+    must(connectionFields('gemini')).map((field) => [field.name, field.required, field.url]),
+    [['host', false, true]],
+  );
   assertEquals(
     must(connectionFields('openrouter')).map((field) => [field.name, field.required, field.url]),
     [
-      ['decisionURL', false, true],
-      ['baseURL', false, true],
+      ['baseUrl', false, true],
+      ['decisionUrl', false, true],
       ['siteUrl', false, false],
       ['siteName', false, false],
     ],
@@ -308,11 +314,11 @@ Deno.test('a connection form is read from the adapter the kernel holds', () => {
   assertEquals(connectionFields('house'), undefined);
 });
 
-Deno.test("agents are checked against the workspace's own providers, a project's adapter included", () => {
+Deno.test("agents are checked against the workspace's own providers, a project's definition included", () => {
   const draft = helperDraft();
   const onHouse: StudioDraft = {
     ...draft,
-    providers: [{ id: 'house', adapter: 'house-adapter', keySlot: 'house' }],
+    providers: [{ id: 'house', definition: 'house-chat', keySlot: 'house' }],
     modelBindings: draft.modelBindings.map((binding) => ({ ...binding, provider: 'house' })),
   };
   const result = compileWorkspace(workspaceFromDraft(onHouse), ON_OWN_KEYS);

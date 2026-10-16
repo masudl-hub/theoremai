@@ -19,7 +19,8 @@ const profile: Profile = {
   identity: { handle: 'test-agent' },
   models: {
     'test-model': {
-      provider: 'google',
+      protocol: 'geminiInteractions',
+      provider: 'gemini',
       apiId: 'test-model-id',
       efforts: { normal: 'minimal' },
       maxOutputTokens: 1000,

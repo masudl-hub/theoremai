@@ -1,5 +1,5 @@
 import { asRecord, nonEmptyString } from '../../kernel/engine/record.ts';
-import type { GroundingEvent, ProviderEvent, Source } from '../../kernel/types.ts';
+import type { GroundingEvent, ModelEvent, Source } from '../../kernel/types.ts';
 
 /* probed 2026-09-23:
  * Grounding reads only the shapes recorded from the wire (probes 23/09/2026):
@@ -23,7 +23,7 @@ interface Grounded {
   sources: Source[];
 }
 
-function groundedEvents(grounded: Grounded | undefined): ProviderEvent[] {
+function groundedEvents(grounded: Grounded | undefined): ModelEvent[] {
   if (!grounded) return [];
   const { grounding, sources } = grounded;
   return [
@@ -225,12 +225,12 @@ function mergeGrounding(a: Grounded | undefined, b: Grounded | undefined): Groun
   };
 }
 
-function groundingFromDelta(event: Record<string, unknown>): ProviderEvent[] {
+function groundingFromDelta(event: Record<string, unknown>): ModelEvent[] {
   const delta = asRecord(event.delta);
   return groundedEvents(delta ? groundingFromInteractionsStep(delta) : undefined);
 }
 
-function groundingFromSteps(steps: unknown[]): ProviderEvent[] {
+function groundingFromSteps(steps: unknown[]): ModelEvent[] {
   let grounded: Grounded | undefined;
   for (const stepValue of steps) {
     const step = asRecord(stepValue);
@@ -241,7 +241,7 @@ function groundingFromSteps(steps: unknown[]): ProviderEvent[] {
   return groundedEvents(grounded);
 }
 
-function groundingFromLiveMetadata(value: unknown): ProviderEvent[] {
+function groundingFromLiveMetadata(value: unknown): ModelEvent[] {
   const metadata = asRecord(value);
   if (!metadata) {
     return [];

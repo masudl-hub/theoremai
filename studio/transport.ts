@@ -19,9 +19,12 @@ import {
   CHAT_LINES,
   type ChatLineSink,
   type ConversationLine,
+  createEmbeddingTransport,
   createTraceFeed,
   decisionInterface,
+  embeddingInterface,
   type DecisionTransport,
+  type EmbeddingTransport,
   fetchConversation,
   fetchRewound,
   hostInterface,
@@ -147,6 +150,33 @@ export function hostCallLines(onEvent: TurnEventSink): ChatLineSink {
  * turns' traces beside the transcript that kept them.
  */
 export type StudioTransportOptions = HttpOptions & { traces?: TraceFeed };
+
+export function createStudioEmbeddingTransport(
+  payload: StudioRunPayload,
+  options: StudioTransportOptions = {},
+): EmbeddingTransport {
+  const transport = createEmbeddingTransport({
+    ...options,
+    endpoint: '/api/studio/embedding',
+    requestBody: (input, model) => ({
+      profile: payload.profile,
+      input,
+      ...(model === undefined ? {} : { model }),
+    }),
+  });
+  return {
+    ...transport,
+    describe: () =>
+      Promise.resolve(
+        embeddingInterface(
+          defineProfile(payload.profile) as Extract<
+            ReturnType<typeof defineProfile>,
+            { type: 'embedding' }
+          >,
+        ),
+      ),
+  };
+}
 
 export function createStudioTransport(
   payload: StudioRunPayload,

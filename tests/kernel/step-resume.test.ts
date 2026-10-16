@@ -4,12 +4,7 @@ import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ProfileTurnResumptionSpec } from '../../src/kernel/stop.ts';
-import type {
-  ModelProvider,
-  ProviderCompleteRequest,
-  ProviderEvent,
-  TurnEvent,
-} from '../../src/kernel/types.ts';
+import type { ModelEvent, ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { finalStop } from '../fixtures/events.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 
@@ -27,7 +22,7 @@ function resumeProfile(id: string, resumption?: ProfileTurnResumptionSpec) {
   });
 }
 
-const SENSOR_CALL: ProviderEvent[] = [
+const SENSOR_CALL: ModelEvent[] = [
   {
     type: 'tool',
     tool: { name: 'fetch_sensor', arguments: { sensor: 'soil' }, callId: 'call_1' },
@@ -35,13 +30,13 @@ const SENSOR_CALL: ProviderEvent[] = [
   { type: 'done', stop: { kind: 'tool' } },
 ];
 
-const BUSY: ProviderEvent[] = [
+const BUSY: ModelEvent[] = [
   { type: 'error', errorKind: 'unavailable', errorInternal: 'Gemini HTTP 503: busy' },
 ];
 
-const CUT_SHORT: ProviderEvent[] = [{ type: 'done', stop: { kind: 'stream_incomplete' } }];
+const CUT_SHORT: ModelEvent[] = [{ type: 'done', stop: { kind: 'stream_incomplete' } }];
 
-const ANSWER: ProviderEvent[] = [
+const ANSWER: ModelEvent[] = [
   { type: 'text', text: 'Soil reads 22%.' },
   { type: 'done', stop: { kind: 'completed' } },
 ];
@@ -49,10 +44,10 @@ const ANSWER: ProviderEvent[] = [
 /** Runs the turn against a model that answers each call with the next scripted reply. */
 async function runScript(
   profile: string,
-  script: ProviderEvent[][],
-): Promise<{ events: TurnEvent[]; requests: ProviderCompleteRequest[] }> {
-  const requests: ProviderCompleteRequest[] = [];
-  const provider: ModelProvider = {
+  script: ModelEvent[][],
+): Promise<{ events: TurnEvent[]; requests: ModelRequest[] }> {
+  const requests: ModelRequest[] = [];
+  const provider: TurnModel = {
     async *complete(request) {
       await Promise.resolve();
       const reply = script[Math.min(requests.length, script.length - 1)] ?? [];
@@ -75,7 +70,7 @@ function errorsOf(events: TurnEvent[]): TurnEvent[] {
   return events.filter((event) => event.type === 'error');
 }
 
-function toolMessages(request: ProviderCompleteRequest | undefined): number {
+function toolMessages(request: ModelRequest | undefined): number {
   return (request?.history ?? []).filter((message) => message.role === 'tool').length;
 }
 

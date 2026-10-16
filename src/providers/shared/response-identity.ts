@@ -1,4 +1,4 @@
-import type { ProviderEvent, TurnResponse } from '../../kernel/types.ts';
+import type { ModelEvent, TurnResponse } from '../../kernel/types.ts';
 
 /**
  * Emits as soon as the wire names the response and again whenever that changes, so a
@@ -7,7 +7,7 @@ import type { ProviderEvent, TurnResponse } from '../../kernel/types.ts';
 export function foldResponse(
   known: TurnResponse | undefined,
   seen: TurnResponse | undefined,
-): { known: TurnResponse | undefined; event?: Extract<ProviderEvent, { type: 'response' }> } {
+): { known: TurnResponse | undefined; event?: Extract<ModelEvent, { type: 'response' }> } {
   if (!seen) return { known };
   const next = { ...known, ...seen };
   if (next.id === known?.id && next.model === known?.model) return { known };

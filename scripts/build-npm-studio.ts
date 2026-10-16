@@ -19,9 +19,13 @@ const launchers = [
   'serve-page.mjs',
 ];
 
+/** What a setup file imports from the installed studio, each one of `studio/package.json`'s exports. */
+const setupExports = ['./people'];
+
 type StudioManifest = {
   name: string;
   type: string;
+  exports: Record<string, string>;
   dependencies: Record<string, string>;
   peerDependencies: Record<string, string>;
   devDependencies: Record<string, string>;
@@ -74,6 +78,9 @@ const pkg = {
     directory: 'studio',
   },
   bin: { 'theorem-studio': './start.mjs' },
+  exports: Object.fromEntries(
+    setupExports.map((entry) => [entry, builtEntry(manifest.exports, entry)]),
+  ),
   // The project's server reads and writes the project's TypeScript with the compiler.
   dependencies: { typescript: manifest.devDependencies.typescript },
   peerDependencies: {
@@ -83,6 +90,15 @@ const pkg = {
   },
 };
 await Deno.writeTextFile(`${outDir}/package.json`, `${JSON.stringify(pkg, null, 2)}\n`);
+
+/** An export as tsc built it: the declarations a setup file is checked against, and the module. */
+function builtEntry(exports: Record<string, string>, entry: string) {
+  const source = exports[entry];
+  if (!source?.endsWith('.ts'))
+    throw new Error(`studio/package.json exports no TypeScript module as ${entry}`);
+  const built = source.slice(0, -'.ts'.length);
+  return { types: `${built}.d.ts`, import: `${built}.js` };
+}
 
 async function run(command: string, args: string[], failure: string, env?: Record<string, string>) {
   const { success } = await new Deno.Command(command, {

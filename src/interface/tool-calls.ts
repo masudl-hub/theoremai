@@ -18,7 +18,7 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       callId: tool.callId,
       ...(tool.operationId ? { operationId: tool.operationId } : {}),
       arguments: tool.arguments,
-      ...(tool.thoughtSignature ? { thoughtSignature: tool.thoughtSignature } : {}),
+      ...(tool.reasoning ? { reasoning: tool.reasoning } : {}),
       ...(tool.stepId ? { stepId: tool.stepId } : {}),
       artifacts: [],
     };

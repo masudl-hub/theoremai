@@ -16,7 +16,14 @@ registerProfile({
   type: 'live',
   id: 'quiet-line',
   identity: { handle: 'Quiet' },
-  models: { main: { provider: 'google', apiId: 'gemini-3.8-live', keySlot: 'identity' } },
+  models: {
+    main: {
+      protocol: 'geminiLive',
+      provider: 'gemini',
+      apiId: 'gemini-3.8-live',
+      keySlot: 'identity',
+    },
+  },
   tools: { allow: [] },
   live: { voice: 'Aoede', ingress: { text: true, audio: false, video: false } },
 });
@@ -33,7 +40,14 @@ registerProfile({
   id: 'garden-line',
   observability: { writeTo: 'garden-store' },
   identity: { handle: 'Line' },
-  models: { main: { provider: 'google', apiId: 'gemini-3.8-live', keySlot: 'identity' } },
+  models: {
+    main: {
+      protocol: 'geminiLive',
+      provider: 'gemini',
+      apiId: 'gemini-3.8-live',
+      keySlot: 'identity',
+    },
+  },
   tools: { allow: [] },
   live: { voice: 'Aoede', ingress: { text: true, audio: false, video: false } },
 });

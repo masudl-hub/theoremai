@@ -27,7 +27,7 @@ import {
 import { validateToolSchema } from '../../src/kernel/tools/schema.ts';
 import type { ToolContext, ToolLoadContext } from '../../src/kernel/tools/types.ts';
 import { uncheckedOutput } from '../../src/kernel/tools/unchecked-output.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import {
   eventsOf,
@@ -57,7 +57,7 @@ Deno.test('runTurn ends with stop kind gate when execution gates', async () => {
     outputs: {},
     guardrails: { quota: { perDay: 50 } },
   });
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield {
         type: 'tool',
@@ -95,7 +95,7 @@ Deno.test('always_confirm ignores session permissions until resume.granted', asy
     outputs: {},
     guardrails: { quota: { perDay: 50 } },
   });
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield {
         type: 'tool',
@@ -163,7 +163,7 @@ Deno.test('path-mismatched allowed tool returns not_gated not not_loaded', async
   );
   const { generation } = resolveTurn({ profile: 'path_mismatch_probe', input: { text: 'x' } });
   assertEquals(generation.tools.gated.includes('web_only_tool'), false);
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield {
         type: 'tool',
@@ -192,7 +192,7 @@ Deno.test('provider tool call for unregistered name yields unknown_tool', async 
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield {
         type: 'tool',
@@ -359,7 +359,7 @@ Deno.test('handler streaming is live through invoke and runTurn', async () => {
     assertEquals(invokePhases.includes(phase), true);
   }
   assertEquals(invokePhases.indexOf('progress') < invokePhases.indexOf('complete'), true);
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       yield {
         type: 'tool',
@@ -442,7 +442,7 @@ Deno.test('exposeToModel false omits secret from provider tool result', async ()
   );
   let toolResultText: string | undefined;
   let callCount = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       callCount++;
       if (callCount > 1) {
@@ -895,7 +895,7 @@ Deno.test('runTurn expands profile.tools.t1Policy before provider sees the T2 to
     }),
   );
   let sawWire = false;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       sawWire = req.wireTools?.some((w) => w.name === 'runturn_t1_probe') ?? false;
       yield { type: 'text', text: 'done' };
@@ -1130,7 +1130,7 @@ function registerHostProbe(
     },
   });
 }
-function hostProbeProvider(name: string, delayMs = 0): ModelProvider {
+function hostProbeProvider(name: string, delayMs = 0): TurnModel {
   return {
     async *complete() {
       if (delayMs > 0) {
@@ -1290,8 +1290,8 @@ Deno.test('host never appears in TurnEvents, trace records, gates, gate input, o
       guardrails: { quota: { perDay: 10 } },
     }),
   );
-  const providerRequests: ProviderCompleteRequest[] = [];
-  const provider: ModelProvider = {
+  const providerRequests: ModelRequest[] = [];
+  const provider: TurnModel = {
     async *complete(req) {
       providerRequests.push(req);
       if (providerRequests.length === 1) {
@@ -1969,8 +1969,8 @@ Deno.test('a step runs its calls side by side and records their results in the o
   );
   let resultOrder: (string | undefined)[] = [];
   let step = 0;
-  const provider: ModelProvider = {
-    async *complete(request: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    async *complete(request: ModelRequest) {
       if (step++ === 0) {
         yield { type: 'tool', tool: { name: 'waits_for_beside', arguments: {}, callId: 'c1' } };
         yield { type: 'tool', tool: { name: 'beside', arguments: {}, callId: 'c2' } };
@@ -1985,9 +1985,16 @@ Deno.test('a step runs its calls side by side and records their results in the o
   const events = await Array.fromAsync(
     runTurn({ profile: 'side_by_side_bot', input: { text: 'go' } }, provider),
   );
-  const waited = toolEventsOf(events, 'complete').find((e) => e.callId === 'c1');
+  const calls = rawCallsOf(events);
+  assertEquals(
+    calls.map((call) => call.name),
+    ['waits_for_beside', 'beside'],
+  );
+  const ids = calls.map((call) => call.callId);
+  assertEquals(new Set(ids).size, 2);
+  const waited = toolEventsOf(events, 'complete').find((e) => e.callId === ids[0]);
   assertEquals(waited?.output, { finding: 'beside' });
-  assertEquals(resultOrder, ['c1', 'c2']);
+  assertEquals(resultOrder, ids);
   const shape = events.flatMap((e) => (e.type === 'tool' ? [e.tool.phase ?? 'call'] : []));
   assertEquals(shape.slice(0, 2), ['call', 'call']);
 });
@@ -2006,7 +2013,7 @@ Deno.test('a tool the loader loads in a step can be called from the next step, n
     }),
   );
   let step = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete() {
       step += 1;
       if (step === 1) {
@@ -2031,20 +2038,30 @@ Deno.test('a tool the loader loads in a step can be called from the next step, n
     },
   };
   const events = await Array.fromAsync(
-    // why: One at a time, the loader has settled before c2 starts, so only the step-start tools refuse it.
+    // why: One at a time, the loader has settled before the lookup starts, so only the step-start tools refuse it.
     runTurn({ profile: 'loader_beside_bot', input: { text: 'go' } }, provider),
   );
-  assertEquals(failureCode(events, 'c2'), 'not_loaded');
+  const calls = rawCallsOf(events);
+  assertEquals(
+    calls.map((call) => call.name),
+    ['load_tools', 'record_lookup', 'record_lookup'],
+  );
+  const [loader, sameStep, nextStep] = calls.map((call) => call.callId);
+  assertEquals(new Set([loader, sameStep, nextStep]).size, 3);
+  assertEquals(failureCode(events, sameStep ?? ''), 'not_loaded');
   assertEquals(
     toolEventsOf(events, 'complete').map((call) => call.callId),
-    ['c1', 'c3'],
+    [loader, nextStep],
   );
 });
+
+const PROBE_TOOLS = ['first', 'second'] as const;
+type ProbeTool = (typeof PROBE_TOOLS)[number];
 
 /** Two tools that log when their bodies start and end, for the step-order tests. */
 function orderProbe(prefix: string) {
   const log: string[] = [];
-  for (const name of ['first', 'second']) {
+  for (const name of PROBE_TOOLS) {
     registerTool({
       type: 'function',
       name: `${prefix}_${name}`,
@@ -2086,7 +2103,7 @@ function orderProbe(prefix: string) {
     );
     log.length = 0;
     let step = 0;
-    const provider: ModelProvider = {
+    const provider: TurnModel = {
       async *complete() {
         if (step++ === 0) {
           yield { type: 'tool', tool: { name: `${prefix}_first`, arguments: {}, callId: 'c1' } };
@@ -2100,10 +2117,35 @@ function orderProbe(prefix: string) {
       runTurn({ profile: id, input: { text: 'go' }, ...(onStage ? { onStage } : {}) }, provider),
     );
   };
-  return { log, run };
+  const toolOf = (name: ProbeTool) => `${prefix}_${name}`;
+  /**
+   * `waitFor` answered at `pre_tool`, keyed by probe tool: each named tool becomes its call's id in
+   * the step, and a name the step has no call for is sent as written.
+   */
+  const waitAt =
+    (waits: Partial<Record<ProbeTool, string[]>>): StageHandler =>
+    ({ stage, tool, stepCalls }) => {
+      const own = PROBE_TOOLS.find((name) => toolOf(name) === tool);
+      const names = stage === 'pre_tool' && own ? waits[own] : undefined;
+      return names
+        ? {
+            waitFor: names.map(
+              (name) =>
+                stepCalls?.find((call) => call.tool === `${prefix}_${name}`)?.callId ?? name,
+            ),
+          }
+        : undefined;
+    };
+  /** The id Theorem gave the probe tool's call in the turn's events. */
+  const idOf = (events: TurnEvent[], name: ProbeTool) =>
+    rawCallsOf(events).find((call) => call.name === toolOf(name))?.callId;
+  /** The failure code of the probe tool's call, if it failed. */
+  const failureOf = (events: TurnEvent[], name: ProbeTool) =>
+    failureCode(events, idOf(events, name) ?? '');
+  return { log, run, waitAt, idOf, failureOf };
 }
 
-/** `waitFor` answered at `pre_tool` for the named call. */
+/** `waitFor` answered at `pre_tool` for the call with this id (ids a host chose for its calls). */
 function waitAt(waits: Record<string, string[]>): StageHandler {
   return ({ stage, callId }) =>
     stage === 'pre_tool' && callId && waits[callId] ? { waitFor: waits[callId] } : undefined;
@@ -2126,44 +2168,47 @@ Deno.test('a step runs its calls one at a time, in order, when the profile leave
 Deno.test('pre_tool sees the step calls, and waitFor holds a body until the named call settles', async () => {
   const probe = orderProbe('order_wait');
   const seen: unknown[] = [];
-  await probe.run(true, (ctx) => {
+  const events = await probe.run(true, (ctx) => {
     if (ctx.stage === 'pre_tool') seen.push(ctx.stepCalls?.map((call) => call.callId));
-    return ctx.stage === 'pre_tool' && ctx.callId === 'c1' ? { waitFor: ['c2'] } : undefined;
+    const second = ctx.stepCalls?.find((call) => call.tool === 'order_wait_second')?.callId;
+    return ctx.stage === 'pre_tool' && ctx.tool === 'order_wait_first' && second
+      ? { waitFor: [second] }
+      : undefined;
   });
   assertEquals(probe.log, ['second start', 'second end', 'first start', 'first end']);
-  assertEquals(seen, [
-    ['c1', 'c2'],
-    ['c1', 'c2'],
-  ]);
+  const ids = [probe.idOf(events, 'first'), probe.idOf(events, 'second')];
+  assertEquals(new Set(ids).size, 2);
+  assertEquals(seen, [ids, ids]);
 });
 
 Deno.test('calls that wait for each other both fail as a wait that cannot end', async () => {
   const probe = orderProbe('order_cycle');
-  const events = await probe.run(true, waitAt({ c1: ['c2'], c2: ['c1'] }));
+  const events = await probe.run(true, probe.waitAt({ first: ['second'], second: ['first'] }));
   assertEquals(probe.log, []);
-  assertEquals(failureCode(events, 'c1'), 'wait_cycle');
-  assertEquals(failureCode(events, 'c2'), 'wait_cycle');
+  assertEquals(probe.failureOf(events, 'first'), 'wait_cycle');
+  assertEquals(probe.failureOf(events, 'second'), 'wait_cycle');
 });
 
 Deno.test('a wait for a call outside the step, or for itself, fails the call', async () => {
   const probe = orderProbe('order_unknown');
-  const events = await probe.run(true, waitAt({ c1: ['nope'], c2: ['c2'] }));
+  const events = await probe.run(true, probe.waitAt({ first: ['nope'], second: ['second'] }));
   assertEquals(probe.log, []);
-  assertEquals(failureCode(events, 'c1'), 'wait_unknown');
-  assertEquals(failureCode(events, 'c2'), 'wait_cycle');
+  assertEquals(probe.failureOf(events, 'first'), 'wait_unknown');
+  assertEquals(probe.failureOf(events, 'second'), 'wait_cycle');
 });
 
 Deno.test('one at a time, a wait for a later call fails and the later call still runs', async () => {
   const probe = orderProbe('order_later');
-  const events = await probe.run(undefined, waitAt({ c1: ['c2'] }));
-  assertEquals(failureCode(events, 'c1'), 'wait_cycle');
+  const events = await probe.run(undefined, probe.waitAt({ first: ['second'] }));
+  assertEquals(probe.failureOf(events, 'first'), 'wait_cycle');
   assertEquals(probe.log, ['second start', 'second end']);
 });
 
 Deno.test('one at a time, a wait for an earlier call is already met', async () => {
   const probe = orderProbe('order_earlier');
-  const events = await probe.run(undefined, waitAt({ c2: ['c1'] }));
-  assertEquals(failureCode(events, 'c2'), undefined);
+  const events = await probe.run(undefined, probe.waitAt({ second: ['first'] }));
+  assertEquals(typeof probe.idOf(events, 'second'), 'string');
+  assertEquals(probe.failureOf(events, 'second'), undefined);
   assertEquals(probe.log, ['first start', 'first end', 'second start', 'second end']);
 });
 

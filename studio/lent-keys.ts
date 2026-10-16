@@ -15,7 +15,7 @@ import type { ModelRoute } from './providers.ts';
 export type ModelProfileType = Exclude<StudioProfileType, 'host'>;
 
 /** Where a new model of `type` starts: its provider and API model. */
-export type ModelStart = (type: ModelProfileType) => Pick<ModelBindingDraft, 'provider' | 'apiId'>;
+export type ModelStart = (type: ModelProfileType) => Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>;
 
 /** What switching an agent's type reads from lent keys: each type's models, and where a new one starts. */
 export type ModelPicks = Pick<LentKeys, 'models' | 'start'>;
@@ -60,10 +60,10 @@ export interface LentHolds {
 
 /** A page's lent keys, and what runs on them. */
 export interface LentKeys {
-  /** The models a binding of `type` may pick on a provider with `adapter`, in order. */
-  models(type: ModelProfileType, adapter: string | undefined): readonly LentModel[];
-  /** Whether the keys run agents of `type` on a provider with `adapter`. */
-  runs(type: ModelProfileType, adapter: string | undefined): boolean;
+  /** The models a binding of `type` may pick on a provider from `definition`, in order. */
+  models(type: ModelProfileType, definition: string | undefined): readonly LentModel[];
+  /** Whether the keys run agents of `type` on a provider from `definition`. */
+  runs(type: ModelProfileType, definition: string | undefined): boolean;
   /** The binding a new model of `type` starts on. */
   start: ModelStart;
   /** Why `binding` can't run on the keys; `null` when it can. */

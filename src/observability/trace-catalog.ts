@@ -297,7 +297,10 @@ const CASE_KINDS: Readonly<Record<'capability' | 'regression', TraceOptionMeta>>
 };
 
 const OPERATIONS: Readonly<
-  Record<'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool' | 'decide', TraceOptionMeta>
+  Record<
+    'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool' | 'decide' | 'embeddings',
+    TraceOptionMeta
+  >
 > = {
   invoke_agent: { label: 'Run agent', doc: 'One turn of an agent, or one Live session.' },
   chat: { label: 'Chat', doc: 'A model call over a chat-completions API.' },
@@ -307,6 +310,7 @@ const OPERATIONS: Readonly<
     label: 'Decide',
     doc: 'One model decision: typed answers to questions over JSON state.',
   },
+  embeddings: { label: 'Embed', doc: 'One embedding call: a vector for each input.' },
 };
 
 const OUTPUT_TYPES: Readonly<Record<'text' | 'json' | 'image' | 'speech', TraceOptionMeta>> = {
@@ -716,12 +720,6 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
   'gen_ai.request.temperature': attr('request', 'Temperature', 'number', 'As requested.'),
   'gen_ai.request.max_tokens': attr('request', 'Max output tokens', 'tokens', 'As requested.'),
   'gen_ai.request.reasoning.level': attr('request', 'Thinking level', 'text', 'As requested.'),
-  'gen_ai.request.previous_response.id': attr(
-    'request',
-    'Continues response',
-    'id',
-    'The stored response this call continues.',
-  ),
   'gen_ai.output.type': attr(
     'request',
     'Output type',
@@ -1134,6 +1132,12 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'The provider sent this step incomplete.',
   ),
 
+  'theorem.embedding.inputs': attr(
+    'request',
+    'Inputs',
+    'number',
+    'How many inputs the call embedded, one vector each.',
+  ),
   'theorem.decision.contract': attr(
     'decision',
     'Contract',
@@ -1688,6 +1692,8 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
       return withSubject('tool', stringAttribute(span, 'gen_ai.tool.name'));
     case 'decide':
       return withSubject('decision', stringAttribute(span, 'gen_ai.agent.name'));
+    case 'embeddings':
+      return withSubject('call', stringAttribute(span, 'gen_ai.request.model'));
     default:
       break;
   }

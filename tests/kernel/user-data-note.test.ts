@@ -4,14 +4,14 @@ import { labelDefault } from '../../src/guardrails/labels.ts';
 import { registerProfile, runSession } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider } from '../../src/kernel/types.ts';
+import type { TurnModel } from '../../src/kernel/types.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
 const NOTE = labelDefault('user_data.note');
 async function systemFor(profile: string, text = 'hi'): Promise<string | undefined> {
   let system: string | undefined;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       system = req.system;

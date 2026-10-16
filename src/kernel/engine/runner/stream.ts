@@ -34,17 +34,17 @@ import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { toolArgumentsBoundary } from '../../tools/execute.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
-  ModelProvider,
+  ModelEvent,
+  ModelRequest,
   Profile,
-  ProviderCompleteRequest,
-  ProviderEvent,
   ResolvedGeneration,
   TurnEvent,
+  TurnModel,
 } from '../../types.ts';
 import type { CallTrace, StreamCheck } from '../turn-trace.ts';
 
 /** What the stream yields to the step runner: every provider event but `response`, which only the trace reads. */
-export type StreamEvent = Exclude<ProviderEvent, { type: 'response' }>;
+export type StreamEvent = Exclude<ModelEvent, { type: 'response' }>;
 
 interface OutboundStreamControl {
   /** Stop releasing text/media to the host; keep recording for egress. */
@@ -60,7 +60,7 @@ interface OutboundStreamControl {
   thoughtCarry?: string;
 }
 
-function shouldSkipStreamEvent(event: ProviderEvent, profile: Profile): boolean {
+function shouldSkipStreamEvent(event: ModelEvent, profile: Profile): boolean {
   return (
     event.type === 'thought' && profileTurnOutputs(profile)?.streaming?.streamThoughts === false
   );
@@ -129,7 +129,7 @@ function* flushThoughts(
 }
 
 /** Host-visible output a mid-stream block withholds. A thought is never withheld, only omitted from. */
-function isWithheldOnBlock(event: ProviderEvent): boolean {
+function isWithheldOnBlock(event: ModelEvent): boolean {
   return event.type === 'text' || event.type === 'media';
 }
 
@@ -275,10 +275,10 @@ class ToolDrafts {
 interface StreamArgs {
   profile: Profile;
   generation: ResolvedGeneration;
-  request: ProviderCompleteRequest;
+  request: ModelRequest;
   /** The private stretches of `request.system` (`BoundSystem.private`). */
   privateSystem: readonly string[];
-  provider: ModelProvider;
+  provider: TurnModel;
   /** This call's recorder: sees every tap row and every provider event before any gate. */
   call: Pick<CallTrace, 'tap' | 'observe'> & Partial<Pick<CallTrace, 'guardTime' | 'guardrail'>>;
   signal?: AbortSignal;
@@ -453,6 +453,11 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
     throwIfAborted(signal);
     if (event.type === 'response') {
       // why: Identity is the trace's alone; the call span already recorded it.
+      continue;
+    }
+    if (event.type === 'reasoning') {
+      // why: Signed reasoning goes back to the model as it came; no one reads it in between.
+      yield event;
       continue;
     }
 

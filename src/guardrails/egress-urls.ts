@@ -16,7 +16,7 @@
  */
 
 import type { TurnHistoryMessage } from '../kernel/turn-events.ts';
-import type { ProviderCompleteRequest } from '../kernel/types.ts';
+import type { ModelRequest } from '../kernel/types.ts';
 import { textForScan } from './serialize.ts';
 
 /** The URLs a request already contains, split by who controls them: those from the system prompt, user and host history, and those from tool results. */
@@ -206,12 +206,11 @@ function addHistoryUrls(given: GivenUrlSets, messages: readonly TurnHistoryMessa
 
 function addRequestUrls(
   given: GivenUrlSets,
-  request: Pick<ProviderCompleteRequest, 'system' | 'input' | 'history' | 'continuation'>,
+  request: Pick<ModelRequest, 'system' | 'input' | 'history'>,
 ): void {
   addSeenUrls(given.request, request.system);
   if (!given.own.has(request.input)) addSeenUrls(given.request, textForScan(request.input).text);
   addHistoryUrls(given, request.history ?? []);
-  addHistoryUrls(given, request.continuation ?? []);
 }
 
 function isGiven(canonical: string, scope: UrlScope): boolean {

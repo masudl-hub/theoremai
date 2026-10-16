@@ -1,5 +1,7 @@
 export {
   keyKind,
+  KNOWN_GEMINI_EMBEDDING_MODELS,
+  KNOWN_OPENROUTER_EMBEDDING_MODELS,
   type ListedProfileType,
   type ListedProvider,
   listLocalStudioModels,
@@ -14,6 +16,7 @@ export {
 export { browserStudioLiveConnection } from './browser-live.ts';
 export {
   createBrowserStudioDecisionTransport,
+  createBrowserStudioEmbeddingTransport,
   createBrowserStudioHostTransport,
   createBrowserStudioTransport,
   type StudioBrowserRuntime,

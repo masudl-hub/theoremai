@@ -4,6 +4,7 @@ import type { GuardrailEvent } from '../guardrails/event-schemas.ts';
 import type { LabelOverrides } from '../guardrails/labels.ts';
 import type { ResolvedGuardrailPolicy } from '../guardrails/types.ts';
 import type { ProfileToolsSpec, ToolCallEdit, ToolPhaseEvent } from '../kernel/tools/types.ts';
+import type { ReasoningPart } from '../kernel/turn-events.ts';
 import type {
   AttachmentValidationIssue,
   CompactionSpec,
@@ -228,8 +229,8 @@ export interface ToolCall {
    * `tool_draft` events. Gone once the call arrives whole; `argumentsSoFar` reads it.
    */
   draft?: string;
-  /** The call's `ToolCallRequest.thoughtSignature`: history replays the call with it. */
-  thoughtSignature?: string;
+  /** The call's `ToolCallRequest.reasoning`: history replays the call with it. */
+  reasoning?: ReasoningPart[];
   /** The call's `ToolCallRequest.stepId`: calls sharing it replay as one assistant message. */
   stepId?: string;
   /** The user's edit on approval; `to` is what ran. */

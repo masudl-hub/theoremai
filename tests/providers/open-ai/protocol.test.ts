@@ -1,6 +1,7 @@
 import { assertEquals, assertMatch, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { TheoremError } from '../../../src/guardrails/error.ts';
+import type { JsonObject } from '../../../src/kernel/json.ts';
 import {
   bearer,
   type CallSetup,
@@ -9,10 +10,11 @@ import {
   createProviderRegistry,
   defineProvider,
   type ProtocolEvent,
-  type TurnRequest,
+  type ProtocolRequest,
+  type Registration,
 } from '../../../src/kernel/protocols/mod.ts';
-import type { JsonObject } from '../../../src/kernel/provider-contract.ts';
 import { openAi } from '../../../src/providers/open-ai/protocol.ts';
+import { failureOf } from '../../fixtures/failure.ts';
 
 const compatible = defineProvider({
   id: 'compatible',
@@ -30,13 +32,13 @@ function sse(rows: JsonObject[]): Response {
 
 function setup(answer: (count: number) => Response) {
   const sent: { url: string; auth: string | null; body: JsonObject }[] = [];
-  const send: typeof fetch = async (input, init) => {
+  const send: typeof fetch = (input, init) => {
     sent.push({
       url: String(input),
       auth: new Headers(init?.headers).get('authorization'),
       body: JSON.parse(String(init?.body)) as JsonObject,
     });
-    return answer(sent.length);
+    return Promise.resolve(answer(sent.length));
   };
   const registry = createProviderRegistry();
   registry.register(compatible, { keySlot: 'main', fallbackKeySlot: 'spare' });
@@ -64,7 +66,7 @@ const request = {
   image: null,
   thinking: 'low',
   wireTools: [{ name: 'weather', description: 'Weather.', parameters: { type: 'object' } }],
-} as unknown as TurnRequest;
+} as unknown as ProtocolRequest;
 
 async function collect(events: AsyncIterable<ProtocolEvent>): Promise<ProtocolEvent[]> {
   const out: ProtocolEvent[] = [];
@@ -143,7 +145,7 @@ Deno.test('openAi reads a whole reply: citations and a structured answer', async
     stream: false,
     wireTools: undefined,
     structured: { id: 'answer', jsonSchema: { type: 'object' } },
-  } as unknown as TurnRequest;
+  } as unknown as ProtocolRequest;
   const events = await collect(callProtocol(call).complete(structured));
   assertEquals(sent[0]?.body.stream, false);
   assertEquals('tools' in (sent[0]?.body ?? {}), false);
@@ -205,7 +207,7 @@ Deno.test('openAi never sends reasoning another protocol saved', async () => {
     state: {
       replay: [{ callIds: ['c1'], details: [{ type: 'reasoning.text', text: 'x' }], content: 'x' }],
     },
-  } as unknown as TurnRequest;
+  } as unknown as ProtocolRequest;
   await collect(callProtocol(call).complete(replayed));
   const messages = sent[0]?.body.messages as JsonObject[];
   assertEquals(
@@ -234,9 +236,9 @@ Deno.test('openAi reads text aloud on /audio/speech; raw PCM comes back as WAV',
     ),
     profileType: 'speech',
     vault: { main: 'k-main' },
-    fetch: async (_input, init) => {
+    fetch: (_input, init) => {
       sent.push(JSON.parse(String(init?.body)) as JsonObject);
-      return answers.shift() as Response;
+      return Promise.resolve(answers.shift() as Response);
     },
     wait: async () => {},
   });
@@ -244,7 +246,7 @@ Deno.test('openAi reads text aloud on /audio/speech; raw PCM comes back as WAV',
     ...request,
     wireTools: undefined,
     speech: { voice: 'alloy', style: 'Calm.' },
-  } as unknown as TurnRequest;
+  } as unknown as ProtocolRequest;
   const mp3 = await collect(call.complete(spoken));
   assertEquals(sent[0], {
     model: 'tts-1',
@@ -258,4 +260,51 @@ Deno.test('openAi reads text aloud on /audio/speech; raw PCM comes back as WAV',
   ]);
   const pcm = await collect(call.complete(spoken));
   assertEquals(pcm[0]?.type === 'media' && pcm[0].media.mimeType, 'audio/wav');
+});
+
+async function refused(registration: Registration<undefined>, vault: Record<string, string>) {
+  const auths: (string | null)[] = [];
+  const registry = createProviderRegistry();
+  const provider = registry.register(compatible, registration);
+  const call = callProtocol({
+    provider,
+    binding: checkBinding(
+      provider,
+      { protocol: 'openAi', provider: 'compatible', apiId: 'm-1' },
+      'text',
+    ),
+    profileType: 'text',
+    vault,
+    fetch: (_input, init) => {
+      auths.push(new Headers(init?.headers).get('authorization'));
+      return Promise.resolve(new Response('{}', { status: 429 }));
+    },
+    wait: async () => {},
+  });
+  const error = failureOf(await collect(call.complete(request)));
+  return { auths, error };
+}
+
+Deno.test('with no fallback slot, a quota refusal stands once the primary key’s backoff runs out', async () => {
+  const { auths, error } = await refused({ keySlot: 'main' }, { main: 'k-main' });
+  assertEquals(error.kind, 'rate_limit');
+  assertEquals(auths, ['Bearer k-main', 'Bearer k-main', 'Bearer k-main']);
+});
+
+Deno.test('a fallback slot is tried by its name, even when it holds the same key', async () => {
+  const { auths, error } = await refused(
+    { keySlot: 'main', fallbackKeySlot: 'spare' },
+    { main: 'k-main', spare: 'k-main' },
+  );
+  assertEquals(error.kind, 'rate_limit');
+  assertEquals(auths, Array(6).fill('Bearer k-main'));
+});
+
+Deno.test('a fallback slot with no key in the vault is not tried, and the quota refusal stands', async () => {
+  const { auths, error } = await refused(
+    { keySlot: 'main', fallbackKeySlot: 'absent' },
+    { main: 'k-main' },
+  );
+  assertEquals(error.kind, 'rate_limit');
+  assertEquals(auths, ['Bearer k-main', 'Bearer k-main', 'Bearer k-main']);
 });

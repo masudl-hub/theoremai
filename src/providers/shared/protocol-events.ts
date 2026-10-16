@@ -1,12 +1,12 @@
 import type { ProtocolEvent } from '../../kernel/protocols/mod.ts';
-import type { ProviderEvent } from '../../kernel/types.ts';
+import type { ModelEvent } from '../../kernel/types.ts';
 
 /**
  * One event from the shared Gemini and Chat Completions readers, as a protocol event: a finished
  * call is a `tool_call`, a cancelled one a `tool_cancel`, and a broken one an error. A `done` keeps
  * only its stop; the protocol adds its own state.
  */
-export function asProtocolEvent<S>(event: ProviderEvent): ProtocolEvent<S> | undefined {
+export function asProtocolEvent<S>(event: ModelEvent): ProtocolEvent<S> | undefined {
   if (event.type === 'done')
     return {
       type: 'done',

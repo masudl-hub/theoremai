@@ -54,6 +54,7 @@ import {
   memoryCredentialSource,
   type RegisteredTool,
   type RunDecisionOptions,
+  type EmbeddingRequest,
 } from '@theoremjs/agents/kernel';
 import { STUDIO_TRACE_DESTINATION } from './policy.ts';
 import { STUDIO_READER } from './reader.ts';
@@ -565,6 +566,46 @@ export async function runStudioDecision(
     return { result, traces };
   } catch (err) {
     // The kernel traces a decision however it ends; the failure carries what it left.
+    throw withFailedTraces(err, traces);
+  }
+}
+
+/** Runs one embedding preview and returns its normalized result with the records it wrote. */
+export async function runStudioEmbedding(
+  payload: StudioRunPayload,
+  request: Omit<EmbeddingRequest, 'profile'>,
+  runtime: StudioRuntime,
+): Promise<{ result: Awaited<ReturnType<StudioScope['runEmbedding']>>; traces: TraceRecord[] }> {
+  const { scope, profile } = await studioScope(
+    payload.profile,
+    payload.customTools,
+    payload.structured,
+    runtime,
+    payload.dependencies,
+  );
+  if (profile.type !== 'embedding') {
+    throw new TheoremError('request', 'Studio embedding runs require an embedding profile.');
+  }
+  const traces: TraceRecord[] = [];
+  const records = profile.observability
+    ? resolveObservabilityPolicy(profile.observability).record
+    : false;
+  const sink = {
+    write: (record: TraceRecord) => {
+      traces.push(record);
+      return Promise.resolve();
+    },
+  };
+  try {
+    const result = await scope.runEmbedding(
+      { ...request, profile: profile.id },
+      {
+        ...runtimeProvider(runtime, scope, profile, request.model),
+        ...(records ? { sink } : {}),
+      },
+    );
+    return { result, traces };
+  } catch (err) {
     throw withFailedTraces(err, traces);
   }
 }

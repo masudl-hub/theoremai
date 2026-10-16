@@ -2,7 +2,7 @@ import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import { lastOf } from '../fixtures/events.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
@@ -10,7 +10,7 @@ import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 Deno.test('runTurn emits cancelled done + post_turn when signal is already aborted', async () => {
   const controller = new AbortController();
   controller.abort();
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: () => {
       throw new Error('provider should not run');
     },
@@ -30,8 +30,8 @@ Deno.test('runTurn cancels an in-flight provider and ends with cancelled done', 
   const controller = new AbortController();
   const into: TraceRecord[] = [];
   let sawAbort = false;
-  const provider: ModelProvider = {
-    async *complete(req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+  const provider: TurnModel = {
+    async *complete(req: ModelRequest): AsyncGenerator<TurnEvent> {
       await new Promise<void>((_resolve, reject) => {
         const { signal } = req;
         if (!signal) {

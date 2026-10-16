@@ -6,7 +6,7 @@ import {
   toolCallRequestEvent,
 } from '../../kernel/tools/events.ts';
 import type { ToolCallRequest } from '../../kernel/tools/types.ts';
-import type { ProviderEvent } from '../../kernel/types.ts';
+import type { ModelEvent } from '../../kernel/types.ts';
 import { isRecord } from '../../kernel/util/record.ts';
 
 /**
@@ -74,15 +74,14 @@ export function historyToolArguments(raw: unknown): Record<string, unknown> {
 
 /** A call sent without an id gets one, so its request and failure events join. */
 export function toolCallEvents(
-  call: Pick<ToolCallRequest, 'name' | 'thoughtSignature' | 'stepId' | 'stepCallCount'> & {
+  call: Pick<ToolCallRequest, 'name' | 'stepId' | 'stepCallCount'> & {
     id?: string;
   },
   rawArguments: unknown,
-): ProviderEvent[] {
+): ModelEvent[] {
   const name = call.name.trim();
   const base = { name, callId: call.id ?? newCallId(name) };
   const request = {
-    thoughtSignature: call.thoughtSignature,
     stepId: call.stepId,
     stepCallCount: call.stepCallCount,
   };
@@ -96,13 +95,13 @@ export function toolCallEvents(
   return [toolCallRequestEvent(base, parsed.value, request)];
 }
 
-/** Keeps the thought signature: the model still reads the failed call's result back. */
+/** The model still reads the failed call's result back. */
 export function malformedToolCall(
   base: ToolCallBase,
   message: string,
   raw: unknown,
-  request: Pick<ToolCallRequest, 'thoughtSignature' | 'stepId' | 'stepCallCount'> = {},
-): ProviderEvent[] {
+  request: Pick<ToolCallRequest, 'stepId' | 'stepCallCount'> = {},
+): ModelEvent[] {
   return [
     toolCallRequestEvent(base, {}, request),
     failureEvent(base, {

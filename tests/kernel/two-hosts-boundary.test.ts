@@ -5,13 +5,13 @@ import '../fixtures/test-host.ts';
 import {
   defineProfile,
   labelDefault,
-  type ModelProvider,
   overrideLabels,
   publicError,
   quotaExhausted,
   registerProfile,
   resetLabels,
   type TurnEvent,
+  type TurnModel,
 } from '../../mod.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -23,7 +23,7 @@ const HOST_B_PUBLIC = 'HOST_B_PUBLIC_GENERIC_COPY';
 const HOST_A_QUOTA = 'HOST_A_QUOTA_LIMIT_COPY';
 const HOST_B_QUOTA = 'HOST_B_QUOTA_LIMIT_COPY';
 
-function mockProvider(text: string): ModelProvider {
+function mockProvider(text: string): TurnModel {
   return {
     async *complete(): AsyncIterable<TurnEvent> {
       yield { type: 'text', text };
@@ -33,7 +33,7 @@ function mockProvider(text: string): ModelProvider {
   };
 }
 
-async function runContinue(profileId: string, provider: ModelProvider): Promise<void> {
+async function runContinue(profileId: string, provider: TurnModel): Promise<void> {
   for await (const _event of runTurn(
     {
       profile: profileId,
@@ -88,13 +88,13 @@ Deno.test('two hosts: contradictory overrides never leak across turns', async ()
 
   let inputA = '';
   let inputB = '';
-  const recordingA: ModelProvider = {
+  const recordingA: TurnModel = {
     async *complete(req) {
       inputA = JSON.stringify([req.input, req.history]);
       yield* mockProvider('ok-a').complete(req);
     },
   };
-  const recordingB: ModelProvider = {
+  const recordingB: TurnModel = {
     async *complete(req) {
       inputB = JSON.stringify([req.input, req.history]);
       yield* mockProvider('ok-b').complete(req);

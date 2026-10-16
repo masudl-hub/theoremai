@@ -135,14 +135,13 @@ Deno.test('a profile the files define twice is one origin, and a plain one has n
   });
 });
 
-Deno.test('a provider is read where it is defined: what code sets, and the constant it is under', () => {
+Deno.test('a provider is read where it is registered: what code sets, and the constant it is under', () => {
   const files = {
-    'setup.ts': `import { house, SLOT } from './providers.ts';\nregisterProviders([house]);\nregisterProvider({ id: 'inline', connection: {}, adapter: googleAdapter() });\n`,
-    'providers.ts': `export const SLOT = 'team';\nexport const house = defineProvider({\n  id: 'house',\n  connection: { baseURL: address() },\n  keySlot: SLOT,\n  adapter: openAIChat(),\n});\nconst spare = defineProvider({ id: 'spare', connection: {}, adapter: googleAdapter() });\n`,
+    'setup.ts': `import { geminiProvider, registerProvider } from '@theoremjs/agents';\nimport { house, SLOT } from './providers.ts';\nregisterProvider(geminiProvider, { id: 'inline' });\n`,
+    'providers.ts': `import { localProvider, registerProvider } from '@theoremjs/agents';\nexport const SLOT = 'team';\nexport const house = registerProvider(localProvider, {\n  id: 'house',\n  connection: { baseUrl: address() },\n  keySlot: SLOT,\n});\nconst spare = registerProvider(localProvider, { id: 'spare', connection: { baseUrl: 'http://localhost:11434/v1' } });\n`,
   };
   assertEquals(read(files, 'providers', 'house'), [
-    'adapter | code | openAIChat() | providers.ts:6',
-    'connection.baseURL | code | address() | providers.ts:4',
+    'connection.baseUrl | code | address() | providers.ts:5',
   ]);
   const source = project(files);
   assertEquals([...source.providers.keys()].sort(), ['house', 'inline', 'spare']);
@@ -282,10 +281,10 @@ Deno.test('a row is set in code by the nearest origin at or above it, or by one 
 
 Deno.test('a row path names the keys the files hold: a star the node names, a tool key, never a studio row', () => {
   const model = { stars: { 'models.*': 'gpt-4.1' }, tool: false };
-  assertEquals(settingPath(model, 'models.*.providerOptions.cache.mode'), [
+  assertEquals(settingPath(model, 'models.*.options.cache.mode'), [
     'models',
     'gpt-4.1',
-    'providerOptions',
+    'options',
     'cache',
     'mode',
   ]);
@@ -373,18 +372,18 @@ Deno.test('the open node reads the origins of the profile or tool it started as,
   assertEquals(rowOrigin(undefined, 'inputs.text'), undefined);
 });
 
-Deno.test('an open provider reads what code sets on its definition, and nothing when no file defines it', () => {
+Deno.test('an open provider reads what code sets on its registration, and nothing when no file registers it', () => {
   const opened = workspaceFromDraft(createExampleDraft());
   const origins = {
     profiles: {},
     tools: {},
-    providers: { google: [origin('connection.baseURL'), origin('keySlot')] },
+    providers: { gemini: [origin('connection.host'), origin('keySlot')] },
   };
-  const google = nodeOrigins(opened, origins, providerNodeId('google'));
-  assertEquals([google?.tool, google?.section], [false, undefined]);
-  assertEquals(rowOrigin(google, 'connection.baseURL')?.path, ['connection', 'baseURL']);
-  assertEquals(rowOrigin(google, 'keySlot')?.path, ['keySlot']);
-  assertEquals(rowOrigin(google, 'fallbackKeySlot'), undefined);
+  const gemini = nodeOrigins(opened, origins, providerNodeId('gemini'));
+  assertEquals([gemini?.tool, gemini?.section], [false, undefined]);
+  assertEquals(rowOrigin(gemini, 'connection.host')?.path, ['connection', 'host']);
+  assertEquals(rowOrigin(gemini, 'keySlot')?.path, ['keySlot']);
+  assertEquals(rowOrigin(gemini, 'fallbackKeySlot'), undefined);
   assertEquals(nodeOrigins(opened, origins, providerNodeId('openrouter')), undefined);
   assertEquals(nodeOrigins(opened, origins, providerNodeId('nowhere')), undefined);
 });

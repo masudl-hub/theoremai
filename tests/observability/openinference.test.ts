@@ -222,7 +222,7 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
       type: 'decision',
       id: 'oi-decision',
       identity: { handle: 'Decision' },
-      models: { jev: { provider: 'typesafe', apiId: 'jev-latest' } },
+      models: { jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest' } },
       inputs: { state: 'json' },
       decision: { contract: 'oi.v1' },
     }),
@@ -250,13 +250,11 @@ Deno.test('withOpenInference shows a decision as an LLM span: its state in, its 
       sink: memorySink(records),
       fetch: () =>
         Promise.resolve(
-          new Response(
-            JSON.stringify({
-              model: 'jev-1.13.0',
-              answers,
-              usage: { input_tokens: 500000, output_tokens: 3 },
-            }),
-          ),
+          Response.json({
+            model: 'jev-1.13.0',
+            answers,
+            usage: { input_tokens: 500000, output_tokens: 3 },
+          }),
         ),
     },
   );

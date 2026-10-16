@@ -8,10 +8,10 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import { keptReply } from '../../src/kernel/turn-events.ts';
 import type {
-  ModelProvider,
   ProfileValidationSpec,
   TurnEvent,
   TurnEventOf,
+  TurnModel,
 } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
@@ -44,7 +44,7 @@ const titled = (title: unknown) =>
   title === 'good' ? { isValid: true } : { isValid: false, error: 'the title is not good' };
 
 /** Answers each call with the next of `replies`, as text and then structured. */
-function provider(replies: unknown[]): ModelProvider {
+function provider(replies: unknown[]): TurnModel {
   let call = 0;
   return {
     async *complete() {
@@ -56,7 +56,7 @@ function provider(replies: unknown[]): ModelProvider {
   };
 }
 
-async function run(scope: KernelScope, model: ModelProvider): Promise<TurnEvent[]> {
+async function run(scope: KernelScope, model: TurnModel): Promise<TurnEvent[]> {
   const events: TurnEvent[] = [];
   for await (const event of runScopedTurn(
     scope,

@@ -1,12 +1,7 @@
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { startCallUsage } from '../../src/kernel/engine/runner/usage.ts';
 import { OutputFold, startCallTrace, usageAttributes } from '../../src/kernel/engine/turn-trace.ts';
-import type {
-  ModelBinding,
-  ProviderCompleteRequest,
-  ProviderEvent,
-  TurnEvent,
-} from '../../src/kernel/types.ts';
+import type { ModelBinding, ModelEvent, ModelRequest, TurnEvent } from '../../src/kernel/types.ts';
 import {
   type SpanHandle,
   type SpanOptions,
@@ -31,10 +26,11 @@ function tickingClock() {
   };
 }
 const binding: ModelBinding = {
-  provider: 'google',
+  protocol: 'geminiInteractions',
+  provider: 'gemini',
   apiId: 'gemini-test-flash',
-} as ModelBinding;
-function request(over: Partial<ProviderCompleteRequest> = {}): ProviderCompleteRequest {
+};
+function request(over: Partial<ModelRequest> = {}): ModelRequest {
   return {
     model: 'flash',
     apiId: 'gemini-test-flash',
@@ -79,7 +75,7 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
     step: 0,
     attempt: 0,
   });
-  const events: ProviderEvent[] = [
+  const events: ModelEvent[] = [
     { type: 'thought', text: 'Soil ' },
     { type: 'thought', text: 'first.' },
     { type: 'text', text: 'Checking ' },
@@ -96,7 +92,7 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
   const a = attrs(span);
   assertEquals(span.kind, 'CLIENT');
   assertEquals(span.status, { code: 'OK' });
-  assertEquals(a['gen_ai.provider.name'], 'google');
+  assertEquals(a['gen_ai.provider.name'], 'gemini');
   assertEquals(a['gen_ai.request.reasoning.level'], 'low');
   assertEquals(a['gen_ai.output.type'], 'text');
   assertEquals(a['gen_ai.input.messages'], [
@@ -149,7 +145,7 @@ Deno.test('turn trace: a tool call is one part; its execution phases add none', 
     { type: 'text', ...traceContent('Moist.') },
   ]);
 });
-Deno.test('turn trace: a continuation reads the stored interaction and marks where the wire starts', () => {
+Deno.test('turn trace: a continuation reads the earlier call and marks where the wire starts', () => {
   const tree = trace();
   const first = startCallUsage('s', { history: [], input: [{ type: 'text', text: 'Hi' }] });
   const one = startCallTrace(under(tree), {
@@ -167,7 +163,7 @@ Deno.test('turn trace: a continuation reads the stored interaction and marks whe
     continuation: [{ role: 'user', content: 'More' }],
   });
   const two = startCallTrace(under(tree), {
-    req: request({ previousInteractionId: 'v1_a' }),
+    req: request(),
     usage: second,
     binding,
     transport: 'turn',
@@ -186,7 +182,6 @@ Deno.test('turn trace: a continuation reads the stored interaction and marks whe
     { role: 'user', parts: [{ type: 'text', ...traceContent('More') }] },
   ]);
   assertEquals(attrs(span as TraceSpan)['theorem.input.sent_from'], 2);
-  assertEquals(attrs(span as TraceSpan)['gen_ai.request.previous_response.id'], 'v1_a');
 });
 Deno.test('turn trace: each HTTP try is a POST span with its slot, body and backoff', () => {
   const tree = trace();

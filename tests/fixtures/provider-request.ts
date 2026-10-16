@@ -1,21 +1,21 @@
 import { getStructured } from '../../src/kernel/default-scope.ts';
 import type {
   BuiltinToolId,
+  ModelRequest,
   ProviderBuiltin,
-  ProviderCompleteRequest,
   ResolvedStructured,
   ThinkingLevel,
 } from '../../src/kernel/types.ts';
 import { GOOGLE_BUILTIN_TOOLS } from '../../src/presets/google.ts';
 
-export type StubOverrides = Partial<ProviderCompleteRequest> & {
+export type StubOverrides = Partial<ModelRequest> & {
   model?: string;
   apiId?: string;
   thinking?: ThinkingLevel;
 };
 
-/** Minimal typed `ProviderCompleteRequest` for adapter unit tests (no casts). */
-export function stubCompleteRequest(overrides: StubOverrides = {}): ProviderCompleteRequest {
+/** Minimal typed `ModelRequest` for protocol unit tests (no casts). */
+export function stubCompleteRequest(overrides: StubOverrides = {}): ModelRequest {
   return {
     model: overrides.model ?? 'test-model',
     apiId: overrides.apiId ?? 'test-api-id',
@@ -27,18 +27,13 @@ export function stubCompleteRequest(overrides: StubOverrides = {}): ProviderComp
     system: overrides.system ?? 'Be brief.',
     input: overrides.input ?? [{ type: 'text', text: 'Hello' }],
     history: overrides.history,
-    continuation: overrides.continuation,
     wireTools: overrides.wireTools,
     structured: overrides.structured ?? null,
     image: overrides.image ?? null,
     speech: overrides.speech,
     live: overrides.live,
-    sessionResumptionHandle: overrides.sessionResumptionHandle,
-    keySlot: overrides.keySlot,
     tapUpstream: overrides.tapUpstream,
     signal: overrides.signal,
-    previousInteractionId: overrides.previousInteractionId,
-    store: overrides.store,
     stream: overrides.stream,
   };
 }

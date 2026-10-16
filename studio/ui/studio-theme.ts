@@ -1,6 +1,6 @@
 import { defineTheme } from '@astryxdesign/core/theme';
 import { tablerIcons } from '@theoremjs/react/ui/icons';
-import { theoremTheme } from '@theoremjs/react/ui';
+import { theoremTheme } from '@theoremjs/react/ui/theme';
 
 /**
  * The look of the studio and the shell it sits in: Theorem's theme on a black base, with the page

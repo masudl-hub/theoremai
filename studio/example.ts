@@ -25,6 +25,8 @@ import {
 } from './draft.ts';
 import { addAgent, agentNodeId, markAgentStart, type StudioWorkspace, workspaceFromDraft } from './workspace.ts';
 import type { ModelPicks } from './lent-keys.ts';
+import { firstServed } from './policy.ts';
+import { ATTACHMENT_ACCEPT_MIMES } from '@theoremjs/agents/schema';
 
 /**
  * Where each example's models start: Google's Flash models and TypeSafe's Jev, which free keys
@@ -36,15 +38,17 @@ const EXAMPLE_PICKS: ModelPicks = {
   start: (type) => {
     switch (type) {
       case 'decision':
-        return { provider: 'typesafe', apiId: 'jev-latest' };
+        return { ...firstServed('typesafe', type), apiId: 'jev-latest' };
       case 'live':
-        return { provider: 'google', apiId: 'gemini-3.1-flash-live-preview' };
+        return { ...firstServed('gemini', type), apiId: 'gemini-3.1-flash-live-preview' };
       case 'speech':
-        return { provider: 'google', apiId: 'gemini-3.1-flash-tts-preview' };
+        return { ...firstServed('gemini', type), apiId: 'gemini-3.1-flash-tts-preview' };
       case 'image':
-        return { provider: 'google', apiId: 'gemini-3.1-flash-lite-image' };
+        return { ...firstServed('gemini', type), apiId: 'gemini-3.1-flash-lite-image' };
       case 'text':
-        return { provider: 'google', apiId: 'gemini-3.1-flash-lite' };
+        return { ...firstServed('gemini', type), apiId: 'gemini-3.1-flash-lite' };
+      case 'embedding':
+        return { ...firstServed('gemini', type), apiId: 'gemini-embedding-2-preview' };
     }
   },
 };
@@ -74,7 +78,7 @@ export function createSpanExampleDraft(): StudioDraft {
     identity: { ...draft.identity, agentId: 'guardrails.tool_call.span', handle: 'span' },
     modelBindings: [{
       ...draft.modelBindings[0],
-      provider: 'openrouter',
+      ...firstServed('openrouter', 'decision'),
       apiId: 'respan/span-01-lite:free',
     }],
     decision: {
@@ -89,6 +93,42 @@ export function createSpanExampleDraft(): StudioDraft {
           { key: draftKey('criterion'), label: 'false', text: 'The call is safe and within the user request.' },
         ],
       }],
+    },
+  };
+}
+
+/** A multimodal embedding profile using Gemini Embeddings 2's free preview model. */
+export function createGeminiEmbeddingExampleDraft(): StudioDraft {
+  const draft = setProfileType(createBlankDraft(), 'embedding', EXAMPLE_PICKS);
+  const binding = draft.modelBindings[0];
+  return {
+    ...draft,
+    identity: {
+      ...draft.identity,
+      agentId: 'studio.gemini-embeddings-2',
+      handle: 'embeddings',
+    },
+    models: {
+      ...draft.models,
+      defaultModel: binding?.modelId ?? '',
+      key: 'gemini',
+    },
+    modelBindings: binding
+      ? [{
+          ...binding,
+          provider: 'gemini',
+          protocol: firstServed('gemini', 'embedding').protocol,
+          apiId: 'gemini-embedding-2-preview',
+          options: { outputDimensionality: 768 },
+        }]
+      : [],
+    inputs: {
+      ...draft.inputs,
+      text: true,
+      attachmentsAccept: [...ATTACHMENT_ACCEPT_MIMES],
+      maxFiles: 1,
+      maxBytes: 10_000_000,
+      maxTurnBytes: 10_000_000,
     },
   };
 }
@@ -132,7 +172,7 @@ function exampleTextDraft(
     modelBindings: [
       defaultModelBinding({
         modelId: 'fast',
-        provider: 'google',
+        ...firstServed('gemini', 'text'),
         apiId: 'gemini-3.1-flash-lite',
         efforts: [
           { alias: 'fast', level: 'minimal' },
@@ -144,7 +184,7 @@ function exampleTextDraft(
       }),
       defaultModelBinding({
         modelId: 'smart',
-        provider: 'google',
+        ...firstServed('gemini', 'text'),
         apiId: 'gemini-3.5-flash-lite',
         efforts: [
           { alias: 'normal', level: 'low' },
@@ -156,7 +196,7 @@ function exampleTextDraft(
       }),
       defaultModelBinding({
         modelId: 'open',
-        provider: 'openrouter',
+        ...firstServed('openrouter', 'text'),
         apiId: 'openrouter/free',
         efforts: [{ alias: 'default', level: 'minimal' }],
         defaultEffort: 'default',

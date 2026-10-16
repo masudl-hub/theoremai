@@ -12,10 +12,10 @@ import type { ProfileTurnResumptionSpec } from '../../src/kernel/stop.ts';
 import { agentToolOrigin } from '../../src/kernel/tools/agent.ts';
 import type { AgentCall, AgentCallHook, AgentToolDef } from '../../src/kernel/tools/types.ts';
 import type {
-  ModelProvider,
-  ProviderCompleteRequest,
+  ModelRequest,
   TurnEvent,
   TurnEventOf,
+  TurnModel,
   TurnTokens,
 } from '../../src/kernel/types.ts';
 import { memorySink } from '../../src/observability/trace.ts';
@@ -95,12 +95,12 @@ function scopeWith(
   return scope;
 }
 
-function isResearcher(req: ProviderCompleteRequest): boolean {
+function isResearcher(req: ModelRequest): boolean {
   return req.system.includes(RESEARCHER_SYSTEM);
 }
 
 /** The text the called agent was sent, inside the user-data frame every turn input gets. */
-function inputText(req: ProviderCompleteRequest): string {
+function inputText(req: ModelRequest): string {
   const last = req.history?.at(-1);
   const content = typeof last?.content === 'string' ? last.content : '';
   return content.replace(/^<user_data>\n|\n<\/user_data>$/g, '');
@@ -110,7 +110,7 @@ function inputText(req: ProviderCompleteRequest): string {
  * The caller asks the researcher `calls` times in its first step, then answers
  * with what came back. The researcher answers with the text it was sent.
  */
-function routedProvider(calls = 1, seen: string[] = []): ModelProvider {
+function routedProvider(calls = 1, seen: string[] = []): TurnModel {
   let callerStep = 0;
   return {
     async *complete(req) {
@@ -143,7 +143,7 @@ function routedProvider(calls = 1, seen: string[] = []): ModelProvider {
 
 async function collect(
   scope: KernelScope,
-  provider: ModelProvider,
+  provider: TurnModel,
   onAgentCall?: AgentCallHook,
   records?: TraceRecord[],
 ): Promise<TurnEvent[]> {
@@ -194,7 +194,7 @@ Deno.test('a structured reply comes back once, as the object and not also as its
   scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
   const read: string[] = [];
   const caller = routedProvider();
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       if (isResearcher(req)) {
@@ -288,7 +288,7 @@ Deno.test('a called agent resolves its own registered provider', async () => {
   const scope = createKernelScope();
   scope.profiles.register(
     textProfile(RESEARCHER, RESEARCHER_SYSTEM, [], {
-      models: { sonar: HOST_BINDINGS.sonar },
+      models: { second: { ...HOST_BINDINGS.gemini35FlashLite, provider: 'scripted_b' } },
     }),
   );
   scope.tools.register(agentTool());
@@ -300,7 +300,7 @@ Deno.test('a called agent resolves its own registered provider', async () => {
   );
   const seen: string[] = [];
   const ok = await collect(scope, routedProvider(1, seen), () => ({
-    provider: fixtureHostOptions(routedProvider(0, seen), scope),
+    provider: fixtureHostOptions(routedProvider(0, seen)),
   }));
   assertEquals(seen, ['question 0']);
   assertEquals(doneOf(ok).stop.kind, 'completed');
@@ -324,7 +324,7 @@ Deno.test('a host can invoke an agent tool with its own provider', async () => {
     profile: CALLER,
     name: 'ask_researcher',
     input: { text: 'direct' },
-    provider: fixtureHostOptions(routedProvider(0, seen), scope),
+    provider: fixtureHostOptions(routedProvider(0, seen)),
   })) {
     events.push(event);
   }
@@ -388,7 +388,7 @@ Deno.test("an image agent's picture comes back as parts", async () => {
   );
   scope.tools.register(agentTool());
   scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       if (req.image) {
@@ -421,7 +421,7 @@ Deno.test("a speech agent's audio comes back as parts", async () => {
   scope.profiles.register(textProfile(CALLER, 'You help.', ['ask_researcher']));
   const caller = routedProvider();
   let spoken = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       if (req.speech) {
@@ -442,9 +442,9 @@ Deno.test("a speech agent's audio comes back as parts", async () => {
 });
 
 /** The caller sends the tool `args` in its first step; the called agent's requests land in `seen`. */
-function sendingProvider(args: Record<string, unknown>, seen: ProviderCompleteRequest[]) {
+function sendingProvider(args: Record<string, unknown>, seen: ModelRequest[]) {
   let callerStep = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       if (!req.system.includes('You help.')) {
@@ -524,7 +524,7 @@ Deno.test("an agent tool's input is what the called profile takes", () => {
 });
 
 Deno.test('the calling model sends a picture and a slot, and the agent gets both', async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const calls: Parameters<AgentCallHook>[0][] = [];
   const sent = { text: 'What is this?', attachments: [PICTURE], slots: { depth: 'careful' } };
   const events = await collect(pictureScope(), sendingProvider(sent, seen), (call) => {
@@ -540,7 +540,7 @@ Deno.test('the calling model sends a picture and a slot, and the agent gets both
 });
 
 Deno.test('a call that sends what the profile does not take is refused, not dropped', async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const sent = { text: 'What is this?', attachments: [PICTURE] };
   const events = await collect(scopeWith(), sendingProvider(sent, seen));
   const [error] = toolPhases(events, 'error');
@@ -557,7 +557,7 @@ Deno.test('bytes that are not base64, or a text of only spaces, fail the call an
     ],
     [speechScope(), { text: '   ' }],
   ] as const) {
-    const seen: ProviderCompleteRequest[] = [];
+    const seen: ModelRequest[] = [];
     const events = await collect(scope, sendingProvider(sent, seen));
     const [error] = toolPhases(events, 'error');
     assertEquals((error as { failure: { code: string } }).failure.code, 'invalid_input');
@@ -566,7 +566,7 @@ Deno.test('bytes that are not base64, or a text of only spaces, fail the call an
 });
 
 Deno.test("a picture the profile does not accept fails the call with the agent's reason", async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const sent = {
     text: 'What is this?',
     attachments: [{ mimeType: 'image/gif', data: 'R0lG', name: 'leaf.gif' }],
@@ -594,7 +594,7 @@ Deno.test("a picture the profile does not accept fails the call with the agent's
 
 Deno.test('the calling model sets how a speech agent speaks; the host can overrule it', async () => {
   const bySpeaker = async (onAgentCall?: AgentCallHook) => {
-    const seen: ProviderCompleteRequest[] = [];
+    const seen: ModelRequest[] = [];
     const sent = { text: 'Hello there', speech: { voice: 'Puck', style: 'warmly' } };
     await collect(speechScope(), sendingProvider(sent, seen), onAgentCall);
     return seen[0]?.speech;
@@ -607,7 +607,7 @@ Deno.test('the calling model sets how a speech agent speaks; the host can overru
 });
 
 Deno.test("a stage after the call can replace the agent's reply before the caller reads it", async () => {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const events: TurnEvent[] = [];
   for await (const event of runScopedTurn(
     speechScope(),
@@ -629,7 +629,7 @@ Deno.test("a stage after the call can replace the agent's reply before the calle
 Deno.test("what the called agent cited comes back, and the caller's turn cites it", async () => {
   const source = { title: 'Kew', uri: 'https://kew.org/monstera', type: 'web' as const };
   const caller = routedProvider();
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       if (isResearcher(req)) {
@@ -643,16 +643,17 @@ Deno.test("what the called agent cited comes back, and the caller's turn cites i
   const events = await collect(scopeWith(), provider);
   const [complete] = toolPhases(events, 'complete');
   assertEquals((complete as { output: unknown }).output, { text: 'found', sources: [source] });
+  assertEquals(typeof complete?.callId, 'string');
   assertEquals(
     events.flatMap((e) => (e.type === 'citation' ? [e] : [])),
-    [{ type: 'citation', sources: [source], callId: 'call_0' }],
+    [{ type: 'citation', sources: [source], callId: complete?.callId }],
   );
 });
 
 Deno.test("the called agent's canary is kept out of the caller's record", async () => {
   const canaries: string[] = [];
   const routed = routedProvider();
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       const canary = /Your canary token is (\S+)\./.exec(req.system ?? '')?.[1];
       if (canary && isResearcher(req)) canaries.push(canary);
@@ -668,7 +669,7 @@ Deno.test("the called agent's canary is kept out of the caller's record", async 
 });
 
 Deno.test('an agent that does not finish fails the call, with its usage', async () => {
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       await Promise.resolve();
       if (isResearcher(req)) {
@@ -687,7 +688,7 @@ Deno.test('an agent that does not finish fails the call, with its usage', async 
 });
 
 /** The researcher looks something up, then its model is busy `busy` times, then it answers. */
-function busyResearcher(busy: number, errorKind: ErrorKind = 'unavailable'): ModelProvider {
+function busyResearcher(busy: number, errorKind: ErrorKind = 'unavailable'): TurnModel {
   let researcherStep = 0;
   return {
     async *complete(req) {
@@ -799,7 +800,7 @@ Deno.test('a turn sent again still remembers the outside content it read before 
   );
   const rulesAfter = async (busy: number): Promise<(string | undefined)[]> => {
     let callerStep = 0;
-    const provider: ModelProvider = {
+    const provider: TurnModel = {
       async *complete(req) {
         await Promise.resolve();
         if (isResearcher(req)) {
@@ -856,7 +857,7 @@ Deno.test('a host field reaches the hook and never the called agent', async () =
   const calls: AgentCall[] = [];
   const seen: string[] = [];
   const caller = routedProvider(1, seen);
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       for await (const event of caller.complete(req)) {
         yield event.type === 'tool'
@@ -911,7 +912,7 @@ Deno.test('a host-only channel is out of the model input, and the hook still sen
   ]);
   const files: number[] = [];
   const caller = routedProvider();
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     async *complete(req) {
       if (isResearcher(req)) {
         const parts = req.history?.at(-1)?.parts ?? [];

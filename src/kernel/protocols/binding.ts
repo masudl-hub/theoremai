@@ -1,19 +1,75 @@
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
-import type { JsonObject } from '../provider-contract.ts';
-import {
-  commonModelSettingsSchema,
-  jsonObjectSchema,
-  keySlotSchema,
-} from '../provider-contract.ts';
-import type { ProfileType } from './protocol.ts';
+import { type JsonObject, jsonObjectSchema } from '../json.ts';
+import { KEY_SLOT_NAME, type KeySlot } from '../schema.ts';
+import type { Equals } from '../util/exact-type.ts';
+import type { ModelProfileType } from './protocol.ts';
 import type { RegisteredProvider } from './provider.ts';
+
+/** A vault slot name. */
+export const keySlotSchema: z.ZodString = z.string().regex(KEY_SLOT_NAME);
+export const commonModelSettingsSchema: z.ZodObject<{
+  maxOutputTokens: z.ZodOptional<z.ZodNumber>;
+  temperature: z.ZodOptional<z.ZodNumber>;
+  efforts: z.ZodOptional<
+    z.ZodRecord<
+      z.ZodString,
+      z.ZodEnum<{
+        none: 'none';
+        minimal: 'minimal';
+        low: 'low';
+        medium: 'medium';
+        high: 'high';
+        xhigh: 'xhigh';
+        max: 'max';
+      }>
+    >
+  >;
+  defaultEffort: z.ZodOptional<z.ZodString>;
+  allowEffortSelect: z.ZodOptional<z.ZodBoolean>;
+  summaries: z.ZodOptional<z.ZodBoolean>;
+  builtInTools: z.ZodOptional<z.ZodArray<z.ZodString>>;
+  compaction: z.ZodOptional<z.ZodCustom<import('../types.ts').CompactionSpec>>;
+}> = z.strictObject({
+  maxOutputTokens: z.number().int().positive().optional(),
+  temperature: z.number().finite().nonnegative().optional(),
+  efforts: z
+    .record(z.string().min(1), z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']))
+    .optional(),
+  defaultEffort: z.string().min(1).optional(),
+  allowEffortSelect: z.boolean().optional(),
+  summaries: z.boolean().optional(),
+  builtInTools: z.array(z.string().min(1)).optional(),
+  compaction: z
+    .custom<import('../types.ts').CompactionSpec>(
+      (value) => typeof value === 'object' && value !== null && !Array.isArray(value),
+    )
+    .optional(),
+});
 
 const shared = commonModelSettingsSchema.shape;
 
 /** One entry under a profile's `models`: which protocol, which provider, which model, and its settings. */
-export const modelBindingSchema = z.strictObject({
+export interface ModelBinding extends z.infer<typeof commonModelSettingsSchema> {
+  protocol: string;
+  provider: string;
+  apiId: string;
+  keySlot?: string;
+  fallbackKeySlot?: string;
+  options?: JsonObject;
+}
+
+/** A decision profile's model: no generation settings, and a time limit. */
+export interface DecisionModelBinding
+  extends Pick<
+    ModelBinding,
+    'protocol' | 'provider' | 'apiId' | 'keySlot' | 'fallbackKeySlot' | 'options'
+  > {
+  timeoutMs?: number;
+}
+
+const modelBinding = z.strictObject({
   // labels-exempt: builder field description, read by the studio and docs
   protocol: z.string().min(1).describe('The API shape this model is spoken to in.'),
   // labels-exempt: builder field description, read by the studio and docs
@@ -57,10 +113,10 @@ export const modelBindingSchema = z.strictObject({
     // labels-exempt: builder field description, read by the studio and docs
     .describe("What this model's protocol takes beyond the shared settings."),
 });
-export type ModelBinding = z.infer<typeof modelBindingSchema>;
+true satisfies Equals<z.infer<typeof modelBinding>, ModelBinding>;
+export const modelBindingSchema: z.ZodType<ModelBinding> = modelBinding;
 
-/** A decision profile's model: no generation settings, and a time limit. */
-export const decisionModelBindingSchema = modelBindingSchema
+const decisionModelBinding = modelBinding
   .pick({
     protocol: true,
     provider: true,
@@ -77,12 +133,26 @@ export const decisionModelBindingSchema = modelBindingSchema
       // labels-exempt: builder field description, read by the studio and docs
       .describe('How long a decision may take before it fails.'),
   });
-export type DecisionModelBinding = z.infer<typeof decisionModelBindingSchema>;
+true satisfies Equals<z.infer<typeof decisionModelBinding>, DecisionModelBinding>;
+export const decisionModelBindingSchema: z.ZodType<DecisionModelBinding> = decisionModelBinding;
 
 /** What a runtime can do that a sign-in may need. */
 export interface RuntimeAbilities {
   /** Whether a WebSocket can be opened with headers (not in a browser). */
   webSocketHeaders: boolean;
+}
+
+/** The slots a model reads its key from: the ones it names, else its provider's. */
+export function keySlotsOf(
+  provider: { keySlot?: KeySlot; fallbackKeySlot?: KeySlot },
+  binding: { keySlot?: KeySlot; fallbackKeySlot?: KeySlot },
+): { keySlot?: KeySlot; fallbackKeySlot?: KeySlot } {
+  const keySlot = binding.keySlot ?? provider.keySlot;
+  const fallbackKeySlot = binding.fallbackKeySlot ?? provider.fallbackKeySlot;
+  return {
+    ...(keySlot === undefined ? {} : { keySlot }),
+    ...(fallbackKeySlot === undefined ? {} : { fallbackKeySlot }),
+  };
 }
 
 /**
@@ -92,7 +162,7 @@ export interface RuntimeAbilities {
 export function checkBinding<B extends ModelBinding | DecisionModelBinding>(
   provider: RegisteredProvider,
   binding: B,
-  profileType: ProfileType,
+  profileType: ModelProfileType,
   runtime: RuntimeAbilities = { webSocketHeaders: true },
 ): B {
   const serve = provider.serves.find((entry) => entry.protocol.id === binding.protocol);
@@ -118,11 +188,8 @@ export function checkBinding<B extends ModelBinding | DecisionModelBinding>(
       }),
     );
   const options = jsonObjectSchema.parse(parsed.data);
-  const slots = [
-    binding.keySlot ?? provider.keySlot,
-    binding.fallbackKeySlot ?? provider.fallbackKeySlot,
-  ];
-  if (slots[0] !== undefined && slots[0] === slots[1])
+  const slots = keySlotsOf(provider, binding);
+  if (slots.keySlot !== undefined && slots.keySlot === slots.fallbackKeySlot)
     throw new TheoremError('config', labelText('provider.model_fallback_slot'));
   if ((binding.keySlot || binding.fallbackKeySlot) && !provider.definition.key)
     throw new TheoremError('config', labelText('protocol.no_key', { provider: provider.id }));

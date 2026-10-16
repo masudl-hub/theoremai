@@ -4,7 +4,7 @@ import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { ModelProvider, ProviderCompleteRequest, TurnEvent } from '../../src/kernel/types.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { structuredDraftText } from '../fixtures/reply.ts';
 
@@ -26,9 +26,9 @@ function registerStructuredProfile(id: string, mode?: 'sse' | 'buffered'): strin
 }
 
 /** Writes `pieces(canary)` as the reply's JSON, then the structured reply they add up to. */
-function jsonProvider(pieces: (canary: string) => string[]): ModelProvider {
+function jsonProvider(pieces: (canary: string) => string[]): TurnModel {
   return {
-    async *complete(req: ProviderCompleteRequest) {
+    async *complete(req: ModelRequest) {
       await Promise.resolve();
       const canary = /Your canary token is (\S+?)\./.exec(req.system ?? '')?.[1] ?? '';
       const parts = pieces(canary);
@@ -39,7 +39,7 @@ function jsonProvider(pieces: (canary: string) => string[]): ModelProvider {
   };
 }
 
-async function collect(profile: string, provider: ModelProvider): Promise<TurnEvent[]> {
+async function collect(profile: string, provider: TurnModel): Promise<TurnEvent[]> {
   return await Array.fromAsync(runTurn({ profile, input: { text: 'Say hi' } }, provider));
 }
 

@@ -17,6 +17,7 @@ import {
 import { exportFiles, exportText, llmBrief } from '../ui/lib/export-agent.ts';
 import { zipFiles } from '../ui/lib/zip.ts';
 import { ON_OWN_KEYS } from '../lent-keys.ts';
+import { definitionFactory } from '../providers.ts';
 import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
 
 /** The concierge, calling a helper through an agent tool. */
@@ -127,19 +128,24 @@ Deno.test('an exported chat passes a value per slot and its context, and the rou
   );
 });
 
-Deno.test('a local export configures the registered adapter URL and keeps host options to the vault', () => {
+Deno.test('a local export registers the local provider at the configured URL and keeps host options to the vault', () => {
   const draft = setProfileType(createBlankDraft(), 'text', TEST_KEYS);
   draft.identity.agentId = 'local.test';
   draft.identity.handle = 'Local';
+  draft.modelBindings[0].protocol = 'openAi';
   draft.modelBindings[0].provider = 'local';
   draft.modelBindings[0].apiId = 'local-model';
   const workspace = compileWorkspace(workspaceFromDraft(draft), { mode: 'local' });
   assert(workspace.ok, JSON.stringify(!workspace.ok && workspace.issues));
   const files = exportFiles(workspace, workspace.agents[0]);
   const registration = files.find((file) => file.path === 'theorem.ts')?.code ?? '';
-  assertMatch(registration, /LOCAL_MODEL_URL/);
-  assertMatch(registration, /openAIChat/);
-  assert(registration.includes("replace(/\\/$/, '') + '/v1'"));
+  assertMatch(registration, /import \{[^}]*\blocalProvider\b[^}]*\} from '@theoremjs\/agents';/);
+  assert(
+    registration.includes(
+      "registerProvider(localProvider, {\n  id: 'local',\n  connection: { baseUrl: (process.env.LOCAL_MODEL_URL ?? 'http://127.0.0.1:11434').replace(/\\/$/, '') + '/v1' },\n});\n",
+    ),
+    registration,
+  );
   const route = files.find((file) => file.path === 'route.ts')?.code ?? '';
   assertNotMatch(route, /local: \{ baseUrl/);
   const emitted = ts.transpileModule(registration, {
@@ -157,6 +163,9 @@ Deno.test('on a project, an export imports the providers its files export and na
     ),
   );
   assert(id);
+  const factory = definitionFactory(id);
+  assert(factory, id);
+  const written = `registerProvider(${factory}, {\n  id: '${id}'`;
   const place = { id, name: 'houseProvider', file: 'server/providers.ts', line: 12 };
   const setup = (project: Parameters<typeof exportFiles>[2]) => {
     const file = exportFiles(workspace, agent(workspace, 'travel.concierge'), project)
@@ -167,12 +176,12 @@ Deno.test('on a project, an export imports the providers its files export and na
   const imported = setup({ providers: [{ ...place, exported: true }], origins: {} });
   assertMatch(imported, /import \{ houseProvider \} from '\.\/server\/providers';/);
   assertMatch(imported, /registerProvider\(houseProvider\);/);
-  assert(!imported.includes(`registerProvider({\n  id: '${id}'`));
+  assert(!imported.includes(written));
   const named = setup({ providers: [place], origins: {} });
   assertMatch(named, /\/\/ Register the provider '[^']+' here, before the agents: server\/providers\.ts:12 defines it/);
   assertNotMatch(named, /houseProvider/);
   // A provider the builder changed has no place: the code writes it as the studio holds it.
-  assert(setup({ providers: [], origins: {} }).includes(`registerProvider({\n  id: '${id}'`));
+  assert(setup({ providers: [], origins: {} }).includes(written));
 });
 
 Deno.test('an export writes the check of an item rule as the files write it, and says so when it has none', () => {

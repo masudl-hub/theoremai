@@ -3,8 +3,7 @@
 import {
   createKernelScope,
   defineProfile,
-  defineProvider,
-  openAIChat,
+  localProvider,
   overrideLabels,
   runTurn,
 } from '../../mod.ts';
@@ -39,6 +38,7 @@ function sampleProfile() {
     inputs: { text: true },
     models: {
       local: {
+        protocol: 'openAi',
         provider: 'local',
         apiId: 'local-model',
         efforts: { normal: 'minimal' },
@@ -59,14 +59,11 @@ Deno.test({
     assertEquals(typeof overrideLabels, 'function');
     const profile = sampleProfile();
     const scope = createKernelScope();
-    const provider = defineProvider({
-      id: 'local',
-      connection: { baseURL: 'http://127.0.0.1:9' },
-      adapter: openAIChat(),
+    const local = scope.providers.register(localProvider, {
+      connection: { baseUrl: 'http://127.0.0.1:9/v1' },
     });
-    scope.providers.register(provider);
     scope.profiles.register(profile);
-    assertEquals(typeof provider.model, 'function');
+    assertEquals(typeof local.model, 'function');
   },
 });
 Deno.test({

@@ -65,7 +65,7 @@ function requireMediaLimits(profile: Profile): MediaLimits {
       `Profile ${profile.id} (live) does not accept turn attachment input`, // labels-exempt: developer contract error
     );
   }
-  if (profile.type === 'host' || profile.type === 'decision') {
+  if (profile.type === 'host' || profile.type === 'decision' || profile.type === 'embedding') {
     throw new TheoremError(
       'request',
       `Profile ${profile.id} (${profile.type}) does not accept turn input`, // labels-exempt: developer contract error

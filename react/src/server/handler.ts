@@ -317,7 +317,7 @@ function lockedStore<T>(
 }
 
 /** A profile that takes messages. */
-type ChatProfile = Exclude<Profile, { type: 'live' | 'decision' | 'host' }>;
+type ChatProfile = Exclude<Profile, { type: 'live' | 'decision' | 'host' | 'embedding' }>;
 
 /** What a chat's requests read beside the handler's own. */
 type ChatContext = {
@@ -1116,7 +1116,7 @@ export function createTheoremHandler(
       "createTheoremHandler serves turn-based profiles; serve type 'host' with createTheoremHostHandler.",
     );
   }
-  if (profile.type === 'live') {
+  if (profile.type === 'live' || profile.type === 'embedding') {
     // labels-exempt: builder config error at setup; no user sees it
     throw new Error(`createTheoremHandler serves turn-based profiles; got type '${profile.type}'.`);
   }

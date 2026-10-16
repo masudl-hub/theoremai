@@ -12,9 +12,17 @@ export const ALL_PROFILE_TYPES: readonly ProfileType[] = [
   'speech',
   'live',
   'decision',
+  'embedding',
   'host',
 ];
-const MODEL_PROFILE_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
+const MODEL_PROFILE_TYPES: readonly ProfileType[] = [
+  'text',
+  'image',
+  'speech',
+  'live',
+  'decision',
+  'embedding',
+];
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
 /** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
 const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
@@ -93,6 +101,10 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
   },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
+  'models.*.protocol': {
+    profileTypes: MODEL_PROFILE_TYPES,
+    reason: 'a host profile runs no model',
+  },
   'models.*.provider': {
     profileTypes: MODEL_PROFILE_TYPES,
     reason: 'a host profile runs no model',
@@ -102,11 +114,11 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: 'live compacts with live.contextCompression',
   },
   'profile.defaultModel': {
-    profileTypes: TURN_TYPES,
+    profileTypes: [...TURN_TYPES, 'embedding'],
     reason: 'a host profile runs no model and a decision declares exactly one',
   },
   'profile.allowModelSelect': {
-    profileTypes: TURN_TYPES,
+    profileTypes: [...TURN_TYPES, 'embedding'],
     reason: 'a host profile runs no model and a decision declares exactly one',
   },
   'profile.maxSteps': {
@@ -132,7 +144,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'live function declarations are fixed at session setup, and a host profile can execute every allowed tool',
   },
   inputs: {
-    profileTypes: ['text', 'image', 'live', 'decision'],
+    profileTypes: ['text', 'image', 'live', 'decision', 'embedding'],
     reason: 'speech input is the transcript, and a host profile takes no turns',
   },
   'inputs.voice': {
@@ -140,11 +152,11 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: 'no image model reads audio, and a decision takes JSON state',
   },
   'inputs.text': {
-    profileTypes: TURN_INPUT_TYPES,
+    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.attachments': {
-    profileTypes: TURN_INPUT_TYPES,
+    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.maxFiles': {

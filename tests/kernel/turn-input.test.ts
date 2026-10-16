@@ -6,10 +6,10 @@ import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
-  ModelProvider,
-  ProviderCompleteRequest,
+  ModelRequest,
   TurnEvent,
   TurnHistoryMessage,
+  TurnModel,
   TurnRequest,
 } from '../../src/kernel/types.ts';
 import { blockNaming, TERM_HINT } from '../fixtures/detect.ts';
@@ -21,11 +21,11 @@ const CANARY = /[0-9a-f]{32}/;
 
 async function requestsFor(
   req: TurnRequest,
-  reply: (call: number, request: ProviderCompleteRequest) => TurnEvent[],
+  reply: (call: number, request: ModelRequest) => TurnEvent[],
 ) {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const events: TurnEvent[] = [];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* (request) {
       seen.push({ ...request, history: [...(request.history ?? [])] });
       for (const event of reply(seen.length, request)) yield event;
@@ -57,9 +57,9 @@ const REJECTION = TERM_HINT;
 registerProfile(
   defineProfile({
     type: 'text',
-    id: 'input.openai.tools',
+    id: 'input.tools',
     identity: { handle: 'bot' },
-    ...geminiModels('sonar'),
+    ...geminiModels('gemini35FlashLite'),
     maxSteps: 3,
     tools: { allow: ['stub_tool'] },
     inputs: { text: true },
@@ -79,9 +79,9 @@ registerProfile(
   }),
 );
 
-Deno.test('turn input: the question stays ahead of tool results on an OpenAI-compatible step', async () => {
+Deno.test('turn input: the question stays ahead of tool results on a later step', async () => {
   const { seen } = await requestsFor(
-    { profile: 'input.openai.tools', input: { text: 'run the tool' } },
+    { profile: 'input.tools', input: { text: 'run the tool' } },
     toolThenText,
   );
   assertEquals(seen.length, 2);
@@ -94,7 +94,7 @@ Deno.test('turn input: the question stays ahead of tool results on an OpenAI-com
 Deno.test('turn input: host history comes first, then the question', async () => {
   const { seen } = await requestsFor(
     {
-      profile: 'input.openai.tools',
+      profile: 'input.tools',
       input: {
         text: 'and now?',
         history: [
@@ -212,7 +212,7 @@ Deno.test('turn input: a before_end inject on a retry lands after the repair', a
     (call) => [{ type: 'text', text: call === 1 ? 'a draft' : 'a leaf' }],
   );
   assertEquals(seen.length, 3);
-  const contents = (seen[2]?.continuation ?? seen[2]?.history ?? []).map((m) => String(m.content));
+  const contents = (seen[2]?.history ?? []).map((m) => String(m.content));
   assertStringIncludes(contents.at(-1) ?? '', 'also name the plant');
   assertEquals(seen[2]?.history?.findIndex((m) => String(m.content).includes(REJECTION)) ?? -1, 1);
 });
@@ -263,7 +263,7 @@ Deno.test('turn input: post_turn after an abort sees the history the model saw',
   const controller = new AbortController();
   let postTurnHistory: readonly TurnHistoryMessage[] = [];
   let call = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* () {
       call++;
       if (call === 2) {
@@ -278,7 +278,7 @@ Deno.test('turn input: post_turn after an abort sees the history the model saw',
   const events: TurnEvent[] = [];
   for await (const event of runTurn(
     {
-      profile: 'input.openai.tools',
+      profile: 'input.tools',
       input: { text: 'run the tool' },
       signal: controller.signal,
       onStage: ({ stage, history }) => {

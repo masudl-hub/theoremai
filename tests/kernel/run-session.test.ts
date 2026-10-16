@@ -26,7 +26,7 @@ import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
-import { googleLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
+import { geminiLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
 
 function registerLiveProfile(id: string) {
   const profile = defineProfile({
@@ -54,14 +54,12 @@ Deno.test('runSession rejects non-live profiles', async () => {
     identity: { handle: 't' },
     models: {
       m: {
-        provider: 'google',
+        protocol: 'geminiInteractions',
+        provider: 'gemini',
         apiId: 'gemini-test',
         summaries: false,
         builtInTools: [],
         keySlot: 'main',
-        providerOptions: {
-          persistViaInteractionId: false,
-        },
       },
     },
     tools: { allow: [] },
@@ -339,18 +337,18 @@ Deno.test('a resumed call speaks only after a gap the caller noticed', async () 
     resumed: { prompt: 'Say you are back, in {language}.', afterMs: 2000 },
   };
   const brief = await openLive(resumable, {
-    providerState: googleLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
+    providerState: geminiLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
     awayMs: 500,
   });
   assertEquals(brief.spoken(), []);
   await brief.done();
   const unknown = await openLive(resumable, {
-    providerState: googleLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
+    providerState: geminiLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
   });
   assertEquals(unknown.spoken(), []);
   await unknown.done();
   const long = await openLive(resumable, {
-    providerState: googleLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
+    providerState: geminiLiveCheckpoint(HOST_BINDINGS.gemini31FlashLive.apiId, 'h'),
     awayMs: 2000,
   });
   assertEquals(long.spoken(), ['Say you are back, in fr.']);
@@ -816,7 +814,18 @@ async function openToolSession(
         return parsed?.toolResponse?.functionResponses ?? [];
       },
     );
-  /** The model calls tools; resolves once the session has held them. */
+  /** The kernel's id for each wire id the model sent, as the session surfaced it. */
+  const minted = new Map<string, string>();
+  /** The kernel's id for the call the model sent as `wire`; throws for a call never surfaced. */
+  const id = (wire: string): string => {
+    const callId = minted.get(wire);
+    if (!callId) throw new Error(`the session never surfaced call ${wire}`);
+    return callId;
+  };
+  /**
+   * The model calls tools; resolves once the session has held them. The kernel mints its own id
+   * for each call, matched here to the wire's by tool name in the order the session surfaced them.
+   */
   const modelCalls = async (
     ...calls: {
       id: string;
@@ -824,14 +833,24 @@ async function openToolSession(
       args?: unknown;
     }[]
   ) => {
+    const from = events.length;
     mock.deliver({
       toolCall: { functionCalls: calls.map((c) => ({ args: {}, ...c })) },
     });
     for (let i = 0; i < 20; i += 1) {
-      const seen = calls.every((c) =>
-        events.some((ev) => ev.type === 'tool' && ev.tool.callId === c.id),
-      );
-      if (seen) return;
+      const issued = events
+        .slice(from)
+        .flatMap((ev) => (ev.type === 'tool' && ev.tool.phase === undefined ? [ev.tool] : []));
+      if (issued.length >= calls.length) {
+        const taken = new Set<string>();
+        for (const call of calls) {
+          const match = issued.find((t) => t.name === call.name && !taken.has(t.callId));
+          if (!match) throw new Error(`the session never surfaced call ${call.id}`);
+          taken.add(match.callId);
+          minted.set(call.id, match.callId);
+        }
+        return;
+      }
       await new Promise((r) => setTimeout(r, 0));
     }
     throw new Error('the session never surfaced the calls');
@@ -860,7 +879,7 @@ async function openToolSession(
     }
     return ran;
   };
-  return { session, mock, events, toolResponses, modelCalls, invokeFor, close };
+  return { session, mock, events, toolResponses, modelCalls, id, invokeFor, close };
 }
 /** An HTTP tool that signs in to Tracker with a bearer token, gating when it has none. */
 function registerTrackerTool(): void {
@@ -917,7 +936,7 @@ Deno.test('runSession executeTool sends the guarded text a turn sends, never the
   registerLookupTool();
   const h = await openToolSession(['live_lookup_ssn']);
   await h.modelCalls({ id: 'c1', name: 'live_lookup_ssn' });
-  const settled = await h.session.executeTool({ callId: 'c1' });
+  const settled = await h.session.executeTool({ callId: h.id('c1') });
   const [answer] = h.toolResponses();
   assertEquals(answer?.response, { result: settled.outputModel?.modelText });
   assertEquals(String(settled.outputModel?.modelText).startsWith('found the record\n'), true);
@@ -932,17 +951,21 @@ Deno.test('runSession executeTool runs only a call the model made, once, with it
   await assertRejects(() => h.session.executeTool({ callId: 'never-made' }), TheoremError);
   await h.modelCalls({ id: 'c1', name: 'live_lookup_ssn' });
   await assertRejects(
-    () => h.session.executeTool({ callId: 'c1', decision: 'approve' }),
+    () => h.session.executeTool({ callId: h.id('c1'), decision: 'approve' }),
     TheoremError,
     'not waiting on a gate',
   );
   await assertRejects(
-    () => h.session.executeTool({ callId: 'c1', input: {} }),
+    () => h.session.executeTool({ callId: h.id('c1'), input: {} }),
     TheoremError,
     'not waiting on a gate',
   );
-  await h.session.executeTool({ callId: 'c1' });
-  await assertRejects(() => h.session.executeTool({ callId: 'c1' }), TheoremError, 'not waiting');
+  await h.session.executeTool({ callId: h.id('c1') });
+  await assertRejects(
+    () => h.session.executeTool({ callId: h.id('c1') }),
+    TheoremError,
+    'not waiting',
+  );
   assertEquals(h.toolResponses().length, 1);
   await h.close();
 });
@@ -960,7 +983,7 @@ Deno.test('runSession records the text it sent the model as the call result in h
     },
   });
   await h.modelCalls({ id: 'c1', name: 'live_lookup_ssn' });
-  await h.session.executeTool({ callId: 'c1' });
+  await h.session.executeTool({ callId: h.id('c1') });
   await h.session.sendText('and then?');
   const [answer] = h.toolResponses();
   const recorded = history.find((m) => m.role === 'tool');
@@ -978,17 +1001,17 @@ Deno.test('runSession executeTool holds a gate for its decision, then runs the a
     },
   });
   await h.modelCalls({ id: 'c-gate', name: 'live_confirm_tool' });
-  const gated = await h.session.executeTool({ callId: 'c-gate' });
+  const gated = await h.session.executeTool({ callId: h.id('c-gate') });
   assertEquals(gated.gated?.kind, 'confirmation');
   assertEquals(stages.includes('pre_tool'), true);
   assertEquals(h.toolResponses().length, 0);
   await assertRejects(
-    () => h.session.executeTool({ callId: 'c-gate' }),
+    () => h.session.executeTool({ callId: h.id('c-gate') }),
     TheoremError,
     'answer it with a decision',
   );
   stages.length = 0;
-  const allowed = await h.session.executeTool({ callId: 'c-gate', decision: 'approve' });
+  const allowed = await h.session.executeTool({ callId: h.id('c-gate'), decision: 'approve' });
   assertEquals(allowed.failure, undefined);
   assertEquals(allowed.outputRaw, { n: 0 });
   assertEquals(stages.includes('post_tool'), true);
@@ -1009,7 +1032,8 @@ Deno.test("runSession streams a call's gate and result to the host while the mod
     for (let i = 0; i < 20; i += 1) {
       if (
         h.events.some(
-          (ev) => ev.type === 'tool' && ev.tool.callId === 'c-wait' && ev.tool.phase === phase,
+          (ev) =>
+            ev.type === 'tool' && ev.tool.callId === h.id('c-wait') && ev.tool.phase === phase,
         )
       )
         return;
@@ -1017,9 +1041,9 @@ Deno.test("runSession streams a call's gate and result to the host while the mod
     }
     throw new Error(`the host never read the call's ${phase}`);
   };
-  await h.session.executeTool({ callId: 'c-wait' });
+  await h.session.executeTool({ callId: h.id('c-wait') });
   await reached('gate');
-  await h.session.executeTool({ callId: 'c-wait', decision: 'approve' });
+  await h.session.executeTool({ callId: h.id('c-wait'), decision: 'approve' });
   await reached('complete');
   await h.close();
 });
@@ -1041,21 +1065,21 @@ Deno.test('runSession executeTool runs an approval with the edited input, and on
   });
   const h = await openToolSession(['live_always_confirm']);
   await h.modelCalls({ id: 'c-edit', name: 'live_always_confirm', args: { n: 1 } });
-  await h.session.executeTool({ callId: 'c-edit' });
+  await h.session.executeTool({ callId: h.id('c-edit') });
   await assertRejects(
-    () => h.session.executeTool({ callId: 'c-edit', decision: 'deny', input: { n: 2 } }),
+    () => h.session.executeTool({ callId: h.id('c-edit'), decision: 'deny', input: { n: 2 } }),
     TheoremError,
     'only an approval takes edited input',
   );
   const edited = await h.session.executeTool({
-    callId: 'c-edit',
+    callId: h.id('c-edit'),
     decision: 'approve',
     input: { n: 2 },
   });
   assertEquals(edited.outputRaw, { n: 2 });
   await h.close();
   const running = h.events.findLast(
-    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-edit' && ev.tool.phase === 'running',
+    (ev) => ev.type === 'tool' && ev.tool.callId === h.id('c-edit') && ev.tool.phase === 'running',
   );
   assertEquals(
     running?.type === 'tool' && running.tool.phase === 'running' ? running.tool.edited : undefined,
@@ -1068,8 +1092,8 @@ Deno.test('runSession executeTool settles a denial: the model reads it', async (
   registerConfirmTool();
   const h = await openToolSession(['live_confirm_tool']);
   await h.modelCalls({ id: 'c-deny', name: 'live_confirm_tool' });
-  await h.session.executeTool({ callId: 'c-deny' });
-  const denied = await h.session.executeTool({ callId: 'c-deny', decision: 'deny' });
+  await h.session.executeTool({ callId: h.id('c-deny') });
+  const denied = await h.session.executeTool({ callId: h.id('c-deny'), decision: 'deny' });
   assertEquals(denied.failure?.code, 'denied');
   assertEquals(denied.failure?.kind, 'declined');
   assertEquals(
@@ -1084,10 +1108,10 @@ Deno.test('runSession settles an expired gate as abandoned, then refuses the dec
   registerConfirmTool();
   const h = await openToolSession(['live_confirm_tool'], { gateTtlMs: 1 });
   await h.modelCalls({ id: 'c-late', name: 'live_confirm_tool' });
-  await h.session.executeTool({ callId: 'c-late' });
+  await h.session.executeTool({ callId: h.id('c-late') });
   await new Promise((r) => setTimeout(r, 5));
   const refused = await assertRejects(
-    () => h.session.executeTool({ callId: 'c-late', decision: 'approve' }),
+    () => h.session.executeTool({ callId: h.id('c-late'), decision: 'approve' }),
     TheoremError,
   );
   assertEquals(refused.copy, { key: 'session.gate_expired' });
@@ -1095,10 +1119,10 @@ Deno.test('runSession settles an expired gate as abandoned, then refuses the dec
     h.toolResponses().map((r) => r.id),
     ['c-late'],
   );
-  await assertRejects(() => h.session.executeTool({ callId: 'c-late' }), TheoremError);
+  await assertRejects(() => h.session.executeTool({ callId: h.id('c-late') }), TheoremError);
   await h.close();
   const abandoned = h.events.find(
-    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-late' && ev.tool.phase === 'error',
+    (ev) => ev.type === 'tool' && ev.tool.callId === h.id('c-late') && ev.tool.phase === 'error',
   );
   assertEquals(
     abandoned?.type === 'tool' && abandoned.tool.phase === 'error'
@@ -1135,10 +1159,13 @@ Deno.test('runSession keeps a session_consent approval for the rest of the sessi
   });
   const h = await openToolSession(['live_consent_tool']);
   await h.modelCalls({ id: 'c-first', name: 'live_consent_tool' });
-  assertEquals((await h.session.executeTool({ callId: 'c-first' })).gated?.kind, 'permission');
-  await h.session.executeTool({ callId: 'c-first', decision: 'approve' });
+  assertEquals(
+    (await h.session.executeTool({ callId: h.id('c-first') })).gated?.kind,
+    'permission',
+  );
+  await h.session.executeTool({ callId: h.id('c-first'), decision: 'approve' });
   await h.modelCalls({ id: 'c-second', name: 'live_consent_tool' });
-  const second = await h.session.executeTool({ callId: 'c-second' });
+  const second = await h.session.executeTool({ callId: h.id('c-second') });
   assertEquals(second.gated, undefined);
   assertEquals(second.outputRaw, { ok: true });
   await h.close();
@@ -1158,25 +1185,27 @@ Deno.test('runSession makes a key typed at a sign-in gate the slot credential, f
       resolveHost: () => Promise.resolve(['93.184.216.34']),
     });
     await h.modelCalls({ id: 'c-sign', name: 'live_tracker' });
-    assertEquals((await h.session.executeTool({ callId: 'c-sign' })).gated?.kind, 'auth');
+    assertEquals((await h.session.executeTool({ callId: h.id('c-sign') })).gated?.kind, 'auth');
     await assertRejects(
-      () => h.session.executeTool({ callId: 'c-sign', decision: 'deny', secret: 'k' }),
+      () => h.session.executeTool({ callId: h.id('c-sign'), decision: 'deny', secret: 'k' }),
       TheoremError,
       'only an approval',
     );
     await assertRejects(
-      () => h.session.executeTool({ callId: 'c-sign', decision: 'approve', secret: '  ' }),
+      () => h.session.executeTool({ callId: h.id('c-sign'), decision: 'approve', secret: '  ' }),
       TheoremError,
       'non-empty',
     );
     const signed = await h.session.executeTool({
-      callId: 'c-sign',
+      callId: h.id('c-sign'),
       decision: 'approve',
       secret: 'typed-key-123',
     });
     assertEquals(signed.outputRaw, { ok: true });
     await h.modelCalls({ id: 'c-again', name: 'live_tracker' });
-    assertEquals((await h.session.executeTool({ callId: 'c-again' })).outputRaw, { ok: true });
+    assertEquals((await h.session.executeTool({ callId: h.id('c-again') })).outputRaw, {
+      ok: true,
+    });
     assertEquals(sent, ['Bearer typed-key-123', 'Bearer typed-key-123']);
     await h.close();
   } finally {
@@ -1223,10 +1252,13 @@ Deno.test('runSession puts a key typed at a sign-in gate in the source the call 
     });
     const perCall = watchedSource();
     await h.modelCalls({ id: 'c-own', name: 'live_tracker' });
-    const gated = await h.session.executeTool({ callId: 'c-own', credentials: perCall.source });
+    const gated = await h.session.executeTool({
+      callId: h.id('c-own'),
+      credentials: perCall.source,
+    });
     assertEquals(gated.gated?.kind, 'auth');
     const signed = await h.session.executeTool({
-      callId: 'c-own',
+      callId: h.id('c-own'),
       decision: 'approve',
       secret: 'typed-key-456',
       credentials: perCall.source,
@@ -1238,7 +1270,7 @@ Deno.test('runSession puts a key typed at a sign-in gate in the source the call 
     assertEquals(sent, ['Bearer typed-key-456']);
     // The session's own source never saw the key.
     await h.modelCalls({ id: 'c-bare', name: 'live_tracker' });
-    assertEquals((await h.session.executeTool({ callId: 'c-bare' })).gated?.kind, 'auth');
+    assertEquals((await h.session.executeTool({ callId: h.id('c-bare') })).gated?.kind, 'auth');
     await h.close();
   } finally {
     globalThis.fetch = original;
@@ -1251,20 +1283,20 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
   const pending = labelText('sign_in.pending', { service: 'Tracker' });
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
   await h.modelCalls({ id: 'c-wait', name: 'live_tracker' });
-  const gated = await h.session.executeTool({ callId: 'c-wait' });
+  const gated = await h.session.executeTool({ callId: h.id('c-wait') });
   assertEquals(gated.gated?.kind, 'auth');
   assertEquals(h.toolResponses(), [
     { id: 'c-wait', name: 'live_tracker', response: { result: pending } },
   ]);
   const gate = h.events.find(
-    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-wait' && ev.tool.phase === 'gate',
+    (ev) => ev.type === 'tool' && ev.tool.callId === h.id('c-wait') && ev.tool.phase === 'gate',
   );
   assertEquals(
     gate?.type === 'tool' && gate.tool.phase === 'gate' ? gate.tool.readBack : '',
     pending,
   );
   // The released call still takes its outcome; the model reads it as the call's next result.
-  const declined = await h.session.executeTool({ callId: 'c-wait', decision: 'deny' });
+  const declined = await h.session.executeTool({ callId: h.id('c-wait'), decision: 'deny' });
   assertEquals(declined.failure?.kind, 'declined');
   const [, second] = h.toolResponses();
   assertEquals(second?.id, 'c-wait');
@@ -1272,7 +1304,7 @@ Deno.test('runSession with signInGate answer tells the model the sign-in is pend
     JSON.stringify(second?.response),
     labelText('sign_in.declined', { service: 'Tracker' }),
   );
-  await assertRejects(() => h.session.executeTool({ callId: 'c-wait' }), TheoremError);
+  await assertRejects(() => h.session.executeTool({ callId: h.id('c-wait') }), TheoremError);
   await h.close();
 });
 Deno.test('runSession with signInGate answer tells the model a released sign-in it settles elsewhere', async () => {
@@ -1282,13 +1314,16 @@ Deno.test('runSession with signInGate answer tells the model a released sign-in 
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
   await h.modelCalls({ id: 'c-later', name: 'live_tracker' });
   await h.session.answerToolCall({
-    callId: 'c-later',
-    events: await h.invokeFor('live_tracker', 'c-later'),
+    callId: h.id('c-later'),
+    events: await h.invokeFor('live_tracker', h.id('c-later')),
   });
   // The sign-in finished outside the call; its outcome reaches the model as a second result.
-  const outcome = await h.invokeFor('live_tracker', 'c-later', { granted: false, signIn: true });
+  const outcome = await h.invokeFor('live_tracker', h.id('c-later'), {
+    granted: false,
+    signIn: true,
+  });
   assertEquals(
-    await h.session.answerToolCall({ callId: 'c-later', events: outcome }).failure?.kind,
+    await h.session.answerToolCall({ callId: h.id('c-later'), events: outcome }).failure?.kind,
     'declined',
   );
   const responses = h.toolResponses();
@@ -1298,7 +1333,7 @@ Deno.test('runSession with signInGate answer tells the model a released sign-in 
     labelText('sign_in.declined', { service: 'Tracker' }),
   );
   assertThrows(
-    () => h.session.answerToolCall({ callId: 'c-later', events: outcome }),
+    () => h.session.answerToolCall({ callId: h.id('c-later'), events: outcome }),
     TheoremError,
   );
   await h.close();
@@ -1310,8 +1345,8 @@ Deno.test('runSession with signInGate answer tells the model when a released sig
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer', gateTtlMs: 20 });
   await h.modelCalls({ id: 'c-lapse', name: 'live_tracker' });
   await h.session.answerToolCall({
-    callId: 'c-lapse',
-    events: await h.invokeFor('live_tracker', 'c-lapse'),
+    callId: h.id('c-lapse'),
+    events: await h.invokeFor('live_tracker', h.id('c-lapse')),
   });
   await new Promise((r) => setTimeout(r, 40));
   const expired = labelText('sign_in.expired', { service: 'Tracker' });
@@ -1319,14 +1354,17 @@ Deno.test('runSession with signInGate answer tells the model when a released sig
   assertEquals(responses.length, 2);
   assertStringIncludes(JSON.stringify(responses[1]?.response), expired);
   const lapsed = h.events.find(
-    (ev) => ev.type === 'tool' && ev.tool.callId === 'c-lapse' && ev.tool.phase === 'error',
+    (ev) => ev.type === 'tool' && ev.tool.callId === h.id('c-lapse') && ev.tool.phase === 'error',
   );
   assertEquals(
     lapsed?.type === 'tool' && lapsed.tool.phase === 'error' ? lapsed.tool.failure.message : '',
     expired,
   );
-  const late = await h.invokeFor('live_tracker', 'c-lapse', { granted: false, signIn: true });
-  assertThrows(() => h.session.answerToolCall({ callId: 'c-lapse', events: late }), TheoremError);
+  const late = await h.invokeFor('live_tracker', h.id('c-lapse'), { granted: false, signIn: true });
+  assertThrows(
+    () => h.session.answerToolCall({ callId: h.id('c-lapse'), events: late }),
+    TheoremError,
+  );
   await h.close();
 });
 Deno.test('runSession with signInGate answer settles a sign-in gate another process raised', async () => {
@@ -1335,8 +1373,8 @@ Deno.test('runSession with signInGate answer settles a sign-in gate another proc
   registerTrackerTool();
   const h = await openToolSession(['live_tracker'], { signInGate: 'answer' });
   await h.modelCalls({ id: 'c-split-sign', name: 'live_tracker' });
-  const gatedRun = await h.invokeFor('live_tracker', 'c-split-sign');
-  const gated = await h.session.answerToolCall({ callId: 'c-split-sign', events: gatedRun });
+  const gatedRun = await h.invokeFor('live_tracker', h.id('c-split-sign'));
+  const gated = await h.session.answerToolCall({ callId: h.id('c-split-sign'), events: gatedRun });
   assertEquals(gated.gated?.kind, 'auth');
   assertEquals(h.toolResponses(), [
     {
@@ -1353,7 +1391,10 @@ Deno.test('runSession holds a confirmation gate even with signInGate answer', as
   registerConfirmTool();
   const h = await openToolSession(['live_confirm_tool'], { signInGate: 'answer' });
   await h.modelCalls({ id: 'c-confirm', name: 'live_confirm_tool' });
-  assertEquals((await h.session.executeTool({ callId: 'c-confirm' })).gated?.kind, 'confirmation');
+  assertEquals(
+    (await h.session.executeTool({ callId: h.id('c-confirm') })).gated?.kind,
+    'confirmation',
+  );
   assertEquals(h.toolResponses().length, 0);
   await h.close();
 });
@@ -1403,7 +1444,7 @@ Deno.test('runSession answers a call a stage stopped, then ends the cycle cancel
   });
   await h.session.sendText('look it up');
   await h.modelCalls({ id: 'c-stop', name: 'live_lookup_ssn' });
-  const stopped = await h.session.executeTool({ callId: 'c-stop' });
+  const stopped = await h.session.executeTool({ callId: h.id('c-stop') });
   assertEquals(stopped.failure?.kind, 'cancelled');
   assertEquals(stopped.outputRaw, undefined);
   const [answer] = h.toolResponses();
@@ -1414,7 +1455,7 @@ Deno.test('runSession answers a call a stage stopped, then ends the cycle cancel
   );
   assertEquals(stages.slice(-2), ['pre_tool', 'post_turn']);
   await assertRejects(
-    () => h.session.executeTool({ callId: 'c-stop' }),
+    () => h.session.executeTool({ callId: h.id('c-stop') }),
     TheoremError,
     'not waiting to run',
   );
@@ -1443,14 +1484,14 @@ Deno.test('runSession answers a call stopped after it ran with its own result, t
   });
   await h.session.sendText('look it up');
   await h.modelCalls({ id: 'c-ran', name: 'live_lookup_ssn' });
-  const ran = await h.session.executeTool({ callId: 'c-ran' });
+  const ran = await h.session.executeTool({ callId: h.id('c-ran') });
   assertEquals(ran.failure, undefined);
   const [answer] = h.toolResponses();
   assertEquals(answer?.id, 'c-ran');
   assertStringIncludes(JSON.stringify(answer?.response), 'found the record');
   assertEquals(stages.slice(-2), ['post_tool', 'post_turn']);
   await assertRejects(
-    () => h.session.executeTool({ callId: 'c-ran' }),
+    () => h.session.executeTool({ callId: h.id('c-ran') }),
     TheoremError,
     'not waiting to run',
   );
@@ -1464,13 +1505,13 @@ Deno.test('runSession refuses a typed key on a gate that is not a sign-in', asyn
   registerConfirmTool();
   const h = await openToolSession(['live_confirm_tool']);
   await h.modelCalls({ id: 'c-stray', name: 'live_confirm_tool' });
-  await h.session.executeTool({ callId: 'c-stray' });
+  await h.session.executeTool({ callId: h.id('c-stray') });
   await assertRejects(
-    () => h.session.executeTool({ callId: 'c-stray', decision: 'approve', secret: 'stray' }),
+    () => h.session.executeTool({ callId: h.id('c-stray'), decision: 'approve', secret: 'stray' }),
     TheoremError,
     'answers only a sign-in gate',
   );
-  const approved = await h.session.executeTool({ callId: 'c-stray', decision: 'approve' });
+  const approved = await h.session.executeTool({ callId: h.id('c-stray'), decision: 'approve' });
   assertEquals(approved.outputRaw, { n: 0 });
   await h.close();
 });
@@ -1503,7 +1544,7 @@ Deno.test('runSession lets go of a call the model cancels', async () => {
   h.mock.deliver({ toolCallCancellation: { ids: ['c-gone'] } });
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
-  await assertRejects(() => h.session.executeTool({ callId: 'c-gone' }), TheoremError);
+  await assertRejects(() => h.session.executeTool({ callId: h.id('c-gone') }), TheoremError);
   assertEquals(h.toolResponses().length, 0);
   await h.close();
 });
@@ -1513,26 +1554,27 @@ Deno.test('runSession answerToolCall settles a call another process ran, with it
   registerLookupTool();
   const h = await openToolSession(['live_lookup_ssn']);
   await h.modelCalls({ id: 'c-split', name: 'live_lookup_ssn' });
-  const ran = await h.invokeFor('live_lookup_ssn', 'c-split');
+  const ran = await h.invokeFor('live_lookup_ssn', h.id('c-split'));
   const complete = ran.find((ev) => ev.type === 'tool' && ev.tool.phase === 'complete');
   const readBack =
     complete?.type === 'tool' && complete.tool.phase === 'complete'
       ? complete.tool.readBack
       : undefined;
-  const answered = await h.session.answerToolCall({ callId: 'c-split', events: ran });
+  const answered = await h.session.answerToolCall({ callId: h.id('c-split'), events: ran });
   assertEquals(answered.outputRaw, { finding: 'found the record', ssn: '123-45-6789' });
   assertEquals(h.toolResponses(), [
     { id: 'c-split', name: 'live_lookup_ssn', response: { result: readBack } },
   ]);
   assertThrows(
-    () => h.session.answerToolCall({ callId: 'c-split', events: ran }),
+    () => h.session.answerToolCall({ callId: h.id('c-split'), events: ran }),
     TheoremError,
     'not waiting for an answer',
   );
   await h.close();
   assertEquals(
     h.events.some(
-      (ev) => ev.type === 'tool' && ev.tool.callId === 'c-split' && ev.tool.phase === 'complete',
+      (ev) =>
+        ev.type === 'tool' && ev.tool.callId === h.id('c-split') && ev.tool.phase === 'complete',
     ),
     true,
   );
@@ -1543,12 +1585,17 @@ Deno.test('runSession answerToolCall holds a gate open until a later run answers
   registerConfirmTool();
   const h = await openToolSession(['live_confirm_tool']);
   await h.modelCalls({ id: 'c-split-gate', name: 'live_confirm_tool' });
-  const gatedRun = await h.invokeFor('live_confirm_tool', 'c-split-gate');
-  const gated = await h.session.answerToolCall({ callId: 'c-split-gate', events: gatedRun });
+  const gatedRun = await h.invokeFor('live_confirm_tool', h.id('c-split-gate'));
+  const gated = await h.session.answerToolCall({ callId: h.id('c-split-gate'), events: gatedRun });
   assertEquals(gated.gated?.kind, 'confirmation');
   assertEquals(h.toolResponses().length, 0);
-  const approvedRun = await h.invokeFor('live_confirm_tool', 'c-split-gate', { granted: true });
-  const approved = await h.session.answerToolCall({ callId: 'c-split-gate', events: approvedRun });
+  const approvedRun = await h.invokeFor('live_confirm_tool', h.id('c-split-gate'), {
+    granted: true,
+  });
+  const approved = await h.session.answerToolCall({
+    callId: h.id('c-split-gate'),
+    events: approvedRun,
+  });
   assertEquals(approved.outputRaw, { n: 0 });
   assertEquals(
     h.toolResponses().map((r) => r.id),
@@ -1564,14 +1611,14 @@ Deno.test('runSession answerToolCall refuses a run that is not an answer to that
   await h.modelCalls({ id: 'c-a', name: 'live_lookup_ssn' });
   const other = await h.invokeFor('live_lookup_ssn', 'c-other');
   assertThrows(
-    () => h.session.answerToolCall({ callId: 'c-a', events: other }),
+    () => h.session.answerToolCall({ callId: h.id('c-a'), events: other }),
     TheoremError,
     'carries a call of its own',
   );
-  const own = await h.invokeFor('live_lookup_ssn', 'c-a');
+  const own = await h.invokeFor('live_lookup_ssn', h.id('c-a'));
   const unsettled = own.filter((ev) => !(ev.type === 'tool' && ev.tool.phase === 'complete'));
   assertThrows(
-    () => h.session.answerToolCall({ callId: 'c-a', events: unsettled }),
+    () => h.session.answerToolCall({ callId: h.id('c-a'), events: unsettled }),
     TheoremError,
     'settled nothing',
   );
@@ -1808,7 +1855,7 @@ Deno.test('a page tool settles with what the page sent', async () => {
   const h = await openToolSession(['live_browser_count']);
   await h.modelCalls({ id: 'c1', name: 'live_browser_count' });
   const settled = await h.session.executeTool({
-    callId: 'c1',
+    callId: h.id('c1'),
     page: { output: { count: 3 } },
   });
   assertEquals(settled.outputRaw, { count: 3 });
@@ -1824,10 +1871,10 @@ Deno.test('a page tool with no result, a timeout or an off-schema result fails t
     { id: 'c2', name: 'live_browser_count' },
     { id: 'c3', name: 'live_browser_count' },
   );
-  const missing = await h.session.executeTool({ callId: 'c1' });
-  const timedOut = await h.session.executeTool({ callId: 'c2', page: { timedOut: true } });
+  const missing = await h.session.executeTool({ callId: h.id('c1') });
+  const timedOut = await h.session.executeTool({ callId: h.id('c2'), page: { timedOut: true } });
   const wrong = await h.session.executeTool({
-    callId: 'c3',
+    callId: h.id('c3'),
     page: { output: { count: 'x' } },
   });
   assertEquals(missing.failure !== undefined, true);
@@ -1844,15 +1891,15 @@ Deno.test('live operation identity refuses a mismatched reference without consum
   const h = await openToolSession(['live_lookup_ssn']);
   try {
     await h.modelCalls({ id: 'current', name: 'live_lookup_ssn' });
-    const issued = h.events.find((ev) => ev.type === 'tool' && ev.tool.callId === 'current');
+    const issued = h.events.find((ev) => ev.type === 'tool' && ev.tool.callId === h.id('current'));
     if (issued?.type !== 'tool' || !issued.tool.operationId)
       throw new Error('missing operation identity');
     await assertRejects(
-      () => h.session.executeTool({ callId: 'current', operationId: 'stale-operation' }),
+      () => h.session.executeTool({ callId: h.id('current'), operationId: 'stale-operation' }),
       TheoremError,
     );
     assertEquals(h.toolResponses().length, 0);
-    await h.session.executeTool({ callId: 'current', operationId: issued.tool.operationId });
+    await h.session.executeTool({ callId: h.id('current'), operationId: issued.tool.operationId });
     assertEquals(h.toolResponses().length, 1);
   } finally {
     await h.close();
@@ -1866,18 +1913,18 @@ Deno.test('live external settlement requires the issued operation identity', asy
   const h = await openToolSession(['live_lookup_ssn']);
   try {
     await h.modelCalls({ id: 'external', name: 'live_lookup_ssn' });
-    const result = await h.invokeFor('live_lookup_ssn', 'external');
+    const result = await h.invokeFor('live_lookup_ssn', h.id('external'));
     const forged = result.map((event) =>
       event.type === 'tool'
         ? { ...event, tool: { ...event.tool, operationId: 'wrong-operation' } }
         : event,
     );
     assertThrows(
-      () => h.session.answerToolCall({ callId: 'external', events: forged }),
+      () => h.session.answerToolCall({ callId: h.id('external'), events: forged }),
       TheoremError,
     );
     assertEquals(h.toolResponses().length, 0);
-    await h.session.answerToolCall({ callId: 'external', events: result });
+    await h.session.answerToolCall({ callId: h.id('external'), events: result });
     assertEquals(h.toolResponses().length, 1);
   } finally {
     await h.close();
@@ -1911,15 +1958,15 @@ Deno.test('live output validation failure cannot restore an executed call as an 
   const h = await openToolSession(['live_uncertain_effect']);
   try {
     await h.modelCalls({ id: 'uncertain-live', name: 'live_uncertain_effect' });
-    const paused = await h.session.executeTool({ callId: 'uncertain-live' });
+    const paused = await h.session.executeTool({ callId: h.id('uncertain-live') });
     assertEquals(paused.gated?.kind, 'permission');
     await assertRejects(
-      () => h.session.executeTool({ callId: 'uncertain-live', decision: 'approve' }),
+      () => h.session.executeTool({ callId: h.id('uncertain-live'), decision: 'approve' }),
       TheoremError,
       labelText('tool.execution_uncertain'),
     );
     await assertRejects(
-      () => h.session.executeTool({ callId: 'uncertain-live', decision: 'approve' }),
+      () => h.session.executeTool({ callId: h.id('uncertain-live'), decision: 'approve' }),
       TheoremError,
       labelText('tool.execution_uncertain'),
     );

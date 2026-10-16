@@ -285,7 +285,8 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
       asValue<ModelProfile>({
         models: {
           m: {
-            provider: 'google',
+            protocol: 'geminiInteractions',
+            provider: 'gemini',
             apiId: 'm',
             efforts: { normal: 'minimal' },
             builtInTools: ['googleSearch', 'stub_tool', 'missing'],

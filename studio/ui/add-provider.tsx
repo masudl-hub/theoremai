@@ -2,28 +2,28 @@ import { Button } from '@astryxdesign/core/Button';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { IconPlus } from '@tabler/icons-react';
-import { kernelAdapters, newProvider, type StudioProvider } from '../mod.ts';
+import { kernelDefinitions, newProvider, type StudioProvider } from '../mod.ts';
 
 /**
- * Adds a provider to the project on the first of `adapters`, under the first free id, and hands it
- * to `onAdd`, which opens its page: its id, adapter, connection and key slots are set there.
- * `taken` are the ids the workspace already holds. Compact, it is an icon beside a picker, whose
- * `adapters` are those that serve what picks.
+ * Adds a provider to the project from the first of `definitions`, under the first free id, and
+ * hands it to `onAdd`, which opens its page: its id, definition, connection and key slots are set
+ * there. `taken` are the ids the workspace already holds. Compact, it is an icon beside a picker,
+ * whose `definitions` are those that serve what picks.
  */
 export function AddProviderButton({
 	taken,
 	onAdd,
-	adapters = kernelAdapters(),
+	definitions = kernelDefinitions(),
 	isCompact = false,
 }: {
 	taken: readonly string[];
 	onAdd: (provider: StudioProvider) => void;
-	adapters?: readonly string[];
+	definitions?: readonly string[];
 	isCompact?: boolean;
 }) {
 	const add = () => {
-		const [adapter] = adapters;
-		if (adapter) onAdd(newProvider(taken, adapter));
+		const [definition] = definitions;
+		if (definition) onAdd(newProvider(taken, definition));
 	};
 	return isCompact ? (
 		<IconButton

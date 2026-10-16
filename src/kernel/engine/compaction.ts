@@ -12,7 +12,7 @@ import type {
   TurnInput,
   TurnTokens,
 } from '../types.ts';
-import { loadTokenEstimator, type MediaTokenFamily } from './token-estimate.ts';
+import { loadTokenEstimator } from './token-estimate.ts';
 
 /** A history divided into the messages to compact and the messages to keep. */
 export interface CompactionSplit {
@@ -51,14 +51,13 @@ function findExchangeBoundaries(history: TurnHistoryMessage[]): number[] {
 /** Prefers host-supplied `input.historyTokens`; otherwise estimates `input.history`. */
 export async function resolveHistoryTokens(
   input: TurnInput | undefined,
-  family: MediaTokenFamily | undefined,
 ): Promise<Omit<CompactionTokens, 'meter'>> {
   if (input?.historyTokens != null) {
     return { tokens: input.historyTokens, unknownMedia: 0 };
   }
   const history = input?.history ?? [];
   if (history.length === 0) return { tokens: 0, unknownMedia: 0 };
-  return await (await loadTokenEstimator()).messages(history, family);
+  return await (await loadTokenEstimator()).messages(history);
 }
 
 /**
@@ -71,11 +70,10 @@ export async function resolveCompactionTokens(args: {
   input?: TurnInput;
   /** Tokens of this turn's last model call, when one completed. */
   prompt?: TurnTokens;
-  family: MediaTokenFamily | undefined;
 }): Promise<CompactionTokens | undefined> {
   const meter = compactionMeter(args.spec);
   if (meter === 'history') {
-    return { meter, ...(await resolveHistoryTokens(args.input, args.family)) };
+    return { meter, ...(await resolveHistoryTokens(args.input)) };
   }
   if (args.prompt && args.prompt.input > 0) {
     return { meter, tokens: args.prompt.input, unknownMedia: args.prompt.unknownMedia?.input ?? 0 };
@@ -119,7 +117,6 @@ export async function shouldCompact(
 export async function splitForCompaction(
   history: TurnHistoryMessage[],
   spec: CompactionSpec,
-  family: MediaTokenFamily | undefined,
 ): Promise<CompactionSplit> {
   if (history.length === 0) {
     return { toCompact: [], toRetain: [] };
@@ -149,7 +146,7 @@ export async function splitForCompaction(
       const exchangeStart = boundaries[i];
       const exchangeEnd = i < boundaries.length - 1 ? boundaries[i + 1] : history.length;
       const exchangeMessages = history.slice(exchangeStart, exchangeEnd);
-      const exchangeTokens = (await estimator.messages(exchangeMessages, family)).tokens;
+      const exchangeTokens = estimator.messages(exchangeMessages).tokens;
       if (accumulated + exchangeTokens > budget) {
         break;
       }

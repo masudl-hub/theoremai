@@ -14,6 +14,7 @@ import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
   createDraftGate,
   createOutboundProgressiveGate,
+  DraftReader,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from '../../../guardrails/progressive-yield.ts';
@@ -153,9 +154,7 @@ function shownToHost(
  * arrives as that check leaves it. The held tail is read and released when the step's stream ends.
  */
 class StructuredDrafts {
-  private gate: ProgressiveYieldGate | null | 'stopped' | undefined;
-  private readonly policy: ResolvedGuardrailPolicy;
-  private readonly context: GuardrailContext;
+  private readonly drafts: DraftReader;
   private readonly generation: Pick<ResolvedGeneration, 'structured' | 'stream'>;
 
   /** Reads the stream's own checks off what the step knows of the turn. */
@@ -165,8 +164,9 @@ class StructuredDrafts {
       'profile' | 'generation' | 'privateSystem' | 'givenUrls' | 'canaryGiven' | 'ownTools'
     >,
   ) {
-    this.policy = resolveGuardrailPolicy(seen.profile.guardrails);
-    this.context = streamContext(seen, this.policy);
+    const policy = resolveGuardrailPolicy(seen.profile.guardrails);
+    const context = streamContext(seen, policy);
+    this.drafts = new DraftReader(() => createDraftGate(policy, context, 'reply_structured'));
     this.generation = seen.generation;
   }
 
@@ -176,27 +176,14 @@ class StructuredDrafts {
       if (shown) yield shown;
       return;
     }
-    if (this.gate === undefined) {
-      this.gate = await createDraftGate(this.policy, this.context, 'reply_structured');
-    }
-    if (this.gate === 'stopped') return;
-    if (!this.gate) {
-      yield shown;
-      return;
-    }
-    const result = this.gate.process(shown.text);
-    if (result.blocked) {
-      this.gate = 'stopped';
-      return;
-    }
-    if (result.emit) yield { ...shown, text: result.emit };
+    const text = await this.drafts.read(shown.text);
+    if (text) yield { ...shown, text };
   }
 
   /** The drafts' tail the gate still holds, once the step's stream has ended. */
   *end(): Generator<TurnEvent> {
-    if (!this.gate || this.gate === 'stopped') return;
-    const result = this.gate.flush();
-    if (!result.blocked && result.emit) yield { type: 'structured_draft', text: result.emit };
+    const text = this.drafts.end();
+    if (text) yield { type: 'structured_draft', text };
   }
 }
 

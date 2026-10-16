@@ -1,5 +1,9 @@
 import type { ToolBoundary } from '../../guardrails/boundaries.ts';
-import { createDraftGate, type ProgressiveYieldGate } from '../../guardrails/progressive-yield.ts';
+import {
+  createDraftGate,
+  DraftReader,
+  type ProgressiveYieldGate,
+} from '../../guardrails/progressive-yield.ts';
 import { guardToolResult } from '../../guardrails/tool-result.ts';
 import type { Provenance, ResolvedGuardrailPolicy } from '../../guardrails/types.ts';
 import type { TurnEvent } from '../types.ts';
@@ -44,12 +48,14 @@ export interface HandlerEventChecks {
  * check reports it.
  */
 export class HandlerEvents {
-  private gate: ProgressiveYieldGate | null | 'stopped' | undefined;
+  private readonly drafts: DraftReader | undefined;
 
   constructor(
     private readonly base: ToolCallBase,
     private readonly checks: HandlerEventChecks | undefined,
-  ) {}
+  ) {
+    if (checks?.drafts) this.drafts = new DraftReader(() => draftGate(checks));
+  }
 
   async *show(event: Exclude<ToolStreamEvent, { kind: 'complete' }>): AsyncGenerator<TurnEvent> {
     if (event.kind === 'draft') {
@@ -62,41 +68,13 @@ export class HandlerEvents {
 
   /** The drafts' tail the gate still holds, once the handler has returned. */
   *end(): Generator<TurnEvent> {
-    if (!this.gate || this.gate === 'stopped') return;
-    const result = this.gate.flush();
-    if (!result.blocked && result.emit) {
-      yield toolEvent(this.base, { phase: 'draft', text: result.emit });
-    }
+    const text = this.drafts?.end();
+    if (text) yield toolEvent(this.base, { phase: 'draft', text });
   }
 
-  private async *draft(text: string): AsyncGenerator<TurnEvent> {
-    if (!this.checks?.drafts) return;
-    if (this.gate === undefined) this.gate = await this.openGate(this.checks);
-    if (this.gate === 'stopped') return;
-    if (!this.gate) {
-      yield toolEvent(this.base, { phase: 'draft', text });
-      return;
-    }
-    const result = this.gate.process(text);
-    if (result.blocked) {
-      this.gate = 'stopped';
-      return;
-    }
-    if (result.emit) yield toolEvent(this.base, { phase: 'draft', text: result.emit });
-  }
-
-  private openGate(checks: HandlerEventChecks): Promise<ProgressiveYieldGate | null> {
-    return createDraftGate(
-      checks.policy,
-      {
-        stage: 'tool_result',
-        trust: 'untrusted',
-        profileId: checks.profileId,
-        provenance: checks.provenance,
-      },
-      checks.boundary,
-      { callable: checks.callableTools },
-    );
+  private async *draft(piece: string): AsyncGenerator<TurnEvent> {
+    const text = await this.drafts?.read(piece);
+    if (text) yield toolEvent(this.base, { phase: 'draft', text });
   }
 
   /** Whether a check at the output's boundary stops `data`; a flag lets it through unreported. */
@@ -115,4 +93,19 @@ export class HandlerEvents {
     if (event) yield { type: 'guardrail', guardrail: event };
     return true;
   }
+}
+
+/** The gate a handler's drafts are read through, at the output's boundary. */
+function draftGate(checks: HandlerEventChecks): Promise<ProgressiveYieldGate | null> {
+  return createDraftGate(
+    checks.policy,
+    {
+      stage: 'tool_result',
+      trust: 'untrusted',
+      profileId: checks.profileId,
+      provenance: checks.provenance,
+    },
+    checks.boundary,
+    { callable: checks.callableTools },
+  );
 }

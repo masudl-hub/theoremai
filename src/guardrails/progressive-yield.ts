@@ -356,11 +356,42 @@ async function createDraftGate(
   });
 }
 
+/**
+ * One stream of drafts read through one draft gate, opened on the first draft. A match stops
+ * the rest of the stream; with no gate (nothing is judged there), every draft passes as is.
+ */
+class DraftReader {
+  private gate: ProgressiveYieldGate | null | 'stopped' | undefined;
+
+  constructor(private readonly open: () => Promise<ProgressiveYieldGate | null>) {}
+
+  /** What of `text` may be shown now: empty while the gate holds it, or once a match stopped the stream. */
+  async read(text: string): Promise<string> {
+    if (this.gate === undefined) this.gate = await this.open();
+    if (this.gate === 'stopped') return '';
+    if (!this.gate) return text;
+    const result = this.gate.process(text);
+    if (result.blocked) {
+      this.gate = 'stopped';
+      return '';
+    }
+    return result.emit;
+  }
+
+  /** The tail the gate still holds, once the stream has ended. */
+  end(): string {
+    if (!this.gate || this.gate === 'stopped') return '';
+    const result = this.gate.flush();
+    return result.blocked ? '' : result.emit;
+  }
+}
+
 export type { ProgressiveYieldGate };
 export {
   createDraftGate,
   createOutboundProgressiveGate,
   createProgressiveYieldGate,
+  DraftReader,
   outboundProgressiveGate,
   replyIsJudged,
 };

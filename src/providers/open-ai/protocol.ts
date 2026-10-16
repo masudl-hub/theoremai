@@ -25,6 +25,7 @@ import { type StreamingToolCall, toolDraftEvents } from '../shared/tool-draft.ts
 interface Reply {
   text: string;
   finish?: string;
+  native?: string;
   response?: TurnResponse;
   tokens: boolean;
   cited: Set<string>;
@@ -46,7 +47,8 @@ function requestBody(context: ProtocolContext, request: TurnRequest): JsonObject
   const format = resolveResponseFormat(request.structured);
   const body: Record<string, unknown> = {
     model: context.apiId,
-    messages: buildChatMessages(request as ProviderCompleteRequest),
+    // why: replayed reasoning belongs to the protocol that wrote it, never to plain Chat Completions.
+    messages: buildChatMessages({ ...request, state: undefined } as ProviderCompleteRequest),
     stream,
     ...(stream ? { stream_options: { include_usage: true } } : {}),
     ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
@@ -130,6 +132,9 @@ function rowEvents(row: JsonObject, reply: Reply, request: TurnRequest, stream: 
     const part = asRecord(stream ? choice?.delta : choice?.message);
     if (part) events.push(...partEvents(part, reply, request));
     if (typeof choice?.finish_reason === 'string') reply.finish = choice.finish_reason;
+    // why: gateways add the upstream's own reason beside it; it tells a provider failure from a stop.
+    if (typeof choice?.native_finish_reason === 'string')
+      reply.native = choice.native_finish_reason;
   }
   // why: a whole reply carries each call complete; only a streamed one has a draft to show.
   if (stream)
@@ -146,7 +151,7 @@ function endEvents(reply: Reply, request: TurnRequest): ProtocolEvent[] {
     events.push(
       ...asProtocolEvents(toolCallEvents({ ...call, id: call.id ?? `call_${index}` }, call.args)),
     );
-  const stop = turnStopFromOpenAiFinishReason(reply.finish);
+  const stop = turnStopFromOpenAiFinishReason(reply.finish, reply.native);
   if (request.structured && reply.text && stop.kind === 'completed') {
     const structured = asProtocolEvents([structuredEvent(reply.text) as ProviderEvent]);
     events.push(...structured);

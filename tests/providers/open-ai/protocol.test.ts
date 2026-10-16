@@ -185,3 +185,31 @@ Deno.test('a key slot on a provider that takes no key is refused', () => {
     "Provider 'keyless' takes no key",
   );
 });
+
+Deno.test('openAi never sends reasoning another protocol saved', async () => {
+  const { sent, call } = setup(() =>
+    sse([{ choices: [{ delta: { content: 'Ok.' }, finish_reason: 'stop' }] }]),
+  );
+  const replayed = {
+    ...request,
+    history: [
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          { id: 'c1', type: 'function', function: { name: 'weather', arguments: '{}' } },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'c1', name: 'weather', content: 'Sunny.' },
+    ],
+    state: {
+      replay: [{ callIds: ['c1'], details: [{ type: 'reasoning.text', text: 'x' }], content: 'x' }],
+    },
+  } as unknown as TurnRequest;
+  await collect(callProtocol(call).complete(replayed));
+  const messages = sent[0]?.body.messages as JsonObject[];
+  assertEquals(
+    messages.some((message) => 'reasoning_details' in message || 'reasoning' in message),
+    false,
+  );
+});

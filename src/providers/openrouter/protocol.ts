@@ -117,6 +117,8 @@ export const openRouter = extendProtocol(openAi, {
   options: z.strictObject({ cache: cache.optional() }),
   reasoning,
   body(body, at) {
+    // why: its fields are Chat Completions ones; a speech request goes as openAi sends it.
+    if (at.profileType !== 'text') return { body };
     const out: JsonObject = { ...body, provider: { require_parameters: true } };
     if (out.reasoning_effort !== undefined) {
       out.reasoning = { effort: out.reasoning_effort };

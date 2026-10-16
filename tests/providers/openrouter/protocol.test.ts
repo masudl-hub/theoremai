@@ -145,3 +145,27 @@ Deno.test('openRouter reads thinking, citation lists and reasoning to send back'
     origin: { protocol: 'openRouter', provider: 'router', apiId: 'm-1' },
   });
 });
+
+Deno.test('openRouter sends speech as openAi does', async () => {
+  const registry = createProviderRegistry();
+  registry.register(router, { keySlot: 'main' });
+  const provider = registry.require('router', 'tts-1');
+  const sent: JsonObject[] = [];
+  const call = callProtocol({
+    provider,
+    binding: checkBinding(
+      provider,
+      { protocol: 'openRouter', provider: 'router', apiId: 'tts-1' },
+      'speech',
+    ),
+    profileType: 'speech',
+    vault: { main: 'k-main' },
+    fetch: async (_input, init) => {
+      sent.push(JSON.parse(String(init?.body)) as JsonObject);
+      return new Response(new Uint8Array([1]), { headers: { 'content-type': 'audio/mpeg' } });
+    },
+    wait: async () => {},
+  });
+  await collect(call.complete({ ...request, history: [] } as unknown as TurnRequest));
+  assertEquals(sent[0], { model: 'tts-1', input: 'And tomorrow?' });
+});

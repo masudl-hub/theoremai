@@ -47,6 +47,18 @@ import { withPatterns } from '../runtime-scope.ts';
 import { STUDIO_READER } from '../reader.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { studioSource } from '../source.ts';
+import {
+  ACTING_AS_HEADER,
+  actingAsSession,
+  peopleFault,
+  peopleOffer,
+  readActingAs,
+  readPerson,
+  type StudioActingAs,
+  readPlace,
+  type StudioPeople,
+  type StudioPeopleOffer,
+} from '../people.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
 import { tracedToPage, withDecisionTraces, withRunTraces } from './run-traces.ts';
 import type { ProjectOrigins, ProviderPlace, SharedSetting, Unregistered } from './save-wire.ts';
@@ -57,9 +69,6 @@ import {
   type StudioWorkspace,
   workspaceFromDraft,
 } from '../workspace.ts';
-
-/** One builder on one machine: every request is the same session, so a gate's answer finds its call. */
-const STUDIO_SESSION = 'theorem-studio-local';
 
 /** A profile the page could not show or run, and why. */
 export type StudioProblem = { profile: string; message: string };
@@ -98,6 +107,10 @@ export type StudioDescription = {
   editor?: string;
   /** The setup file the studio command was started on, from the folder it ran in. */
   setup?: string;
+  /** The places and people the setup file offers a run to act as. None: every run acts as no one. */
+  people?: StudioPeopleOffer;
+  /** Why the people the setup file exports cannot be offered, when they cannot. */
+  peopleProblem?: string;
 };
 
 export type StudioHandlerOptions = {
@@ -107,8 +120,13 @@ export type StudioHandlerOptions = {
   pageOrigins: readonly string[];
   /** The `host:port` the server listens on. A request that names another host is refused. */
   listenHost: string;
-  /** Opaque application context for tool handlers (`ctx.host`): the test user, a database client. */
-  host?: (request: Request) => unknown;
+  /**
+   * Opaque application context for tool handlers (`ctx.host`): a database client, and the person
+   * the builder picked, in the place they picked. `undefined` is no one.
+   */
+  host?: (request: Request, actingAs: StudioActingAs | undefined) => unknown;
+  /** The places and people a run may act as. Without them every run acts as no one. */
+  people?: StudioPeople;
   /** How the project's registered providers find their keys. Default: as the project registered them. */
   provider?: ProviderHostOptions;
   /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
@@ -439,6 +457,48 @@ export function isForeign(
   return !options.pageOrigins.includes(origin);
 }
 
+/** The place a people request names, when the setup offers it; the page sends its id. */
+/** What the application answered when it was asked for people and could not say. */
+function applicationFailed(error: unknown, cors: Record<string, string>): Response {
+  return json(502, { message: error instanceof Error ? error.message : String(error) }, cors);
+}
+
+/** `GET <base>/people?place=<id>`: the people the application offers in a place. */
+async function existingPeople(
+  people: StudioPeople | undefined,
+  request: Request,
+  cors: Record<string, string>,
+): Promise<Response> {
+  if (!people?.existing) return json(404, {}, cors);
+  const read = readPlace(new URL(request.url).searchParams.get('place'), people.places);
+  if (!read.ok) return json(400, { message: read.message }, cors);
+  const { place } = read;
+  try {
+    const found = await people.existing(place);
+    return json(200, { people: found.map((person) => readPerson(person, 'existing')) }, cors);
+  } catch (error) {
+    return applicationFailed(error, cors);
+  }
+}
+
+/** `POST <base>/people/fresh` with `{ place }`: a new person the application made in a place. */
+async function freshPerson(
+  people: StudioPeople | undefined,
+  request: Request,
+  cors: Record<string, string>,
+): Promise<Response> {
+  if (!people?.fresh) return json(404, {}, cors);
+  const body: unknown = await request.json().catch(() => undefined);
+  const read = readPlace(isRecord(body) ? body.place : undefined, people.places);
+  if (!read.ok) return json(400, { message: read.message }, cors);
+  const { place } = read;
+  try {
+    return json(200, { person: readPerson(await people.fresh(place), 'fresh') }, cors);
+  } catch (error) {
+    return applicationFailed(error, cors);
+  }
+}
+
 /** Where the server is mounted unless the host says otherwise. */
 export const STUDIO_BASE = '/api/studio';
 
@@ -446,7 +506,7 @@ export const STUDIO_BASE = '/api/studio';
 export function corsHeaders(request: Request, pageOrigins: readonly string[]): Record<string, string> {
   return {
     'access-control-allow-origin': request.headers.get('origin') ?? pageOrigins[0] ?? '',
-    'access-control-allow-headers': 'content-type',
+    'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}`,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     vary: 'origin',
   };
@@ -504,12 +564,19 @@ const NO_SOCKET = 'A live profile runs over a socket, and this server was not gi
 /** Each registered profile's own handler, by id; a profile that cannot be served is a problem. */
 function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[]): Map<string, Serve> {
   const served = new Map<string, Serve>();
-  const shared = {
-    session: () => STUDIO_SESSION,
-    clientEvents: STUDIO_READER,
-    ...(options.host ? { host: options.host } : {}),
+  // `run` refused a pick it cannot read before any handler is reached, so here it reads.
+  const actingAs = (request: Request) => {
+    const read = readActingAs(request, options.people);
+    return read.ok ? read.actingAs : undefined;
   };
-  // One store for every chat profile: one key, one session, so any of them opens a ref.
+  const host = options.host;
+  const shared = {
+    // Each person is a session of their own: their chats and held calls are theirs alone.
+    session: (request: Request) => actingAsSession(actingAs(request)),
+    clientEvents: STUDIO_READER,
+    ...(host ? { host: (request: Request) => host(request, actingAs(request)) } : {}),
+  };
+  // One store for every chat profile: one key, so any of them opens a ref its session holds.
   let conversationStore: TheoremConversationStore | undefined;
   const chatStore = () =>
     (conversationStore ??= createSealedConversationStore({
@@ -579,14 +646,23 @@ export function createStudioHandler(
   // The page reads the tools as the files set them, then they are made to ask.
   const description = describeStudio(options.project, options.questions ?? {});
   description.asks = askBeforeWrites();
-  const served = profileHandlers(options, description.problems);
+  const peopleProblem = options.people === undefined ? undefined : peopleFault(options.people);
+  // People the page cannot be offered are not offered: every run acts as no one, and the page says why.
+  const people = options.people && !peopleProblem ? options.people : undefined;
+  if (people) description.people = peopleOffer(people);
+  if (peopleProblem) description.peopleProblem = peopleProblem;
+  const handlerOptions = { ...options, people };
+  const served = profileHandlers(handlerOptions, description.problems);
   const prefix = `${base}/profiles/`;
+  const peoplePath = `${base}/people`;
 
   const run = async (request: Request, path: string): Promise<Response> => {
     const cors = corsFor(request);
     const id = decodeURIComponent(path.slice(prefix.length).split('/')[0] ?? '');
     const serve = served.get(id);
     if (!serve) return json(404, {}, cors);
+    const read = readActingAs(request, people);
+    if (!read.ok) return json(400, { message: read.message }, cors);
     const response = await serve(request);
     // A socket's answer goes back as it is: it is not a response the page reads.
     if (response.status === 101) return response;
@@ -602,6 +678,8 @@ export function createStudioHandler(
     const path = new URL(request.url).pathname;
     if (path === base && request.method === 'GET') return json(200, description, cors);
     if (path.startsWith(prefix)) return run(request, path);
+    if (path === peoplePath && request.method === 'GET') return existingPeople(people, request, cors);
+    if (path === `${peoplePath}/fresh` && request.method === 'POST') return freshPerson(people, request, cors);
     return json(404, {}, cors);
   };
   return (request) => Promise.resolve(answer(request));

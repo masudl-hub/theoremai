@@ -41,6 +41,7 @@ import {
 	projectProfileEndpoint,
 	useProject,
 } from './lib/studio-project.ts';
+import { useActingAs } from './lib/acting-as.ts';
 import { tracedTransport } from './lib/project-traces.ts';
 import {
 	EditedSide,
@@ -305,14 +306,18 @@ function SideRun({
 	const { type } = payload.profile;
 	const pageTools = useMemo(() => studioPageTools(payload), [payload]);
 	const chats = isChat(payload);
+	const { actingAs } = useActingAs();
 	const chat = useMemo(
-		() => (chats ? noting(tracedTransport(createHttpTransport, endpoint, traces), note) : null),
-		[chats, endpoint, traces, note],
+		() =>
+			chats ? noting(tracedTransport(createHttpTransport, endpoint, traces, actingAs), note) : null,
+		[chats, endpoint, traces, actingAs, note],
 	);
 	const host = useMemo(
 		() =>
-			type === 'host' ? noting(tracedTransport(createHostTransport, endpoint, traces), note) : null,
-		[type, endpoint, traces, note],
+			type === 'host'
+				? noting(tracedTransport(createHostTransport, endpoint, traces, actingAs), note)
+				: null,
+		[type, endpoint, traces, actingAs, note],
 	);
 	const decision = useMemo(
 		() =>

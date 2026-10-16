@@ -28,6 +28,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from 'react';
+import { useActingAs } from './lib/acting-as.ts';
 import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
@@ -366,21 +367,18 @@ function useTransports(
 	stamp: string | undefined,
 	{ note, traces }: Pick<ProjectChatProps, 'note' | 'traces'>,
 ) {
-	const saved = useMemo(
-		() =>
-			noting(
-				tracedTransport(createHttpTransport, projectProfileEndpoint(project, ids.saved), traces),
-				note,
-			),
-		[project, ids.saved, traces, note],
-	);
+	const { actingAs } = useActingAs();
+	const saved = useMemo(() => {
+		const endpoint = projectProfileEndpoint(project, ids.saved);
+		return noting(tracedTransport(createHttpTransport, endpoint, traces, actingAs), note);
+	}, [project, ids.saved, traces, actingAs, note]);
 	// One feed for the edited side, so a new load keeps the traces of the turns it starts from.
 	const [editedTraces] = useState(createTraceFeed);
 	const edited = useMemo(() => {
 		if (stamp === undefined) return null;
 		const endpoint = editedProfileEndpoint(project, ids.edited);
-		return noting(tracedTransport(createHttpTransport, endpoint, editedTraces), note);
-	}, [project, ids.edited, stamp, editedTraces, note]);
+		return noting(tracedTransport(createHttpTransport, endpoint, editedTraces, actingAs), note);
+	}, [project, ids.edited, stamp, editedTraces, actingAs, note]);
 	return { saved, edited };
 }
 

@@ -179,6 +179,11 @@ Open about shared settings:
 | D28 | A pinned turn records what was changed in it ("4 values replaced, 1 photo left out"). The record shows beside each result of that turn. A turn with a photo left out and no stand-in is used for the checks that need no model call only. The studio does not run it with the model, and says why. | 8 Oct |
 | D29 | The setup file can give the studio the known values of the user of the run: for example the name, the phone number and the address. The studio replaces each one where it appears in a turn to be pinned. | 8 Oct, Claude's lean; Masud agreed |
 | D30 | The builder is responsible for what a pin holds, and must be diligent. The studio removes what it can find. It does not find a personal detail in free text that the application never stored ("my mother's house on Elm Street"). The review of D23 says this, and the builder reads the turn before the builder confirms. | 8 Oct |
+| D31 | A run acts as no one, a fresh person, or an existing person. The setup file exports `people`: the places its data lives in, and optionally `existing(place)`, `fresh(place)` and `start`. The studio decides nothing about people or places. | 16 Oct |
+| D32 | Whether a place is production is the app's to decide. The studio offers whatever places the setup names. | 16 Oct |
+| D33 | Removing a fresh person is the app's. The studio keeps nothing `fresh` returns. | 16 Oct |
+| D34 | Which existing people to list is the app's: it can name specific people or none. Apps sign in differently. | 16 Oct |
+| D35 | The pick is made in Settings, under People. The chat's header shows who runs act as and opens it. Each person keeps their own chat with each agent, and their own session, so one person cannot answer another's held call. | 16 Oct |
 
 **How firm each decision is.** Masud said on 8 Oct that many of the
 questions behind this table were not ones he could judge. So the table has

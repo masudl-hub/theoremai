@@ -9,6 +9,24 @@ npx theorem-studio
 
 The command needs Deno. It opens the project's setup file: `studio.setup.ts` or `<name>.studio.setup.ts`. Add `"studio": "theorem-studio"` to your scripts to run it as `npm run studio`. The installed version must match `@theoremjs/agents` and `@theoremjs/react` exactly.
 
+### Who a run acts as
+
+A setup file can export `people` and `host` to let the builder pick who the project's tools act for:
+
+```ts
+export const people: StudioPeople = {
+  places: [{ id: 'stage', label: 'Stage' }],
+  existing: (place) => [{ id: 'user-1', label: 'Test keeper' }], // optional
+  fresh: (place) => makeTestUser(place), // optional; removing it later is yours
+  start: undefined, // optional pick the studio opens on; without it, no one
+};
+export function host(request: Request, actingAs: StudioActingAs | undefined): unknown {
+  return actingAs ? buildContextFor(actingAs.person.id) : undefined;
+}
+```
+
+The builder picks a place and a person in Settings, under People. Each run carries the pick, `host` builds the tools' context from it, and each person keeps their own chat and session. Without `people`, every run acts as no one.
+
 ## In the repo
 
 

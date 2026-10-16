@@ -139,6 +139,7 @@ import {
 	workspaceTree,
 	writeAsk,
 } from '../mod.ts';
+import type { StudioActingAs } from '../people.ts';
 import { canonical } from '../canonical.ts';
 import type { OpenAnswer, SettingOrigin } from '../server/save-wire.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
@@ -158,6 +159,7 @@ import {
 import { exportFiles, exportText, llmBrief } from './lib/export-agent.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel } from './lib/panel-motion.ts';
+import { ActingAsContext, chatKeyOf, useActingAsState } from './lib/acting-as.ts';
 import { recordsTraces } from './lib/project-traces.ts';
 import {
 	clearConversation,
@@ -232,7 +234,7 @@ import {
 	useStudioHost,
 } from './studio-host.ts';
 import { NAV_WIDTH } from './studio-nav.ts';
-import { StudioSettings } from './studio-settings.tsx';
+import { ActingAsButton, StudioSettings } from './studio-settings.tsx';
 
 /** A node's icon; Identity shows the profile type's once one is picked. */
 function nodeIcon(draft: StudioDraft, ref: StudioNodeRef) {
@@ -1098,7 +1100,8 @@ type SurfacePage = {
 	replaceWorkspace: (next: StudioWorkspace, message: string, by?: 'th30' | 'visitor') => void;
 	copy: (text: string, what: string) => void;
 	setKeysOpen: (open: boolean) => void;
-	setConversation: Dispatch<SetStateAction<number>>;
+	/** Starts the open agent's chat again, for the person runs act as. */
+	newConversation: () => void;
 	project: ProjectSession | null;
 	confirmWrite: (ask: WriteAsk) => Promise<boolean>;
 };
@@ -1203,8 +1206,7 @@ function runMembers(
 	return {
 		send: (text) => chat.current?.send(text) ?? Promise.resolve(null),
 		newConversation: () => {
-			clearConversation(store.getWorkspace().chatWith);
-			page.current.setConversation((count) => count + 1);
+			page.current.newConversation();
 		},
 		launch: () => {
 			const result = runNow();
@@ -1786,20 +1788,23 @@ function useConversationRun(
 	mode: string,
 	sealer: ChatSealer,
 	chatWith: string,
+	actingAs: StudioActingAs | undefined,
 	question: string | undefined,
 ) {
 	// Bumping this remounts the runner: a fresh transcript and trace feed, the same profile.
 	const [restarts, setConversation] = useState(0);
-	const runKey = `${mode}:${chatWith}:${String(restarts)}`;
-	// Each agent's kept conversation resumes in the first runner it has here; a cleared or remade
-	// one starts empty.
+	// Each person the runs act as has their own chat with each agent.
+	const chatKey = chatKeyOf(chatWith, actingAs);
+	const runKey = `${mode}:${chatKey}:${String(restarts)}`;
+	// Each kept conversation resumes in the first runner it has here; a cleared or remade one
+	// starts empty.
 	const [firstRuns] = useState(() => new Map<string, string>());
-	if (!firstRuns.has(chatWith)) firstRuns.set(chatWith, runKey);
-	const isFirstRun = firstRuns.get(chatWith) === runKey;
+	if (!firstRuns.has(chatKey)) firstRuns.set(chatKey, runKey);
+	const isFirstRun = firstRuns.get(chatKey) === runKey;
 	const [seeded] = useState(chatWith);
 	const conversation = useMemo(
-		() => (isFirstRun ? restoreConversation(chatWith, sealer) : undefined),
-		[isFirstRun, chatWith, sealer],
+		() => (isFirstRun ? restoreConversation(chatKey, sealer) : undefined),
+		[isFirstRun, chatKey, sealer],
 	);
 	/** A docs seed's question waits in its agent's first composer, when that resumes nothing. */
 	const initialText = isFirstRun && chatWith === seeded && !conversation ? question : undefined;
@@ -1812,6 +1817,7 @@ function useConversationRun(
 	return useMemo(
 		() => ({
 			runKey,
+			chatKey,
 			sealer,
 			conversation,
 			initialText,
@@ -1819,9 +1825,14 @@ function useConversationRun(
 			markUsed: () => {
 				setUsedRun(runKey);
 			},
+			/** Forgets this chat and starts it again; the profile stays. */
+			clear: () => {
+				clearConversation(chatKey);
+				setConversation((count) => count + 1);
+			},
 			setConversation,
 		}),
-		[runKey, sealer, conversation, initialText, isUsed],
+		[runKey, chatKey, sealer, conversation, initialText, isUsed],
 	);
 }
 
@@ -2662,17 +2673,14 @@ function CodeBody({
 }
 
 /** Clears the conversation and its traces; the profile stays. */
-function ClearHistoryButton({ chatWith, run }: { chatWith: string; run: ConversationRun }) {
+function ClearHistoryButton({ run }: { run: ConversationRun }) {
 	return (
 		<IconButton
 			label="Clear history"
 			variant="ghost"
 			icon={<Icon icon={IconPlaylistX} size="sm" />}
 			tooltip="Clear the conversation and its traces. Your profile stays."
-			onClick={() => {
-				clearConversation(chatWith);
-				run.setConversation((count) => count + 1);
-			}}
+			onClick={run.clear}
 		/>
 	);
 }
@@ -2718,8 +2726,9 @@ function PreviewHeader({
 				</StackItem>
 				<StackItem size="static">
 					<HStack gap={1} vAlign="center">
+						<ActingAsButton />
 						{compile.payload && run.isUsed && !testing.open && (
-							<ClearHistoryButton chatWith={chatWith} run={run} />
+							<ClearHistoryButton run={run} />
 						)}
 						{compile.payload && (
 							<IconButton
@@ -2829,7 +2838,7 @@ function PreviewBody({
 						conversation={run.conversation}
 						initialText={run.initialText}
 						onConversationChange={(ref) => {
-							saveConversation(chatWith, run.sealer, ref);
+							saveConversation(run.chatKey, run.sealer, ref);
 						}}
 						chatRef={chatRef}
 						slots={sent.slots}
@@ -2940,11 +2949,18 @@ function useStudioPage(opened: StudioOpened) {
 	useEffect(() => {
 		if (settingsOpen) setSheet(null);
 	}, [settingsOpen]);
+	// The project as its files are now: a Save changes which profiles they hold.
+	const project = useMemo(
+		() => (opened.project ? { ...opened.project, ...state.files } : null),
+		[opened.project, state.files],
+	);
+	const actingAs = useActingAsState(project);
 	const run = useConversationRun(
 		connection.mode,
 		// A run in the page seals with the tab's key; the hosted demo seals on its server.
 		connection.runtime ? 'page' : 'demo',
 		workspace.chatWith,
+		actingAs.actingAs,
 		opened.question,
 	);
 	useArrivalToast(opened, store);
@@ -2958,7 +2974,7 @@ function useStudioPage(opened: StudioOpened) {
 		replaceWorkspace,
 		copy,
 		setKeysOpen: openKeys,
-		setConversation: run.setConversation,
+		newConversation: run.clear,
 		project: opened.project ?? null,
 	});
 	const title =
@@ -2983,6 +2999,8 @@ function useStudioPage(opened: StudioOpened) {
 		chatRef,
 		title,
 		asking,
+		project,
+		actingAs,
 	};
 }
 
@@ -2994,7 +3012,7 @@ function useStudioPage(opened: StudioOpened) {
 function Studio({ opened }: { opened: StudioOpened }) {
 	const page = useStudioPage(opened);
 	const { state, connection, view, frame, selected, editing, issueReveal, compile } = page;
-	const { sheet, setSheet, run, copy, chatRef, title, asking } = page;
+	const { sheet, setSheet, run, copy, chatRef, title, asking, project, actingAs } = page;
 	const { store, draft } = state;
 	const tree = useWorkspaceTree(state, view, selected, setSheet);
 	const chatAgents = useChatAgents(state.workspace.agents);
@@ -3004,14 +3022,9 @@ function Studio({ opened }: { opened: StudioOpened }) {
 		setMapOpen(false);
 	}, [setMapOpen]);
 
-	// The project as its files are now: a Save changes which profiles they hold.
-	const project = useMemo(
-		() => (opened.project ? { ...opened.project, ...state.files } : null),
-		[opened.project, state.files],
-	);
-
 	return (
 		<ProjectContext.Provider value={project}>
+			<ActingAsContext.Provider value={actingAs}>
 			<ConfirmWrite value={asking.confirm}>
 				<ProjectAsks value={state.asks ?? NO_ASKS}>
 					{asking.dialog}
@@ -3086,6 +3099,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
 					</SaveScope>
 				</ProjectAsks>
 			</ConfirmWrite>
+			</ActingAsContext.Provider>
 		</ProjectContext.Provider>
 	);
 }

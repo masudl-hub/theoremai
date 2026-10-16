@@ -24,8 +24,19 @@ import { Text } from '@astryxdesign/core/Text';
 import { TreeList } from '@astryxdesign/core/TreeList';
 import { type SearchableItem, type SearchSource, Typeahead } from '@astryxdesign/core/Typeahead';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconBrandVscode, IconSearch, IconSettings, IconWand, IconX } from '@tabler/icons-react';
-import { type ReactNode, useId, useState } from 'react';
+import { Selector } from '@astryxdesign/core/Selector';
+import {
+	IconBrandVscode,
+	IconPlus,
+	IconSearch,
+	IconSettings,
+	IconUser,
+	IconWand,
+	IconX,
+} from '@tabler/icons-react';
+import { type ReactNode, useEffect, useId, useState } from 'react';
+import type { StudioActingAs, StudioPeopleOffer, StudioPerson } from '../people.ts';
+import { freshPerson, listPeople, useActingAs } from './lib/acting-as.ts';
 import { editorLabel, STUDIO_EDITORS } from '../editors.ts';
 import { IconCursor } from './brand-icons.tsx';
 import { NAV_WIDTH } from './studio-nav.ts';
@@ -44,6 +55,7 @@ const SECTION_LABELS: Record<SettingsSection, string> = {
 	files: 'Files',
 	confirmations: 'Confirmations',
 	keys: 'Keys',
+	people: 'People',
 	project: 'Project',
 	about: 'About',
 };
@@ -61,6 +73,7 @@ const SETTINGS: readonly (SearchableItem & { section: SettingsSection; words?: s
 	{ id: 'ask-shared', label: 'Ask before changing a shared value', section: 'confirmations', words: 'confirm asking' },
 	{ id: 'ask-writes', label: 'Ask before a tool writes', section: 'confirmations', words: 'confirm asking destructive run' },
 	{ id: 'keys', label: 'Model keys', section: 'keys', words: 'api key provider' },
+	{ id: 'acting-as', label: 'Who a run acts as', section: 'people', words: 'person user account place sign in' },
 	{ id: 'open-project', label: 'Open project and setup file', section: 'project' },
 	{ id: 'clear-chats', label: "Clear this tab's chats", section: 'project', words: 'conversation reset' },
 	{ id: 'discard', label: 'Discard unsaved edits', section: 'project', words: 'revert reset' },
@@ -254,6 +267,210 @@ function ConfirmationSettings({ shared }: { shared: SharedAsking }) {
 	);
 }
 
+/** The most places a segmented control holds; more take a selector, as the editor's rows do. */
+const MOST_PLACES = 4;
+
+const NO_ONE = 'no-one';
+const personValue = (person: StudioPerson) => `person:${person.id}`;
+
+/** Who runs act as, in the chat's header: opens the People settings, where the pick is made. */
+export function ActingAsButton() {
+	const { offer, problem, actingAs } = useActingAs();
+	if (!offer && !problem) return null;
+	const place = actingAs && offer?.places.find((each) => each.id === actingAs.place);
+	return (
+		<Button
+			label={actingAs ? `As: ${actingAs.person.label} · ${place?.label ?? actingAs.place}` : 'No one'}
+			variant="ghost"
+			size="sm"
+			icon={<Icon icon={IconUser} size="sm" />}
+			tooltip="Who this run acts as"
+			onClick={() => {
+				openSettings('people');
+			}}
+		/>
+	);
+}
+
+function PlacePicker({
+	offer,
+	place,
+	onChange,
+}: {
+	offer: StudioPeopleOffer;
+	place: string;
+	onChange: (place: string) => void;
+}) {
+	if (offer.places.length > MOST_PLACES) {
+		return (
+			<Selector
+				label="Place"
+				size="sm"
+				value={place}
+				options={offer.places.map((each) => ({ value: each.id, label: each.label }))}
+				onChange={onChange}
+			/>
+		);
+	}
+	return (
+		<SegmentedControl label="Place" size="sm" value={place} onChange={onChange}>
+			{offer.places.map((each) => (
+				<SegmentedControlItem key={each.id} value={each.id} label={each.label} />
+			))}
+		</SegmentedControl>
+	);
+}
+
+/** What went wrong, in the words it was said in. */
+const said = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** The people in a place, as the setup file answers them, and what it said when it could not. */
+function usePeopleIn(project: ProjectSession, offer: StudioPeopleOffer, place: string) {
+	const [found, setFound] = useState<{ place: string; people: StudioPerson[]; error?: string }>();
+	useEffect(() => {
+		if (!offer.existing) return;
+		let isCurrent = true;
+		listPeople(project, place).then(
+			(people) => {
+				if (isCurrent) setFound({ place, people });
+			},
+			(error: unknown) => {
+				if (isCurrent) setFound({ place, people: [], error: said(error) });
+			},
+		);
+		return () => {
+			isCurrent = false;
+		};
+	}, [project, offer.existing, place]);
+	return found?.place === place ? found : undefined;
+}
+
+/** A new person the setup makes in a place, picked as soon as it is made; and what it said when it could not. */
+function useFreshPerson(project: ProjectSession) {
+	const { choose } = useActingAs();
+	const [made, setMade] = useState<StudioActingAs[]>([]);
+	const [making, setMaking] = useState<{ place: string; error?: string }>();
+	const make = (place: string) => {
+		setMaking({ place });
+		freshPerson(project, place).then(
+			(person) => {
+				setMade((before) => [...before, { place, person }]);
+				setMaking(undefined);
+				choose({ place, person });
+			},
+			(error: unknown) => {
+				setMaking({ place, error: said(error) });
+			},
+		);
+	};
+	return { made, making, make };
+}
+
+/** The people to offer in a place: the ones the setup listed, then any picked or made here it did not. */
+function shownPeople(
+	place: string,
+	listed: readonly StudioPerson[],
+	actingAs: StudioActingAs | undefined,
+	made: readonly StudioActingAs[],
+): StudioPerson[] {
+	const shown = [...listed];
+	const here = [...(actingAs ? [actingAs] : []), ...made].filter((each) => each.place === place);
+	for (const { person } of here) if (!shown.some((each) => each.id === person.id)) shown.push(person);
+	return shown;
+}
+
+/** The radio the pick shows as in a place: no one, its person, or none when the person is elsewhere. */
+function pickedIn(place: string, actingAs: StudioActingAs | undefined): string {
+	if (!actingAs) return NO_ONE;
+	return actingAs.place === place ? personValue(actingAs.person) : '';
+}
+
+function PersonList({ place, shown }: { place: string; shown: readonly StudioPerson[] }) {
+	const { actingAs, choose } = useActingAs();
+	return (
+		<RadioList
+			label="Person"
+			value={pickedIn(place, actingAs)}
+			onChange={(next) => {
+				if (next === NO_ONE) choose(undefined);
+				const person = shown.find((each) => personValue(each) === next);
+				if (person) choose({ place, person });
+			}}
+		>
+			<RadioListItem value={NO_ONE} label="No one" description="Runs act for no one." />
+			{shown.map((person) => (
+				<RadioListItem
+					key={person.id}
+					value={personValue(person)}
+					label={person.label}
+					description={
+						<Text type="supporting" color="secondary" maxLines={1} hasTruncateTooltip="end">
+							{person.id}
+						</Text>
+					}
+				/>
+			))}
+		</RadioList>
+	);
+}
+
+function Muted({ children }: { children: ReactNode }) {
+	return (
+		<Text type="supporting" color="secondary">
+			{children}
+		</Text>
+	);
+}
+
+function PeoplePicker({ project, offer }: { project: ProjectSession; offer: StudioPeopleOffer }) {
+	const { actingAs } = useActingAs();
+	const [place, setPlace] = useState(actingAs?.place ?? offer.places[0]?.id ?? '');
+	const placeId = useId();
+	const found = usePeopleIn(project, offer, place);
+	const fresh = useFreshPerson(project);
+	const makingHere = fresh.making?.place === place ? fresh.making : undefined;
+	const error = found?.error ?? makingHere?.error;
+	return (
+		<>
+			<Field label="Place" description="Where the people your app names live." inputID={placeId} isGroupLabel>
+				<PlacePicker offer={offer} place={place} onChange={setPlace} />
+			</Field>
+			<PersonList place={place} shown={shownPeople(place, found?.people ?? [], actingAs, fresh.made)} />
+			{offer.existing && !found && <Muted>Finding the people here…</Muted>}
+			{offer.fresh && (
+				<HStack>
+					<Button
+						label="New person"
+						variant="secondary"
+						icon={<Icon icon={IconPlus} size="sm" />}
+						isDisabled={makingHere !== undefined && makingHere.error === undefined}
+						onClick={() => {
+							fresh.make(place);
+						}}
+					/>
+				</HStack>
+			)}
+			{error && <Muted>{error}</Muted>}
+		</>
+	);
+}
+
+function PeopleSettings({ project }: { project: ProjectSession }) {
+	const { offer, problem } = useActingAs();
+	return (
+		<Group
+			title="Who a run acts as"
+			about="Your app's tools act for this person. Your setup file names the places and the people, and makes new ones."
+		>
+			{offer ? (
+				<PeoplePicker project={project} offer={offer} />
+			) : (
+				<Muted>{problem ?? 'Your setup file offers no people, so every run acts as no one.'}</Muted>
+			)}
+		</Group>
+	);
+}
+
 /** What the Project section can do to this tab; an action is absent when there is nothing for it to do. */
 export interface TabActions {
 	clearChats: () => void;
@@ -360,6 +577,8 @@ function SectionBody({ section, ...props }: StudioSettingsProps & { section: Set
 					{props.keys}
 				</Group>
 			);
+		case 'people':
+			return <PeopleSettings project={props.project} />;
 		case 'project':
 			return <ProjectSettings project={props.project} actions={props.actions} />;
 		default:
@@ -397,15 +616,18 @@ function SettingsNavHead({ project, version }: { project: ProjectSession; versio
 	);
 }
 
+/** The widest the settings grow, so a wide screen does not stretch a row across it. */
+const SETTINGS_WIDTH = '72rem';
+
 /** Settings, inside the studio's panel: the panel widens over the preview to hold them. */
 export function StudioSettings(props: StudioSettingsProps) {
 	const isNarrow = useMediaQuery('(max-width: 768px)');
 	const { section } = useSettingsDoor();
 	return (
 		<Section variant="transparent" height="100%" padding={0}>
+			{/* Starts at the left edge, as the tree and editor do; the settings keep a readable width. */}
 			<Layout
 				height="fill"
-				contentWidth="min(100%, 72rem)"
 				start={
 					isNarrow ? undefined : (
 						<Section variant="transparent" width={NAV_WIDTH} height="100%" padding={4} dividers={['end']}>
@@ -445,7 +667,7 @@ export function StudioSettings(props: StudioSettingsProps) {
 								/>
 							</HStack>
 						</Section>
-						<Section variant="transparent" padding={3}>
+						<Section variant="transparent" padding={3} maxWidth={SETTINGS_WIDTH}>
 							<VStack gap={4}>
 								{isNarrow && <SettingsNavHead project={props.project} version={props.version} />}
 								{isNarrow && (

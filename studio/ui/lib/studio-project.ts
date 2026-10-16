@@ -23,6 +23,7 @@ import type {
 	Unregistered,
 } from '../../server/save-wire.ts';
 import { createContext, useContext } from 'react';
+import type { StudioPeopleOffer } from '../../people.ts';
 import { getPref } from './studio-prefs.ts';
 
 import { READ_STEPS, type ReadStep } from '../../read-steps.ts';
@@ -62,6 +63,10 @@ export interface ProjectSession {
 	editor?: string;
 	/** The setup file the studio command was started on, from the folder it ran in. */
 	setup?: string;
+	/** The places and people the setup file offers a run to act as; none when it offers none. */
+	people: StudioPeopleOffer | undefined;
+	/** Why the people the setup file exports cannot be offered. */
+	peopleProblem: string | undefined;
 }
 
 /**
@@ -107,6 +112,8 @@ export function projectSession(name: string): ProjectSession {
 		providerPlaces: [],
 		asks: NO_ASKS,
 		print: '',
+		people: undefined,
+		peopleProblem: undefined,
 	};
 }
 
@@ -185,6 +192,8 @@ interface Opened {
 	unloaded?: string;
 	editor?: string;
 	setup?: string;
+	people?: StudioPeopleOffer;
+	peopleProblem?: string;
 }
 
 async function describe(): Promise<Opened> {
@@ -235,6 +244,8 @@ export type ProjectFiles = Pick<
 	| 'asks'
 	| 'print'
 	| 'unloaded'
+	| 'people'
+	| 'peopleProblem'
 >;
 
 /** What the files say, of a project as the server describes it. */
@@ -250,6 +261,9 @@ function filesOf(opened: Opened): ProjectFiles {
 		providerPlaces: opened.providerPlaces ?? [],
 		asks: opened.asks ?? NO_ASKS,
 		print: filesPrint(opened.workspace),
+		// Set even when absent, so a setup file that stops offering people stops being offered.
+		people: opened.people,
+		peopleProblem: opened.peopleProblem,
 		...(opened.unloaded === undefined ? {} : { unloaded: opened.unloaded }),
 	};
 }

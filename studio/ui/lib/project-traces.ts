@@ -1,6 +1,7 @@
 import { resolveObservabilityPolicy } from '@theoremjs/agents';
 import type { TraceFeed } from '@theoremjs/react/client';
 import type { StudioRunPayload } from '../../mod.ts';
+import { actingAsHeaders, type StudioActingAs } from '../../people.ts';
 import { eachLine, NDJSON } from '../../stream-lines.ts';
 import { studioTraceLine } from '../../transport.ts';
 
@@ -44,12 +45,14 @@ function tracedFetch(traces: TraceFeed): typeof fetch {
 
 /**
  * A transport to one of a project's profiles whose runs' traces land on `traces`, where the
- * trace panel reads them: the same panel a draft's run fills in the playground.
+ * trace panel reads them: the same panel a draft's run fills in the playground. Each run carries
+ * who it acts as, so the project's tools act for that person.
  */
 export function tracedTransport<T extends object>(
-	make: (options: { endpoint: string; fetch: typeof fetch }) => T,
+	make: (options: { endpoint: string; fetch: typeof fetch; headers: Record<string, string> }) => T,
 	endpoint: string,
 	traces: TraceFeed,
+	actingAs: StudioActingAs | undefined,
 ): T & { traces: TraceFeed } {
-	return { ...make({ endpoint, fetch: tracedFetch(traces) }), traces };
+	return { ...make({ endpoint, fetch: tracedFetch(traces), headers: actingAsHeaders(actingAs) }), traces };
 }

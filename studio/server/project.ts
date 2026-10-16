@@ -17,11 +17,15 @@ import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defaultKernelScope, type ProviderHostOptions } from '@theoremjs/agents';
 import { editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
+import type { StudioActingAs, StudioPeople } from '../people.ts';
 import { createStudioHandler, type ProjectQuestions } from './handler.ts';
 
 type SetupModule = {
   default?: () => unknown | Promise<unknown>;
-  host?: (request: Request) => unknown;
+  /** What the tools read as `ctx.host`, for the person the builder picked; `undefined` is no one. */
+  host?: (request: Request, actingAs: StudioActingAs | undefined) => unknown;
+  /** The places and people a run may act as. Read before it is trusted: a setup is not always type-checked. */
+  people?: StudioPeople;
   provider?: ProviderHostOptions;
   /** What each decision profile asks, by the profile's id. */
   questions?: ProjectQuestions;
@@ -51,6 +55,7 @@ if (import.meta.main) {
     pageOrigins: flag('page').split(','),
     listenHost: `127.0.0.1:${port}`,
     ...(setup.host ? { host: setup.host } : {}),
+    ...(setup.people !== undefined ? { people: setup.people } : {}),
     ...(setup.provider ? { provider: setup.provider } : {}),
     ...(questions ? { questions } : {}),
     upgrade: (request) => Deno.upgradeWebSocket(request),

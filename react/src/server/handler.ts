@@ -157,7 +157,10 @@ export type TheoremHandlerOptions = {
   provider:
     | ProviderHostOptions
     | ((ctx: TheoremRequestContext) => ProviderHostOptions | Promise<ProviderHostOptions>);
-  /** Opaque app context for tool handlers (`ctx.host`) — e.g. the signed-in user. */
+  /**
+   * Opaque app context for tool handlers (`ctx.host`) — e.g. the signed-in user. A promise is
+   * awaited before the run starts, so the tools read what it settles to.
+   */
   host?: (request: Request) => unknown;
   /**
    * What the host wants the agent to know on each turn: any JSON. The profile's
@@ -664,13 +667,14 @@ async function* settleAnswered(
   yield* invokeAnswered(ctx, request, session.id, answered);
 }
 
-function invokeAnswered(
+async function* invokeAnswered(
   ctx: HandlerContext,
   request: Request,
   sessionId: string,
   { callId, pending, answer }: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
-  return invokeTool({
+  const host = await ctx.options.host?.(request);
+  yield* invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, sessionId),
     pageExecution: sessionPageDispatch(ctx.sessions, sessionId, ctx.pageToolBroker).execution,
@@ -690,7 +694,7 @@ function invokeAnswered(
     promoted: pending.promoted,
     model: pending.model,
     signal: request.signal,
-    host: ctx.options.host?.(request),
+    host,
   });
 }
 
@@ -709,6 +713,7 @@ async function* chatTurn(
 ): AsyncGenerator<TurnEvent> {
   const state = await ctx.sessions.read(session.id);
   const provider = await providerFor(ctx, request, turn.model);
+  const host = await ctx.options.host?.(request);
   const key = turnId ? inboxKey(session.id, turnId) : undefined;
   if (key) await ctx.inbox.open(key);
   try {
@@ -722,7 +727,7 @@ async function* chatTurn(
         sessionPermissions: state.permissions,
         credentials: sessionCredentials(ctx, session.id),
         signal: request.signal,
-        host: ctx.options.host?.(request),
+        host,
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.effort ? { effort: turn.effort } : {}),
         ...(key ? { onStage: steerStage(ctx.inbox, key) } : {}),
@@ -915,6 +920,7 @@ async function* callEvents(
   body: TheoremHostCallRequest,
 ): AsyncGenerator<TurnEvent> {
   const state = await ctx.sessions.read(session.id);
+  const host = await ctx.options.host?.(request);
   const events = invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, session.id),
@@ -924,7 +930,7 @@ async function* callEvents(
     sessionPermissions: state.permissions,
     credentials: sessionCredentials(ctx, session.id),
     signal: request.signal,
-    host: ctx.options.host?.(request),
+    host,
   });
   yield* recorded(
     ctx.sessions,

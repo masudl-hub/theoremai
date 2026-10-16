@@ -22,7 +22,7 @@ import { createStudioHandler, type ProjectQuestions } from './handler.ts';
 
 type SetupModule = {
   default?: () => unknown | Promise<unknown>;
-  /** What the tools read as `ctx.host`, for the person the builder picked; `undefined` is no one. */
+  /** What the tools read as `ctx.host`, for the person the builder picked; `undefined` is no one. A promise is awaited first. */
   host?: (request: Request, actingAs: StudioActingAs | undefined) => unknown;
   /** The places and people a run may act as. Read before it is trusted: a setup is not always type-checked. */
   people?: StudioPeople;

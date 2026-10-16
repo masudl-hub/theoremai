@@ -64,6 +64,28 @@ registerTool({
   input: z.object({ q: z.string() }),
   output: z.object({}).passthrough(),
 });
+/** The person the host's context names, as the tool reads it. */
+function whoOf(host: unknown): string {
+  return typeof host === 'object' && host !== null && 'who' in host ? String(host.who) : 'no one';
+}
+for (const [name, permission] of [
+  ['host_handler_whoami', 'auto'],
+  ['host_handler_whoami_gated', 'always_confirm'],
+] satisfies [string, 'auto' | 'always_confirm'][]) {
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Say who the call runs for',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission,
+    input: z.object({}),
+    output: z.object({ who: z.string() }),
+    handler: (_input, ctx) => ({ who: whoOf(ctx.host) }),
+  });
+}
 type HostDefinition = Extract<
   ProfileDefinition,
   {
@@ -176,6 +198,32 @@ Deno.test('a gated call pauses, and runs only once the user approves it', async 
   // The answer's stream resumes the call the first one paused.
   assertEquals(toolEventsOf(settled, 'complete')[0]?.output, { deleted: 'r7' });
   assert(ran.includes('delete:r7'));
+});
+Deno.test('a host context that settles later reaches the tool, on a call and on an approved one', async () => {
+  const handler = createTheoremHostHandler({
+    profile: host('host-handler-async-host', ['host_handler_whoami', 'host_handler_whoami_gated']),
+    host: async () => {
+      await Promise.resolve();
+      return { who: 'dana' };
+    },
+  });
+  const transport = transportFor(handler);
+  const called = await collect((onEvent) =>
+    transport.call({ name: 'host_handler_whoami', input: {} }, onEvent),
+  );
+  assertEquals(toolEventsOf(called, 'complete')[0]?.output, { who: 'dana' });
+  const paused = await collect((onEvent) =>
+    transport.call({ name: 'host_handler_whoami_gated', input: {} }, onEvent),
+  );
+  const gate = toolEventsOf(paused, 'gate').at(-1);
+  assert(gate, 'expected the call to pause on a gate');
+  const approved = await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: issuedOperationId(gate), decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(toolEventsOf(approved, 'complete')[0]?.output, { who: 'dana' });
 });
 Deno.test('a host serves no chat: its turn route is refused', async () => {
   const handler = createTheoremHostHandler({

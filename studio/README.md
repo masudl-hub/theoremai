@@ -25,7 +25,7 @@ export function host(request: Request, actingAs: StudioActingAs | undefined): un
 }
 ```
 
-The builder picks a place and a person in Settings, under People. Each run carries the pick, `host` builds the tools' context from it, and each person keeps their own chat and session. Without `people`, every run acts as no one.
+The builder picks a place and a person in Settings, under People. Each run carries the pick, `host` builds the tools' context from it (it may be `async`; the run waits for it), and each person keeps their own chat and session. Without `people`, every run acts as no one.
 
 ## In the repo
 

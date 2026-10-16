@@ -122,7 +122,8 @@ export type StudioHandlerOptions = {
   listenHost: string;
   /**
    * Opaque application context for tool handlers (`ctx.host`): a database client, and the person
-   * the builder picked, in the place they picked. `undefined` is no one.
+   * the builder picked, in the place they picked. `undefined` is no one. A promise is awaited
+   * before the run starts.
    */
   host?: (request: Request, actingAs: StudioActingAs | undefined) => unknown;
   /** The places and people a run may act as. Without them every run acts as no one. */

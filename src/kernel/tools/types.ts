@@ -492,7 +492,10 @@ export interface InvokeToolRequest {
 /** One of the host's calls in a step. */
 export interface InvokeToolStepCall {
   name: string;
-  /** The model's call this runs; absent for the host's own call, which gets a fresh id. */
+  /**
+   * The model's call this runs, already announced by its turn; absent for the host's own
+   * call, which gets a fresh id and is announced by the step.
+   */
   callId?: string;
   /** invariant: Only the trusted host restores the kernel-issued identity from saved authority. */
   operationId?: string;

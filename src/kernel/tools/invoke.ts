@@ -223,6 +223,8 @@ async function* invokeStepTraced(
     : await prepareInvokeSnapshot(registry, request, profile);
   const { calls: given, ...shared } = request;
   const calls = given.map((call) => {
+    // why: A model's call was already announced by its turn; only a call the step names itself is announced here.
+    const announce = call.callId === undefined;
     const callId = call.callId ?? newCallId(call.name);
     const invoke: InvokeToolRequest = {
       ...shared,
@@ -231,10 +233,11 @@ async function* invokeStepTraced(
       callId,
       operationId: call.operationId ?? crypto.randomUUID(),
     };
-    return { callId, invoke };
+    return { callId, invoke, announce };
   });
   const stepId = crypto.randomUUID();
-  for (const { callId, invoke } of calls) {
+  for (const { callId, invoke, announce } of calls) {
+    if (!announce) continue;
     yield toolCallRequestEvent(
       { name: invoke.name, callId, operationId: invoke.operationId },
       toolCallArguments(invoke.input),

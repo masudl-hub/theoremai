@@ -2219,23 +2219,10 @@ function hostStep(prefix: string, parallel: boolean | undefined, extra: string[]
   return { log: probe.log, run };
 }
 
-Deno.test('a host step announces every call with one stepId, then runs them side by side', async () => {
+Deno.test("a host step runs the model's calls side by side and leaves their announces to the turn", async () => {
   const step = hostStep('host_step_parallel', true);
   const events = await step.run();
-  const raw = rawCallsOf(events);
-  assertEquals(
-    raw.map((call) => call.callId),
-    ['c1', 'c2'],
-  );
-  assertEquals(typeof raw[0]?.stepId, 'string');
-  assertEquals(raw[1]?.stepId, raw[0]?.stepId);
-  assertEquals(
-    raw.map((call) => call.stepCallCount),
-    [2, 2],
-  );
-  const firstPhase = events.findIndex((e) => e.type === 'tool' && e.tool.phase !== undefined);
-  const lastRaw = events.findLastIndex((e) => e.type === 'tool' && e.tool.phase === undefined);
-  assertEquals(lastRaw < firstPhase, true);
+  assertEquals(rawCallsOf(events), []);
   assertEquals(step.log.slice(0, 2), ['first start', 'second start']);
   assertEquals(
     toolEventsOf(events, 'complete')
@@ -2289,6 +2276,38 @@ Deno.test('in a host step, a call that gates waits for approval while the others
     ['c3'],
   );
   assertEquals(lastOf(events, 'done')?.stop, { kind: 'gate' });
+});
+
+Deno.test('a host step announces the calls it names itself with one stepId, before any runs', async () => {
+  hostStep('host_step_announce', true);
+  const events = await Array.fromAsync(
+    invokeToolStep({
+      profile: 'host_step_announce_true_host',
+      calls: [
+        { name: 'host_step_announce_first', input: {} },
+        { name: 'host_step_announce_second', callId: 'c2', input: {} },
+        { name: 'host_step_announce_second', input: {} },
+      ],
+    }),
+  );
+  const raw = rawCallsOf(events);
+  assertEquals(
+    raw.map((call) => call.name),
+    ['host_step_announce_first', 'host_step_announce_second'],
+  );
+  assertEquals(
+    raw.some((call) => call.callId === 'c2'),
+    false,
+  );
+  assertEquals(typeof raw[0]?.stepId, 'string');
+  assertEquals(raw[1]?.stepId, raw[0]?.stepId);
+  assertEquals(
+    raw.map((call) => call.stepCallCount),
+    [3, 3],
+  );
+  const firstPhase = events.findIndex((e) => e.type === 'tool' && e.tool.phase !== undefined);
+  const lastRaw = events.findLastIndex((e) => e.type === 'tool' && e.tool.phase === undefined);
+  assertEquals(lastRaw < firstPhase, true);
 });
 
 Deno.test('a host step writes one record: a span per call under the step root', async () => {

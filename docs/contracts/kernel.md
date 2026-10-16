@@ -958,7 +958,8 @@ host profile never enters.
 | `models` / `identity` / `inputs` / `outputs` / `turnBehaviour` / `key` / `maxSteps` | **no** | `registerProfile` rejects them when supplied |
 
 `invokeToolStep` runs several of the host's calls as one step, the way a turn
-runs the model's calls: every call is announced first with one `stepId`, then
+runs the model's calls: every call the step names itself (no `callId`) is
+announced first with one `stepId` (a model's call was announced by its turn), then
 they run side by side with `tools.parallel: true` or one at a time in the order
 given, and a call whose `pre_tool` answers `waitFor` starts once those calls in
 the step settle (a name outside the step fails as `wait_unknown`, a wait that

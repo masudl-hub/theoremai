@@ -14,6 +14,7 @@ import {
   createContext,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   use,
   useRef,
   useSyncExternalStore,
@@ -136,11 +137,7 @@ export function ConsoleFrame({
   style,
   children,
 }: ConsoleFrameProps) {
-  const narrow = useNarrow();
   const layoutRef = useRef<HTMLDivElement | null>(null);
-  // why: Children.count counts a null slot; toArray drops it, which is the child that is actually drawn.
-  const drawn = Children.toArray(children).length;
-  const paired = columns && drawn > 1;
   return (
     <WithTrace inspector={inspector}>
       <Layout
@@ -153,27 +150,50 @@ export function ConsoleFrame({
         }
         content={
           <LayoutContent padding={0} isScrollable={false}>
-            {paired && !narrow ? (
-              <ConsoleColumns
-                requestLabel={requestLabel}
-                basisWidth={layoutRef.current?.clientWidth ?? 0}
-              >
-                {children}
-              </ConsoleColumns>
-            ) : (
-              <ConsoleSingle
-                flush={flush}
-                wide={paired}
-                alone={!columns && drawn < 2}
-                maxWidth={maxWidth}
-              >
-                {children}
-              </ConsoleSingle>
-            )}
+            <ConsoleBody
+              layoutRef={layoutRef}
+              flush={flush}
+              columns={columns}
+              maxWidth={maxWidth}
+              requestLabel={requestLabel}
+            >
+              {children}
+            </ConsoleBody>
           </LayoutContent>
         }
       />
     </WithTrace>
+  );
+}
+
+/** The console's panels: a request and response side by side when there is room, else one column. */
+function ConsoleBody({
+  layoutRef,
+  flush,
+  columns,
+  maxWidth,
+  requestLabel,
+  children,
+}: Pick<ConsoleFrameProps, 'maxWidth' | 'requestLabel' | 'children'> & {
+  layoutRef: RefObject<HTMLDivElement | null>;
+  flush: boolean;
+  columns: boolean;
+}) {
+  const narrow = useNarrow();
+  // why: Children.count counts a null slot; toArray drops it, which is the child that is actually drawn.
+  const drawn = Children.toArray(children).length;
+  const paired = columns && drawn > 1;
+  if (paired && !narrow) {
+    return (
+      <ConsoleColumns requestLabel={requestLabel} basisWidth={layoutRef.current?.clientWidth ?? 0}>
+        {children}
+      </ConsoleColumns>
+    );
+  }
+  return (
+    <ConsoleSingle flush={flush} wide={paired} alone={!columns && drawn < 2} maxWidth={maxWidth}>
+      {children}
+    </ConsoleSingle>
   );
 }
 

@@ -18,6 +18,7 @@ import {
   type DetectAction,
   type Detector,
   DETECTORS,
+  recordOf,
 } from '@theoremjs/agents/guardrails';
 import { declaredSupportSchema, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
 import {
@@ -32,7 +33,6 @@ import {
   defaultToolSpec,
   draftKey,
   INLINE_LABELS,
-  recordOf,
   STUDIO_PROFILE_TYPES,
   type DecisionQuestionDraft,
   type GuardrailsDraft,
@@ -1366,33 +1366,17 @@ function failAt(spans: readonly StudioSourceSpan[], path: string, message: strin
   throw new ReadFail(message, at.line, at.column);
 }
 
+const PROVIDER_SETTINGS = new Set(['id', 'connection', 'keySlot', 'fallbackKeySlot', 'adapter']);
+
 function providerFrom(spec: Record<string, unknown>, current: StudioProvider, spans: readonly StudioSourceSpan[]): StudioProvider {
-  const settings = new Set(['id', 'connection', 'keySlot', 'fallbackKeySlot', 'adapter']);
   for (const key of Object.keys(spec)) {
-    if (!settings.has(key)) failAt(spans, key, `'${key}' isn't a provider setting the studio holds.`);
+    if (!PROVIDER_SETTINGS.has(key)) failAt(spans, key, `'${key}' isn't a provider setting the studio holds.`);
   }
   if (spec.id !== current.id) {
     failAt(spans, 'id', `The id stays '${current.id}': models and code name the provider by it.`);
   }
-  const adapter = isRecord(spec.adapter) && spec.adapter.kind === 'adapter' ? spec.adapter.id : undefined;
-  if (typeof adapter !== 'string') {
-    failAt(spans, 'adapter', 'adapter is one of the kernel adapters, called with nothing or with what its models take.');
-  }
-  const given = isRecord(spec.adapter) ? spec.adapter.support : undefined;
-  if (given !== undefined && !declaresSupport(adapter)) {
-    failAt(spans, 'adapter', `The ${adapter} adapter knows what each model takes: it is called with nothing.`);
-  }
-  const parsed = given === undefined ? undefined : declaredSupportSchema.safeParse(given);
-  if (parsed && !parsed.success) {
-    const [issue] = parsed.error.issues;
-    failAt(spans, 'adapter', `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'not what an adapter is told.'}`);
-  }
-  const told = toldSupport(adapter, parsed?.data);
-  const connection = spec.connection;
-  if (!isRecord(connection) || Object.values(connection).some((value) => typeof value !== 'string')) {
-    failAt(spans, 'connection', 'connection holds text settings here.');
-  }
-  const held = connection as Record<string, string>;
+  const { adapter, told } = adapterFrom(spec.adapter, spans);
+  const held = connectionFrom(spec.connection, spans);
   // An empty connection is what the file has to say for one that opened with none.
   const empty = Object.keys(held).length === 0 && current.connection === undefined;
   const provider: StudioProvider = {
@@ -1408,6 +1392,36 @@ function providerFrom(spec: Record<string, unknown>, current: StudioProvider, sp
     provider[slot] = value;
   }
   return provider;
+}
+
+/** The kernel adapter a provider's file calls, and what it tells that adapter each model takes. */
+function adapterFrom(written: unknown, spans: readonly StudioSourceSpan[]) {
+  const adapter = isRecord(written) && written.kind === 'adapter' ? written.id : undefined;
+  if (typeof adapter !== 'string') {
+    failAt(spans, 'adapter', 'adapter is one of the kernel adapters, called with nothing or with what its models take.');
+  }
+  const given = isRecord(written) ? written.support : undefined;
+  if (given !== undefined && !declaresSupport(adapter)) {
+    failAt(spans, 'adapter', `The ${adapter} adapter knows what each model takes: it is called with nothing.`);
+  }
+  const parsed = given === undefined ? undefined : declaredSupportSchema.safeParse(given);
+  if (parsed && !parsed.success) {
+    const [issue] = parsed.error.issues;
+    failAt(spans, 'adapter', `${issue?.path.join('.') ?? ''}: ${issue?.message ?? 'not what an adapter is told.'}`);
+  }
+  return { adapter, told: toldSupport(adapter, parsed?.data) };
+}
+
+/** A provider's connection: text settings, by name. */
+function connectionFrom(connection: unknown, spans: readonly StudioSourceSpan[]): Record<string, string> {
+  const wrong = 'connection holds text settings here.';
+  const held: Record<string, string> = {};
+  if (!isRecord(connection)) failAt(spans, 'connection', wrong);
+  for (const [name, value] of Object.entries(connection)) {
+    if (typeof value !== 'string') failAt(spans, 'connection', wrong);
+    held[name] = value;
+  }
+  return held;
 }
 
 /** A provider's file, as the provider it defines. Its id has to stay `current`'s. */

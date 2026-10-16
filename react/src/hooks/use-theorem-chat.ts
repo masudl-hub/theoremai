@@ -502,6 +502,20 @@ function deliveryOf(line: ChatLine): MessageDelivery | undefined {
   return SERVER_EVENTS.has(line.type) ? 'sent' : 'delivered';
 }
 
+/** Moves the message's delivery on to what `line` shows it reached, never back. */
+function advanceDelivery(
+  deliveryRef: ChatState['deliveryRef'],
+  setDelivery: ChatState['setDelivery'],
+  line: ChatLine,
+): void {
+  const delivery = deliveryRef.current;
+  const reached = deliveryOf(line);
+  if (!delivery || !reached) return;
+  if (DELIVERY_ORDER.indexOf(reached) > DELIVERY_ORDER.indexOf(delivery.status)) {
+    setDelivery({ status: reached });
+  }
+}
+
 /**
  * The transport, with each turn's events also clearing the steers they report
  * as landed (so the run's end requeues only the steers the agent never saw),
@@ -541,15 +555,7 @@ function useTappedTransport(
           state.pendingRef.current = removeLandedSteers(state.pendingRef.current, line);
           state.setPendingMessages((prev) => removeLandedSteers(prev, line));
         }
-        const delivery = state.deliveryRef.current;
-        const reached = deliveryOf(line);
-        if (
-          delivery &&
-          reached &&
-          DELIVERY_ORDER.indexOf(reached) > DELIVERY_ORDER.indexOf(delivery.status)
-        ) {
-          state.setDelivery({ status: reached });
-        }
+        advanceDelivery(state.deliveryRef, state.setDelivery, line);
         if (line.type === 'conversation') conversation.adopt(line.ref);
         else onTurnEventRef.current?.(line);
         onLine(line);

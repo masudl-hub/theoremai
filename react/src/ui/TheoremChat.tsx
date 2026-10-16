@@ -306,46 +306,7 @@ function ChatBody({
     chat.failure && <Banner status="error" role="alert" title={chat.failure.error} />
   );
 
-  // why: paddingInline={3} matches the dock's inset so the
-  // composer keeps its width when it moves.
-  if (landing) {
-    return (
-      <WithTrace inspector={inspector}>
-        <Layout
-          height="fill"
-          className={className}
-          style={style}
-          header={header}
-          content={
-            <LayoutContent padding={0}>
-              <VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
-                <ChatColumn maxWidth={maxWidth}>
-                  {emptyState ?? (
-                    <VStack gap={1}>
-                      <Text type="supporting" as="h2">
-                        {handle}
-                      </Text>
-                      <Text type="display-2" as="h1">
-                        {t('@theorem.chat.greeting')}
-                      </Text>
-                    </VStack>
-                  )}
-                </ChatColumn>
-                {composer && (
-                  <ChatColumn ref={composerRef} maxWidth={maxWidth}>
-                    {composer}
-                  </ChatColumn>
-                )}
-              </VStack>
-            </LayoutContent>
-          }
-        />
-      </WithTrace>
-    );
-  }
-
-  // why: with the composer in ChatLayout's own dock. The dock leaves 12px under the
-  // composer; paddingBlockEnd={3} adds 12px more for a 24px bottom margin.
+  const docked = { composer, composerRef, maxWidth };
   return (
     <WithTrace inspector={inspector}>
       <Layout
@@ -355,48 +316,131 @@ function ChatBody({
         header={header}
         content={
           <LayoutContent padding={0}>
-            <VStack height="100%">
-              <ChatLayout
+            {landing ? (
+              <ChatLanding {...docked} handle={handle} emptyState={emptyState} />
+            ) : (
+              <ChatThread
+                {...docked}
+                chat={chat}
+                iface={iface}
+                blocks={blocks}
+                handle={handle}
                 density={density}
                 scrollRef={scrollRef}
-                composer={
-                  composer && (
-                    <VStack paddingBlockEnd={3}>
-                      <ChatColumn ref={composerRef} maxWidth={maxWidth}>
-                        {composer}
-                      </ChatColumn>
-                    </VStack>
-                  )
-                }
-              >
-                <ChatColumn maxWidth={maxWidth}>
-                  <ChatTranscript
-                    blocks={blocks}
-                    handle={handle}
-                    streaming={chat.streaming}
-                    delivery={chat.delivery}
-                    answering={chat.answering}
-                    usage={usage}
-                    labels={iface.labels}
-                    imageOutput={
-                      iface.type === 'image'
-                        ? { ratio: parseAspectRatio(iface.image.aspectRatio) }
-                        : undefined
-                    }
-                    onToolDecision={(index, action) => {
-                      void chat.handleToolDecision(index, action);
-                    }}
-                    onAuthenticated={(index, secret) => {
-                      void chat.handleAuthenticated(index, secret);
-                    }}
-                  />
-                </ChatColumn>
-              </ChatLayout>
-            </VStack>
+                usage={usage}
+              />
+            )}
           </LayoutContent>
         }
       />
     </WithTrace>
+  );
+}
+
+/** Where the composer sits, and how wide the chat's column is. */
+type DockedComposer = {
+  composer: ReactNode;
+  composerRef: RefObject<HTMLElement | null>;
+  maxWidth: string;
+};
+
+/**
+ * The chat before its first message: the greeting, and the composer under it.
+ * why: paddingInline={3} matches the dock's inset so the composer keeps its width when it moves.
+ */
+function ChatLanding({
+  composer,
+  composerRef,
+  maxWidth,
+  handle,
+  emptyState,
+}: DockedComposer & { handle: string; emptyState: ChatBodyProps['emptyState'] }) {
+  const t = useLabels();
+  return (
+    <VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
+      <ChatColumn maxWidth={maxWidth}>
+        {emptyState ?? (
+          <VStack gap={1}>
+            <Text type="supporting" as="h2">
+              {handle}
+            </Text>
+            <Text type="display-2" as="h1">
+              {t('@theorem.chat.greeting')}
+            </Text>
+          </VStack>
+        )}
+      </ChatColumn>
+      {composer && (
+        <ChatColumn ref={composerRef} maxWidth={maxWidth}>
+          {composer}
+        </ChatColumn>
+      )}
+    </VStack>
+  );
+}
+
+/**
+ * The chat once it has messages: the transcript, with the composer in ChatLayout's own dock.
+ * why: the dock leaves 12px under the composer; paddingBlockEnd={3} adds 12px more for a 24px
+ * bottom margin.
+ */
+function ChatThread({
+  composer,
+  composerRef,
+  maxWidth,
+  chat,
+  iface,
+  blocks,
+  handle,
+  density,
+  scrollRef,
+  usage,
+}: DockedComposer &
+  Pick<ChatBodyProps, 'density' | 'scrollRef' | 'usage'> & {
+    chat: ReturnType<typeof useTheoremChat>;
+    iface: ComposerProfileInterface;
+    blocks: ReturnType<typeof useTheoremChat>['blocks'];
+    handle: string;
+  }) {
+  return (
+    <VStack height="100%">
+      <ChatLayout
+        density={density}
+        scrollRef={scrollRef}
+        composer={
+          composer && (
+            <VStack paddingBlockEnd={3}>
+              <ChatColumn ref={composerRef} maxWidth={maxWidth}>
+                {composer}
+              </ChatColumn>
+            </VStack>
+          )
+        }
+      >
+        <ChatColumn maxWidth={maxWidth}>
+          <ChatTranscript
+            blocks={blocks}
+            handle={handle}
+            streaming={chat.streaming}
+            delivery={chat.delivery}
+            answering={chat.answering}
+            usage={usage}
+            labels={iface.labels}
+            imageOutput={
+              iface.type === 'image'
+                ? { ratio: parseAspectRatio(iface.image.aspectRatio) }
+                : undefined
+            }
+            onToolDecision={(index, action) => {
+              void chat.handleToolDecision(index, action);
+            }}
+            onAuthenticated={(index, secret) => {
+              void chat.handleAuthenticated(index, secret);
+            }}
+          />
+        </ChatColumn>
+      </ChatLayout>
+    </VStack>
   );
 }
 

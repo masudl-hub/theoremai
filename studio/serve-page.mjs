@@ -53,18 +53,21 @@ function fileFor(pathname) {
 	}
 }
 
-createServer((request, response) => {
-	const { pathname } = new URL(request.url ?? '/', 'http://localhost');
+/** What a request is answered: the way to the page, nothing, or a built file or the page. */
+function answerFor(method, pathname) {
 	if (pathname === '/' || `${pathname}/` === PAGE_BASE) {
-		response.writeHead(302, { ...PAGE_HEADERS, Location: PAGE_BASE }).end();
-		return;
+		return { status: 302, headers: { ...PAGE_HEADERS, Location: PAGE_BASE } };
 	}
-	if ((request.method !== 'GET' && request.method !== 'HEAD') || !pathname.startsWith(PAGE_BASE)) {
-		response.writeHead(404, PAGE_HEADERS).end();
-		return;
-	}
+	const reads = method === 'GET' || method === 'HEAD';
+	if (!reads || !pathname.startsWith(PAGE_BASE)) return { status: 404, headers: PAGE_HEADERS };
 	const file = fileFor(pathname);
 	const type = file ? (TYPES[path.extname(pathname)] ?? 'application/octet-stream') : TYPES['.html'];
-	response.writeHead(200, { ...PAGE_HEADERS, 'Content-Type': type });
-	response.end(request.method === 'HEAD' ? undefined : (file ?? page));
+	const body = method === 'HEAD' ? undefined : (file ?? page);
+	return { status: 200, headers: { ...PAGE_HEADERS, 'Content-Type': type }, body };
+}
+
+createServer((request, response) => {
+	const { pathname } = new URL(request.url ?? '/', 'http://localhost');
+	const { status, headers, body } = answerFor(request.method, pathname);
+	response.writeHead(status, headers).end(body);
 }).listen(port, '127.0.0.1');

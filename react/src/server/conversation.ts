@@ -77,7 +77,8 @@ function waitingOn(conversation: StoredConversation, reference: GateReference): 
   );
 }
 
-type ErrorEvent = Extract<TurnEvent, { type: 'error' }>;
+/** A turn's failure, as a run ends on it. */
+export type ErrorEvent = Extract<TurnEvent, { type: 'error' }>;
 
 /** What a run needs from the host that runs it. */
 export type ConversationHost = {

@@ -674,6 +674,10 @@ export function SegmentedRow<T extends string>({
 		segment.isRecommended ? `${segment.label} (recommended)` : segment.label;
 	const described = (segment: Segment<T>) =>
 		(segment.isDisabled && segment.disabledMessage) || options?.[segment.value] || segment.description;
+	const choose = (next: string) => {
+		const segment = segments.find((candidate) => candidate.value === next);
+		if (segment) onChange(segment.value);
+	};
 	return (
 		<InspectorRow
 			label={label}
@@ -699,10 +703,7 @@ export function SegmentedRow<T extends string>({
 							disabled: segment.isDisabled,
 							description: described(segment),
 						}))}
-						onChange={(next) => {
-							const segment = segments.find((candidate) => candidate.value === next);
-							if (segment) onChange(segment.value);
-						}}
+						onChange={choose}
 					/>
 				) : (
 					<SegmentedControl
@@ -711,10 +712,7 @@ export function SegmentedRow<T extends string>({
 						layout="fill"
 						value={value}
 						isDisabled={isDisabled}
-						onChange={(next) => {
-							const segment = segments.find((candidate) => candidate.value === next);
-							if (segment) onChange(segment.value);
-						}}
+						onChange={choose}
 					>
 						{segments.map((segment) => {
 							const description = described(segment);

@@ -15,6 +15,7 @@ export type {
 export {
   BOUNDARIES,
   BOUNDARY_META,
+  recordOf,
   TOOL_BOUNDARIES,
   TOOL_KINDS,
   toolBoundary,

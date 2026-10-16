@@ -29,13 +29,18 @@ export function useGlide<T extends HTMLElement>(
     if (from === null) return;
     heldTop.current = null;
     onLand?.();
-    const delta = from - el.getBoundingClientRect().top;
-    if (delta === 0 || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    const tokens = getComputedStyle(el);
-    el.animate([{ transform: `translateY(${String(delta)}px)` }, { transform: 'none' }], {
-      duration: tokenMs(tokens.getPropertyValue('--duration-medium'), 410),
-      easing: tokens.getPropertyValue('--ease-standard').trim() || 'ease-out',
-    });
+    glideFrom(el, from);
   });
   return ref;
+}
+
+/** Slides `el` from where it was held, `from`, to where it now sits, unless motion is reduced. */
+function glideFrom(el: HTMLElement, from: number): void {
+  const delta = from - el.getBoundingClientRect().top;
+  if (delta === 0 || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const tokens = getComputedStyle(el);
+  el.animate([{ transform: `translateY(${String(delta)}px)` }, { transform: 'none' }], {
+    duration: tokenMs(tokens.getPropertyValue('--duration-medium'), 410),
+    easing: tokens.getPropertyValue('--ease-standard').trim() || 'ease-out',
+  });
 }

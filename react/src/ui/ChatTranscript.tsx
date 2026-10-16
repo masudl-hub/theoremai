@@ -686,6 +686,12 @@ function personGate(tool: ToolBlock['tool']) {
   return tool.state.gate;
 }
 
+/** The answer on its way for this tool's gate, if the one being sent is this tool's. */
+function answerSent(answering: BlockHandlers['answering'], tool: ToolBlock['tool']) {
+  const ours = answering?.callId === tool.callId && answering?.operationId === tool.operationId;
+  return ours ? answering.action : null;
+}
+
 function GateCard({
   block,
   handle,
@@ -699,11 +705,7 @@ function GateCard({
   const gate = personGate(tool);
   if (!gate) return null;
   const index = handlers.indexOf(block);
-  const answer =
-    handlers.answering?.callId === tool.callId &&
-    handlers.answering?.operationId === tool.operationId
-      ? handlers.answering.action
-      : null;
+  const answer = answerSent(handlers.answering, tool);
   if (gate.kind === 'auth') {
     return (
       <AuthChallengeCard

@@ -20,6 +20,7 @@ import {
   DETECTORS,
   detects,
   PATTERN_DETECTORS,
+  recordOf,
   type TaintGate,
   type UrlDetector,
 } from '@theoremjs/agents/guardrails';
@@ -61,14 +62,6 @@ import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } 
 import { keySlotUnset } from './requirements.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
 import type { StudioToolSpecSeed } from './types.ts';
-
-/** One value for each of `keys`, by key. */
-export function recordOf<K extends string, V>(
-  keys: readonly K[],
-  value: (key: K) => V,
-): Record<K, V> {
-  return Object.fromEntries(keys.map((key) => [key, value(key)])) as Record<K, V>;
-}
 
 export type StudioProfileType = ProfileType;
 

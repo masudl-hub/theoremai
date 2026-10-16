@@ -35,7 +35,9 @@
     // What a Vite build needs to show the screen, published as `@theoremjs/studio/vite`.
     "studio/vite.mjs",
     // The studio on its own: the command that starts it, its page, and its opt-in tests.
+    // start.mjs runs serve-page.mjs as its own process, by path, so nothing imports it.
     "studio/start.mjs",
+    "studio/serve-page.mjs",
     "studio/app/main.tsx",
     "studio/app/vite.config.ts",
     "studio/tests/**/*.ts",

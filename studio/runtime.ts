@@ -102,7 +102,7 @@ function assertNotLiveProfile(profileType: string, action: string): void {
 }
 
 /** A compiled draft as a run takes it. */
-type StudioDraftRun = {
+export type StudioDraftRun = {
   profile: ProfileDefinition;
   customTools: ToolRegistration[];
   structured?: StructuredRegistration;

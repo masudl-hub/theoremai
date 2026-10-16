@@ -245,8 +245,6 @@ const conversationView = z.object({
     .optional(),
 });
 true satisfies Equals<z.infer<typeof conversationView>, ConversationView>;
-/** A conversation as the host shows it. */
-export const conversationViewSchema: z.ZodType<ConversationView> = conversationView;
 
 /** Read a conversation: a `/conversation` body. */
 export type TheoremConversationRequest = { conversation: string };

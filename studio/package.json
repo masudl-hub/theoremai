@@ -26,6 +26,7 @@
   },
   "peerDependencies": {
     "@astryxdesign/core": "0.7.0",
+    "@astryxdesign/theme-neutral": "0.7.0",
     "@stylexjs/stylex": "0.19.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -33,6 +34,7 @@
   },
   "devDependencies": {
     "@astryxdesign/core": "0.7.0",
+    "@astryxdesign/theme-neutral": "0.7.0",
     "@stylexjs/stylex": "0.19.0",
     "@theoremjs/agents": "file:..",
     "@theoremjs/react": "file:../react",

@@ -53,7 +53,12 @@ import { startCallTrace } from '../turn-trace.ts';
 import { applyStageInjects } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
-import { isWithheldOnBlock, type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
+import {
+  isWithheldOnBlock,
+  type OutboundStreamControl,
+  shownToHost,
+  yieldProviderEvents,
+} from './stream.ts';
 import { callTokensEvent, observeCallEvent, startCallUsage } from './usage.ts';
 
 function isStepLimitReached(step: number, maxSteps: number): boolean {
@@ -296,6 +301,7 @@ async function* executeAutonomousStep(
       givenUrls: state.givenUrls,
       canaryGiven: state.canaryGiven,
       ...(state.ownTools ? { ownTools: state.ownTools } : {}),
+      tools: state.tools,
     })) {
       if (observeCallEvent(usage, event)) continue;
       if (event.type === 'done') {
@@ -304,8 +310,16 @@ async function* executeAutonomousStep(
         state.lastStop = event.stop;
         continue;
       }
+      if (event.type === 'tool_draft') {
+        // why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
+        // as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
+        if (!buffer.holdVisible) yield event;
+        continue;
+      }
       if (tallyCallEvent(event, tally, call)) continue;
-      if (releasesNow(event, control, state, buffer)) yield event;
+      if (!releasesNow(event, control, state, buffer)) continue;
+      const shown = shownToHost(event, genForStep);
+      if (shown) yield shown;
     }
   } catch (err) {
     call.end(
@@ -544,6 +558,7 @@ async function* handleModelCalls(
     signal,
     stepCalls: calls.map((call) => ({ callId: call.callId, tool: call.name, input: call.shown })),
     wait: order.wait,
+    drafts: generation.stream !== false,
   };
   const turn = {
     step: state.stepCount,

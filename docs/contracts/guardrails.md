@@ -73,7 +73,7 @@ Owns every module under `src/guardrails/`.
 | `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak, also backwards, in rot13 or in leetspeak |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
 | `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress hold; audio streams once its message's transcript clears) |
-| `progressive-yield.ts` | Streaming gate for a reply: exact hold for the detectors and a host's patterns, a fixed tail for a host's `find` |
+| `progressive-yield.ts` | Streaming gate for a reply, and for a draft of a tool call or a tool's output (`createToolDraftGate`): exact hold for the detectors and a host's patterns, a fixed tail for a host's `find` |
 | `detectors.ts` | `DETECTORS`, each one's declaration and defaults, `resolveDetect`, `resolveAllow` |
 | `detect-reply.ts` | `readReply` — a reply read whole at its boundaries when the attempt ends |
 | `detect-stream.ts` | A reply read as it streams: what is released, replaced or held |
@@ -793,7 +793,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `repair` | A stopped reply and the reason, handed back to the model |
 | `live_user` | Text the person sends in a Live session |
 | `tool_arguments_<kind>` | What the model sends to a tool of that type |
-| `tool_output_<kind>` | What a tool of that type returns |
+| `tool_output_<kind>` | What a tool of that type returns, and each `progress` and `draft` its handler sends before that |
 | `tool_failure_<kind>` | The error text of a tool of that type that failed |
 | `reply` | The text the model says to the person |
 | `reply_structured` | The structured output the model returns |
@@ -1250,6 +1250,15 @@ never asked for. A profile that sets `redact` has the tool called with the
 placeholder in each string that held a match; one that sets `block` has the
 tool not called. Arguments that cannot be serialized, and a provider builtin's,
 are not read.
+
+**Drafts.** A `tool_draft` shows a call to the host before this check reads
+it, so the runner reads each draft at the same `tool_arguments_<kind>`
+boundary as it streams (`createToolDraftGate`). The draft gate never rewrites.
+A match that the call's check would `redact` or `block` stops the draft
+instead, because the host sees the call only as that check leaves it. A `flag`
+lets the draft go on, and the check of the whole call reports it. A canary
+stops the draft as it stops a reply. When no detector reads that boundary,
+the draft passes as it comes.
 
 The tool boundary's rules (all ids: [Rule ids](#rule-ids)):
 

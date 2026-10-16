@@ -490,6 +490,10 @@ const GUARDRAIL_CHECK_OPTIONS: Readonly<Record<GuardrailCheck, TraceOptionMeta>>
     label: 'Streamed leak check',
     doc: "Checked each streamed tool call and other non-text output for the system prompt's canary.",
   },
+  tool_draft: {
+    label: 'Tool call preview check',
+    doc: 'Checked a tool call piece by piece as the model wrote it, before the host saw each piece.',
+  },
   live_input: { label: 'Live input check', doc: 'Checked text the host sent into a live session.' },
   live_output: {
     label: 'Live output check',

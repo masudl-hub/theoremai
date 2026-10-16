@@ -22,6 +22,7 @@ import { foldResponse } from '../shared/response-identity.ts';
 import { parseSseStream } from '../shared/sse.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
 import { toolCallEvents } from '../shared/tool-args.ts';
+import { type StreamingToolCall, toolDraftEvents } from '../shared/tool-draft.ts';
 import { networkFetch, tapFetch } from '../shared/upstream-tap.ts';
 import { bearerFetch, requireKey } from '../shared/vault.ts';
 import type { LocalTransport } from '../types.ts';
@@ -45,7 +46,7 @@ interface OpenAiChoice {
   finish_reason?: string | null;
 }
 
-export type PendingToolCall = { id: string; name: string; args: string };
+export type PendingToolCall = StreamingToolCall & { id: string };
 
 function normalizeBaseUrl(baseUrl: string): string {
   let end = baseUrl.length;
@@ -229,6 +230,7 @@ function* eventsFromChoiceDelta(
   if (!delta) return;
   if (delta.content) yield { type: 'text', text: delta.content };
   accumulateToolCalls(delta.tool_calls, pending);
+  for (const call of pending.values()) yield* toolDraftEvents(call);
 }
 
 function accumulateToolCalls(

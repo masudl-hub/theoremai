@@ -12,6 +12,7 @@ import { foldResponse } from '../../shared/response-identity.ts';
 import { readSseChunks } from '../../shared/sse.ts';
 import { structuredEvent } from '../../shared/structured-output.ts';
 import { toolCallEvents } from '../../shared/tool-args.ts';
+import { toolDraftEvents } from '../../shared/tool-draft.ts';
 import { readGeminiApiError, readNonOkError } from '../api-error.ts';
 import { groundingFromDelta } from '../grounding.ts';
 import { fetchGemini, type GeminiTransport } from '../keys.ts';
@@ -47,7 +48,9 @@ const HTTP_OK = 200;
  * `eventsFromStep` the buffered body uses, so both modes emit each step once
  * and whole. A step still open when the stream ends was never finished by the
  * provider: it is emitted as `evidence` marked `partial` with what arrived, and
- * a partial `function_call` never becomes a tool call.
+ * a partial `function_call` never becomes a tool call. While a streamed
+ * `function_call` is open, each `arguments_delta` also goes out as a
+ * `tool_draft`, a preview only: the call at `step.stop` owns the arguments.
  */
 
 export interface StreamFold {
@@ -152,8 +155,16 @@ function foldStepDelta(payload: Record<string, unknown>, fold: StreamFold): Prov
   if (delta.type === 'arguments_delta') {
     // why: Replaces the `arguments: {}` placeholder from `step.start` with the streamed JSON string.
     const sofar = typeof open.arguments === 'string' ? open.arguments : '';
-    open.arguments = sofar + (typeof delta.arguments === 'string' ? delta.arguments : '');
-    return [];
+    const args = sofar + (typeof delta.arguments === 'string' ? delta.arguments : '');
+    open.arguments = args;
+    if (open.type !== 'function_call') return [];
+    // why: The call at `step.stop` goes out under the `id` and `name` that `step.start` gave.
+    return toolDraftEvents({
+      id: nonEmptyString(open.id),
+      name: typeof open.name === 'string' ? open.name : '',
+      args,
+      drafted: sofar.length,
+    });
   }
   Object.assign(open, delta);
   return [];

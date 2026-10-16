@@ -24,3 +24,8 @@ Deno.test('readStreamingJsonStringField treats regex characters in keys literall
 Deno.test('readStreamingJsonStringField skips matching text inside earlier values', () => {
   assertEquals(readStreamingJsonStringField('{"other":"message","message":"ok"}', 'message'), 'ok');
 });
+
+Deno.test('readStreamingJsonStringField leaves out an escape cut off at the end', () => {
+  assertEquals(readStreamingJsonStringField('{"message":"ab\\u00', 'message'), 'ab');
+  assertEquals(readStreamingJsonStringField('{"message":"ab\\', 'message'), 'ab');
+});

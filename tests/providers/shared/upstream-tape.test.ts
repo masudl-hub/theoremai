@@ -16,7 +16,7 @@ import {
   scrubUpstream,
   tapeUpstream,
 } from '../../../src/providers/shared/upstream-tape.ts';
-import { eventTypesByReply, replyText } from '../../fixtures/reply.ts';
+import { eventTypesByReply, structuredDraftText } from '../../fixtures/reply.ts';
 import { catalogedSink, catalogGate } from '../../fixtures/trace-catalog.ts';
 
 const INPUT_TOKENS = 11;
@@ -150,14 +150,14 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
   // profile asks for: that is found when the reply is read whole, after `before_end`.
   assertEquals(eventTypesByReply(events), [
     'stage',
-    'text',
+    'structured_draft',
     'tokens',
     'stage',
     'error',
     'done',
     'stage',
   ]);
-  assertEquals(replyText(events), 'yo');
+  assertEquals(structuredDraftText(events), 'yo');
   assertEquals(
     events.filter((e) => e.type === 'stage').map((e) => e.stage),
     ['pre_turn', 'before_end', 'post_turn'],

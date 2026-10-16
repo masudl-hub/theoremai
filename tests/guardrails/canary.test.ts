@@ -37,7 +37,7 @@ import { camelToSnake, toInteractionsBody } from '../../src/providers/google/int
 import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { lastOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
-import { replyText } from '../fixtures/reply.ts';
+import { structuredDraftText } from '../fixtures/reply.ts';
 
 const CANARY_RE = /^[0-9a-f]{32}$/;
 
@@ -166,7 +166,8 @@ Deno.test('runTurn releases a thought that quotes the bind note without the toke
     events.some((event) => event.type === 'error'),
     false,
   );
-  assertEquals(replyText(events), 'after note');
+  // why: `chat` asks for structured output, so its text reaches the host as the JSON's draft.
+  assertEquals(structuredDraftText(events), 'after note');
 });
 
 Deno.test('redactCanary replaces the token in text events', () => {
@@ -208,6 +209,7 @@ Deno.test('canary stream gate withholds a token split across chunks and what fol
       control,
       call: { tap: () => {}, observe: () => {} },
       givenUrls: givenUrlSets(),
+      tools: defaultKernelScope.tools,
     }),
   );
 
@@ -246,6 +248,7 @@ Deno.test('canary stream gate omits the canary from a thought and reports it', a
       provider: { complete: thoughtLeak },
       call: { tap: () => {}, observe: () => {} },
       givenUrls: givenUrlSets(),
+      tools: defaultKernelScope.tools,
     }),
   );
 
@@ -289,6 +292,7 @@ Deno.test('a thought held at its end is released when the reply starts', async (
       provider: { complete: thenReply },
       call: { tap: () => {}, observe: () => {} },
       givenUrls: givenUrlSets(),
+      tools: defaultKernelScope.tools,
     }),
   );
 

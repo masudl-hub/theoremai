@@ -511,3 +511,29 @@ Deno.test('compatible chat assembles delayed and fragmented tool identity', asyn
     q: 1,
   });
 });
+
+Deno.test('createLocalProvider drafts a streamed tool call once it has an id and a name', async () => {
+  const provider = createLocalProvider({
+    baseUrl: 'http://local.test',
+    fetch: () =>
+      Promise.resolve(
+        sseResponse([
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"x\\":"}}]}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"ping"}}]}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1}"}}]},"finish_reason":"tool_calls"}]}\n\n',
+          'data: [DONE]\n\n',
+        ]),
+      ),
+  });
+  const events = await Array.fromAsync(
+    provider.complete(baseReq({ wireTools: [testWireTool('ping')] })),
+  );
+  assertEquals(
+    eventsOf(events, 'tool_draft').map(({ callId, name, text }) => ({ callId, name, text })),
+    [
+      { callId: 'c1', name: 'ping', text: '{"x":' },
+      { callId: 'c1', name: 'ping', text: '1}' },
+    ],
+  );
+  assertEquals(rawCallsOf(events), [{ name: 'ping', callId: 'c1', arguments: { x: 1 } }]);
+});

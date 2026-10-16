@@ -221,8 +221,13 @@ export interface ToolCall {
   operationId?: string;
   name: string;
   callId: string;
-  /** What the model proposed. */
+  /** What the model proposed. `{}` while the model is still writing the call (`draft`). */
   arguments: Record<string, unknown>;
+  /**
+   * While the model is still writing the call: its arguments' JSON text so far, from its
+   * `tool_draft` events. Gone once the call arrives whole; `argumentsSoFar` reads it.
+   */
+  draft?: string;
   /** The call's `ToolCallRequest.thoughtSignature`: history replays the call with it. */
   thoughtSignature?: string;
   /** The call's `ToolCallRequest.stepId`: calls sharing it replay as one assistant message. */
@@ -233,6 +238,11 @@ export interface ToolCall {
   activity?: string;
   /** What the call did, from its `complete` phase, or that it failed, from its `error` phase. */
   activityPast?: string;
+  /**
+   * While the call runs: what the tool has written of its output so far, from its `draft` phases
+   * (an agent tool's: its agent's reply). Gone once the call settles; `state` has the output.
+   */
+  outputDraft?: string;
   /** Absent while the call has only been made. */
   state?: ToolCallState;
   /** When it last started running (epoch ms). */
@@ -249,7 +259,13 @@ export interface ToolBlock extends TranscriptBlockBase {
 
 export interface StructuredBlock extends TranscriptBlockBase {
   kind: 'structured';
+  /** The reply; while `draft` is set, what of it the model has written so far (`partialJsonObject`). */
   value: unknown;
+  /**
+   * The JSON the model has written so far, from `structured_draft` events. Gone once the
+   * `structured` event arrives, which owns the reply.
+   */
+  draft?: string;
 }
 
 export interface MediaBlock extends TranscriptBlockBase {

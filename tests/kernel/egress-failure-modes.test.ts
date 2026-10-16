@@ -202,3 +202,19 @@ Deno.test('thoughts keep streaming after a block withholds the reply', async () 
   );
   assertEquals(texts(events), [labelDefault('egress.refusal')]);
 });
+
+Deno.test('no tool draft shows after a block withholds the reply', async () => {
+  profile(
+    'fm_draft_after_block',
+    findWhere((text) => text.includes('leak')),
+  );
+  const provider: ModelProvider = {
+    async *complete() {
+      yield { type: 'text', text: 'leak' };
+      yield { type: 'tool_draft', callId: 'call_1', name: 'lookup', text: '{"q":"x"}' };
+    },
+  };
+  const events = await collect('fm_draft_after_block', provider);
+  assertEquals(eventsOf(events, 'tool_draft'), []);
+  assertEquals(texts(events), [labelDefault('egress.refusal')]);
+});

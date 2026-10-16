@@ -44,7 +44,7 @@ import {
   rawCallsOf,
 } from '../fixtures/events.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
-import { eventTypesByReply, replyText } from '../fixtures/reply.ts';
+import { eventTypesByReply, replyText, structuredDraftText } from '../fixtures/reply.ts';
 import { invokeRegisteredTool, withProfileTools } from '../fixtures/test-tools.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
@@ -311,7 +311,7 @@ Deno.test('selectable profile picks model and pinned thinking', () => {
   assertEquals(smart.generation.model, 'gemini31ProPreview');
   assertEquals(smart.generation.thinking, 'high');
 });
-Deno.test('model builtInTools lists search and maps when both are allowlisted', () => {
+Deno.test('model builtInTools drops maps when search is listed beside it', () => {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -333,7 +333,7 @@ Deno.test('model builtInTools lists search and maps when both are allowlisted', 
     profile: 'mutex_grounding',
     input: { text: 'x' },
   });
-  assertEquals(generation.builtins, ['googleSearch', 'googleMaps']);
+  assertEquals(generation.builtins, ['googleSearch']);
 });
 Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
   registerProfile(
@@ -344,7 +344,7 @@ Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
       models: {
         gemini35FlashLite: {
           ...requireModelProfile(getProfile('chat'), 'test').models.gemini35FlashLite,
-          builtInTools: ['googleSearch', 'googleMaps'],
+          builtInTools: ['googleSearch', 'urlContext'],
         },
       },
       maxSteps: 1,
@@ -357,7 +357,7 @@ Deno.test('model builtInTools ceiling blocks unlisted builtins', () => {
     profile: 'ceiling_grounding',
     input: { text: 'x' },
   });
-  assertEquals(generation.builtins, ['googleSearch', 'googleMaps']);
+  assertEquals(generation.builtins, ['googleSearch', 'urlContext']);
 });
 Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', () => {
   const idle = resolveTurn({ profile: 'chat', input: { text: 'x' } });
@@ -463,14 +463,14 @@ Deno.test('invokeTool ask_user is denied until allowed', async () => {
   assertEquals(failureOf(toolEv)?.code, 'not_allowed');
   assertEquals(failureOf(toolEv)?.kind, 'blocked');
 });
-Deno.test('runTurn oneshot yields text structured done', async () => {
+Deno.test('runTurn oneshot yields structured_draft structured done', async () => {
   const events = await Array.fromAsync(runTurn({ profile: 'chat', input: { text: 'flow' } }, fake));
   const types = events.map((e) => e.type);
   assertEquals(types.includes('stage'), true);
   assertEquals(
     eventTypesByReply(events).filter((t) => t !== 'stage'),
     // The structured output waits for the reply's verdict: `reply_structured` is read for leaks.
-    ['text', 'tokens', 'structured', 'done'],
+    ['structured_draft', 'tokens', 'structured', 'done'],
   );
   assertEquals(
     eventsOf(events, 'stage').map((e) => e.stage),
@@ -750,7 +750,7 @@ Deno.test('runTurn skips optional field validators when optional path is omitted
   });
   assertDoneThenPostTurn(events);
 });
-Deno.test('runTurn streams thought and text live while validation buffers structured', async () => {
+Deno.test('runTurn streams thought and the JSON live while validation buffers structured', async () => {
   registerProfile({
     type: 'text',
     id: 'streamWhileValidate',
@@ -782,12 +782,12 @@ Deno.test('runTurn streams thought and text live while validation buffers struct
   );
   const types = events.map((e) => e.type);
   assertEquals(types.includes('thought'), true);
-  assertEquals(types.includes('text'), true);
+  assertEquals(types.includes('text'), false);
   assertEquals(types.includes('structured'), true);
   assertEquals(types.filter((t) => t === 'thought').length, 1);
-  assertEquals(replyText(events), '{"code":');
+  assertEquals(structuredDraftText(events), '{"code":');
   assertEquals(types.indexOf('thought') < types.indexOf('structured'), true);
-  assertEquals(types.indexOf('text') < types.indexOf('structured'), true);
+  assertEquals(types.indexOf('structured_draft') < types.indexOf('structured'), true);
   assertDoneThenPostTurn(events);
 });
 Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of retries sends the last as it is', async () => {
@@ -828,7 +828,9 @@ Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of 
     runTurn({ profile: 'bufferedRetry', input: { text: 'go' } }, { complete: mockComplete }),
   );
   assertEquals(callCount, 2);
-  assertEquals(replyText(retried), '{"code":"good"}');
+  // why: Buffered, the `structured` event is the reply whole; its JSON is not sent again as text.
+  assertEquals(replyText(retried), '');
+  assertEquals(structuredDraftText(retried), '');
   assertEquals(
     eventsOf(retried, 'thought')
       .map((e) => e.text)
@@ -840,14 +842,14 @@ Deno.test('buffered delivery keeps a rewritten attempt off the host, and out of 
     [{ code: 'good' }],
   );
   const types = retried.map((e) => e.type);
-  assertEquals(types.lastIndexOf('thought') < types.indexOf('text'), true);
+  assertEquals(types.lastIndexOf('thought') < types.indexOf('structured'), true);
   assertDoneThenPostTurn(retried);
   callCount = 0;
   const spent = await Array.fromAsync(
     runTurn({ profile: 'bufferedSpent', input: { text: 'go' } }, { complete: mockComplete }),
   );
   assertEquals(callCount, 1);
-  assertEquals(replyText(spent), '{"code":"bad"}');
+  assertEquals(replyText(spent), '');
   assertEquals(
     eventsOf(spent, 'structured').map((e) => e.structured),
     [{ code: 'bad' }],
@@ -883,7 +885,7 @@ Deno.test('streamed delivery shows a failed attempt, and out of retries the last
     runTurn({ profile: 'streamThenRetry', input: { text: 'go' } }, { complete: mockComplete }),
   );
   assertEquals(callCount, 2);
-  assertEquals(replyText(events), 'attempt 1. attempt 2. ');
+  assertEquals(structuredDraftText(events), 'attempt 1. attempt 2. ');
   assertEquals(
     eventsOf(events, 'structured').map((e) => e.structured),
     [{ code: 'v2' }],

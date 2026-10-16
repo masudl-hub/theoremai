@@ -78,10 +78,10 @@ Deno.test('a retried reply is marked, and only the kept attempt folds', async ()
   );
   const attempts = of(events, 'attempt');
   assertEquals(attempts, [{ type: 'attempt', attempt: 1, reason: 'validation' }]);
-  // The first attempt's text went out before the marker; the kept reply drops it.
+  // The first attempt's draft went out before the marker; the kept reply drops it.
   const kept = keptReply(events);
   assertEquals(
-    of(kept, 'text')
+    of(kept, 'structured_draft')
       .map((e) => e.text)
       .join(''),
     JSON.stringify({ title: 'good' }),

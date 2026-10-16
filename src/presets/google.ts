@@ -79,18 +79,20 @@ const grounding = (googleSearch: boolean, googleMaps: boolean): GoogleFreeTierGr
 
 /**
  * Models with a non-zero free-tier quota, and the grounding each allows (AI Studio, Sep 2026).
+ * No model keeps free Maps quota: 3.5 Flash-Lite turns with Maps are refused as over quota
+ * (live, 13/10/2026).
  * A builtin with no quota is refused as if over quota: on Live, a close 1011 "You exceeded your
  * current quota" at setup, whatever the key's usage (live, 01/10/2026).
  */
 const GOOGLE_FREE_TIER_GROUNDING: Readonly<Record<string, GoogleFreeTierGrounding>> = {
-  'gemini-2.5-flash-lite': grounding(true, true),
-  'gemini-2.5-flash': grounding(true, true),
+  'gemini-2.5-flash-lite': grounding(true, false),
+  'gemini-2.5-flash': grounding(true, false),
   'gemini-2.5-flash-preview-tts': grounding(true, false),
   'gemini-3-flash-preview': grounding(false, false),
-  'gemini-3.1-flash-lite': grounding(false, true),
+  'gemini-3.1-flash-lite': grounding(false, false),
   'gemini-3.1-flash-lite-image': grounding(false, false),
-  'gemini-3.1-flash-tts-preview': grounding(false, true),
-  'gemini-3.5-flash-lite': grounding(false, true),
+  'gemini-3.1-flash-tts-preview': grounding(false, false),
+  'gemini-3.5-flash-lite': grounding(false, false),
   'gemini-3.5-flash': grounding(false, false),
   'gemini-3.6-flash': grounding(false, false),
   'gemini-3.7-flash': grounding(false, false),
@@ -230,6 +232,8 @@ const GOOGLE_BUILTIN_TOOLS = [
     paths: ['*'],
     loadTier: 'T0' as const,
     permission: 'auto' as const,
+    // why: Google refuses a request that carries Maps with Search or URL context.
+    conflictsWith: ['googleSearch', 'urlContext'],
   },
   {
     type: 'builtin' as const,

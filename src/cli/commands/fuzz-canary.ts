@@ -196,6 +196,7 @@ async function runStreamChannel(
         ),
         privateSystem: [bindCanary(FUZZ_SYSTEM, canary)],
         provider: { complete: () => replay(turn) },
+        tools: defaultKernelScope.tools,
         // why: The fuzz reads what reaches the client, not the trace.
         call: { tap: () => {}, observe: () => {} },
         control,

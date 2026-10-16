@@ -257,6 +257,7 @@ export type ProviderContentEvent = Extract<
       | 'evidence'
       | 'tokens'
       | 'session'
+      | 'tool_draft'
       | 'error';
   }
 >;

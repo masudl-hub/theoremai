@@ -1,5 +1,11 @@
 import { assertEquals } from '@std/assert';
-import { googleBindingViolation, googleFreeTierBuiltins } from '../../src/presets/google.ts';
+import { createToolRegistry } from '../../src/kernel/tools/registry.ts';
+import { applyBuiltinMutualExclusions } from '../../src/kernel/tools/resolve.ts';
+import {
+  GOOGLE_BUILTIN_TOOLS,
+  googleBindingViolation,
+  googleFreeTierBuiltins,
+} from '../../src/presets/google.ts';
 
 // Refusals recorded from Live setup on 01/10/2026: 3.8 Live closes 1007 on a thinking level
 // (and takes includeThoughts, 04/10/2026),
@@ -36,12 +42,21 @@ Deno.test('google preset: the free tier refuses grounding a model has no quota f
   assertEquals(googleBindingViolation(search, { freeTier: true })?.field, 'builtInTools');
   assertEquals(
     googleBindingViolation(
-      { apiId: 'gemini-2.5-flash', builtInTools: ['googleSearch', 'googleMaps'] },
+      { apiId: 'gemini-2.5-flash', builtInTools: ['googleSearch'] },
       { freeTier: true },
     ),
     undefined,
   );
-  assertEquals(googleFreeTierBuiltins('gemini-3.1-flash-lite'), ['googleMaps']);
+  // No model keeps free Maps quota.
+  assertEquals(
+    googleBindingViolation(
+      { apiId: 'gemini-2.5-flash', builtInTools: ['googleMaps'] },
+      { freeTier: true },
+    )?.field,
+    'builtInTools',
+  );
+  assertEquals(googleFreeTierBuiltins('gemini-2.5-flash'), ['googleSearch']);
+  assertEquals(googleFreeTierBuiltins('gemini-3.5-flash-lite'), []);
 });
 
 Deno.test('google preset: the free tier refuses a model with no free quota', () => {
@@ -52,4 +67,14 @@ Deno.test('google preset: the free tier refuses a model with no free quota', () 
     )?.field,
     'apiId',
   );
+});
+
+Deno.test('google preset: Maps is dropped beside Search or URL context', () => {
+  const tools = createToolRegistry();
+  for (const tool of GOOGLE_BUILTIN_TOOLS) tools.register(tool);
+  const kept = (ids: string[]) => applyBuiltinMutualExclusions(tools, ids);
+  assertEquals(kept(['googleSearch', 'googleMaps']), ['googleSearch']);
+  assertEquals(kept(['googleMaps', 'urlContext']), ['urlContext']);
+  assertEquals(kept(['googleSearch', 'urlContext']), ['googleSearch', 'urlContext']);
+  assertEquals(kept(['googleMaps', 'codeExecution']), ['googleMaps', 'codeExecution']);
 });

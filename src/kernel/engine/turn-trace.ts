@@ -151,6 +151,10 @@ class OutputFold {
         if (part) this.push(part);
         return;
       }
+      case 'tool_draft':
+      case 'structured_draft':
+        // why: A preview of the call or reply that follows; that one is recorded whole.
+        return;
       default:
         return;
     }
@@ -373,14 +377,16 @@ type GuardrailCheck =
 /**
  * A check that runs many times on one model call's streamed output: the
  * progressive gate on each piece of reply text, the canary scan of every other
- * streamed event, and a live session's gate on each batch it sends.
+ * streamed event, the gate on each piece of a tool call the model is drafting,
+ * and a live session's gate on each batch it sends.
  */
-type StreamCheck = 'output_stream' | 'stream_canary' | 'live_output';
+type StreamCheck = 'output_stream' | 'stream_canary' | 'tool_draft' | 'live_output';
 
 /** What a stream check looked at, for its pass record. */
 const STREAM_CHECK_STAGE: Readonly<Record<StreamCheck, GuardrailStage>> = {
   output_stream: 'output_delta',
   stream_canary: 'output_delta',
+  tool_draft: 'tool_call',
   live_output: 'live_outbound',
 };
 

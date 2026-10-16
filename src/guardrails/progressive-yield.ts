@@ -1,4 +1,4 @@
-import type { Boundary } from './boundaries.ts';
+import type { Boundary, ToolBoundary } from './boundaries.ts';
 import {
   canaryOpeningFrom,
   createCanaryScanner,
@@ -17,6 +17,9 @@ import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy } from './
 /** A reply boundary the gate reads as the reply streams. */
 export type ReplyBoundary = Extract<Boundary, 'reply' | 'live_reply'>;
 
+/** Where a gate stands: a reply boundary, or the boundary a tool call the model is drafting is read at. */
+export type GateBoundary = ReplyBoundary | ToolBoundary;
+
 export type ProgressiveYieldOk = {
   blocked: false;
   emit: string;
@@ -27,7 +30,7 @@ export type ProgressiveYieldBlocked = {
   blocked: true;
   hits: GuardrailHit[];
   /** Set when a detector stopped the reply: the boundary it was read at. */
-  boundary?: ReplyBoundary;
+  boundary?: GateBoundary;
 };
 /** What one step of the progressive gate returns: the text to emit, or the hits that block the reply. */
 export type ProgressiveYieldResult = ProgressiveYieldOk | ProgressiveYieldBlocked;
@@ -44,7 +47,7 @@ export interface ProgressiveYieldGateOptions {
    */
   detect?: {
     matrix: ResolvedDetect;
-    boundary: ReplyBoundary;
+    boundary: GateBoundary;
     rewrite: boolean;
     /** What the detectors read against (`scopeOf`). Left out, the URL and marker detectors read with none. */
     scope?: DetectScope;
@@ -323,10 +326,37 @@ function outboundProgressiveGate(
   });
 }
 
+/**
+ * A gate for a draft read at `boundary`, where the whole it previews is read before the host sees
+ * it: a tool call the model is still writing, or a tool's output as the tool writes it. It never
+ * rewrites: a match the whole's check would replace or stop stops the draft instead, because the
+ * host gets the whole only as that check leaves it. `scope` is what that check reads against;
+ * left out, the turn's (`scopeOf`).
+ */
+async function createToolDraftGate(
+  policy: ResolvedGuardrailPolicy,
+  context: GuardrailContext,
+  boundary: ToolBoundary,
+  scope?: DetectScope,
+): Promise<ProgressiveYieldGate | null> {
+  if (!replyIsJudged(policy, [boundary], scope ?? context)) return null;
+  await loadEgressAutomata();
+  return progressiveYieldGate({
+    context,
+    detect: {
+      matrix: policy.detect,
+      boundary,
+      rewrite: false,
+      scope: scope ?? scopeOf(policy, context),
+    },
+  });
+}
+
 export type { ProgressiveYieldGate };
 export {
   createOutboundProgressiveGate,
   createProgressiveYieldGate,
+  createToolDraftGate,
   outboundProgressiveGate,
   replyIsJudged,
 };

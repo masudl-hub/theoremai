@@ -42,6 +42,8 @@ export interface ToolStageSupport {
   stepCalls?: readonly StepCall[];
   /** Holds a call for the calls its `pre_tool` `waitFor` names. Unset outside a turn's step. */
   wait?: StepWait;
+  /** The host sees a handler's drafts: `outputs.streaming.mode` `sse`. Unset outside a turn's step. */
+  drafts?: boolean;
 }
 
 function defaultToolStageSupport(ctx: ToolContext): ToolStageSupport {

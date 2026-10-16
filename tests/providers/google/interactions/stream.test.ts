@@ -877,7 +877,10 @@ Deno.test('streamed function_call waits for step.stop and parses the streamed ar
     row('step.delta', { index: 1, delta: { arguments: '{"plant":', type: 'arguments_delta' } }),
     row('step.delta', { index: 1, delta: { arguments: '"plant A"}', type: 'arguments_delta' } }),
   ].flatMap((r) => foldPayload(r, fold));
-  assertEquals(before, []);
+  assertEquals(before, [
+    { type: 'tool_draft', callId: 'call_1', name: 'get_soil_moisture', text: '{"plant":' },
+    { type: 'tool_draft', callId: 'call_1', name: 'get_soil_moisture', text: '"plant A"}' },
+  ]);
   assertEquals(foldPayload(row('step.stop', { index: 1 }), fold), [
     {
       type: 'tool',
@@ -913,6 +916,7 @@ Deno.test('streamed thought_signature delta goes to the first function_call that
     row('step.stop', { index: 2 }),
   ]);
   assertEquals(events, [
+    { type: 'tool_draft', callId: 'call_1', name: 'geocode_city', text: '{"city":"Porto"}' },
     {
       type: 'tool',
       tool: {
@@ -922,6 +926,7 @@ Deno.test('streamed thought_signature delta goes to the first function_call that
         thoughtSignature: 'sig',
       },
     },
+    { type: 'tool_draft', callId: 'call_2', name: 'geocode_city', text: '{"city":"Faro"}' },
     { type: 'tool', tool: { callId: 'call_2', name: 'geocode_city', arguments: { city: 'Faro' } } },
   ]);
 });
@@ -1323,7 +1328,10 @@ Deno.test('an arguments_delta without arguments adds nothing to what arrived', (
   ]);
   check(
     events,
-    [{ type: 'tool', tool: { callId: 'c', name: 'water', arguments: { ml: 5 } } }],
+    [
+      { type: 'tool_draft', callId: 'c', name: 'water', text: '{"ml":5}' },
+      { type: 'tool', tool: { callId: 'c', name: 'water', arguments: { ml: 5 } } },
+    ],
     'args',
   );
 });
@@ -1451,4 +1459,25 @@ Deno.test('an abort rethrows instead of becoming an error event', async () => {
     name = err instanceof Error ? err.name : String(err);
   }
   check(name, 'AbortError', 'thrown');
+});
+
+Deno.test('a function_call cut off mid-arguments previews them but never becomes a tool call', () => {
+  const fold = newStreamFold();
+  const events = [
+    row('step.start', {
+      index: 0,
+      step: { id: 'call_1', type: 'function_call', name: 'write_app', arguments: {} },
+    }),
+    row('step.delta', {
+      index: 0,
+      delta: { arguments: '{"app_tsx":"imp', type: 'arguments_delta' },
+    }),
+  ].flatMap((r) => foldPayload(r, fold));
+  assertEquals(events, [
+    { type: 'tool_draft', callId: 'call_1', name: 'write_app', text: '{"app_tsx":"imp' },
+  ]);
+  assertEquals(
+    openStepEvents(fold).map((event) => event.type),
+    ['evidence'],
+  );
 });

@@ -57,6 +57,7 @@ const modelContentTypes = new Set([
   'evidence',
   'tokens',
   'session',
+  'tool_draft',
   'error',
 ]);
 function providerStop(raw: unknown) {

@@ -98,7 +98,7 @@ const MS_PER_S = 1000;
  */
 function deliver(ctx: TraceCtx, event: TurnEvent): TurnEvent {
   const out = withPublicLabels(event, ctx.known?.labels);
-  if (out.type === 'text' && !ctx.shownText) {
+  if ((out.type === 'text' || out.type === 'structured_draft') && !ctx.shownText) {
     ctx.shownText = true;
     ctx.root.set({ 'theorem.turn.time_to_first_text': ctx.root.msSinceStart() / MS_PER_S });
   }

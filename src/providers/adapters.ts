@@ -130,6 +130,7 @@ export function translateProviderEvent(event: ProviderEvent): ProviderModelEvent
     event.type === 'attempt' ||
     event.type === 'guardrail' ||
     event.type === 'compaction' ||
+    event.type === 'structured_draft' ||
     event.type === 'provider_warning' ||
     event.type === 'provider_checkpoint'
   )

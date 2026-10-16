@@ -22,6 +22,7 @@ import { foldResponse } from '../shared/response-identity.ts';
 import { readSseChunks } from '../shared/sse.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
 import { historyToolArguments, toolCallEvents } from '../shared/tool-args.ts';
+import { type StreamingToolCall, toolDraftEvents } from '../shared/tool-draft.ts';
 import { networkFetch } from '../shared/upstream-tap.ts';
 import type { OpenAiGatewayTransport } from '../types.ts';
 import { OPENROUTER_BUILTINS } from './builtins.ts';
@@ -289,7 +290,7 @@ function chatRequest(req: ProviderCompleteRequest): ChatRequest {
 
 function mergeToolDeltas(
   delta: Record<string, unknown>,
-  pending: Map<number, { id?: string; name: string; args: string }>,
+  pending: Map<number, StreamingToolCall>,
 ): void {
   if (Array.isArray(delta.tool_calls)) {
     for (const [i, value] of delta.tool_calls.entries()) {
@@ -308,7 +309,7 @@ function mergeToolDeltas(
 function decodeRow(
   raw: Record<string, unknown>,
   acc: StreamAccumulator,
-  pending: Map<number, { id?: string; name: string; args: string }>,
+  pending: Map<number, StreamingToolCall>,
   buffered: boolean,
 ): ProviderEvent[] {
   const error = asRecord(raw.error);
@@ -337,6 +338,8 @@ function decodeRow(
     if (typeof reasoning === 'string') events.push({ type: 'thought', text: reasoning });
     mergeToolDeltas(delta, pending);
   }
+  // why: A buffered reply carries each call whole; only a streamed one has a draft to show.
+  if (!buffered) for (const call of pending.values()) events.push(...toolDraftEvents(call));
   return events;
 }
 
@@ -453,7 +456,7 @@ async function* streamOpenRouter(
     });
     const raw = rawResponse;
     if (!raw?.body) throw new TheoremError('bad_response', 'Provider returned no response body');
-    const pending = new Map<number, { id?: string; name: string; args: string }>();
+    const pending = new Map<number, StreamingToolCall>();
     const rows = req.stream === false ? [await raw.json()] : readSseChunks(raw.body);
     for await (const value of rows) {
       const row = sdkResponseRow(value);

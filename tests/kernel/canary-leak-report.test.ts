@@ -31,7 +31,7 @@ async function hostEvents(
 
 function visibleText(events: TurnEvent[]): string {
   return events
-    .filter((e) => e.type === 'text' || e.type === 'thought')
+    .filter((e) => e.type === 'text' || e.type === 'structured_draft' || e.type === 'thought')
     .map((e) => e.text ?? '')
     .join('');
 }

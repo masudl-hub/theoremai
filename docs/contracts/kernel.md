@@ -281,7 +281,12 @@ Live sessions emit the same stage names around utterance cycles and
 6. **Provider stream** — `provider.complete` yields partial events; runner may
    drop thoughts per `outputs.streaming.streamThoughts`. Reply text passes the
    progressive-yield gate; thoughts never stop the turn, but their leaks are
-   omitted ([guardrails](./guardrails.md)). Each provider call has its own gate;
+   omitted ([guardrails](./guardrails.md)). A tool call the model is still
+   writing goes out as `tool_draft` pieces, read at its call's
+   `tool_arguments_<kind>` boundary; the runner sends none while it withholds
+   the reply. On a profile with `outputs.structured`, the reply's text is its
+   JSON: it goes out as `structured_draft` pieces under `sse`, and not at all
+   under `buffered`. Each provider call has its own gate;
    the turn carries a possible canary opening from one call into the next
    (`canaryCarry` and `thoughtCarry` on the step state), so a token split across
    tool steps is one match.
@@ -362,7 +367,9 @@ The kernel validates adapter events before it releases them or executes client t
 | --- | --- |
 | `thought` | Model reasoning stream (leaks omitted, never stopped: images, links, canary, prompt echo, boundary markers; dropped when `streamThoughts: false`) |
 | `text` | User-visible assistant text |
-| `tool` | Tool call (`phase`: `running` / `progress` / `complete` / `gate` / `error` / `cancel`, …; `pause` deprecated) |
+| `tool_draft` | A piece of a tool call the model is still writing: `callId`, `name`, `text` (the next piece of its arguments' JSON). A preview only: the `tool` event with the same `callId` is the call. A draft stops when its call's check would redact or block what it holds, or when its `name` changes. Sent only when the provider streams the reply |
+| `tool` | Tool call (`phase`: `running` / `progress` / `draft` / `complete` / `gate` / `error` / `cancel`, …; `pause` deprecated). A function tool's stream handler yields `{ kind: 'draft', text }` to preview its output as it writes it; each piece goes out as a `draft` phase, read first at the call's `tool_output_<kind>` boundary. A match there stops the drafts, and the `complete` output is still read whole. A function or agent tool's `progress` is read whole at that boundary too: one a check stops is not sent, and its `guardrail` event is. Drafts are sent only under `sse`, and the model never reads them |
+| `structured_draft` | The next piece of a structured reply's JSON, `text`, read at `reply` as the reply's text. A preview only: the `structured` event that follows is the reply. Sent only under `sse` |
 | `structured` | Parsed JSON object when the profile names a structured schema; `removed` lists what item rules took out, `failed` the fields still invalid when validation ran out of retries |
 | `attempt` | The turn threw the reply so far away and asks again: `attempt` counts the retries (1 for the first), `reason` is `validation` or `egress`. The text, media and structured events before it in the turn are not the reply. `keptReply(events)` drops them; `foldTurnEvents`, `appendAssistantEventsToHistory` (one assistant message per reply) and an agent tool's output read only the kept reply |
 | `media` | Generated image/audio bytes + mime |
@@ -442,6 +449,8 @@ verbatim to browsers or end-user SSE** unless you intend to expose diagnostics.
 | `evidence.raw` | yes | only when you explicitly want provider internals |
 | `text`, `media`, `structured`, `grounding` | yes | yes (after egress/canary gates) |
 | `thought` | yes (also in trace when filtered from stream) | only when profile allows |
+| `tool_draft` | yes | only under `sse`; a preview, never the call |
+| `structured_draft`, a `tool` event's `draft` phase | yes | only under `sse`; a preview, never the reply or the output |
 
 Use `forClient` / `forClientEvents` from `@theoremjs/agents/host` before WebSocket or SSE
 flush. A development tool on the builder's own machine passes `reader: 'builder'` and reads
@@ -623,7 +632,9 @@ the call (`agent_failed`, with the agent's error kind or `failed`). `config`,
 `request`, `auth` and `internal` errors are the host's to fix and are thrown, as
 a compactor's are. Host abort cancels both turns.
 
-**Events and trace.** The called agent's events stream as the call's
+**Events and trace.** The called agent's reply (its `text` and
+`structured_draft`) streams as the call's `draft` phases, until the agent
+retries its reply (`attempt`). Its other events stream as the call's
 `progress` (`data: { agent, event }`). Its `invoke_agent` span is a child of the
 call's `execute_tool` span in the caller's record, sharing its canaries.
 
@@ -888,7 +899,7 @@ HTTP and MCP tools, and function tools that declare `auth`, integrate with:
 - **Function tools that sign in**: a function tool may declare the same `auth`. The kernel resolves it at the same point (after permission, before `preTool`) with the same gate, refresh and `onUnauthenticated` rules, then hands the handler `ctx.signedInFetch(url, { method, headers, body })`: a guarded fetch that sends the credential to the URL's own origin only, never across a redirect, and an OAuth token only inside its `resource`. The handler never holds the credential. A 401, or a 403 `insufficient_scope`, throws `CredentialRefusedError` (exported so a handler that wraps its own errors can rethrow it untouched) out of `signedInFetch` and settles as under **Refused credentials**; any other response reaches the handler. Echoes of the credential in the output or failure text are omitted as for remote tools.
 - **Endpoint templates**: the scheme and host are fixed text; a placeholder there is refused at registration and at call time, so tool input never chooses where a credential goes.
 
-Catalog `conflictsWith` is an optional host-declared mutual exclusion on registered builtins; the Google preset does not set it.
+Catalog `conflictsWith` is an optional mutual exclusion on registered builtins: the kernel drops a builtin when a turn also carries one it conflicts with. The Google preset sets it on `googleMaps`, against `googleSearch` and `urlContext`.
 MIME classification (`MEDIA_INPUT_KINDS`, `ATTACHMENT_ACCEPT_MIMES`, …) lives in
 `schema.ts`. Tool catalog constants: `TOOL_LOAD_TIERS`, `TOOL_ACCESS`,
 `TOOL_PERMISSION`, `TOOL_TYPES`, `HTTP_METHODS`, `TOOL_AUTH_TYPES`,
@@ -903,7 +914,7 @@ Profile `outputs` pins behavior the kernel enforces before adapters run:
 | Pin | Effect |
 | --- | --- |
 | `structured` | Schema id or slot-mapped ids; `responseFormat` vs prompt enforcement |
-| `streaming` | `mode`, `streamThoughts` |
+| `streaming` | `mode`, `streamThoughts`. Under `sse`, the reply, tool calls and tool output stream as they are written, each piece checked first; thinking streams unless `streamThoughts` is `false`. Under `buffered`, each arrives whole |
 | `validation` | Field validators, `maxRetries` (repair guidance is the labels' `repair.default_guidance`) |
 
 Top-level modality pins (after `model`, not under `outputs`):
@@ -1314,7 +1325,9 @@ turnBehaviour: {
 
 A text turn sends a failed model call again itself. The call must have stopped as
 `provider_error` or `stream_incomplete`, the profile must set `autoContinue` and list
-that stop in it, and the call must have given no reply and no tool call. A profile
+that stop in it, and the call must have given no reply and no tool call. A failure the
+same call would meet again is not sent again: only the kinds `unavailable`,
+`bad_response`, `network`, `timeout` and `rate_limit` are. A profile
 that omits `autoContinue` sends nothing again: the default list advises the host only. The turn waits
 `AUTO_CONTINUE_DELAY_MS`, then sends the same step again. Its history, its step
 count and the record of what it has read are unchanged, so tool results gathered in
@@ -1455,7 +1468,7 @@ fails).
 | Spec | `interfaceFromProfile(profile, tools)` (projects against that tool registry), `clientProfileInterface(profile, tools)` (the same without `identity.system` and `systemByRole`, for a browser), `interfaceFromProjected` (an already projected profile) |
 | Inputs | `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime` |
 | Draft | `sanitizeUserDraft`, `prepareUserTurn` |
-| Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled`, `stopText(stop, blocks, labels)` (why a turn ended short, in its `stop.<kind>` label; nothing when it ended whole or an error block says why), `WORDED_STOP_KINDS` |
+| Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled`, `argumentsSoFar(call)` (a call's arguments as far as the model has written them: the whole fields and the string still being written, to preview it live), `stopText(stop, blocks, labels)` (why a turn ended short, in its `stop.<kind>` label; nothing when it ended whole or an error block says why), `WORDED_STOP_KINDS` |
 | History | `appendUserDraftToHistory`, `appendToolExchangeToHistory` (replays `readBack`), `toolReadBack`, `userDraftToSteerInject`, … |
 | Composer intents | `createComposerPendingMessage`, `orderComposerPendingMessages`, `consumeNextComposerSteer` / `Queue`, `convertSteersToFrontQueued`, `resolveComposerPrimary`, `resolveComposerMenuActions` |
 
@@ -1538,7 +1551,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
 | Turn events | `TurnEvent`, `TurnEventOf`, `TurnEventType`, `ProviderEvent`, `CallDone`, `DoneFields`, `SessionEvent`, `SessionEventOf`, `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `turnDoneOf`, `keptReply`, `AttemptReason`, `InvalidField`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) |
-| Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
+| Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `argumentsSoFar`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 
 `PromotedToolMedia` and `media` `TranscriptBlock`s carry an optional

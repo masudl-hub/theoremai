@@ -42,6 +42,7 @@ import {
   toolCallArguments,
   toolEvent,
 } from './events.ts';
+import { type HandlerEventChecks, HandlerEvents } from './handler-events.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
 import type {
   ToolExecutionCoordinator,
@@ -125,6 +126,16 @@ function toolKindOf(tool: RegisteredTool): ToolKind | undefined {
   return tool.type === 'builtin' ? undefined : tool.type;
 }
 
+/**
+ * The boundary a call of `name` is read at before its tool gets it: none for a provider builtin,
+ * whose text the kernel never reads. A call no tool takes is read as a function tool's.
+ */
+export function toolArgumentsBoundary(tools: ToolRegistry, name: string): ToolBoundary | undefined {
+  const tool = tools.get(name);
+  const kind = tool ? toolKindOf(tool) : 'function';
+  return kind && toolBoundary('tool_arguments', kind);
+}
+
 /** A delegated reply is one hop past the called agent's own tools. */
 function provenanceFor(tool: RegisteredTool, tools: ToolRegistry): Provenance {
   const origin = originOfTool(tool, tools);
@@ -174,26 +185,11 @@ export function leanToolResultData(output: unknown): unknown {
   return rest;
 }
 
-export function* yieldHandlerSideEvent(
-  base: ToolCallBase,
-  event: Exclude<ToolStreamEvent, { kind: 'complete' }>,
-): Generator<TurnEvent> {
-  if (event.kind === 'progress') {
-    yield toolEvent(base, { phase: 'progress', data: event.data });
-  } else if (event.kind === 'trace') {
-    yield toolEvent(base, { phase: 'trace', step: event.step });
-  } else if (event.kind === 'artifact') {
-    yield toolEvent(base, { phase: 'artifact', artifact: event.artifact });
-  } else if (event.kind === 'warning') {
-    yield toolEvent(base, { phase: 'warning', warning: event.warning });
-  }
-}
-
 async function* runHandler<TIn, TOut>(
   handler: FunctionToolDef<TIn, TOut>['handler'],
   input: TIn,
   ctx: ToolContext,
-  base: ToolCallBase,
+  shown: HandlerEvents,
 ): AsyncGenerator<TurnEvent, unknown> {
   if (isStreamHandler(handler)) {
     let output: TOut | undefined;
@@ -206,8 +202,9 @@ async function* runHandler<TIn, TOut>(
         output = event.output;
         continue;
       }
-      yield* yieldHandlerSideEvent(base, event);
+      yield* shown.show(event);
     }
+    yield* shown.end();
     return output;
   }
   const output = await handler(input, ctx);
@@ -338,6 +335,8 @@ type Reproject = (
 interface ResultGuard {
   result: (result: ModelToolResult) => Generator<TurnEvent, GuardedResult>;
   failure: (failure: ToolFailure) => Generator<TurnEvent, GuardedResult>;
+  /** What the handler's events are read against before its output; `drafts`: whether the host sees its drafts. */
+  handlerEvents: (drafts: boolean) => HandlerEventChecks | undefined;
 }
 
 /** What the model reads back from a call. */
@@ -563,17 +562,29 @@ function resultGuard(
     labels: ctx.profile.labels,
     span,
   };
+  const { kind } = inputs;
+  const handlerEvents = (drafts: boolean): HandlerEventChecks | undefined =>
+    kind && {
+      profileId: ctx.profile.id,
+      provenance,
+      policy,
+      boundary: toolBoundary('tool_output', kind),
+      callableTools,
+      drafts,
+    };
   const service = isGateResumeGranted(ctx.resume) ? signInService(tool, ctx.resume) : undefined;
   if (!service) {
     return {
       result: (result) => guardResult(result, inputs),
       failure: (failure) => guardFailure(failure, inputs),
+      handlerEvents,
     };
   }
   const note = labelText('sign_in.done', { service }, ctx.profile.labels);
   return {
     result: (result) => afterSignIn(note, guardResult(result, inputs)),
     failure: (failure) => afterSignIn(note, guardFailure(failure, inputs)),
+    handlerEvents,
   };
 }
 
@@ -800,7 +811,8 @@ export async function* executeFunction(
     : ctx;
   let output: unknown;
   try {
-    output = yield* runHandler(tool.handler, input as never, handlerCtx, base);
+    const shown = new HandlerEvents(base, guard.handlerEvents(stages?.drafts === true));
+    output = yield* runHandler(tool.handler, input as never, handlerCtx, shown);
     checks.record();
   } catch (err) {
     if (agent) {
@@ -1176,13 +1188,12 @@ export function shownToolArguments(
   call: Pick<RegisteredToolCall, 'tools' | 'profile' | 'name' | 'input' | 'scope'>,
 ): Record<string, unknown> {
   const tool = call.tools.get(call.name);
-  const kind = tool ? toolKindOf(tool) : 'function';
   const policy = resolveGuardrailPolicy(call.profile.guardrails);
   const inspected = inspectToolArguments(
     plainToolInput(call.input),
     tool ? provenanceFor(tool, call.tools) : { origin: 'local', tool: call.name, depth: 1 },
     policy,
-    kind && toolBoundary('tool_arguments', kind),
+    toolArgumentsBoundary(call.tools, call.name),
     scopeOf(policy, call.scope ?? {}),
   );
   const { args } = inspected;
@@ -1466,8 +1477,8 @@ async function* settleRemoteDestination(args: {
 /**
  * An agent tool runs as a function tool whose handler is the called agent's
  * turn, so input checks, gates, stages and the result guard are the same. The
- * agent's events stream as the call's `progress`, and its usage rides on the
- * call's last phase.
+ * agent's reply streams as the call's drafts and its other events as its
+ * `progress`, and its usage rides on the call's last phase.
  */
 async function* executeAgentTool(args: {
   tools: ToolRegistry;
@@ -1505,6 +1516,8 @@ async function* executeAgentTool(args: {
       ...(span ? { span } : {}),
       ...(handlerCtx.signal ? { signal: handlerCtx.signal } : {}),
     });
+    // why: A retry throws away the reply drafted so far; the drafts stop there, and the output arrives whole.
+    let retried = false;
     for (;;) {
       const next = await run.next();
       if (next.done) {
@@ -1513,7 +1526,13 @@ async function* executeAgentTool(args: {
         yield { kind: 'complete', output: next.value.output };
         return;
       }
-      yield { kind: 'progress', data: { agent: tool.profile, event: next.value } };
+      const event = next.value;
+      if (event.type === 'attempt') retried = true;
+      if (event.type === 'text' || event.type === 'structured_draft') {
+        if (!retried) yield { kind: 'draft', text: event.text };
+        continue;
+      }
+      yield { kind: 'progress', data: { agent: tool.profile, event } };
     }
   };
   // why: Its hooks take `AgentToolInput`, which the input schema has already checked.

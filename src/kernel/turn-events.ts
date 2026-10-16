@@ -658,7 +658,11 @@ export interface ToolCallEdit {
  *
  * - `running` — the body started; `edited` when the user changed the arguments;
  *   `activity` is the tool's activity label filled from the call's input.
- * - `progress` / `trace` / `artifact` / `warning` — streamed while it ran.
+ * - `progress` / `trace` / `artifact` / `warning` — streamed while it ran. A `progress` its
+ *   output's check stops is not sent.
+ * - `draft` — the next piece of what the tool is writing, for a preview, each piece read at
+ *   `tool_output_<kind>` first (an agent tool's: its agent's reply). Sent only under
+ *   `outputs.streaming.mode` `sse`. The model never reads it: it reads `complete`'s output.
  * - `complete` — `output`; `awaiting` when it asked the user something; `parts` for the
  *   media it returned beside its output (images, audio);
  *   `readBack` is the text the model reads back, after guardrails;
@@ -676,6 +680,7 @@ export type ToolPhaseEvent = ToolPhaseBase &
     | { phase: 'running'; edited?: ToolCallEdit; activity?: string }
     | { phase: 'dispatch'; grantId: string; arguments: Record<string, unknown> }
     | { phase: 'progress'; data: unknown }
+    | { phase: 'draft'; text: string }
     | { phase: 'trace'; step: ToolTraceStep }
     | { phase: 'artifact'; artifact: unknown }
     | { phase: 'warning'; warning: ToolWarning }
@@ -715,6 +720,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     arguments: jsonObject,
   }),
   z.object({ ...toolPhaseBase, phase: z.literal('progress'), data: z.unknown() }),
+  z.object({ ...toolPhaseBase, phase: z.literal('draft'), text: z.string() }),
   z.object({ ...toolPhaseBase, phase: z.literal('trace'), step: toolTraceStep }),
   z.object({ ...toolPhaseBase, phase: z.literal('artifact'), artifact: z.unknown() }),
   z.object({ ...toolPhaseBase, phase: z.literal('warning'), warning: toolWarning }),
@@ -908,6 +914,13 @@ export type TurnEvent =
       failed?: InvalidField[];
     }
   /**
+   * The next piece of a structured reply's JSON as the model writes it, for a preview: read at
+   * `reply` as the reply's text, before the `structured` event that follows is read whole at
+   * `reply_structured`. That event is the reply. Sent only under `outputs.streaming.mode` `sse`; an
+   * `attempt` throws it away with the rest of the reply.
+   */
+  | { type: 'structured_draft'; text: string }
+  /**
    * The turn threw the reply so far away and asks again. Text, media and structured output since
    * the turn began, or since the last `attempt`, are not the reply; {@linkcode keptReply} drops them.
    * `attempt` counts the retries: 1 for the first, as the trace's `theorem.attempt.retry` does.
@@ -950,6 +963,12 @@ export type TurnEvent =
       /** The named injects (`StageResult.injectId`) that landed in the conversation at this stage. */
       injected?: { id: string }[];
     }
+  /**
+   * A tool call the model is still writing: the next piece of its arguments' JSON text, in order,
+   * for a preview. The `tool` call that follows owns the arguments; a draft cut off before it never
+   * runs. Sent only under `outputs.streaming.mode` `sse`.
+   */
+  | { type: 'tool_draft'; callId: string; name: string; text: string }
   | {
       type: 'tool';
       tool: ToolCallEvent;
@@ -1065,6 +1084,10 @@ const TURN_EVENTS = {
       .optional(),
     failed: z.array(z.object({ path: z.string(), error: z.string() })).optional(),
   }),
+  structured_draft: z.object({
+    type: z.literal('structured_draft'),
+    text: z.string(),
+  }),
   attempt: z.object({
     type: z.literal('attempt'),
     attempt: z.number().int().positive(),
@@ -1127,6 +1150,12 @@ const TURN_EVENTS = {
       .min(1)
       .optional(),
   }),
+  tool_draft: z.object({
+    type: z.literal('tool_draft'),
+    callId: z.string().min(1),
+    name: z.string(),
+    text: z.string(),
+  }),
   tool: z.object({
     type: z.literal('tool'),
     tool: toolCallEvent,
@@ -1149,6 +1178,7 @@ const turnEvent = z.union([
     TURN_EVENTS.text,
     TURN_EVENTS.thought,
     TURN_EVENTS.structured,
+    TURN_EVENTS.structured_draft,
     TURN_EVENTS.attempt,
     TURN_EVENTS.media,
     TURN_EVENTS.grounding,
@@ -1159,6 +1189,7 @@ const turnEvent = z.union([
     TURN_EVENTS.session,
     TURN_EVENTS.guardrail,
     TURN_EVENTS.stage,
+    TURN_EVENTS.tool_draft,
     TURN_EVENTS.tool,
     TURN_EVENTS.error,
   ]),
@@ -1174,7 +1205,12 @@ export const TURN_EVENT_SCHEMAS: { readonly [K in TurnEventType]: z.ZodType<Turn
 
 /** Events that make up a reply, and that an `attempt` throws away. */
 function isReply(event: TurnEvent): boolean {
-  return event.type === 'text' || event.type === 'media' || event.type === 'structured';
+  return (
+    event.type === 'text' ||
+    event.type === 'media' ||
+    event.type === 'structured' ||
+    event.type === 'structured_draft'
+  );
 }
 
 /**

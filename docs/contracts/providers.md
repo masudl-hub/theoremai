@@ -163,11 +163,17 @@ The adapter converts these values to its upstream format.
 
 Report model output and tool requests through `ProviderModelEvent`. Do not report kernel decisions as provider output.
 
-`ProviderContentEvent` permits text, thoughts, structured output, media, citations, grounding, evidence, usage, session notifications, and errors.
+`ProviderContentEvent` permits text, thoughts, tool drafts, structured output, media, citations, grounding, evidence, usage, session notifications, and errors.
 Other model events carry tool requests, cancellations, response identity, or terminal `done` status.
 The kernel rejects stages, guardrail verdicts, approvals, and client-tool execution results from adapters.
 
 Tool requests need nonempty IDs and names, with JSON-object arguments. A repeated settled call cannot authorize another execution.
+
+Send a `tool_draft` for each piece of a tool call's arguments as the model streams them, so the host can show the call while the model writes it.
+A draft is a preview and never runs. The `tool` event with the same `callId` is the call.
+Use `toolDraftEvents` from `src/providers/shared/tool-draft.ts` to send nothing until the call has an ID and a name, then each new piece once.
+A buffered reply sends no drafts. The Google Interactions, OpenRouter, and local adapters send drafts.
+Always send them: the kernel decides whether the host sees them.
 The kernel holds pending client calls until it validates model-step termination.
 
 | Boundary | Condition for release |

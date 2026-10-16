@@ -13,8 +13,8 @@ import {
   leanToolResultData,
   projectForModel,
   type ToolExecuteSettlement,
-  yieldHandlerSideEvent,
 } from '../../src/kernel/tools/execute.ts';
+import { yieldHandlerSideEvent } from '../../src/kernel/tools/handler-events.ts';
 import type { ToolStageSupport } from '../../src/kernel/tools/stage-run.ts';
 import type {
   FunctionToolDef,

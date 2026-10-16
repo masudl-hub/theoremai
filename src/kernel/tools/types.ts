@@ -165,6 +165,11 @@ export type SignedInFetch = (url: string | URL, request?: SignedInRequest) => Pr
 
 export type ToolStreamEvent<TOut = unknown> =
   | { kind: 'progress'; data: unknown }
+  /**
+   * The next piece of what the tool is writing, for the host to preview. Each is read at the
+   * tool's `tool_output` boundary first; the model never reads it, only `complete`'s output.
+   */
+  | { kind: 'draft'; text: string }
   | { kind: 'trace'; step: ToolTraceStep }
   | { kind: 'artifact'; artifact: unknown }
   | { kind: 'warning'; warning: ToolWarning }

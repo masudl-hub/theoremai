@@ -1,10 +1,12 @@
 import { keptReply } from '../kernel/turn-events.ts';
 import type { Source, ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
-import { applyToolEvent } from './tool-calls.ts';
+import { partialJsonObject } from '../kernel/util/partial-json.ts';
+import { applyToolDraft, applyToolEvent } from './tool-calls.ts';
 import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
 import type {
   CitationBlock,
   FoldTurnEventsOptions,
+  StructuredBlock,
   ToolBlock,
   TranscriptBlock,
   UserTurnDraft,
@@ -63,18 +65,74 @@ function addGuardrailBlock(blocks: TranscriptBlock[], block: TranscriptBlock): v
   blocks.splice(streaming ? blocks.length - 1 : blocks.length, 0, block);
 }
 
+function findToolBlock(blocks: TranscriptBlock[], id: string): ToolBlock | undefined {
+  return blocks.find((block): block is ToolBlock => block.kind === 'tool' && block.id === id);
+}
+
 /** invariant: Issued operation IDs separate action blocks; historical events use callId. */
 function upsertToolBlock(blocks: TranscriptBlock[], tool: ToolCallEvent): void {
   const id = `tool-${tool.operationId ?? tool.callId}`;
-  const existing = blocks.find(
-    (block): block is ToolBlock => block.kind === 'tool' && block.id === id,
-  );
+  const existing = findToolBlock(blocks, id);
   const call = applyToolEvent(existing?.tool, tool);
   if (existing) {
     existing.tool = call;
     return;
   }
+  // why: The call the model was drafting arrives whole where its draft stood.
+  const draft = tool.phase === undefined ? findToolBlock(blocks, `tool-${tool.callId}`) : undefined;
+  if (draft?.tool.draft !== undefined) {
+    draft.id = id;
+    draft.tool = call;
+    return;
+  }
   blocks.push({ id, kind: 'tool', tool: call });
+}
+
+/** The call the model is still writing, as far as its draft has come. */
+function upsertToolDraft(blocks: TranscriptBlock[], draft: TurnEventOf<'tool_draft'>): void {
+  const id = `tool-${draft.callId}`;
+  const existing = findToolBlock(blocks, id);
+  const call = applyToolDraft(existing?.tool, draft);
+  if (existing) {
+    existing.tool = call;
+    return;
+  }
+  blocks.push({ id, kind: 'tool', tool: call });
+}
+
+/** The structured reply the model is still writing, if one is showing. */
+function openStructuredDraft(blocks: TranscriptBlock[]): StructuredBlock | undefined {
+  return blocks.findLast(
+    (block): block is StructuredBlock => block.kind === 'structured' && block.draft !== undefined,
+  );
+}
+
+/** The structured reply the model is still writing, as far as its draft has come. */
+function upsertStructuredDraft(blocks: TranscriptBlock[], text: string, idPrefix: string): void {
+  const open = openStructuredDraft(blocks);
+  const draft = (open?.draft ?? '') + text;
+  if (open) {
+    open.draft = draft;
+    open.value = partialJsonObject(draft);
+    return;
+  }
+  blocks.push({
+    id: nextBlockId(idPrefix),
+    kind: 'structured',
+    value: partialJsonObject(draft),
+    draft,
+  });
+}
+
+/** The structured reply, in its draft's place when one is showing. */
+function settleStructured(blocks: TranscriptBlock[], value: unknown, idPrefix: string): void {
+  const open = openStructuredDraft(blocks);
+  if (open) {
+    open.value = value;
+    delete open.draft;
+    return;
+  }
+  blocks.push({ id: nextBlockId(idPrefix), kind: 'structured', value });
 }
 
 /** Same source: one place, or one link. */
@@ -192,16 +250,18 @@ function foldTurnEvents(
           appendText(blocks, 'text', event.text, idPrefix);
         }
         break;
+      case 'tool_draft':
+        upsertToolDraft(blocks, event);
+        break;
       case 'tool':
         upsertToolBlock(blocks, event.tool);
         appendPromotedToolMedia(blocks, event.tool, idPrefix, promotedMediaUrls);
         break;
+      case 'structured_draft':
+        upsertStructuredDraft(blocks, event.text, idPrefix);
+        break;
       case 'structured':
-        blocks.push({
-          id: nextBlockId(idPrefix),
-          kind: 'structured',
-          value: event.structured,
-        });
+        settleStructured(blocks, event.structured, idPrefix);
         break;
       case 'media':
         if (event.media) {
@@ -255,10 +315,6 @@ function foldTurnEvents(
           interactionId: event.interactionId,
           compaction: event.compaction !== undefined,
         });
-        break;
-      case 'tokens':
-      case 'session':
-      case 'stage':
         break;
       default:
         break;

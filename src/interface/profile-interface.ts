@@ -54,7 +54,10 @@ const outputs = z.object({
     ])
     .optional(),
   streaming: z
-    .object({ mode: z.enum(STREAM_MODES).optional(), streamThoughts: z.boolean().optional() })
+    .object({
+      mode: z.enum(STREAM_MODES).optional(),
+      streamThoughts: z.boolean().optional(),
+    })
     .optional(),
 });
 

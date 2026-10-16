@@ -32,7 +32,7 @@ for image and speech-adjacent profile fields.
 
 All are `type: 'builtin'`. Declare ids on `ModelBinding.builtInTools` — they are on whenever that model is selected (visibility still respects `loadTier`).
 `codeExecution` combines with `googleSearch` on Gemini 3+ and with registered function tools when the profile allows them on Interactions. THEOREM also sends structured `responseFormat` on the same request when both are configured; Google may still reject that pairing at the API. `googleSearch` uses the model's key slot like any call; a model that needs a billed key for it pins that slot with `key`. Google's sandbox runtime (~30s) is not a THEOREM knob.
-Hosts may declare optional `conflictsWith` on registered builtins; the preset does not.
+`googleMaps` declares `conflictsWith: ['googleSearch', 'urlContext']`. When a turn would send Maps with either of them, the kernel drops Maps, because Google refuses that request.
 
 ## Interaction persistence
 
@@ -71,7 +71,7 @@ chains all passed). A streamed profile with tools that chains will hit it;
 | With `freeTier`, a model missing from `GOOGLE_FREE_TIER_GROUNDING` | `apiId` | The model has no free-tier quota |
 | With `freeTier`, `googleSearch` or `googleMaps` the model's free quota doesn't allow | `builtInTools` | Live closes 1011 "You exceeded your current quota" at setup, whatever the key's usage, so it reads as a quota failure |
 
-`GOOGLE_FREE_TIER_GROUNDING` maps each free-tier model to `{ googleSearch, googleMaps }` (AI Studio, Sep 2026); `googleFreeTierBuiltins(apiId)` lists the grounding builtins it allows. The studio's model policy reads this table. The kernel does not run the check; a host calls it on the profiles it registers.
+`GOOGLE_FREE_TIER_GROUNDING` maps each free-tier model to `{ googleSearch, googleMaps }` (AI Studio, Sep 2026; no model keeps free Maps quota as of 13/10/2026); `googleFreeTierBuiltins(apiId)` lists the grounding builtins it allows. The studio's model policy reads this table. The kernel does not run the check; a host calls it on the profiles it registers.
 
 ## Vocabularies
 

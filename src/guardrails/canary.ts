@@ -1046,6 +1046,9 @@ function hostContentOf(event: ProviderEvent): unknown[] {
       return [event.session];
     case 'tool':
       return [event.tool];
+    case 'tool_draft':
+    case 'structured_draft':
+      return [event.text];
     case 'error':
       return [event.error, event.errorCopy];
     case 'attempt':

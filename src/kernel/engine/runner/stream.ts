@@ -13,6 +13,7 @@ import { guardrailFromHits, guardrailTurnEvent } from '../../../guardrails/event
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
   createOutboundProgressiveGate,
+  createToolDraftGate,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from '../../../guardrails/progressive-yield.ts';
@@ -29,12 +30,15 @@ import type {
   ResolvedGuardrailPolicy,
 } from '../../../guardrails/types.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
+import { toolArgumentsBoundary } from '../../tools/execute.ts';
+import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
   ModelProvider,
   Profile,
   ProviderCompleteRequest,
   ProviderEvent,
   ResolvedGeneration,
+  TurnEvent,
 } from '../../types.ts';
 import type { CallTrace, StreamCheck } from '../turn-trace.ts';
 
@@ -129,12 +133,102 @@ function isWithheldOnBlock(event: ProviderEvent): boolean {
 }
 
 /**
+ * An event as the host gets it, or nothing. The text of a call that asked for structured output is
+ * that output's JSON: under `sse` it goes out as `structured_draft`, and under `buffered` not at all,
+ * since the `structured` event is the reply whole. The turn keeps it as text, which its checks,
+ * repairs and history read.
+ */
+function shownToHost(
+  event: TurnEvent,
+  generation: Pick<ResolvedGeneration, 'structured' | 'stream'>,
+): TurnEvent | undefined {
+  if (!generation.structured || event.type !== 'text') return event;
+  return generation.stream === false ? undefined : { type: 'structured_draft', text: event.text };
+}
+
+/**
  * Events read at a boundary of their own, not with the reply's text: the
  * model's tool call at its `tool_arguments` boundary, and the structured
  * output at `reply_structured`.
  */
 function isReadElsewhere(event: StreamEvent): boolean {
   return event.type === 'structured' || event.type === 'tool';
+}
+
+/** A draft being shown: the tool it names, and its gate, none when nothing reads its boundary. */
+interface ShownDraft {
+  name: string;
+  gate: ProgressiveYieldGate | null;
+}
+
+/**
+ * The tool calls the model is drafting, each through a gate of its own at the boundary its call is
+ * read at (`createToolDraftGate`). A draft is a preview: one its gate stops, or whose tool's name
+ * changes, shows nothing more, and the call itself is still read whole. A draft's gate closes when
+ * its call arrives; its held tail is not released, because the call shows all of it.
+ */
+class ToolDrafts {
+  private readonly drafts = new Map<string, ShownDraft | 'stopped'>();
+
+  constructor(
+    private readonly policy: ResolvedGuardrailPolicy,
+    private readonly context: GuardrailContext,
+    private readonly tools: ToolRegistry,
+  ) {}
+
+  /**
+   * Shows `event` when it is a draft and says whether it was; any other event closes its call's
+   * draft. Nothing shows while the reply is `withheld`.
+   */
+  async *take(
+    event: StreamEvent,
+    withheld: boolean,
+    timed: <T>(check: StreamCheck, run: () => T | Promise<T>) => Promise<T>,
+  ): AsyncGenerator<StreamEvent, boolean> {
+    if (event.type !== 'tool_draft') {
+      this.close(event);
+      return false;
+    }
+    // why: A withheld reply is judged whole when its attempt ends; nothing more of it previews before then.
+    if (!withheld) yield* this.release(event, timed);
+    return true;
+  }
+
+  private async *release(
+    event: StreamEvent & { type: 'tool_draft' },
+    timed: <T>(check: StreamCheck, run: () => T | Promise<T>) => Promise<T>,
+  ): AsyncGenerator<StreamEvent> {
+    const draft = this.drafts.get(event.callId) ?? (await this.open(event));
+    if (draft === 'stopped') return;
+    if (draft.name !== event.name) {
+      this.drafts.set(event.callId, 'stopped');
+      return;
+    }
+    if (!draft.gate) {
+      yield event;
+      return;
+    }
+    const { gate } = draft;
+    // why: What the gate finds is reported once, by the check on the whole call.
+    const result = await timed('tool_draft', () => gate.process(event.text));
+    if (result.blocked) {
+      this.drafts.set(event.callId, 'stopped');
+      return;
+    }
+    if (result.emit) yield { ...event, text: result.emit };
+  }
+
+  private close(event: StreamEvent): void {
+    if (event.type === 'tool') this.drafts.delete(event.tool.callId);
+  }
+
+  private async open(event: StreamEvent & { type: 'tool_draft' }): Promise<ShownDraft> {
+    const boundary = toolArgumentsBoundary(this.tools, event.name);
+    const gate = boundary ? await createToolDraftGate(this.policy, this.context, boundary) : null;
+    const draft = { name: event.name, gate };
+    this.drafts.set(event.callId, draft);
+    return draft;
+  }
 }
 
 interface StreamArgs {
@@ -154,6 +248,8 @@ interface StreamArgs {
   canaryGiven?: boolean;
   /** The names of the profile's tools and of their parameters. */
   ownTools?: OwnTools;
+  /** The turn's tools: a draft is read at the boundary its tool's calls are. */
+  tools: ToolRegistry;
 }
 
 /** What the stream's checks know of the turn. */
@@ -198,6 +294,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
     canaryCarry,
   );
   const thoughts = await thoughtGuardFor(policy, context, thoughtCarry);
+  const drafts = new ToolDrafts(policy, context, args.tools);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
   let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;
@@ -335,6 +432,8 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
       return;
     }
 
+    if (yield* drafts.take(event, withholding(), timed)) continue;
+
     const leak = isReadElsewhere(event)
       ? undefined
       : await timed('stream_canary', () => eventLeak(event, context, policy.detect, 'reply'));
@@ -373,4 +472,4 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
 }
 
 export type { OutboundStreamControl, StreamArgs };
-export { isWithheldOnBlock, shouldSkipStreamEvent, yieldProviderEvents };
+export { isWithheldOnBlock, shouldSkipStreamEvent, shownToHost, yieldProviderEvents };

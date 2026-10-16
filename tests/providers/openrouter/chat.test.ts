@@ -1394,3 +1394,78 @@ Deno.test('createOpenRouterProvider does not duplicate token events on multiple 
   const events = await Array.fromAsync(provider.complete(createMockTurnRequest('pinned', 'dup')));
   assertEquals(eventsOf(events, 'tokens').length, 1);
 });
+
+function draftingChunks(): string[] {
+  const call = (fn: Record<string, string>, id?: string) =>
+    JSON.stringify({
+      choices: [{ delta: { tool_calls: [{ index: 0, ...(id ? { id } : {}), function: fn }] } }],
+    });
+  return [
+    `data: ${call({ name: 'lookup', arguments: '' }, 'call_1')}\n\n`,
+    `data: ${call({ arguments: '{"q":' })}\n\n`,
+    `data: ${call({ arguments: '"rec' })}\n\n`,
+    `data: ${call({ arguments: 'ord"}' })}\n\n`,
+    'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+    'data: [DONE]\n\n',
+  ];
+}
+
+function lookupRequest(): ProviderCompleteRequest {
+  const req = createMockTurnRequest('pinned', 'Find the record');
+  req.structured = null;
+  req.wireTools = [testWireTool('lookup')];
+  return req;
+}
+
+Deno.test('createOpenRouterProvider drafts a streamed tool call before it arrives whole', async () => {
+  const provider = createOpenRouterProvider({
+    vault: { slot_a: 'mock-key' },
+    fetch: () => Promise.resolve(sseResponse(draftingChunks())),
+  });
+  const events = await Array.fromAsync(provider.complete(lookupRequest()));
+  const drafts = eventsOf(events, 'tool_draft');
+  assertEquals(drafts.map((draft) => draft.text).join(''), '{"q":"record"}');
+  assertEquals(
+    drafts.every((draft) => draft.callId === 'call_1' && draft.name === 'lookup'),
+    true,
+  );
+  const lastDraft = events.findLastIndex((event) => event.type === 'tool_draft');
+  assert(lastDraft < events.findIndex((event) => event.type === 'tool'));
+  assertEquals(firstOf(events, 'tool')?.tool.callId, 'call_1');
+});
+
+Deno.test('createOpenRouterProvider drafts nothing of a buffered reply', async () => {
+  const provider = createOpenRouterProvider({
+    vault: { slot_a: 'mock-key' },
+    fetch: () =>
+      Promise.resolve(
+        Response.json({
+          id: 'response-test',
+          created: 0,
+          model: 'test-model',
+          object: 'chat.completion',
+          system_fingerprint: 'fp-test',
+          choices: [
+            {
+              index: 0,
+              finish_reason: 'tool_calls',
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call_1',
+                    type: 'function',
+                    function: { name: 'lookup', arguments: '{"q":"record"}' },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      ),
+  });
+  const events = await Array.fromAsync(provider.complete({ ...lookupRequest(), stream: false }));
+  assertEquals(eventsOf(events, 'tool_draft'), []);
+  assertEquals(firstOf(events, 'tool')?.tool.callId, 'call_1');
+});

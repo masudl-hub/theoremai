@@ -209,7 +209,7 @@ const preview = readStreamingJsonStringField(buffer, "mermaid");
 | Behavior | Detail |
 | --- | --- |
 | Locator | `"key"`, then `:` and an opening quote (whitespace allowed); an earlier `"key"` not followed by a string value is skipped |
-| Escapes | `\n`, `\t`, `\uXXXX`, … |
+| Escapes | Every JSON escape (`\n`, `\t`, `\uXXXX`, …); an escape cut off at the end of the buffer is left out; an unknown one reads as its letter. Shares its reader with `argumentsSoFar` |
 | Incomplete buffer | Returns prefix for live UI preview |
 | Missing key, or a value that is not a string | `null` |
 

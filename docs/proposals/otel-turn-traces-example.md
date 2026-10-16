@@ -104,7 +104,7 @@ The shipped wording for every span, attribute, event and value is the trace cata
 ```
 
 - `action` is `redact`, `flag` or `block`; the input and egress checks also record a pass as `allow`.
-- `check` and `duration_ms` name the check and how long it took: `input` and `egress` on the turn (`live_input` on a live session); `output_stream`, `stream_canary` and `live_output` on a model call, once per call with `runs`; and `tool_arguments`, `taint`, `tool_result`, `tool_failure`, `network` and `network_request` on a tool's span.
+- `check` and `duration_ms` name the check and how long it took: `input` and `egress` on the turn (`live_input` on a live session); `output_stream`, `stream_canary`, `tool_draft` and `live_output` on a model call, once per call with `runs`; and `tool_arguments`, `taint`, `tool_result`, `tool_failure`, `network` and `network_request` on a tool's span.
 - `start` / `end` are present when the check had offsets.
 - `match` is kept only under `guardrailMatchPreview`.
 - The whole event is kept only under `guardrailDecisions`.

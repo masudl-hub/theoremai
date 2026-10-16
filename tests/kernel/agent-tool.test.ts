@@ -222,7 +222,7 @@ Deno.test("the caller's done.tokens includes the agent call, which carries its o
   assertEquals(doneOf(events).tokens?.total, CALLER_TOKENS.total * 2 + RESEARCHER_TOKENS.total);
 });
 
-Deno.test("the called agent's events stream to the host as the call's progress", async () => {
+Deno.test("the called agent's reply streams as the call's drafts, its other events as its progress", async () => {
   const events = await collect(scopeWith(), routedProvider());
   const nested = toolPhases(events, 'progress').map(
     (tool) => (tool as { data: { agent: string; event: TurnEvent } }).data,
@@ -233,7 +233,13 @@ Deno.test("the called agent's events stream to the host as the call's progress",
   );
   assertEquals(
     nested.some((data) => data.event.type === 'text'),
-    true,
+    false,
+  );
+  assertEquals(
+    toolPhases(events, 'draft')
+      .map((tool) => (tool as { text: string }).text)
+      .join(''),
+    'found: question 0',
   );
   assertEquals(
     nested.some((data) => data.event.type === 'done'),

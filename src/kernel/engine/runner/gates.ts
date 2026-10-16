@@ -56,7 +56,7 @@ import {
   type StepExecutionState,
 } from './state.ts';
 import { executeAttempt } from './steps.ts';
-import { isWithheldOnBlock } from './stream.ts';
+import { isWithheldOnBlock, shownToHost } from './stream.ts';
 
 /** A turn whose final output the egress check blocked (withheld or replaced by policy copy). */
 const EGRESS_FILTERED_STOP: TurnStop = { kind: 'filtered', native: 'egress' };
@@ -248,6 +248,7 @@ async function evaluateValidationOutcome(args: {
 function* yieldBufferedAttemptEvents(
   events: TurnEvent[],
   alreadyStreamedUserVisible: boolean,
+  generation: ResolvedGeneration,
 ): Generator<TurnEvent> {
   for (const ev of events) {
     if (ev.type === 'tokens') {
@@ -257,7 +258,8 @@ function* yieldBufferedAttemptEvents(
     if (ev.type === 'thought' || (alreadyStreamedUserVisible && isWithheldOnBlock(ev))) {
       continue;
     }
-    yield ev;
+    const shown = shownToHost(ev, generation);
+    if (shown) yield shown;
   }
 }
 
@@ -691,7 +693,7 @@ async function* executeSingleAttemptCycle(args: {
     // withheld them mid-stream. A passing final verdict on the full text supersedes
     // that partial-window decision, so the buffer is released instead of dropped.
     const heldVisible = state.withheldVisible || holdsVisible(profile, flow.currentGen);
-    yield* yieldBufferedAttemptEvents(state.attemptEvents, !heldVisible);
+    yield* yieldBufferedAttemptEvents(state.attemptEvents, !heldVisible, flow.currentGen);
   }
 
   return { status: 'success' };

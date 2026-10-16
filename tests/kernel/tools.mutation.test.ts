@@ -16,8 +16,8 @@ import {
   permissionGranted,
   projectForModel,
   startToolExecution,
-  yieldHandlerSideEvent,
 } from '../../src/kernel/tools/execute.ts';
+import { yieldHandlerSideEvent } from '../../src/kernel/tools/handler-events.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import {
   applyBuiltinMutualExclusions,
@@ -265,8 +265,8 @@ Deno.test('tools mutation helpers filter paths, wire tools, and clone snapshots'
 });
 Deno.test('tools mutation coverage exercises resolver filtering and builtin promotion', () => {
   assertEquals(
-    applyBuiltinMutualExclusions(defaultKernelScope.tools, ['googleSearch', 'googleMaps']),
-    ['googleSearch', 'googleMaps'],
+    applyBuiltinMutualExclusions(defaultKernelScope.tools, ['googleSearch', 'urlContext']),
+    ['googleSearch', 'urlContext'],
   );
   assertEquals(
     resolveAllowedCustomToolIds(
@@ -320,16 +320,16 @@ Deno.test('tools mutation coverage exercises resolver filtering and builtin prom
   );
   const state: TurnToolSnapshot = {
     builtins: ['googleSearch'],
-    gated: ['googleSearch', 'googleMaps'],
+    gated: ['googleSearch', 'urlContext'],
     visible: [],
     executable: [],
     wire: [],
   };
   promoteBuiltin(defaultKernelScope.tools, state, 'googleSearch');
-  promoteBuiltin(defaultKernelScope.tools, state, 'googleMaps');
-  assertEquals(state.builtins, ['googleSearch', 'googleMaps']);
+  promoteBuiltin(defaultKernelScope.tools, state, 'urlContext');
+  assertEquals(state.builtins, ['googleSearch', 'urlContext']);
   promoteBuiltin(defaultKernelScope.tools, state, 'stub_tool');
-  assertEquals(state.builtins, ['googleSearch', 'googleMaps']);
+  assertEquals(state.builtins, ['googleSearch', 'urlContext']);
   assertEquals(
     asValue<FailureInfo | undefined>(
       refusal(

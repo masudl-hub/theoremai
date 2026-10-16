@@ -182,6 +182,24 @@ export const LABEL_KEYS = [
   'tool.agent_call_limit',
   'tool.agent_failed',
   'tool.activity_failed',
+  'protocol.not_served',
+  'protocol.profile_type',
+  'protocol.options',
+  'protocol.option_clash',
+  'protocol.base_options',
+  'protocol.id_clash',
+  'protocol.ws_headers',
+  'protocol.builtin_unwritten',
+  'protocol.provider_missing',
+  'protocol.connection',
+  'protocol.part_schema',
+  'protocol.part_invalid',
+  'protocol.key_invalid',
+  'protocol.http',
+  'protocol.no_operation',
+  'protocol.definition',
+  'protocol.provider_id_clash',
+  'protocol.history_needed',
 ] as const;
 
 /** One of {@linkcode LABEL_KEYS}. */
@@ -270,6 +288,29 @@ function fileNameOf(params: LabelParams): string | undefined {
  * are plain `{param}` templates so they stay serializable in host config.
  */
 const DEFAULTS: Record<LabelKey, LabelDefault> = {
+  'protocol.history_needed':
+    'This turn moved to another key or model, so it needs the conversation sent with it',
+  'protocol.not_served': "Provider '{provider}' does not serve the '{protocol}' protocol",
+  'protocol.profile_type': "Protocol '{protocol}' has no endpoint for '{profileType}' profiles",
+  'protocol.options': "Options for model '{apiId}' do not fit protocol '{protocol}': {issues}",
+  'protocol.option_clash':
+    "Protocol '{protocol}' adds option '{option}', which '{base}' already has",
+  'protocol.base_options':
+    "Protocol '{protocol}' adds options to '{base}', whose options are not an object",
+  'protocol.id_clash': "Protocol id '{protocol}' is already registered for a different protocol",
+  'protocol.ws_headers':
+    "Provider '{provider}' signs in with headers, which this runtime cannot send on a WebSocket",
+  'protocol.builtin_unwritten': "Protocol '{protocol}' does not write the built-in tool '{tool}'",
+  'protocol.provider_missing': "No provider '{provider}' is registered for model '{apiId}'",
+  'protocol.connection': "Provider '{provider}' has an invalid connection: {issues}",
+  'protocol.part_schema': "Protocol '{protocol}' wrote a '{kind}' part it declares no schema for",
+  'protocol.part_invalid':
+    "Protocol '{protocol}' wrote a '{kind}' part that does not fit its schema",
+  'protocol.key_invalid': "The key in slot '{slot}' is not what provider '{provider}' takes",
+  'protocol.http': "Provider '{provider}' answered with status {status}",
+  'protocol.no_operation': "Protocol '{protocol}' has no '{operation}' operation",
+  'protocol.definition': "Protocol or provider '{id}' is defined wrongly: {issues}",
+  'protocol.provider_id_clash': "Provider id '{provider}' is already registered",
   'provider.decision_failed': 'Decision provider failed',
   'provider.decision_unavailable': 'Provider has no decision operation',
   'provider.decision_model_missing': 'Decision response has no model',
@@ -498,6 +539,25 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
  * builders who replace the wording; the field catalog reads it for `labels.<key>`.
  */
 export const LABEL_NOTES: Record<LabelKey, string> = {
+  'protocol.history_needed':
+    'Refusal when a turn changes key, provider or model under provider-kept history and the host sent none.',
+  'protocol.not_served': 'Protocol and provider check. Takes {provider}, {protocol}.',
+  'protocol.profile_type': 'Protocol and provider check. Takes {protocol}, {profileType}.',
+  'protocol.options': 'Protocol and provider check. Takes {apiId}, {protocol}, {issues}.',
+  'protocol.option_clash': 'Protocol and provider check. Takes {protocol}, {option}, {base}.',
+  'protocol.base_options': 'Protocol and provider check. Takes {protocol}, {base}.',
+  'protocol.id_clash': 'Protocol and provider check. Takes {protocol}.',
+  'protocol.ws_headers': 'Protocol and provider check. Takes {provider}.',
+  'protocol.builtin_unwritten': 'Protocol and provider check. Takes {protocol}, {tool}.',
+  'protocol.provider_missing': 'Protocol and provider check. Takes {provider}, {apiId}.',
+  'protocol.connection': 'Protocol and provider check. Takes {provider}, {issues}.',
+  'protocol.part_schema': 'Protocol and provider check. Takes {protocol}, {kind}.',
+  'protocol.part_invalid': 'Protocol and provider check. Takes {protocol}, {kind}.',
+  'protocol.key_invalid': 'Protocol and provider check. Takes {slot}, {provider}.',
+  'protocol.http': 'Protocol and provider check. Takes {provider}, {status}.',
+  'protocol.no_operation': 'Protocol and provider check. Takes {protocol}, {operation}.',
+  'protocol.definition': 'Protocol and provider check. Takes {id}, {issues}.',
+  'protocol.provider_id_clash': 'Protocol and provider check. Takes {provider}.',
   'provider.decision_failed': 'Provider validation diagnostic.',
   'provider.decision_unavailable': 'Provider validation diagnostic.',
   'provider.decision_model_missing': 'Provider validation diagnostic.',
@@ -787,6 +847,23 @@ const SERVICE: readonly string[] = ['service'];
 
 /** The placeholders the kernel fills in for each key; any other `{name}` would reach the reader as typed. */
 const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
+  'protocol.not_served': ['provider', 'protocol'],
+  'protocol.profile_type': ['protocol', 'profileType'],
+  'protocol.options': ['apiId', 'protocol', 'issues'],
+  'protocol.option_clash': ['protocol', 'option', 'base'],
+  'protocol.base_options': ['protocol', 'base'],
+  'protocol.id_clash': ['protocol'],
+  'protocol.ws_headers': ['provider'],
+  'protocol.builtin_unwritten': ['protocol', 'tool'],
+  'protocol.provider_missing': ['provider', 'apiId'],
+  'protocol.connection': ['provider', 'issues'],
+  'protocol.part_schema': ['protocol', 'kind'],
+  'protocol.part_invalid': ['protocol', 'kind'],
+  'protocol.key_invalid': ['slot', 'provider'],
+  'protocol.http': ['provider', 'status'],
+  'protocol.no_operation': ['protocol', 'operation'],
+  'protocol.definition': ['id', 'issues'],
+  'protocol.provider_id_clash': ['provider'],
   'provider.profile_type': ['provider', 'profileType'],
   'provider.event_type': ['type'],
   'provider.feature': ['provider', 'feature'],

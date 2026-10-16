@@ -55,7 +55,6 @@
   ],
   "dependencies": {
     "@eslint-community/regexpp": "4.12.2",
-    "@openrouter/sdk": "1.4.25",
     "refa": "0.12.1",
     "scslre": "0.3.0"
   },

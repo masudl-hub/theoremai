@@ -3,22 +3,16 @@ import {
   type EmbeddingProfile,
   type EmbeddingProfileDefinition,
   type KeyVault,
-  labelText,
   type ProviderHostOptions,
   registerProfile,
   runEmbedding,
   type TraceSink,
   z,
 } from '@theoremjs/agents';
-import {
-  type ClientTurnOptions,
-  caughtStatus,
-  clientError,
-  HTTP_METHOD,
-} from '@theoremjs/agents/host';
+import type { ClientTurnOptions } from '@theoremjs/agents/host';
 import { embeddingInterface } from '../client/embedding-transport.ts';
 import { readBody } from './handler.ts';
-import { jsonResponse } from './json-response.ts';
+import { singleActionHandler } from './single-action.ts';
 
 export type TheoremEmbeddingHandlerOptions = {
   profile: EmbeddingProfile | EmbeddingProfileDefinition;
@@ -41,10 +35,6 @@ const embedBodySchema = z.object({
   model: z.string().min(1).optional(),
 });
 
-function isEmbed(request: Request): boolean {
-  return new URL(request.url).pathname.split('/').filter(Boolean).at(-1) === 'embed';
-}
-
 export function createTheoremEmbeddingHandler(
   options: TheoremEmbeddingHandlerOptions,
 ): (request: Request) => Promise<Response> {
@@ -55,23 +45,21 @@ export function createTheoremEmbeddingHandler(
     );
   }
   registerProfile(profile);
-  const iface = embeddingInterface(profile);
-  return async (request) => {
-    try {
-      if (request.method === 'GET' && !isEmbed(request))
-        return jsonResponse(200, { interface: iface });
-      if (request.method !== 'POST' || !isEmbed(request)) {
-        return jsonResponse(HTTP_METHOD, {
-          error: labelText('error.request', {}, profile.labels),
-          errorKind: 'request',
-        });
-      }
+  return singleActionHandler(
+    {
+      action: 'embed',
+      iface: embeddingInterface(profile),
+      labels: profile.labels,
+      clientEvents: options.clientEvents,
+      onError: options.onError,
+    },
+    async (request) => {
       const body = await readBody(request, embedBodySchema);
       const provider =
         typeof options.provider === 'function'
           ? await options.provider({ request, model: body.model })
           : options.provider;
-      const result = await runEmbedding(
+      return runEmbedding(
         {
           profile: profile.id,
           input: body.input as never,
@@ -83,13 +71,6 @@ export function createTheoremEmbeddingHandler(
           ? { ...provider, ...(options.sink ? { sink: options.sink } : {}) }
           : { vault: options.vault, fetch: options.fetch, sink: options.sink },
       );
-      return jsonResponse(200, { result });
-    } catch (err) {
-      options.onError?.(err, { request });
-      return jsonResponse(
-        caughtStatus(err),
-        clientError(err, profile.labels, options.clientEvents),
-      );
-    }
-  };
+    },
+  );
 }

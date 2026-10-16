@@ -1,10 +1,8 @@
 import { type ErrorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
-import { resolveTraceWriter } from '../../observability/policy.ts';
-import { writeSpans } from '../../observability/trace.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
-import { type SpanHandle, startTrace, traceJson } from '../../observability/trace-span.ts';
+import { type SpanHandle, traceJson } from '../../observability/trace-span.ts';
 import type { ProviderHostOptions } from '../protocols/runtime.ts';
 import { guardedCall } from '../provider-runtime.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
@@ -19,7 +17,7 @@ import type {
   ModelId,
 } from '../types.ts';
 import { isRecord } from '../util/record.ts';
-import { endThrownSpan } from './turn-trace.ts';
+import { tracedCall } from './call-trace.ts';
 
 /** Where the provider takes decision requests, as its preset states. */
 const DECISION_ERROR_KINDS = {
@@ -418,25 +416,22 @@ export async function runDecisionInRegistry(
   validateDecisionRequest(request, profile);
   const model = decisionModel(profile);
   const [modelId, binding] = model;
-  const tree = startTrace(`decide ${binding.apiId}`, {
-    kind: 'CLIENT',
-    attributes: decisionSpanAttributes(profile, modelId, binding, request),
-    ...(request.traceparent ? { traceparent: request.traceparent } : {}),
-  });
-  const { sink, policy } = resolveTraceWriter({
-    override: options.sink,
-    observability: profile.observability,
-    guardrails: profile.guardrails,
-  });
-  try {
-    const result = await decide(registry, profile, model, request, options);
-    recordResult(tree.root, result);
-    tree.root.end({ code: 'OK' });
-    return result;
-  } catch (error) {
-    endThrownSpan(tree.root, error);
-    throw error;
-  } finally {
-    await writeSpans(sink, tree.collect(), policy, request.metadata);
-  }
+  return await tracedCall(
+    {
+      name: `decide ${binding.apiId}`,
+      attributes: decisionSpanAttributes(profile, modelId, binding, request),
+      traceparent: request.traceparent,
+      metadata: request.metadata,
+      writer: {
+        override: options.sink,
+        observability: profile.observability,
+        guardrails: profile.guardrails,
+      },
+    },
+    async (root) => {
+      const result = await decide(registry, profile, model, request, options);
+      recordResult(root, result);
+      return result;
+    },
+  );
 }

@@ -34,6 +34,13 @@ const INTERACTIONS_TYPE: Record<GoogleBuiltinId, string> = {
   codeExecution: 'code_execution',
 };
 
+/** The request's builtins that are Google's own tools; the wire takes no others. */
+function googleBuiltins<B extends ProviderBuiltin>(builtins: readonly B[]): B[] {
+  return builtins.filter((builtin) =>
+    (GOOGLE_BUILTIN_IDS as readonly string[]).includes(builtin.id),
+  );
+}
+
 function googleBuiltinId(builtin: ProviderBuiltin): GoogleBuiltinId {
   const id = GOOGLE_BUILTIN_IDS.find((known) => known === builtin.id);
   if (!id) {
@@ -62,5 +69,4 @@ function liveBuiltinTool(builtin: ProviderBuiltin): Record<string, unknown> {
   return { [id]: {} };
 }
 
-export type { GoogleBuiltinId };
-export { GOOGLE_BUILTIN_IDS, interactionsBuiltinTool, liveBuiltinTool };
+export { googleBuiltins, interactionsBuiltinTool, liveBuiltinTool };

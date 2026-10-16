@@ -167,49 +167,60 @@ export async function listProviderModels(
   signal?: AbortSignal,
 ): Promise<ProviderModel[]> {
   const secret = key?.trim();
-  if (profileType === 'embedding' && provider === 'openrouter' && !secret) {
-    return [...KNOWN_OPENROUTER_EMBEDDING_MODELS];
+  if (profileType === 'embedding' && !secret) {
+    return [
+      ...(provider === 'openrouter' ? KNOWN_OPENROUTER_EMBEDDING_MODELS : KNOWN_GEMINI_EMBEDDING_MODELS),
+    ];
   }
-  if (profileType === 'embedding' && provider === 'gemini' && !secret) {
-    return [...KNOWN_GEMINI_EMBEDDING_MODELS];
-  }
-  if (provider === 'openrouter') {
-    if (profileType === 'embedding') {
-      const parsed = openRouterEmbeddingModelList.safeParse(
-        await listedJson('OpenRouter', OPENROUTER_EMBEDDING_MODELS_URL, {
-          signal,
-          headers: {
-            Accept: 'application/json',
-            ...(secret ? { Authorization: ['Bearer', secret].join(' ') } : {}),
-          },
-        }),
-      );
-      if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid embedding model list.');
-      return parsed.data.data.map((model) => ({ id: model.id, label: model.name ?? model.id }));
-    }
-    const output = OPENROUTER_OUTPUT[profileType];
-    if (!output) return [];
-    const parsed = openRouterModelList.safeParse(
-      await listedJson('OpenRouter', `${OPENROUTER_MODELS_URL}?output_modalities=${output}`, {
-        signal,
-        headers: {
-          Accept: 'application/json',
-          ...(secret ? { Authorization: ['Bearer', secret].join(' ') } : {}),
-        },
-      }),
-    );
-    if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid model list.'); // labels-exempt: builder diagnostic
-    return parsed.data.data
-      .filter((model) => model.architecture?.output_modalities?.includes(output) ?? true)
-      .map((model) => ({ id: model.id, label: model.name ?? model.id }));
-  }
+  if (provider === 'openrouter') return await listOpenRouterModels(profileType, secret, signal);
   if (!secret) throw new TheoremError('auth', 'Choose a key to list Gemini models.'); // labels-exempt: builder diagnostic
-  const method =
-    profileType === 'live'
-      ? 'bidiGenerateContent'
-      : profileType === 'embedding'
-        ? 'embedContent'
-        : 'generateContent';
+  return await listGeminiModels(profileType, secret, signal);
+}
+
+/** OpenRouter's models of the profile's kind; the key is optional. */
+async function listOpenRouterModels(
+  profileType: ListedProfileType,
+  secret: string | undefined,
+  signal: AbortSignal | undefined,
+): Promise<ProviderModel[]> {
+  const init = {
+    signal,
+    headers: {
+      Accept: 'application/json',
+      ...(secret ? { Authorization: ['Bearer', secret].join(' ') } : {}),
+    },
+  };
+  if (profileType === 'embedding') {
+    const parsed = openRouterEmbeddingModelList.safeParse(
+      await listedJson('OpenRouter', OPENROUTER_EMBEDDING_MODELS_URL, init),
+    );
+    if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid embedding model list.'); // labels-exempt: builder diagnostic
+    return parsed.data.data.map((model) => ({ id: model.id, label: model.name ?? model.id }));
+  }
+  const output = OPENROUTER_OUTPUT[profileType];
+  if (!output) return [];
+  const parsed = openRouterModelList.safeParse(
+    await listedJson('OpenRouter', `${OPENROUTER_MODELS_URL}?output_modalities=${output}`, init),
+  );
+  if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid model list.'); // labels-exempt: builder diagnostic
+  return parsed.data.data
+    .filter((model) => model.architecture?.output_modalities?.includes(output) ?? true)
+    .map((model) => ({ id: model.id, label: model.name ?? model.id }));
+}
+
+/** The Gemini method a profile type's models must take. */
+const GEMINI_METHOD: Partial<Record<ListedProfileType, string>> = {
+  live: 'bidiGenerateContent',
+  embedding: 'embedContent',
+};
+
+/** The key's Gemini models that take the profile type's method, page by page. */
+async function listGeminiModels(
+  profileType: ListedProfileType,
+  secret: string,
+  signal: AbortSignal | undefined,
+): Promise<ProviderModel[]> {
+  const method = GEMINI_METHOD[profileType] ?? 'generateContent';
   const models: ProviderModel[] = [];
   let pageToken: string | undefined;
   for (let page = 0; page < GEMINI_MODEL_PAGES; page++) {

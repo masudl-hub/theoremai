@@ -92,14 +92,3 @@ export async function* readSseChunks(
     reader.releaseLock();
   }
 }
-
-/** Silently skips malformed payloads, unlike `readSseChunks`. */
-export async function* parseSseStream(
-  body: ReadableStream<Uint8Array>,
-): AsyncGenerator<Record<string, unknown>> {
-  for await (const payload of readSseChunks(body)) {
-    if (payload.eventType === 'sse_done') return;
-    if (payload.eventType === 'sse_unparsed') continue;
-    yield payload;
-  }
-}

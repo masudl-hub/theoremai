@@ -15,22 +15,16 @@ import {
   type DecisionQuestion,
   defineProfile,
   type KeyVault,
-  labelText,
   registerProfile,
   runDecision,
   type TraceSink,
   z,
 } from '@theoremjs/agents';
-import {
-  type ClientTurnOptions,
-  caughtStatus,
-  clientError,
-  HTTP_METHOD,
-} from '@theoremjs/agents/host';
+import type { ClientTurnOptions } from '@theoremjs/agents/host';
 import type { DecisionProfileDefinition } from '@theoremjs/agents/kernel';
 import { decisionInterface } from '../client/decision-transport.ts';
 import { readBody } from './handler.ts';
-import { jsonResponse } from './json-response.ts';
+import { singleActionHandler } from './single-action.ts';
 
 export type TheoremDecisionHandlerOptions = {
   /** Decision profile to serve. Registered with the kernel when the handler is created. */
@@ -55,10 +49,6 @@ export type TheoremDecisionHandlerOptions = {
 
 const decideBodySchema = z.object({ state: z.unknown() });
 
-function isDecide(request: Request): boolean {
-  return new URL(request.url).pathname.split('/').filter(Boolean).at(-1) === 'decide';
-}
-
 export function createTheoremDecisionHandler(
   options: TheoremDecisionHandlerOptions,
 ): (request: Request) => Promise<Response> {
@@ -70,20 +60,17 @@ export function createTheoremDecisionHandler(
     );
   }
   registerProfile(profile);
-  const iface = decisionInterface(profile, options.questions);
-
-  return async (request) => {
-    try {
-      if (request.method === 'GET' && !isDecide(request))
-        return jsonResponse(200, { interface: iface });
-      if (request.method !== 'POST' || !isDecide(request)) {
-        return jsonResponse(HTTP_METHOD, {
-          error: labelText('error.request', {}, profile.labels),
-          errorKind: 'request',
-        });
-      }
+  return singleActionHandler(
+    {
+      action: 'decide',
+      iface: decisionInterface(profile, options.questions),
+      labels: profile.labels,
+      clientEvents: options.clientEvents,
+      onError: options.onError,
+    },
+    async (request) => {
       const body = await readBody(request, decideBodySchema);
-      const result = await runDecision(
+      return runDecision(
         {
           profile: profile.id,
           // why: The kernel checks the state is non-null JSON within the profile's size.
@@ -94,13 +81,6 @@ export function createTheoremDecisionHandler(
         },
         { vault: options.vault, fetch: options.fetch, sink: options.sink },
       );
-      return jsonResponse(200, { result });
-    } catch (err) {
-      options.onError?.(err, { request });
-      return jsonResponse(
-        caughtStatus(err),
-        clientError(err, profile.labels, options.clientEvents),
-      );
-    }
-  };
+    },
+  );
 }

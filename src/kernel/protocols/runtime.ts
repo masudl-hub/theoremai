@@ -8,7 +8,12 @@ import { type JsonObject, type JsonValue, jsonValueSchema } from '../json.ts';
 import type { KeyVault } from '../registry/vault.ts';
 import type { DecisionResult, KeySlot } from '../types.ts';
 import { bytesToBase64 } from '../util/base64.ts';
-import { type DecisionModelBinding, keySlotsOf, type ModelBinding } from './binding.ts';
+import {
+  bindingServe,
+  type DecisionModelBinding,
+  keySlotsOf,
+  type ModelBinding,
+} from './binding.ts';
 import { type ProviderLimits, resolveProviderLimits } from './limits.ts';
 import { costFromPrices } from './prices.ts';
 import type {
@@ -84,16 +89,7 @@ function mintCallId(): string {
 }
 
 function serveOf(setup: CallSetup): Serve {
-  const serve = setup.provider.serves.find((entry) => entry.protocol.id === setup.binding.protocol);
-  if (!serve)
-    throw new TheoremError(
-      'config',
-      labelText('protocol.not_served', {
-        provider: setup.provider.id,
-        protocol: setup.binding.protocol,
-      }),
-    );
-  return serve;
+  return bindingServe(setup.provider, setup.binding);
 }
 
 const signers = new WeakMap<RegisteredProvider, Map<string, { key: unknown; signer: Signer }>>();
@@ -548,6 +544,32 @@ function operation<K extends keyof ProtocolOperations>(
   >;
 }
 
+/** The operations that answer once, with what each takes and returns. */
+interface OneAnswer {
+  decide: [DecisionCall, DecisionResult];
+  embed: [EmbeddingCall, EmbeddingResult];
+}
+
+/** One request with one answer, tried across the binding's key slots. */
+async function answerOnce<K extends keyof OneAnswer>(
+  setup: CallSetup,
+  name: K,
+  request: OneAnswer[K][0],
+): Promise<OneAnswer[K][1]> {
+  const protocol = protocolFor(setup);
+  for await (const result of withKeys(setup, (slot) =>
+    (async function* () {
+      const operations = protocol.create(protocolContext(setup, slot, []));
+      const run = operation(protocol, operations, name) as (
+        request: OneAnswer[K][0],
+      ) => Promise<OneAnswer[K][1]>;
+      yield await run(request);
+    })(),
+  ))
+    return result;
+  throw new TheoremError('internal', labelText('provider.decision_failed'));
+}
+
 /**
  * One binding's call, as the kernel runs it: the protocol's operations with the kernel's retries,
  * ids, origins and prices around them.
@@ -616,25 +638,7 @@ export function callProtocol(setup: CallSetup): ProtocolCall {
         },
       };
     },
-    async decide(request) {
-      for await (const result of withKeys(setup, (slot) =>
-        (async function* () {
-          const operations = protocol.create(protocolContext(setup, slot, []));
-          yield await operation(protocol, operations, 'decide')(request);
-        })(),
-      ))
-        return pricedDecision(setup, result);
-      throw new TheoremError('internal', labelText('provider.decision_failed'));
-    },
-    async embed(request) {
-      for await (const result of withKeys(setup, (slot) =>
-        (async function* () {
-          const operations = protocol.create(protocolContext(setup, slot, []));
-          yield await operation(protocol, operations, 'embed')(request);
-        })(),
-      ))
-        return result;
-      throw new TheoremError('internal', labelText('provider.decision_failed'));
-    },
+    decide: async (request) => pricedDecision(setup, await answerOnce(setup, 'decide', request)),
+    embed: (request) => answerOnce(setup, 'embed', request),
   };
 }

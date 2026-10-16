@@ -40,7 +40,7 @@ The required `publish-dry-run` job in CI runs the JSR and npm dry runs on every 
 
 ## Run the security scans locally
 
-CI runs the same scans in the `Security` and `Mutation testing` workflows.
+CI runs the same scans in the `Security` and `Mutation testing` workflows. Snyk scans the repo through its GitHub integration instead, on its own schedule and on each pull request. It reads the `.snyk` policy at the root. Run Snyk locally only when you change dependencies or the policy, because each local test counts against the account's test quota.
 
 ```bash
 semgrep scan --config p/typescript --config p/secrets --metrics=off --error \

@@ -391,15 +391,16 @@ Deno.test('the settled stream views are prefixes of the batch views, each update
 async function assertLinear(sentence: string, context: GuardrailContext): Promise<void> {
   const time = async (length: number): Promise<number> => {
     const text = sentence.repeat(Math.ceil(length / sentence.length)).slice(0, length);
-    const runs: number[] = [];
-    for (let run = 0; run < 3; run++) {
+    // The fastest of five: other work on the machine only ever adds time.
+    let fastest = Number.POSITIVE_INFINITY;
+    for (let run = 0; run < 5; run++) {
       const gate = await replyGate(context);
       const started = performance.now();
       for (let at = 0; at < text.length; at += 4) await gate.process(text.slice(at, at + 4));
       await gate.flush();
-      runs.push(performance.now() - started);
+      fastest = Math.min(fastest, performance.now() - started);
     }
-    return runs.sort((a, b) => a - b)[1] as number;
+    return fastest;
   };
   await time(5_000);
   const ratio = (await time(40_000)) / (await time(10_000));

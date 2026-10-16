@@ -1,8 +1,5 @@
 import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
-import { resolveTraceWriter } from '../../observability/policy.ts';
-import { writeSpans } from '../../observability/trace.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
-import { startTrace } from '../../observability/trace-span.ts';
 import type { ProviderHostOptions } from '../protocols/runtime.ts';
 import { guardedCall } from '../provider-runtime.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
@@ -14,6 +11,7 @@ import type {
   EmbeddingVector,
   ModelBinding,
 } from '../types.ts';
+import { tracedCall } from './call-trace.ts';
 
 export interface RunEmbeddingOptions extends ProviderHostOptions {
   sink?: TraceSink;
@@ -116,40 +114,33 @@ export async function runEmbeddingInRegistry(
   const call = guardedCall(provider, binding, 'embedding', options, {
     ...(request.signal ? { signal: request.signal } : {}),
   });
-  const tree = startTrace(`embed ${binding.apiId}`, {
-    kind: 'CLIENT',
-    attributes: {
-      'gen_ai.operation.name': 'embeddings',
-      'gen_ai.provider.name': binding.provider,
-      'gen_ai.agent.name': profile.id,
-      'gen_ai.request.model': binding.apiId,
-      'theorem.model.id': modelId,
-      'theorem.embedding.inputs': inputs.length,
+  return await tracedCall(
+    {
+      name: `embed ${binding.apiId}`,
+      attributes: {
+        'gen_ai.operation.name': 'embeddings',
+        'gen_ai.provider.name': binding.provider,
+        'gen_ai.agent.name': profile.id,
+        'gen_ai.request.model': binding.apiId,
+        'theorem.model.id': modelId,
+        'theorem.embedding.inputs': inputs.length,
+      },
+      traceparent: request.traceparent,
+      metadata: request.metadata,
+      writer: {
+        override: options.sink,
+        observability: profile.observability,
+        guardrails: profile.guardrails,
+      },
     },
-    ...(request.traceparent ? { traceparent: request.traceparent } : {}),
-  });
-  const { sink, policy } = resolveTraceWriter({
-    override: options.sink,
-    observability: profile.observability,
-    guardrails: profile.guardrails,
-  });
-  try {
-    const result = await call.embed({
-      apiId: binding.apiId,
-      input: request.input,
-      ...(binding.options ? { options: binding.options } : {}),
-      ...(request.signal ? { signal: request.signal } : {}),
-    });
-    const validated = validateResult(result, inputs.length);
-    tree.root.end({ code: 'OK' });
-    return validated;
-  } catch (error) {
-    tree.root.end({
-      code: 'ERROR',
-      message: error instanceof Error ? error.message : String(error),
-    });
-    throw error;
-  } finally {
-    await writeSpans(sink, tree.collect(), policy, request.metadata);
-  }
+    async () => {
+      const result = await call.embed({
+        apiId: binding.apiId,
+        input: request.input,
+        ...(binding.options ? { options: binding.options } : {}),
+        ...(request.signal ? { signal: request.signal } : {}),
+      });
+      return validateResult(result, inputs.length);
+    },
+  );
 }

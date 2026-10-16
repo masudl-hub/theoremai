@@ -2,7 +2,7 @@ import { TheoremError } from '../guardrails/error.ts';
 import { labelText } from '../guardrails/labels.ts';
 import type { LiveConnection, LiveQueueItem } from '../providers/types.ts';
 import type { ProviderCheckpoint, ProviderContinuationPolicy } from './checkpoint.ts';
-import type { ModelBinding } from './protocols/binding.ts';
+import { type ModelBinding, protocolOf } from './protocols/binding.ts';
 import type { ProtocolEvent, ProtocolSession } from './protocols/protocol.ts';
 import type { RegisteredProvider } from './protocols/provider.ts';
 import type { ProviderHostOptions } from './protocols/runtime.ts';
@@ -10,7 +10,6 @@ import {
   checkpointProviderState,
   guardedCall,
   kernelCall,
-  protocolOf,
   protocolRequest,
   restoreProviderState,
   withProviderAbort,
@@ -89,6 +88,33 @@ function rememberLiveCall(
   callNames.set(call.callId, call.name);
 }
 
+function streamingBatch(events: ModelEvent[]): LiveQueueItem {
+  return { type: 'batch', row: {}, turnPhase: 'streaming', events };
+}
+
+/** A call the model made, for the step; a step's signed reasoning rides on its first call, as in a turn. */
+function queuedCall(
+  call: Parameters<typeof kernelCall>[0],
+  pending: readonly ModelEvent[],
+  reasoning: ReasoningPart[],
+): ModelEvent {
+  const tool = kernelCall(call);
+  const first = !pending.some((item) => item.type === 'tool');
+  return {
+    type: 'tool',
+    tool: first && reasoning.length ? { ...tool, reasoning: reasoning.splice(0) } : tool,
+  };
+}
+
+/** The batch saying the model cancelled one of its calls. */
+function cancelBatch(callId: string, callNames: ReadonlyMap<string, string>): LiveQueueItem {
+  const name = callNames.get(callId);
+  if (!name) throw new TheoremError('bad_response', labelText('provider.tool_cancel_missing'));
+  return streamingBatch([
+    { type: 'tool', tool: { callId, name, at: Date.now(), phase: 'cancel' } },
+  ]);
+}
+
 export async function openRegisteredLiveSession(
   provider: RegisteredProvider,
   binding: ModelBinding,
@@ -142,12 +168,7 @@ export async function openRegisteredLiveSession(
     },
     async *batches(): AsyncGenerator<LiveQueueItem> {
       if (restored.warning)
-        yield {
-          type: 'batch',
-          row: {},
-          turnPhase: 'streaming',
-          events: [{ type: 'provider_warning', warning: restored.warning }],
-        };
+        yield streamingBatch([{ type: 'provider_warning', warning: restored.warning }]);
       const callNames = new Map<string, string>();
       let pending: ModelEvent[] = [];
       let boundary: ModelEvent[] = [];
@@ -177,50 +198,27 @@ export async function openRegisteredLiveSession(
             !pending.length &&
             (event.session.kind === 'working' || event.session.kind === 'idle')
           ) {
-            yield { type: 'batch', row: {}, turnPhase: 'streaming', events: [...boundary, event] };
+            yield streamingBatch([...boundary, event]);
             boundary = [];
             continue;
           }
           if (event.type === 'tool_call') {
             rememberLiveCall(event.call, callNames, request.history);
-            const tool = kernelCall(event.call);
-            // invariant: a step's signed reasoning rides on its first call, as in a turn.
-            const first = !pending.some((item) => item.type === 'tool');
-            pending.push({
-              type: 'tool',
-              tool: first && reasoning.length ? { ...tool, reasoning: reasoning.splice(0) } : tool,
-            });
+            pending.push(queuedCall(event.call, pending, reasoning));
             continue;
           }
           if (event.type === 'tool_cancel') {
-            const name = callNames.get(event.callId);
-            if (!name)
-              throw new TheoremError('bad_response', labelText('provider.tool_cancel_missing'));
+            const cancelled = cancelBatch(event.callId, callNames);
             pending = pending.filter(
               (item) => item.type !== 'tool' || item.tool.callId !== event.callId,
             );
-            yield {
-              type: 'batch',
-              row: {},
-              turnPhase: 'streaming',
-              events: [
-                {
-                  type: 'tool',
-                  tool: { callId: event.callId, name, at: Date.now(), phase: 'cancel' },
-                },
-              ],
-            };
+            yield cancelled;
             continue;
           }
           if (event.type === 'error') failed = true;
           if (event.type === 'done') {
             if (event.stop.kind === 'generation_complete') {
-              yield {
-                type: 'batch',
-                row: {},
-                turnPhase: 'streaming',
-                events: [{ type: 'done', stop: event.stop }],
-              };
+              yield streamingBatch([{ type: 'done', stop: event.stop }]);
               continue;
             }
             yield await liveTerminalBatch(
@@ -237,8 +235,7 @@ export async function openRegisteredLiveSession(
             boundary = [];
             reasoning = [];
             failed = false;
-          } else
-            yield { type: 'batch', row: {}, turnPhase: 'streaming', events: [event as ModelEvent] };
+          } else yield streamingBatch([event as ModelEvent]);
         }
       } finally {
         const returned = iterator.return?.();

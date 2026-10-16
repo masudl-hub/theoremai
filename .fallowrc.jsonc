@@ -55,7 +55,9 @@
     // The studio's font: only its stylesheet (studio/ui/figtree.css) names it, by url().
     "@fontsource/figtree",
     // @astryxdesign/core's peer: the studio lists it so core resolves it, and imports it nowhere itself.
-    "@stylexjs/stylex"
+    "@stylexjs/stylex",
+    // @theoremjs/react's peer: the studio theme extends react's, which extends the neutral theme.
+    "@astryxdesign/theme-neutral"
   ],
   // docs-truth loads the ownership graph via dynamic import (graph.mjs → _map.mjs).
   // Vite's worker suffix on a package the host installs; the kernel repo has no Monaco.

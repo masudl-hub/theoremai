@@ -16,7 +16,12 @@ import {
 } from './checkpoint.ts';
 import { historyToolCalls } from './interaction-parts.ts';
 import { type JsonValue, jsonObjectSchema, jsonValueSchema } from './json.ts';
-import { type DecisionModelBinding, keySlotsOf, type ModelBinding } from './protocols/binding.ts';
+import {
+  type DecisionModelBinding,
+  keySlotsOf,
+  type ModelBinding,
+  protocolOf,
+} from './protocols/binding.ts';
 import { resolveProviderLimits } from './protocols/limits.ts';
 import {
   carriesTo,
@@ -80,7 +85,7 @@ function providerStop(raw: unknown) {
 }
 
 /** Checks one event a protocol streamed has the shape its type promises. */
-export function validateProtocolEvent(raw: unknown): ProtocolEvent {
+function validateProtocolEvent(raw: unknown): ProtocolEvent {
   if (!isRecord(raw) || typeof raw.type !== 'string')
     throw new TheoremError('bad_response', labelText('provider.event_invalid'));
   if (contentTypes.has(raw.type)) return turnEventSchema.parse(raw) as ProtocolEvent;
@@ -310,36 +315,23 @@ export function guardedCall(
     },
   });
   budget.stopTimer();
+  /** One request with one answer, inside the budget and its abort. */
+  const once = async <R>(run: () => Promise<R>): Promise<R> => {
+    try {
+      budget.resumeOperation();
+      const result = await withProviderAbort(() => safeProviderCall(run, clean), budget.signal);
+      budget.value(result);
+      return result;
+    } finally {
+      budget.close();
+    }
+  };
   return {
     keySlot: () => slot,
     complete: (request) =>
       guardedEvents(() => call.complete({ ...request, signal: budget.signal }), clean, budget),
-    async decide(request) {
-      try {
-        budget.resumeOperation();
-        const result = await withProviderAbort(
-          () => safeProviderCall(() => call.decide({ ...request, signal: budget.signal }), clean),
-          budget.signal,
-        );
-        budget.value(result);
-        return result;
-      } finally {
-        budget.close();
-      }
-    },
-    async embed(request) {
-      try {
-        budget.resumeOperation();
-        const result = await withProviderAbort(
-          () => safeProviderCall(() => call.embed({ ...request, signal: budget.signal }), clean),
-          budget.signal,
-        );
-        budget.value(result);
-        return result;
-      } finally {
-        budget.close();
-      }
-    },
+    decide: (request) => once(() => call.decide({ ...request, signal: budget.signal })),
+    embed: (request) => once(() => call.embed({ ...request, signal: budget.signal })),
     async openSession(request) {
       budget.resumeOperation();
       const session = await withProviderAbort(
@@ -383,20 +375,6 @@ export function guardedCall(
       };
     },
   };
-}
-
-/** The protocol a binding speaks on its provider. */
-export function protocolOf(
-  provider: RegisteredProvider,
-  binding: ModelBinding | DecisionModelBinding,
-): Protocol {
-  const serve = provider.serves.find((entry) => entry.protocol.id === binding.protocol);
-  if (!serve)
-    throw new TheoremError(
-      'config',
-      labelText('protocol.not_served', { provider: provider.id, protocol: binding.protocol }),
-    );
-  return serve.protocol;
 }
 
 /** What saved state was written for besides the model: the connection and the keyed options. */

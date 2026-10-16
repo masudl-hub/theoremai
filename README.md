@@ -26,7 +26,7 @@
 <p align="center">
   <a href="https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml"><img src="https://img.shields.io/github/check-runs/masudl-hub/theoremai/main?nameFilter=lint&label=Biome%20%C2%B7%20ast-grep%20%C2%B7%20fallow&logo=biome" alt="Lint"></a>
   <a href="https://github.com/masudl-hub/theoremai/actions/workflows/security.yml"><img src="https://img.shields.io/github/check-runs/masudl-hub/theoremai/main?nameFilter=semgrep&label=Semgrep&logo=semgrep" alt="Semgrep"></a>
-  <a href="https://github.com/masudl-hub/theoremai/actions/workflows/security.yml"><img src="https://img.shields.io/github/check-runs/masudl-hub/theoremai/main?nameFilter=snyk&label=Snyk&logo=snyk" alt="Snyk"></a>
+  <a href="https://snyk.io/test/github/masudl-hub/theoremai"><img src="https://snyk.io/test/github/masudl-hub/theoremai/badge.svg" alt="Snyk"></a>
   <a href="https://github.com/masudl-hub/theoremai/actions/workflows/mutation.yml"><img src="https://github.com/masudl-hub/theoremai/actions/workflows/mutation.yml/badge.svg" alt="Mutation testing"></a>
 </p>
 

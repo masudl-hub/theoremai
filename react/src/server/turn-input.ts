@@ -3,7 +3,7 @@ import type { LiveOpenMessage } from '../client/live-messages.ts';
 import type { TheoremTurnInput } from '../client/transport.ts';
 
 /** The page's context as the client's and the host's as the server's; nothing when neither gave any. */
-export function turnContext(client: unknown, server?: unknown): TurnContext | undefined {
+function turnContext(client: unknown, server?: unknown): TurnContext | undefined {
   const context = {
     ...(client === undefined ? {} : { client }),
     ...(server === undefined ? {} : { server }),

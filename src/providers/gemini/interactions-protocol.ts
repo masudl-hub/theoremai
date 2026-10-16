@@ -11,7 +11,7 @@ import {
 } from '../../kernel/protocols/mod.ts';
 import type { ModelEvent } from '../../kernel/types.ts';
 import { readGeminiApiError } from '../google/api-error.ts';
-import { GOOGLE_BUILTIN_IDS } from '../google/builtins.ts';
+import { googleBuiltins } from '../google/builtins.ts';
 import {
   type InteractionsRequest,
   thoughtSignature,
@@ -58,9 +58,7 @@ function wireRequest(context: ProtocolContext<Options>, request: ProtocolRequest
   const previous = context.options.persistViaInteractionId
     ? request.state?.interactionId
     : undefined;
-  const builtins = request.builtins.filter((builtin) =>
-    (GOOGLE_BUILTIN_IDS as readonly string[]).includes(builtin.id),
-  );
+  const builtins = googleBuiltins(request.builtins);
   const wire = {
     ...request,
     apiId: context.apiId,

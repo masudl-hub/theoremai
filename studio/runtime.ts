@@ -55,6 +55,7 @@ import {
   type RegisteredTool,
   type RunDecisionOptions,
   type EmbeddingRequest,
+  type EmbeddingResult,
 } from '@theoremjs/agents/kernel';
 import { STUDIO_TRACE_DESTINATION } from './policy.ts';
 import { STUDIO_READER } from './reader.ts';
@@ -538,6 +539,19 @@ export async function* streamStudioCall(args: {
 
 export { type StudioDependency, type StudioRuntime, studioScope } from './runtime-scope.ts';
 
+/** The records a preview writes, and the sink that keeps them when its profile records traces. */
+function collectTraces(observability: Parameters<typeof resolveObservabilityPolicy>[0] | undefined) {
+  const traces: TraceRecord[] = [];
+  if (!observability || !resolveObservabilityPolicy(observability).record) return { traces };
+  const sink = {
+    write: (record: TraceRecord) => {
+      traces.push(record);
+      return Promise.resolve();
+    },
+  };
+  return { traces, sink };
+}
+
 /** Both hosts run decisions through the kernel; the browser supplies its provider vault. */
 export async function runStudioDecision(
   payload: StudioRunPayload,
@@ -548,20 +562,11 @@ export async function runStudioDecision(
   const { scope, profile } = await studioScope(payload.profile, [], undefined, {
     mode: 'byok',
   });
-  const traces: TraceRecord[] = [];
-  const records = profile.observability
-    ? resolveObservabilityPolicy(profile.observability).record
-    : false;
-  const sink = {
-    write: (record: TraceRecord) => {
-      traces.push(record);
-      return Promise.resolve();
-    },
-  };
+  const { traces, sink } = collectTraces(profile.observability);
   try {
     const result = await scope.runDecision(
       { profile: profile.id, state, questions: payload.questions ?? {}, signal },
-      { ...options, ...(records ? { sink } : {}) },
+      { ...options, ...(sink ? { sink } : {}) },
     );
     return { result, traces };
   } catch (err) {
@@ -575,7 +580,7 @@ export async function runStudioEmbedding(
   payload: StudioRunPayload,
   request: Omit<EmbeddingRequest, 'profile'>,
   runtime: StudioRuntime,
-): Promise<{ result: Awaited<ReturnType<StudioScope['runEmbedding']>>; traces: TraceRecord[] }> {
+): Promise<{ result: EmbeddingResult; traces: TraceRecord[] }> {
   const { scope, profile } = await studioScope(
     payload.profile,
     payload.customTools,
@@ -586,22 +591,13 @@ export async function runStudioEmbedding(
   if (profile.type !== 'embedding') {
     throw new TheoremError('request', 'Studio embedding runs require an embedding profile.');
   }
-  const traces: TraceRecord[] = [];
-  const records = profile.observability
-    ? resolveObservabilityPolicy(profile.observability).record
-    : false;
-  const sink = {
-    write: (record: TraceRecord) => {
-      traces.push(record);
-      return Promise.resolve();
-    },
-  };
+  const { traces, sink } = collectTraces(profile.observability);
   try {
     const result = await scope.runEmbedding(
       { ...request, profile: profile.id },
       {
         ...runtimeProvider(runtime, scope, profile, request.model),
-        ...(records ? { sink } : {}),
+        ...(sink ? { sink } : {}),
       },
     );
     return { result, traces };

@@ -12,7 +12,7 @@ import {
 } from '../../kernel/protocols/mod.ts';
 import type { ModelEvent } from '../../kernel/types.ts';
 import { readGeminiApiError } from '../google/api-error.ts';
-import { GOOGLE_BUILTIN_IDS } from '../google/builtins.ts';
+import { googleBuiltins } from '../google/builtins.ts';
 import {
   buildGeminiLiveClientContent,
   buildGeminiLiveContext,
@@ -77,9 +77,7 @@ async function setupComplete(frames: Frames, context: ProtocolContext): Promise<
 function wireRequest(context: ProtocolContext, request: ProtocolRequest<State>) {
   const handle = request.state?.liveHandle;
   const history = request.history ?? [];
-  const builtins = request.builtins.filter((builtin) =>
-    (GOOGLE_BUILTIN_IDS as readonly string[]).includes(builtin.id),
-  );
+  const builtins = googleBuiltins(request.builtins);
   const wire = {
     ...request,
     apiId: context.apiId,

@@ -2,6 +2,7 @@ import type { DecisionJson, DecisionResult } from '@theoremjs/agents';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   type DecisionInterface,
+  type DecisionReply,
   type DecisionTransport,
   failedDecisionTraces,
 } from '../client/decision-transport.ts';
@@ -25,16 +26,33 @@ export type TheoremDecisionState = {
  * One decision profile: describe it once, then `decide(state)` as often as
  * needed. A new decision aborts the one still running.
  */
+type DecisionRun = Pick<TheoremDecisionState, 'status' | 'result' | 'elapsedMs' | 'failure'> & {
+  transport: DecisionTransport;
+};
+
+/** A decision starting: the last answer stays on screen while the same host decides again. */
+function deciding(previous: DecisionRun, transport: DecisionTransport): DecisionRun {
+  const kept = previous.transport === transport ? previous : { result: null, elapsedMs: null };
+  return {
+    transport,
+    status: 'deciding',
+    result: kept.result,
+    elapsedMs: kept.elapsedMs,
+    failure: null,
+  };
+}
+
+/** Hands a decision's trace records to the transport's feed, when it has one. */
+function feed(transport: DecisionTransport, records: Readonly<DecisionReply['traces']>): void {
+  for (const record of records ?? []) transport.traces?.push(record);
+}
+
 export function useTheoremDecision(transport: DecisionTransport): TheoremDecisionState & {
   decide: (state: Exclude<DecisionJson, null>) => Promise<void>;
   cancel: () => void;
 } {
   const { iface, describeFailure } = useDescribed(transport);
-  const [run, setRun] = useState<
-    Pick<TheoremDecisionState, 'status' | 'result' | 'elapsedMs' | 'failure'> & {
-      transport: DecisionTransport;
-    }
-  >({
+  const [run, setRun] = useState<DecisionRun>({
     transport,
     status: 'idle',
     result: null,
@@ -67,18 +85,12 @@ export function useTheoremDecision(transport: DecisionTransport): TheoremDecisio
       const controller = new AbortController();
       running.current = controller;
       runningFor.current = transport;
-      setRun((previous) => ({
-        transport,
-        status: 'deciding',
-        result: previous.transport === transport ? previous.result : null,
-        elapsedMs: previous.transport === transport ? previous.elapsedMs : null,
-        failure: null,
-      }));
+      setRun((previous) => deciding(previous, transport));
       const started = performance.now();
       try {
         const reply = await transport.decide(state, controller.signal);
         if (controller.signal.aborted) return;
-        for (const record of reply.traces ?? []) transport.traces?.push(record);
+        feed(transport, reply.traces);
         setRun({
           transport,
           status: 'done',
@@ -88,7 +100,7 @@ export function useTheoremDecision(transport: DecisionTransport): TheoremDecisio
         });
       } catch (err) {
         if (controller.signal.aborted) return;
-        for (const record of failedDecisionTraces(err)) transport.traces?.push(record);
+        feed(transport, failedDecisionTraces(err));
         setRun((previous) => ({ ...previous, status: 'error', failure: clientFailure(err) }));
       } finally {
         if (running.current === controller) running.current = null;

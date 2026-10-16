@@ -77,7 +77,6 @@
   },
   "imports": {
     "@eslint-community/regexpp": "npm:@eslint-community/regexpp@4.12.2",
-    "@openrouter/sdk": "npm:@openrouter/sdk@1.4.25",
     "intl-messageformat": "npm:intl-messageformat@^11.2.9",
     "refa": "npm:refa@0.12.1",
     "scslre": "npm:scslre@0.3.0",

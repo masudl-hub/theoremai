@@ -4,7 +4,7 @@ import { labelText } from '../../guardrails/labels.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import { KEY_SLOT_NAME, type KeySlot } from '../schema.ts';
 import type { Equals } from '../util/exact-type.ts';
-import type { ModelProfileType } from './protocol.ts';
+import type { ModelProfileType, Protocol } from './protocol.ts';
 import type { RegisteredProvider } from './provider.ts';
 
 /** A vault slot name. */
@@ -155,6 +155,28 @@ export function keySlotsOf(
   };
 }
 
+/** The provider's serve of the protocol a binding speaks. */
+export function bindingServe(
+  provider: RegisteredProvider,
+  binding: ModelBinding | DecisionModelBinding,
+): RegisteredProvider['serves'][number] {
+  const serve = provider.serves.find((entry) => entry.protocol.id === binding.protocol);
+  if (!serve)
+    throw new TheoremError(
+      'config',
+      labelText('protocol.not_served', { provider: provider.id, protocol: binding.protocol }),
+    );
+  return serve;
+}
+
+/** The protocol a binding speaks on its provider. */
+export function protocolOf(
+  provider: RegisteredProvider,
+  binding: ModelBinding | DecisionModelBinding,
+): Protocol {
+  return bindingServe(provider, binding).protocol;
+}
+
 /**
  * The one place a binding meets its provider, once, at registration, for fit only. Returns the
  * binding with its options parsed; changes nothing in place.
@@ -165,12 +187,7 @@ export function checkBinding<B extends ModelBinding | DecisionModelBinding>(
   profileType: ModelProfileType,
   runtime: RuntimeAbilities = { webSocketHeaders: true },
 ): B {
-  const serve = provider.serves.find((entry) => entry.protocol.id === binding.protocol);
-  if (!serve)
-    throw new TheoremError(
-      'config',
-      labelText('protocol.not_served', { provider: provider.id, protocol: binding.protocol }),
-    );
+  const serve = bindingServe(provider, binding);
   const { protocol } = serve;
   if (protocol.endpoints[profileType] === undefined)
     throw new TheoremError(

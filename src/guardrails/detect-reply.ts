@@ -38,15 +38,13 @@ interface ReplyRead {
   blocked?: GuardrailHit[];
 }
 
-type Found = Pick<Detection, 'action' | 'hits'>;
-
 /** A JSON value read at `boundary`, with each match in a string replaced, or what stops it crossing. */
 function readValue(
   value: unknown,
   boundary: Boundary,
   detect: ResolvedDetect,
   scope: DetectScope = {},
-): Found & { value?: unknown } {
+): Pick<Detection, 'action' | 'hits'> & { value?: unknown } {
   if (!detectReads([boundary], detect)) return { action: 'allow', hits: [], value };
   const scan = textForScan(value);
   if (scan.unscannable) {

@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+# Snyk scans this repo through its GitHub integration, on its own schedule and on each PR, and
+# reads the root .snyk policy. CLI tests here would spend the private-test quota a public repo
+# doesn't need.
 jobs:
   semgrep:
     runs-on: ubuntu-latest
@@ -31,59 +34,3 @@ jobs:
             --error \
             --exclude tests --exclude npm --exclude studio --exclude tmp \
             src react/src mod.ts scripts
-
-  snyk:
-    runs-on: ubuntu-latest
-    env:
-      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22'
-
-      - name: Skip without SNYK_TOKEN
-        if: env.SNYK_TOKEN == ''
-        run: echo "::notice::SNYK_TOKEN is not configured; Snyk scans skipped."
-
-      # Every lockfile in the repo (root, react/ and studio/), dev dependencies included:
-      # they run in CI and on contributor machines. studio/ is here too: a builder
-      # runs it on their own files. npm/ is build output. The root policy file
-      # covers react/ and studio/ too.
-      - name: Snyk Open Source (all projects)
-        if: env.SNYK_TOKEN != ''
-        run: |
-          npx --yes snyk@1.1307.3 test \
-            --all-projects --dev \
-            --exclude=npm,tmp \
-            --policy-path=.snyk \
-            --severity-threshold=medium
-
-      # Static analysis of the source itself (exclusions live in .snyk). The
-      # SARIF file holds each finding's whole data flow, which the log leaves out.
-      - name: Snyk Code
-        if: env.SNYK_TOKEN != ''
-        run: |
-          npx --yes snyk@1.1307.3 code test --severity-threshold=medium \
-            --sarif-file-output=snyk-code.sarif
-
-      - name: Keep the Snyk Code findings
-        if: failure() && env.SNYK_TOKEN != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: snyk-code-sarif
-          path: snyk-code.sarif
-          if-no-files-found: ignore
-
-      # Snapshot main's dependency tree so Snyk alerts on newly disclosed issues
-      # between pushes.
-      - name: Snyk monitor
-        if: env.SNYK_TOKEN != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          npx --yes snyk@1.1307.3 monitor \
-            --all-projects --dev \
-            --exclude=npm,tmp \
-            --project-tags=repo=theoremai

@@ -88,6 +88,11 @@ export interface ProtocolContext<O = unknown> {
   tapUpstream(row: JsonObject): void;
 }
 
+/** A decision's result; a cost Theorem worked out from prices is marked `estimated`. */
+export type PricedDecision = Omit<DecisionResult, 'usage'> & {
+  usage?: NonNullable<DecisionResult['usage']> & { estimated?: true };
+};
+
 export interface ProtocolOperations<S = unknown> {
   complete?(request: TurnRequest<S>): AsyncIterable<ProtocolEvent<S>>;
   openSession?(request: TurnRequest<S>): Promise<LiveSession<S>>;

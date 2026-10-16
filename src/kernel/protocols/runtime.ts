@@ -10,10 +10,12 @@ import {
   type ProviderVault,
   resolveProviderLimits,
 } from '../provider-contract.ts';
-import type { KeySlot } from '../types.ts';
+import type { DecisionResult, KeySlot } from '../types.ts';
 import type { DecisionModelBinding, ModelBinding } from './binding.ts';
 import { costFromPrices } from './prices.ts';
 import type {
+  DecisionCall,
+  PricedDecision,
   ProfileType,
   Protocol,
   ProtocolContext,
@@ -380,6 +382,21 @@ function finishEvents(setup: CallSetup) {
   };
 }
 
+/** A decision whose reply has no cost gets one from the provider's prices, marked estimated. */
+function pricedDecision(setup: CallSetup, result: DecisionResult): PricedDecision {
+  const prices = setup.provider.definition.prices;
+  if (!result.usage || result.usage.costUsd !== undefined || !prices) return result;
+  const { inputTokens: input, outputTokens: output } = result.usage;
+  const cost = costFromPrices(prices, setup.binding.apiId, {
+    input,
+    output,
+    total: input + output,
+  });
+  return cost
+    ? { ...result, usage: { ...result.usage, costUsd: cost.usd, estimated: true } }
+    : result;
+}
+
 function protocolFor(setup: CallSetup): Protocol {
   return serveOf(setup).protocol;
 }
@@ -405,7 +422,12 @@ function operation<K extends keyof ProtocolOperations>(
  * One binding's call, as the kernel runs it: the protocol's operations with the kernel's retries,
  * ids, origins and prices around them.
  */
-export function callProtocol(setup: CallSetup): Required<ProtocolOperations> {
+/** What the kernel runs for one binding. */
+export type ProtocolCall = Required<Omit<ProtocolOperations, 'decide'>> & {
+  decide(request: DecisionCall): Promise<PricedDecision>;
+};
+
+export function callProtocol(setup: CallSetup): ProtocolCall {
   const protocol = protocolFor(setup);
   return {
     async *complete(request) {
@@ -456,7 +478,7 @@ export function callProtocol(setup: CallSetup): Required<ProtocolOperations> {
           yield await operation(protocol, operations, 'decide')(request);
         })(),
       ))
-        return result;
+        return pricedDecision(setup, result);
       throw new TheoremError('internal', labelText('provider.decision_failed'));
     },
   };

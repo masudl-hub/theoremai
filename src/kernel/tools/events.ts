@@ -83,7 +83,11 @@ export function failureEvent(
 export function toolCallRequestEvent(
   base: ToolCallBase,
   args: Record<string, unknown>,
-  { thoughtSignature, stepId }: Pick<ToolCallRequest, 'thoughtSignature' | 'stepId'> = {},
+  {
+    thoughtSignature,
+    stepId,
+    stepCallCount,
+  }: Pick<ToolCallRequest, 'thoughtSignature' | 'stepId' | 'stepCallCount'> = {},
 ): TurnEventOf<'tool'> {
   return {
     type: 'tool',
@@ -94,6 +98,7 @@ export function toolCallRequestEvent(
       arguments: args,
       ...(thoughtSignature ? { thoughtSignature } : {}),
       ...(stepId ? { stepId } : {}),
+      ...(stepCallCount ? { stepCallCount } : {}),
     },
   };
 }

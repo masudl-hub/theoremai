@@ -967,6 +967,8 @@ terminal `tool` event says it settled. The calls share one snapshot. A call that
 gates waits for its approval while the others finish, and the step's `done`
 then stops `gate`; that call resumes on its own through `invokeTool`. A live
 host runs the calls of one model message, which carry one `stepId`, this way.
+Every call of a step also carries `stepCallCount`, how many calls the step has,
+so a host knows the step is whole once it has seen that many announced.
 `invokeTool` runs one call with no step: its `pre_tool` sees no step calls and a
 `waitFor` fails as `wait_unknown`.
 

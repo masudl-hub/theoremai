@@ -624,6 +624,12 @@ export interface ToolCallRequest extends ToolEventBase {
    * the turn. Absent on a host's own call (`invokeTool` without a `callId`).
    */
   stepId?: string;
+  /**
+   * How many calls the step has, on every call of it: a host that runs a step's
+   * calls as one knows the step is complete once it has seen this many. Set
+   * wherever `stepId` is; absent with it.
+   */
+  stepCallCount?: number;
 }
 const toolCallRequest = z.object({
   ...toolEventBase,
@@ -631,6 +637,7 @@ const toolCallRequest = z.object({
   arguments: jsonObject,
   thoughtSignature: z.string().min(1).optional(),
   stepId: z.string().min(1).optional(),
+  stepCallCount: z.number().int().min(1).optional(),
 });
 true satisfies Equals<z.infer<typeof toolCallRequest>, ToolCallRequest>;
 

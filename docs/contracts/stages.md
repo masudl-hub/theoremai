@@ -349,8 +349,9 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 2. On **gate**: emit gate wire for that call; **do not** start its body;
    **continue** siblings — a gate holds only its own call, and a sibling that
    gates waits too. After the batch, end with `done.stop.kind: 'gate'` +
-   snapshot. Every call of the batch carries the batch's `stepId`, so the host
-   records the batch as one assistant message when it resumes.
+   snapshot. Every call of the batch carries the batch's `stepId` and
+   `stepCallCount`, so the host records the batch as one assistant message when
+   it resumes.
 3. On **deny**: write synthetic failure result; `post_tool`; **continue**
    siblings.
 4. On **awaiting / success / error**: `post_tool`; **continue** siblings.

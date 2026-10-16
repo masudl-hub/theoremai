@@ -74,12 +74,18 @@ export function historyToolArguments(raw: unknown): Record<string, unknown> {
 
 /** A call sent without an id gets one, so its request and failure events join. */
 export function toolCallEvents(
-  call: { id?: string; name: string; thoughtSignature?: string; stepId?: string },
+  call: Pick<ToolCallRequest, 'name' | 'thoughtSignature' | 'stepId' | 'stepCallCount'> & {
+    id?: string;
+  },
   rawArguments: unknown,
 ): ProviderEvent[] {
   const name = call.name.trim();
   const base = { name, callId: call.id ?? newCallId(name) };
-  const request = { thoughtSignature: call.thoughtSignature, stepId: call.stepId };
+  const request = {
+    thoughtSignature: call.thoughtSignature,
+    stepId: call.stepId,
+    stepCallCount: call.stepCallCount,
+  };
   if (!name) {
     return malformedToolCall(base, 'function call is missing a name', rawArguments, request);
   }
@@ -95,7 +101,7 @@ export function malformedToolCall(
   base: ToolCallBase,
   message: string,
   raw: unknown,
-  request: Pick<ToolCallRequest, 'thoughtSignature' | 'stepId'> = {},
+  request: Pick<ToolCallRequest, 'thoughtSignature' | 'stepId' | 'stepCallCount'> = {},
 ): ProviderEvent[] {
   return [
     toolCallRequestEvent(base, {}, request),

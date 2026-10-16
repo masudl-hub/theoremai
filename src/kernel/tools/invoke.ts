@@ -238,7 +238,7 @@ async function* invokeStepTraced(
     yield toolCallRequestEvent(
       { name: invoke.name, callId, operationId: invoke.operationId },
       toolCallArguments(invoke.input),
-      { stepId },
+      { stepId, stepCallCount: calls.length },
     );
   }
   const order = stepOrder(

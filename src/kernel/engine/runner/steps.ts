@@ -522,6 +522,7 @@ async function* handleModelCalls(
     const request = toolCallRequestEvent(call, call.shown, {
       thoughtSignature: call.thoughtSignature,
       stepId,
+      stepCallCount: calls.length,
     });
     state.allEmittedEvents.push(request);
     yield request;

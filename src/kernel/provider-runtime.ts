@@ -45,6 +45,7 @@ const toolRequestSchema = z.strictObject({
   arguments: z.record(z.string(), jsonValueSchema),
   thoughtSignature: z.string().optional(),
   stepId: z.string().optional(),
+  stepCallCount: z.number().int().min(1).optional(),
 });
 const modelContentTypes = new Set([
   'text',

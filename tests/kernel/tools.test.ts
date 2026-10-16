@@ -2229,6 +2229,10 @@ Deno.test('a host step announces every call with one stepId, then runs them side
   );
   assertEquals(typeof raw[0]?.stepId, 'string');
   assertEquals(raw[1]?.stepId, raw[0]?.stepId);
+  assertEquals(
+    raw.map((call) => call.stepCallCount),
+    [2, 2],
+  );
   const firstPhase = events.findIndex((e) => e.type === 'tool' && e.tool.phase !== undefined);
   const lastRaw = events.findLastIndex((e) => e.type === 'tool' && e.tool.phase === undefined);
   assertEquals(lastRaw < firstPhase, true);

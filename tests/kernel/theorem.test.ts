@@ -1390,6 +1390,10 @@ Deno.test('a step that makes parallel calls records them in one assistant messag
   // Both calls came from one model response: they share its step id.
   assertEquals(typeof calls[0]?.stepId, 'string');
   assertEquals(calls[1]?.stepId, calls[0]?.stepId);
+  assertEquals(
+    calls.map((call) => call.stepCallCount),
+    [2, 2],
+  );
   const step2History = requestLog[1]?.history ?? [];
   assertEquals(
     step2History.map((m) => m.role),
@@ -1437,6 +1441,7 @@ Deno.test('calls from different model responses carry different step ids', async
   const [first, second] = rawCallsOf(events);
   assertEquals(typeof first?.stepId, 'string');
   assertEquals(first?.stepId === second?.stepId, false);
+  assertEquals([first?.stepCallCount, second?.stepCallCount], [1, 1]);
 });
 Deno.test('a profile that reads for no canary leak plants no canary and binds none', async () => {
   registerProfile(

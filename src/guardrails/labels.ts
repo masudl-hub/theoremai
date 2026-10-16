@@ -312,7 +312,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'protocol.key_invalid': "The key in slot '{slot}' is not what provider '{provider}' takes",
   'protocol.no_key': "Provider '{provider}' takes no key, so it has no key slot",
   'protocol.reply_shape': "Protocol '{protocol}' got a reply it cannot read: {issues}",
-  'protocol.endpoint_url': 'An endpoint must use HTTP and hold no credentials; keys go in the vault',
+  'protocol.endpoint_url':
+    'An endpoint must use HTTP and hold no credentials; keys go in the vault',
   'protocol.http': "Provider '{provider}' answered with status {status}",
   'protocol.no_operation': "Protocol '{protocol}' has no '{operation}' operation",
   'protocol.definition': "Protocol or provider '{id}' is defined wrongly: {issues}",

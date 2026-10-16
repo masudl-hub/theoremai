@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from '@std/assert';
+import { assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import {
   callProtocol,
@@ -173,4 +173,19 @@ Deno.test('a local server needs its address, and takes a key only when one is na
   });
   const signed = await chat(registry, 'vllm', 'openAi', { vllm: 'k-vllm' });
   assertEquals(signed.headers.get('authorization'), 'Bearer k-vllm');
+  await assertRejects(() => chat(registry, 'vllm', 'openAi', {}), TheoremError, 'vllm');
+});
+
+Deno.test('OpenRouter, TypeSafe and a local server share one registry and its protocols', () => {
+  const registry = createProviderRegistry();
+  registry.register(openRouterProvider, { keySlot: 'main' });
+  registry.register(typesafeProvider, { keySlot: 'typesafe' });
+  registry.register(localProvider, { connection: { baseUrl: 'http://localhost:11434/v1' } });
+  assertEquals(
+    registry
+      .protocols()
+      .map((protocol) => protocol.id)
+      .sort(),
+    ['openAi', 'openRouter', 'openRouterImages', 'systemOne'],
+  );
 });

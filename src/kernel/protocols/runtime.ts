@@ -95,7 +95,8 @@ async function signerFor(
       : entry;
   const value = typeof raw === 'string' ? raw.trim() || undefined : raw;
   const parsed = definition.key.safeParse(value);
-  if (!parsed.success)
+  // invariant: a named slot promises a key, even where the provider's key is optional.
+  if (!parsed.success || (slot && value === undefined))
     throw new TheoremError(
       'auth',
       value === undefined

@@ -172,25 +172,67 @@ function refuseUnwritten(
     );
 }
 
-/** A WebSocket as JSON frames in and out. Frames arriving before anyone reads are kept. */
-function socketFrames(socket: WebSocket): ProtocolSocket {
+async function frameText(data: unknown): Promise<string> {
+  if (typeof data === 'string') return data;
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
+  if (typeof Blob !== 'undefined' && data instanceof Blob) return await data.text();
+  return String(data);
+}
+
+function frameRow(text: string): JsonObject {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as JsonObject;
+  } catch {
+    // why: a frame that is not JSON is handed on as text, for the protocol to refuse by name.
+  }
+  return { eventType: 'ws_unparsed', data: text };
+}
+
+/**
+ * A WebSocket as JSON frames in and out, in the order they happened. Frames sent before it opens
+ * wait for it; frames arriving before anyone reads are kept. A socket error is a
+ * `{ eventType: 'ws_error' }` row, and the last row is `{ eventType: 'ws_close', code, reason }`,
+ * so the protocol reads what the close means.
+ */
+function socketFrames(socket: WebSocket, tap: (row: JsonObject) => void): ProtocolSocket {
   const queue: JsonObject[] = [];
+  const waiting: string[] = [];
   let wake: (() => void) | undefined;
   let closed = false;
-  socket.addEventListener('message', (event) => {
-    try {
-      queue.push(JSON.parse(String((event as MessageEvent).data)) as JsonObject);
-    } catch {
-      queue.push({ eventType: 'ws_unparsed', data: String((event as MessageEvent).data) });
-    }
+  let order = Promise.resolve();
+  const arrive = (row: JsonObject) => {
+    tap(row);
+    queue.push(row);
     wake?.();
+  };
+  const then = (step: () => void | Promise<void>) => {
+    order = order.then(step);
+  };
+  socket.addEventListener('open', () => {
+    for (const frame of waiting.splice(0)) socket.send(frame);
   });
-  socket.addEventListener('close', () => {
-    closed = true;
-    wake?.();
-  });
+  socket.addEventListener('message', (event) =>
+    then(async () => {
+      const text = await frameText((event as MessageEvent).data);
+      if (text.trim()) arrive(frameRow(text));
+    }),
+  );
+  socket.addEventListener('error', () => then(() => arrive({ eventType: 'ws_error' })));
+  socket.addEventListener('close', (event) =>
+    then(() => {
+      const { code, reason } = event as CloseEvent;
+      arrive({ eventType: 'ws_close', code, reason });
+      closed = true;
+    }),
+  );
   return {
-    send: (frame) => socket.send(JSON.stringify(frame)),
+    send(frame) {
+      tap({ eventType: 'ws_send', body: frame });
+      const text = JSON.stringify(frame);
+      if (socket.readyState === WebSocket.CONNECTING) waiting.push(text);
+      else socket.send(text);
+    },
     async *frames() {
       for (;;) {
         const next = queue.shift();
@@ -199,7 +241,10 @@ function socketFrames(socket: WebSocket): ProtocolSocket {
         else await new Promise<void>((resolve) => (wake = resolve));
       }
     },
-    close: (code, reason) => socket.close(code, reason),
+    close(code, reason) {
+      if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)
+        socket.close(code, reason);
+    },
   };
 }
 
@@ -281,16 +326,22 @@ function protocolContext(
         protocols: [],
       };
       await (await signerFor(setup, serve, slot))?.sign(outgoing);
-      if (!setup.openWebSocket)
+      const url = outgoing.url.toString();
+      const headed = [...outgoing.headers.keys()].length > 0;
+      // why: a runtime's own WebSocket takes no headers; a host that can send them passes `openWebSocket`.
+      if (!setup.openWebSocket && headed)
         throw new TheoremError(
           'unsupported',
           labelText('protocol.ws_headers', { provider: setup.provider.id }),
         );
       const socket = socketFrames(
-        await setup.openWebSocket(outgoing.url.toString(), {
-          headers: outgoing.headers,
-          protocols: outgoing.protocols,
-        }),
+        setup.openWebSocket
+          ? await setup.openWebSocket(url, {
+              headers: outgoing.headers,
+              protocols: outgoing.protocols,
+            })
+          : new WebSocket(url, outgoing.protocols),
+        tap,
       );
       socket.send(setupFrame);
       return socket;

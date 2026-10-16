@@ -22,6 +22,7 @@ import {
   openStepEvents,
   type StreamFold,
 } from '../google/interactions/stream.ts';
+import { asProtocolEvent } from '../shared/protocol-events.ts';
 
 const state = z.strictObject({ interactionId: z.string().min(1) });
 type State = z.infer<typeof state>;
@@ -115,9 +116,10 @@ function asProtocolEvents(
       };
       return [];
     }
-    if (event.type !== 'tool') return [event as ProtocolEvent<State>];
-    if (event.tool.phase === 'error') return [{ type: 'error', errorKind: 'bad_response' }];
-    if (event.tool.phase !== undefined) return [];
+    if (event.type !== 'tool' || event.tool.phase !== undefined) {
+      const converted = asProtocolEvent<State>(event);
+      return converted ? [converted] : [];
+    }
     const { thoughtSignature, ...call } = event.tool;
     const index = reply.calls++;
     return [

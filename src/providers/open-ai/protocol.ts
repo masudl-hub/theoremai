@@ -19,6 +19,7 @@ import {
 } from '../openrouter/openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
 import { pcmFormatFromMime, wrapPcmAsWav } from '../shared/pcm.ts';
+import { asProtocolEvent } from '../shared/protocol-events.ts';
 import { foldResponse } from '../shared/response-identity.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
 import { toolCallEvents } from '../shared/tool-args.ts';
@@ -37,11 +38,7 @@ interface Reply {
 
 /** Old-shape events from the shared helpers, as protocol events. */
 function asProtocolEvents(events: readonly ProviderEvent[]): ProtocolEvent[] {
-  return events.flatMap((event): ProtocolEvent[] => {
-    if (event.type !== 'tool') return [event as ProtocolEvent];
-    if (event.tool.phase === undefined) return [{ type: 'tool_call', call: event.tool }];
-    return event.tool.phase === 'error' ? [{ type: 'error', errorKind: 'bad_response' }] : [];
-  });
+  return events.flatMap((event) => asProtocolEvent(event) ?? []);
 }
 
 function requestBody(context: ProtocolContext, request: TurnRequest): JsonObject {

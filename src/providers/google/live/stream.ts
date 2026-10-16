@@ -46,7 +46,11 @@ function closeReasonKind(reason: string): ErrorKind | undefined {
   return undefined;
 }
 
-function closeError(code: number, reason: string, during: 'setup' | 'session'): TheoremError {
+export function closeError(
+  code: number,
+  reason: string,
+  during: 'setup' | 'session',
+): TheoremError {
   return new TheoremError(
     closeReasonKind(reason) ?? CLOSE_KINDS[code] ?? 'unavailable',
     `Gemini Live WebSocket closed during ${during} (${code}: ${reason})`,
@@ -65,7 +69,7 @@ export function sendLiveFrame(
   ws.send(JSON.stringify(payload));
 }
 
-function goAwayIn(events: readonly ProviderEvent[]): { timeLeftMs?: number } | undefined {
+export function goAwayIn(events: readonly ProviderEvent[]): { timeLeftMs?: number } | undefined {
   const warning = findLast(
     events,
     (ev): ev is Extract<ProviderEvent, { type: 'session' }> =>

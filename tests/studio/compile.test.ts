@@ -500,7 +500,7 @@ Deno.test('a draft compiles only the fields its type takes in the schema', () =>
     tools: { t2Loader: 'not_checked', parallel: true },
   }).profile;
   assert(liveProfile.type === 'live');
-  assertEquals(Object.keys(liveProfile.tools), ['allow']);
+  assertEquals(Object.keys(liveProfile.tools), ['allow', 'parallel']);
 });
 Deno.test('answering at the step limit compiles on a text profile, and stopping is left out', () => {
   const text = includeFacet(createExampleDraft(), 'turnBehaviour');

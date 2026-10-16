@@ -7,8 +7,8 @@ import { resolveRegisteredTurnProvider } from './provider-dispatch.ts';
 import { createKernelRegistry, type KernelRegistry } from './registry/kernel-registry.ts';
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
 import { type TurnShortfall, turnShortfallsInRegistry } from './registry/turn-check.ts';
-import { invokeTool } from './tools/invoke.ts';
-import type { InvokeToolRequest } from './tools/types.ts';
+import { invokeTool, invokeToolStep } from './tools/invoke.ts';
+import type { InvokeToolRequest, InvokeToolStepRequest } from './tools/types.ts';
 import type {
   CompactHistoryRequest,
   CompactionResult,
@@ -39,6 +39,10 @@ interface KernelScope extends KernelRegistry {
     sinkOverride?: TraceSink,
   ): Promise<CompactionResult | undefined>;
   invokeTool(request: InvokeToolRequest, sinkOverride?: TraceSink): AsyncGenerator<TurnEvent>;
+  invokeToolStep(
+    request: InvokeToolStepRequest,
+    sinkOverride?: TraceSink,
+  ): AsyncGenerator<TurnEvent>;
   resolveTurn(req: TurnRequest): ReturnType<typeof resolveTurnInRegistry>;
   /** Each model of profile `id` that cannot run a plain turn on its provider, and why. */
   turnShortfalls(id: string): TurnShortfall[];
@@ -82,6 +86,7 @@ function createKernelScope(): KernelScope {
         sinkOverride,
       ),
     invokeTool: (request, sinkOverride) => invokeTool(registry, request, sinkOverride),
+    invokeToolStep: (request, sinkOverride) => invokeToolStep(registry, request, sinkOverride),
     resolveTurn: (req) => resolveTurnInRegistry(registry, req),
     turnShortfalls: (id) => turnShortfallsInRegistry(registry, id),
     projectProfile: (id) => projectProfileInRegistry(registry, id),

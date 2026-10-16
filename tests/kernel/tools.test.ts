@@ -7,11 +7,13 @@ import { labelText } from '../../src/guardrails/labels.ts';
 import {
   getProfile,
   invokeTool,
+  invokeToolStep,
   registerProfile,
   registerTool,
   resolveTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
+import { outOfScopeFields } from '../../src/kernel/profile-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
@@ -36,6 +38,7 @@ import {
   lastOf,
   lastTool,
   outputOf,
+  rawCallsOf,
   toolEventsOf,
 } from '../fixtures/events.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -2185,4 +2188,132 @@ Deno.test('a waitFor outside a turn step fails the call as unknown', async () =>
   while (!next.done) next = await exec.next();
   assertEquals(next.value.failure?.code, 'wait_unknown');
   assertEquals(probe.log, []);
+});
+
+/** The order probe's two calls, run by the host as one step under a host profile. */
+function hostStep(prefix: string, parallel: boolean | undefined, extra: string[] = []) {
+  const probe = orderProbe(prefix);
+  const id = `${prefix}_${String(parallel)}_host`;
+  registerProfile({
+    type: 'host',
+    id,
+    tools: {
+      allow: [`${prefix}_first`, `${prefix}_second`, ...extra],
+      ...(parallel === undefined ? {} : { parallel }),
+    },
+  });
+  const run = async (onStage?: StageHandler, more: { name: string; callId: string }[] = []) => {
+    probe.log.length = 0;
+    return await Array.fromAsync(
+      invokeToolStep({
+        profile: id,
+        calls: [
+          { name: `${prefix}_first`, callId: 'c1', input: {} },
+          { name: `${prefix}_second`, callId: 'c2', input: {} },
+          ...more.map((call) => ({ ...call, input: {} })),
+        ],
+        ...(onStage ? { onStage } : {}),
+      }),
+    );
+  };
+  return { log: probe.log, run };
+}
+
+Deno.test('a host step announces every call with one stepId, then runs them side by side', async () => {
+  const step = hostStep('host_step_parallel', true);
+  const events = await step.run();
+  const raw = rawCallsOf(events);
+  assertEquals(
+    raw.map((call) => call.callId),
+    ['c1', 'c2'],
+  );
+  assertEquals(typeof raw[0]?.stepId, 'string');
+  assertEquals(raw[1]?.stepId, raw[0]?.stepId);
+  const firstPhase = events.findIndex((e) => e.type === 'tool' && e.tool.phase !== undefined);
+  const lastRaw = events.findLastIndex((e) => e.type === 'tool' && e.tool.phase === undefined);
+  assertEquals(lastRaw < firstPhase, true);
+  assertEquals(step.log.slice(0, 2), ['first start', 'second start']);
+  assertEquals(
+    toolEventsOf(events, 'complete')
+      .map((call) => call.callId)
+      .sort(),
+    ['c1', 'c2'],
+  );
+  assertEquals(lastOf(events, 'done')?.stop, { kind: 'completed' });
+});
+
+Deno.test('a host step runs its calls one at a time, in order, when the profile leaves parallel out', async () => {
+  const step = hostStep('host_step_default', undefined);
+  await step.run();
+  assertEquals(step.log, ['first start', 'first end', 'second start', 'second end']);
+});
+
+Deno.test('in a host step, waitFor holds a call for an earlier or a later call', async () => {
+  const step = hostStep('host_step_wait', true);
+  const seen: unknown[] = [];
+  await step.run((ctx) => {
+    if (ctx.stage === 'pre_tool') seen.push(ctx.stepCalls?.map((call) => call.callId));
+    return ctx.stage === 'pre_tool' && ctx.callId === 'c1' ? { waitFor: ['c2'] } : undefined;
+  });
+  assertEquals(step.log, ['second start', 'second end', 'first start', 'first end']);
+  assertEquals(seen, [
+    ['c1', 'c2'],
+    ['c1', 'c2'],
+  ]);
+  await step.run(waitAt({ c2: ['c1'] }));
+  assertEquals(step.log, ['first start', 'first end', 'second start', 'second end']);
+});
+
+Deno.test('in a host step, a wait for a call outside the step fails as unknown', async () => {
+  const step = hostStep('host_step_unknown', true);
+  const events = await step.run(waitAt({ c1: ['nope'] }));
+  assertEquals(failureCode(events, 'c1'), 'wait_unknown');
+  assertEquals(step.log, ['second start', 'second end']);
+});
+
+Deno.test('in a host step, a call that gates waits for approval while the others finish', async () => {
+  const step = hostStep('host_step_gate', true, ['always_confirm_tool']);
+  const events = await step.run(undefined, [{ name: 'always_confirm_tool', callId: 'c3' }]);
+  assertEquals(
+    toolEventsOf(events, 'complete')
+      .map((call) => call.callId)
+      .sort(),
+    ['c1', 'c2'],
+  );
+  assertEquals(
+    toolEventsOf(events, 'gate').map((call) => call.callId),
+    ['c3'],
+  );
+  assertEquals(lastOf(events, 'done')?.stop, { kind: 'gate' });
+});
+
+Deno.test('a host step writes one record: a span per call under the step root', async () => {
+  hostStep('host_step_trace', true);
+  const into: TraceRecord[] = [];
+  await Array.fromAsync(
+    invokeToolStep(
+      {
+        profile: 'host_step_trace_true_host',
+        calls: [
+          { name: 'host_step_trace_first', input: {} },
+          { name: 'host_step_trace_second', input: {} },
+        ],
+      },
+      catalogedSink(into),
+    ),
+  );
+  assertEquals(into.length, 1);
+  const [root, ...calls] = into[0]?.spans ?? [];
+  assertEquals(root?.name, 'tool_step host_step_trace_true_host');
+  assertEquals(calls.map((span) => [span.name, span.parentSpanId === root?.spanId]).sort(), [
+    ['execute_tool host_step_trace_first', true],
+    ['execute_tool host_step_trace_second', true],
+  ]);
+});
+
+Deno.test('tools.parallel may be set on a live or a host profile', () => {
+  const host = { type: 'host', tools: { allow: [], parallel: true } } as const;
+  const live = { type: 'live', tools: { allow: [], parallel: true } } as const;
+  assertEquals(outOfScopeFields(host), []);
+  assertEquals(outOfScopeFields(live), []);
 });

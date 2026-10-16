@@ -5,6 +5,7 @@ import {
   type ToolCallBase,
   toolCallRequestEvent,
 } from '../../kernel/tools/events.ts';
+import type { ToolCallRequest } from '../../kernel/tools/types.ts';
 import type { ProviderEvent } from '../../kernel/types.ts';
 import { isRecord } from '../../kernel/util/record.ts';
 
@@ -73,24 +74,20 @@ export function historyToolArguments(raw: unknown): Record<string, unknown> {
 
 /** A call sent without an id gets one, so its request and failure events join. */
 export function toolCallEvents(
-  call: { id?: string; name: string; thoughtSignature?: string },
+  call: { id?: string; name: string; thoughtSignature?: string; stepId?: string },
   rawArguments: unknown,
 ): ProviderEvent[] {
   const name = call.name.trim();
   const base = { name, callId: call.id ?? newCallId(name) };
+  const request = { thoughtSignature: call.thoughtSignature, stepId: call.stepId };
   if (!name) {
-    return malformedToolCall(
-      base,
-      'function call is missing a name',
-      rawArguments,
-      call.thoughtSignature,
-    );
+    return malformedToolCall(base, 'function call is missing a name', rawArguments, request);
   }
   const parsed = parseToolArgumentsObject(rawArguments);
   if (!parsed.ok) {
-    return malformedToolCall(base, parsed.error, parsed.raw, call.thoughtSignature);
+    return malformedToolCall(base, parsed.error, parsed.raw, request);
   }
-  return [toolCallRequestEvent(base, parsed.value, { thoughtSignature: call.thoughtSignature })];
+  return [toolCallRequestEvent(base, parsed.value, request)];
 }
 
 /** Keeps the thought signature: the model still reads the failed call's result back. */
@@ -98,10 +95,10 @@ export function malformedToolCall(
   base: ToolCallBase,
   message: string,
   raw: unknown,
-  thoughtSignature?: string,
+  request: Pick<ToolCallRequest, 'thoughtSignature' | 'stepId'> = {},
 ): ProviderEvent[] {
   return [
-    toolCallRequestEvent(base, {}, { thoughtSignature }),
+    toolCallRequestEvent(base, {}, request),
     failureEvent(base, {
       code: 'malformed_arguments',
       kind: 'bad_response',

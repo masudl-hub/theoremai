@@ -16,6 +16,7 @@ export {
   hasProvider,
   hasTool,
   invokeTool,
+  invokeToolStep,
   listProfiles,
   listProviders,
   listTools,

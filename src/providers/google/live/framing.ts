@@ -474,12 +474,14 @@ function foldToolCalls(
 ): void {
   const calls = asRecord(message.toolCall)?.functionCalls;
   if (!Array.isArray(calls)) return;
+  // why: The calls of one `toolCall` message are the model's step: chosen together, before any result.
+  const stepId = crypto.randomUUID();
   for (const value of calls) {
     const call = asRecord(value) ?? {};
     const id = typeof call.id === 'string' && call.id ? call.id : undefined;
     const name = typeof call.name === 'string' ? call.name : '';
     if (id && name) fold.calls.set(id, name);
-    events.push(...toolCallEvents({ id, name }, call.args));
+    events.push(...toolCallEvents({ id, name, stepId }, call.args));
   }
 }
 

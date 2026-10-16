@@ -35,7 +35,7 @@ import {
   type ToolStageSupport,
 } from '../../tools/execute.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
-import { profileToolsSpec } from '../../tools/resolve.ts';
+import { profileToolsParallel } from '../../tools/resolve.ts';
 import type { ModelToolResult, ToolCallEvent, ToolFailure } from '../../tools/types.ts';
 import type {
   ModelProvider,
@@ -52,7 +52,7 @@ import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
 import { applyStageInjects } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
-import { stepOrder } from './step-order.ts';
+import { inStep, runSideBySide, stepOrder } from './step-order.ts';
 import { isWithheldOnBlock, type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
 import { callTokensEvent, observeCallEvent, startCallUsage } from './usage.ts';
 
@@ -474,49 +474,6 @@ function* applyToolSettlement(
 }
 
 /**
- * Runs tools side by side and passes on each event as it comes. Returns each run's
- * settlement by its place in `runs`, `undefined` where there was no run.
- *
- * why: One run that throws ends them all; the rest are closed so none keeps running unseen.
- */
-async function* runSideBySide<T>(
-  runs: (AsyncGenerator<TurnEvent, T | undefined> | undefined)[],
-): AsyncGenerator<TurnEvent, (T | undefined)[]> {
-  const settled: (T | undefined)[] = runs.map(() => undefined);
-  const waiting = new Map<
-    number,
-    Promise<{ index: number; next: IteratorResult<TurnEvent, T | undefined> }>
-  >();
-  const pull = (index: number, run: AsyncGenerator<TurnEvent, T | undefined>) => {
-    const next = run.next().then((result) => ({ index, next: result }));
-    // why: A run that fails after another already threw is closed below; its failure has nowhere to go.
-    next.catch(() => {});
-    waiting.set(index, next);
-  };
-  runs.forEach((run, index) => {
-    if (run) pull(index, run);
-  });
-  try {
-    while (waiting.size > 0) {
-      const { index, next } = await Promise.race(waiting.values());
-      waiting.delete(index);
-      const run = runs[index];
-      if (next.done || !run) {
-        if (next.done) settled[index] = next.value;
-        continue;
-      }
-      yield next.value;
-      pull(index, run);
-    }
-  } finally {
-    for (const index of waiting.keys()) {
-      runs[index]?.return(undefined).catch(() => {});
-    }
-  }
-  return settled;
-}
-
-/**
  * Run the model's calls. Each reaches the host as its raw call first, all of them before
  * any runs; their phases then arrive as each tool gives them. With `tools.parallel` they
  * run side by side; otherwise one at a time, in the order the model made them. A call
@@ -571,7 +528,7 @@ async function* handleModelCalls(
   }
   const order = stepOrder(
     calls.map((call) => call.callId),
-    profileToolsSpec(profile)?.parallel === true,
+    profileToolsParallel(profile) === true,
     signal,
   );
 
@@ -627,19 +584,13 @@ async function* handleModelCalls(
       }),
       state,
     );
-  async function* run(call: (typeof calls)[number]) {
-    try {
-      await order.start(call.callId);
-      return yield* execute(call);
-    } finally {
-      order.settle(call.callId);
-    }
-  }
   for (const call of calls) {
     if (call.failure) order.settle(call.callId);
   }
   const settlements = yield* runSideBySide(
-    calls.map((call) => (call.failure ? undefined : run(call))),
+    calls.map((call) =>
+      call.failure ? undefined : inStep(order, call.callId, () => execute(call)),
+    ),
   );
 
   let gated = false;

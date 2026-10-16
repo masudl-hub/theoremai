@@ -920,7 +920,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'tools.parallel': field(
     'boolean',
-    'true: the calls the model makes in one step run side by side, and a call whose pre_tool answers waitFor starts its body once those calls settle. Left out or false: they run one at a time, in the order the model made them.',
+    'true: the calls of one step run side by side, and a call whose pre_tool answers waitFor starts its body once those calls settle. Left out or false: they run one at a time, in the order the model made them. A step is the calls the model makes together in a turn, or the calls a host runs through invokeToolStep.',
   ),
   inputs: field(
     'ProfileInputsSpec | DecisionInputsSpec',

@@ -756,7 +756,11 @@ Deno.test('foldGeminiLiveServerMessage emits malformed_arguments on bad tool JSO
       functionCalls: [{ id: 'call_bad', name: 'search', args: '{not-json' }],
     },
   });
-  assertEquals(rawCallsOf(events), [{ name: 'search', callId: 'call_bad', arguments: {} }]);
+  const [call] = rawCallsOf(events);
+  assertEquals(typeof call?.stepId, 'string');
+  assertEquals(rawCallsOf(events), [
+    { name: 'search', callId: 'call_bad', arguments: {}, stepId: call?.stepId },
+  ]);
   const failure = {
     code: 'malformed_arguments',
     kind: 'bad_response',
@@ -790,10 +794,40 @@ Deno.test('foldGeminiLiveServerMessage handles tool calls and usage tokens', () 
       totalTokenCount: 20,
     },
   });
+  const [call] = rawCallsOf(events);
   assertEquals(events, [
-    { type: 'tool', tool: { name: 'search', callId: 'call_1', arguments: { q: 'deno' } } },
+    {
+      type: 'tool',
+      tool: { name: 'search', callId: 'call_1', arguments: { q: 'deno' }, stepId: call?.stepId },
+    },
     { type: 'tokens', tokens: { input: 12, output: 8, total: 20 } },
   ]);
+});
+
+Deno.test('foldGeminiLiveServerMessage gives the calls of one toolCall message one stepId', () => {
+  const fold = newLiveFold();
+  const first = rawCallsOf(
+    foldMessage(
+      {
+        toolCall: {
+          functionCalls: [
+            { id: 'call_a', name: 'search', args: '{}' },
+            { id: 'call_b', name: 'lookup', args: '{}' },
+          ],
+        },
+      },
+      fold,
+    ),
+  );
+  const later = rawCallsOf(
+    foldMessage(
+      { toolCall: { functionCalls: [{ id: 'call_c', name: 'search', args: '{}' }] } },
+      fold,
+    ),
+  );
+  assertEquals(typeof first[0]?.stepId, 'string');
+  assertEquals(first[1]?.stepId, first[0]?.stepId);
+  assertEquals(later[0]?.stepId === first[0]?.stepId, false);
 });
 
 Deno.test('Live client-content history and realtime input reject media references', () => {

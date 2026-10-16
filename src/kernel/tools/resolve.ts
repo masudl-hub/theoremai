@@ -52,6 +52,11 @@ export function profileToolsSpec(profile: Profile): ProfileToolsSpec | undefined
   return profile.type === 'text' || profile.type === 'image' ? profile.tools : undefined;
 }
 
+/** `tools.parallel` as the profile sets it: whether a step's calls run side by side. */
+export function profileToolsParallel(profile: Profile): boolean | undefined {
+  return 'tools' in profile ? profile.tools.parallel : undefined;
+}
+
 export function resolveAllowedCustomToolIds(
   tools: ToolRegistry,
   profile: Profile,

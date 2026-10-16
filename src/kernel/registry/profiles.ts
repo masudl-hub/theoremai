@@ -235,13 +235,18 @@ function defineDecisionProfile(input: DecisionProfileDefinition): DecisionProfil
   return { ...input, identity: { handle: input.identity.handle } };
 }
 
+/** `tools.parallel` carried over only when the definition sets it. */
+function optionalParallel(parallel: boolean | undefined): { parallel?: boolean } {
+  return parallel === undefined ? {} : { parallel };
+}
+
 function defineHostProfile(input: HostProfileDefinition): HostProfile {
   assertHostTools(input.id, input.tools);
   assertObservability(input.id, input.observability);
   return {
     type: 'host',
     id: input.id,
-    tools: { allow: input.tools.allow },
+    tools: { allow: input.tools.allow, ...optionalParallel(input.tools.parallel) },
     guardrails: input.guardrails,
     observability: input.observability,
     labels: input.labels,
@@ -684,7 +689,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         ...modelFields,
         live: input.live,
         inputs: input.inputs,
-        tools: { allow: input.tools.allow },
+        tools: { allow: input.tools.allow, ...optionalParallel(input.tools.parallel) },
         turnBehaviour: input.turnBehaviour,
         guardrails,
         observability,

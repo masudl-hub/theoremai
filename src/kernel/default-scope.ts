@@ -9,7 +9,12 @@ import type {
 import type { ProfileDefinition } from './registry/profiles.ts';
 import type { TurnShortfall } from './registry/turn-check.ts';
 import { defaultKernelScope as scope } from './scope.ts';
-import type { InvokeToolRequest, RegisteredTool, ToolDefinitionInput } from './tools/types.ts';
+import type {
+  InvokeToolRequest,
+  InvokeToolStepRequest,
+  RegisteredTool,
+  ToolDefinitionInput,
+} from './tools/types.ts';
 import type {
   CompactHistoryRequest,
   CompactionResult,
@@ -134,6 +139,14 @@ function invokeTool(
   return scope.invokeTool(request, sinkOverride);
 }
 
+/** Run the host's calls as one step in the default scope, streaming each call's events as they come. */
+function invokeToolStep(
+  request: InvokeToolStepRequest,
+  sinkOverride?: TraceSink,
+): AsyncGenerator<TurnEvent> {
+  return scope.invokeToolStep(request, sinkOverride);
+}
+
 /** Resolve a turn request in the default scope: its profile, model and generation settings. */
 function resolveTurn(req: TurnRequest): ReturnType<typeof scope.resolveTurn> {
   return scope.resolveTurn(req);
@@ -166,6 +179,7 @@ export {
   hasProfile,
   hasTool,
   invokeTool,
+  invokeToolStep,
   listProfiles,
   listTools,
   projectProfile,

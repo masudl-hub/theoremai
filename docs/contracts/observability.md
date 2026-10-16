@@ -272,6 +272,7 @@ arrives over a wire (the live relay's `trace` envelope) is parsed with
 | `runTurn` | `invoke_agent {profile}` — one record per turn | The request's `traceparent`, or none |
 | Specialist run by a tool | Its own `invoke_agent` record | The calling `execute_tool` span |
 | `invokeTool` | `execute_tool {name}` — one record per invoke | The request's `traceparent` |
+| `invokeToolStep` | `tool_step {profile}` — one record per step, an `execute_tool {name}` span per call under it | The request's `traceparent` |
 | Live session | One record per model response (`{operation} {model}`), one per tool call, and the session root at close | Responses under the session root; a tool under the response that asked for it |
 | `flushMintTrace` (host) | One `cutout` span | The held turn's root |
 

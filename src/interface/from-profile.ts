@@ -7,7 +7,11 @@ import type { ProfileGuardrailsSpec } from '../guardrails/types.ts';
 import { projectProfileObject, requireModelProfile } from '../kernel/registry/resolve.ts';
 import { profileAllowsSteering } from '../kernel/stop.ts';
 import type { ToolRegistry } from '../kernel/tools/registry.ts';
-import { profileToolAllow, profileToolsSpec } from '../kernel/tools/resolve.ts';
+import {
+  profileToolAllow,
+  profileToolsParallel,
+  profileToolsSpec,
+} from '../kernel/tools/resolve.ts';
 import type { LiveProfile, ModelProfile, Profile, ProjectedProfile } from '../kernel/types.ts';
 import { resolveObservabilityPolicy } from '../observability/resolve-policy.ts';
 import type { ProfileObservabilitySpec } from '../observability/types.ts';
@@ -108,11 +112,12 @@ function toolsView(projected: ProjectedProfile, profile?: ModelProfile): Profile
     .map((tool) => tool.name);
   if (profile) {
     const spec = profileToolsSpec(profile);
+    const parallel = profileToolsParallel(profile);
     return {
       allow: [...profileToolAllow(profile)],
       page,
       ...(spec?.t2Loader ? { t2Loader: spec.t2Loader } : {}),
-      ...(spec?.parallel !== undefined ? { parallel: spec.parallel } : {}),
+      ...(parallel !== undefined ? { parallel } : {}),
     };
   }
   const allow = projected.tools

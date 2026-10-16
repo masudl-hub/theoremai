@@ -15,8 +15,9 @@ import {
   type TraceAttributes,
 } from '../../observability/trace-span.ts';
 import { invokeAgentCaller } from '../engine/runner/mod.ts';
+import { inStep, runSideBySide, stepOrder } from '../engine/runner/step-order.ts';
 import { startToolTrace, type ToolCallEnd, toolSpanName } from '../engine/tool-trace.ts';
-import { optional, traceLinks } from '../engine/turn-trace.ts';
+import { endThrownSpan, optional, traceLinks } from '../engine/turn-trace.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { pickModel } from '../registry/resolve.ts';
 import { turnDoneOf } from '../turn-events.ts';
@@ -35,11 +36,17 @@ import {
   type ToolExecuteSettlement,
 } from './execute.ts';
 import type { ToolOperationClaim } from './operation.ts';
-import { cloneTurnToolSnapshot, prepareTurnToolSnapshot, promoteLoadedTools } from './resolve.ts';
+import {
+  cloneTurnToolSnapshot,
+  prepareTurnToolSnapshot,
+  profileToolsParallel,
+  promoteLoadedTools,
+} from './resolve.ts';
 import { plainToolInput } from './schema.ts';
-import type { InvokeToolRequest, TurnToolSnapshot } from './types.ts';
+import type { ToolStageSupport } from './stage-run.ts';
+import type { InvokeToolRequest, InvokeToolStepRequest, TurnToolSnapshot } from './types.ts';
 
-function turnRequestFromInvoke(request: InvokeToolRequest): TurnRequest {
+function turnRequestFromInvoke(request: InvokeToolRequest | InvokeToolStepRequest): TurnRequest {
   return {
     profile: request.profile,
     path: request.path,
@@ -52,7 +59,7 @@ function turnRequestFromInvoke(request: InvokeToolRequest): TurnRequest {
 
 async function prepareInvokeSnapshot(
   registry: KernelRegistry,
-  request: InvokeToolRequest,
+  request: InvokeToolRequest | InvokeToolStepRequest,
   profile: Profile,
 ): Promise<TurnToolSnapshot> {
   const req = turnRequestFromInvoke(request);
@@ -137,6 +144,148 @@ async function* invokeTool(
   }
 }
 
+/**
+ * Runs the host's calls as one step, the way a turn runs the model's. Every call is announced
+ * with the step's id before any runs. With `tools.parallel` they run side by side, otherwise one
+ * at a time in the order given; a call whose `pre_tool` answers `waitFor` starts once those calls
+ * in the step settle. Each call's events arrive as it gives them, and its terminal `tool` event
+ * says it settled. The calls share one snapshot. A call that gates waits for its own approval
+ * while the others run; the step then ends `gate`. One trace record holds a span per call under
+ * the step's root, rooted under the host span when one is given.
+ */
+async function* invokeToolStep(
+  registry: KernelRegistry,
+  request: InvokeToolStepRequest,
+  sinkOverride?: TraceSink,
+): AsyncGenerator<TurnEvent> {
+  const known = registry.profiles.find(request.profile);
+  const { sink, policy } = resolveTraceWriter({
+    override: sinkOverride,
+    observability: known?.observability,
+    guardrails: known?.guardrails,
+  });
+  const tree = startTrace(`tool_step ${request.profile}`, {
+    attributes: {
+      'gen_ai.agent.name': request.profile,
+      ...optional('gen_ai.conversation.id', request.conversationId),
+    },
+    links: traceLinks(request.links),
+    ...(request.traceparent ? { traceparent: request.traceparent } : {}),
+  });
+  const openSpan = (name: string, attributes: TraceAttributes) =>
+    tree.root.child(name, { attributes });
+  // why: Agent tool calls run nested turns in this record; their canaries are scrubbed from it.
+  const canaries: string[] = [];
+  try {
+    const labels = known?.labels;
+    for await (const event of invokeStepTraced(
+      registry,
+      request,
+      openSpan,
+      tree.root.traceparent(),
+      canaries,
+    )) {
+      // invariant: A match is the caught text itself; it leaves only when the profile asks for it.
+      yield projectGuardrailTurnEvent(
+        withPublicLabels(event, labels),
+        policy.include.guardrailMatchPreview,
+      );
+    }
+    tree.root.end({ code: 'OK' });
+  } catch (err) {
+    if (isAbortError(err)) tree.root.end();
+    else endThrownSpan(tree.root, err);
+    throw err;
+  } finally {
+    await writeTrace(
+      sink,
+      buildRecord({
+        spans: tree.collect(),
+        policy,
+        canaries,
+        ...(request.metadata ? { metadata: request.metadata } : {}),
+      }),
+      policy,
+    );
+  }
+}
+
+async function* invokeStepTraced(
+  registry: KernelRegistry,
+  request: InvokeToolStepRequest,
+  openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
+  traceparent: string,
+  canaries: string[],
+): AsyncGenerator<TurnEvent> {
+  const profile = registry.profiles.get(request.profile);
+  const snapshot = request.snapshot
+    ? cloneTurnToolSnapshot(request.snapshot)
+    : await prepareInvokeSnapshot(registry, request, profile);
+  const { calls: given, ...shared } = request;
+  const calls = given.map((call) => {
+    const callId = call.callId ?? newCallId(call.name);
+    const invoke: InvokeToolRequest = {
+      ...shared,
+      name: call.name,
+      input: call.input,
+      callId,
+      operationId: call.operationId ?? crypto.randomUUID(),
+    };
+    return { callId, invoke };
+  });
+  const stepId = crypto.randomUUID();
+  for (const { callId, invoke } of calls) {
+    yield toolCallRequestEvent(
+      { name: invoke.name, callId, operationId: invoke.operationId },
+      toolCallArguments(invoke.input),
+      { stepId },
+    );
+  }
+  const order = stepOrder(
+    calls.map(({ callId }) => callId),
+    profileToolsParallel(profile) === true,
+    request.signal,
+  );
+  const step: InvokeStep = {
+    stepCalls: calls.map(({ callId, invoke }) => ({
+      callId,
+      tool: invoke.name,
+      input: toolCallArguments(invoke.input),
+    })),
+    wait: order.wait,
+  };
+  let gated = false;
+  try {
+    // why: As in a turn's step, one call that throws ends the step; the others are closed.
+    const settlements = yield* runSideBySide(
+      calls.map(({ callId, invoke }) =>
+        inStep(order, callId, () =>
+          runCall(
+            registry,
+            invoke,
+            profile,
+            snapshot,
+            callId,
+            openSpan,
+            (end) =>
+              startToolTrace(openSpan, {
+                name: invoke.name,
+                callId,
+                call: { arguments: toolCallArguments(plainToolInput(invoke.input)) },
+              }).end(end),
+            canaries,
+            step,
+          ),
+        ),
+      ),
+    );
+    gated = settlements.some((settlement) => settlement?.gated !== undefined);
+  } catch (err) {
+    yield toErrorEvent(err);
+  }
+  yield turnDoneOf({ stop: { kind: gated ? 'gate' : 'completed' }, traceparent }, snapshot);
+}
+
 async function* invokeTraced(
   registry: KernelRegistry,
   request: InvokeToolRequest,
@@ -161,52 +310,80 @@ async function* invokeTraced(
 
   let gated = false;
   try {
-    const settlement = yield* coordinateTool(
-      request.execution,
-      {
-        operationId: request.operationId ?? crypto.randomUUID(),
-        callId,
-        profileId: profile.id,
-        toolId: request.name,
-      },
-      {
-        input: request.input,
-        resume: request.resume,
-        snapshot,
-        context: {
-          model: request.model,
-          turnInput: request.turnInput,
-          promoted: request.promoted,
-        },
-      },
-      request.signal,
-      (beginBody) =>
-        invokePrepared(
-          registry,
-          request,
-          profile,
-          snapshot,
-          callId,
-          openSpan,
-          failBeforeTool,
-          canaries,
-          beginBody,
-        ),
-      (outcome) =>
-        authorizeToolReplay({
-          outcome,
-          tools: registry.tools,
-          profile,
-          name: request.name,
-          resume: request.resume,
-          snapshot,
-        }),
+    const settlement = yield* runCall(
+      registry,
+      request,
+      profile,
+      snapshot,
+      callId,
+      openSpan,
+      failBeforeTool,
+      canaries,
     );
     gated = settlement.gated !== undefined;
   } catch (err) {
     yield toErrorEvent(err);
   }
   yield turnDoneOf({ stop: { kind: gated ? 'gate' : 'completed' }, traceparent }, snapshot);
+}
+
+/** The step a call runs in: the calls `pre_tool` sees and the wait its `waitFor` holds on. */
+type InvokeStep = Pick<ToolStageSupport, 'stepCalls' | 'wait'>;
+
+/** One call, coordinated: replayed when its operation already ran, else executed. */
+function runCall(
+  registry: KernelRegistry,
+  request: InvokeToolRequest,
+  profile: Profile,
+  snapshot: TurnToolSnapshot,
+  callId: string,
+  openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
+  failBeforeTool: (end: ToolCallEnd) => void,
+  canaries: string[],
+  step?: InvokeStep,
+): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
+  return coordinateTool(
+    request.execution,
+    {
+      operationId: request.operationId ?? crypto.randomUUID(),
+      callId,
+      profileId: profile.id,
+      toolId: request.name,
+    },
+    {
+      input: request.input,
+      resume: request.resume,
+      snapshot,
+      context: {
+        model: request.model,
+        turnInput: request.turnInput,
+        promoted: request.promoted,
+      },
+    },
+    request.signal,
+    (beginBody) =>
+      invokePrepared(
+        registry,
+        request,
+        profile,
+        snapshot,
+        callId,
+        openSpan,
+        failBeforeTool,
+        canaries,
+        beginBody,
+        step,
+      ),
+    (outcome) =>
+      authorizeToolReplay({
+        outcome,
+        tools: registry.tools,
+        profile,
+        name: request.name,
+        resume: request.resume,
+        snapshot,
+      }),
+  );
 }
 
 async function* invokePrepared(
@@ -219,6 +396,7 @@ async function* invokePrepared(
   failBeforeTool: (end: ToolCallEnd) => void,
   canaries: string[],
   beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
+  step?: InvokeStep,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   if (request.promoted?.length) {
     const { failure } = promoteLoadedTools(registry.tools, snapshot, request.promoted, profile);
@@ -267,8 +445,9 @@ async function* invokePrepared(
       injectAllowed: false,
       host: request.host,
       signal: request.signal,
+      ...step,
     },
   });
 }
 
-export { invokeTool };
+export { invokeTool, invokeToolStep };

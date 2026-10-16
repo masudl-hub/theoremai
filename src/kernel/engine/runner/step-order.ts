@@ -1,5 +1,6 @@
 import { throwIfAborted } from '../../../guardrails/error.ts';
 import type { StepWait, StepWaitOutcome } from '../../tools/stage-run.ts';
+import type { TurnEvent } from '../../types.ts';
 
 /** Why one call is held for another: its `pre_tool` asked, or one at a time puts it after. */
 type WaitKind = 'asked' | 'after';
@@ -115,4 +116,61 @@ export function stepOrder(
       return Promise.race([outcome.promise, aborted]);
     },
   };
+}
+
+/** Runs a call's body once the step lets it start, and settles it however the body ends. */
+export async function* inStep<T>(
+  order: StepOrder,
+  callId: string,
+  body: () => AsyncGenerator<TurnEvent, T>,
+): AsyncGenerator<TurnEvent, T> {
+  try {
+    await order.start(callId);
+    return yield* body();
+  } finally {
+    order.settle(callId);
+  }
+}
+
+/**
+ * Runs tools side by side and passes on each event as it comes. Returns each run's
+ * settlement by its place in `runs`, `undefined` where there was no run.
+ *
+ * why: One run that throws ends them all; the rest are closed so none keeps running unseen.
+ */
+export async function* runSideBySide<T>(
+  runs: (AsyncGenerator<TurnEvent, T | undefined> | undefined)[],
+): AsyncGenerator<TurnEvent, (T | undefined)[]> {
+  const settled: (T | undefined)[] = runs.map(() => undefined);
+  const waiting = new Map<
+    number,
+    Promise<{ index: number; next: IteratorResult<TurnEvent, T | undefined> }>
+  >();
+  const pull = (index: number, run: AsyncGenerator<TurnEvent, T | undefined>) => {
+    const next = run.next().then((result) => ({ index, next: result }));
+    // why: A run that fails after another already threw is closed below; its failure has nowhere to go.
+    next.catch(() => {});
+    waiting.set(index, next);
+  };
+  runs.forEach((run, index) => {
+    if (run) pull(index, run);
+  });
+  try {
+    while (waiting.size > 0) {
+      const { index, next } = await Promise.race(waiting.values());
+      waiting.delete(index);
+      const run = runs[index];
+      if (next.done || !run) {
+        if (next.done) settled[index] = next.value;
+        continue;
+      }
+      yield next.value;
+      pull(index, run);
+    }
+  } finally {
+    for (const index of waiting.keys()) {
+      runs[index]?.return(undefined).catch(() => {});
+    }
+  }
+  return settled;
 }

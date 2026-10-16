@@ -68,7 +68,7 @@ A `Profile` binds:
 | `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'` (`PROFILE_TYPES`) |
 | `identity` | `handle`, optional `system` / `systemByRole` — absent on `host`; `handle` only on `speech` and `decision` |
 | `models` | Host-named `ModelBinding`s (each carries a registered `provider` ID and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` — absent on `host`; `decision` binds exactly one model and never selects |
-| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) and `parallel` are declared only on `text` and `image` |
+| `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image`; `parallel` on every type that takes `tools` |
 | `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. `{name}` in `identity.system` becomes the value the request chose for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
@@ -705,6 +705,9 @@ invokeTool({ profile, name: 'record_lookup', callId, operationId, input: {...}, 
 
 // Host direct invoke (command palette)
 invokeTool({ profile, name: 'lookup_order', input: {...} });
+
+// Host step: several calls run as one, as a turn runs the model's (`tools.parallel`, `waitFor`)
+invokeToolStep({ profile, calls: [{ name: 'lookup_order', input: {...} }, { name: 'read_weather', input: {...} }] });
 ```
 
 | Layer | Owner | Role |
@@ -920,7 +923,7 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 | `identity` | yes | `handle`, `system` / `systemByRole` |
 | `model` | yes | A registered provider with verified live capabilities |
 | `live` | yes | Voice, VAD, transcription, resumption, compression, **`ingress`** (realtime mic / camera / text toggles; text off unless `ingress.text: true`) |
-| `tools` | yes | `{ allow: ToolId[] }` only — every allowlisted id and every model `builtInTools` id is wired once at Gemini Live setup regardless of `loadTier` (declarations cannot be added mid-session, so on live every allowed tool is effectively T0) |
+| `tools` | yes | `{ allow: ToolId[]; parallel? }` — `parallel` orders a step a host runs through `invokeToolStep`. Every allowlisted id and every model `builtInTools` id is wired once at Gemini Live setup regardless of `loadTier` (declarations cannot be added mid-session, so on live every allowed tool is effectively T0) |
 | `guardrails` | optional | Canary, sanitize, egress (live outbound gate) |
 | `inputs` | **no** | Turn file attachments — use `live.ingress` for realtime channels instead |
 | `outputs` | **no** | No structured JSON or SSE/buffered turn streaming on Gemini Live |
@@ -949,15 +952,30 @@ host profile never enters.
 
 | Block | On host? | Notes |
 | --- | --- | --- |
-| `tools` | yes | `{ allow: ToolId[] }` — registered custom tools (`function`, `http`, `mcp`; `HostProfileToolsSpec`); builtins are rejected |
+| `tools` | yes | `{ allow: ToolId[]; parallel? }` — registered custom tools (`function`, `http`, `mcp`; `HostProfileToolsSpec`); builtins are rejected. `parallel` orders an `invokeToolStep` |
 | `guardrails` | optional | `HostGuardrailsSpec` only — `detect`, `network` |
 | `observability` | optional | Same shape as every other profile |
 | `models` / `identity` / `inputs` / `outputs` / `turnBehaviour` / `key` / `maxSteps` | **no** | `registerProfile` rejects them when supplied |
 
+`invokeToolStep` runs several of the host's calls as one step, the way a turn
+runs the model's calls: every call is announced first with one `stepId`, then
+they run side by side with `tools.parallel: true` or one at a time in the order
+given, and a call whose `pre_tool` answers `waitFor` starts once those calls in
+the step settle (a name outside the step fails as `wait_unknown`, a wait that
+cannot end as `wait_cycle`). Each call's events arrive as it gives them; its
+terminal `tool` event says it settled. The calls share one snapshot. A call that
+gates waits for its approval while the others finish, and the step's `done`
+then stops `gate`; that call resumes on its own through `invokeTool`. A live
+host runs the calls of one model message, which carry one `stepId`, this way.
+`invokeTool` runs one call with no step: its `pre_tool` sees no step calls and a
+`waitFor` fails as `wait_unknown`.
+
 Each `invokeTool` writes its own trace record, rooted at `execute_tool {name}`
 under the request's `traceparent`, with `conversationId` as
 `gen_ai.conversation.id`, `links` as span links (for example to the paused turn
-it resumes), and `metadata` stored on the record untouched. The `host` slot is
+it resumes), and `metadata` stored on the record untouched. An `invokeToolStep`
+writes one record rooted at `tool_step {profile}`, with an `execute_tool {name}`
+span per call under it. The `host` slot is
 never recorded. A `resume` sets `theorem.tool.approved` to the answer it
 carried. See [observability.md](./observability.md#trace-records).
 
@@ -1511,7 +1529,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `resolveKeySlot`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn`, `turnShortfalls`, `TurnShortfall` |
-| Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery` |
+| Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |

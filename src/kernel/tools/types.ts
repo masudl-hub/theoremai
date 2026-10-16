@@ -489,6 +489,26 @@ export interface InvokeToolRequest {
   onAgentCall?: AgentCallHook;
 }
 
+/** One of the host's calls in a step. */
+export interface InvokeToolStepCall {
+  name: string;
+  /** The model's call this runs; absent for the host's own call, which gets a fresh id. */
+  callId?: string;
+  /** invariant: Only the trusted host restores the kernel-issued identity from saved authority. */
+  operationId?: string;
+  input: unknown;
+}
+
+/**
+ * A request to run several calls outside a turn, as one step. Everything but the calls is
+ * shared by all of them. A call that answers an approval or a page resumes on its own,
+ * through `InvokeToolRequest`.
+ */
+export interface InvokeToolStepRequest
+  extends Omit<InvokeToolRequest, 'name' | 'callId' | 'operationId' | 'input' | 'resume' | 'page'> {
+  calls: InvokeToolStepCall[];
+}
+
 /** The tools a profile may use and how they load. */
 export interface ProfileToolsSpec {
   /** Custom tools only; builtins live on `models.*.builtInTools`. */
@@ -510,11 +530,22 @@ export interface ProfileToolsSpec {
 /** Live declarations cannot be added mid-session, so every allowed tool is wired at setup as if T0. */
 export interface LiveProfileToolsSpec {
   allow: ToolId[];
+  /**
+   * `true`: the calls of one model message, run as a step through `invokeToolStep`, run side by
+   * side, each body starting once the calls its `pre_tool` `waitFor` names have settled. Left out
+   * or `false`: one at a time, in the order the model made them.
+   */
+  parallel?: boolean;
 }
 
 /** Every id in `allow` is invokable with no visibility tiers and no path gating. */
 export interface HostProfileToolsSpec {
   allow: ToolId[];
+  /**
+   * `true`: the calls of one `invokeToolStep` run side by side, each body starting once the calls
+   * its `pre_tool` `waitFor` names have settled. Left out or `false`: one at a time, in the order given.
+   */
+  parallel?: boolean;
 }
 
 /** Every transport returns this; one settlement projects, guards and runs `post_tool`. */

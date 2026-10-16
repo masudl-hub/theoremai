@@ -24,7 +24,6 @@ import { Text } from '@astryxdesign/core/Text';
 import { TreeList } from '@astryxdesign/core/TreeList';
 import { type SearchableItem, type SearchSource, Typeahead } from '@astryxdesign/core/Typeahead';
 import { VStack } from '@astryxdesign/core/VStack';
-import { Selector } from '@astryxdesign/core/Selector';
 import {
 	IconBrandVscode,
 	IconPlus,
@@ -267,9 +266,6 @@ function ConfirmationSettings({ shared }: { shared: SharedAsking }) {
 	);
 }
 
-/** The most places a segmented control holds; more take a selector, as the editor's rows do. */
-const MOST_PLACES = 4;
-
 const NO_ONE = 'no-one';
 const personValue = (person: StudioPerson) => `person:${person.id}`;
 
@@ -301,17 +297,6 @@ function PlacePicker({
 	place: string;
 	onChange: (place: string) => void;
 }) {
-	if (offer.places.length > MOST_PLACES) {
-		return (
-			<Selector
-				label="Place"
-				size="sm"
-				value={place}
-				options={offer.places.map((each) => ({ value: each.id, label: each.label }))}
-				onChange={onChange}
-			/>
-		);
-	}
 	return (
 		<SegmentedControl label="Place" size="sm" value={place} onChange={onChange}>
 			{offer.places.map((each) => (

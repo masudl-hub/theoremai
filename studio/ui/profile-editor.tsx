@@ -882,6 +882,9 @@ function providerSegment(
 	};
 }
 
+/** Past this many providers, the row is a dropdown: more icons are too small to tell apart. */
+const MOST_PROVIDER_SEGMENTS = 4;
+
 /** The workspace's providers that serve this kind of agent, each enabled only where the studio runs it. */
 function ProviderRow({
 	providers,
@@ -915,6 +918,7 @@ function ProviderRow({
 			field="provider"
 			value={binding.provider}
 			segments={serving.map((provider) => providerSegment(provider, type, on, inProject))}
+			selectorPast={MOST_PROVIDER_SEGMENTS}
 			onChange={(id) => {
 				const provider = providers.find((each) => each.id === id);
 				if (provider) set(reprovide(binding, type, provider, keys));

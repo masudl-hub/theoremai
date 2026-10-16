@@ -641,14 +641,13 @@ export type SegmentedRowProps<T extends string> = {
 	status?: InputStatus;
 	/** A control after the segments, on the same line. */
 	trailing?: ReactNode;
+	/** Past this many options, the row is a dropdown of the same options rather than segments. */
+	selectorPast?: number;
 	onChange: (next: T) => void;
 } & IsRequired;
 
-/** Past this many options, a closed set is a dropdown rather than segments. */
-const MOST_SEGMENTS = 4;
-
 /**
- * A closed set, as icon segments, or a dropdown of the same options past `MOST_SEGMENTS`. Each
+ * A closed set, as icon segments, or a dropdown of the same options past `selectorPast`. Each
  * option's label is its accessible name, and it shows with the schema's description of that
  * option, on hover as a segment or under it in the list. `warning` says, under it, when the pick is
  * valid but won't do what it looks like; a compile issue on the row shows instead.
@@ -664,6 +663,7 @@ export function SegmentedRow<T extends string>({
 	warning,
 	status: given,
 	trailing,
+	selectorPast,
 	onChange,
 }: SegmentedRowProps<T>) {
 	const options = fieldMeta(path)?.optionDescriptions;
@@ -687,7 +687,7 @@ export function SegmentedRow<T extends string>({
 			hasNote={Boolean(status?.message)}
 		>
 			<StackItem size="fill">
-				{segments.length > MOST_SEGMENTS ? (
+				{selectorPast !== undefined && segments.length > selectorPast ? (
 					<Selector
 						label={label}
 						isLabelHidden

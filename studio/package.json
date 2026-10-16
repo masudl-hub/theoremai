@@ -13,6 +13,7 @@
     ".": "./mod.ts",
     "./runtime": "./runtime.ts",
     "./browser": "./browser.ts",
+    "./people": "./people.ts",
     "./surface": "./surface.ts",
     "./ui/*": "./ui/*",
     "./vite": "./vite.mjs"

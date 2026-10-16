@@ -375,14 +375,14 @@ Deno.test('a new file that fails a proof is taken away again', async () => {
 });
 
 Deno.test('a file that cannot be written puts back the ones written before it, and says why', async () => {
-  let disk: Map<string, string> | undefined;
+  const disk: { files?: Map<string, string> } = {};
   const { session, files, text } = project({
     write: (path, written) => {
       if (path === SETUP) throw new Error('The disk is full.');
-      disk?.set(path, written);
+      disk.files?.set(path, written);
     },
   });
-  disk = files;
+  disk.files = files;
   const workspace = withSecond(opened.workspace);
   const { stamp } = await reviewed(session, workspace);
   assertEquals(await session.save({ workspace, stamp }), {

@@ -168,10 +168,7 @@ export function maskHeaders(raw: unknown): unknown {
     return '(not a JSON object)';
   }
   const masked = Object.fromEntries(
-    Object.entries(headers).map(([name, value]) => [
-      name,
-      isCredentialName(name) ? MASK : value,
-    ]),
+    Object.entries(headers).map(([name, value]) => [name, isCredentialName(name) ? MASK : value]),
   );
   return typeof raw === 'string' ? JSON.stringify(masked) : masked;
 }

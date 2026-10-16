@@ -31,7 +31,7 @@ import {
 	IconSearch,
 	IconSettings,
 	IconUser,
-	IconWand,
+	IconDeviceDesktopCode,
 	IconX,
 } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useId, useState } from 'react';
@@ -132,7 +132,7 @@ const AUTOMATIC = 'automatic';
 
 /** Where files open: the studio's own pick, or one of the two editors Settings offers. */
 const EDITOR_CHOICES: readonly { value: string; label: string; icon: IconType }[] = [
-	{ value: AUTOMATIC, label: 'Automatic', icon: IconWand },
+	{ value: AUTOMATIC, label: 'Automatic', icon: IconDeviceDesktopCode },
 	...STUDIO_EDITORS.filter((editor) => editor.choice).map((editor) => ({
 		value: editor.command,
 		label: editor.label,
@@ -594,7 +594,7 @@ function SettingsNavHead({ project, version }: { project: ProjectSession; versio
 	return (
 		<VStack gap={4}>
 			<VStack gap={1}>
-				<Heading level={3}>studio settings</Heading>
+				<Heading level={3}>theorem studio</Heading>
 				<Text type="supporting" color="secondary">
 					{`${project.name} · @theoremjs/agents ${version}`}
 				</Text>
@@ -634,6 +634,7 @@ export function StudioSettings(props: StudioSettingsProps) {
 							<VStack gap={4} height="100%">
 								<SettingsNavHead project={props.project} version={props.version} />
 								<TreeList
+									className="studio-settings-tree"
 									density="compact"
 									aria-label="Settings"
 									items={SETTINGS_SECTIONS.map((each) => ({
@@ -667,7 +668,7 @@ export function StudioSettings(props: StudioSettingsProps) {
 								/>
 							</HStack>
 						</Section>
-						<Section variant="transparent" padding={3} maxWidth={SETTINGS_WIDTH}>
+						<Section variant="transparent" padding={3} maxWidth={SETTINGS_WIDTH} className="studio-settings-body">
 							<VStack gap={4}>
 								{isNarrow && <SettingsNavHead project={props.project} version={props.version} />}
 								{isNarrow && (

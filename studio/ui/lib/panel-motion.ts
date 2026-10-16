@@ -1,17 +1,19 @@
 /**
- * The panel takes the whole frame for the map, and gives it back. The tree and the editor stay
- * where they are, at the widths they had; the preview and the panel's handle fade out, the panel's
- * far edge moves over them the way the shell's does after load, uncovering the map, and back.
+ * The panel takes the whole frame for the map or Settings, and gives it back. The preview eases
+ * out, the panel's far edge moves over the room it gave up, and the map or Settings eases in as it
+ * is uncovered. The tree and the editor stay where they are.
  */
 import { HOLD_MS, prefersReducedMotion, sleep } from '../shell-motion.ts';
 
-/** Keep in step with the shell's own move and fade in shell-motion.css. */
 const MOVE_MS = 640;
 const FADE_MS = 280;
 const EASE = 'cubic-bezier(0.45, 0.02, 0.15, 1)';
 
-/** What fades around the move: the preview and the panel's handle. */
+/** What fades out before the move and back in after it: the preview and the panel's handle. */
 const PARTS = '.studio-preview, .studio-side-handle';
+
+/** What eases in as the panel extends over it: the map, or Settings' list and body under its headers. */
+const INCOMING = '.studio-map-pane, .studio-settings-tree, .studio-settings-body';
 
 /** A phone's panel already takes the frame, and reduced motion moves nothing. */
 export function panelCanMove(): boolean {
@@ -26,8 +28,8 @@ function ended(animations: Animation[], ms: number): Promise<unknown> {
 
 /**
  * Move the panel around `swap`, which puts the next view on screen and must have drawn it by the
- * time it returns. `widens` is the map opening; otherwise it is closing. Without a panel to move,
- * the swap happens at once.
+ * time it returns. `widens` is the map or Settings opening; otherwise it is closing. Without a
+ * panel to move, the swap happens at once.
  */
 export async function movePanel(widens: boolean, swap: () => void): Promise<void> {
 	const frame = document.querySelector<HTMLElement>('.studio-frame');
@@ -56,8 +58,13 @@ export async function movePanel(widens: boolean, swap: () => void): Promise<void
 			{ duration: MOVE_MS, easing: EASE, fill: 'both' },
 		);
 		swap();
-		await ended([move], MOVE_MS);
+		const incoming = frame.querySelectorAll<HTMLElement>(INCOMING);
+		const fades = [...incoming].map((each) =>
+			each.animate({ opacity: [0, 1] }, { duration: MOVE_MS, easing: EASE, fill: 'both' }),
+		);
+		await ended([move, ...fades], MOVE_MS);
 		move.cancel();
+		for (const each of fades) each.cancel();
 	} else {
 		const narrow = Number(surface.dataset.rests);
 		delete surface.dataset.rests;

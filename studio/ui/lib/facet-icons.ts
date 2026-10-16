@@ -9,8 +9,8 @@ import {
 	IconFileImport,
 	IconGitBranch,
 	IconHeadset,
+	IconCpu,
 	IconId,
-	IconInputAi,
 	IconPhoto,
 	IconQuote,
 	IconRepeat,
@@ -24,7 +24,7 @@ import type { StudioNodeRef } from '../../mod.ts';
 export const FACET_ICON = {
 	identity: IconId,
 	models: IconStack2,
-	modelBinding: IconInputAi,
+	modelBinding: IconCpu,
 	tools: IconTool,
 	inputs: IconFileImport,
 	outputs: IconFileExport,

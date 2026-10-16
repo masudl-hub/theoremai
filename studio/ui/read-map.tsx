@@ -5,9 +5,8 @@
  */
 import type { IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
-import { IconFileCode, IconFolder } from '@tabler/icons-react';
+import { IconFileCode, IconFileSmile, IconFolder } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { EFFORT_ICON } from '@theoremjs/react/ui';
 import { mapCurve } from '../map-line.ts';
 import type { ReadStep } from '../read-steps.ts';
 import { type ReadNode, type ReadNodeKind, readMap } from './lib/read-map.ts';
@@ -38,7 +37,7 @@ const LABEL = 30;
 const NODE_ICON: Record<ReadNodeKind, IconType | undefined> = {
 	entry: IconFileCode,
 	folder: IconFolder,
-	profile: EFFORT_ICON,
+	profile: IconFileSmile,
 	tool: undefined,
 	more: undefined,
 };

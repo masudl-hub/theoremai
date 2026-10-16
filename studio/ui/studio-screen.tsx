@@ -45,11 +45,11 @@ import {
 	IconSitemap,
 	IconSparkles,
 	IconTool,
+	IconFileSmile,
 	IconX,
 } from '@tabler/icons-react';
 import { profileGraphFacet, type ProfileGraphFacetId } from '@theoremjs/agents';
 import {
-  EFFORT_ICON,
   InPlace,
   PaneFailure,
   RaisedPane,
@@ -157,6 +157,7 @@ import {
 	WorkspaceContext,
 } from './inspector-context.ts';
 import { exportFiles, exportText, llmBrief } from './lib/export-agent.ts';
+import { modelFamilyMark } from './brand-icons.tsx';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel } from './lib/panel-motion.ts';
 import { ActingAsContext, chatKeyOf, useActingAsState } from './lib/acting-as.ts';
@@ -240,6 +241,10 @@ import { ActingAsButton, StudioSettings } from './studio-settings.tsx';
 function nodeIcon(draft: StudioDraft, ref: StudioNodeRef) {
 	const type = draft.identity.profileType;
 	if (ref.facet === 'identity' && type) return PROFILE_TYPE_ICON[type];
+	if (ref.facet === 'modelBinding') {
+		const binding = draft.modelBindings.find((each) => each.key === ref.key);
+		return (binding && modelFamilyMark(binding.apiId)) ?? FACET_ICON.modelBinding;
+	}
 	if (ref.facet !== 'toolSpec') return FACET_ICON[ref.facet];
 	const tool = draft.toolSpecs.find((spec) => spec.key === ref.key);
 	return tool ? toolTypeIcon(tool.toolType) : IconTool;
@@ -564,7 +569,7 @@ function WorkspaceListToggle({
 
 /** The sidebar's lists, as icons: a name and its count would not fit the nav's width. */
 const WORKSPACE_LISTS: readonly { value: WorkspaceList; name: string; icon: IconType }[] = [
-	{ value: 'agents', name: 'Agents', icon: EFFORT_ICON },
+	{ value: 'agents', name: 'Agents', icon: IconFileSmile },
 	{ value: 'tools', name: 'Tools', icon: IconTool },
 	{ value: 'providers', name: 'Providers', icon: IconCloud },
 ];

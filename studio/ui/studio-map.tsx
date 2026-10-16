@@ -54,6 +54,7 @@ import {
 	type WorkspaceMap,
 	workspaceMap,
 } from '../mod.ts';
+import { modelFamilyMark } from './brand-icons.tsx';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { type KeptMap, type MapPlaces, readKeptMap, writeKeptMap } from './lib/studio-map-kept.ts';
 import { useProject } from './lib/studio-project.ts';
@@ -84,11 +85,12 @@ function clipped(label: string): string {
 	return label.length > TOKEN_LABEL ? `${label.slice(0, TOKEN_LABEL - 1)}…` : label;
 }
 
-function nodeIcon({ kind, type }: MapNode): IconType {
+function nodeIcon({ kind, type, note }: MapNode): IconType {
 	const agent = kind === 'agent' ? profileTypeIcon(type) : undefined;
 	if (agent) return agent;
 	if (kind === 'tool') return toolTypeIcon(type ?? '');
-	if (kind === 'model') return FACET_ICON.modelBinding;
+	// A model's note is its API model id, which names the family.
+	if (kind === 'model') return modelFamilyMark(note) ?? FACET_ICON.modelBinding;
 	if (kind === 'provider') return IconCloud;
 	if (kind === 'shared' && type && Object.hasOwn(FACET_ICON, type)) {
 		return FACET_ICON[type as keyof typeof FACET_ICON];

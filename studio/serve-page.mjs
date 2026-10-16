@@ -58,8 +58,17 @@ function answerFor(method, pathname) {
 	if (pathname === '/' || `${pathname}/` === PAGE_BASE) {
 		return { status: 302, headers: { ...PAGE_HEADERS, Location: PAGE_BASE } };
 	}
-	const reads = method === 'GET' || method === 'HEAD';
-	if (!reads || !pathname.startsWith(PAGE_BASE)) return { status: 404, headers: PAGE_HEADERS };
+	if (!readsPage(method, pathname)) return { status: 404, headers: PAGE_HEADERS };
+	return served(method, pathname);
+}
+
+/** Whether a request reads something of the page's. */
+function readsPage(method, pathname) {
+	return (method === 'GET' || method === 'HEAD') && pathname.startsWith(PAGE_BASE);
+}
+
+/** The built file a read names, or the page itself; a HEAD has no body. */
+function served(method, pathname) {
 	const file = fileFor(pathname);
 	const type = file ? (TYPES[path.extname(pathname)] ?? 'application/octet-stream') : TYPES['.html'];
 	const body = method === 'HEAD' ? undefined : (file ?? page);

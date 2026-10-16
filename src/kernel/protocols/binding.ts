@@ -124,6 +124,8 @@ export function checkBinding<B extends ModelBinding | DecisionModelBinding>(
   ];
   if (slots[0] !== undefined && slots[0] === slots[1])
     throw new TheoremError('config', labelText('provider.model_fallback_slot'));
+  if ((binding.keySlot || binding.fallbackKeySlot) && !provider.definition.key)
+    throw new TheoremError('config', labelText('protocol.no_key', { provider: provider.id }));
   const authorize = serve.authorize ?? provider.definition.authorize;
   if (profileType === 'live' && authorize?.webSocketHeaders && !runtime.webSocketHeaders)
     throw new TheoremError(

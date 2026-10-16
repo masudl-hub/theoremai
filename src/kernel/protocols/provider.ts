@@ -213,6 +213,8 @@ export function createProviderRegistry(): ProviderRegistry {
         keySlotSchema.parse(registration.fallbackKeySlot);
       if (registration.keySlot && registration.keySlot === registration.fallbackKeySlot)
         throw new TheoremError('config', labelText('provider.fallback_slot'));
+      if ((registration.keySlot || registration.fallbackKeySlot) && !provider.key)
+        throw new TheoremError('config', labelText('protocol.no_key', { provider: id }));
       const serves = Object.freeze(
         provider.serves(parsed.data as never).map((serve) => Object.freeze({ ...serve })),
       );

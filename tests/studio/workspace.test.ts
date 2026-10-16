@@ -16,12 +16,14 @@ import {
   modelBindingNodeId,
   modelSharers,
   modelSupport,
+  newProvider,
   newToolSpec,
   providerNodeId,
   providerUse,
   removeAgent,
   removeLibraryTool,
   removeProvider,
+  renameProvider,
   resetAgent,
   resetAll,
   type StudioTreeNode,
@@ -263,6 +265,50 @@ Deno.test('a provider is added for every agent, and removed only once no model r
   const used = must(must(agent).modelBindings[0]).provider;
   assert(providerUse(start, used).models > 0);
   assertEquals(removeProvider(start, used), start);
+});
+
+Deno.test('a new provider takes a free id, and a rename moves the models that run on it', () => {
+  const start = workspaceFromDraft(createExampleDraft());
+  const first = newProvider(
+    start.providers.map((provider) => provider.id),
+    'openai-chat',
+  );
+  assertEquals(first, { id: 'provider', adapter: 'openai-chat', connection: {} });
+  const added = addProvider(start, first);
+  assertEquals(
+    newProvider(
+      added.providers.map((provider) => provider.id),
+      'google',
+    ).id,
+    'provider_2',
+  );
+
+  const [agent] = added.agents;
+  const onIt = {
+    ...added,
+    agents: added.agents.map((each) =>
+      each.key === must(agent).key
+        ? {
+            ...each,
+            modelBindings: each.modelBindings.map((binding) => ({
+              ...binding,
+              provider: 'provider',
+            })),
+          }
+        : each,
+    ),
+  };
+  const renamed = renameProvider(onIt, 'provider', 'house');
+  assertEquals(renamed.providers.at(-1), { ...first, id: 'house' });
+  assertEquals(renamed.selected, providerNodeId('house'));
+  assertEquals(renamed.starts.providers.provider, undefined);
+  assertEquals(renamed.starts.providers.house?.id, 'house');
+  assertEquals(providerUse(renamed, 'house'), providerUse(onIt, 'provider'));
+  assertEquals(providerUse(renamed, 'provider').models, 0);
+  // A blank or taken id changes nothing.
+  const taken = must(start.providers[0]).id;
+  assertEquals(renameProvider(onIt, 'provider', '  '), onIt);
+  assertEquals(renameProvider(onIt, 'provider', taken), onIt);
 });
 
 Deno.test('an agent put back to its start brings back the provider its models started on', () => {

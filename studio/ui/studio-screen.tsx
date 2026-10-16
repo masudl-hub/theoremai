@@ -89,6 +89,7 @@ import {
 	removeAgent,
 	removeLibraryTool,
 	removeProvider,
+	renameProvider,
 	reopened,
 	withFilesChosen,
 	resetAgent,
@@ -2575,6 +2576,14 @@ function EditorBody({
 										project
 											? (next) => {
 													update((current) => withProvider(current, next));
+												}
+											: undefined
+									}
+									// A provider the files do not hold yet is the studio's to name; code names the rest.
+									onRename={
+										project && !project.providers.includes(provider.id)
+											? (id) => {
+													update((current) => renameProvider(current, provider.id, id));
 												}
 											: undefined
 									}

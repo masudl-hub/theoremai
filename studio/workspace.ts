@@ -1094,6 +1094,11 @@ export function modelSharers(
   };
 }
 
+/** A provider on `adapter` under the first free id: what the + beside a provider picker adds. */
+export function newProvider(taken: Iterable<string>, adapter: string): StudioProvider {
+  return { id: freeName('provider', taken, (n) => `provider_${n}`), adapter, connection: {} };
+}
+
 /** Adds a provider for every agent's models to pick, and opens it. One whose id is taken changes nothing. */
 export function addProvider(workspace: StudioWorkspace, provider: StudioProvider): StudioWorkspace {
   if (workspace.providers.some((each) => each.id === provider.id)) return workspace;
@@ -1118,6 +1123,32 @@ export function removeProvider(workspace: StudioWorkspace, id: string): StudioWo
       ? agentNodeId(workspace.agents[0]?.key ?? '')
       : workspace.selected,
   });
+}
+
+/**
+ * Renames the provider `from` to `to`, and every model that runs on it with it. A blank or taken
+ * `to` changes nothing. Only a provider the files do not hold yet is renamed: code names the others.
+ */
+export function renameProvider(workspace: StudioWorkspace, from: string, to: string): StudioWorkspace {
+  const id = to.trim();
+  const held = workspace.providers.some((each) => each.id === from);
+  if (!held || !id || workspace.providers.some((each) => each.id === id)) return workspace;
+  const { [from]: start, ...starts } = workspace.starts.providers;
+  const moved = (binding: { provider: string }) => binding.provider === from;
+  return {
+    ...workspace,
+    providers: workspace.providers.map((each) => (each.id === from ? { ...each, id } : each)),
+    agents: workspace.agents.map((agent) =>
+      agent.modelBindings.some(moved)
+        ? {
+          ...agent,
+          modelBindings: agent.modelBindings.map((binding) => (moved(binding) ? { ...binding, provider: id } : binding)),
+        }
+        : agent
+    ),
+    selected: workspace.selected === providerNodeId(from) ? providerNodeId(id) : workspace.selected,
+    starts: { ...workspace.starts, providers: start ? { ...starts, [id]: { ...start, id } } : starts },
+  };
 }
 
 /** The providers that are as they started: the ones the project's files still say. */

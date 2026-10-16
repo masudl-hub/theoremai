@@ -1,6 +1,9 @@
 import { Section } from '@astryxdesign/core/Section';
+import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import { VStack } from '@astryxdesign/core/VStack';
+import { useState } from 'react';
 import {
 	connectionFields,
 	kernelAdapters,
@@ -59,9 +62,52 @@ function withAdapter(provider: StudioProvider, adapter: string): StudioProvider 
 }
 
 /**
+ * A new provider's id, renamed as it is left or on Enter, so its page stays open while it is typed.
+ * A blank or taken id says why and goes back to the one it has.
+ */
+function ProviderIdRow({
+	id,
+	taken,
+	onRename,
+}: {
+	id: string;
+	taken: readonly string[];
+	onRename: (next: string) => void;
+}) {
+	const [typed, setTyped] = useState(id);
+	const name = typed.trim();
+	const problem = !name
+		? 'A provider needs an id.'
+		: name !== id && taken.includes(name)
+			? `A provider named '${name}' is already here.`
+			: undefined;
+	const commit = () => {
+		if (problem) setTyped(id);
+		else if (name !== id) onRename(name);
+	};
+	return (
+		<InspectorRow label="Id" path="id" isRequired hasIssue={problem !== undefined} hasNote={problem !== undefined}>
+			<StackItem size="fill">
+				<TextInput
+					label="Id"
+					isLabelHidden
+					size="sm"
+					value={typed}
+					status={problem ? { type: 'error', message: problem } : undefined}
+					onChange={setTyped}
+					onEnter={commit}
+					onBlur={commit}
+				/>
+			</StackItem>
+		</InspectorRow>
+	);
+}
+
+/**
  * The editor for one provider: its adapter, what it connects with, as its adapter takes it, the
- * key slots its models read, and what its models take. Its id is what code and models name it by, so it takes no edit,
- * and an adapter the project made itself stays its code's. `onChange` is left out where the
+ * key slots its models read, and what its models take. Its id is what code and models name it by,
+ * so only a provider the files do not hold yet takes a new one, through `onRename`, and an adapter
+ * the project made itself stays its code's. `onChange` is left out where the
  * providers are the studio's own: every row then shows its value and takes no edit.
  */
 export function ProviderEditor({
@@ -69,11 +115,13 @@ export function ProviderEditor({
 	provider,
 	issues,
 	onChange,
+	onRename,
 }: {
 	workspace: StudioWorkspace;
 	provider: StudioProvider;
 	issues: readonly StudioIssue[];
 	onChange?: (next: StudioProvider) => void;
+	onRename?: (id: string) => void;
 }) {
 	const held = connectionFields(provider.adapter);
 	const set = onChange ?? (() => undefined);
@@ -141,9 +189,17 @@ export function ProviderEditor({
 			<VStack>
 				<IssueBanners issues={issues} />
 				<InspectorSection title="Provider" note={usedBy(workspace, provider.id)}>
-					<InspectorRow label="Id" path="id">
-						<Text>{provider.id}</Text>
-					</InspectorRow>
+					{onRename ? (
+						<ProviderIdRow
+							id={provider.id}
+							taken={workspace.providers.map((each) => each.id)}
+							onRename={onRename}
+						/>
+					) : (
+						<InspectorRow label="Id" path="id">
+							<Text>{provider.id}</Text>
+						</InspectorRow>
+					)}
 					{onChange && held ? (
 						<ChoiceRow
 							label="Adapter"

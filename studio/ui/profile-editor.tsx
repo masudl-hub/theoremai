@@ -897,6 +897,10 @@ function ProviderRow({
 	const serving = providers.filter(
 		(provider) => provider.id === binding.provider || servesProfileType(provider.adapter, type),
 	);
+	// A new provider starts on the adapter of the one the model is on, so the model keeps its API id.
+	const now = providers.find((provider) => provider.id === binding.provider)?.adapter;
+	const serves = kernelAdapters().filter((adapter) => servesProfileType(adapter, type));
+	const adapters = now && serves.includes(now) ? [now, ...serves.filter((adapter) => adapter !== now)] : serves;
 	return (
 		<SegmentedRow<string>
 			label="Provider"
@@ -913,7 +917,7 @@ function ProviderRow({
 					<AddProviderButton
 						isCompact
 						taken={providers.map((provider) => provider.id)}
-						adapters={kernelAdapters().filter((adapter) => servesProfileType(adapter, type))}
+						adapters={adapters}
 						// The model moves to it, and its editor opens for what it connects with.
 						onAdd={(provider) => {
 							set(reprovide(binding, type, provider, keys));

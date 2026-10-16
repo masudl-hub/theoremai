@@ -2048,7 +2048,9 @@ Deno.test("a reply streams what a find of the host's has cleared under sse", asy
       },
     }),
   );
-  const body = `${'n'.repeat(HOST_FIND_HOLD + 32)}END`;
+  // why: Prose, not one unbroken run: a run that long reads as a key still being written, and the
+  // default credentials redact holds it whole.
+  const body = `${'no news. '.repeat(Math.ceil((HOST_FIND_HOLD + 32) / 9))}END`;
   const provider: import('../../src/kernel/types.ts').ModelProvider = {
     async *complete() {
       yield { type: 'text', text: body };

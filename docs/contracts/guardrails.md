@@ -966,7 +966,8 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 | `tool_output_function`, `tool_failure_function` | `redact` | `redact` | `ignore` |
 | `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `redact` | `redact` | `flag` |
 | `tool_arguments_*` | `flag` | `ignore` | — |
-| `reply`, `reply_structured`, `live_reply`, `thought` | `ignore` | `ignore` | — |
+| `reply`, `reply_structured` | `ignore`; `credentials` `redact` | `ignore` | — |
+| `live_reply`, `thought` | `ignore` | `ignore` | — |
 
 | Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -123,8 +123,15 @@ Deno.test('tool_instructions reads what a tool returns: flagged from a remote to
   assertEquals(where(undefined, 'tool_instructions', 'redact'), []);
 });
 
+Deno.test('a credential is redacted from a reply by default, and not read in a thought or a Live reply', () => {
+  assertEquals(where(undefined, 'credentials', 'redact').includes('reply'), true);
+  assertEquals(where(undefined, 'credentials', 'redact').includes('reply_structured'), true);
+  assertEquals(where(undefined, 'credentials', 'ignore').includes('thought'), true);
+  assertEquals(where(undefined, 'credentials', 'ignore').includes('live_reply'), true);
+});
+
 Deno.test('what comes in is redacted by default, and nothing the model writes is read for it', () => {
-  const others = [...LEAKS, ...SHOWN, 'tool_instructions'];
+  const others = [...LEAKS, ...SHOWN, 'tool_instructions', 'credentials'];
   for (const detector of DETECTORS.filter((d) => !others.includes(d))) {
     assertEquals(where(undefined, detector, 'block'), []);
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);

@@ -315,7 +315,10 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     label: 'Credentials',
     doc: 'API keys, tokens, passwords and private keys.',
     group: 'data',
-    defaults: everywhere('flag'),
+    // why: A key the model was handed (in its instructions or a tool's output) is a key the person
+    // reading the reply should not get; the reply keeps the rest. A thought and a Live reply stay
+    // unread, so neither holds its stream nor turns transcription on for every turn.
+    defaults: { ...everywhere('flag'), reply: 'redact', reply_structured: 'redact' },
     patterns: true,
   },
   injection: {

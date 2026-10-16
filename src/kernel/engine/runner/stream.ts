@@ -12,8 +12,8 @@ import { TheoremError, throwIfAborted, toErrorEvent } from '../../../guardrails/
 import { guardrailFromHits, guardrailTurnEvent } from '../../../guardrails/events.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
 import {
+  createDraftGate,
   createOutboundProgressiveGate,
-  createToolDraftGate,
   type ProgressiveYieldGate,
   type ProgressiveYieldResult,
 } from '../../../guardrails/progressive-yield.ts';
@@ -147,6 +147,60 @@ function shownToHost(
 }
 
 /**
+ * A step's events as the host gets them (`shownToHost`), with a structured reply's drafts read
+ * first at `reply_structured`, where the whole is read. The reply's text has already passed the
+ * `reply` gate; a match at `reply_structured` stops the drafts, and the `structured` event still
+ * arrives as that check leaves it. The held tail is read and released when the step's stream ends.
+ */
+class StructuredDrafts {
+  private gate: ProgressiveYieldGate | null | 'stopped' | undefined;
+  private readonly policy: ResolvedGuardrailPolicy;
+  private readonly context: GuardrailContext;
+  private readonly generation: Pick<ResolvedGeneration, 'structured' | 'stream'>;
+
+  /** Reads the stream's own checks off what the step knows of the turn. */
+  constructor(
+    seen: Pick<
+      StreamArgs,
+      'profile' | 'generation' | 'privateSystem' | 'givenUrls' | 'canaryGiven' | 'ownTools'
+    >,
+  ) {
+    this.policy = resolveGuardrailPolicy(seen.profile.guardrails);
+    this.context = streamContext(seen, this.policy);
+    this.generation = seen.generation;
+  }
+
+  async *show(event: TurnEvent): AsyncGenerator<TurnEvent> {
+    const shown = shownToHost(event, this.generation);
+    if (shown?.type !== 'structured_draft') {
+      if (shown) yield shown;
+      return;
+    }
+    if (this.gate === undefined) {
+      this.gate = await createDraftGate(this.policy, this.context, 'reply_structured');
+    }
+    if (this.gate === 'stopped') return;
+    if (!this.gate) {
+      yield shown;
+      return;
+    }
+    const result = this.gate.process(shown.text);
+    if (result.blocked) {
+      this.gate = 'stopped';
+      return;
+    }
+    if (result.emit) yield { ...shown, text: result.emit };
+  }
+
+  /** The drafts' tail the gate still holds, once the step's stream has ended. */
+  *end(): Generator<TurnEvent> {
+    if (!this.gate || this.gate === 'stopped') return;
+    const result = this.gate.flush();
+    if (!result.blocked && result.emit) yield { type: 'structured_draft', text: result.emit };
+  }
+}
+
+/**
  * Events read at a boundary of their own, not with the reply's text: the
  * model's tool call at its `tool_arguments` boundary, and the structured
  * output at `reply_structured`.
@@ -163,7 +217,7 @@ interface ShownDraft {
 
 /**
  * The tool calls the model is drafting, each through a gate of its own at the boundary its call is
- * read at (`createToolDraftGate`). A draft is a preview: one its gate stops, or whose tool's name
+ * read at (`createDraftGate`). A draft is a preview: one its gate stops, or whose tool's name
  * changes, shows nothing more, and the call itself is still read whole. A draft's gate closes when
  * its call arrives; its held tail is not released, because the call shows all of it.
  */
@@ -224,7 +278,7 @@ class ToolDrafts {
 
   private async open(event: StreamEvent & { type: 'tool_draft' }): Promise<ShownDraft> {
     const boundary = toolArgumentsBoundary(this.tools, event.name);
-    const gate = boundary ? await createToolDraftGate(this.policy, this.context, boundary) : null;
+    const gate = boundary ? await createDraftGate(this.policy, this.context, boundary) : null;
     const draft = { name: event.name, gate };
     this.drafts.set(event.callId, draft);
     return draft;
@@ -472,4 +526,10 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
 }
 
 export type { OutboundStreamControl, StreamArgs };
-export { isWithheldOnBlock, shouldSkipStreamEvent, shownToHost, yieldProviderEvents };
+export {
+  isWithheldOnBlock,
+  StructuredDrafts,
+  shouldSkipStreamEvent,
+  shownToHost,
+  yieldProviderEvents,
+};

@@ -56,7 +56,7 @@ import { inStep, runSideBySide, stepOrder } from './step-order.ts';
 import {
   isWithheldOnBlock,
   type OutboundStreamControl,
-  shownToHost,
+  StructuredDrafts,
   yieldProviderEvents,
 } from './stream.ts';
 import { callTokensEvent, observeCallEvent, startCallUsage } from './usage.ts';
@@ -288,19 +288,24 @@ async function* executeAutonomousStep(
     ...(state.thoughtCarry ? { thoughtCarry: state.thoughtCarry } : {}),
   };
 
+  const seen = {
+    profile: args.profile,
+    generation: genForStep,
+    privateSystem: system.private,
+    givenUrls: state.givenUrls,
+    canaryGiven: state.canaryGiven,
+    ...(state.ownTools ? { ownTools: state.ownTools } : {}),
+  };
+  const shown = new StructuredDrafts(seen);
+
   try {
     for await (const event of yieldProviderEvents({
-      profile: args.profile,
-      generation: genForStep,
+      ...seen,
       request,
-      privateSystem: system.private,
       provider,
       call,
       signal,
       control,
-      givenUrls: state.givenUrls,
-      canaryGiven: state.canaryGiven,
-      ...(state.ownTools ? { ownTools: state.ownTools } : {}),
       tools: state.tools,
     })) {
       if (observeCallEvent(usage, event)) continue;
@@ -318,8 +323,7 @@ async function* executeAutonomousStep(
       }
       if (tallyCallEvent(event, tally, call)) continue;
       if (!releasesNow(event, control, state, buffer)) continue;
-      const shown = shownToHost(event, genForStep);
-      if (shown) yield shown;
+      yield* shown.show(event);
     }
   } catch (err) {
     call.end(
@@ -328,6 +332,7 @@ async function* executeAutonomousStep(
     throw err;
   }
 
+  yield* shown.end();
   keepStreamCarry(state, control);
   const resume = resumeOf(args.mayResume, profile, tally);
   if (!resume) {

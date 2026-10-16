@@ -1,8 +1,5 @@
 import type { ToolBoundary } from '../../guardrails/boundaries.ts';
-import {
-  createToolDraftGate,
-  type ProgressiveYieldGate,
-} from '../../guardrails/progressive-yield.ts';
+import { createDraftGate, type ProgressiveYieldGate } from '../../guardrails/progressive-yield.ts';
 import { guardToolResult } from '../../guardrails/tool-result.ts';
 import type { Provenance, ResolvedGuardrailPolicy } from '../../guardrails/types.ts';
 import type { TurnEvent } from '../types.ts';
@@ -89,7 +86,7 @@ export class HandlerEvents {
   }
 
   private openGate(checks: HandlerEventChecks): Promise<ProgressiveYieldGate | null> {
-    return createToolDraftGate(
+    return createDraftGate(
       checks.policy,
       {
         stage: 'tool_result',

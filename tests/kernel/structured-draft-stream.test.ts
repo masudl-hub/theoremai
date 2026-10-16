@@ -1,5 +1,6 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
+import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -92,5 +93,42 @@ Deno.test('buffered sends no drafts: the structured reply is the reply whole', a
   assertEquals(
     events.flatMap((e) => (e.type === 'structured' ? [e.structured] : [])),
     [{ message: 'Hi' }],
+  );
+});
+
+Deno.test('a rule set only for structured replies stops the drafts before the key shows', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'structured_draft_rule',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: [] },
+      inputs: { text: true },
+      outputs: { structured: 'chatTurn' },
+      guardrails: {
+        quota: { perDay: 100 },
+        detect: { credentials: { at: { reply: 'ignore', reply_structured: 'block' } } },
+      },
+    }),
+  );
+  const half = Math.floor(TEST_OPENAI_KEY.length / 2);
+  const events = await collect(
+    'structured_draft_rule',
+    jsonProvider(() => [
+      '{"message":"key ',
+      TEST_OPENAI_KEY.slice(0, half),
+      TEST_OPENAI_KEY.slice(half),
+      ' then more"}',
+    ]),
+  );
+  const shown = structuredDraftText(events);
+  assertEquals(shown.startsWith('{"message":"key'), true);
+  assertEquals(shown.includes(TEST_OPENAI_KEY.slice(0, half)), false);
+  assertEquals(JSON.stringify(events).includes(TEST_OPENAI_KEY.slice(0, half)), false);
+  assertEquals(
+    events.some((e) => e.type === 'guardrail' && e.guardrail.boundary === 'reply_structured'),
+    true,
   );
 });

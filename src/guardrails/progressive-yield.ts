@@ -17,8 +17,11 @@ import type { GuardrailContext, GuardrailHit, ResolvedGuardrailPolicy } from './
 /** A reply boundary the gate reads as the reply streams. */
 export type ReplyBoundary = Extract<Boundary, 'reply' | 'live_reply'>;
 
-/** Where a gate stands: a reply boundary, or the boundary a tool call the model is drafting is read at. */
-export type GateBoundary = ReplyBoundary | ToolBoundary;
+/** Where a draft is read: where the whole it previews is (a tool call, a tool's output, a structured reply). */
+export type DraftBoundary = ToolBoundary | Extract<Boundary, 'reply_structured'>;
+
+/** Where a gate stands: a reply boundary, or a draft's. */
+export type GateBoundary = ReplyBoundary | DraftBoundary;
 
 export type ProgressiveYieldOk = {
   blocked: false;
@@ -328,15 +331,16 @@ function outboundProgressiveGate(
 
 /**
  * A gate for a draft read at `boundary`, where the whole it previews is read before the host sees
- * it: a tool call the model is still writing, or a tool's output as the tool writes it. It never
+ * it: a tool call the model is still writing, a tool's output as the tool writes it, or a
+ * structured reply's JSON as the model writes it. It never
  * rewrites: a match the whole's check would replace or stop stops the draft instead, because the
  * host gets the whole only as that check leaves it. `scope` is what that check reads against;
  * left out, the turn's (`scopeOf`).
  */
-async function createToolDraftGate(
+async function createDraftGate(
   policy: ResolvedGuardrailPolicy,
   context: GuardrailContext,
-  boundary: ToolBoundary,
+  boundary: DraftBoundary,
   scope?: DetectScope,
 ): Promise<ProgressiveYieldGate | null> {
   if (!replyIsJudged(policy, [boundary], scope ?? context)) return null;
@@ -354,9 +358,9 @@ async function createToolDraftGate(
 
 export type { ProgressiveYieldGate };
 export {
+  createDraftGate,
   createOutboundProgressiveGate,
   createProgressiveYieldGate,
-  createToolDraftGate,
   outboundProgressiveGate,
   replyIsJudged,
 };

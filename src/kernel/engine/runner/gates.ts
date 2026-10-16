@@ -258,7 +258,8 @@ function* yieldBufferedAttemptEvents(
     if (ev.type === 'thought' || (alreadyStreamedUserVisible && isWithheldOnBlock(ev))) {
       continue;
     }
-    const shown = shownToHost(ev, generation);
+    // why: A held structured reply was judged whole; its drafts are the JSON before that check, so the `structured` event alone shows it.
+    const shown = shownToHost(ev, { ...generation, stream: false });
     if (shown) yield shown;
   }
 }

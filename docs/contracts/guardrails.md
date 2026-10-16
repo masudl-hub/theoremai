@@ -73,7 +73,7 @@ Owns every module under `src/guardrails/`.
 | `prompt-echo.ts` | System-prompt echo scan: 12 consecutive prompt words in a reply are a leak, also backwards, in rot13 or in leetspeak |
 | `canary-gate.ts` | Canary-only batch helper (`createCanaryGateSession`) |
 | `live-outbound-gate.ts` | Live outbound progressive-yield (canary + egress hold; audio streams once its message's transcript clears) |
-| `progressive-yield.ts` | Streaming gate for a reply, and for a draft of a tool call or a tool's output (`createToolDraftGate`): exact hold for the detectors and a host's patterns, a fixed tail for a host's `find` |
+| `progressive-yield.ts` | Streaming gate for a reply, and for a draft of a tool call, a tool's output or a structured reply (`createDraftGate`): exact hold for the detectors and a host's patterns, a fixed tail for a host's `find` |
 | `detectors.ts` | `DETECTORS`, each one's declaration and defaults, `resolveDetect`, `resolveAllow` |
 | `detect-reply.ts` | `readReply` — a reply read whole at its boundaries when the attempt ends |
 | `detect-stream.ts` | A reply read as it streams: what is released, replaced or held |
@@ -1253,7 +1253,7 @@ are not read.
 
 **Drafts.** A `tool_draft` shows a call to the host before this check reads
 it, so the runner reads each draft at the same `tool_arguments_<kind>`
-boundary as it streams (`createToolDraftGate`). The draft gate never rewrites.
+boundary as it streams (`createDraftGate`). The draft gate never rewrites.
 A match that the call's check would `redact` or `block` stops the draft
 instead, because the host sees the call only as that check leaves it. A `flag`
 lets the draft go on, and the check of the whole call reports it. A canary

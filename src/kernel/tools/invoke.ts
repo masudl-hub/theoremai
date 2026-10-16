@@ -70,14 +70,23 @@ async function prepareInvokeSnapshot(
   return await prepareTurnToolSnapshot(registry.tools, profile, req, model);
 }
 
+type TraceTree = ReturnType<typeof startTrace>;
+
 /**
- * The trace record is written however the call ends, including an early stop or a failure before
- * the tool. An unknown profile is recorded under the standard observability policy: there is none to read.
+ * One trace record around an invoke, written however it ends, including an early stop or a
+ * failure before the tool. The profile's labels and guardrail policy shape every event. An unknown
+ * profile is recorded under the standard observability policy: there is none to read.
  */
-async function* invokeTool(
+async function* invokeInTrace(
   registry: KernelRegistry,
-  request: InvokeToolRequest,
-  sinkOverride?: TraceSink,
+  request: InvokeToolRequest | InvokeToolStepRequest,
+  spanName: string,
+  sinkOverride: TraceSink | undefined,
+  run: {
+    events: (tree: TraceTree, canaries: string[]) => AsyncGenerator<TurnEvent>;
+    ended?: (tree: TraceTree) => void;
+    failed: (tree: TraceTree, err: unknown) => void;
+  },
 ): AsyncGenerator<TurnEvent> {
   const known = registry.profiles.find(request.profile);
   const { sink, policy } = resolveTraceWriter({
@@ -85,9 +94,7 @@ async function* invokeTool(
     observability: known?.observability,
     guardrails: known?.guardrails,
   });
-  const callId = request.callId ?? newCallId(request.name);
-  request = { ...request, operationId: request.operationId ?? crypto.randomUUID() };
-  const tree = startTrace(toolSpanName(request.name), {
+  const tree = startTrace(spanName, {
     attributes: {
       'gen_ai.agent.name': request.profile,
       ...optional('gen_ai.conversation.id', request.conversationId),
@@ -95,40 +102,20 @@ async function* invokeTool(
     links: traceLinks(request.links),
     ...(request.traceparent ? { traceparent: request.traceparent } : {}),
   });
-  const openSpan = (_name: string, attributes: TraceAttributes) => {
-    tree.root.set(attributes);
-    return tree.root;
-  };
-  const failBeforeTool = (end: ToolCallEnd) =>
-    startToolTrace(openSpan, {
-      name: request.name,
-      callId,
-      call: { arguments: toolCallArguments(plainToolInput(request.input)) },
-    }).end(end);
   // why: Agent tool calls run nested turns in this record; their canaries are scrubbed from it.
   const canaries: string[] = [];
   try {
     const labels = known?.labels;
-    const traceparent = tree.root.traceparent();
-    for await (const event of invokeTraced(
-      registry,
-      request,
-      callId,
-      openSpan,
-      failBeforeTool,
-      traceparent,
-      canaries,
-    )) {
+    for await (const event of run.events(tree, canaries)) {
       // invariant: A match is the caught text itself; it leaves only when the profile asks for it.
       yield projectGuardrailTurnEvent(
         withPublicLabels(event, labels),
         policy.include.guardrailMatchPreview,
       );
     }
+    run.ended?.(tree);
   } catch (err) {
-    failBeforeTool(
-      isAbortError(err) ? { outcome: 'cancelled' } : { outcome: 'error', thrown: err },
-    );
+    run.failed(tree, err);
     throw err;
   } finally {
     await writeTrace(
@@ -144,70 +131,92 @@ async function* invokeTool(
   }
 }
 
+/** Close the call's span for a failure before its tool ran. */
+function failCallBeforeTool(
+  openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
+  invoke: InvokeToolRequest,
+  callId: string,
+): (end: ToolCallEnd) => void {
+  return (end) =>
+    startToolTrace(openSpan, {
+      name: invoke.name,
+      callId,
+      call: { arguments: toolCallArguments(plainToolInput(invoke.input)) },
+    }).end(end);
+}
+
+/** The profile an invoke runs under, and its own copy of the tool snapshot. */
+async function invokeSnapshot(
+  registry: KernelRegistry,
+  request: InvokeToolRequest | InvokeToolStepRequest,
+): Promise<{ profile: Profile; snapshot: TurnToolSnapshot }> {
+  const profile = registry.profiles.get(request.profile);
+  const snapshot = request.snapshot
+    ? cloneTurnToolSnapshot(request.snapshot)
+    : await prepareInvokeSnapshot(registry, request, profile);
+  return { profile, snapshot };
+}
+
+function invokeTool(
+  registry: KernelRegistry,
+  request: InvokeToolRequest,
+  sinkOverride?: TraceSink,
+): AsyncGenerator<TurnEvent> {
+  const callId = request.callId ?? newCallId(request.name);
+  const invoke = { ...request, operationId: request.operationId ?? crypto.randomUUID() };
+  const openSpan = (tree: TraceTree) => (_name: string, attributes: TraceAttributes) => {
+    tree.root.set(attributes);
+    return tree.root;
+  };
+  return invokeInTrace(registry, invoke, toolSpanName(invoke.name), sinkOverride, {
+    events: (tree, canaries) =>
+      invokeTraced(
+        registry,
+        invoke,
+        callId,
+        openSpan(tree),
+        failCallBeforeTool(openSpan(tree), invoke, callId),
+        tree.root.traceparent(),
+        canaries,
+      ),
+    failed: (tree, err) =>
+      failCallBeforeTool(
+        openSpan(tree),
+        invoke,
+        callId,
+      )(isAbortError(err) ? { outcome: 'cancelled' } : { outcome: 'error', thrown: err }),
+  });
+}
+
 /**
- * Runs the host's calls as one step, the way a turn runs the model's. Every call is announced
- * with the step's id before any runs. With `tools.parallel` they run side by side, otherwise one
- * at a time in the order given; a call whose `pre_tool` answers `waitFor` starts once those calls
- * in the step settle. Each call's events arrive as it gives them, and its terminal `tool` event
- * says it settled. The calls share one snapshot. A call that gates waits for its own approval
- * while the others run; the step then ends `gate`. One trace record holds a span per call under
- * the step's root, rooted under the host span when one is given.
+ * Runs the host's calls as one step, the way a turn runs the model's. Every call the step names
+ * itself is announced with the step's id before any runs. With `tools.parallel` they run side by
+ * side, otherwise one at a time in the order given; a call whose `pre_tool` answers `waitFor`
+ * starts once those calls in the step settle. Each call's events arrive as it gives them, and its
+ * terminal `tool` event says it settled. The calls share one snapshot. A call that gates waits for
+ * its own approval while the others run; the step then ends `gate`. One trace record holds a span
+ * per call under the step's root, rooted under the host span when one is given.
  */
-async function* invokeToolStep(
+function invokeToolStep(
   registry: KernelRegistry,
   request: InvokeToolStepRequest,
   sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
-  const known = registry.profiles.find(request.profile);
-  const { sink, policy } = resolveTraceWriter({
-    override: sinkOverride,
-    observability: known?.observability,
-    guardrails: known?.guardrails,
-  });
-  const tree = startTrace(`tool_step ${request.profile}`, {
-    attributes: {
-      'gen_ai.agent.name': request.profile,
-      ...optional('gen_ai.conversation.id', request.conversationId),
-    },
-    links: traceLinks(request.links),
-    ...(request.traceparent ? { traceparent: request.traceparent } : {}),
-  });
-  const openSpan = (name: string, attributes: TraceAttributes) =>
-    tree.root.child(name, { attributes });
-  // why: Agent tool calls run nested turns in this record; their canaries are scrubbed from it.
-  const canaries: string[] = [];
-  try {
-    const labels = known?.labels;
-    for await (const event of invokeStepTraced(
-      registry,
-      request,
-      openSpan,
-      tree.root.traceparent(),
-      canaries,
-    )) {
-      // invariant: A match is the caught text itself; it leaves only when the profile asks for it.
-      yield projectGuardrailTurnEvent(
-        withPublicLabels(event, labels),
-        policy.include.guardrailMatchPreview,
-      );
-    }
-    tree.root.end({ code: 'OK' });
-  } catch (err) {
-    if (isAbortError(err)) tree.root.end();
-    else endThrownSpan(tree.root, err);
-    throw err;
-  } finally {
-    await writeTrace(
-      sink,
-      buildRecord({
-        spans: tree.collect(),
-        policy,
+  return invokeInTrace(registry, request, `tool_step ${request.profile}`, sinkOverride, {
+    events: (tree, canaries) =>
+      invokeStepTraced(
+        registry,
+        request,
+        (name, attributes) => tree.root.child(name, { attributes }),
+        tree.root.traceparent(),
         canaries,
-        ...(request.metadata ? { metadata: request.metadata } : {}),
-      }),
-      policy,
-    );
-  }
+      ),
+    ended: (tree) => tree.root.end({ code: 'OK' }),
+    failed: (tree, err) => {
+      if (isAbortError(err)) tree.root.end();
+      else endThrownSpan(tree.root, err);
+    },
+  });
 }
 
 async function* invokeStepTraced(
@@ -217,10 +226,7 @@ async function* invokeStepTraced(
   traceparent: string,
   canaries: string[],
 ): AsyncGenerator<TurnEvent> {
-  const profile = registry.profiles.get(request.profile);
-  const snapshot = request.snapshot
-    ? cloneTurnToolSnapshot(request.snapshot)
-    : await prepareInvokeSnapshot(registry, request, profile);
+  const { profile, snapshot } = await invokeSnapshot(registry, request);
   const { calls: given, ...shared } = request;
   const calls = given.map((call) => {
     // why: A model's call was already announced by its turn; only a call the step names itself is announced here.
@@ -270,12 +276,7 @@ async function* invokeStepTraced(
             snapshot,
             callId,
             openSpan,
-            (end) =>
-              startToolTrace(openSpan, {
-                name: invoke.name,
-                callId,
-                call: { arguments: toolCallArguments(plainToolInput(invoke.input)) },
-              }).end(end),
+            failCallBeforeTool(openSpan, invoke, callId),
             canaries,
             step,
           ),
@@ -298,10 +299,7 @@ async function* invokeTraced(
   traceparent: string,
   canaries: string[],
 ): AsyncGenerator<TurnEvent> {
-  const profile = registry.profiles.get(request.profile);
-  const snapshot = request.snapshot
-    ? cloneTurnToolSnapshot(request.snapshot)
-    : await prepareInvokeSnapshot(registry, request, profile);
+  const { profile, snapshot } = await invokeSnapshot(registry, request);
 
   // why: A model's call was already announced by its turn.
   if (request.callId === undefined) {

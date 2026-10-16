@@ -15,6 +15,18 @@ export interface StepOrder {
 }
 
 /**
+ * A promise and the function that settles it. `Promise.withResolvers` would do, but the React
+ * package compiles the kernel against ES2023, which lacks it.
+ */
+function settleable<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+/**
  * The order of a step's calls. Side by side, every call starts at once. One at a time,
  * each starts when every call before it has settled. A call whose `pre_tool` answers `waitFor`
  * is held until those calls settle. A wait on a call outside the step fails; so does a wait
@@ -27,7 +39,7 @@ export function stepOrder(
   signal?: AbortSignal,
 ): StepOrder {
   const settled = new Set<string>();
-  const done = new Map(callIds.map((id) => [id, Promise.withResolvers<void>()]));
+  const done = new Map(callIds.map((id) => [id, settleable<void>()]));
   const waits = new Map<string, Map<string, WaitKind>>();
   const held = new Map<string, (outcome: StepWaitOutcome) => void>();
   const unhook = new Map<string, () => void>();
@@ -102,7 +114,7 @@ export function stepOrder(
           callIds: loops.map(({ id }) => id),
         });
       }
-      const outcome = Promise.withResolvers<StepWaitOutcome>();
+      const outcome = settleable<StepWaitOutcome>();
       held.set(callId, outcome.resolve);
       Promise.all(pending.map(doneOf)).then(() => release(callId, { ok: true }));
       const aborted = new Promise<never>((_, reject) => {

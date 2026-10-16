@@ -644,11 +644,14 @@ export type SegmentedRowProps<T extends string> = {
 	onChange: (next: T) => void;
 } & IsRequired;
 
+/** Past this many options, a closed set is a dropdown rather than segments. */
+const MOST_SEGMENTS = 4;
+
 /**
- * A closed set, as icon segments. Each
- * segment's label is its accessible name, and on hover it shows with the schema's description of
- * that option. `warning` says, under it, when the pick is valid but won't do what it looks like; a
- * compile issue on the row shows instead.
+ * A closed set, as icon segments, or a dropdown of the same options past `MOST_SEGMENTS`. Each
+ * option's label is its accessible name, and it shows with the schema's description of that
+ * option, on hover as a segment or under it in the list. `warning` says, under it, when the pick is
+ * valid but won't do what it looks like; a compile issue on the row shows instead.
  */
 export function SegmentedRow<T extends string>({
 	label,
@@ -667,6 +670,10 @@ export function SegmentedRow<T extends string>({
 	const issue = useFieldStatus()(field) ?? given;
 	const status = issue ?? (warning ? { type: 'warning' as const, message: warning } : undefined);
 	const { required } = presence(path, isRequired);
+	const named = (segment: Segment<T>) =>
+		segment.isRecommended ? `${segment.label} (recommended)` : segment.label;
+	const described = (segment: Segment<T>) =>
+		(segment.isDisabled && segment.disabledMessage) || options?.[segment.value] || segment.description;
 	return (
 		<InspectorRow
 			label={label}
@@ -676,36 +683,56 @@ export function SegmentedRow<T extends string>({
 			hasNote={Boolean(status?.message)}
 		>
 			<StackItem size="fill">
-				<SegmentedControl
-					label={label}
-					size="sm"
-					layout="fill"
-					value={value}
-					isDisabled={isDisabled}
-					onChange={(next) => {
-						const segment = segments.find((candidate) => candidate.value === next);
-						if (segment) onChange(segment.value);
-					}}
-				>
-					{segments.map((segment) => {
-						const description =
-							(segment.isDisabled && segment.disabledMessage) ||
-							options?.[segment.value] ||
-							segment.description;
-						const name = segment.isRecommended ? `${segment.label} (recommended)` : segment.label;
-						return (
-							<Tooltip key={segment.value} content={description ? `${name}: ${description}` : name}>
-								<SegmentedControlItem
-									value={segment.value}
-									label={name}
-									isLabelHidden
-									isDisabled={segment.isDisabled}
-									icon={<Icon icon={segment.icon} size="sm" />}
-								/>
-							</Tooltip>
-						);
-					})}
-				</SegmentedControl>
+				{segments.length > MOST_SEGMENTS ? (
+					<Selector
+						label={label}
+						isLabelHidden
+						isRequired
+						size="sm"
+						placement="below"
+						value={value}
+						isDisabled={isDisabled}
+						options={segments.map((segment) => ({
+							value: segment.value,
+							label: named(segment),
+							icon: segment.icon,
+							disabled: segment.isDisabled,
+							description: described(segment),
+						}))}
+						onChange={(next) => {
+							const segment = segments.find((candidate) => candidate.value === next);
+							if (segment) onChange(segment.value);
+						}}
+					/>
+				) : (
+					<SegmentedControl
+						label={label}
+						size="sm"
+						layout="fill"
+						value={value}
+						isDisabled={isDisabled}
+						onChange={(next) => {
+							const segment = segments.find((candidate) => candidate.value === next);
+							if (segment) onChange(segment.value);
+						}}
+					>
+						{segments.map((segment) => {
+							const description = described(segment);
+							const name = named(segment);
+							return (
+								<Tooltip key={segment.value} content={description ? `${name}: ${description}` : name}>
+									<SegmentedControlItem
+										value={segment.value}
+										label={name}
+										isLabelHidden
+										isDisabled={segment.isDisabled}
+										icon={<Icon icon={segment.icon} size="sm" />}
+									/>
+								</Tooltip>
+							);
+						})}
+					</SegmentedControl>
+				)}
 				{status?.message && (
 					<FieldStatus type={status.type} message={status.message} variant="detached" />
 				)}

@@ -1,19 +1,23 @@
 import type { TurnCost, TurnTokens } from '../turn-events.ts';
 
-/** US dollars per million tokens for one model. Thinking tokens are billed as output. */
-export interface ModelPrice {
+/** US dollars per million tokens. Thinking tokens are billed as output. */
+export interface Rates {
   input: number;
   output: number;
   cachedInput?: number;
-  audioInput?: number;
-  /** The higher rates a prompt above `above` input tokens is billed at. */
-  longContext?: {
-    above: number;
-    input: number;
-    output: number;
-    cachedInput?: number;
-    audioInput?: number;
+  /**
+   * Rates for one modality's share of a side, keyed as `TurnTokens.byModality` keys it (`audio`,
+   * `image`, …). A share with no rate here is billed at the side's own rate.
+   */
+  byModality?: {
+    input?: Readonly<Record<string, number>>;
+    output?: Readonly<Record<string, number>>;
   };
+}
+
+/** One model's rates, and the higher ones a prompt above `longContext.above` input tokens is billed at. */
+export interface ModelPrice extends Rates {
+  longContext?: Rates & { above: number };
 }
 
 /**
@@ -45,6 +49,23 @@ function priceFor(table: PriceTable, apiId: string): ModelPrice | undefined {
   return best?.price;
 }
 
+/** Bills each priced modality's share at its rate, and the rest of the side at `rate`. */
+function sideUsd(
+  count: number,
+  rate: number,
+  modalityRates: Readonly<Record<string, number>> | undefined,
+  shares: Record<string, number> | undefined,
+): number {
+  let rest = count;
+  let usd = 0;
+  for (const [modality, modalityRate] of Object.entries(modalityRates ?? {})) {
+    const share = Math.min(shares?.[modality] ?? 0, rest);
+    usd += share * modalityRate;
+    rest -= share;
+  }
+  return usd + rest * rate;
+}
+
 /** The cost of one call from its tokens, or nothing for a model the table doesn't price. */
 export function costFromPrices(
   table: PriceTable,
@@ -56,16 +77,15 @@ export function costFromPrices(
   const rates =
     price.longContext && tokens.input > price.longContext.above ? price.longContext : price;
   const cached = Math.min(tokens.cached ?? 0, tokens.input);
-  const audio =
-    rates.audioInput === undefined
-      ? 0
-      : Math.min(tokens.byModality?.input?.audio ?? 0, tokens.input - cached);
-  const plain = tokens.input - cached - audio;
   const usd =
-    (plain * rates.input +
-      cached * (rates.cachedInput ?? rates.input) +
-      audio * (rates.audioInput ?? rates.input) +
-      tokens.output * rates.output) /
+    (cached * (rates.cachedInput ?? rates.input) +
+      sideUsd(
+        tokens.input - cached,
+        rates.input,
+        rates.byModality?.input,
+        tokens.byModality?.input,
+      ) +
+      sideUsd(tokens.output, rates.output, rates.byModality?.output, tokens.byModality?.output)) /
     PER;
   return { usd, estimated: true };
 }

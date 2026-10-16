@@ -453,3 +453,35 @@ Deno.test('prices: a prefix covers its ids, long prompts take the higher rate, c
   );
   assertEquals(costFromPrices(table, 'other', { input: 1, output: 1, total: 2 }), undefined);
 });
+
+Deno.test('prices: a modality with its own rate bills its share, the rest of the side the plain rate', () => {
+  const table = {
+    checked: '2026-10-16',
+    models: {
+      live: {
+        input: 1,
+        output: 4,
+        byModality: { input: { audio: 3 }, output: { audio: 12, image: 30 } },
+      },
+    },
+  };
+  const tokens = {
+    input: 1000,
+    output: 1000,
+    total: 2000,
+    byModality: { input: { audio: 600, text: 400 }, output: { audio: 500, text: 300 } },
+  };
+  assertEquals(
+    costFromPrices(table, 'live', tokens)?.usd,
+    (600 * 3 + 400 * 1 + 500 * 12 + 500 * 4) / 1e6,
+  );
+  assertEquals(
+    costFromPrices(table, 'live', {
+      input: 10,
+      output: 10,
+      total: 20,
+      byModality: { output: { image: 50 } },
+    })?.usd,
+    (10 * 1 + 10 * 30) / 1e6,
+  );
+});

@@ -80,14 +80,14 @@ export function query(name: string): Authorize<string> {
   return authorizer((key, outgoing) => outgoing.url.searchParams.set(name, key), false);
 }
 
-/** One protocol a provider serves, and where. */
-export interface Serve {
+/** One protocol a provider serves, and where. `K` is the provider's key. */
+export interface Serve<K = unknown> {
   protocol: Protocol;
   baseUrl: string;
   /** Places the URL when the protocol's path isn't enough, e.g. the model in the path. */
   url?(at: { path: string; apiId: string; stream: boolean }): string;
   /** In place of the provider's sign-in, for this protocol only. */
-  authorize?: Authorize;
+  authorize?: Authorize<K>;
   headers?: Readonly<Record<string, string>>;
 }
 
@@ -106,7 +106,7 @@ export interface ProviderDefinition<C = unknown, K = unknown> {
   authorize?: Authorize<K>;
   /** Only where the API reports no cost. */
   prices?: PriceTable;
-  serves(connection: C): Serve[];
+  serves(connection: C): Serve<K>[];
 }
 
 /** A provider as defined; register it to use it. */
@@ -232,7 +232,7 @@ export function createProviderRegistry(): ProviderRegistry {
       if ((registration.keySlot || registration.fallbackKeySlot) && !provider.key)
         throw new TheoremError('config', labelText('protocol.no_key', { provider: id }));
       const serves = Object.freeze(
-        provider.serves(parsed.data as never).map((serve) => Object.freeze({ ...serve })),
+        provider.serves(parsed.data as never).map((serve) => Object.freeze({ ...serve }) as Serve),
       );
       const claimed = serves.flatMap((serve) => claim(serve.protocol));
       const optionsOf = (protocol: Protocol | string, apiId: string, options: unknown) => {

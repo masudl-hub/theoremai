@@ -5,7 +5,9 @@ import {
   checkBinding,
   createProviderRegistry,
 } from '../../src/kernel/protocols/mod.ts';
+import type { Authorize } from '../../src/kernel/protocols/provider.ts';
 import type { JsonObject } from '../../src/kernel/provider-contract.ts';
+import { geminiProvider } from '../../src/providers/gemini/provider.ts';
 import { localProvider } from '../../src/providers/local/provider.ts';
 import { openRouterProvider } from '../../src/providers/openrouter/provider.ts';
 import { typesafeProvider } from '../../src/providers/typesafe/provider.ts';
@@ -187,5 +189,33 @@ Deno.test('OpenRouter, TypeSafe and a local server share one registry and its pr
       .map((protocol) => protocol.id)
       .sort(),
     ['openAi', 'openRouter', 'openRouterImages', 'systemOne'],
+  );
+});
+
+Deno.test('Gemini signs Interactions with its key header and Live with the key in the query', async () => {
+  const registry = createProviderRegistry();
+  registry.register(geminiProvider, { keySlot: 'main' });
+  const sent = await chat(registry, 'gemini', 'geminiInteractions', { main: 'k-main' });
+  assertEquals(sent.url, 'https://generativelanguage.googleapis.com/v1beta/interactions');
+  assertEquals(sent.headers.get('x-goog-api-key'), 'k-main');
+  const live = registry.require('gemini', 'm').serves.find((s) => s.protocol.id === 'geminiLive');
+  assertEquals(live?.baseUrl, 'wss://generativelanguage.googleapis.com/ws');
+  const outgoing = {
+    transport: 'ws' as const,
+    url: new URL(`${live?.baseUrl}/x`),
+    headers: new Headers(),
+    protocols: [],
+  };
+  const authorize = live?.authorize as Authorize<string>;
+  await authorize('k-main').sign(outgoing);
+  assertEquals(outgoing.url.searchParams.get('key'), 'k-main');
+  assertEquals(outgoing.headers.get('x-goog-api-key'), null);
+  registry.register(geminiProvider, {
+    id: 'proxied',
+    connection: { host: 'https://gemini.gateway.test' },
+  });
+  assertEquals(
+    registry.require('proxied', 'm').serves.map((serve) => serve.baseUrl),
+    ['https://gemini.gateway.test/v1beta', 'wss://gemini.gateway.test/ws'],
   );
 });

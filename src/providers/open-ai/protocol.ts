@@ -10,12 +10,15 @@ import {
 import type { JsonObject } from '../../kernel/provider-contract.ts';
 import { turnStopFromOpenAiFinishReason } from '../../kernel/stop.ts';
 import type { ProviderCompleteRequest, ProviderEvent, TurnResponse } from '../../kernel/types.ts';
+import { base64ToBytes, bytesToBase64 } from '../../kernel/util/base64.ts';
+import { mimeEssence } from '../../kernel/util/mime.ts';
 import {
   buildChatMessages,
   resolveResponseFormat,
   wireTools,
 } from '../openrouter/openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
+import { pcmFormatFromMime, wrapPcmAsWav } from '../shared/pcm.ts';
 import { foldResponse } from '../shared/response-identity.ts';
 import { structuredEvent } from '../shared/structured-output.ts';
 import { toolCallEvents } from '../shared/tool-args.ts';
@@ -161,16 +164,54 @@ function endEvents(reply: Reply, request: TurnRequest): ProtocolEvent[] {
   return events;
 }
 
+/** `/audio/speech`: the input's text read aloud, answered whole. Raw PCM with a stated rate becomes WAV. */
+async function* speech(
+  context: ProtocolContext,
+  request: TurnRequest,
+): AsyncGenerator<ProtocolEvent> {
+  const text = request.input
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .join(' ')
+    .trim();
+  if (!text) throw new TheoremError('request', 'empty text for speech');
+  const spec = request.speech;
+  const body: JsonObject = {
+    model: context.apiId,
+    input: text,
+    ...(spec?.format ? { response_format: spec.format } : {}),
+    ...(spec?.voice ? { voice: spec.voice } : {}),
+    ...(spec?.speed === undefined ? {} : { speed: spec.speed }),
+    // why: `instructions` is the endpoint's own field for delivery, never read aloud (probe 07/10/2026: Gemini 3.8 slowed and sped by it).
+    ...(spec?.style ? { instructions: spec.style } : {}),
+  };
+  for await (const row of context.send(body, { stream: false })) {
+    const type = typeof row.mime_type === 'string' ? row.mime_type : '';
+    const bytes = typeof row.data === 'string' ? base64ToBytes(row.data) : new Uint8Array();
+    if (!bytes.length) throw new TheoremError('bad_response', 'no audio returned from speech');
+    const pcm = pcmFormatFromMime(type);
+    const media = pcm
+      ? { mimeType: 'audio/wav', data: bytesToBase64(wrapPcmAsWav(bytes, pcm)) }
+      : { mimeType: mimeEssence(type) || 'application/octet-stream', data: row.data as string };
+    yield { type: 'media', media };
+    // why: the endpoint answers whole or not at all: a body with audio completed.
+    yield { type: 'done', stop: { kind: 'completed' } };
+  }
+}
+
 /** OpenAI Chat Completions: the shape most compatible servers speak. */
 export const openAi = defineProtocol({
   id: 'openAi',
   name: 'OpenAI Chat Completions',
   description: 'The Chat Completions shape that OpenAI and most compatible servers speak.', // labels-exempt: builder field description, read by the studio and docs
-  endpoints: { text: '/chat/completions' },
+  endpoints: { text: '/chat/completions', speech: '/audio/speech' },
   options: z.strictObject({}),
   create(context) {
     return {
       async *complete(request) {
+        if (context.profileType === 'speech') {
+          yield* speech(context, request);
+          return;
+        }
         const stream = request.stream !== false;
         const reply: Reply = { text: '', tokens: false, cited: new Set(), calls: new Map() };
         for await (const row of context.send(requestBody(context, request), { stream }))

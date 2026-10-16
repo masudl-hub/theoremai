@@ -11,6 +11,7 @@ import {
   resolveProviderLimits,
 } from '../provider-contract.ts';
 import type { DecisionResult, KeySlot } from '../types.ts';
+import { bytesToBase64 } from '../util/base64.ts';
 import type { DecisionModelBinding, ModelBinding } from './binding.ts';
 import { costFromPrices } from './prices.ts';
 import type {
@@ -118,6 +119,13 @@ function urlFor(serve: Serve, path: string, apiId: string, stream: boolean): URL
 }
 
 async function* defaultFraming(response: Response, stream: boolean): AsyncIterable<JsonObject> {
+  const type = response.headers.get('content-type') ?? '';
+  if (!stream && !/json/i.test(type)) {
+    // why: a body that is not JSON (audio, an image) is one row; the tape keeps its hash, not its bytes.
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    yield { eventType: 'http_body', mime_type: type, data: bytesToBase64(bytes) };
+    return;
+  }
   if (!stream) {
     yield (await response.json()) as JsonObject;
     return;

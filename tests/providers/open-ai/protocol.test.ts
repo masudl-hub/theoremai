@@ -213,3 +213,49 @@ Deno.test('openAi never sends reasoning another protocol saved', async () => {
     false,
   );
 });
+
+Deno.test('openAi reads text aloud on /audio/speech; raw PCM comes back as WAV', async () => {
+  const registry = createProviderRegistry();
+  registry.register(compatible, { keySlot: 'main' });
+  const provider = registry.require('compatible', 'tts-1');
+  const answers = [
+    new Response(new Uint8Array([1, 2, 3, 4]), { headers: { 'content-type': 'audio/mpeg' } }),
+    new Response(new Uint8Array([0, 0, 1, 0]), {
+      headers: { 'content-type': 'audio/pcm;rate=24000;channels=1' },
+    }),
+  ];
+  const sent: JsonObject[] = [];
+  const call = callProtocol({
+    provider,
+    binding: checkBinding(
+      provider,
+      { protocol: 'openAi', provider: 'compatible', apiId: 'tts-1' },
+      'speech',
+    ),
+    profileType: 'speech',
+    vault: { main: 'k-main' },
+    fetch: async (_input, init) => {
+      sent.push(JSON.parse(String(init?.body)) as JsonObject);
+      return answers.shift() as Response;
+    },
+    wait: async () => {},
+  });
+  const spoken = {
+    ...request,
+    wireTools: undefined,
+    speech: { voice: 'alloy', style: 'Calm.' },
+  } as unknown as TurnRequest;
+  const mp3 = await collect(call.complete(spoken));
+  assertEquals(sent[0], {
+    model: 'tts-1',
+    input: 'Weather in Lisbon?',
+    voice: 'alloy',
+    instructions: 'Calm.',
+  });
+  assertEquals(mp3, [
+    { type: 'media', media: { mimeType: 'audio/mpeg', data: 'AQIDBA==' } },
+    { type: 'done', stop: { kind: 'completed' } },
+  ]);
+  const pcm = await collect(call.complete(spoken));
+  assertEquals(pcm[0]?.type === 'media' && pcm[0].media.mimeType, 'audio/wav');
+});

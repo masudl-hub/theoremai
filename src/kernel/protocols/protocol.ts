@@ -131,7 +131,10 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
   extras?: z.ZodType<JsonObject>;
   /** Content it emits that has no common shape, by kind. */
   custom?: Readonly<Record<string, z.ZodType<JsonObject>>>;
-  /** Turns the reply's framing into rows. Absent: SSE for a stream, one JSON row otherwise. */
+  /**
+   * Turns the reply's framing into rows. Absent: SSE for a stream, one JSON row otherwise, and a
+   * body that is not JSON as one `{ eventType: 'http_body', mime_type, data }` row, base64.
+   */
   framing?(response: Response, stream: boolean): AsyncIterable<JsonObject>;
   /** Types a failed answer. Absent: the kind follows the HTTP status. */
   error?(failure: UpstreamFailure): TheoremError;

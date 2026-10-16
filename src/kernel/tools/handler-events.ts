@@ -40,7 +40,8 @@ export interface HandlerEventChecks {
 }
 
 /**
- * A handler's events before its output, as the host may see them. Its `progress` is read whole at
+ * A handler's events before its output, as the host may see them; an HTTP tool's body as it arrives
+ * comes through here as drafts too. Its `progress` is read whole at
  * the output's boundary: one a check stops is not sent, and its guardrail event is. Its drafts are
  * read piece by piece there, as one text: a match stops the rest of them, and the output's own
  * check reports it.

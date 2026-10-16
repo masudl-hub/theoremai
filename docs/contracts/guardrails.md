@@ -793,7 +793,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `repair` | A stopped reply and the reason, handed back to the model |
 | `live_user` | Text the person sends in a Live session |
 | `tool_arguments_<kind>` | What the model sends to a tool of that type |
-| `tool_output_<kind>` | What a tool of that type returns, and each `progress` and `draft` its handler sends before that |
+| `tool_output_<kind>` | What a tool of that type returns, and each `progress` and `draft` its handler sends before that (an HTTP tool's body, piece by piece, as drafts) |
 | `tool_failure_<kind>` | The error text of a tool of that type that failed |
 | `reply` | The text the model says to the person |
 | `reply_structured` | The structured output the model returns |

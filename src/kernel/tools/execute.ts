@@ -1613,9 +1613,18 @@ async function* settleByType(
       message: labelText('tool.unsupported_type', { tool: name }, fullCtx.profile.labels),
     });
   }
+  const guard = resultGuard(tools, tool, fullCtx, snapshot, stages?.span);
   const remoteOutcome: ToolBodyOutcome =
     tool.type === 'http'
-      ? yield* executeHttpTool(tool, safeInput, fullCtx, base, stages, beginBody)
+      ? yield* executeHttpTool(
+          tool,
+          safeInput,
+          fullCtx,
+          base,
+          stages,
+          beginBody,
+          new HandlerEvents(base, guard.handlerEvents(stages?.drafts === true)),
+        )
       : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages, tools.mcpSessions, beginBody);
   return yield* settleBodyOutcome({
     outcome: remoteOutcome,
@@ -1624,7 +1633,7 @@ async function* settleByType(
     callId: base.callId,
     safeInput,
     stages,
-    guard: resultGuard(tools, tool, fullCtx, snapshot, stages?.span),
+    guard,
     labels: fullCtx.profile.labels,
   });
 }

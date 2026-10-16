@@ -31,6 +31,7 @@ import {
   toolEvent,
   toolNetworkPolicy,
 } from './events.ts';
+import type { HandlerEvents } from './handler-events.ts';
 import {
   createMcpSessionCache,
   isMcpSessionId,
@@ -614,32 +615,82 @@ export const MAX_TOOL_RESPONSE_BYTES = 4 * 1024 * 1024;
 /** The most of an error or unparseable body quoted back in a failure message. */
 const MAX_QUOTED_BODY_CHARS = 2000;
 
-/** A body, read up to `maxBytes`; `undefined` when it runs past, with the rest left unread. */
-async function readCappedText(
+/** A body's text as it arrives, up to `maxBytes`; returns `false` when it runs past, with the rest left unread. */
+async function* cappedPieces(
   response: Response,
-  maxBytes = MAX_TOOL_RESPONSE_BYTES,
-): Promise<string | undefined> {
+  maxBytes: number,
+): AsyncGenerator<string, boolean> {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {
     await response.body?.cancel().catch(() => {});
-    return undefined;
+    return false;
   }
-  if (!response.body) return await response.text();
+  if (!response.body) {
+    yield await response.text();
+    return true;
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let bytes = 0;
-  let text = '';
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     bytes += value.byteLength;
     if (bytes > maxBytes) {
       await reader.cancel().catch(() => {});
-      return undefined;
+      return false;
     }
-    text += decoder.decode(value, { stream: true });
+    const piece = decoder.decode(value, { stream: true });
+    if (piece) yield piece;
   }
-  return text + decoder.decode();
+  const rest = decoder.decode();
+  if (rest) yield rest;
+  return true;
+}
+
+/** A body, read up to `maxBytes`; `undefined` when it runs past, with the rest left unread. */
+async function readCappedText(
+  response: Response,
+  maxBytes = MAX_TOOL_RESPONSE_BYTES,
+): Promise<string | undefined> {
+  const pieces = cappedPieces(response, maxBytes);
+  let text = '';
+  for (;;) {
+    const next = await pieces.next();
+    if (next.done) return next.value ? text : undefined;
+    text += next.value;
+  }
+}
+
+/**
+ * A body read as `readCappedText` reads it, shown as drafts while it arrives. The credential never
+ * shows: the last `secret.length - 1` characters wait for the next piece, so one split across
+ * pieces is whole when it is replaced. Drafts that ran before the body ran past its cap stay sent.
+ */
+async function* readCappedTextShowing(
+  response: Response,
+  shown: HandlerEvents,
+  secret: string | undefined,
+): AsyncGenerator<TurnEvent, string | undefined> {
+  const pieces = cappedPieces(response, MAX_TOOL_RESPONSE_BYTES);
+  const hold = secret ? secret.length - 1 : 0;
+  let text = '';
+  let pending = '';
+  for (;;) {
+    const next = await pieces.next();
+    if (next.done) {
+      if (!next.value) return undefined;
+      if (pending) yield* shown.show({ kind: 'draft', text: pending });
+      yield* shown.end();
+      return text;
+    }
+    text += next.value;
+    pending = secret ? omitSecretText(pending + next.value, secret) : pending + next.value;
+    const cut = pending.length - hold;
+    if (cut <= 0) continue;
+    yield* shown.show({ kind: 'draft', text: pending.slice(0, cut) });
+    pending = pending.slice(cut);
+  }
 }
 
 /** A body quoted in a failure message, cut short when long. */
@@ -717,7 +768,10 @@ async function* sendWithCredential(
   return withoutSecret(yield* send(withCredentialQuery(url, prepared.query)), prepared.secret);
 }
 
-/** Order: schema → permission → auth → preTool/host stages → body. */
+/**
+ * Order: schema → permission → auth → preTool/host stages → body. `shown` takes the body while it
+ * arrives, as a function tool's drafts.
+ */
 export async function* executeHttpTool(
   tool: HttpToolDef,
   rawInput: unknown,
@@ -725,6 +779,7 @@ export async function* executeHttpTool(
   base: ToolCallBase,
   stages?: ToolStageSupport,
   beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>,
+  shown?: HandlerEvents,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const parsed = remoteParseAndPermit(tool, rawInput, ctx);
   if (!parsed.ok) return parsed.outcome;
@@ -755,12 +810,29 @@ export async function* executeHttpTool(
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
   yield* dispatchToolBody(tool, input, ctx, base, beginBody);
   return yield* sendWithCredential(prepared, guarded.url, (url) =>
-    sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span),
+    sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span, shown),
   );
 }
 
 /** What a call sends its credential with: the headers, and the secret, set whenever one went. */
 type SentCredential = { authHeaders: Record<string, string>; secret?: string };
+
+/** A body that is text, read so far: what a successful call's drafts show. */
+function isDraftable(response: Response): boolean {
+  if (!response.ok) return false;
+  const type = response.headers.get('content-type') ?? '';
+  return type === '' || type.startsWith('text/') || /[/+]json\b/.test(type);
+}
+
+/** An HTTP tool's body; a successful text body shows as drafts while it arrives, any other reads whole. */
+async function* readHttpBody(
+  response: Response,
+  shown: HandlerEvents | undefined,
+  secret: string | undefined,
+): AsyncGenerator<TurnEvent, string | undefined> {
+  if (!shown || !isDraftable(response)) return await readCappedText(response);
+  return yield* readCappedTextShowing(response, shown, secret);
+}
 
 async function* sendHttpRequest(
   tool: HttpToolDef,
@@ -770,6 +842,7 @@ async function* sendHttpRequest(
   ctx: ToolContext,
   base: ToolCallBase,
   span: SpanHandle | undefined,
+  shown: HandlerEvents | undefined,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
   const headers: Record<string, string> = { Accept: 'application/json' };
@@ -790,7 +863,7 @@ async function* sendHttpRequest(
       },
     );
 
-    const text = await readCappedText(response);
+    const text = yield* readHttpBody(response, shown, secret);
     if (text === undefined) return failureOutcome(tooLargeFailure(targetUrl.hostname), false);
 
     if (!response.ok) {

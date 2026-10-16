@@ -46,6 +46,22 @@ function authorizer<K>(
   });
 }
 
+/** A service's address in a connection: HTTP(S), with no credentials in it. Keys go in the vault. */
+export const endpointUrlSchema: z.ZodString = z
+  .string()
+  .url()
+  .refine((value) => {
+    // why: what is not a URL is refused by the check above, in its own words.
+    if (!URL.canParse(value)) return true;
+    const url = new URL(value);
+    return (
+      ['http:', 'https:'].includes(url.protocol) &&
+      !url.username &&
+      !url.password &&
+      ![...url.searchParams.keys()].some((key) => /key|auth|secret|token|password/i.test(key))
+    );
+  }, labelText('protocol.endpoint_url'));
+
 /** `Authorization: Bearer <key>`. */
 export function bearer(): Authorize<string> {
   return authorizer(
@@ -86,7 +102,7 @@ export interface ProviderDefinition<C = unknown, K = unknown> {
   /** What a builder sets when registering it, each field described. */
   connection?: z.ZodType<C>;
   /** Absent: no key. Optional: a key may be given. An object for e.g. a service account. */
-  key?: z.ZodType<K>;
+  key?: z.ZodType<K | undefined>;
   authorize?: Authorize<K>;
   /** Only where the API reports no cost. */
   prices?: PriceTable;

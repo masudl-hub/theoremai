@@ -11,7 +11,7 @@ import type {
   ProviderTurnRequest,
 } from '../provider-contract.ts';
 import type { ToolCallRequest } from '../turn-events.ts';
-import type { DecisionResult } from '../types.ts';
+import type { DecisionResult, TurnHistoryMessage } from '../types.ts';
 
 /** The kinds of profile a protocol can serve, each at its own endpoint. */
 const PROFILE_TYPES = ['text', 'image', 'speech', 'live', 'decision'] as const;
@@ -36,7 +36,19 @@ export type ProtocolEvent<S = unknown> =
   | { type: 'custom'; kind: string; data: JsonObject }
   | { type: 'raw'; row: JsonObject };
 
-export type TurnRequest<S = unknown> = ProviderTurnRequest<S>;
+/** Signed reasoning on an assistant message, kept word for word for the protocol that wrote it. */
+export interface ReasoningPart {
+  text?: string;
+  data: JsonValue;
+  origin: ReasoningOrigin;
+}
+
+/** A history message; an assistant one may carry the reasoning written with it. */
+export type HistoryMessage = TurnHistoryMessage & { reasoning?: readonly ReasoningPart[] };
+
+export type TurnRequest<S = unknown> = Omit<ProviderTurnRequest<S>, 'history'> & {
+  history?: HistoryMessage[];
+};
 export type DecisionCall = ProviderDecisionRequest;
 
 /** A live session, as a protocol hands it back. */
@@ -249,6 +261,8 @@ export interface ExtensionBodyAt<E> {
   builtInTools: readonly string[];
   /** The request's headers, to add to. */
   headers: Headers;
+  /** The turn being sent; absent for a decision and a live session's later frames. */
+  request?: TurnRequest<unknown>;
 }
 
 /** What an extension's reader keeps for one call: it sees each reply row before the base. */
@@ -271,7 +285,7 @@ export interface ProtocolExtension<E = unknown, S = unknown>
     | 'callId'
   > {
   /** What it adds to the base's options. A field the base already has is refused. */
-  options?: z.ZodObject;
+  options?: z.ZodObject & z.ZodType<E>;
   /** Its own paths, where they differ from the base's. */
   endpoints?: Partial<Record<ProfileType, string>>;
   /** What it adds to the base's request (or a WebSocket's first frame), and the tools it wrote. */
@@ -280,7 +294,12 @@ export interface ProtocolExtension<E = unknown, S = unknown>
     at: ExtensionBodyAt<E>,
   ): { body: JsonObject; wroteTools?: readonly string[] };
   /** One per call: reads each reply row before the base. */
-  read?(at: { profileType: ProfileType; apiId: string; options: E }): ExtensionReader<S>;
+  read?(at: {
+    profileType: ProfileType;
+    apiId: string;
+    options: E;
+    request?: TurnRequest<unknown>;
+  }): ExtensionReader<S>;
 }
 
 function shapeOf(schema: z.ZodType): Record<string, z.ZodType> | undefined {
@@ -337,6 +356,7 @@ function extendedCall<O, S, E>(
   extension: ProtocolExtension<E, S>,
   keys: MergedOptions<O, E>,
   context: ProtocolContext<O & E>,
+  request?: TurnRequest<S>,
 ): ExtendedCall<S> {
   const at = {
     profileType: context.profileType,
@@ -344,13 +364,21 @@ function extendedCall<O, S, E>(
     options: pick(context.options, keys.addedKeys) as E,
   };
   const pending: ProtocolEvent<S>[] = [];
-  const reader = extension.read?.(at);
+  const reader = extension.read?.({
+    ...at,
+    ...(request ? { request: request as TurnRequest<unknown> } : {}),
+  });
   const take = (events: ProtocolEvent<S>[] | undefined) => {
     for (const event of events ?? []) pending.push(stamp(extension, event));
   };
   const rewrite = (body: JsonObject, headers: Headers, wrote: readonly string[] = []) => {
     if (!extension.body) return { body, wroteTools: wrote };
-    const out = extension.body(body, { ...at, builtInTools: context.builtInTools, headers });
+    const out = extension.body(body, {
+      ...at,
+      builtInTools: context.builtInTools,
+      headers,
+      ...(request ? { request: request as TurnRequest<unknown> } : {}),
+    });
     return { body: out.body, wroteTools: [...wrote, ...(out.wroteTools ?? [])] };
   };
   async function* read(rows: AsyncIterable<JsonObject>) {
@@ -393,19 +421,21 @@ function extendedCall<O, S, E>(
 }
 
 /** The operations the base offers, each run as a fresh extended call. */
-function extendedOperations<S>(call: () => ExtendedCall<S>): ProtocolOperations<S> {
+function extendedOperations<S>(
+  call: (request?: TurnRequest<S>) => ExtendedCall<S>,
+): ProtocolOperations<S> {
   // invariant: Each call gets its own reader and pending events; the first only says which operations the base has.
   const offered = call().operations;
   type Ops = Required<ProtocolOperations<S>>;
   const operations: ProtocolOperations<S> = {};
   if (offered.complete)
     operations.complete = (request) => {
-      const { operations, drained } = call();
+      const { operations, drained } = call(request);
       return drained((operations.complete as Ops['complete'])(request));
     };
   if (offered.openSession)
     operations.openSession = async (request) => {
-      const { operations, drained } = call();
+      const { operations, drained } = call(request);
       const session = await (operations.openSession as Ops['openSession'])(request);
       return { ...session, events: () => drained(session.events()) };
     };
@@ -453,7 +483,7 @@ export function extendProtocol<O, S, E = JsonObject>(
     base: base as Protocol,
     lineage: Object.freeze([extension.id, ...base.lineage]),
     create: (context: ProtocolContext<O & E>) =>
-      extendedOperations(() => extendedCall(base, extension, keys, context)),
+      extendedOperations((request) => extendedCall(base, extension, keys, context, request)),
   }) as Protocol<O & E, S>;
 }
 

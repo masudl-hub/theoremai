@@ -1,12 +1,10 @@
 /**
- * Guardrails testing surface — adversarial corpus, fuzz runners, live attack builders.
- *
- * Import via `@theoremai/agents/guardrails/testing` (not published on the production guardrails entry).
+ * Adversarial corpus, fuzz runners and live attack builders, kept off the production guardrails entry.
  *
  * @module
  */
 
-/** lexicon-exempt-file: adversarial harness helpers — not runtime user or model copy (P2) */
+/** labels-exempt-file: adversarial harness helpers — not runtime user or model copy (P2) */
 export type {
   CanaryEgressAttack,
   CanaryEgressCatalogEntry,
@@ -19,9 +17,20 @@ export {
   buildLiveAttacks,
   canaryEgressCatalog,
   FIXED_CANARY,
+  FUZZ_SYSTEM,
   filterLiveAttacks,
   inboundFuzzPayloads,
   inboundPayloadByName,
   runInboundGuardrailFuzz,
   summarizeAttackBank,
 } from './corpus/mod.ts';
+export {
+  TEST_AWS_KEY,
+  TEST_GITHUB_PAT,
+  TEST_GOOGLE_KEY,
+  TEST_OPENAI_KEY,
+  TEST_PEM,
+  TEST_SLACK,
+  TEST_VISA,
+} from './corpus/secrets.ts';
+export { INJ_IGNORE, INJ_IGNORE_REVEAL, injHexSpaced } from './corpus/strings.ts';

@@ -1,0 +1,23 @@
+id: detect-single-engine
+language: TypeScript
+severity: error
+message: >-
+  Do not call a scanner directly. Text crossing a boundary is read with
+  detectAt (src/guardrails/detect-at.ts), which takes the action the profile
+  set; text with no profile in hand uses redactDetectors.
+files:
+  - 'src/**/*.ts'
+  - 'studio/**/*.ts'
+  - 'react/src/**/*.ts'
+  - 'react/src/**/*.tsx'
+ignores:
+  - 'src/guardrails/sensitive.ts'
+  - 'src/guardrails/injection.ts'
+  - 'src/guardrails/detect-at.ts'
+  # The corpus and eval measure the scanners themselves.
+  - 'src/guardrails/corpus/**/*.ts'
+  - 'src/guardrails/eval/**/*.ts'
+rule:
+  any:
+    - pattern: sensitiveSpans($$$ARGS)
+    - pattern: injectionSpans($$$ARGS)

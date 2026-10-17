@@ -2,6 +2,8 @@ import {
   computeCodeChallenge,
   fromBase64Url,
   generateCodeVerifier,
+  openSecret,
+  sealSecret,
   sealStatePayload,
   unsealStatePayload,
 } from '../../src/kernel/auth/crypto.ts';
@@ -70,6 +72,7 @@ function statePayload(overrides: Partial<Parameters<typeof sealStatePayload>[0]>
     expiresAt: Date.now() + 60000,
     clientId: 'test-client-123',
     sessionBinding: 'digest-of-the-session-binding',
+    scopes: ['read'],
     ...overrides,
   };
 }
@@ -129,6 +132,115 @@ Deno.test('the sealed state refuses tampering, another secret, a short secret, a
 
   const expired = await sealStatePayload(statePayload({ expiresAt: Date.now() - 1000 }), SECRET);
   await assertRejects(() => unsealStatePayload(expired, SECRET), Error, 'OAuth state has expired');
+});
+
+const KEY_1 = 'sealing-key-one-0123456789abcdef0123';
+const KEY_2 = 'sealing-key-two-0123456789abcdef0123';
+const BINDING = ['owner-1', 'slot:github', 'row-9'];
+
+Deno.test('a sealed secret opens only with its key version and exact binding', async () => {
+  const sealed = await sealSecret({
+    plaintext: 'ghp_live',
+    key: KEY_1,
+    binding: BINDING,
+    keyVersion: 1,
+  });
+  assertEquals(sealed.includes('ghp_live'), false);
+  assertEquals(
+    await openSecret({
+      sealed,
+      keys: { 1: KEY_1, 2: KEY_2 },
+      binding: BINDING,
+    }),
+    'ghp_live',
+  );
+
+  for (const binding of [
+    ['owner-2', 'slot:github', 'row-9'],
+    ['owner-1', 'slot:github'],
+    ['owner-1', 'slot:github', 'row-9', ''],
+    ['owner-1,slot:github', 'row-9'],
+  ]) {
+    await assertRejects(
+      () => openSecret({ sealed, keys: { 1: KEY_1 }, binding }),
+      Error,
+      'could not be opened',
+    );
+  }
+  await assertRejects(
+    () => openSecret({ sealed, keys: { 1: KEY_2 }, binding: BINDING }),
+    Error,
+    'could not be opened',
+  );
+  await assertRejects(
+    () => openSecret({ sealed, keys: { 2: KEY_2 }, binding: BINDING }),
+    Error,
+    'No key',
+  );
+});
+
+Deno.test('a sealed secret refuses a rewritten key version, tampering and a malformed envelope', async () => {
+  const sealed = await sealSecret({
+    plaintext: 'token',
+    key: KEY_1,
+    binding: BINDING,
+    keyVersion: 1,
+  });
+  const parts = sealed.split('.');
+  const relabeled = ['v1', '2', ...parts.slice(2)].join('.');
+  await assertRejects(
+    () => openSecret({ sealed: relabeled, keys: { 2: KEY_1 }, binding: BINDING }),
+    Error,
+    'could not be opened',
+  );
+  const last = parts[4] ?? '';
+  const flipped = [...parts.slice(0, 4), (last[0] === 'A' ? 'B' : 'A') + last.slice(1)].join('.');
+  await assertRejects(
+    () => openSecret({ sealed: flipped, keys: { 1: KEY_1 }, binding: BINDING }),
+    Error,
+    'could not be opened',
+  );
+  for (const bad of ['v1.1.a.b', 'v0.1.a.b.c', 'v1.x.a.b.c', 'v1.-1.a.b.c']) {
+    await assertRejects(
+      () => openSecret({ sealed: bad, keys: { 1: KEY_1 }, binding: BINDING }),
+      Error,
+      'format',
+    );
+  }
+  await assertRejects(
+    () =>
+      sealSecret({
+        plaintext: 't',
+        key: 'short',
+        binding: BINDING,
+        keyVersion: 1,
+      }),
+    RangeError,
+    '32 bytes',
+  );
+  await assertRejects(
+    () =>
+      sealSecret({
+        plaintext: 't',
+        key: KEY_1,
+        binding: BINDING,
+        keyVersion: 1.5,
+      }),
+    RangeError,
+    'Key version',
+  );
+});
+
+Deno.test('two seals of the same secret differ', async () => {
+  const input = {
+    plaintext: 'same',
+    key: KEY_1,
+    binding: BINDING,
+    keyVersion: 1,
+  };
+  const first = await sealSecret(input);
+  const second = await sealSecret(input);
+  assertEquals(first === second, false);
 });
 
 Deno.test('validateIssuer is byte-exact and requires iss when the server sends it', () => {
@@ -385,6 +497,85 @@ Deno.test('exchangeOAuthPkce posts to the sealed endpoint and checks redirect_ur
     Error,
     'Redirect URI mismatch',
   );
+});
+
+Deno.test('a confidential client sends its secret to the token endpoint and never keeps it', async () => {
+  const CLIENT_SECRET = 'client-secret-sentinel-4b1e';
+  const flow = await createOAuthPkceFlow({
+    resourceServerUrl: RESOURCE,
+    clientId: 'my-client-id',
+    redirectUri: REDIRECT,
+    signingSecret: SECRET,
+    sessionBinding: SESSION,
+    preResolved: PRE_RESOLVED,
+  });
+  assertEquals(flow.authorizationUrl.includes(CLIENT_SECRET), false);
+  const { fetchFn, seen } = routes({
+    [TOKEN_ENDPOINT]: () => json({ ...BEARER, refresh_token: 'mock-refresh-token' }),
+  });
+  const exchanged = await exchangeOAuthPkce({
+    code: 'mock-auth-code-123',
+    state: flow.state,
+    iss: ISSUER,
+    redirectUri: REDIRECT,
+    signingSecret: SECRET,
+    sessionBinding: SESSION,
+    clientSecret: CLIENT_SECRET,
+    fetchFn,
+  });
+  const refreshed = await refreshOAuthToken({
+    refreshToken: 'mock-refresh-token',
+    tokenEndpoint: TOKEN_ENDPOINT,
+    clientId: 'my-client-id',
+    issuer: ISSUER,
+    resource: RESOURCE,
+    clientSecret: CLIENT_SECRET,
+    fetchFn,
+  });
+  const bodies = seen.map((request) => new URLSearchParams(String(request.init?.body)));
+  assertEquals(
+    bodies.map((body) => [body.get('grant_type'), body.get('client_secret')]),
+    [
+      ['authorization_code', CLIENT_SECRET],
+      ['refresh_token', CLIENT_SECRET],
+    ],
+  );
+  assertEquals(
+    JSON.stringify([exchanged.credential, refreshed.credential]).includes(CLIENT_SECRET),
+    false,
+  );
+
+  const publicClient = routes({ [TOKEN_ENDPOINT]: () => json(BEARER) });
+  await refreshOAuthToken({
+    refreshToken: 'mock-refresh-token',
+    tokenEndpoint: TOKEN_ENDPOINT,
+    clientId: 'my-client-id',
+    issuer: ISSUER,
+    resource: RESOURCE,
+    fetchFn: publicClient.fetchFn,
+  });
+  const publicBody = new URLSearchParams(String(publicClient.seen[0]?.init?.body));
+  assertEquals(publicBody.has('client_secret'), false);
+});
+
+Deno.test("a provider's own authorization parameters reach the URL, and the flow's are its own", async () => {
+  const start = (authorizationParams: Record<string, string>) =>
+    createOAuthPkceFlow({
+      resourceServerUrl: RESOURCE,
+      clientId: 'my-client-id',
+      redirectUri: REDIRECT,
+      signingSecret: SECRET,
+      sessionBinding: SESSION,
+      preResolved: PRE_RESOLVED,
+      authorizationParams,
+    });
+  const flow = await start({ access_type: 'offline', prompt: 'consent' });
+  const url = new URL(flow.authorizationUrl);
+  assertEquals(url.searchParams.get('access_type'), 'offline');
+  assertEquals(url.searchParams.get('prompt'), 'consent');
+  for (const name of ['redirect_uri', 'state', 'scope', 'resource', 'code_challenge']) {
+    await assertRejects(() => start({ [name]: 'x' }), Error, `"${name}" is set by the flow`);
+  }
 });
 
 Deno.test('only the session that began the flow can finish it (login CSRF)', async () => {

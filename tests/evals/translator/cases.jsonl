@@ -1,0 +1,4 @@
+{"id":"es-01","kind":"regression","difficulty":1,"input":{"text":"Translate to Spanish: The kettle is on."},"expect":{"tools":[],"json":{"lang":"es"},"notes":"Plain present tense; no tool needed."}}
+{"id":"fr-01","kind":"regression","difficulty":1,"input":{"text":"Translate to French: Where is the station?"},"expect":{"tools":[],"json":{"lang":"fr"},"notes":"A question; the mark should survive."}}
+{"id":"de-01","kind":"regression","difficulty":2,"input":{"text":"Translate to German: I would have come if I had known."},"expect":{"tools":[],"json":{"lang":"de"},"notes":"Conditional perfect."}}
+{"id":"ja-01","kind":"capability","difficulty":3,"input":{"text":"Translate to Japanese: Thank you for waiting; your table is ready."},"expect":{"tools":[],"json":{"lang":"ja"},"notes":"Polite register expected."}}

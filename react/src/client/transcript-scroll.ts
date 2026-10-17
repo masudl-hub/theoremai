@@ -3,8 +3,8 @@
  */
 
 export function resolveScrollToBottomScrollTop(args: {
-	scrollHeight: number;
-	clientHeight: number;
+  scrollHeight: number;
+  clientHeight: number;
 }): number {
-	return Math.max(0, args.scrollHeight - args.clientHeight);
+  return Math.max(0, args.scrollHeight - args.clientHeight);
 }

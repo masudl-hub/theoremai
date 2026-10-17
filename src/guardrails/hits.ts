@@ -1,18 +1,20 @@
-/**
- * Guardrail hit helpers — span hits and host/trace projection.
- *
- * A span hit carries `match`, the exact text it caught. Projection strips it unless
- * the host opted into `observability.include.guardrailMatchPreview`.
- *
- * @module
- */
-
+import { DETECT_RULES } from './rules.ts';
 import type { GuardrailEvent, GuardrailHit, Severity } from './types.ts';
 
-/** A span hit, with the exact text it caught from the inspected text. */
+/** A canary leak. Never carries the live token, only a placeholder. */
+const CANARY_HIT: GuardrailHit = {
+  rule: DETECT_RULES.canary_leak,
+  severity: 'high',
+  match: '[canary]',
+};
+
+/** A prompt leak. Never carries the words: they are the private system instruction's. */
+const PROMPT_ECHO_HIT: GuardrailHit = { rule: DETECT_RULES.prompt_leak, severity: 'high' };
+
+/** A guardrail hit for a span of the text, with the matched text sliced from it. */
 function hitFromSpan(
   text: string,
-  span: { start: number; end: number },
+  span: { start: number; end: number; name?: string },
   rule: string,
   severity: Severity,
 ): GuardrailHit {
@@ -21,25 +23,19 @@ function hitFromSpan(
     severity,
     span: { start: span.start, end: span.end },
     match: text.slice(span.start, span.end),
+    ...(span.name === undefined ? {} : { pattern: span.name }),
   };
 }
 
-/**
- * Strip or keep `match` on hits.
- * Default host/trace posture is strip — opt in via profile observability.
- */
+/** `match` is the caught text itself, so hosts and traces get it only via `observability.include.guardrailMatchPreview`. */
 function projectGuardrailEvent(event: GuardrailEvent, includeMatch: boolean): GuardrailEvent {
   if (includeMatch) {
     return event;
   }
   return {
     ...event,
-    hits: event.hits.map(({ rule, severity, span }) => ({
-      rule,
-      severity,
-      ...(span ? { span } : {}),
-    })),
+    hits: event.hits.map(({ match: _match, ...hit }) => hit),
   };
 }
 
-export { hitFromSpan, projectGuardrailEvent };
+export { CANARY_HIT, hitFromSpan, PROMPT_ECHO_HIT, projectGuardrailEvent };

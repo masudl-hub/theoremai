@@ -1,7 +1,3 @@
-/**
- * Composer pending messages + action matrix.
- */
-
 import { assertEquals, assertThrows } from '@std/assert';
 import {
   resolveComposerMenuActions,
@@ -17,6 +13,7 @@ import {
   orderComposerPendingMessages,
   promoteComposerPendingKind,
   removeComposerPendingMessage,
+  removeLandedSteers,
   userDraftHasPayload,
 } from '../../src/interface/pending.ts';
 
@@ -165,4 +162,36 @@ Deno.test('composer actions: gated — queue, no steer, no stop', () => {
     resolveComposerMenuActions({ phase: 'gated', hasPayload: true, allowSteering: true }),
     ['queue', 'send_now', 'stash'],
   );
+});
+
+Deno.test('removeLandedSteers drops only the steers the stage event names', () => {
+  const landed = createComposerPendingMessage({
+    kind: 'steer',
+    draft: { text: 'a' },
+    id: 'a',
+    now: 1,
+  });
+  const waiting = createComposerPendingMessage({
+    kind: 'steer',
+    draft: { text: 'b' },
+    id: 'b',
+    now: 2,
+  });
+  const queued = createComposerPendingMessage({
+    kind: 'queue',
+    draft: { text: 'c' },
+    id: 'a2',
+    now: 3,
+  });
+  const pending = [landed, waiting, queued];
+  const next = removeLandedSteers(pending, {
+    type: 'stage',
+    stage: 'post_tool',
+    injected: [{ id: 'a' }, { id: 'a2' }],
+  });
+  assertEquals(
+    next.map((m) => m.id),
+    ['b', 'a2'],
+  );
+  assertEquals(removeLandedSteers(pending, { type: 'stage', stage: 'post_tool' }), pending);
 });

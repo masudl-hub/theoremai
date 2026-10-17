@@ -5,7 +5,7 @@ npm/
 # Test, coverage, and mutation artifacts (never commit or publish)
 coverage/
 cov_profile/
-.stryker-tmp/
+.stryker-tmp*/
 .stryker-cache/
 stryker.log
 reports/
@@ -35,7 +35,7 @@ Thumbs.db
 *.code-workspace
 
 # Pack / archive outputs
-theoremai-agents-*.tgz
+theoremjs-agents-*.tgz
 *.tgz
 
 # Logs

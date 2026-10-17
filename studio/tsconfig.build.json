@@ -1,0 +1,29 @@
+{
+	// why: Deno checks these files (`deno check --config deno.json`); tsc only writes the JavaScript an install runs, and the declarations a setup file or an app showing the screen is checked against, since Deno runs no TypeScript from `node_modules`.
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"allowImportingTsExtensions": true,
+		"rewriteRelativeImportExtensions": true,
+		"verbatimModuleSyntax": true,
+		"noCheck": true,
+		"declaration": true,
+		"jsx": "react-jsx",
+		"allowJs": true,
+		"rootDir": ".",
+		"outDir": "npm"
+	},
+	"files": [
+		"mod.ts",
+		"runtime.ts",
+		"browser.ts",
+		"people.ts",
+		"surface.ts",
+		"server.ts",
+		"vite.mjs",
+		"server/serve.ts",
+		"server/project.ts"
+	],
+	"include": ["ui/**/*.ts", "ui/**/*.tsx"]
+}

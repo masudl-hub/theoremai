@@ -1,0 +1,121 @@
+/* One shell. While the mark draws it is the whole viewport; then that same panel moves to the shape
+   of the page. The scrollport size never changes — only the clip does. */
+@media (width >= 768px) {
+	html[data-boot-pending] .astryx-app-shell,
+	html[data-shell-move] .astryx-app-shell {
+		position: relative;
+		height: 100dvh;
+	}
+
+	html[data-boot-pending] .astryx-app-shell .astryx-app-shell-sidenav,
+	html[data-shell-move] .astryx-app-shell .astryx-app-shell-sidenav {
+		position: absolute;
+		inset-block: 0;
+		inset-inline-start: 0;
+		z-index: 0;
+		width: var(--spacing-12);
+		transition: none;
+	}
+
+	html[data-boot-pending] .astryx-app-shell [role="main"],
+	html[data-shell-move] .astryx-app-shell [role="main"] {
+		position: relative;
+		z-index: 1;
+		width: 100%;
+		height: 100%;
+		max-width: none;
+		margin: 0;
+		border-radius: 0;
+	}
+
+	/* While the mark draws on the boot screen, the panel is the full viewport. No rail, no inset. */
+	html[data-boot-pending] .astryx-app-shell [role="main"] {
+		clip-path: none;
+		background: var(--color-background-surface);
+		transition: none;
+	}
+
+	/* A moving shell is one full-bleed box whose clip is the shape. open is the viewport, regular is
+	   the panel beside the rail, frame is the same panel cut to the width of the page's own surface. */
+	html[data-shell-move] .astryx-app-shell [role="main"] {
+		background: var(--color-background-surface);
+		transition: clip-path 640ms cubic-bezier(0.45, 0.02, 0.15, 1);
+	}
+
+	html[data-shell-clip="open"] .astryx-app-shell [role="main"] {
+		clip-path: inset(0 round 0);
+	}
+
+	html[data-shell-clip="regular"] .astryx-app-shell [role="main"] {
+		clip-path: inset(
+			var(--spacing-4) var(--spacing-4) var(--spacing-4) var(--spacing-12) round var(--radius-page)
+		);
+	}
+
+	html[data-shell-clip="frame"] .astryx-app-shell [role="main"] {
+		clip-path: inset(
+			var(--spacing-4) calc(100% - var(--spacing-12) - var(--shell-frame-width, 0px))
+				var(--spacing-4) var(--spacing-12) round var(--radius-page)
+		);
+	}
+
+	/* The page stays out while the shell moves. It comes in once the shell has settled. */
+	html[data-shell-move] #astryx-app-shell-main > :not([data-boot]):not(.nav-mark) {
+		visibility: hidden;
+	}
+}
+
+html {
+	--shell-hold-ms: 140ms; /* keep in step with HOLD_MS in shell-motion.ts */
+	--shell-fade: shell-content-in 280ms cubic-bezier(0.45, 0.02, 0.15, 1);
+}
+
+@keyframes shell-content-in {
+	from {
+		opacity: 0;
+	}
+}
+
+/* A page that is about to leave fades out first, then the shell moves. */
+html[data-shell-hold]
+	#astryx-app-shell-main
+	> :not([data-boot]):not(.nav-mark):not(:has([data-shell-frame])),
+html[data-shell-hold] .shell-fade {
+	opacity: 0;
+	visibility: hidden;
+	transition:
+		opacity var(--shell-hold-ms) ease,
+		visibility 0s linear var(--shell-hold-ms);
+}
+
+html[data-shell-in] #astryx-app-shell-main > :not([data-boot]) {
+	animation: var(--shell-fade);
+}
+
+/* A framed page's surface is already in place, because the panel contracted to it. It holds still.
+   What is on it, and the page's other parts, name themselves with .shell-fade and fade in. */
+html[data-shell-in] #astryx-app-shell-main > :has([data-shell-frame]) {
+	animation: none;
+}
+
+html[data-shell-in] .shell-fade {
+	animation: var(--shell-fade);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html[data-shell-hold] #astryx-app-shell-main > :not([data-boot]),
+	html[data-shell-hold] .shell-fade {
+		transition: none;
+	}
+
+	html[data-shell-in] #astryx-app-shell-main > :not([data-boot]),
+	html[data-shell-in] .shell-fade {
+		animation: none;
+	}
+}
+
+/* The contracted shape is a clip on a viewport-tall box. The frame that drops
+   the clip must already be the resting panel, not that tall box easing shut. */
+html[data-shell-in] #astryx-app-shell-main:not(#\#):not(#\#):not(#\#):not(#\#) {
+	transition: none;
+}

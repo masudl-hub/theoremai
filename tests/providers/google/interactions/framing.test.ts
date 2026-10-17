@@ -3,7 +3,7 @@ import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../../src/guardrails/error.ts';
 import type {
   InteractionPart,
-  ProviderCompleteRequest,
+  ModelRequest,
   TurnHistoryMessage,
 } from '../../../../src/kernel/types.ts';
 import {
@@ -14,6 +14,7 @@ import {
   camelToSnake,
   historyStep,
   historySteps,
+  type InteractionsRequest,
   inputStepsFromRequest,
   jsonResponseFormat,
   toGoogleValue,
@@ -21,9 +22,10 @@ import {
   userInputStep,
   wirePart,
 } from '../../../../src/providers/google/interactions/framing.ts';
+import { googleBuiltins, resolvedStructured } from '../../../fixtures/provider-request.ts';
 import { testWireTool } from '../../../fixtures/wire-tools.ts';
 
-function baseReq(overrides: Partial<ProviderCompleteRequest> = {}): ProviderCompleteRequest {
+function baseReq(overrides: Partial<InteractionsRequest> = {}): InteractionsRequest {
   return {
     model: 'gemini35FlashLite',
     apiId: 'gemini-3.5-flash-lite',
@@ -40,8 +42,6 @@ function baseReq(overrides: Partial<ProviderCompleteRequest> = {}): ProviderComp
   };
 }
 
-// camelToSnake
-
 Deno.test('camelToSnake converts a single camelCase boundary', () => {
   assertEquals(camelToSnake('mimeType'), 'mime_type');
 });
@@ -54,8 +54,6 @@ Deno.test('camelToSnake leaves already-snake or lowercase keys unchanged', () =>
   assertEquals(camelToSnake('model'), 'model');
   assertEquals(camelToSnake('already_snake'), 'already_snake');
 });
-
-// toGoogleValue
 
 Deno.test('toGoogleValue snake_cases nested object keys', () => {
   const result = toGoogleValue({ maxOutputTokens: 10, nested: { thinkingLevel: 'low' } });
@@ -87,6 +85,29 @@ Deno.test('toGoogleValue preserves authored property names inside a schema key',
   });
 });
 
+Deno.test('toInteractionsBody replays a tool call with the argument names the model sent', () => {
+  const body = toInteractionsBody(
+    baseReq({
+      history: [
+        {
+          role: 'assistant',
+          content: '',
+          tool_calls: [
+            {
+              id: 'c1',
+              type: 'function',
+              function: { name: 'holdStatus', arguments: '{"shipmentId":"H-1042"}' },
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const steps = body.input as Record<string, unknown>[];
+  const call = steps.find((step) => step.type === 'function_call');
+  assertEquals(call?.arguments, { shipmentId: 'H-1042' });
+});
+
 Deno.test('toGoogleValue snake_cases the schema key itself but not its contents', () => {
   const result = toGoogleValue({
     responseSchema: { schema: { camelInside: true } },
@@ -95,8 +116,6 @@ Deno.test('toGoogleValue snake_cases the schema key itself but not its contents'
   assertEquals(Object.hasOwn(nested, 'schema'), true);
   assertEquals(nested.schema, { camelInside: true });
 });
-
-// wirePart
 
 Deno.test('wirePart converts a text part to wire shape', () => {
   const part: InteractionPart = { type: 'text', text: 'hello' };
@@ -107,8 +126,6 @@ Deno.test('wirePart converts a media part to wire shape', () => {
   const part: InteractionPart = { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' };
   assertEquals(wirePart(part), { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' });
 });
-
-// userInputStep
 
 Deno.test('userInputStep wraps parts under a user_input step', () => {
   const parts: InteractionPart[] = [{ type: 'text', text: 'hi' }];
@@ -121,8 +138,6 @@ Deno.test('userInputStep wraps parts under a user_input step', () => {
 Deno.test('userInputStep supports an empty parts list', () => {
   assertEquals(userInputStep([]), { type: 'user_input', content: [] });
 });
-
-// historyStep
 
 Deno.test('historyStep maps assistant role to model_output', () => {
   const msg: TurnHistoryMessage = { role: 'assistant', content: 'It is fine.' };
@@ -187,16 +202,12 @@ Deno.test('historyStep treats an empty parts array as absent and falls back to c
   });
 });
 
-// jsonResponseFormat
-
 Deno.test('jsonResponseFormat wraps a schema in a text/json response format entry', () => {
   const schema = { type: 'object' };
   assertEquals(jsonResponseFormat(schema), [
     { type: 'text', mimeType: 'application/json', schema },
   ]);
 });
-
-// attachResponseFormat
 
 Deno.test('attachResponseFormat throws when speech and image are both requested', () => {
   const req = baseReq({
@@ -205,7 +216,7 @@ Deno.test('attachResponseFormat throws when speech and image are both requested'
       type: 'image',
       mimeType: 'image/png',
       aspectRatio: '1:1',
-      size: '1K',
+      resolution: '1K',
       includeText: false,
     },
   });
@@ -213,7 +224,7 @@ Deno.test('attachResponseFormat throws when speech and image are both requested'
 });
 
 Deno.test('attachResponseFormat throws when speech and structured are both requested', () => {
-  const req = baseReq({ speech: { voice: 'Kore' }, structured: 'chatTurn' });
+  const req = baseReq({ speech: { voice: 'Kore' }, structured: resolvedStructured('chatTurn') });
   assertThrows(() => attachResponseFormat(req, {}), TheoremError);
 });
 
@@ -221,8 +232,19 @@ Deno.test('attachResponseFormat sets an audio response format for speech-only re
   const req = baseReq({ speech: { voice: 'Kore' } });
   const camel: Record<string, unknown> = {};
   attachResponseFormat(req, camel);
+  assertEquals(camel, { responseFormat: { type: 'audio' } });
+});
+
+Deno.test('attachResponseFormat refuses a speech format Gemini cannot return', () => {
+  const camel: Record<string, unknown> = {};
+  attachResponseFormat(baseReq({ speech: { voice: 'Kore', format: 'pcm' } }), camel);
   assertEquals(camel.responseFormat, { type: 'audio' });
-  assertEquals(camel.responseModalities, ['audio']);
+  const refused = assertThrows(
+    () => attachResponseFormat(baseReq({ speech: { voice: 'Kore', format: 'mp3' } }), {}),
+    TheoremError,
+    "not 'mp3'",
+  );
+  assertEquals(refused.kind, 'unsupported');
 });
 
 Deno.test('attachResponseFormat sets an image-only response format by default', () => {
@@ -231,7 +253,7 @@ Deno.test('attachResponseFormat sets an image-only response format by default', 
       type: 'image',
       mimeType: 'image/png',
       aspectRatio: '16:9',
-      size: '2K',
+      resolution: '2K',
       includeText: false,
     },
   });
@@ -268,7 +290,7 @@ Deno.test('attachResponseFormat sets text and image response formats when includ
       type: 'image',
       mimeType: 'image/png',
       aspectRatio: '16:9',
-      size: '2K',
+      resolution: '2K',
       includeText: true,
     },
   });
@@ -294,13 +316,11 @@ Deno.test('attachResponseFormat leaves camel untouched when nothing is requested
 });
 
 Deno.test('attachResponseFormat sets json response format for a structured schema', () => {
-  const req = baseReq({ structured: 'chatTurn' });
+  const req = baseReq({ structured: resolvedStructured('chatTurn') });
   const camel: Record<string, unknown> = {};
   attachResponseFormat(req, camel);
   assertEquals(Array.isArray(camel.responseFormat), true);
 });
-
-// attachSpeechConfig
 
 Deno.test('attachSpeechConfig does nothing when speech is absent', () => {
   const req = baseReq();
@@ -309,11 +329,13 @@ Deno.test('attachSpeechConfig does nothing when speech is absent', () => {
   assertEquals(generationConfig, {});
 });
 
-Deno.test('attachSpeechConfig does nothing when speech has no voice', () => {
-  const req = baseReq({ speech: {} });
-  const generationConfig: Record<string, unknown> = {};
-  attachSpeechConfig(req, generationConfig);
-  assertEquals(generationConfig, {});
+Deno.test('attachSpeechConfig refuses speech with no voice, which Gemini has no default for', () => {
+  const refused = assertThrows(
+    () => attachSpeechConfig(baseReq({ speech: { style: 'Warm' } }), {}),
+    TheoremError,
+    'speech.voice',
+  );
+  assertEquals(refused.kind, 'config');
 });
 
 Deno.test('attachSpeechConfig sets speechConfig from the requested voice', () => {
@@ -322,8 +344,6 @@ Deno.test('attachSpeechConfig sets speechConfig from the requested voice', () =>
   attachSpeechConfig(req, generationConfig);
   assertEquals(generationConfig.speechConfig, [{ voice: 'Kore' }]);
 });
-
-// inputStepsFromRequest
 
 Deno.test('inputStepsFromRequest emits history steps followed by user input', () => {
   const req = baseReq({
@@ -336,6 +356,25 @@ Deno.test('inputStepsFromRequest emits history steps followed by user input', ()
   const secondContent = steps[1]?.content as Array<{ text?: string }> | undefined;
   assertEquals(firstContent?.[0]?.text, 'earlier');
   assertEquals(secondContent?.[0]?.text, 'now');
+});
+
+Deno.test('a tool result without a name takes its call name', () => {
+  const call: TurnHistoryMessage = {
+    role: 'assistant',
+    tool_calls: [{ id: 't1', type: 'function', function: { name: 'lookup', arguments: '{}' } }],
+  };
+  const result: TurnHistoryMessage = { role: 'tool', tool_call_id: 't1', content: 'ok' };
+  const orphan: TurnHistoryMessage = { role: 'tool', tool_call_id: 't9', content: 'ok' };
+  const results = (req: InteractionsRequest) =>
+    inputStepsFromRequest(req).filter((step) => step.type === 'function_result');
+  assertEquals(
+    results(baseReq({ history: [call, result, orphan], input: [] })).map((step) => step.name),
+    ['lookup', undefined],
+  );
+  assertEquals(
+    results(baseReq({ continuation: [call, result], input: [] })).map((step) => step.name),
+    ['lookup'],
+  );
 });
 
 Deno.test('inputStepsFromRequest omits user input when history exists and input is empty', () => {
@@ -354,8 +393,6 @@ Deno.test('inputStepsFromRequest forces a user input step when there is no histo
   assertEquals(steps[0]?.type, 'user_input');
   assertEquals(steps[0]?.content, []);
 });
-
-// applyOptionalRequestFields
 
 Deno.test('applyOptionalRequestFields sets store, previousInteractionId, and system', () => {
   const req = baseReq({ store: false, previousInteractionId: 'v1_x', system: 'sys' });
@@ -377,7 +414,7 @@ Deno.test('applyOptionalRequestFields omits optional fields when absent', () => 
 });
 
 Deno.test('applyOptionalRequestFields maps builtins to their Interactions wire types', () => {
-  const req = baseReq({ builtins: ['googleSearch', 'urlContext'] });
+  const req = baseReq({ builtins: googleBuiltins('googleSearch', 'urlContext') });
   const camel: Record<string, unknown> = {};
   applyOptionalRequestFields(req, camel);
   assertEquals(camel.tools, [{ type: 'google_search' }, { type: 'url_context' }]);
@@ -385,7 +422,7 @@ Deno.test('applyOptionalRequestFields maps builtins to their Interactions wire t
 
 Deno.test('applyOptionalRequestFields merges codeExecution builtin with dynamic function tools', () => {
   const req = baseReq({
-    builtins: ['codeExecution', 'googleSearch'],
+    builtins: googleBuiltins('codeExecution', 'googleSearch'),
     wireTools: [
       testWireTool('lookup_order', {
         description: 'Fetch order state',
@@ -501,7 +538,7 @@ Deno.test('historyStep maps tool role content and parts through wirePart', () =>
     parts: [
       { type: 'text', text: '1. palm' },
       { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
-      { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+      { type: 'video', mimeType: 'video/mp4', data: 'AAAA' },
     ],
   });
   assertEquals(step, {
@@ -512,9 +549,137 @@ Deno.test('historyStep maps tool role content and parts through wirePart', () =>
       { type: 'text', text: 'shortlist\n{"items":[]}' },
       { type: 'text', text: '1. palm' },
       { type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' },
-      { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+      { type: 'video', mimeType: 'video/mp4', data: 'AAAA' },
     ],
   });
+});
+
+Deno.test('a file a function_result cannot hold is carried to the next user_input', () => {
+  const pdf: InteractionPart = {
+    type: 'document',
+    mimeType: 'application/pdf',
+    data: 'JVBE',
+  };
+  const voice: InteractionPart = {
+    type: 'audio',
+    mimeType: 'audio/wav',
+    data: 'UklG',
+  };
+  assertEquals(
+    historySteps({
+      role: 'tool',
+      name: 'recall_message',
+      tool_call_id: 'call_1',
+      content: 'Completed.',
+      parts: [{ type: 'text', text: 'media.1' }, pdf, voice],
+    }),
+    [
+      {
+        type: 'function_result',
+        name: 'recall_message',
+        call_id: 'call_1',
+        result: [
+          { type: 'text', text: 'Completed.' },
+          { type: 'text', text: 'media.1' },
+          { type: 'text', text: '[document: sent in the next message]' },
+          { type: 'text', text: '[audio: sent in the next message]' },
+        ],
+      },
+      {
+        type: 'user_input',
+        content: [
+          { type: 'text', text: 'Files from the recall_message result:' },
+          { type: 'document', mimeType: 'application/pdf', data: 'JVBE' },
+          { type: 'audio', mimeType: 'audio/wav', data: 'UklG' },
+        ],
+      },
+    ],
+  );
+});
+
+Deno.test('carried files follow the whole run of tool results, each led by its tool', () => {
+  const pdf = (data: string): InteractionPart => ({
+    type: 'document',
+    mimeType: 'application/pdf',
+    data,
+  });
+  const call: TurnHistoryMessage = {
+    role: 'assistant',
+    tool_calls: [
+      {
+        id: 'a',
+        type: 'function',
+        function: { name: 'read_a', arguments: '{}' },
+      },
+      {
+        id: 'b',
+        type: 'function',
+        function: { name: 'read_b', arguments: '{}' },
+      },
+    ],
+  };
+  const steps = inputStepsFromRequest(
+    baseReq({
+      continuation: [
+        call,
+        {
+          role: 'tool',
+          name: 'read_a',
+          tool_call_id: 'a',
+          content: 'ok',
+          parts: [pdf('AAAA')],
+        },
+        {
+          role: 'tool',
+          tool_call_id: 'b',
+          content: 'ok',
+          parts: [pdf('BBBB')],
+        },
+      ],
+      input: [],
+    }),
+  );
+  assertEquals(
+    steps.map((step) => step.type),
+    ['function_call', 'function_call', 'function_result', 'function_result', 'user_input'],
+  );
+  assertEquals(steps[4]?.content, [
+    { type: 'text', text: 'Files from the read_a result:' },
+    { type: 'document', mimeType: 'application/pdf', data: 'AAAA' },
+    { type: 'text', text: 'Files from the read_b result:' },
+    { type: 'document', mimeType: 'application/pdf', data: 'BBBB' },
+  ]);
+});
+
+Deno.test('carried files reach the model before the next history message', () => {
+  const steps = inputStepsFromRequest(
+    baseReq({
+      history: [
+        {
+          role: 'tool',
+          tool_call_id: 'x',
+          content: 'ok',
+          parts: [
+            {
+              type: 'document',
+              mimeType: 'application/pdf',
+              data: 'AAAA',
+            },
+          ],
+        },
+        { role: 'assistant', content: 'Read it.' },
+      ],
+      input: [{ type: 'text', text: 'And now?' }],
+    }),
+  );
+  assertEquals(
+    steps.map((step) => step.type),
+    ['function_result', 'user_input', 'model_output', 'user_input'],
+  );
+  assertEquals(steps[1]?.content, [
+    { type: 'text', text: 'Files from a tool result:' },
+    { type: 'document', mimeType: 'application/pdf', data: 'AAAA' },
+  ]);
 });
 
 Deno.test('historySteps maps assistant tool_calls to function_call (no empty text)', () => {
@@ -535,6 +700,32 @@ Deno.test('historySteps maps assistant tool_calls to function_call (no empty tex
       name: 'plan_day',
       arguments: { destination: 'Tokyo' },
     },
+  ]);
+});
+
+Deno.test('historySteps replays the thought signature as the thought step ahead of the calls', () => {
+  const steps = historySteps({
+    role: 'assistant',
+    tool_calls: [
+      {
+        id: 'c1',
+        type: 'function',
+        function: { name: 'geocode_city', arguments: '{"city":"Porto"}' },
+      },
+      {
+        id: 'c2',
+        type: 'function',
+        function: { name: 'geocode_city', arguments: '{"city":"Faro"}' },
+      },
+    ],
+    reasoning: [
+      { data: { call: 0, signature: 'sig' }, origin: { protocol: 'geminiInteractions' } },
+    ],
+  });
+  assertEquals(steps, [
+    { type: 'thought', signature: 'sig' },
+    { type: 'function_call', id: 'c1', name: 'geocode_city', arguments: { city: 'Porto' } },
+    { type: 'function_call', id: 'c2', name: 'geocode_city', arguments: { city: 'Faro' } },
   ]);
 });
 
@@ -599,12 +790,27 @@ Deno.test('inputStepsFromRequest expands tool_calls history into function_call +
   assertEquals(steps[2]?.type, 'function_result');
 });
 
-Deno.test('applyOptionalRequestFields throws for a builtin with no Interactions wire type', () => {
-  const req = baseReq({ builtins: ['notRegisteredTool'] });
-  assertThrows(() => applyOptionalRequestFields(req, {}), TheoremError);
+Deno.test('applyOptionalRequestFields throws for a builtin Google does not run', () => {
+  const req = baseReq({ builtins: [{ id: 'webSearch' }] });
+  assertThrows(
+    () => applyOptionalRequestFields(req, {}),
+    TheoremError,
+    "Builtin 'webSearch' is not a Google tool",
+  );
 });
 
-// baseInteractionsBody
+Deno.test('applyOptionalRequestFields sends Maps the location its args carry, and none without args', () => {
+  const tools = (builtins: ModelRequest['builtins']) => {
+    const body: Record<string, unknown> = {};
+    applyOptionalRequestFields(baseReq({ builtins }), body);
+    return body.tools;
+  };
+  assertEquals(tools([{ id: 'googleMaps' }]), [{ type: 'google_maps' }]);
+  assertEquals(
+    tools([{ id: 'googleMaps', args: { location: { latitude: 51.5, longitude: -0.12 } } }]),
+    [{ type: 'google_maps', latitude: 51.5, longitude: -0.12 }],
+  );
+});
 
 Deno.test('baseInteractionsBody sets thinking knobs outside of speech requests', () => {
   const req = baseReq({ thinking: 'high', summaries: 'auto' });
@@ -626,14 +832,12 @@ Deno.test('baseInteractionsBody swaps in speech config and omits thinking knobs 
   assertEquals(Object.hasOwn(config, 'thinkingSummaries'), false);
 });
 
-// toInteractionsBody
-
 Deno.test('toInteractionsBody builds a full snake_case wire body', () => {
   const req = baseReq({
     system: 'be nice',
     store: true,
-    builtins: ['googleSearch'],
-    structured: 'chatTurn',
+    builtins: googleBuiltins('googleSearch'),
+    structured: resolvedStructured('chatTurn'),
   });
   const body = toInteractionsBody(req);
   assertEquals(body.model, 'gemini-3.5-flash-lite');
@@ -654,8 +858,8 @@ Deno.test('toInteractionsBody sets stream false when requested', () => {
 Deno.test('toInteractionsBody sends code_execution together with structured response_format', () => {
   const body = toInteractionsBody(
     baseReq({
-      builtins: ['codeExecution'],
-      structured: 'chatTurn',
+      builtins: googleBuiltins('codeExecution'),
+      structured: resolvedStructured('chatTurn'),
     }),
   );
   assertEquals(body.tools, [{ type: 'code_execution' }]);
@@ -678,4 +882,28 @@ Deno.test('Interactions wires a media reference as { type, uri, mime_type } (Fil
     uri: 'files/abc123',
   });
   assertEquals(JSON.stringify(body).includes('file_uri'), false);
+});
+
+Deno.test('baseInteractionsBody sends an image seed as generationConfig.seed', () => {
+  const req = baseReq({ image: { type: 'image', includeText: false, seed: 9 } });
+  assertEquals((baseInteractionsBody(req).generationConfig as Record<string, unknown>).seed, 9);
+});
+
+Deno.test('attachResponseFormat refuses image pins Google cannot send', () => {
+  for (const pin of [
+    { quality: 'high' },
+    { background: 'opaque' },
+    { n: 2 },
+    { outputCompression: 50 },
+  ]) {
+    const req = baseReq({ image: { type: 'image', includeText: false, ...pin } });
+    assertThrows(() => attachResponseFormat(req, {}), TheoremError);
+  }
+});
+
+Deno.test('baseInteractionsBody refuses a thinking level Gemini does not take', () => {
+  for (const level of ['none', 'xhigh', 'max'] as const) {
+    assertThrows(() => baseInteractionsBody(baseReq({ thinking: level })), TheoremError, level);
+  }
+  baseInteractionsBody(baseReq({ thinking: 'high' }));
 });

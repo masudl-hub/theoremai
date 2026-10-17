@@ -1,14 +1,8 @@
-/**
- * Text `runTurn` wiring around the stage spine: record stage events in step
- * state and append sanitized injects to turn history.
- *
- * Contract: `docs/contracts/stages.md`. The stage itself runs in `runStage`.
- *
- * @module
- */
-
 import { throwIfAborted } from '../../../guardrails/error.ts';
 import {
+  type InjectUnit,
+  injectedStageEvent,
+  injectMessages,
   runStage,
   type StageApplyWarning,
   type StageCallBag,
@@ -16,7 +10,7 @@ import {
   type StageHandler,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
-import type { Profile, ResolvedGeneration, TurnEvent, TurnHistoryMessage } from '../../types.ts';
+import type { Profile, ResolvedGeneration, TurnEvent, TurnStage } from '../../types.ts';
 import type { StepExecutionState } from './state.ts';
 
 export interface ApplyTurnStageArgs extends StageCallBag {
@@ -38,26 +32,24 @@ export interface ApplyTurnStageResult {
   warnings: StageApplyWarning[];
 }
 
-/**
- * Append already-sanitized inject messages to turn history. Mirrors them into
- * the Interactions continuation when one is active. Returns how many landed.
- */
-export function applyStageInjects(
+/** Sanitized stage injects extend portable history. */
+export function* applyStageInjects(
   state: StepExecutionState,
-  inject: readonly TurnHistoryMessage[],
-): number {
+  stage: TurnStage,
+  units: readonly InjectUnit[],
+  extra?: { callId?: string; toolName?: string },
+): Generator<TurnEvent, number> {
+  const inject = injectMessages(units);
   if (inject.length === 0) return 0;
   state.currentHistory.push(...inject);
-  if (state.interactionsContinuation) {
-    for (const msg of inject) {
-      if (msg.role === 'tool') continue;
-      state.interactionsContinuation.messages.push(msg);
-    }
+  const landed = injectedStageEvent(stage, units, extra);
+  if (landed) {
+    state.allEmittedEvents.push(landed);
+    yield landed;
   }
   return inject.length;
 }
 
-/** Run a turn stage, recording every stage event on step state. */
 export async function* applyTurnStage(
   args: ApplyTurnStageArgs,
 ): AsyncGenerator<TurnEvent, ApplyTurnStageResult> {
@@ -81,7 +73,7 @@ export async function* applyTurnStage(
   const out = next.value;
   return {
     abort: out.abort,
-    injectCount: applyStageInjects(state, out.inject),
+    injectCount: yield* applyStageInjects(state, call.stage, out.inject),
     warnings: out.warnings,
   };
 }

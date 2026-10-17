@@ -1,29 +1,46 @@
-import type { KeyVault } from '../kernel/types.ts';
+import type { TheoremError } from '../guardrails/error.ts';
+import type { InteractionPart, ModelEvent } from '../kernel/types.ts';
 
-/** OpenAI-gateway credentials for `openAi` profiles (OpenRouter or compatible). */
-export interface OpenAiGatewayConfig {
-  /**
-   * Multi-slot credential vault (same `KEY_SLOTS` shape as Google).
-   * When `keySlot` is set on the turn, the adapter reads `vault[keySlot]`.
-   */
-  vault?: KeyVault;
-  /**
-   * Single-key fallback when the profile does not pin `model.key` / `keySlot`.
-   * Ignored when `keySlot` is set (vault is required then).
-   */
-  apiKey?: string;
-  baseUrl?: string;
-  siteUrl?: string;
-  siteName?: string;
-  fetch?: typeof fetch;
+/** Where a live model is in its reply when a frame arrives. */
+export type LiveTurnPhase = 'streaming' | 'complete' | 'abort';
+
+/** Tape row: the first key was refused for quota, so the call starts again on the fallback slot. */
+export const KEY_FALLBACK_ROW = 'key_fallback';
+
+/** The provider's warning before it closed a live socket. */
+export interface LiveGoAway {
+  timeLeftMs?: number;
+  /** Milliseconds from the last warning to the close. */
+  closedAfterMs: number;
 }
 
-/** Host-supplied config for the local OpenAI-compat provider. */
-export interface LocalProviderConfig {
-  /**
-   * Base URL of the OpenAI-compat server (no trailing slash).
-   * Defaults to `http://127.0.0.1:11434`.
-   */
-  baseUrl?: string;
-  fetch?: typeof globalThis.fetch;
+/** One thing a live socket received. `row` is the parsed frame, so the kernel records it beside the events it produced. */
+export type LiveQueueItem =
+  | {
+      type: 'batch';
+      events: ModelEvent[];
+      turnPhase: LiveTurnPhase;
+      row: Record<string, unknown>;
+    }
+  | { type: 'row'; row: Record<string, unknown> }
+  | { type: 'error'; error: Error; row?: Record<string, unknown> }
+  /** `error` is set when the close was not normal; `goAway` when the provider warned first. */
+  | { type: 'closed'; code: number; reason: string; error?: TheoremError; goAway?: LiveGoAway };
+
+/**
+ * An open live socket, in the kernel's terms: the setup the session was opened with, what the
+ * session sends the model, `batches` for what it receives, and `close`. A send on a socket that is
+ * no longer open is dropped.
+ */
+export interface LiveConnection {
+  readonly setup: Record<string, unknown>;
+  flush?(): Promise<void>;
+  /** Text the model reads without it ending the user's turn. */
+  sendContext(text: string): void;
+  /** Text, audio or video from the user, as it arrives. */
+  sendInput(input: InteractionPart): void;
+  /** The result of a tool call the model made. */
+  sendToolResponse(callId: string, name: string, output: unknown, parts?: InteractionPart[]): void;
+  batches(): AsyncGenerator<LiveQueueItem>;
+  close(code?: number, reason?: string): void;
 }

@@ -4,16 +4,16 @@ name: Mutation
 # guardrails config (~4.6k mutants) would take well over an hour in one job.
 # Mutate locally before pushing. A merge to main mutates only the changed files
 # each config covers; the weekly (or on-demand) sweep shards the full run across
-# parallel jobs.
+# parallel jobs. Every stryker.<name>.config.json except the legacy stryker.config.json
+# and guardrails-targeted is a matrix entry in both jobs; keep their globs in step.
 
 on:
   push:
     branches: [main]
     paths:
-      - 'src/guardrails/**'
-      - 'src/kernel/tools/execute.ts'
-      - 'src/kernel/tools/resolve.ts'
-      - 'src/providers/google/interactions/stream.ts'
+      - 'src/**'
+      - 'react/src/**'
+      - 'studio/**'
       - 'stryker.*.json'
       - '.github/workflows/mutation.yml'
   schedule:
@@ -42,6 +42,48 @@ jobs:
             exclude: '^src/guardrails/(corpus/|testing\.ts$|mod\.ts$)'
           - config: tools
             files: '^(src/kernel/tools/(execute|resolve)\.ts|src/providers/google/interactions/stream\.ts)$'
+            exclude: '^$'
+          - config: engine
+            files: '^src/kernel/engine/.*\.ts$'
+            exclude: '^src/kernel/engine/media-probe/'
+          - config: media-probe
+            files: '^src/kernel/engine/media-probe/.*\.ts$'
+            exclude: '^$'
+          - config: registry
+            files: '^src/kernel/registry/.*\.ts$'
+            exclude: '^$'
+          - config: auth
+            files: '^src/kernel/auth/.*\.ts$'
+            exclude: '^$'
+          - config: kernel-core
+            files: '^src/kernel/([^/]*|util/.*)\.ts$'
+            exclude: '^$'
+          - config: kernel-tools
+            files: '^src/kernel/tools/.*\.ts$'
+            exclude: '^src/kernel/tools/(execute|resolve)\.ts$'
+          - config: providers
+            files: '^src/providers/.*\.ts$'
+            exclude: '^src/providers/google/interactions/stream\.ts$'
+          - config: cli
+            files: '^src/cli/.*\.ts$'
+            exclude: '^$'
+          - config: evals
+            files: '^src/evals/.*\.ts$'
+            exclude: '^$'
+          - config: interface
+            files: '^src/interface/.*\.ts$'
+            exclude: '^$'
+          - config: observability
+            files: '^src/observability/.*\.ts$'
+            exclude: '^$'
+          - config: studio
+            files: '^studio/.*\.ts$'
+            exclude: '^$'
+          - config: react
+            files: '^react/src/.*\.tsx?$'
+            exclude: '^$'
+          - config: surface-host-presets
+            files: '^src/(surface|host|presets)/.*\.ts$'
             exclude: '^$'
     steps:
       - name: Checkout
@@ -80,7 +122,9 @@ jobs:
 
       - name: Install
         if: steps.scope.outputs.mutate != ''
-        run: npm ci
+        run: |
+          npm ci
+          npm --prefix react ci
 
       - name: Stryker (changed files)
         if: steps.scope.outputs.mutate != ''
@@ -103,7 +147,7 @@ jobs:
   sweep:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -124,6 +168,51 @@ jobs:
           - shard: tools
             config: tools
             mutate: ''
+          - shard: engine
+            config: engine
+            mutate: ''
+          - shard: media-probe
+            config: media-probe
+            mutate: ''
+          - shard: registry
+            config: registry
+            mutate: ''
+          - shard: auth
+            config: auth
+            mutate: ''
+          - shard: kernel-core
+            config: kernel-core
+            mutate: ''
+          - shard: kernel-tools
+            config: kernel-tools
+            mutate: ''
+          - shard: providers-google
+            config: providers
+            mutate: 'src/providers/google/**/*.ts,!src/providers/google/interactions/stream.ts'
+          - shard: providers-rest
+            config: providers
+            mutate: 'src/providers/**/*.ts,!src/providers/google/**,!src/providers/mod.ts,!src/providers/probe.ts'
+          - shard: cli
+            config: cli
+            mutate: ''
+          - shard: evals
+            config: evals
+            mutate: ''
+          - shard: interface
+            config: interface
+            mutate: ''
+          - shard: observability
+            config: observability
+            mutate: ''
+          - shard: studio
+            config: studio
+            mutate: ''
+          - shard: react
+            config: react
+            mutate: ''
+          - shard: surface-host-presets
+            config: surface-host-presets
+            mutate: ''
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -140,7 +229,9 @@ jobs:
           cache: npm
 
       - name: Install
-        run: npm ci
+        run: |
+          npm ci
+          npm --prefix react ci
 
       - name: Stryker (${{ matrix.shard }})
         env:

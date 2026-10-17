@@ -9,13 +9,24 @@ import {
   HTTP_OK,
   json,
 } from '../../src/host/mod.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
 import { buildRecord, contentOf, type TraceRecord } from '../../src/observability/trace-record.ts';
 import { startTrace } from '../../src/observability/trace-span.ts';
+import { geminiModels } from '../fixtures/models.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const CUTOUT_MS = 12;
 const NANOS_PER_MS = 1_000_000n;
+
+const CHAT = defineProfile({
+  type: 'text',
+  identity: { handle: 'chat', system: 'test' },
+  tools: { allow: [] },
+  id: 'chat',
+  ...geminiModels('gemini35FlashLite'),
+  inputs: { text: true },
+});
 
 async function heldTurn(): Promise<TraceRecord> {
   const tree = startTrace('invoke_agent chat', { attributes: { 'gen_ai.agent.name': 'chat' } });
@@ -68,6 +79,7 @@ Deno.test('flushMintTrace writes the held turn, then a cutout span under its roo
   const turn = await heldTurn();
 
   await flushMintTrace({
+    profile: CHAT,
     held: [turn],
     app: { route: 'vinylator' },
     cutout: {

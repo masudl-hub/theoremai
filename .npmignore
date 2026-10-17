@@ -2,8 +2,7 @@
 # keep maintainer contracts and docs-truth out of the npm tarball.
 docs/
 src/**/*.md
-playground/
+studio/
 react/
-src/interface/
 src/guardrails/eval/
 snyk

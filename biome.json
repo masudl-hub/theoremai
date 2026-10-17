@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
     "includes": [
       "src/**/*.ts",
@@ -7,14 +7,17 @@
       "scripts/**/*.ts",
       "scripts/**/*.mjs",
       "mod.ts",
+      "react/src/**/*.ts",
+      "react/src/**/*.tsx",
       "biome.json",
       "package.json",
       ".fallowrc.jsonc",
       "!node_modules",
       "!package-lock.json",
       "!coverage",
-      "!.stryker-tmp",
-      "!.stryker-cache"
+      "!!.stryker-tmp*",
+      "!.stryker-cache",
+      "!tests/fixtures/studio-project"
     ]
   },
   "formatter": {

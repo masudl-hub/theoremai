@@ -1,13 +1,14 @@
 import '../../fixtures/test-host.ts';
 import { OMIT_CANARY } from '../../../src/guardrails/canary.ts';
+import { registerProfile } from '../../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
 import { sha256 } from '../../../src/kernel/engine/hash.ts';
-import { runTurn } from '../../../src/kernel/engine/runner.ts';
+import { defaultKernelScope } from '../../../src/kernel/scope.ts';
 import type { KeyVault, TurnEvent } from '../../../src/kernel/types.ts';
 import { contentOf, type TraceRecord } from '../../../src/observability/trace-record.ts';
+import type { TraceSink } from '../../../src/observability/trace-sink.ts';
 import type { TraceAttributeValue, TraceSpan } from '../../../src/observability/trace-span.ts';
 import { camelToSnake } from '../../../src/providers/google/interactions/framing.ts';
-import { createInteractionsProvider } from '../../../src/providers/google/interactions/stream.ts';
 import {
   inlineBytesKey,
   redactCanaryInTree,
@@ -15,6 +16,9 @@ import {
   scrubUpstream,
   tapeUpstream,
 } from '../../../src/providers/shared/upstream-tape.ts';
+import { failureOf } from '../../fixtures/failure.ts';
+import { HOST_BINDINGS, onGeminiInteractions } from '../../fixtures/models.ts';
+import { eventTypesByReply, structuredDraftText } from '../../fixtures/reply.ts';
 import { catalogedSink, catalogGate } from '../../fixtures/trace-catalog.ts';
 
 const INPUT_TOKENS = 11;
@@ -22,18 +26,34 @@ const OUTPUT_TOKENS = 2;
 const HTTP_OK = 200;
 
 const vault: KeyVault = {
-  slotA: 'free-a-key',
-  slotB: 'free-b-key',
-  slotC: 'free-c-key',
-  paid: 'paid-key',
+  slot_a: 'free-a-key',
+  slot_b: 'free-b-key',
+  slot_c: 'free-c-key',
+  spare: 'spare-key',
 };
 
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const event of gen) {
-    out.push(event);
-  }
-  return out;
+/** The test host's `chat` profile, its model on the real Gemini Interactions wire. */
+registerProfile({
+  type: 'text',
+  id: 'chatOnWire',
+  identity: { handle: 'chat', system: 'Reply in the structured turn schema.' },
+  models: { gemini35FlashLite: onGeminiInteractions(HOST_BINDINGS.gemini35FlashLite) },
+  maxSteps: 1,
+  tools: { allow: [] },
+  inputs: { text: true },
+  outputs: { structured: 'chatTurn' },
+  guardrails: { quota: { perDay: 10 } },
+});
+
+/** One `chatOnWire` turn, its calls answered by `send`. */
+function runOnWire(send: typeof fetch, sink: TraceSink): Promise<TurnEvent[]> {
+  return Array.fromAsync(
+    defaultKernelScope.runTurn(
+      { profile: 'chatOnWire', input: { text: 'hi' } },
+      { vault, fetch: send, wait: () => Promise.resolve() },
+      sink,
+    ),
+  );
 }
 
 function spanNamed(record: TraceRecord, name: string): TraceSpan {
@@ -52,7 +72,7 @@ function eventContent(record: TraceRecord, span: TraceSpan, name: string, key: s
 }
 
 function assertFullTape(record: TraceRecord): void {
-  const call = spanNamed(record, 'generate_content gemini-3.5-flash-lite');
+  const call = spanNamed(record, 'chat gemini-3.5-flash-lite');
   const post = spanNamed(record, 'POST');
   assertEquals(post.parentSpanId, call.spanId);
   assertEquals(post.attributes['http.request.header.x-goog-api-key'], ['[redacted]']);
@@ -65,7 +85,7 @@ function assertFullTape(record: TraceRecord): void {
   >[];
   assertEquals(
     rows.map((row) => row.sseEvent),
-    ['interaction.created', 'step.delta', 'step.delta', 'interaction.completed', 'done'],
+    ['interaction.created', 'step.delta', 'step.delta', 'interaction.completed'],
   );
   assertEquals(JSON.stringify(rows).includes('sig-blob'), true);
   assertEquals(call.attributes['theorem.model.id'], 'gemini35FlashLite');
@@ -95,7 +115,7 @@ function sseResponse(events: unknown[]): Response {
       return `event: ${name}\ndata: ${JSON.stringify(event)}\n`;
     })
     .join('\n');
-  return new Response(`${blocks}\nevent: done\ndata: [DONE]\n`, {
+  return new Response(`${blocks}\nevent: done\ndata: [DONE]\n\n`, {
     status: HTTP_OK,
   });
 }
@@ -129,10 +149,8 @@ Deno.test('tapeUpstream keeps usage and interaction id', async () => {
 
 Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async () => {
   const into: TraceRecord[] = [];
-  const provider = createInteractionsProvider({
-    vault,
-    wait: () => Promise.resolve(),
-    fetch: () =>
+  const events = await runOnWire(
+    () =>
       Promise.resolve(
         sseResponse([
           JSON.parse(
@@ -147,16 +165,21 @@ Deno.test('runTurn traces wire, usage, and every Interactions SSE row', async ()
           ),
         ]),
       ),
-  });
-  const events = await collect(
-    runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)),
+    catalogedSink(into),
   );
   // Text profiles always emit turn stages (`pre_turn` → … → `post_turn`) even
-  // when the turn passes no `onStage` handler.
-  assertEquals(
-    events.map((event) => event.type),
-    ['stage', 'text', 'error', 'tokens', 'stage', 'done', 'stage'],
-  );
+  // when the turn passes no `onStage` handler. The reply is not the JSON this
+  // profile asks for: that is found when the reply is read whole, after `before_end`.
+  assertEquals(eventTypesByReply(events), [
+    'stage',
+    'structured_draft',
+    'tokens',
+    'stage',
+    'error',
+    'done',
+    'stage',
+  ]);
+  assertEquals(structuredDraftText(events), 'yo');
   assertEquals(
     events.filter((e) => e.type === 'stage').map((e) => e.stage),
     ['pre_turn', 'before_end', 'post_turn'],
@@ -193,12 +216,13 @@ Deno.test('tapFetch handles non-Error thrown values and default fetch fallback',
 
 Deno.test('runTurn traces upstream error response bodies', async () => {
   const into: TraceRecord[] = [];
-  const provider = createInteractionsProvider({
-    vault,
-    wait: () => Promise.resolve(),
-    fetch: () => Promise.resolve(new Response('quota-detail', { status: 500 })),
-  });
-  await collect(runTurn({ profile: 'chat', input: { text: 'hi' } }, provider, catalogedSink(into)));
+  const error = failureOf(
+    await runOnWire(
+      () => Promise.resolve(new Response('quota-detail', { status: 500 })),
+      catalogedSink(into),
+    ),
+  );
+  assertEquals(error.kind, 'unavailable');
   const [record] = into;
   if (!record) {
     throw new Error('missing trace');

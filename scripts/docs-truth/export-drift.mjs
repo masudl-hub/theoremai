@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * Verify public entrypoint exports appear in the owning contract doc.
- * Heuristic: every `export { name` / `export type { Name` from the entry
- * mod file must appear as text in the mapped contract.
+ * Heuristic: every `export { name` / `export type { Name` in a public entry mod must appear as
+ * text in its owning contract doc.
  */
 
 import { readFile } from 'node:fs/promises';

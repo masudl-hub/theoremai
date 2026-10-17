@@ -1,11 +1,5 @@
-/**
- * End-to-end PKCE: a real authorization server on localhost HTTPS that checks
- * RFC 7636 S256 itself, driven only through the package's public OAuth helpers.
- * The unit tests in auth.test.ts stub fetch; here the server is independent, so
- * a flow that passes has been verified by the other side, not by our own code.
- *
- * The TLS certificates are made fresh for each run with `openssl`.
- */
+// auth.test.ts stubs fetch; here an independent localhost server checks RFC 7636 S256 itself,
+// so a passing flow is verified by the other side. Certificates are made fresh per run with openssl.
 import {
   createOAuthPkceFlow,
   exchangeOAuthPkce,
@@ -110,6 +104,8 @@ function authorizationServer(certificates: { cert: string; key: string }) {
   const refreshTokens = new Set<string>();
   const tokenRequests: Record<string, string>[] = [];
   let base = '';
+  /** What the next token response says it granted; unset sends no `scope`. */
+  const granting: { scope?: string } = {};
   const json = (body: unknown, status = 200) => Response.json(body, { status });
   const issue = () => {
     const refresh = crypto.randomUUID();
@@ -119,6 +115,7 @@ function authorizationServer(certificates: { cert: string; key: string }) {
       token_type: 'Bearer',
       expires_in: 3600,
       refresh_token: refresh,
+      ...(granting.scope === undefined ? {} : { scope: granting.scope }),
     });
   };
 
@@ -200,12 +197,12 @@ function authorizationServer(certificates: { cert: string; key: string }) {
     },
   );
   base = `https://localhost:${server.addr.port}`;
-  return { base, server, tokenRequests };
+  return { base, server, tokenRequests, granting };
 }
 
 Deno.test('OAuth PKCE end to end against a real authorization server', async (t) => {
   const certificates = await localhostCertificates();
-  const { base, server, tokenRequests } = authorizationServer(certificates);
+  const { base, server, tokenRequests, granting } = authorizationServer(certificates);
   const client = Deno.createHttpClient({ caCerts: [certificates.ca] });
   const fetchFn: typeof fetch = (input, init) => fetch(input, { ...init, client });
   const transport = { network: { allowPrivateNetworks: true, allowedSchemes: ['https'] }, fetchFn };
@@ -281,6 +278,42 @@ Deno.test('OAuth PKCE end to end against a real authorization server', async (t)
       assertEquals(refreshed.credential.refreshToken !== credential.refreshToken, true);
 
       await assertRejects(() => exchange(callback), Error, 'code already used');
+    });
+
+    await t.step('a grant holds no scope beyond the ones asked for', async () => {
+      try {
+        const asked = await exchange((await signIn()).callback);
+        assertEquals(asked.credential.scope, 'read');
+
+        granting.scope = 'read write';
+        await assertRejects(
+          async () => exchange((await signIn()).callback),
+          Error,
+          'grants scopes that were not asked for: write',
+        );
+
+        granting.scope = 'read';
+        const { credential } = await exchange((await signIn()).callback);
+        assertEquals(credential.scope, 'read');
+
+        granting.scope = 'read admin';
+        await assertRejects(
+          () =>
+            refreshOAuthToken({
+              refreshToken: credential.refreshToken ?? '',
+              tokenEndpoint: credential.tokenEndpoint,
+              clientId: credential.clientId,
+              resource: credential.resource,
+              issuer: credential.issuer,
+              scope: credential.scope,
+              ...transport,
+            }),
+          Error,
+          'grants scopes that were not asked for: admin',
+        );
+      } finally {
+        delete granting.scope;
+      }
     });
 
     await t.step("one flow's code with another flow's state fails PKCE at the server", async () => {

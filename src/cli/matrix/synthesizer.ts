@@ -1,13 +1,3 @@
-/**
- * Stress / matrix turn synthesis for the THEOREM CLI.
- *
- * Custom tools come from `profile.tools.allow` (visibility via loadTier).
- * Provider builtins come from `models.*.builtInTools`. `--search` /
- * `--map` only verify those ids are listed on the selected model.
- *
- * @module
- */
-
 import { profileInputs } from '../../kernel/registry/catalog.ts';
 import type { ModelProfile, TurnBlob, TurnRequest } from '../../kernel/types.ts';
 import { FIXTURE_PNG_BASE64, FIXTURE_WAV_BASE64, getFixtureForMime } from './fixtures.ts';
@@ -109,7 +99,6 @@ export function synthesizeMatrixCombos(
   ];
 }
 
-/** Ensure CLI grounding flags match model builtInTools. */
 function assertGroundingFlagsOnModel(profile: ModelProfile, options: MatrixOptions): void {
   const modelId =
     options.mode && profile.models[options.mode] ? options.mode : profile.defaultModel;

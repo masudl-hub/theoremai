@@ -9,11 +9,16 @@ import type { TraceSpan } from '../../src/observability/trace-span.ts';
 import { stubSpan } from '../fixtures/trace-record.ts';
 
 const SRC = new URL('../../src/', import.meta.url);
-/** Where the kernel and host record spans; exporters under observability/ translate, not record. */
-const EMITTER_ROOTS = ['kernel', 'host'];
+/** Where the kernel, host and eval runner record spans; exporters under observability/ translate, not record. */
+const EMITTER_ROOTS = ['kernel', 'host', 'evals'];
 const ATTRIBUTE_KEY =
   /'((?:gen_ai|theorem|http|server|url|error|exception)\.[a-z0-9_.]*[a-z0-9_])'/g;
 const EVENT_NAME = /\.event\(\s*'([^']+)'/g;
+
+/** A quoted name that is a span the catalog knows by name, not an attribute key. */
+function isCatalogedSpanName(name: string): boolean {
+  return traceSpanMeta({ ...stubSpan(), name }).type !== 'host';
+}
 
 async function emitterSources(): Promise<string[]> {
   const sources: string[] = [];
@@ -31,12 +36,13 @@ async function emitterSources(): Promise<string[]> {
 Deno.test('every attribute key and event name the kernel writes has a catalog entry', async () => {
   const sources = await emitterSources();
   const missing = new Set<string>();
-  for (const text of sources) {
+  for (const source of sources) {
+    const text = source.replace(/\blabelText\(\s*'[^']*'/g, 'labelText(');
     for (const [, key = ''] of text.matchAll(ATTRIBUTE_KEY)) {
       // A header prefix (`http.request.header`) names a family: check one member.
-      if (!(traceAttributeMeta(key) ?? traceAttributeMeta(`${key}.x`) ?? traceEventMeta(key))) {
-        missing.add(key);
-      }
+      const known =
+        traceAttributeMeta(key) ?? traceAttributeMeta(`${key}.x`) ?? traceEventMeta(key);
+      if (!known && !isCatalogedSpanName(key)) missing.add(key);
     }
     for (const [, name = ''] of text.matchAll(EVENT_NAME)) {
       if (!traceEventMeta(name)) missing.add(`event ${name}`);

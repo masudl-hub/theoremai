@@ -1,116 +1,56 @@
-import { assertEquals } from '../../../src/kernel/engine/assert.ts';
-import { asObject, dataRecord, takeSsePayloads } from '../../../src/providers/shared/sse.ts';
+import { assertEquals } from '@std/assert';
+import { readSseChunks, takeSsePayloads } from '../../../src/providers/shared/sse.ts';
 
-Deno.test('takeSsePayloads keeps event names, thought signatures, and [DONE]', () => {
-  const raw = [
-    'event: interaction.created',
-    'data: {"event_type":"interaction.created","interaction":{"id":"","status":"in_progress"}}',
-    '',
-    'event: step.delta',
-    'data: {"event_type":"step.delta","delta":{"type":"thought_signature","signature":"abc"}}',
-    '',
-    'event: done',
-    'data: [DONE]',
-    '',
-    '',
-  ].join('\n');
-  const { payloads, pendingEvent } = takeSsePayloads(raw);
-  assertEquals(pendingEvent, '');
-  assertEquals(payloads[0]?.sseEvent, 'interaction.created');
-  assertEquals(payloads[0]?.event_type, 'interaction.created');
-  const delta = payloads[1]?.delta as Record<string, unknown>;
-  assertEquals(delta.signature, 'abc');
-  assertEquals(payloads[2]?.eventType, 'sse_done');
-  assertEquals(payloads[2]?.sseEvent, 'done');
+Deno.test('SSE dispatches at blank lines and joins data lines', () => {
+  const raw =
+    ': comment\r\nevent:step.delta\r\ndata:{"text":\r\ndata: "hello"}\r\n\r\ndata: [DONE]\n\n';
+  assertEquals(takeSsePayloads(raw).payloads, [
+    { text: 'hello', sseEvent: 'step.delta' },
+    { eventType: 'sse_done' },
+  ]);
 });
-
-Deno.test('takeSsePayloads carries event name across chunks', () => {
-  const first = takeSsePayloads('event: step.start\n');
+Deno.test('SSE retains a whole unfinished frame between byte chunks', () => {
+  const first = takeSsePayloads('event: delta\ndata: {"text":"h');
   assertEquals(first.payloads, []);
-  const second = takeSsePayloads(
-    'data: {"event_type":"step.start","index":0}\n',
-    first.pendingEvent,
-  );
-  assertEquals(second.payloads[0]?.sseEvent, 'step.start');
-  assertEquals(second.payloads[0]?.index, 0);
+  const second = takeSsePayloads(`${first.rest}i"}\n\n`);
+  assertEquals(second.payloads, [{ text: 'hi', sseEvent: 'delta' }]);
 });
-
-Deno.test('takeSsePayloads handles empty data, non-object JSON, and invalid JSON gracefully', () => {
-  const raw = [
-    'event: empty_ev',
-    'data: ',
-    'event: array_ev',
-    'data: [1, 2, 3]',
-    'event: primitive_ev',
-    'data: 42',
-    'event: bad_json',
-    'data: { invalid syntax',
-    '',
-  ].join('\n');
-
-  const { payloads } = takeSsePayloads(raw);
-  assertEquals(payloads.length, 4);
-
-  // Empty data
-  assertEquals(payloads[0].sseEvent, 'empty_ev');
-  assertEquals(payloads[0].eventType, 'sse_done');
-
-  // Array data (non-object)
-  assertEquals(payloads[1].sseEvent, 'array_ev');
-  assertEquals(payloads[1].eventType, 'sse_unparsed');
-  assertEquals(payloads[1].data, [1, 2, 3]);
-
-  // Primitive number
-  assertEquals(payloads[2].sseEvent, 'primitive_ev');
-  assertEquals(payloads[2].eventType, 'sse_unparsed');
-  assertEquals(payloads[2].data, 42);
-
-  // Invalid JSON string
-  assertEquals(payloads[3].sseEvent, 'bad_json');
-  assertEquals(payloads[3].eventType, 'sse_unparsed');
-  assertEquals(payloads[3].data, '{ invalid syntax');
+Deno.test('SSE supports CR, CRLF and split CRLF boundaries', async () => {
+  const chunks = ['data: {"a":1}\r', '\n\r', '\ndata: {"b":2}\r\rdata: {"c":3}\n\n'];
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk));
+      controller.close();
+    },
+  });
+  assertEquals(await Array.fromAsync(readSseChunks(body)), [{ a: 1 }, { b: 2 }, { c: 3 }]);
 });
-
-Deno.test('asObject returns the value for plain objects', () => {
-  assertEquals(asObject({ a: 1 }), { a: 1 });
+Deno.test('empty data is not completion and EOF does not dispatch an incomplete frame', async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data:\n\ndata: {"a":1}'));
+      controller.close();
+    },
+  });
+  assertEquals(await Array.fromAsync(readSseChunks(body)), [
+    { eventType: 'sse_unparsed', data: '' },
+  ]);
 });
-
-Deno.test('asObject returns undefined for arrays', () => {
-  assertEquals(asObject([1, 2, 3]), undefined);
-});
-
-Deno.test('asObject returns undefined for null', () => {
-  assertEquals(asObject(null), undefined);
-});
-
-Deno.test('asObject returns undefined for primitives', () => {
-  assertEquals(asObject(42), undefined);
-  assertEquals(asObject('hello'), undefined);
-  assertEquals(asObject(true), undefined);
-  assertEquals(asObject(undefined), undefined);
-});
-
-Deno.test('dataRecord returns sse_done for empty data with no sseEvent', () => {
-  const row = dataRecord('data: ', '');
-  assertEquals(row, { eventType: 'sse_done' });
-});
-
-Deno.test('dataRecord returns sse_done for [DONE] sentinel', () => {
-  const row = dataRecord('data: [DONE]', 'done');
-  assertEquals(row, { sseEvent: 'done', eventType: 'sse_done' });
-});
-
-Deno.test('dataRecord merges parsed object fields with sseEvent, and row wins on conflicts', () => {
-  const row = dataRecord('data: {"sseEvent":"from-payload","x":1}', 'from-arg');
-  assertEquals(row, { sseEvent: 'from-arg', x: 1 });
-});
-
-Deno.test('dataRecord marks non-object parsed JSON as sse_unparsed', () => {
-  const row = dataRecord('data: [1,2]', '');
-  assertEquals(row, { eventType: 'sse_unparsed', data: [1, 2] });
-});
-
-Deno.test('dataRecord marks invalid JSON as sse_unparsed with raw string data', () => {
-  const row = dataRecord('data: {not json', 'ev');
-  assertEquals(row, { sseEvent: 'ev', eventType: 'sse_unparsed', data: '{not json' });
+Deno.test('SSE preserves UTF-8 across bytes and releases the reader on early exit', async () => {
+  let cancelled = false;
+  const bytes = new TextEncoder().encode('data: {"text":"😀"}\n\n');
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  for await (const row of readSseChunks(body)) {
+    assertEquals(row, { text: '😀' });
+    break;
+  }
+  assertEquals(body.locked, false);
+  assertEquals(cancelled, true);
 });

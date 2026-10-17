@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { getProfile, registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, getProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerTool } from '../../src/kernel/tools/registry.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import { jsonSchemaFromZod } from '../../src/kernel/tools/schema.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -40,13 +41,22 @@ Deno.test('jsonSchemaFromZod preserves tool parameter shape for Zod 4 schemas', 
   });
 });
 
-Deno.test('jsonSchemaFromZod strips Gemini-unsupported JSON Schema keys', () => {
-  const schema = z.object({ id: z.string() });
-  const wire = jsonSchemaFromZod(schema, 'input');
+Deno.test('jsonSchemaFromZod keeps JSON Schema no single provider subset allows', () => {
+  const node: z.ZodType<unknown> = z.lazy(() =>
+    z.object({ name: z.string(), children: z.array(node).optional() }),
+  );
+  const wire = jsonSchemaFromZod(
+    z.object({ kind: z.literal('a'), note: z.string().nullable(), tree: node.optional() }),
+    'input',
+  );
 
-  assertEquals(Object.hasOwn(wire, 'additionalProperties'), false);
   assertEquals(Object.hasOwn(wire, '$schema'), false);
-  assertEquals(wire.properties, { id: { type: 'string' } });
+  assertEquals(wire.properties, {
+    kind: { type: 'string', const: 'a' },
+    note: { type: ['string', 'null'] },
+    tree: { allOf: [{ $ref: '#/definitions/__schema0' }] },
+  });
+  assertEquals(Object.keys(wire.definitions as object), ['__schema0']);
 });
 
 Deno.test('jsonSchemaFromZod input mode keeps defaulted tool args out of required', () => {
@@ -89,6 +99,7 @@ Deno.test('registerTool wire snapshot preserves Zod input properties', () => {
 
   const profile = getProfile('wire_schema_pressure_bot');
   const snapshot = resolveTurnTools(
+    defaultKernelScope.tools,
     profile,
     { profile: 'wire_schema_pressure_bot', input: { text: 'x' } },
     'gemini35FlashLite',

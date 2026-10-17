@@ -1,0 +1,11 @@
+---
+description: How to write, change or review Theorem documentation (README, docs/, changelog, JSDoc)
+globs: ["**/*.md", "docs/**", "react/README.md"]
+alwaysApply: false
+---
+
+# Writing documentation
+
+Read `docs/writing/README.md` before you write, change or review any documentation, and follow it. It is the single guide for every agent in this repo.
+
+Check names with `node scripts/docs-claims.mjs check <doc.md>`. Find docs that your code change makes stale with `node scripts/docs-claims.mjs affected`.

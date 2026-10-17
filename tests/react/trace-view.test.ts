@@ -1,4 +1,5 @@
-import { assertEquals } from '@std/assert';
+import { assert, assertEquals } from '@std/assert';
+import { traceLatency } from '../../react/src/client/trace-story.ts';
 import {
   filterTraceTree,
   TRACE_TEXT_FIELD,
@@ -176,4 +177,78 @@ Deno.test('a value shows by its catalog format first, then by its shape', () => 
     items: [{ a: 1 }, { a: 2 }],
   });
   assertEquals(traceValueShape(object, [1, { a: 2 }]), { kind: 'stored' });
+});
+
+Deno.test('traceLatency reads first text, holdback, writing speed and guardrail time', () => {
+  const guardrail = (action: string, duration_ms?: number) => ({
+    name: 'theorem.guardrail',
+    timeUnixNano: '0',
+    attributes: {
+      stage: 'input',
+      trust: 'untrusted',
+      action,
+      hits: [],
+      ...(duration_ms === undefined ? {} : { duration_ms }),
+    },
+  });
+  const [root] = traceTree([
+    record([
+      {
+        ...span('root', undefined, 0, 1000, { ...TURN, 'theorem.turn.time_to_first_text': 0.5 }),
+        events: [guardrail('allow', 2), guardrail('flag')],
+      },
+      span(
+        'c1',
+        'root',
+        100,
+        900,
+        call('m', {
+          'theorem.response.time_to_first_text': 0.2,
+          'gen_ai.usage.output_tokens': 60,
+          'theorem.guardrail.stream_ms': 3,
+        }),
+      ),
+    ]),
+  ]);
+  assert(root);
+  const latency = traceLatency(root);
+  assertEquals(latency.firstTextMs, 500);
+  // The model first wrote at 300 ms; the person saw it at 500 ms.
+  assertEquals(latency.heldMs, 200);
+  // 60 tokens over the 600 ms from first text to the call's end.
+  assertEquals(latency.tokensPerSecond, 100);
+  assertEquals(latency.guardrails, { checks: 2, ms: 5, flagged: 1 });
+});
+
+Deno.test("traceLatency counts a call's stream checks once, beside the call's total of them", () => {
+  const stream = (check: string, duration_ms: number) => ({
+    name: 'theorem.guardrail',
+    timeUnixNano: '0',
+    attributes: {
+      stage: 'output_delta',
+      trust: 'untrusted',
+      action: 'allow',
+      hits: [],
+      check,
+      duration_ms,
+      runs: 4,
+    },
+  });
+  const [root] = traceTree([
+    record([
+      span('root', undefined, 0, 1000, TURN),
+      {
+        ...span('c1', 'root', 100, 900, call('m', { 'theorem.guardrail.stream_ms': 5 })),
+        events: [stream('output_stream', 3), stream('stream_canary', 2)],
+      },
+    ]),
+  ]);
+  assert(root);
+  assertEquals(traceLatency(root).guardrails, { checks: 2, ms: 5, flagged: 0 });
+});
+
+Deno.test('traceLatency leaves out what the trace did not record', () => {
+  const [root] = traceTree([record([span('root', undefined, 0, 100, TURN)])]);
+  assert(root);
+  assertEquals(traceLatency(root), {});
 });

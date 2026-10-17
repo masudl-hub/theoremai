@@ -1,173 +1,78 @@
-import type { TurnBlob, TurnEvent } from '../../../mod.ts';
+import type { TheoremError, TurnEvent } from '@theoremjs/agents';
 import {
-	appendAssistantEventsToHistory,
-	appendUserDraftToHistory,
-	applyTurnEventsToSession,
-	type ComposerProfileInterface,
-	type InterfaceTurnSession,
-	gatedToolFromEvents,
-	type TranscriptBlock,
-	type UserTurnHistoryMedia,
-} from '../../../src/interface/mod.ts';
-import { type TurnFailure, turnFailure } from './failure';
-import type { TheoremTransport } from './transport';
-import { buildTurnRequest, foldAssistantTurn, turnInputFromSession } from './turn-client';
+  applyTurnEventsToSession,
+  type ComposerProfileInterface,
+  gatedToolFromEvents,
+  type InterfaceTurnSession,
+  type TranscriptBlock,
+} from '@theoremjs/agents/interface';
+import type { ChatLineSink, ConversationLine } from './transport.ts';
+import { foldAssistantTurn } from './turn-client.ts';
 
-function commitCompletedTurn(
-	session: InterfaceTurnSession,
-	events: TurnEvent[],
-	media: UserTurnHistoryMedia,
-	lexicon: ComposerProfileInterface['lexicon'],
+/**
+ * The session once a reply's events are in: a reply that waits on a gate
+ * keeps its events beside the transcript until the gate settles; any other is over.
+ */
+export function sessionAfter(
+  session: InterfaceTurnSession,
+  events: readonly TurnEvent[],
 ): InterfaceTurnSession {
-	const history = session.pendingUserDraft
-		? appendUserDraftToHistory(session.history, session.pendingUserDraft, media)
-		: session.history;
-
-	return {
-		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(history, events, lexicon),
-		gatedTool: null,
-		assistantEvents: [],
-		pendingUserDraft: null,
-		toolSnapshot: undefined,
-		promotedToolIds: [],
-	};
+  const applied = applyTurnEventsToSession(session, events);
+  const gatedTool = gatedToolFromEvents(events);
+  if (gatedTool) return { ...applied, gatedTool, assistantEvents: [...events] };
+  return {
+    ...applied,
+    gatedTool: null,
+    assistantEvents: [],
+    pendingUserDraft: null,
+    toolSnapshot: undefined,
+    promotedToolIds: [],
+  };
 }
 
-function commitContinuationTurn(
-	session: InterfaceTurnSession,
-	seedLength: number,
-	events: TurnEvent[],
-	lexicon: ComposerProfileInterface['lexicon'],
-): InterfaceTurnSession {
-	return {
-		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength), lexicon),
-		gatedTool: null,
-		assistantEvents: [],
-		pendingUserDraft: null,
-		toolSnapshot: undefined,
-		promotedToolIds: [],
-	};
-}
+/** Where a run shows itself as it streams: the reply so far, and each line the stream left out. */
+export type StreamView = {
+  blocks(blocks: TranscriptBlock[]): void;
+  /** A `malformed` line: left out, and the reply goes on. */
+  skipped(error: TheoremError): void;
+};
 
-function pauseTurn(
-	session: InterfaceTurnSession,
-	events: TurnEvent[],
-	media: UserTurnHistoryMedia,
-): InterfaceTurnSession {
-	const history = session.pendingUserDraft
-		? appendUserDraftToHistory(session.history, session.pendingUserDraft, media)
-		: session.history;
-
-	const gated = gatedToolFromEvents(events);
-	return {
-		...applyTurnEventsToSession(session, events),
-		history,
-		gatedTool: gated,
-		assistantEvents: [...events],
-		pendingUserDraft: null,
-	};
-}
-
-function pauseContinuationTurn(
-	session: InterfaceTurnSession,
-	seedLength: number,
-	events: TurnEvent[],
-	lexicon: ComposerProfileInterface['lexicon'],
-): InterfaceTurnSession {
-	const gated = gatedToolFromEvents(events);
-	return {
-		...applyTurnEventsToSession(session, events),
-		history: appendAssistantEventsToHistory(session.history, events.slice(seedLength), lexicon),
-		gatedTool: gated,
-		assistantEvents: [...events],
-		pendingUserDraft: null,
-	};
-}
-
-export function toTurnMedia(
-	encodedAttachments?: TurnBlob[],
-	encodedVoice?: TurnBlob[],
-): UserTurnHistoryMedia {
-	return {
-		...(encodedAttachments?.length ? { attachments: encodedAttachments } : {}),
-		...(encodedVoice?.length ? { voice: encodedVoice } : {}),
-	};
-}
-
-async function streamFoldedEvents(
-	stream: (onEvent: (event: TurnEvent) => void) => Promise<void>,
-	onStream: (blocks: TranscriptBlock[]) => void,
-	iface: ComposerProfileInterface,
-	seedEvents: TurnEvent[],
-): Promise<TurnEvent[]> {
-	const events = [...seedEvents];
-	await stream((event) => {
-		events.push(event);
-		onStream(foldAssistantTurn(iface, events));
-	});
-	return events;
-}
-
-export async function continueAfterTool(args: {
-	iface: ComposerProfileInterface;
-	transport: TheoremTransport;
-	session: InterfaceTurnSession;
-	onStream: (blocks: TranscriptBlock[]) => void;
-	seedEvents: TurnEvent[];
-}): Promise<
-	| { ok: true; session: InterfaceTurnSession; assistantBlocks: TranscriptBlock[] }
-	| TurnFailure
-> {
-	const seedLength = args.seedEvents.length;
-	try {
-		const events = await streamFoldedEvents(
-			(onEvent) =>
-				args.transport.turn(
-					buildTurnRequest(args.iface, args.session, turnInputFromSession(args.session)),
-					onEvent,
-				),
-			args.onStream,
-			args.iface,
-			args.seedEvents,
-		);
-
-		if (gatedToolFromEvents(events)) {
-			return {
-				ok: true,
-				session: pauseContinuationTurn(args.session, seedLength, events, args.iface.lexicon),
-				assistantBlocks: foldAssistantTurn(args.iface, events),
-			};
-		}
-
-		return {
-			ok: true,
-			session: commitContinuationTurn(args.session, seedLength, events, args.iface.lexicon),
-			assistantBlocks: foldAssistantTurn(args.iface, events),
-		};
-	} catch (err) {
-		return turnFailure(err, args.iface.lexicon);
-	}
-}
-
-export function finalizeTurnStream(args: {
-	session: InterfaceTurnSession;
-	events: TurnEvent[];
-	media: UserTurnHistoryMedia;
-	lexicon: ComposerProfileInterface['lexicon'];
-}): InterfaceTurnSession {
-	if (gatedToolFromEvents(args.events)) {
-		return pauseTurn(args.session, args.events, args.media);
-	}
-	return commitCompletedTurn(args.session, args.events, args.media, args.lexicon);
-}
-
+/**
+ * Streams into `events`, which the caller owns, so a stream that fails still
+ * leaves what it delivered. A `conversation` line goes to `onConversation`. An
+ * `unsupported` line is the host's to read on its own transport, and a
+ * `malformed` one goes to `view.skipped`: neither enters the reply.
+ */
 export function streamFoldedTurn(args: {
-	iface: ComposerProfileInterface;
-	onStream: (blocks: TranscriptBlock[]) => void;
-	seedEvents: TurnEvent[];
-	stream: (onEvent: (event: TurnEvent) => void) => Promise<void>;
-}): Promise<TurnEvent[]> {
-	return streamFoldedEvents(args.stream, args.onStream, args.iface, args.seedEvents);
+  iface: ComposerProfileInterface;
+  view: StreamView;
+  /** Seeded by the caller, and filled as the stream delivers. */
+  events: TurnEvent[];
+  /** The page adopts each ref from its transport; a run reads them only to know its message posted. */
+  onConversation?(line: ConversationLine): void;
+  stream: (onLine: ChatLineSink) => Promise<void>;
+}): Promise<void> {
+  return args.stream((line) => {
+    if (line.type === 'conversation') {
+      args.onConversation?.(line);
+      return;
+    }
+    if (line.type === 'unsupported') return;
+    if (line.type === 'malformed') {
+      args.view.skipped(line.error);
+      return;
+    }
+    args.events.push(line);
+    args.view.blocks(foldAssistantTurn(args.iface, args.events));
+  });
+}
+
+/** `blocks` with its last `turn-done` carrying the reply's work. */
+export function stampWorked(
+  blocks: TranscriptBlock[],
+  worked: { workedMs: number; endedAt: number },
+): TranscriptBlock[] {
+  const last = blocks.findLastIndex((block) => block.kind === 'turn-done');
+  if (last < 0) return blocks;
+  return blocks.map((block, index) => (index === last ? { ...block, ...worked } : block));
 }

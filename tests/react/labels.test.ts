@@ -4,6 +4,7 @@ import {
   assertLabelOverrides,
   THEOREM_UI_CATALOG,
   type TheoremLabels,
+  usageLine,
 } from '../../react/src/ui/labels.ts';
 import { defaultLabels as t } from './default-labels.ts';
 
@@ -36,7 +37,9 @@ Deno.test('default lines format their values', () => {
   );
   assertEquals(t('@theorem.duration.seconds', { seconds: 3.2 }), '3.2s');
   assertEquals(t('@theorem.voice_note.remove', { name: 'voice.webm' }), 'Remove voice.webm');
-  assertEquals(t('@theorem.gate.tag.always_confirm'), 'always_confirm');
+  assertEquals(t('@theorem.tool.access.read-write'), 'Read and write');
+  // Blank unless the host says how it handles the credential.
+  assertEquals(t('@theorem.gate.auth.secret_note').trim(), '');
 });
 
 Deno.test('assertLabelOverrides accepts valid Theorem and Astryx lines', () => {
@@ -100,5 +103,15 @@ Deno.test("assertLabelOverrides leaves a host's own keys alone unless strict", (
       ),
     Error,
     'Theorem labels: en @theorem.chat.nope: no such label',
+  );
+});
+
+Deno.test('usage is worded as tokens, then the cost when there is one', () => {
+  assertEquals(usageLine(t, 'en', { total: 1 }), '1 token');
+  assertEquals(usageLine(t, 'en', { total: 1450 }), '1,450 tokens');
+  assertEquals(usageLine(t, 'en', { total: 45, cost: { usd: 0.00012 } }), '45 tokens · $0.00012');
+  assertEquals(
+    usageLine(t, 'en', { total: 45, cost: { usd: 0.02, partial: true } }),
+    '45 tokens · At least $0.02',
   );
 });

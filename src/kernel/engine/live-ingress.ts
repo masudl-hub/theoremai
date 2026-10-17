@@ -1,20 +1,14 @@
-/**
- * Live realtime ingress — profile gates for sendAudio / sendVideo / sendText.
- *
- * @module
- */
-
 import { TheoremError } from '../../guardrails/error.ts';
 import type { LiveIngressSpec, LiveProfile, Profile } from '../types.ts';
 
-/** Realtime media channel that a Live profile may enable or disable. */
+/** A channel a live session can take input on: audio, video or text. */
 export type LiveIngressChannel = keyof LiveIngressSpec;
 
 const LIVE_INGRESS_CHANNELS: LiveIngressChannel[] = ['audio', 'video', 'text'];
 
 function assertLiveProfile(profile: Profile): LiveProfile {
   if (profile.type !== 'live') {
-    throw new TheoremError('request', `Profile '${profile.id}' is not type 'live'`); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('request', `Profile '${profile.id}' is not type 'live'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   return profile;
 }
@@ -24,7 +18,7 @@ export function liveIngressChannelDefault(channel: LiveIngressChannel): boolean 
   return channel !== 'text';
 }
 
-/** Resolve one channel from an ingress spec object (no profile wrapper). */
+/** True when the ingress spec enables the channel. */
 export function liveIngressEnabledFromSpec(
   ingress: LiveIngressSpec | undefined,
   channel: LiveIngressChannel,
@@ -34,13 +28,13 @@ export function liveIngressEnabledFromSpec(
   return value;
 }
 
-/** Whether a realtime ingress channel is enabled on the profile. */
+/** True when the live profile enables the channel. */
 export function liveIngressEnabled(profile: Profile, channel: LiveIngressChannel): boolean {
   const live = assertLiveProfile(profile);
   return liveIngressEnabledFromSpec(live.live.ingress, channel);
 }
 
-/** True when at least one realtime ingress channel is enabled. */
+/** True when the live profile enables at least one channel. */
 export function hasAnyLiveIngress(profile: Profile): boolean {
   const live = assertLiveProfile(profile);
   return LIVE_INGRESS_CHANNELS.some((channel) =>
@@ -48,21 +42,21 @@ export function hasAnyLiveIngress(profile: Profile): boolean {
   );
 }
 
-/** Reject profiles with every ingress channel disabled. */
+/** Throws when the live profile enables no input channel. */
 export function assertLiveIngressConfigured(profile: Profile): void {
   const live = assertLiveProfile(profile);
   if (hasAnyLiveIngress(live)) return;
   throw new TheoremError(
     'config',
-    `Profile '${live.id}': at least one live.ingress channel (audio, video, text) must be enabled`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile '${live.id}': at least one live.ingress channel (audio, video, text) must be enabled`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
-/** Reject send* calls when the profile disabled that ingress channel. */
+/** Throws when the live profile does not enable the channel. */
 export function assertLiveIngress(profile: Profile, channel: LiveIngressChannel): void {
   if (liveIngressEnabled(profile, channel)) return;
   throw new TheoremError(
     'request',
-    `Profile '${profile.id}' live.ingress.${channel} is disabled — cannot send on this channel`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    `Profile '${profile.id}' live.ingress.${channel} is disabled — cannot send on this channel`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }

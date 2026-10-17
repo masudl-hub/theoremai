@@ -1,0 +1,270 @@
+/*
+ * The map, panned both ways. The scrollport is the query box, so the field is at least the panel
+ * and only larger when the columns need the room. The lines are one drawing under the nodes. The
+ * nodes are the loader's tokens (map-token.css); with detail they are buttons, and a profile is a
+ * card of them: its head, then a row for each section. Every colour, radius and timing is an Astryx
+ * theme token. The panel's own motion brings the map in.
+ */
+.studio-map-frame {
+	position: relative;
+	height: 100%;
+	min-height: 0;
+}
+
+.studio-map-scroll {
+	container-type: size;
+}
+
+/* Over the field's corner: what the right click offers, and Close. */
+.studio-map-tools {
+	position: absolute;
+	inset-block-start: var(--spacing-3);
+	inset-inline-end: var(--spacing-3);
+	display: flex;
+	gap: var(--spacing-2);
+}
+
+/* A search that finds nothing says so over the bare field. */
+.studio-map-nothing {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.studio-map {
+	position: relative;
+	width: var(--map-width);
+	height: var(--map-height);
+	background-color: var(--color-background-surface);
+	cursor: grab;
+	user-select: none;
+}
+
+.studio-map[data-panning] {
+	cursor: grabbing;
+}
+
+@supports (width: 1cqw) {
+	.studio-map {
+		width: max(100cqw, var(--map-width));
+		height: max(100cqh, var(--map-height));
+	}
+}
+
+/* The right click's own box holds the field, however far it runs, with a screen of room past it
+   on every side: the map pans as far as the pointer goes. */
+[data-map-field] {
+	width: max-content;
+	min-width: 100%;
+	padding: 100vh 100vw;
+	background-color: var(--color-background-surface);
+}
+
+.studio-map-lines {
+	position: absolute;
+	inset: 0 auto auto 0;
+	pointer-events: none;
+}
+
+.studio-map-lines .map-line {
+	stroke: color-mix(in srgb, var(--color-border-emphasized) 60%, var(--color-background-surface));
+	transition: stroke var(--duration-fast) var(--ease-standard);
+}
+
+/* A tool asking a profile and a profile summarised by another run against the columns: dashed. */
+.studio-map-lines .map-line:is([data-kind='asks'], [data-kind='summarised']) {
+	stroke-dasharray: 4 4;
+}
+
+.studio-map-heading {
+	position: absolute;
+	pointer-events: none;
+}
+
+.studio-map .map-token > * {
+	transition:
+		opacity var(--duration-fast) var(--ease-standard),
+		background-image var(--duration-fast) var(--ease-standard);
+}
+
+.studio-map .map-token {
+	display: flex;
+	max-width: var(--map-slot);
+	overflow: hidden;
+	border-radius: var(--radius-inner);
+	background: var(--color-background-surface);
+}
+
+/* With detail a node is its token grown: the token's fill, corners, type and padding, as wide
+   as what it holds up to the slot. Each line of it is as tall as a token. */
+.studio-map-node,
+.studio-map-card {
+	position: absolute;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	width: max-content;
+	max-width: var(--map-slot);
+	overflow: hidden;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-inner);
+	background: linear-gradient(var(--map-fill), var(--map-fill)), var(--color-background-surface);
+	color: var(--color-text-primary);
+	font-family: inherit;
+	--map-fill: var(--color-neutral);
+	text-align: start;
+	transition:
+		background-color var(--duration-fast) var(--ease-standard),
+		opacity var(--duration-fast) var(--ease-standard);
+}
+
+.studio-map-node,
+.studio-map-head,
+.studio-map-row {
+	cursor: pointer;
+}
+
+.studio-map-head,
+.studio-map-row {
+	box-sizing: border-box;
+	flex: none;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: start;
+}
+
+.studio-map-head {
+	display: flex;
+	flex-direction: column;
+}
+
+.studio-map-name,
+.studio-map-row {
+	display: flex;
+	gap: var(--spacing-1);
+	align-items: center;
+	height: var(--map-line);
+	padding-inline: var(--spacing-3);
+}
+
+.studio-map-name > span,
+.studio-map-row > span {
+	min-width: 0;
+}
+
+/* Under the name, from where the name starts: past the icon and its gap. */
+.studio-map-note {
+	padding-inline: calc(var(--spacing-3) + 16px + var(--spacing-1)) var(--spacing-3);
+}
+
+.studio-map-row {
+	transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.studio-map-row > .studio-map-row-note {
+	flex: 1;
+	padding-inline-start: var(--spacing-3);
+}
+
+:is(.studio-map-node, .studio-map-head):has(> .studio-map-note) {
+	padding-block-end: var(--spacing-2);
+}
+
+/* The section under the pointer, and each one a lit line ends on. */
+.studio-map-row:is(:hover, :focus-visible, [data-on]),
+.studio-map-head:is(:hover, :focus-visible) {
+	background: var(--color-background-card);
+}
+
+/* A provider, and a shared setting nothing here uses, open nothing. */
+.studio-map-node:disabled {
+	cursor: default;
+}
+
+.studio-map-node:focus-visible {
+	outline: 2px solid var(--color-accent);
+	outline-offset: 2px;
+}
+
+.studio-map-card :is(.studio-map-head, .studio-map-row):focus-visible {
+	outline: 2px solid var(--color-accent);
+	outline-offset: -2px;
+}
+
+/* The profile or tool open in the editor, and the section of it that is open. */
+.studio-map-node[aria-current],
+.studio-map-card[data-open] {
+	--map-fill: var(--color-background-blue);
+	color: var(--color-text-blue);
+}
+
+.studio-map-row[aria-current] {
+	background: var(--color-background-card);
+}
+
+/* What a search found, among the family it brought along. */
+.studio-map :is(.map-token, .studio-map-node, .studio-map-card)[data-found] {
+	outline: 1.5px solid var(--color-accent);
+}
+
+/* The node being dragged rides over the rest, under the pointer and without easing. */
+:is(.studio-map-node, .studio-map-card)[data-dragging] {
+	z-index: 1;
+	transition: none;
+}
+
+.studio-map .map-token[data-dragging] {
+	z-index: 1;
+	transition: none;
+}
+
+:is(.studio-map-node, .studio-map-card)[data-dragging],
+.studio-map .map-token[data-dragging] *,
+.studio-map-card[data-dragging] :is(.studio-map-head, .studio-map-row) {
+	cursor: grabbing;
+}
+
+/* While one node is lit, it and what it is joined to stay; the rest step back. What a node holds
+   fades, not the node, so no line shows through it. */
+.studio-map-node > *,
+.studio-map-card > * {
+	transition:
+		opacity var(--duration-fast) var(--ease-standard),
+		background-color var(--duration-fast) var(--ease-standard);
+}
+
+.studio-map[data-lit] :is(.studio-map-node, .studio-map-card):not([data-on]) > * {
+	opacity: 0.45;
+}
+
+.studio-map[data-lit] .map-token:not([data-on]) > * {
+	opacity: 0.45;
+}
+
+.studio-map[data-lit] .map-line:not([data-on]) {
+	stroke: color-mix(in srgb, var(--color-border-emphasized) 30%, var(--color-background-surface));
+}
+
+.studio-map .map-line[data-open] {
+	stroke: var(--color-text-secondary);
+}
+
+.studio-map .map-line[data-on] {
+	stroke: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.studio-map-node,
+	.studio-map-card,
+	.studio-map-node > *,
+	.studio-map-card > *,
+	.studio-map-row,
+	.studio-map .map-token > *,
+	.studio-map .map-line {
+		transition: none;
+	}
+}

@@ -1,6 +1,3 @@
-/**
- * OTLP/JSON export: a pure reshape of v3 records, with stored content inlined.
- */
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { toOtlpJson } from '../../src/observability/otlp.ts';
 import { resolveObservabilityPolicy } from '../../src/observability/resolve-policy.ts';
@@ -48,7 +45,7 @@ Deno.test('toOtlpJson reshapes a record into one resource, one scope, its spans'
     { key: 'service.name', value: { stringValue: 'harbor' } },
   ]);
   const [scope] = resourceSpans?.scopeSpans ?? [];
-  assertEquals(scope?.scope, { name: '@theoremai/agents' });
+  assertEquals(scope?.scope, { name: '@theoremjs/agents' });
   assertEquals(scope?.schemaUrl, record.schemaUrl);
   const [root, chat] = scope?.spans ?? [];
   assertEquals(root?.traceId, '4bf92f3577b34da6a3ce929d0e0e4736');

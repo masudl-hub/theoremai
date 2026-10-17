@@ -1,0 +1,119 @@
+/**
+ * A voice call with one of the project's live profiles: the page's socket on one side, the
+ * project's own session on the other. The call opens with the page's open message, as a call to
+ * the application's relay does.
+ *
+ * @module
+ */
+
+import {
+  type LiveSession,
+  type Profile,
+  type ProviderHostOptions,
+  resolveObservabilityPolicy,
+  runSession,
+  TheoremError,
+  type TraceSink,
+} from '@theoremjs/agents';
+import {
+  createMemorySessionStore,
+  createTheoremSessionBoundary,
+  parseLiveOpenMessage,
+  type TheoremSessionBoundary,
+} from '@theoremjs/react/server';
+import { clientError } from '@theoremjs/agents/host';
+import { attachStudioLiveSession } from '../live-session-bridge.ts';
+import { STUDIO_READER } from '../reader.ts';
+import type { StudioTraceLine } from '../traces.ts';
+
+/** The server's end of the page's socket, and the answer that completes the upgrade. */
+export type StudioUpgrade = (request: Request) => { socket: WebSocket; response: Response };
+
+/** The call's records reach the page through its own sink, so the bridge has no route to close. */
+const NO_ROUTE = { metadata: {}, close: () => {} };
+
+/**
+ * Where a call's trace goes: to the page, as each record is written. A call made in the studio is
+ * a test, so its records stay out of the store the profile writes to. A profile that records
+ * nothing sends nothing, and what the profile keeps private stays out, as in any trace.
+ */
+function pageSink(socket: WebSocket, profile: Profile): TraceSink | undefined {
+  if (!resolveObservabilityPolicy(profile.observability).record) return undefined;
+  return {
+    write: (record) => {
+      const line: StudioTraceLine = { type: 'trace', record };
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(line));
+      return Promise.resolve();
+    },
+  };
+}
+
+/** The page's first message. A failure when it is malformed, or the page leaves before it. */
+function openMessage(socket: WebSocket) {
+  return new Promise<ReturnType<typeof parseLiveOpenMessage>>((resolve, reject) => {
+    const onMessage = (event: MessageEvent) => {
+      socket.removeEventListener('close', onClose);
+      try {
+        resolve(parseLiveOpenMessage(typeof event.data === 'string' ? event.data : ''));
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    const onClose = () => {
+      socket.removeEventListener('message', onMessage);
+      // labels-exempt: internal diagnostic; the user reads error.network
+      reject(new TheoremError('network', 'Live socket closed before its first message'));
+    };
+    socket.addEventListener('message', onMessage, { once: true });
+    socket.addEventListener('close', onClose, { once: true });
+  });
+}
+
+/** Runs the call until either side ends it. A failure to open reaches the page worded, with its kind. */
+async function relay(socket: WebSocket, profile: Profile, provider: ProviderHostOptions, boundary: TheoremSessionBoundary): Promise<void> {
+  let session: LiveSession;
+  try {
+    // Listen before anything waits: the page sends its open message as the socket opens.
+    const open = await openMessage(socket);
+    session = await runSession({ ...await boundary.prepareLiveOpen(open), profile: profile.id }, { ...provider, execution: boundary.toolExecution, pageExecution: boundary.pageExecution }, pageSink(socket, profile));
+  } catch (error) {
+    if (socket.readyState !== WebSocket.OPEN) return;
+    socket.send(
+      JSON.stringify({ type: 'error', ...clientError(error, profile.labels, STUDIO_READER) }),
+    );
+    socket.close(1011, 'session error');
+    return;
+  }
+  // The page may have left while the session opened; its close event has already fired.
+  if (socket.readyState !== WebSocket.OPEN) {
+    await session.close('client disconnected');
+    return;
+  }
+  await attachStudioLiveSession(socket, session, profile.id, crypto.randomUUID(), NO_ROUTE, profile.labels, {
+    clientEvents: STUDIO_READER,
+    pageResult: boundary.answerPageResult,
+    beforeEvent: async (event) => {
+      if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
+        await boundary.recordCheckpoint(event.providerState);
+    },
+  });
+}
+
+/** Serves a live profile: a socket upgrade starts a call, and anything else is told to upgrade. */
+export function createStudioLiveHandler(
+  profile: Profile,
+  provider: ProviderHostOptions,
+  upgrade: StudioUpgrade,
+): (request: Request) => Promise<Response> {
+  const sessionStore = createMemorySessionStore();
+  return async (request) => {
+    if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
+      return new Response(null, { status: 426, headers: { upgrade: 'websocket' } });
+    }
+    const boundary = await createTheoremSessionBoundary({ request, sessionStore });
+    const { socket, response } = upgrade(request);
+    if (boundary.setCookie) response.headers.append('set-cookie', boundary.setCookie);
+    void relay(socket, profile, provider, boundary);
+    return response;
+  };
+}

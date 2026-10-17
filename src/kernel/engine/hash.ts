@@ -12,11 +12,7 @@ export async function sha256(text: string): Promise<string> {
   return hexSha256(new Uint8Array(buf));
 }
 
-/**
- * Hash base64 media over its raw bytes, so a hash names the media itself
- * whichever encoding carried it. Returns the decoded length too, or
- * `undefined` when the text is not base64 (the caller labels what it holds).
- */
+/** Hashes the decoded bytes, so the hash names the media whatever encoding carried it; `undefined` when not base64. */
 export async function sha256Base64(
   base64: string,
 ): Promise<{ hash: string; bytes: number } | undefined> {

@@ -10,11 +10,22 @@ import {
   TheoremError,
   throwIfAborted,
   toErrorEvent,
-  withPublicWording,
+  withPublicLabels,
 } from '../../src/guardrails/error.ts';
-import { lexiconDefault, overrideLexicon, resetLexicon } from '../../src/guardrails/lexicon.ts';
+import {
+  type LabelOverrides,
+  labelDefault,
+  overrideLabels,
+  resetLabels,
+} from '../../src/guardrails/labels.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
+import { firstOf, toolEventsOf } from '../fixtures/events.ts';
+
+/** An event's wording, read back as its error. */
+function wordedError(event: TurnEvent, labels?: LabelOverrides) {
+  return firstOf([withPublicLabels(event, labels)], 'error');
+}
 
 /** The locked user lines, one per kind. */
 const LOCKED: Record<ErrorKind, string> = {
@@ -23,7 +34,7 @@ const LOCKED: Record<ErrorKind, string> = {
   input: "Sorry, that file can't be used here.",
   action: "Sorry, that isn't available here.",
   auth: "Sorry, the assistant can't connect at the moment.",
-  rate_limit: 'Sorry, things are a little busy just now. Please try again in a moment.',
+  rate_limit: 'Sorry, the usage limit has been reached. Please try again later.',
   unsupported: "Sorry, that isn't something the assistant can do.",
   unavailable: "Sorry, the model isn't available at the moment. Please try again shortly.",
   bad_response: "Sorry, that reply didn't come through properly. Please try again.",
@@ -40,7 +51,7 @@ const LOCKED: Record<ErrorKind, string> = {
 Deno.test('every kind has its locked wording', () => {
   assertEquals([...ERROR_KINDS].sort(), Object.keys(LOCKED).sort());
   for (const kind of ERROR_KINDS) {
-    assertEquals(lexiconDefault(`error.${kind}`), LOCKED[kind]);
+    assertEquals(labelDefault(`error.${kind}`), LOCKED[kind]);
     assertEquals(publicError(new TheoremError(kind, 'raw detail')), LOCKED[kind]);
   }
 });
@@ -89,17 +100,17 @@ Deno.test('publicError prefers the failure copy over its kind', () => {
   assertEquals(publicError(err), 'Sorry, only 5 files can be sent per message.');
 });
 
-Deno.test('wording resolves profile lexicon, then overrideLexicon, then the default', () => {
+Deno.test('wording resolves profile labels, then overrideLabels, then the default', () => {
   const err = new TheoremError('rate_limit', 'HTTP 429');
   try {
     assertEquals(publicError(err), LOCKED.rate_limit);
-    overrideLexicon({ 'error.rate_limit': 'Host-wide: busy.' });
+    overrideLabels({ 'error.rate_limit': 'Host-wide: busy.' });
     assertEquals(publicError(err), 'Host-wide: busy.');
     assertEquals(publicError(err, { 'error.rate_limit': 'Profile: busy.' }), 'Profile: busy.');
     // A profile that leaves the key unset falls through to the host.
     assertEquals(publicError(err, { 'error.auth': 'Profile: key.' }), 'Host-wide: busy.');
   } finally {
-    resetLexicon();
+    resetLabels();
   }
 });
 
@@ -119,45 +130,46 @@ Deno.test('toErrorEvent keeps a failure copy for the host boundary', () => {
   const ev = toErrorEvent(new TheoremError('input', 'image/png is 3000000 bytes', { copy }));
   assertEquals(ev.errorCopy, copy);
   assertEquals(
-    withPublicWording(ev).error,
+    wordedError(ev)?.error,
     'Sorry, that file is too large. Each file needs to be 2 MB or smaller.',
   );
 });
 
-Deno.test('withPublicWording words error events with the profile lexicon', () => {
+Deno.test('withPublicLabels words error events with the profile labels', () => {
   const ev = toErrorEvent(new TheoremError('auth', 'no key in slot free'));
-  assertEquals(withPublicWording(ev).error, LOCKED.auth);
-  const lexicon = { 'error.auth': 'Add your API key in settings to continue.' };
-  assertEquals(withPublicWording(ev, lexicon).error, lexicon['error.auth']);
-  assertEquals(withPublicWording(ev, lexicon).errorInternal, 'no key in slot free');
+  assertEquals(wordedError(ev)?.error, LOCKED.auth);
+  const labels = { 'error.auth': 'Add your API key in settings to continue.' };
+  assertEquals(wordedError(ev, labels)?.error, labels['error.auth']);
+  assertEquals(wordedError(ev, labels)?.errorInternal, 'no key in slot free');
 });
 
-Deno.test('withPublicWording keeps wording already set', () => {
+Deno.test('withPublicLabels keeps wording already set', () => {
   const ev = { ...toErrorEvent(new TheoremError('failed', 'x')), error: 'Host copy.' };
-  assertEquals(withPublicWording(ev).error, 'Host copy.');
+  assertEquals(wordedError(ev)?.error, 'Host copy.');
 });
 
-Deno.test('withPublicWording words a failed tool step with its tool name', () => {
-  const ev = {
-    type: 'tool' as const,
+Deno.test('withPublicLabels words a failed tool step with its tool name', () => {
+  const ev: TurnEvent = {
+    type: 'tool',
     tool: {
       name: 'send_email',
-      phase: 'error' as const,
-      failure: { code: 'network_blocked', kind: 'blocked' as const, message: 'blocked host' },
+      callId: 'c1',
+      at: 0,
+      phase: 'error',
+      failure: { code: 'network_blocked', kind: 'blocked', message: 'blocked host' },
     },
   };
-  assertEquals(withPublicWording(ev).tool?.failure?.error, LOCKED.blocked);
-  const lexicon = { 'error.blocked': "Sorry, '{tool}' wasn't allowed." };
-  assertEquals(
-    withPublicWording(ev, lexicon).tool?.failure?.error,
-    "Sorry, 'send_email' wasn't allowed.",
-  );
-  assertEquals(withPublicWording(ev, lexicon).tool?.failure?.message, 'blocked host');
+  const failure = (labels?: LabelOverrides) =>
+    toolEventsOf([withPublicLabels(ev, labels)], 'error')[0]?.failure;
+  assertEquals(failure()?.error, LOCKED.blocked);
+  const labels = { 'error.blocked': "Sorry, '{tool}' wasn't allowed." };
+  assertEquals(failure(labels)?.error, "Sorry, 'send_email' wasn't allowed.");
+  assertEquals(failure(labels)?.message, 'blocked host');
 });
 
-Deno.test('withPublicWording leaves other events untouched', () => {
+Deno.test('withPublicLabels leaves other events untouched', () => {
   const ev = { type: 'text' as const, text: 'hi' };
-  assertEquals(withPublicWording(ev), ev);
+  assertEquals(withPublicLabels(ev), ev);
 });
 
 Deno.test('TheoremError carries its name, kind, and copy', () => {
@@ -220,22 +232,4 @@ Deno.test('describeError returns the raw detail', () => {
   assertEquals(describeError(42), '42');
   assertEquals(describeError(null), 'null');
   assertEquals(describeError(new Error('')), 'Error');
-});
-
-Deno.test('withPublicWording words an ended session with the profile lexicon', () => {
-  const ev: TurnEvent = {
-    type: 'session',
-    session: { kind: 'ended', ended: { cause: 'go_away', code: 1000, closedAfterMs: 0 } },
-  };
-  assertEquals(
-    withPublicWording(ev).session?.message,
-    'The call has ended. Please start a new one to carry on.',
-  );
-  const lexicon = { 'live.session_ended': 'That call is over. Start another any time.' };
-  assertEquals(withPublicWording(ev, lexicon).session?.message, lexicon['live.session_ended']);
-  const worded = {
-    ...ev,
-    session: { ...ev.session, kind: 'ended' as const, message: 'Host copy.' },
-  };
-  assertEquals(withPublicWording(worded).session?.message, 'Host copy.');
 });

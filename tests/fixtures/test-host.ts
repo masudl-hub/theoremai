@@ -1,5 +1,10 @@
-import { type ProfileDefinition, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerStructured } from '../../src/kernel/registry/schemas.ts';
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from './provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
+import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
+import type { ProfileDefinition } from '../../src/kernel/registry/profiles.ts';
 import { registerHarnessTools } from '../../src/kernel/tools/mod.ts';
 import type { GoogleImagePins } from '../../src/presets/google.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
@@ -16,20 +21,17 @@ import { registerTestTools } from './test-tools.ts';
 registerGooglePreset();
 registerHarnessTools();
 registerTestTools();
-
 const CHAT_ATTACH = [...IMAGE_INPUT_MIMES, 'application/pdf', 'text/csv', 'text/plain'];
 const FORMATTER_ATTACH = [...IMAGE_INPUT_MIMES, 'application/pdf', 'text/plain'];
-const LONG_FLASH = 40_000;
+const LONG_FLASH = 40000;
 const PIN_QUOTA = 4;
 const CHAT_QUOTA = 10;
 const FORMATTER_QUOTA = 20;
-
 const MESSAGE_SCHEMA = {
   type: 'object',
   properties: { message: { type: 'string' }, body: { type: 'string' } },
   required: ['message'],
 };
-
 registerStructured('chatTurn', { jsonSchema: MESSAGE_SCHEMA });
 registerStructured('htmlTurn', {
   jsonSchema: {
@@ -72,7 +74,6 @@ registerStructured('optionalCodeTurn', {
     required: ['message'],
   },
 });
-
 const chat: ProfileDefinition = {
   type: 'text',
   id: 'chat',
@@ -81,7 +82,6 @@ const chat: ProfileDefinition = {
     gemini35FlashLite: HOST_BINDINGS.gemini35FlashLite,
   },
   maxSteps: 1,
-  key: 'slotA',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -91,11 +91,9 @@ const chat: ProfileDefinition = {
   },
   outputs: { structured: 'chatTurn' },
   guardrails: {
-    canary: true,
     quota: { perDay: CHAT_QUOTA },
   },
 };
-
 const pinned: ProfileDefinition = {
   type: 'text',
   id: 'pinned',
@@ -108,16 +106,13 @@ const pinned: ProfileDefinition = {
     },
   },
   maxSteps: 1,
-  key: 'slotA',
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: 'chatTurn' },
   guardrails: {
-    canary: true,
     quota: { perDay: PIN_QUOTA },
   },
 };
-
 const selector: ProfileDefinition = {
   type: 'text',
   id: 'selector',
@@ -141,7 +136,6 @@ const selector: ProfileDefinition = {
   defaultModel: 'gemini35FlashLite',
   allowModelSelect: true,
   maxSteps: 1,
-  key: 'slotB',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -151,11 +145,9 @@ const selector: ProfileDefinition = {
   },
   outputs: { structured: null },
   guardrails: {
-    canary: true,
     quota: { perDay: CHAT_QUOTA },
   },
 };
-
 const formatter: ProfileDefinition = {
   type: 'text',
   id: 'formatter',
@@ -167,7 +159,6 @@ const formatter: ProfileDefinition = {
     },
   },
   maxSteps: 1,
-  key: 'slotC',
   tools: { allow: [] },
   inputs: {
     text: true,
@@ -179,11 +170,9 @@ const formatter: ProfileDefinition = {
     structured: { by: 'language', map: { html: 'htmlTurn', tsx: 'tsxTurn' }, fallback: 'htmlTurn' },
   },
   guardrails: {
-    canary: true,
     quota: { perDay: FORMATTER_QUOTA },
   },
 };
-
 const image: ProfileDefinition = {
   type: 'image',
   id: 'image',
@@ -192,7 +181,7 @@ const image: ProfileDefinition = {
   maxSteps: 1,
   image: {
     aspectRatio: '1:1',
-    size: '1K',
+    resolution: '1K',
     mimeType: 'image/jpeg',
   } satisfies GoogleImagePins,
   tools: { allow: [] },
@@ -203,11 +192,9 @@ const image: ProfileDefinition = {
   },
   outputs: { structured: null },
   guardrails: {
-    canary: true,
     quota: { perDay: PIN_QUOTA },
   },
 };
-
 const speech: ProfileDefinition = {
   type: 'speech',
   id: 'speech',
@@ -219,11 +206,20 @@ const speech: ProfileDefinition = {
     quota: { perDay: PIN_QUOTA },
   },
 };
-
 registerProfile(chat);
 registerProfile(pinned);
-registerProfile(selector);
-registerProfile(formatter);
+registerProfile({
+  ...selector,
+  models: Object.fromEntries(
+    Object.entries(selector.models).map(([id, model]) => [id, { ...model, keySlot: 'slot_b' }]),
+  ),
+});
+registerProfile({
+  ...formatter,
+  models: Object.fromEntries(
+    Object.entries(formatter.models).map(([id, model]) => [id, { ...model, keySlot: 'slot_c' }]),
+  ),
+});
 registerProfile(image);
 registerProfile(speech);
 

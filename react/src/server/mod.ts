@@ -60,6 +60,8 @@ export {
 } from './decision-handler.ts';
 export {
   createTheoremEmbeddingHandler,
+  embedBodySchema,
+  embedRequest,
   type TheoremEmbeddingHandlerOptions,
 } from './embedding-handler.ts';
 export {

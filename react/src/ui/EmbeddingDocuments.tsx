@@ -37,7 +37,8 @@ import type { LabelText } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { textRows } from './StateFields.tsx';
 
-type Rules = EmbeddingInterface['inputs'];
+/** The profile's `inputs`, which every request is held to. */
+export type Rules = EmbeddingInterface['inputs'];
 
 /** A document as the list shows it: what it sends, and the file it came from. */
 export type EmbeddingDocument = { input: EmbeddingInput; from?: string };
@@ -207,7 +208,7 @@ export function documentLabel(
 }
 
 /** One document in a list: its picture, its words or name, and where it came from. */
-export function DocumentItem({
+function DocumentItem({
   document,
   number,
   note,
@@ -233,6 +234,46 @@ export function DocumentItem({
 }
 
 /** Where the text is cut, and the separator when it is one of the user's own. */
+/** A file field that reads what is dropped or chosen, and says which files it could not read. */
+export function EmbeddingFileDrop({
+  label,
+  placeholder,
+  accept,
+  isMultiple = false,
+  onFiles,
+}: {
+  label: string;
+  placeholder: string;
+  accept: readonly string[];
+  isMultiple?: boolean;
+  onFiles: (files: File[]) => Promise<void>;
+}) {
+  const t = useLabels();
+  const [unreadable, setUnreadable] = useState<string | null>(null);
+  return (
+    <FileInput
+      label={label}
+      isLabelHidden
+      mode={isMultiple ? 'dropzone' : 'input'}
+      isMultiple={isMultiple}
+      accept={accept.join(',')}
+      value={null}
+      placeholder={placeholder}
+      status={unreadable ? { type: 'error', message: unreadable } : undefined}
+      onChange={(files) => {
+        const list = files === null ? [] : Array.isArray(files) ? files : [files];
+        if (list.length === 0) return;
+        setUnreadable(null);
+        onFiles(list).catch(() => {
+          setUnreadable(
+            t('@theorem.embedding.unreadable', { name: list.map((file) => file.name).join(', ') }),
+          );
+        });
+      }}
+    />
+  );
+}
+
 function SplitFields({ form }: { form: EmbeddingDocumentsForm }) {
   const t = useLabels();
   return (
@@ -328,7 +369,6 @@ function DocumentList({ form }: { form: EmbeddingDocumentsForm }) {
 /** Text to split, files to add, and the documents they make. */
 function DocumentFields({ form, rules }: { form: EmbeddingDocumentsForm; rules: Rules }) {
   const t = useLabels();
-  const [unreadable, setUnreadable] = useState<string | null>(null);
   const accept = [
     ...(rules.attachments?.accept ?? []),
     ...(rules.text ? ['text/*', '.md', '.csv', '.json'] : []),
@@ -349,27 +389,12 @@ function DocumentFields({ form, rules }: { form: EmbeddingDocumentsForm; rules: 
         </>
       ) : null}
       {accept.length > 0 ? (
-        <FileInput
+        <EmbeddingFileDrop
           label={t('@theorem.embedding.files')}
-          isLabelHidden
-          mode="dropzone"
-          isMultiple
-          accept={accept.join(',')}
-          value={null}
           placeholder={t('@theorem.embedding.drop_files')}
-          status={unreadable ? { type: 'error', message: unreadable } : undefined}
-          onChange={(files) => {
-            const list = files === null ? [] : Array.isArray(files) ? files : [files];
-            if (list.length === 0) return;
-            setUnreadable(null);
-            form.addFiles(list).catch(() => {
-              setUnreadable(
-                t('@theorem.embedding.unreadable', {
-                  name: list.map((file) => file.name).join(', '),
-                }),
-              );
-            });
-          }}
+          accept={accept}
+          isMultiple
+          onFiles={form.addFiles}
         />
       ) : null}
       <DocumentList form={form} />

@@ -1,5 +1,6 @@
 import {
   defineProfile,
+  type EmbeddingInput,
   type EmbeddingProfile,
   type EmbeddingProfileDefinition,
   type KeyVault,
@@ -30,11 +31,21 @@ export type TheoremEmbeddingHandlerOptions = {
   onError?: (err: unknown, ctx: { request: Request }) => void;
 };
 
-const embedBodySchema = z.object({
+/** The body an embedding request posts: the input, and optionally the model and the task. */
+export const embedBodySchema = z.object({
   input: z.unknown(),
   model: z.string().min(1).optional(),
   task: z.enum(['query', 'document']).optional(),
 });
+
+/** The body as the embedding request `runEmbedding` takes, less its profile. */
+export function embedRequest(body: z.infer<typeof embedBodySchema>) {
+  return {
+    input: body.input as EmbeddingInput | readonly EmbeddingInput[],
+    ...(body.model === undefined ? {} : { model: body.model }),
+    ...(body.task === undefined ? {} : { task: body.task }),
+  };
+}
 
 export function createTheoremEmbeddingHandler(
   options: TheoremEmbeddingHandlerOptions,
@@ -63,9 +74,7 @@ export function createTheoremEmbeddingHandler(
       return runEmbedding(
         {
           profile: profile.id,
-          input: body.input as never,
-          ...(body.model === undefined ? {} : { model: body.model }),
-          ...(body.task === undefined ? {} : { task: body.task }),
+          ...embedRequest(body),
           signal: request.signal,
           metadata: options.metadata?.(request),
         },

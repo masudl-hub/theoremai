@@ -19,8 +19,12 @@ import { ChartCard } from './trace-patterns.tsx';
 /** Matches the card lists, best first. */
 const MATCHES_SHOWN = 10;
 
-type IndexRun = OneCallState<'indexing', EmbeddingIndex> & { progress: IndexProgress | null };
-type SearchRun = OneCallState<'embedding', EmbeddingResult>;
+/** Where indexing is, as `useEmbeddingIndex` reports it. */
+export type IndexRun = OneCallState<'indexing', EmbeddingIndex> & {
+  progress: IndexProgress | null;
+};
+/** Where the search is, as `useTheoremEmbedding` reports it. */
+export type SearchRun = OneCallState<'embedding', EmbeddingResult>;
 
 function Failure({ failure }: { failure: ClientFailure | null }) {
   return failure ? <Banner status="error" role="alert" title={failure.error} /> : null;

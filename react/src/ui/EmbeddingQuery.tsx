@@ -1,4 +1,3 @@
-import { FileInput } from '@astryxdesign/core/FileInput';
 import { HStack } from '@astryxdesign/core/HStack';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { Token } from '@astryxdesign/core/Token';
@@ -12,15 +11,12 @@ import {
   inputFields,
   readEmbeddingInput,
 } from '../client/embedding-input.ts';
-import type { EmbeddingInterface } from '../client/embedding-transport.ts';
 import { encodeFiles } from '../client/encode-files.ts';
 import { type ConsoleView, JsonRequest, RequestCard, RunBar, useBytes } from './ConsoleFrame.tsx';
-import { inputIssue } from './EmbeddingDocuments.tsx';
+import { EmbeddingFileDrop, inputIssue, type Rules } from './EmbeddingDocuments.tsx';
 import type { LabelText } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { textRows } from './StateFields.tsx';
-
-type Rules = EmbeddingInterface['inputs'];
 
 /** Where the documents stand for a search: none embedded, embedded, or changed since. */
 export type IndexState = 'none' | 'fresh' | 'stale';
@@ -64,7 +60,6 @@ function QueryFields({
 }) {
   const t = useLabels();
   const bytes = useBytes();
-  const [unreadable, setUnreadable] = useState<string | null>(null);
   const accept = rules.attachments?.accept;
   return (
     <VStack gap={2}>
@@ -100,37 +95,20 @@ function QueryFields({
           ))}
         </HStack>
       ) : accept ? (
-        <FileInput
+        <EmbeddingFileDrop
           label={t('@theorem.embedding.query_file')}
-          isLabelHidden
-          mode="input"
-          accept={accept.join(',')}
-          value={null}
           placeholder={t('@theorem.embedding.query_file')}
-          status={unreadable ? { type: 'error', message: unreadable } : undefined}
-          onChange={(files) => {
-            const list = files === null ? [] : Array.isArray(files) ? files : [files];
-            if (list.length === 0) return;
-            setUnreadable(null);
-            encodeFiles(list).then(
-              (encoded) => {
-                onChange({
-                  ...fields,
-                  media: encoded.map(({ mimeType, data }) => ({
-                    type: 'media' as const,
-                    mimeType,
-                    data,
-                  })),
-                });
-              },
-              () => {
-                setUnreadable(
-                  t('@theorem.embedding.unreadable', {
-                    name: list.map((file) => file.name).join(', '),
-                  }),
-                );
-              },
-            );
+          accept={accept}
+          onFiles={async (files) => {
+            const encoded = await encodeFiles(files);
+            onChange({
+              ...fields,
+              media: encoded.map(({ mimeType, data }) => ({
+                type: 'media' as const,
+                mimeType,
+                data,
+              })),
+            });
           }}
         />
       ) : null}

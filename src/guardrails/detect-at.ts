@@ -2,7 +2,7 @@
 // else reads the matrix to decide what a match does.
 
 import { applySpans, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
-import { type Boundary, recordOf, TOOL_BOUNDARIES } from './boundaries.ts';
+import { type Boundary, INBOUND_BOUNDARIES, recordOf, TOOL_BOUNDARIES } from './boundaries.ts';
 import { canaryLeakRanges } from './canary.ts';
 import {
   actionAt,
@@ -27,6 +27,7 @@ import { injectionSpans } from './injection.ts';
 import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES, detectRule } from './rules.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups, sensitiveSpans } from './sensitive.ts';
+import { TheoremError } from './theorem-error.ts';
 import { directives, mergedRanges } from './tool-directives.ts';
 import { ownToolsWithout, toolLeakSpans } from './tool-leak.ts';
 import type {
@@ -322,6 +323,13 @@ function failedHit(
   };
 }
 
+/**
+ * The longest single text the person or host may send, in characters: far over any model's
+ * context, and under what the detectors read safely.
+ */
+const MAX_INBOUND_CHARS = 1_000_000;
+const INBOUND: ReadonlySet<Boundary> = new Set(INBOUND_BOUNDARIES);
+
 /** Reads `text` as it crosses `boundary` under the profile's resolved matrix. */
 function detectAt(
   text: string,
@@ -329,6 +337,16 @@ function detectAt(
   detect: ResolvedDetect,
   scope: DetectScope = NO_SCOPE,
 ): Detection {
+  if (INBOUND.has(boundary) && text.length > MAX_INBOUND_CHARS) {
+    // labels-exempt: internal diagnostic; the person reads `input.too_long`
+    throw new TheoremError(
+      'input',
+      `${boundary} text of ${text.length} characters is over ${MAX_INBOUND_CHARS}`,
+      {
+        copy: { key: 'input.too_long', params: { maxChars: MAX_INBOUND_CHARS } },
+      },
+    );
+  }
   const hits: GuardrailHit[] = [];
   const redact: RedactSpan[] = [];
   let action: DetectOutcome = 'allow';

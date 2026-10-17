@@ -333,19 +333,23 @@ function schemaPatterns(value: unknown): string[] {
 }
 
 /**
- * `defineProfile` for a draft a request carries: the sender wrote the draft, so a draft the kernel
- * refuses is a bad request (`request`), not the host's configuration (`config`).
+ * `work` on a draft a request carries: the sender wrote the draft, so a draft the kernel refuses is
+ * a bad request (`request`), not the host's configuration (`config`).
  */
-export const defineDraft = ((definition: ProfileDefinition) => {
+function asDraft<T>(work: () => T): T {
   try {
-    return defineProfile(definition as never);
+    return work();
   } catch (err) {
     if (err instanceof TheoremError && err.kind === 'config') {
       throw new TheoremError('request', err.message, { cause: err });
     }
     throw err;
   }
-}) as typeof defineProfile;
+}
+
+/** `defineProfile` for a draft a request carries. */
+export const defineDraft = ((definition: ProfileDefinition) =>
+  asDraft(() => defineProfile(definition as never))) as typeof defineProfile;
 
 /** Registers the draft's tools, schema, and profile into `scope`, as the runtime runs it. */
 async function registerDraft(
@@ -379,7 +383,8 @@ async function registerDraft(
       if (violation) throw new TheoremError('request', violation.message); // labels-exempt: builder connection diagnostic
     }
   }
-  return registerDefined(scope, defined, customTools, structured, runtime.toolHandlers);
+  // why: Registering checks each binding's options and the tools and schemas it names, all the sender's.
+  return asDraft(() => registerDefined(scope, defined, customTools, structured, runtime.toolHandlers));
 }
 
 /** Registers a draft's tools and schema, then its profile, into `scope`. */

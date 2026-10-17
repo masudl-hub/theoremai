@@ -159,6 +159,40 @@ Deno.test('a model the keys refuse is a bad request, not the host', async () => 
   );
 });
 
+Deno.test('a binding option the protocol does not take is a bad request, and never moves the key', async () => {
+  const handler = createStudioDraftHandler({ lent: ON_TEST_KEYS });
+  const run = concierge();
+  assert(run.profile.type === 'text');
+  const models = Object.fromEntries(
+    Object.entries(run.profile.models).map(([name, binding]) => [
+      name,
+      { ...binding, options: { baseUrl: 'https://elsewhere.example/v1' } },
+    ]),
+  );
+  const response = await handler(
+    post('turn', { ...run, profile: { ...run.profile, models }, input: { text: 'Hello' } }),
+  );
+  assertEquals(
+    (await lines(response))
+      .filter((event) => event.type === 'error')
+      .map((event) => event.errorKind),
+    ['request'],
+  );
+});
+
+Deno.test('a message far over the length the detectors read is the sender’s error, not the host’s', async () => {
+  const handler = createStudioDraftHandler({ lent: ON_TEST_KEYS });
+  const response = await handler(
+    post('turn', { ...concierge(), input: { text: 'a'.repeat(8_000_000) } }),
+  );
+  assertEquals(
+    (await lines(response))
+      .filter((event) => event.type === 'error')
+      .map((event) => event.errorKind),
+    ['input'],
+  );
+});
+
 Deno.test('a refused spend refuses the call before it runs', async () => {
   const spent: StudioSpend[] = [];
   const handler = createStudioDraftHandler({

@@ -4,7 +4,7 @@
   "type": "module",
   "description": "The studio's source: the profile draft, its tree and compiler, source export, and the studio screen. `npm run build:npm:studio` builds @theoremjs/studio from it into npm/, at the root package's version; this folder is never published itself. Opt-in: nothing here is installed with the kernel or the React package; `npm install` in this folder is what lets the screen run on its own.",
   "scripts": {
-    "test": "node installed.mjs && npm run theme:check && deno test --config ../deno.json --no-check --allow-read --allow-env --allow-sys tests",
+    "test": "node installed.mjs && npm run theme:check && deno test --config ../deno.json --no-check --allow-read --allow-write --allow-env --allow-sys tests",
     "theme:build": "node ../scripts/theme.mjs build studio",
     "theme:check": "node ../scripts/theme.mjs check studio"
   },

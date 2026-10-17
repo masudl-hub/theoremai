@@ -3,8 +3,12 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** The package repo: this file is `studio/vite.mjs` in it. */
+/**
+ * The package repo when the studio is linked from it (`studio/vite.mjs` there). An install from the
+ * registry has none: the declarations are the ones the installed `@theoremjs/agents` ships.
+ */
 const theoremaiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const linked = existsSync(path.join(theoremaiRoot, 'mod.ts'));
 
 /** The package's own folder: `studio/` in the repo, or the installed package. */
 const studioRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -39,8 +43,8 @@ const CACHE_VERSION = 1;
  * - `virtual:studio-codicons/*` is Monaco's icon sheets.
  * - `virtual:studio-type-sources` is the declarations for the open agent's file. The Monaco
  *   worker typechecks that one file. It does not typecheck the kernel: these are the
- *   declarations the package's own compiler emits for `@theoremjs/agents`, plus the zod
- *   declarations that entry imports. Locale files and anything the entries do not reach are
+ *   declarations for `@theoremjs/agents` (emitted from the repo when the package is linked from
+ *   it, or the ones the installed package ships), plus the zod declarations that entry imports. Locale files and anything the entries do not reach are
  *   left out. The worker resolves a `.js` import in a declaration to the `.d.ts` beside it.
  */
 export function studioVite({ hostRoot }) {
@@ -66,6 +70,7 @@ export function studioVite({ hostRoot }) {
 }
 
 function loadDeclarations(hostRoot) {
+	if (!linked) return installedDeclarations(hostRoot);
 	const cacheFile = path.join(hostRoot, 'node_modules/.vite/studio-declarations.json');
 	const stamp = sourceStamp();
 	const cached = readCache(cacheFile);
@@ -171,6 +176,13 @@ function emitDeclarations(hostRoot) {
 		const relative = path.relative(theoremaiRoot, fileName).split(path.sep).join('/');
 		files[`${prefix}/${relative}`] = rewriteTypeSpecifiers(contents);
 	}
+	return files;
+}
+
+/** The installed package's declarations, under the paths the open file imports them by. */
+function installedDeclarations(hostRoot) {
+	const files = {};
+	addTree(files, path.join(hostPackage(hostRoot, '@theoremjs/agents'), 'esm'), 'file:///node_modules/@theoremjs/agents', '.d.ts');
 	return files;
 }
 

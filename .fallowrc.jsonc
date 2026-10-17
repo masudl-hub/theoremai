@@ -74,7 +74,8 @@
     "scripts/**",
     "src/cli/**",
     "npm/**",
-    "react/npm/**"
+    "react/npm/**",
+    "studio/npm/**"
   ],
   // Follows calls made through refs and returned clients, which the syntactic pass cannot.
   "typeAware": { "enabled": true },

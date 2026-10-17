@@ -1105,6 +1105,11 @@ function compileBlockedReply(
   return Object.keys(spec).length ? spec : undefined;
 }
 
+/** The network guardrail `guardrails` compiles to, which a draft's runs keep to: what a connection test sends. */
+export function draftNetwork(guardrails: GuardrailsDraft): ProfileGuardrailsSpec['network'] {
+  return compileNetwork(guardrails, () => {});
+}
+
 function compileNetwork(
   guardrails: GuardrailsDraft,
   report: Report,

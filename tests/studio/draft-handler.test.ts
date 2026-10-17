@@ -230,6 +230,31 @@ Deno.test('the tool connection test words its own failures', async () => {
   );
 });
 
+Deno.test("a connection test keeps to the draft's network guardrail only on the builder's own server", async () => {
+  const local = Deno.serve(
+    { hostname: '127.0.0.1', port: 0, onListen: () => {} },
+    () => new Response('here'),
+  );
+  try {
+    const endpoint = `http://127.0.0.1:${local.addr.port}/`;
+    const test = { type: 'http', endpoint, network: { allowPrivateNetworks: true } };
+    const own = await (
+      await createStudioDraftHandler({ draftNetwork: true })(post('test-connection', test))
+    ).json();
+    assertEquals([own.ok, own.preview], [true, 'here']);
+    const shown = await (await createStudioDraftHandler()(post('test-connection', test))).json();
+    assertEquals(shown.code, 'ssrf_blocked');
+    const unasked = await (
+      await createStudioDraftHandler({ draftNetwork: true })(
+        post('test-connection', { type: 'http', endpoint }),
+      )
+    ).json();
+    assertEquals(unasked.code, 'ssrf_blocked');
+  } finally {
+    await local.shutdown();
+  }
+});
+
 /** Sends one text to a handler that keeps what passed; what it kept, once the deferred work is done. */
 async function probe(text: string, fail = false) {
   const kept: ProbeEntry[] = [];

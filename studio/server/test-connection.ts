@@ -12,6 +12,7 @@ import {
   fetchGuarded,
   isUnsupportedMcpProtocolError,
   MCP_PROTOCOL_VERSIONS,
+  type NetworkGuardrailSpec,
   parseMcpRpcResponse,
   type ResolveHost,
   TheoremError,
@@ -21,6 +22,19 @@ import {
 import { caughtStatus, clientError } from '@theoremjs/agents/host';
 import type { HttpMethod } from '@theoremjs/agents/schema';
 import { readBody } from '@theoremjs/react/server';
+
+/** What a test's request is checked against: the network guardrail it keeps to, and the resolver that finds where a name points. */
+type ProbeGuard = { policy?: NetworkGuardrailSpec; resolveHost?: ResolveHost };
+
+/** A draft's network guardrail, as the screen sends it beside the test. */
+const draftNetworkSchema = z
+  .object({
+    allowPrivateNetworks: z.boolean().optional(),
+    allowedHosts: z.array(z.string().min(1).max(253)).max(64).optional(),
+    allowedSchemes: z.array(z.string().min(1).max(32)).max(8).optional(),
+  })
+  .strict()
+  .optional();
 
 type AuthProbe = {
   slot?: string;
@@ -165,7 +179,7 @@ async function readCapped(res: Response): Promise<string> {
 async function fetchWithTimeout(
   url: string,
   init: { method: string; headers: Record<string, string>; body?: string },
-  resolveHost: ResolveHost | undefined,
+  guard: ProbeGuard,
 ): Promise<{ res: Response; text: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -175,7 +189,7 @@ async function fetchWithTimeout(
     const res = await fetchGuarded(
       url,
       { ...init, signal: controller.signal },
-      { followRedirects: false, resolveHost },
+      { followRedirects: false, ...guard },
     );
     return { res, text: await readCapped(res) };
   } catch (err) {
@@ -218,7 +232,7 @@ function mappingReason(
 async function handleHttpProbe(
   body: Extract<TestConnectionRequest, { type: 'http' }>,
   start: number,
-  resolveHost: ResolveHost | undefined,
+  guard: ProbeGuard,
 ) {
   if (typeof body.endpoint !== 'string' || !body.endpoint.trim()) {
     return Response.json({ ok: false, error: 'Endpoint URL is required' }, { status: 400 });
@@ -257,7 +271,7 @@ async function handleHttpProbe(
     const { res, text } = await fetchWithTimeout(
       requestUrl,
       { method, headers, ...(method === 'GET' ? {} : { body: requestBody }) },
-      resolveHost,
+      guard,
     );
     if (isRedirect(res)) return redirectResponse(res, start);
     const contentType = res.headers.get('content-type') || '';
@@ -374,12 +388,12 @@ async function attemptMcpProbe(
   baseHeaders: Record<string, string>,
   protocolVersion: string,
   start: number,
-  resolveHost: ResolveHost | undefined,
+  guard: ProbeGuard,
 ): Promise<McpAttempt> {
   const { res, text } = await fetchWithTimeout(
     url,
     mcpToolsListRequest(baseHeaders, protocolVersion),
-    resolveHost,
+    guard,
   );
   if (isRedirect(res)) return { response: redirectResponse(res, start) };
   let rpcData: McpRpcResponse;
@@ -397,7 +411,7 @@ async function attemptMcpProbe(
 async function handleMcpProbe(
   body: Extract<TestConnectionRequest, { type: 'mcp' }>,
   start: number,
-  resolveHost: ResolveHost | undefined,
+  guard: ProbeGuard,
 ) {
   if (typeof body.serverUrl !== 'string' || !body.serverUrl.trim()) {
     return Response.json({ ok: false, error: 'Server URL is required' }, { status: 400 });
@@ -423,7 +437,7 @@ async function handleMcpProbe(
 
     // Preferred version first; a server that refuses one is asked again under the next.
     for (const protocolVersion of MCP_PROTOCOL_VERSIONS) {
-      const attempt = await attemptMcpProbe(body, url, baseHeaders, protocolVersion, start, resolveHost);
+      const attempt = await attemptMcpProbe(body, url, baseHeaders, protocolVersion, start, guard);
       if ('response' in attempt) return attempt.response;
       lastStatus = attempt.status;
       lastProtocolError = attempt.protocolError;
@@ -444,13 +458,14 @@ async function handleMcpProbe(
 }
 
 /**
- * `POST <base>/test-connection`: one request to a draft HTTP or MCP tool's endpoint. A name is
- * checked against private addresses only through `resolveHost`; without it, only the address as
- * written is.
+ * `POST <base>/test-connection`: one request to a draft HTTP or MCP tool's endpoint. It reaches
+ * public hosts only, unless `draftNetwork` is set: then it keeps to the network guardrail the
+ * draft sends (`network`), as the draft's runs do. A name is checked against private addresses
+ * only through `resolveHost`; without it, only the address as written is.
  */
 export async function testConnection(
   request: Request,
-  resolveHost?: ResolveHost,
+  options: { resolveHost?: ResolveHost; draftNetwork?: boolean } = {},
 ): Promise<Response> {
   const start = Date.now();
   try {
@@ -466,8 +481,17 @@ export async function testConnection(
       return Response.json({ ok: false, error: 'Type must be http or mcp' }, { status: 400 });
     }
     const body = rawBody as TestConnectionRequest;
-    if (body.type === 'http') return await handleHttpProbe(body, start, resolveHost);
-    return await handleMcpProbe(body, start, resolveHost);
+    const sent = draftNetworkSchema.safeParse((rawBody as { network?: unknown }).network);
+    if (!sent.success) {
+      throw new TheoremError('request', 'test connection: network is not a draft network guardrail'); // labels-exempt: internal diagnostic
+    }
+    const network = sent.data;
+    const guard: ProbeGuard = {
+      ...(options.resolveHost ? { resolveHost: options.resolveHost } : {}),
+      ...(options.draftNetwork && network ? { policy: network } : {}),
+    };
+    if (body.type === 'http') return await handleHttpProbe(body, start, guard);
+    return await handleMcpProbe(body, start, guard);
   } catch (err) {
     return Response.json({ ok: false, ...clientError(err) }, { status: caughtStatus(err) });
   }

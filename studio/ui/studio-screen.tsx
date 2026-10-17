@@ -1197,7 +1197,7 @@ function keyAndToolMembers(
 			if (ask && !(await page.current.confirmWrite(ask))) {
 				return { ok: false, error: 'The builder chose not to run it.' };
 			}
-			return runToolProbe(tool, sample, toolCredential(key));
+			return runToolProbe(tool, sample, toolCredential(key), store.getDraft().guardrails);
 		},
 	};
 }

@@ -5021,7 +5021,7 @@ function TestConnectionButton({ isLoading, onClick }: { isLoading: boolean; onCl
  * Tries the tool's endpoint or MCP server once, from the server, which reaches public hosts only.
  * The sample input and credential live here only: neither is saved to the draft.
  */
-function ToolTest({ tool }: { tool: ToolSpecDraft }) {
+function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: GuardrailsDraft }) {
 	/** What the user typed; until then, the sample for the tool, which follows its input schema. */
 	const [typedInput, setTypedInput] = useState<string>();
 	const sampleInput = typedInput ?? defaultSampleInput(tool);
@@ -5052,7 +5052,7 @@ function ToolTest({ tool }: { tool: ToolSpecDraft }) {
 		if (ask && !(await confirmWrite(ask))) return;
 		setPending(true);
 		try {
-			setResult(await runToolProbe(tool, sampleInput, credential));
+			setResult(await runToolProbe(tool, sampleInput, credential, guardrails));
 		} finally {
 			setPending(false);
 		}
@@ -5728,7 +5728,7 @@ function ToolSpecEditor({
 			)}
 			{tool.toolType === 'mcp' && <McpServerSection tool={tool} set={set} />}
 			{remote && <AuthSection tool={tool} set={set} />}
-			{remote && <ToolTest key={tool.key} tool={tool} />}
+			{remote && <ToolTest key={tool.key} tool={tool} guardrails={draft.guardrails} />}
 			<PolicySection draft={draft} tool={tool} set={set} />
 			<Section variant="transparent" padding={3}>
 				<Button

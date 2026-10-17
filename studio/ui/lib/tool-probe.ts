@@ -9,6 +9,8 @@ import {
 	type ToolSpecDraft,
 	unheldProblem,
 } from '../../mod.ts';
+import { draftNetwork } from '../../compile.ts';
+import type { GuardrailsDraft } from '../../draft.ts';
 import { screenEndpoint } from './project-address.ts';
 
 /** What the test-connection route answers: an HTTP response, or an MCP server's tool list. */
@@ -40,11 +42,15 @@ function parseObject(
 	return { error: `${label} must be a JSON object.` };
 }
 
-/** The test-connection request for `tool`. The server applies its own network policy. */
+/**
+ * The test-connection request for `tool`, with the draft's network guardrail. The server keeps to
+ * it only when it is the builder's own; any other keeps to public hosts.
+ */
 function probeRequest(
 	tool: ToolSpecDraft,
 	sampleInput: string,
 	credential: string,
+	guardrails: GuardrailsDraft,
 ): { body?: Record<string, unknown>; error?: string } {
 	const headers = parseObject(tool.headersJson ?? '', 'Headers');
 	if (headers.error) return { error: headers.error };
@@ -64,8 +70,10 @@ function probeRequest(
 	});
 	if (unheld) return { error: unheld };
 	const authType = tool.authType ?? 'none';
+	const network = draftNetwork(guardrails);
 	const shared = {
 		headers: headers.value,
+		...(network ? { network } : {}),
 		...(authType === 'none'
 			? {}
 			: {
@@ -109,8 +117,9 @@ export async function runToolProbe(
 	tool: ToolSpecDraft,
 	sampleInput: string,
 	credential: string,
+	guardrails: GuardrailsDraft,
 ): Promise<ProbeResult> {
-	const request = probeRequest(tool, sampleInput, credential);
+	const request = probeRequest(tool, sampleInput, credential, guardrails);
 	if (!request.body) return { ok: false, error: request.error };
 	try {
 		const response = await fetch(`${screenEndpoint()}/test-connection`, {

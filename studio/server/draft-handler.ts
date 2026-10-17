@@ -94,6 +94,13 @@ export type StudioDraftHandlerOptions = {
   steer?: SteerInbox;
   /** The key chat conversations are sealed with. Default: a new one, for this handler's lifetime. */
   conversationKey?: string;
+  /**
+   * True only when the handler serves the builder alone, on their own machine, as the command's
+   * does: a connection test then keeps to the draft's network guardrail, as the draft's runs do,
+   * private addresses included when it allows them. Otherwise a test reaches public hosts only,
+   * whatever the draft says, so no visitor reaches the host's own network.
+   */
+  draftNetwork?: boolean;
 };
 
 /**
@@ -293,7 +300,7 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
     const routes: Record<string, (request: Request) => Promise<Response>> = {
       probe: (asked) => draftProbe(asked, options.onProbePassed, defer ?? (() => {})),
       'test-key': testKey,
-      'test-connection': (asked) => testConnection(asked, resolveHost),
+      'test-connection': (asked) => testConnection(asked, { resolveHost, draftNetwork: options.draftNetwork }),
       ...(lent ? lentRoutes(lent) : {}),
     };
     if (!Object.hasOwn(routes, route)) return Promise.resolve(notFound());

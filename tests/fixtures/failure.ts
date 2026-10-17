@@ -6,8 +6,8 @@ export function failureOf(events: readonly { type: string }[]): {
   message: string;
 } {
   const failed = events.find((event) => event.type === 'error') as
-    | { errorKind?: ErrorKind; error?: string }
+    | { errorKind?: ErrorKind; error?: string; errorInternal?: string }
     | undefined;
   if (!failed?.errorKind) throw new Error(`no error event in ${events.map((e) => e.type)}`);
-  return { kind: failed.errorKind, message: failed.error ?? '' };
+  return { kind: failed.errorKind, message: failed.errorInternal ?? failed.error ?? '' };
 }

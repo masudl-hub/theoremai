@@ -455,7 +455,8 @@ function failureEvent(error: unknown): ProtocolEvent {
   return {
     type: 'error',
     errorKind: error.kind,
-    error: error.message,
+    // invariant: `error` is the person's wording, added from the profile's labels; the upstream text is internal.
+    errorInternal: error.message,
     ...(error.copy ? { errorCopy: error.copy } : {}),
   } as ProtocolEvent;
 }

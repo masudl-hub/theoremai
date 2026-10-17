@@ -58,7 +58,7 @@ import {
   type EmbeddingResult,
 } from '@theoremjs/agents/kernel';
 import { STUDIO_TRACE_DESTINATION } from './policy.ts';
-import { STUDIO_READER } from './reader.ts';
+import { studioReader } from './reader.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import {
@@ -142,7 +142,7 @@ async function studioChat(draft: StudioDraftRun, conversations: StudioConversati
       : readerConversationHost({
           ...conversations,
           profile,
-          clientEvents: STUDIO_READER,
+          clientEvents: studioReader(draft.runtime),
         });
   return { scope, profile, iface, host };
 }

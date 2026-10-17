@@ -163,18 +163,32 @@ async function* defaultFraming(response: Response, stream: boolean): AsyncIterab
   }
 }
 
+/**
+ * A refused request's body: its JSON, the JSON a streamed refusal carries on its `data:` lines
+ * (Google answers `?alt=sse` with `event: error`), or else the text.
+ */
+function failureBody(text: string): JsonValue {
+  const data = text
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice('data:'.length).trim())
+    .join('\n');
+  for (const candidate of data ? [text, data] : [text]) {
+    try {
+      return JSON.parse(candidate) as JsonValue;
+    } catch {
+      // why: a body that is not JSON is passed on as text.
+    }
+  }
+  return text;
+}
+
 async function failure(
   protocol: Protocol,
   provider: string,
   response: Response,
 ): Promise<TheoremError> {
-  const text = await response.text();
-  let body: JsonValue = text;
-  try {
-    body = JSON.parse(text) as JsonValue;
-  } catch {
-    // why: a body that is not JSON is passed on as text.
-  }
+  const body = failureBody(await response.text());
   const error =
     protocol.error?.({ status: response.status, body, headers: response.headers }) ??
     new TheoremError(

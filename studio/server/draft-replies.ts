@@ -4,7 +4,7 @@
  *
  * @module
  */
-import type { ProfileDefinition } from '@theoremjs/agents';
+import type { ProfileDefinition, TurnEvent } from '@theoremjs/agents';
 import { toErrorEvent, withPublicLabels } from '@theoremjs/agents/guardrails';
 import { caughtStatus, clientError, forClient } from '@theoremjs/agents/host';
 import { failedDecisionTraces } from '../runtime.ts';
@@ -15,7 +15,7 @@ const NDJSON_HEADERS = {
 } as const;
 
 /**
- * NDJSON response that streams a run's events. A failure the run didn't turn into an event itself
+ * NDJSON response that streams a run's events, each as a visitor may have it. A failure the run didn't turn into an event itself
  * (one thrown before the kernel's turn starts, such as registering the profile or creating its
  * provider) ends the stream as the kernel's own error event, as a visitor may have it: its kind's
  * wording, from the profile's `labels` when it has one, and never the raw detail.
@@ -29,7 +29,8 @@ export function ndjsonEventStream(
     async start(controller) {
       try {
         for await (const event of source) {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+          const line = (event as { type?: string }).type === 'conversation' ? event : forClient(event as TurnEvent);
+          controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
         }
       } catch (err) {
         controller.enqueue(

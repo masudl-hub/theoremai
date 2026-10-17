@@ -302,6 +302,18 @@ Deno.test('a refused key ends the call as an auth error, and a stream error row 
   assertEquals(failureOf(await quota.events()).kind, 'rate_limit');
 });
 
+Deno.test("a refusal streamed as an SSE error event is read for Google's message", async () => {
+  const body = `event: error\ndata: ${JSON.stringify({ error: { code: 400, message: 'Missing thought signature.', status: 'INVALID_ARGUMENT' } })}\n\n`;
+  const refused = run(
+    new Response(body, { status: 400, headers: { 'content-type': 'text/event-stream' } }),
+  );
+  const error = failureOf(await refused.events());
+  assertEquals(
+    [error.kind, error.message],
+    ['unsupported', 'INVALID_ARGUMENT: Missing thought signature.'],
+  );
+});
+
 const COMBINED_ERROR = "'google_maps' and 'google_search' cannot be combined in the same request.";
 
 Deno.test('an error the reply states ends the call with its message, buffered or streamed; a 500 is unavailable, a lost fetch network', async () => {

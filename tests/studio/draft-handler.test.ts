@@ -89,6 +89,38 @@ Deno.test('on lent keys, a chat turn streams to its end and the session cookie i
   );
 });
 
+Deno.test("on lent keys, a reply that fails keeps the visitor's wording, never the raw reason", async () => {
+  const handler = createStudioDraftHandler({
+    lent: {
+      ...ON_TEST_KEYS,
+      provider: () => ({
+        async *complete() {
+          yield* [];
+          throw new TheoremError(
+            'unsupported',
+            'Gemini HTTP 400: function call is missing a thought_signature',
+          );
+        },
+      }),
+    },
+  });
+  const response = await handler(post('turn', { ...concierge(), input: { text: 'Hello' } }));
+  const cookie = response.headers.get('set-cookie')?.split(';')[0] ?? '';
+  const events = await lines(response);
+  const ref = events.findLast((event) => event.type === 'conversation')?.ref;
+  assert(typeof ref === 'string', JSON.stringify(events));
+  // why: The trace is the builder's console, so the raw reason is kept there and only there.
+  const streamed = JSON.stringify(events.filter((event) => event.type !== 'trace'));
+  assert(!streamed.includes('thought_signature'), streamed);
+  const read = await handler(
+    post('conversation', { ...concierge(), conversation: ref }, { cookie }),
+  );
+  const view = await read.json();
+  const failure = view.transcript.find((block: { kind: string }) => block.kind === 'error');
+  assert(failure, JSON.stringify(view));
+  assert(!JSON.stringify(view).includes('HTTP 400'), failure.message);
+});
+
 Deno.test('a draft the kernel refuses is a bad request, not the host', async () => {
   const handler = createStudioDraftHandler({
     lent: { ...ON_TEST_KEYS, provider: () => says('Hi.') },
@@ -289,6 +321,29 @@ Deno.test('a stream that fails ends on the visitor wording, never the raw reason
   const last = JSON.parse(body.trim().split('\n').at(-1) ?? '');
   assertEquals([last.type, last.errorKind, typeof last.error], ['error', 'auth', 'string']);
   assertEquals('errorInternal' in last, false);
+  assert(!body.includes('sk-live-123'));
+});
+
+Deno.test("a run's own error event reaches the visitor without its raw reason", async () => {
+  async function* erring(): AsyncGenerator<unknown> {
+    yield { type: 'conversation', ref: 'r' };
+    yield {
+      type: 'error',
+      error: 'Sorry, something went wrong.',
+      errorKind: 'unsupported',
+      errorInternal: SECRET,
+    };
+  }
+  const body = await ndjsonEventStream(erring()).text();
+  const [ref, error] = body
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assertEquals(ref, { type: 'conversation', ref: 'r' });
+  assertEquals(
+    [error.type, error.error, 'errorInternal' in error],
+    ['error', 'Sorry, something went wrong.', false],
+  );
   assert(!body.includes('sk-live-123'));
 });
 

@@ -138,8 +138,6 @@ export type StudioHandlerOptions = {
   questions?: ProjectQuestions;
   /** How the server takes a socket, which a voice call needs. Without it a live profile is not run. */
   upgrade?: StudioUpgrade;
-  /** Where the handler is mounted. Default `/api/studio`. */
-  base?: string;
   /**
    * The key the chats' conversations are sealed with. `serve.ts` makes one per
    * studio run and hands it to every load, so a chat outlives a Save or an edit.
@@ -661,7 +659,7 @@ async function withCors(answer: Promise<Response>, cors: Record<string, string>)
 export function createStudioHandler(
   options: StudioHandlerOptions,
 ): (request: Request) => Promise<Response> {
-  const base = (options.base ?? STUDIO_BASE).replace(/\/$/, '');
+  const base = STUDIO_BASE;
   const corsFor = (request: Request) => corsHeaders(request, options.pageOrigins);
   // The page reads the tools as the files set them, then they are made to ask.
   const description = describeStudio(options.project, options.questions ?? {});
@@ -676,7 +674,7 @@ export function createStudioHandler(
   const prefix = `${base}/profiles/`;
   const peoplePath = `${base}/people`;
   // The screen's own requests (the guardrail probe, the key and connection tests) need no project.
-  const draft = createStudioDraftHandler({ base });
+  const draft = createStudioDraftHandler();
 
   const run = async (request: Request, path: string): Promise<Response> => {
     const cors = corsFor(request);

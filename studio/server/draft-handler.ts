@@ -94,12 +94,10 @@ export type StudioDraftHandlerOptions = {
   steer?: SteerInbox;
   /** The key chat conversations are sealed with. Default: a new one, for this handler's lifetime. */
   conversationKey?: string;
-  /** Where the handler is mounted. Default `/api/studio`. */
-  base?: string;
 };
 
 /**
- * Answers a request under the base; `defer` keeps work running after the reply (a Worker's
+ * Answers a request under `STUDIO_BASE`; `defer` keeps work running after the reply (a Worker's
  * `ctx.waitUntil`). A path it does not serve answers 404.
  */
 export type StudioDraftHandler = {
@@ -132,12 +130,11 @@ function draftLabels(draft: DraftBody | undefined): ProfileDefinition['labels'] 
 
 const notFound = () => Response.json({}, { status: 404 });
 
-/** Where the screen asks unless the host mounts the handler elsewhere. */
+/** Where the screen sends every request: mount the handler here. */
 export const STUDIO_BASE = '/api/studio';
 
 /** Serves the studio screen's requests. */
 export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}): StudioDraftHandler {
-  const base = (options.base ?? STUDIO_BASE).replace(/\/$/, '');
   const { lent, spend } = options;
   const resolveHost = options.resolveHost ?? lent?.resolveHost;
   const sessionStore = options.sessionStore ?? createMemorySessionStore();
@@ -292,7 +289,7 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
 
   const handler = ((request, defer) => {
     const path = new URL(request.url).pathname;
-    const route = path.startsWith(`${base}/`) ? path.slice(base.length + 1) : '';
+    const route = path.startsWith(`${STUDIO_BASE}/`) ? path.slice(STUDIO_BASE.length + 1) : '';
     const routes: Record<string, (request: Request) => Promise<Response>> = {
       probe: (asked) => draftProbe(asked, options.onProbePassed, defer ?? (() => {})),
       'test-key': testKey,

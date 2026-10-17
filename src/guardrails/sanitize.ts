@@ -115,6 +115,8 @@ function sanitizeHistory(
       ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
       ...(m.name ? { name: m.name } : {}),
       ...(m.metadata ? { metadata: m.metadata } : {}),
+      // why: Google refuses a call from the current turn replayed without its thought signature, so a reply resumed after a gate needs it.
+      ...(m.reasoning ? { reasoning: m.reasoning } : {}),
     };
   });
 }

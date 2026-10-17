@@ -502,6 +502,43 @@ Deno.test('sanitizeRepair returns undefined guidance when guidance is empty stri
   assertEquals(req.input.repair?.guidance, undefined);
 });
 
+Deno.test('sanitizeHistory keeps the signed reasoning written with a call', () => {
+  const reasoning = [
+    {
+      data: { call: 0, signature: 'c2lnbmVk' },
+      origin: {
+        protocol: 'geminiInteractions',
+        provider: 'gemini',
+        apiId: 'gemini-3.5-flash-lite',
+      },
+    },
+  ];
+  const req = sanitizeTurnRequest(
+    {
+      profile: 'chat',
+      input: {
+        history: [
+          { role: 'user' as const, content: 'Weather in Lisbon?' },
+          {
+            role: 'assistant' as const,
+            tool_calls: [
+              {
+                id: 'call-1',
+                type: 'function' as const,
+                function: { name: 'get_weather', arguments: '{}' },
+              },
+            ],
+            reasoning,
+          },
+          { role: 'tool' as const, tool_call_id: 'call-1', name: 'get_weather', content: '{}' },
+        ],
+      },
+    },
+    getProfile('chat'),
+  );
+  assertEquals(req.input.history?.[1]?.reasoning, reasoning);
+});
+
 Deno.test('sanitizeHistory omits absent keys rather than setting them to undefined', () => {
   // Spreading undefined would create the key, which `in` can see even though the value is undefined.
   const req = sanitizeTurnRequest(

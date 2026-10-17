@@ -7,7 +7,7 @@
  */
 
 import { theoremTheme } from '@theoremjs/react/ui/theme';
-import { tablerIcons } from "../../../react/src/ui/icons.ts";
+import { tablerIcons } from "@theoremjs/react/ui/icons";
 const themeIcons = {...theoremTheme["icons"], ...tablerIcons};
 /**
  * theorem-studio theme — built by `npx @astryxdesign/cli theme build`

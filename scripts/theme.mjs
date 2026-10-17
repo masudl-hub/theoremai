@@ -24,7 +24,7 @@ const TARGETS = {
     source: 'ui/studio-theme.ts',
     built: 'ui/built',
     name: 'theorem-studio',
-    icons: '../../../react/src/ui/icons.ts',
+    icons: '@theoremjs/react/ui/icons',
     format: false,
     rebuild: 'npm --prefix studio run theme:build',
   },

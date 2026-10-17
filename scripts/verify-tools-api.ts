@@ -575,6 +575,7 @@ function sequentialToolProvider(
         tokens: { input: 1, output: 0, total: 1 },
         interactionId: 'stub_ix',
       };
+      yield { type: 'done', stop: { kind: 'tool' } };
     },
   };
 }

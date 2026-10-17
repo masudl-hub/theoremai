@@ -85,6 +85,7 @@ function registerLiveProfile(
         },
         models: {
           freeRouter: {
+            protocol: 'openRouter',
             provider: 'openrouter',
             apiId,
             efforts: { normal: 'none' },
@@ -114,14 +115,15 @@ function registerLiveProfile(
       },
       models: {
         geminiFree: {
-          provider: 'google',
+          protocol: 'geminiInteractions',
+          provider: 'gemini',
           apiId,
           ...(effort === 'default' ? {} : { efforts: { normal: effort }, defaultEffort: 'normal' }),
           summaries: false,
           maxOutputTokens: 512,
           temperature: 0.2,
           builtInTools: [],
-          providerOptions: {
+          options: {
             persistViaInteractionId: false,
           },
         },

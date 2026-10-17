@@ -145,16 +145,11 @@ async function findOversizedFiles(): Promise<string[]> {
 
   /**
    * Artifact trees that may exist locally but must never contain huge blobs.
-   * `.fallow/` is left out: its cache outgrows the cap on every run, and
-   * `publish.exclude` already keeps it out of the tarball.
+   * `.fallow/` and `coverage/` are left out: the fallow cache and the coverage
+   * report `lint:fallow` writes outgrow the cap on every run, and
+   * `publish.exclude` already keeps both out of the tarball.
    */
-  const sizeScanDirs = [
-    '.stryker-cache',
-    '.stryker-tmp',
-    'coverage',
-    'cov_profile',
-    'traces',
-  ] as const;
+  const sizeScanDirs = ['.stryker-cache', '.stryker-tmp', 'cov_profile', 'traces'] as const;
 
   for (const dir of sizeScanDirs) {
     const path = `${root}/${dir}`;

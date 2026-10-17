@@ -86,19 +86,21 @@ function verifyApiId(): string {
 function baseModelBinding(apiId: string): import('../src/kernel/types.ts').ModelBinding {
   if (PROVIDER_KIND === 'gemini') {
     return {
-      provider: 'google',
+      protocol: 'geminiInteractions',
+      provider: 'gemini',
       apiId,
       efforts: { normal: 'minimal' },
       summaries: false,
       maxOutputTokens: 300,
       temperature: 0.1,
       builtInTools: [],
-      providerOptions: {
+      options: {
         persistViaInteractionId: false,
       },
     };
   }
   return {
+    protocol: 'openRouter',
     provider: 'openrouter',
     apiId,
     summaries: false,
@@ -801,7 +803,7 @@ function compactionCases(): Case[] {
 }
 /** Local heuristic estimate of a text-only history (no media, so no family rule applies). */
 async function estimateHistoryText(history: TurnHistoryMessage[]): Promise<number> {
-  return (await (await loadTokenEstimator()).messages(history, undefined)).tokens;
+  return (await (await loadTokenEstimator()).messages(history)).tokens;
 }
 function tokenCases(): Case[] {
   return [

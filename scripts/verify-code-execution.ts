@@ -56,7 +56,8 @@ function effortAlias(level: string): string {
 const turnEffort = effortAlias(thinkingLevel);
 function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
   return {
-    provider: 'google',
+    protocol: 'geminiInteractions',
+    provider: 'gemini',
     apiId: modelId,
     efforts: { normal: 'minimal', low: 'low', medium: 'medium', high: 'high' },
     defaultEffort: turnEffort,
@@ -65,7 +66,7 @@ function flashBinding(builtInTools: BuiltinToolId[]): ModelBinding {
     maxOutputTokens: 4096,
     temperature: 0.2,
     builtInTools,
-    providerOptions: {
+    options: {
       persistViaInteractionId: false,
     },
   };

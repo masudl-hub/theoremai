@@ -106,12 +106,13 @@ type GeminiLiveModel = keyof typeof GEMINI_LIVE_MODELS;
 const GEMINI_LIVE_IDS = Object.keys(GEMINI_LIVE_MODELS) as GeminiLiveModel[];
 function geminiTextBinding(apiId: string) {
   return {
-    provider: 'google',
+    protocol: 'geminiInteractions',
+    provider: 'gemini',
     apiId,
     efforts: { normal: 'low' },
     maxOutputTokens: 1024,
     temperature: 0.1,
-    providerOptions: {
+    options: {
       persistViaInteractionId: false,
     },
   } as const;
@@ -200,6 +201,7 @@ if (selected.has('text')) {
         identity: { handle: 'assistant', system: 'You are a concise AI assistant.' },
         models: {
           'openrouter/free': {
+            protocol: 'openRouter',
             provider: 'openrouter',
             apiId: OPENROUTER_TEXT_API_ID,
             efforts: { normal: 'none' },
@@ -232,6 +234,7 @@ if (selected.has('text')) {
         identity: { handle: 'analyzer', system: 'Analyze sentiment in structured JSON.' },
         models: {
           'openrouter/free': {
+            protocol: 'openRouter',
             provider: 'openrouter',
             apiId: OPENROUTER_TEXT_API_ID,
             efforts: { normal: 'none' },
@@ -374,6 +377,7 @@ if (selected.has('image')) {
         identity: { handle: 'artist', system: 'Generate one image.' },
         models: {
           seedream: {
+            protocol: 'openRouterImages',
             provider: 'openrouter',
             apiId: 'bytedance-seed/seedream-4.5',
             efforts: { normal: 'none' },
@@ -411,12 +415,13 @@ if (selected.has('image')) {
         identity: { handle: 'artist', system: 'Generate exactly one image.' },
         models: {
           [apiId]: {
-            provider: 'google',
+            protocol: 'geminiInteractions',
+            provider: 'gemini',
             apiId,
             efforts: { normal: 'minimal' },
             maxOutputTokens: 4096,
             keySlot: 'slot_a',
-            providerOptions: {
+            options: {
               persistViaInteractionId: false,
             },
           },
@@ -448,6 +453,7 @@ if (selected.has('speech')) {
         identity: { handle: 'speaker' },
         models: {
           fishTts: {
+            protocol: 'openRouter',
             provider: 'openrouter',
             apiId: 'fish-audio/s2.1-pro-free:free',
             efforts: { normal: 'none' },
@@ -484,11 +490,12 @@ if (selected.has('speech')) {
           identity: { handle: 'speaker' },
           models: {
             [apiId]: {
-              provider: 'google',
+              protocol: 'geminiInteractions',
+              provider: 'gemini',
               apiId,
               efforts: { normal: 'minimal' },
               maxOutputTokens: 2048,
-              providerOptions: {
+              options: {
                 persistViaInteractionId: false,
               },
             },
@@ -518,11 +525,12 @@ if (selected.has('speech')) {
         identity: { handle: 'speaker' },
         models: {
           [GEMINI_SPEECH_DEFAULT]: {
-            provider: 'google',
+            protocol: 'geminiInteractions',
+            provider: 'gemini',
             apiId: GEMINI_SPEECH_DEFAULT,
             efforts: { normal: 'minimal' },
             maxOutputTokens: 2048,
-            providerOptions: {
+            options: {
               persistViaInteractionId: false,
             },
           },
@@ -633,7 +641,8 @@ if (selected.has('live')) {
       },
       models: {
         [apiId]: {
-          provider: 'google',
+          protocol: 'geminiLive',
+          provider: 'gemini',
           apiId,
           efforts: { normal: GEMINI_LIVE_MODELS[apiId] },
           summaries: false,

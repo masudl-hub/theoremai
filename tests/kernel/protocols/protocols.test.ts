@@ -85,7 +85,7 @@ const routed = extendProtocol(echo, {
 });
 
 function sse(rows: JsonObject[]): Response {
-  const text = rows.map((row) => `data: ${JSON.stringify(row)}\n\n`).join('') + 'data: [DONE]\n\n';
+  const text = `${rows.map((row) => `data: ${JSON.stringify(row)}\n\n`).join('')}data: [DONE]\n\n`;
   return new Response(text, { headers: { 'content-type': 'text/event-stream' } });
 }
 

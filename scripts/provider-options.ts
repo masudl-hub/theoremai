@@ -1,17 +1,16 @@
 import {
-  defineProvider,
+  geminiProvider,
   getProfile,
-  googleAdapter,
-  openAIChat,
-  openRouterAdapter,
+  getProvider,
+  localProvider,
+  openRouterProvider,
   type Profile,
   type ProviderHostOptions,
   registerProfile,
   registerProvider,
   type TurnModel,
-  typesafeAdapter,
-  z,
 } from '../mod.ts';
+import { scriptedFetch, scriptedProvider } from '../tests/fixtures/scripted.ts';
 
 interface ScriptConnections extends ProviderHostOptions {
   gemini?: {
@@ -27,34 +26,26 @@ interface ScriptConnections extends ProviderHostOptions {
   };
   local?: { baseUrl: string; fetch?: typeof fetch };
 }
+/** Registers the providers the scripts' profiles bind to, once. */
 export function registerScriptProviders(options: ScriptConnections = {}): void {
-  registerProvider(
-    defineProvider({ id: 'google', keySlot: 'slot_a', connection: {}, adapter: googleAdapter() }),
-  );
-  registerProvider(
-    defineProvider({
-      id: 'openrouter',
-      keySlot: 'openrouter',
-      connection: Object.fromEntries(
-        Object.entries({
-          baseURL: options.openAiGateway?.baseUrl,
-          siteUrl: options.openAiGateway?.siteUrl,
-          siteName: options.openAiGateway?.siteName,
-        }).filter(([, value]) => value !== undefined),
-      ),
-      adapter: openRouterAdapter(),
-    }),
-  );
-  registerProvider(
-    defineProvider({
-      id: 'local',
-      connection: {
-        baseURL: `${(options.local?.baseUrl ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
-      },
-      adapter: openAIChat(),
-    }),
-  );
-  registerProvider(defineProvider({ id: 'typesafe', connection: {}, adapter: typesafeAdapter() }));
+  if (getProvider('gemini')) return;
+  registerProvider(geminiProvider, { keySlot: 'slot_a' });
+  registerProvider(openRouterProvider, {
+    keySlot: 'openrouter',
+    connection: Object.fromEntries(
+      Object.entries({
+        baseUrl: options.openAiGateway?.baseUrl,
+        siteUrl: options.openAiGateway?.siteUrl,
+        siteName: options.openAiGateway?.siteName,
+      }).filter(([, value]) => value !== undefined),
+    ),
+  });
+  registerProvider(localProvider, {
+    connection: {
+      baseUrl: `${(options.local?.baseUrl ?? 'http://localhost:11434').replace(/\/$/, '')}/v1`,
+    },
+  });
+  registerProvider(scriptedProvider, { keySlot: 'scripted' });
 }
 export function scriptProviderOptions(
   profile: Profile,
@@ -75,6 +66,7 @@ export function scriptProviderOptions(
   };
 }
 
+/** A scripted `TurnModel` answers `profileId`'s calls; real host options pass through. */
 export function scriptTurnOptions(
   profileId: string,
   provider: ProviderHostOptions | TurnModel,
@@ -82,65 +74,16 @@ export function scriptTurnOptions(
   if (!('complete' in provider)) return provider;
   const profile = getProfile(profileId);
   if (profile.type === 'host') throw new Error('Script model fixture requires a model profile');
-  const id = `script:${profileId}`;
-  registerProvider(
-    defineProvider({
-      id,
-      connection: {},
-      adapter: {
-        apiVersion: 1,
-        id: 'script-fixture',
-        connectionSchema: z.strictObject({}),
-        optionsSchema: z.record(z.string(), z.json()),
-        credentialSchema: z.string(),
-        capabilities: () => ({
-          profileTypes: ['text', 'image', 'speech'],
-          features: {
-            streaming: 'supported',
-            clientTools: 'supported',
-            parallelTools: 'supported',
-            structuredOutput: 'supported',
-            thinking: 'supported',
-            summaries: 'supported',
-            storedContinuation: 'unsupported',
-          },
-          inputKinds: ['text', 'image', 'audio', 'video', 'document'],
-          outputKinds: ['text', 'image', 'audio'],
-          builtins: [],
-        }),
-        validateRequest() {},
-        create(): Promise<import('../mod.ts').ProviderOperations> {
-          return Promise.resolve({
-            async *complete(request) {
-              let terminal = false;
-              let calls = false;
-              for await (const event of provider.complete(request)) {
-                if (event.type === 'tool' && event.tool.phase === undefined) {
-                  calls = true;
-                  yield { type: 'tool_call', call: event.tool };
-                } else if (event.type === 'done') {
-                  terminal = true;
-                  yield event;
-                } else if (
-                  event.type === 'text' ||
-                  event.type === 'tokens' ||
-                  event.type === 'thought'
-                )
-                  yield event;
-              }
-              if (!terminal) yield { type: 'done', stop: { kind: calls ? 'tool' : 'completed' } };
-            },
-          });
-        },
-      },
-    }),
-  );
   registerProfile({
     ...profile,
     models: Object.fromEntries(
-      Object.entries(profile.models).map(([name, binding]) => [name, { ...binding, provider: id }]),
+      Object.entries(profile.models).map(([name, binding]) => {
+        const { keySlot: _slot, fallbackKeySlot: _fallback, ...settings } = binding;
+        return [name, { ...settings, protocol: 'scripted', provider: 'scripted', options: {} }];
+      }),
     ),
   } as Profile);
-  return {};
+  const slot = getProvider('scripted')?.keySlot ?? 'scripted';
+  return { fetch: scriptedFetch(provider), vault: { [slot]: 'scripted' } };
 }
 registerScriptProviders();

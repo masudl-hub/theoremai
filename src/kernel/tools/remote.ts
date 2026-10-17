@@ -1290,9 +1290,9 @@ async function negotiateInSession(
   };
 }
 
-/** The failure kind for a tool server's HTTP status: 401 and 403 are `auth`, 429 `rate_limit`, the rest `failed`. */
+/** The failure kind for a tool server's HTTP status: 401, 402 and 403 are `auth`, as a provider's are; 429 `rate_limit`; the rest `failed`. */
 function kindOfToolHttpStatus(status: number): ErrorKind {
-  if (status === 401 || status === 403) return 'auth';
+  if (status === 401 || status === 402 || status === 403) return 'auth';
   if (status === 429) return 'rate_limit';
   return 'failed';
 }

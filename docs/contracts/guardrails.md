@@ -682,7 +682,8 @@ not the key.
 | --- | --- |
 | `network_blocked`, `tainted_turn`, `remote_destination`, `not_allowed`; a host `pre_tool` / `post_tool` deny (host code, default `not_authorized`) | `blocked` |
 | `denied` | `declined` |
-| A remote tool without its credential (`not_authorized`); tool HTTP 401 / 403 | `auth` |
+| A remote tool without its credential (`not_authorized`); tool HTTP 401 / 402 / 403 | `auth` |
+| Tool HTTP 429 | `rate_limit` |
 | `network_error` | `network` |
 | `invalid_*`, `malformed_arguments` | `bad_response` |
 | `handler_error` from a handler that threw a `TheoremError` | that error's kind |

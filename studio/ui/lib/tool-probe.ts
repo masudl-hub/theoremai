@@ -42,15 +42,11 @@ function parseObject(
 	return { error: `${label} must be a JSON object.` };
 }
 
-/**
- * The test-connection request for `tool`, with the draft's network guardrail. The server keeps to
- * it only when it is the builder's own; any other keeps to public hosts.
- */
+/** The test-connection request for `tool`. */
 function probeRequest(
 	tool: ToolSpecDraft,
 	sampleInput: string,
 	credential: string,
-	guardrails: GuardrailsDraft,
 ): { body?: Record<string, unknown>; error?: string } {
 	const headers = parseObject(tool.headersJson ?? '', 'Headers');
 	if (headers.error) return { error: headers.error };
@@ -70,10 +66,8 @@ function probeRequest(
 	});
 	if (unheld) return { error: unheld };
 	const authType = tool.authType ?? 'none';
-	const network = draftNetwork(guardrails);
 	const shared = {
 		headers: headers.value,
-		...(network ? { network } : {}),
 		...(authType === 'none'
 			? {}
 			: {
@@ -112,20 +106,24 @@ function probeRequest(
 	};
 }
 
-/** Sends the probe; a request that can't be made, or a server that can't be reached, comes back as a failed result. */
+/**
+ * Sends the probe with the draft's network guardrail, which the server keeps to only when it is
+ * the builder's own; any other keeps to public hosts. A request that can't be made, or a server
+ * that can't be reached, comes back as a failed result.
+ */
 export async function runToolProbe(
 	tool: ToolSpecDraft,
 	sampleInput: string,
 	credential: string,
 	guardrails: GuardrailsDraft,
 ): Promise<ProbeResult> {
-	const request = probeRequest(tool, sampleInput, credential, guardrails);
+	const request = probeRequest(tool, sampleInput, credential);
 	if (!request.body) return { ok: false, error: request.error };
 	try {
 		const response = await fetch(`${screenEndpoint()}/test-connection`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(request.body),
+			body: JSON.stringify({ ...request.body, network: draftNetwork(guardrails) }),
 		});
 		return await response.json<ProbeResult>();
 	} catch {

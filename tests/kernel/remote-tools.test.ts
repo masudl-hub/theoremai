@@ -1650,7 +1650,7 @@ Deno.test('a 403 that asks for no scope is the call failing, not a sign-in', asy
   assertEquals(toolEventsOf(events, 'gate').length, 0);
   assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'http_403');
 });
-Deno.test('a 402 from a tool server is the account refused, as a provider\'s 402 is', async () => {
+Deno.test("a 402 from a tool server is the account refused, as a provider's 402 is", async () => {
   registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read'] });
   const events = await withFetch(refusingFetch(402), () => runProfileTool('1', BEARER_SLOT));
   const [failed] = toolEventsOf(events, 'error');

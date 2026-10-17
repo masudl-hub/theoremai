@@ -160,19 +160,19 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: TURN_INPUT_REASON,
   },
   'inputs.maxFiles': {
-    profileTypes: TURN_INPUT_TYPES,
+    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.maxBytes': {
-    profileTypes: TURN_INPUT_TYPES,
+    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.maxTurnBytes': {
-    profileTypes: TURN_INPUT_TYPES,
+    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.limitsByMime': {
-    profileTypes: TURN_INPUT_TYPES,
+    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.slots': {

@@ -852,12 +852,15 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'inputs.maxFiles': field(
     'number',
-    'The most files and voice clips one turn may send, counted together.',
+    'The most files and voice clips one turn or embedding request may send, counted together.',
   ),
-  'inputs.maxBytes': field('number', 'The largest file or clip, in bytes, a turn may send inline.'),
+  'inputs.maxBytes': field(
+    'number',
+    'The largest file or clip, in bytes, a turn or embedding request may send inline.',
+  ),
   'inputs.maxTurnBytes': field(
     'number',
-    'The most bytes one turn may send inline across all its files and clips.',
+    'The most bytes one turn or embedding request may send inline across all its files and clips.',
   ),
   'inputs.limitsByMime': field(
     'Record<string, number>',
@@ -865,7 +868,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'inputs.limitsByMime.*': field(
     'number',
-    'The largest file of this type (or type/* family), in bytes, a turn may send inline.',
+    'The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.',
   ),
   'inputs.slots': field(
     'Record<string, string[]>',

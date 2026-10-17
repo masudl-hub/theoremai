@@ -225,14 +225,19 @@ function attachmentsRefused(issues: readonly AttachmentValidationIssue[]): Theor
   );
 }
 
-function factsOf(item: TurnBlob | TurnMediaRef): AttachmentFacts {
-  const facts: AttachmentFacts = { mimeType: item.mimeType, name: item.name };
-  if (isTurnMediaRef(item)) return facts;
-  if (!B64_BODY.test(item.data)) {
+/** The decoded size of inline base64 data; throws when it is not base64. */
+function base64Bytes(data: string): number {
+  if (!B64_BODY.test(data)) {
     // labels-exempt: developer-facing wire-format diagnostic, not product copy
     throw new TheoremError('request', 'attachment data must be base64');
   }
-  facts.sizeBytes = b64DecodedLen(item.data);
+  return b64DecodedLen(data);
+}
+
+function factsOf(item: TurnBlob | TurnMediaRef): AttachmentFacts {
+  const facts: AttachmentFacts = { mimeType: item.mimeType, name: item.name };
+  if (isTurnMediaRef(item)) return facts;
+  facts.sizeBytes = base64Bytes(item.data);
   return facts;
 }
 
@@ -296,6 +301,7 @@ export {
   attachmentIssues,
   attachmentIssueText,
   attachmentsRefused,
+  base64Bytes,
   isTurnMediaRef,
   maxBytesForMime,
   requireMediaLimits,

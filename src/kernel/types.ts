@@ -719,6 +719,7 @@ export interface EmbeddingInputsSpec {
   maxFiles?: number;
   maxBytes?: number;
   maxTurnBytes?: number;
+  limitsByMime?: Record<string, number>;
 }
 
 /** A profile that returns vectors instead of a model turn. */

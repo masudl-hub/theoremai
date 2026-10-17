@@ -49,6 +49,7 @@ import type {
   LiveProfile,
   LiveProfileToolsSpec,
   MediaTurnBehaviourSpec,
+  MimeInputs,
   ModelBinding,
   ModelId,
   ModelProfile,
@@ -177,6 +178,7 @@ function assertModelRoute(
 function defineEmbeddingProfile(input: EmbeddingProfileDefinition): EmbeddingProfile {
   assertModelsNonEmpty(input.id, input.models);
   assertObservability(input.id, input.observability);
+  assertMediaLimits(input.id, input.inputs);
   for (const [modelId, binding] of Object.entries(input.models))
     assertModelBinding(input.id, modelId, binding);
   return {
@@ -1067,8 +1069,7 @@ function assertContextSpec(profile: ModelProfile): void {
   }
 }
 
-function assertMediaLimits(profile: ModelProfile): void {
-  const inputs = profileInputs(profile);
+function assertMediaLimits(profileId: string, inputs: MimeInputs | undefined): void {
   if (!inputs) {
     return;
   }
@@ -1077,7 +1078,7 @@ function assertMediaLimits(profile: ModelProfile): void {
   if ((attachments || voice) && Object.values(limits).some((value) => value === undefined)) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profileId} must set maxFiles, maxBytes, and maxTurnBytes`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   for (const [mime, value] of Object.entries(limitsByMime ?? {})) {
@@ -1087,7 +1088,7 @@ function assertMediaLimits(profile: ModelProfile): void {
     if (value !== undefined && !(Number.isInteger(value) && value > 0)) {
       throw new TheoremError(
         'config',
-        `Profile ${profile.id}: inputs.${name} must be a positive integer`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        `Profile ${profileId}: inputs.${name} must be a positive integer`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
   }
@@ -1134,7 +1135,7 @@ function createProfileRegistry(
     assertProfileToolLoader(tools, profile);
     if (profile.type !== 'host' && profile.type !== 'decision' && profile.type !== 'embedding') {
       assertModelBuiltInTools(tools, profile);
-      assertMediaLimits(profile);
+      assertMediaLimits(profile.id, profileInputs(profile));
       assertContextSpec(profile);
       assertStructuredSchemas(schemas, profile);
       for (const [modelId, binding] of Object.entries(profile.models)) {

@@ -3,9 +3,17 @@ import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import type { ProviderHostOptions } from '../protocols/runtime.ts';
 import { guardedCall } from '../provider-runtime.ts';
+import {
+  type AttachmentFacts,
+  attachmentIssues,
+  attachmentsRefused,
+  base64Bytes,
+  resolveMediaLimits,
+} from '../registry/attachments.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import type {
   EmbeddingInput,
+  EmbeddingPart,
   EmbeddingProfile,
   EmbeddingRequest,
   EmbeddingResult,
@@ -44,42 +52,45 @@ function inputsOf(input: EmbeddingRequest['input']): readonly EmbeddingInput[] {
   return Array.isArray(input) ? input : [input as EmbeddingInput];
 }
 
-function validateInput(profile: EmbeddingProfile, input: EmbeddingInput): void {
-  const parts =
-    typeof input === 'string'
-      ? [{ type: 'text' as const, text: input }]
-      : input && Array.isArray(input.parts)
-        ? input.parts
-        : [];
-  if (parts.length === 0)
-    throw new TheoremError('request', `Profile ${profile.id} received an empty embedding input`); // labels-exempt: developer contract error
-  for (const part of parts) {
-    if (part.type === 'text') refuseOverlong(part.text, 'embedding input');
-    if (part.type === 'text' && profile.inputs.text === false)
-      throw new TheoremError(
-        'unsupported',
-        `Profile ${profile.id} does not accept text embedding input`, // labels-exempt: developer contract error
+/** An input's parts; a bare string is one text part. */
+function partsOf(input: EmbeddingInput): readonly EmbeddingPart[] {
+  if (typeof input === 'string') return [{ type: 'text', text: input }];
+  return input && Array.isArray(input.parts) ? input.parts : [];
+}
+
+/** Text is checked per part; media goes through the turn's attachment check across the whole request. */
+function validateInputs(profile: EmbeddingProfile, inputs: readonly EmbeddingInput[]): void {
+  const media: AttachmentFacts[] = [];
+  for (const input of inputs) {
+    const parts = partsOf(input);
+    if (parts.length === 0)
+      throw new TheoremError('request', `Profile ${profile.id} received an empty embedding input`); // labels-exempt: developer contract error
+    for (const part of parts) {
+      if (part.type === 'text') {
+        refuseOverlong(part.text, 'embedding input');
+        if (profile.inputs.text === false)
+          throw new TheoremError(
+            'unsupported',
+            `Profile ${profile.id} does not accept text embedding input`, // labels-exempt: developer contract error
+          );
+        continue;
+      }
+      media.push(
+        part.type === 'media'
+          ? { mimeType: part.mimeType, sizeBytes: base64Bytes(part.data) }
+          : { mimeType: part.mimeType },
       );
-    if (part.type !== 'text' && !profile.inputs.attachments)
-      throw new TheoremError(
-        'unsupported',
-        `Profile ${profile.id} does not accept media embedding input`, // labels-exempt: developer contract error
-      );
-    if (part.type !== 'text' && profile.inputs.attachments) {
-      const accepted = profile.inputs.attachments.accept;
-      if (
-        !accepted.some(
-          (pattern) =>
-            pattern === part.mimeType ||
-            (pattern.endsWith('/*') && part.mimeType.startsWith(pattern.slice(0, -1))),
-        )
-      )
-        throw new TheoremError(
-          'unsupported',
-          `Profile ${profile.id} does not accept '${part.mimeType}' embedding input`, // labels-exempt: developer contract error
-        );
     }
   }
+  const issues = attachmentIssues(
+    {
+      attachments: profile.inputs.attachments?.accept,
+      limits: resolveMediaLimits(profile.inputs),
+    },
+    media,
+    [],
+  );
+  if (issues.length > 0) throw attachmentsRefused(issues);
 }
 
 function validateResult(result: EmbeddingResult, count: number): EmbeddingResult {
@@ -111,7 +122,7 @@ export async function runEmbeddingInRegistry(
   const profile = requireEmbeddingProfile(registry, request.profile);
   const [modelId, binding] = chooseModel(profile, request.model);
   const inputs = inputsOf(request.input);
-  for (const input of inputs) validateInput(profile, input);
+  validateInputs(profile, inputs);
   const provider = registry.providers.require(binding.provider, binding.apiId);
   const call = guardedCall(provider, binding, 'embedding', options, {
     ...(request.signal ? { signal: request.signal } : {}),

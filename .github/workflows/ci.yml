@@ -90,6 +90,15 @@ jobs:
       - name: Verify publish bundle
         run: deno task verify:publish
 
+      - name: Install studio dependencies
+        run: npm --prefix studio ci
+
+      - name: Studio tests
+        run: npm --prefix studio test
+
+      - name: Build studio package
+        run: npm run build:npm:studio
+
       - name: Test
         run: deno task test
 

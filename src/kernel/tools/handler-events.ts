@@ -97,7 +97,7 @@ export class HandlerEvents {
 
   /** `value` as the person is shown it, read at `tool_shown_<kind>`; one a match blocks is not sent. */
   private *shown(value: unknown): Generator<TurnEvent, { shown: boolean; value?: unknown }> {
-    const { checks } = this;
+    const checks = this.checks;
     if (!checks) return { shown: true, value };
     const read = guardShownValue(value, checks.provenance, checks.policy, checks.shown);
     if (read.event) yield { type: 'guardrail', guardrail: read.event };
@@ -106,7 +106,7 @@ export class HandlerEvents {
 
   /** Whether a check at the output's boundary stops `data`; a flag lets it through unreported. */
   private *progressStops(data: unknown): Generator<TurnEvent, boolean> {
-    const { checks } = this;
+    const checks = this.checks;
     if (!checks) return false;
     const { event, text } = guardToolResult(
       '',

@@ -190,6 +190,7 @@ Keep the latest ref. To resume the conversation, pass it as `conversation`. The 
 
 If the server does not save the message, the message leaves the transcript. It goes back in the composer with the error, and the user can send it again.
 If the browser loses the response to a gate answer, the chat reads the conversation again from the server. The same answer sent again fails with `session.gate_expired`.
+If the server can no longer open the ref, the message fails with `session.conversation_unknown`. The error's `errorCopy` carries that key. The chat then sends the message once more, with the transcript the page shows as `transcript`. `createTheoremHandler` ignores it, because the server owns the conversation, so the message fails. The studio's server owns no conversation of its own: it continues from the transcript under a new ref.
 
 A profile whose `providerContinuation.history` is `'stateless'` keeps no conversation. The server stores nothing and issues no ref. The transcript is kept only in the page, and a reload clears it.
 
@@ -411,7 +412,7 @@ const transport = withPageToolDispatch(
 | --- | --- |
 | `profile` | The profile to serve. The kernel registers it when you create the handler. |
 | `provider` | Host options, including the credential vault. A function can return these options per request, for example for tenant-specific credentials. |
-| `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie. |
+| `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie that lasts 30 days. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
 | `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
 | `conversationStore` | Where the conversation is kept. Required, except for a stateless profile, which must not have one. See [Keep the conversation](#keep-the-conversation). |

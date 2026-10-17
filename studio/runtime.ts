@@ -249,10 +249,13 @@ export async function* streamStudioTurn(
   if (!host && request.conversation !== undefined) throw statelessRefusal('continue');
   if (!host && request.abandon) throw statelessRefusal('walk away from');
   const opened = host
-    ? await openConversation(host, request.conversation, {
-        kind: 'message',
-        ...(request.abandon ? { abandon: request.abandon } : {}),
-      })
+    ? await openConversation(
+        host,
+        request.conversation,
+        { kind: 'message', ...(request.abandon ? { abandon: request.abandon } : {}) },
+        // why: The draft is the visitor's own, so the page's transcript is as much theirs as the store's copy.
+        request.transcript ? { profile, blocks: request.transcript } : undefined,
+      )
     : undefined;
   // Answered up front, so a refused call starts nothing.
   const walked = opened

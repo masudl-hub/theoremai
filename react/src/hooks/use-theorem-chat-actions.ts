@@ -180,6 +180,7 @@ function useTurnStarters(
             signal: started.signal,
             scope: scopeOf(args, started.turnId),
             view,
+            transcript: args.blocksRef.current,
             onUserBlocks: (userBlocks) => {
               args.setBlocks((prev) => [...prev, ...userBlocks]);
               args.setDelivery({ status: 'sending' });
@@ -217,6 +218,7 @@ function useTurnStarters(
             signal: started.signal,
             scope: scopeOf(args, started.turnId),
             view,
+            transcript: args.blocksRef.current,
             walkAway: options.walkAway === true,
             onUserBlocks: (posted) => {
               args.setBlocks((prev) => [...prev, ...posted]);

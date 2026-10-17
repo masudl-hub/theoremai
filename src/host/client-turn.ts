@@ -1,4 +1,9 @@
-import { type ErrorKind, toErrorEvent, withPublicLabels } from '../guardrails/error.ts';
+import {
+  type ErrorCopies,
+  type ErrorKind,
+  toErrorEvent,
+  withPublicLabels,
+} from '../guardrails/error.ts';
 import { projectGuardrailTurnEvent } from '../guardrails/events.ts';
 import type { LabelOverrides } from '../guardrails/labels.ts';
 import type { TurnEvent } from '../kernel/types.ts';
@@ -23,8 +28,8 @@ export interface ClientTurnOptions {
  */
 function builderWording(event: TurnEvent): TurnEvent {
   if (event.type === 'error' && event.errorInternal !== undefined) {
-    // why: `errorCopy` is the labels key behind the visitor's wording, which this no longer is.
-    const { errorInternal, errorCopy: _copy, ...rest } = event;
+    // why: `errorCopy` stays: worded raw or not, its key still names what failed for the page.
+    const { errorInternal, ...rest } = event;
     return { ...rest, error: errorInternal };
   }
   if (
@@ -97,7 +102,7 @@ function forClientEvents(events: TurnEvent[], options?: ClientTurnOptions): Turn
 }
 
 /** A failure's wording and kind as a client reads them: the body of an error reply or line. */
-type ClientError = { error: string; errorKind: ErrorKind };
+type ClientError = { error: string; errorKind: ErrorKind; errorCopy?: ErrorCopies };
 
 /**
  * A caught failure as its reader may have it, by the same rule as `forClient`: the profile's
@@ -110,8 +115,9 @@ function clientError(
 ): ClientError {
   const event = forClient(withPublicLabels(toErrorEvent(err), labels), options);
   // why: An error event stays one through `withPublicLabels` and `forClient`, worded by the first.
-  const { error = '', errorKind } = event as Extract<TurnEvent, { type: 'error' }>;
-  return { error, errorKind };
+  const { error = '', errorKind, errorCopy } = event as Extract<TurnEvent, { type: 'error' }>;
+  // why: The key tells the page what failed (a conversation the host lost), which `errorKind` cannot.
+  return { error, errorKind, ...(errorCopy ? { errorCopy } : {}) };
 }
 
 export type { ClientError };

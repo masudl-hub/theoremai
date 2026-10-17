@@ -122,6 +122,8 @@ export type OpenedConversation = {
   ref: string | null;
   revision: string | null;
   conversation: StoredConversation;
+  /** What the guardrails decided reading a restored transcript, for the reply to stream first. */
+  events?: TurnEvent[];
 };
 
 /**
@@ -147,8 +149,9 @@ export async function openConversation(
   host: ConversationHost,
   ref: string | undefined,
   use: ConversationUse,
+  restore?: ConversationRestore,
 ): Promise<OpenedConversation> {
-  const opened = await openedAt(host, ref);
+  const opened = await openedAt(host, ref, restore);
   if (use.kind === 'message') requireWalkAway(opened.conversation, use.abandon);
   if (use.kind === 'answer') requireWaitingOn(opened.conversation, use.call);
   if (use.kind === 'rewind') requireRewindPoint(opened.conversation, use.at);
@@ -158,11 +161,54 @@ export async function openConversation(
 async function openedAt(
   host: ConversationHost,
   ref: string | undefined,
+  restore: ConversationRestore | undefined,
 ): Promise<OpenedConversation> {
-  if (ref === undefined) return { ref: null, revision: null, conversation: emptyConversation() };
+  if (ref === undefined) {
+    if (restore)
+      // labels-exempt: internal diagnostic; the user reads error.request
+      throw new TheoremError(
+        'request',
+        'a transcript restores a conversation the host lost, and this message names none',
+      );
+    return { ref: null, revision: null, conversation: emptyConversation() };
+  }
   const snapshot = await host.store.read(host.sessionId, ref);
-  if (!snapshot) throw unknownConversation();
-  return { ref, revision: snapshot.revision, conversation: snapshot.conversation };
+  if (snapshot) return { ref, revision: snapshot.revision, conversation: snapshot.conversation };
+  if (!restore) throw unknownConversation();
+  // why: A null ref makes the reply's write a new conversation, whose ref the `conversation` line hands the page.
+  const { conversation, events } = conversationFromBlocks(restore.profile, restore.blocks);
+  return { ref: null, revision: null, conversation, events };
+}
+
+/**
+ * The page's own transcript, for a conversation the host can no longer open (its key changed, or
+ * its store forgot it): the message goes on from it rather than failing. The host's copy is the
+ * truth while it opens; this is read only when it does not.
+ */
+export type ConversationRestore = { profile: Profile; blocks: readonly TranscriptBlock[] };
+
+/**
+ * A conversation from transcript blocks, read as history by the profile's guardrails at the
+ * `history` boundary, as every turn's history is. A match set to `block` refuses them. Returns it
+ * with the guardrail events for what matched.
+ */
+function conversationFromBlocks(
+  profile: Profile,
+  blocks: readonly TranscriptBlock[],
+): { conversation: StoredConversation; events: TurnEvent[] } {
+  const { request, events, refusal } = sanitizeTurnRequestWithEvents(
+    { profile: profile.id, input: { history: historyFromTranscriptBlocks(blocks) } },
+    profile,
+  );
+  if (refusal) throw refusal;
+  return {
+    conversation: {
+      ...emptyConversation(),
+      transcript: [...blocks],
+      history: request.input?.history ?? [],
+    },
+    events,
+  };
 }
 
 /**
@@ -177,16 +223,8 @@ export async function startConversation(
   profile: Profile,
   blocks: readonly TranscriptBlock[],
 ): Promise<{ ref: string; view: ConversationView; events: TurnEvent[] }> {
-  const { request, events, refusal } = sanitizeTurnRequestWithEvents(
-    { profile: profile.id, input: { history: historyFromTranscriptBlocks(blocks) } },
-    profile,
-  );
-  if (refusal) throw refusal;
-  const result = await host.store.write(host.sessionId, null, null, {
-    ...emptyConversation(),
-    transcript: [...blocks],
-    history: request.input?.history ?? [],
-  });
+  const { conversation, events } = conversationFromBlocks(profile, blocks);
+  const result = await host.store.write(host.sessionId, null, null, conversation);
   if (!result.written) {
     // labels-exempt: internal diagnostic; the user reads error.unavailable
     throw new TheoremError(
@@ -627,7 +665,9 @@ export async function* messageReply(args: {
   runner: ReplyRunner;
 }): AsyncGenerator<ReplyLine> {
   const { host, message, runner } = args;
-  let opened = args.opened;
+  const { events: restored = [], ...stored } = args.opened;
+  let opened: OpenedConversation = stored;
+  yield* restored;
   const { paused } = opened.conversation;
   requireWalkAway(opened.conversation, args.walkAway);
   if (paused) {

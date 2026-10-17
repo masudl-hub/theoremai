@@ -33,7 +33,11 @@ import {
   turnToolSnapshotSchema,
   z,
 } from '@theoremjs/agents';
-import { kindOfHttpStatus } from '@theoremjs/agents/guardrails';
+import {
+  type ErrorCopies,
+  errorCopiesSchema,
+  kindOfHttpStatus,
+} from '@theoremjs/agents/guardrails';
 import {
   type ProfileInterface,
   profileInterfaceSchema,
@@ -129,6 +133,13 @@ export type TheoremTurnRequest = {
   abandon?: GateReference[];
   /** The tools the person allowed for the page, for a host without a session (the studio). */
   replay?: Pick<TheoremReplay, 'sessionPermissions'>;
+  /**
+   * The page's transcript before this message, sent only after the host answered that it can no
+   * longer open `conversation` (`session.conversation_unknown`). A host that restores from it (the
+   * studio) goes on from it under a new ref; `createTheoremHandler` keeps the conversation its own
+   * and does not.
+   */
+  transcript?: TranscriptBlock[];
 };
 const theoremTurnRequest = z.object({
   input: theoremTurnInput,
@@ -138,6 +149,7 @@ const theoremTurnRequest = z.object({
   turnId: clientId.optional(),
   abandon: z.array(gateReferenceSchema).min(1).optional(),
   replay: theoremReplay.pick({ sessionPermissions: true }).optional(),
+  transcript: z.array(transcriptBlockSchema).optional(),
 });
 true satisfies Equals<z.infer<typeof theoremTurnRequest>, TheoremTurnRequest>;
 /** A `/turn` body as `createTheoremHandler` reads it. */
@@ -309,13 +321,21 @@ export class TheoremStreamError extends Error {
   readonly kind: ErrorKind;
   readonly publicMessage?: string;
   readonly internalMessage?: string;
+  /** The labels key behind `publicMessage`, when the host gave one: what failed, more exactly than `kind`. */
+  readonly copy?: ErrorCopies;
 
-  constructor(kind: ErrorKind, publicMessage?: string, internalMessage?: string) {
+  constructor(
+    kind: ErrorKind,
+    publicMessage?: string,
+    internalMessage?: string,
+    copy?: ErrorCopies,
+  ) {
     super(internalMessage ?? publicMessage ?? kind);
     this.name = 'TheoremStreamError';
     this.kind = kind;
     if (publicMessage) this.publicMessage = publicMessage;
     if (internalMessage) this.internalMessage = internalMessage;
+    if (copy) this.copy = copy;
   }
 }
 
@@ -329,10 +349,17 @@ function textOf(value: string | undefined): string | undefined {
 }
 
 /** A host error reply's body (JSON reply or `{ type: 'error' }` stream line). */
-export type HostErrorBody = { error?: string; errorKind?: ErrorKind; errorInternal?: string };
+export type HostErrorBody = {
+  error?: string;
+  errorKind?: ErrorKind;
+  /** The labels key behind `error`, when more specific than the kind's. */
+  errorCopy?: ErrorCopies;
+  errorInternal?: string;
+};
 const hostErrorBody = z.object({
   error: z.string().optional(),
   errorKind: errorKindSchema.optional(),
+  errorCopy: errorCopiesSchema.optional(),
   errorInternal: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof hostErrorBody>, HostErrorBody>;
@@ -347,7 +374,15 @@ export function hostError(body: HostErrorBody, fallbackKind: ErrorKind): Theorem
     body.errorKind ?? fallbackKind,
     publicMessage,
     internal && internal !== publicMessage ? internal : undefined,
+    body.errorCopy,
   );
+}
+
+/** The host could not open the message's conversation (`session.conversation_unknown`). */
+export function isUnknownConversation(err: unknown): boolean {
+  if (!isTheoremStreamError(err) || err.copy === undefined) return false;
+  const copies: readonly { key: string }[] = Array.isArray(err.copy) ? err.copy : [err.copy];
+  return copies.some((copy) => copy.key === 'session.conversation_unknown');
 }
 
 /** One NDJSON line checked against `lines`; an `error` line ends the stream as a {@link TheoremStreamError}. */

@@ -1288,6 +1288,7 @@ Deno.test('a custom session resolver can refuse anonymous callers', async () => 
   assertEquals(await anonymous.json(), {
     error: labelDefault('session.sign_in'),
     errorKind: 'auth',
+    errorCopy: { key: 'session.sign_in' },
   });
 });
 registerTool({

@@ -12,7 +12,13 @@ import { attachPreviewData, encodeFiles } from './encode-files.ts';
 import { type TurnFailure, turnFailure } from './failure.ts';
 import { type StreamView, streamFoldedTurn } from './run-commit.ts';
 import { continueGatedToolInvocation, type ToolGateResolution } from './tool-resume.ts';
-import type { ConversationLine, EncodedBlob, TheoremTransport } from './transport.ts';
+import {
+  type ConversationLine,
+  type EncodedBlob,
+  isUnknownConversation,
+  type TheoremTransport,
+  type TheoremTurnRequest,
+} from './transport.ts';
 import {
   buildInvokeRequest,
   buildTurnRequest,
@@ -88,6 +94,11 @@ export type StreamInterfaceTurnBaseArgs = {
    * conversation for, a waiting session refuses the send (`session.gate_pending`).
    */
   walkAway?: boolean;
+  /**
+   * The transcript before this message. Sent once, only when the host answers that it can no
+   * longer open the conversation, so a host that restores from it (the studio) goes on.
+   */
+  transcript?: readonly TranscriptBlock[];
 };
 
 export type StreamInterfaceTurnArgs = StreamInterfaceTurnBaseArgs & {
@@ -154,14 +165,24 @@ async function streamPreparedTurn(
       events.length = 0;
     }
   };
-  try {
-    await streamFoldedTurn({
+  const send = (body: TheoremTurnRequest) =>
+    streamFoldedTurn({
       iface: args.iface,
       view: args.view,
       events,
       onConversation,
-      stream: (onLine) => args.transport.turn(request, onLine, args.signal),
+      stream: (onLine) => args.transport.turn(body, onLine, args.signal),
     });
+  try {
+    try {
+      await send(request);
+    } catch (err) {
+      if (!args.transcript || request.conversation === undefined || !isUnknownConversation(err))
+        throw err;
+      // why: The host lost the conversation before the message posted; it goes on from the page's copy, once. The lost reply's waiting calls went with it.
+      const { abandon: _lost, ...rest } = request;
+      await send({ ...rest, transcript: [...args.transcript] });
+    }
   } catch (err) {
     return {
       session: args.session,

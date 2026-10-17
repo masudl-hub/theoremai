@@ -1,7 +1,11 @@
 import { assertEquals } from '@std/assert';
 import { TheoremError } from '../../mod.ts';
 import { streamInterfaceTurn } from '../../react/src/client/run-session.ts';
-import type { TheoremTransport } from '../../react/src/client/transport.ts';
+import {
+  hostError,
+  type TheoremTransport,
+  type TheoremTurnRequest,
+} from '../../react/src/client/transport.ts';
 import {
   type ComposerProfileInterface,
   emptyInterfaceTurnSession,
@@ -123,4 +127,62 @@ Deno.test('a line the stream left out is named, and the reply goes on without it
     { type: 'text', text: 'The first half' },
     { type: 'text', text: ', and the rest.' },
   ]);
+});
+
+const EARLIER: TranscriptBlock[] = [{ id: 'u0', kind: 'user-text', text: 'Earlier.' }];
+/** The host's answer to a ref it can't open, as the wire carries it. */
+const lost = () =>
+  hostError(
+    { errorKind: 'request', errorCopy: { key: 'session.conversation_unknown' } },
+    'request',
+  );
+/** A run on conversation `ref-0`, with the page's transcript before the message. */
+async function runOnLostRef(turn: TheoremTransport['turn']) {
+  return await streamInterfaceTurn({
+    iface: textInterface(),
+    transport: hostTransport(turn),
+    session: emptyInterfaceTurnSession(),
+    scope: { conversation: 'ref-0' },
+    view: unskippedView,
+    onUserBlocks: () => {},
+    text: 'And now?',
+    pendingFiles: [],
+    pendingVoice: [],
+    transcript: EARLIER,
+  });
+}
+Deno.test('a message on a conversation the host lost goes again, once, with the page’s transcript', async () => {
+  const sent: TheoremTurnRequest[] = [];
+  const outcome = await runOnLostRef((request, onLine) => {
+    sent.push(request);
+    if (!request.transcript) return Promise.reject(lost());
+    onLine({ type: 'conversation', ref: 'ref-1', posted: true });
+    onLine({ type: 'text', text: 'Going on.' });
+    return Promise.resolve();
+  });
+  assertEquals(outcome.failure, undefined);
+  assertEquals(outcome.posted, true);
+  assertEquals(
+    sent.map((request) => request.transcript),
+    [undefined, EARLIER],
+  );
+});
+Deno.test('a host that still can’t open the conversation fails the message after one more try', async () => {
+  let tries = 0;
+  const outcome = await runOnLostRef(() => {
+    tries += 1;
+    return Promise.reject(lost());
+  });
+  assertEquals(tries, 2);
+  assertEquals(outcome.posted, false);
+  assertEquals(outcome.failure?.errorKind, 'request');
+});
+Deno.test('any other refused message is not sent again', async () => {
+  let tries = 0;
+  const outcome = await runOnLostRef(() => {
+    tries += 1;
+    return Promise.reject(hostError({ errorKind: 'request' }, 'request'));
+  });
+  assertEquals(tries, 1);
+  assertEquals(outcome.posted, false);
 });

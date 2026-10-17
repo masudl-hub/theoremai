@@ -1,13 +1,73 @@
 # @theoremjs/studio
 
-Open your project's agents in a local studio: edit them, run them, and save the edits back to your files.
+[![npm](https://img.shields.io/npm/v/@theoremjs/studio?logo=npm&label=npm&color=cb3837)](https://www.npmjs.com/package/@theoremjs/studio)
+[![CI](https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml/badge.svg)](https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/masudl-hub/theoremai/blob/main/LICENSE)
 
-```sh
-npm install -D @theoremjs/studio
+Edit, run and test Theorem agents in a studio: on your own project with one command, or as a screen in your own app.
+
+## The idea
+
+The **studio** is a screen for one agent **profile** (see [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents)) at a time. You edit the profile as a form or as code, run it in a chat beside the editor, and probe its guardrails.
+
+The screen keeps the profile it edits in the browser, as a **draft**. It sends the draft with every request to a server under `/api/studio`. You choose which server answers:
+
+```text
+                    ┌──────────────────────────────┐
+                    │ BROWSER                      │
+                    │ <StudioScreen />             │
+                    │ edits the draft · runs it    │
+                    └──────────────┬───────────────┘
+                                   │ POST /api/studio/*
+                                   │ (the draft rides along)
+                 ┌─────────────────┴──────────────────┐
+                 ▼                                    ▼
+┌────────────────────────────────┐  ┌────────────────────────────────┐
+│ THE COMMAND                    │  │ YOUR APP                       │
+│ npx theorem-studio             │  │ createStudioDraftHandler()     │
+│                                │  │                                │
+│ your project, on this machine  │  │ any visitor, on your server    │
+│ saves edits to your files      │  │ saves nothing                  │
+└────────────────────────────────┘  └────────────────────────────────┘
+```
+
+- **The command** opens your project's agents. It runs them with your project's tools and keys, and writes your edits back to your files.
+- **The screen in your app** shows the same studio to your users. Your server answers with one handler. It runs drafts only on keys you choose to lend.
+
+## Install
+
+```bash
+npm install -D @theoremjs/studio @theoremjs/agents @theoremjs/react
+```
+
+The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents` and `@theoremjs/react` versions must match exactly.
+
+To show the screen in your app, also install the peers at the versions this package lists in `peerDependencies`:
+
+```bash
+npm install react react-dom zod @astryxdesign/core@0.7.0 @astryxdesign/theme-neutral@0.7.0 @stylexjs/stylex@0.19.0
+```
+
+## Open your project
+
+```bash
 npx theorem-studio
 ```
 
-The command needs Deno. It opens the project's setup file: `studio.setup.ts` or `<name>.studio.setup.ts`. Add `"studio": "theorem-studio"` to your scripts to run it as `npm run studio`. The installed version must match `@theoremjs/agents` and `@theoremjs/react` exactly.
+The command starts two servers that only this machine reaches: your project's server, under Deno, and the studio's page. It opens the project's **setup file**: `studio.setup.ts` or `<name>.studio.setup.ts`. When the project has several, it asks which one.
+
+Add `"studio": "theorem-studio"` to your scripts to run it as `npm run studio`.
+
+```text
+theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
+```
+
+| Option | What it does |
+| --- | --- |
+| `setup` | The setup file to open, by its file or its name. |
+| `--editor <command>` | The editor the studio opens a line of your files in. Default: `$VISUAL` or `$EDITOR` when it opens a window, else `code`. |
+| `--deno-config <file>` | The Deno config your project loads with. Default: the `deno.json` or `deno.jsonc` in the folder you ran the command in. |
+| `--no-watch` | Do not watch the files the setup reads. The studio reads them again when you come back to it. |
 
 ### What a setup file exports
 
@@ -30,7 +90,7 @@ export const provider = {
 };
 ```
 
-A slot can hold a function instead, called with the provider and slot when a call needs the key, for a key that comes from a secret store. A slot left out or empty fails that run with the slot's name, not a guess at another key.
+For a key that comes from a secret store, a slot can hold a function instead. The studio calls it with the provider and slot when a call needs the key. A slot left out or empty fails that run with the slot's name, not a guess at another key.
 
 ### Who a run acts as
 
@@ -50,66 +110,156 @@ export function host(request: Request, actingAs: StudioActingAs | undefined): un
 }
 ```
 
-The builder picks a place and a person in Settings, under People. Each run carries the pick, `host` builds the tools' context from it (it may be `async`; the run waits for it), and each person keeps their own chat and session. Without `people`, every run acts as no one.
+The builder picks a place and a person in Settings, under People. Each run carries the pick, and `host` builds the tools' context from it. `host` may be `async`; the run waits for it. Each person keeps their own chat and session. Without `people`, every run acts as no one.
 
-## In the repo
+## Show the studio in your app
 
+Use this when your users should edit and run agents on your site: a playground, or an internal tool. You need a Vite build, the screen, and one server route.
 
-The studio's authoring logic and demo fixtures: the editable profile draft,
-its tree, the compiler that turns it into a kernel profile, TypeScript source
-export, the travel concierge demo (tool seeds, sample HTTP inputs, local
-function handlers), and the run-tab handoff.
+### 1. Add the Vite plugin
 
-The logic lives here, not in the frontend, so it is type-checked and tested
-against the kernel it compiles for.
+`studioVite` resolves the screen's packages to your install, so your page has one copy of React and Astryx. It also serves the code editor's icons and the type declarations it checks a profile's code against.
 
-Studio runs resolve their models through an isolated kernel scope's provider registry.
-Provider host options can set `limits` for deadlines and upstream output. Studio uses the same kernel enforcement.
-The runtime resolves only own entries in the host's provider vault. Inherited credentials and resolvers are unavailable.
-Scripted live guardrail probes supply fixture credentials only for the selected model's primary and fallback slots.
-Registered adapters can use object methods or class prototype methods. The kernel retains their method receivers for the run.
-Replacing a scope registration affects later runs. It does not replace an active run's captured adapter contract.
+```ts
+// vite.config.ts
+import { studioVite } from '@theoremjs/studio/vite';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
 
-Exported agent handoffs ask the builder to supply shared atomic session storage when deployment uses several server instances.
-The React handler's session contract uses `load` and `compareAndSwap`. Tool credentials use a separate store.
-Exported React handlers apply finite session limits before accepting new execution claims.
-Builders can set `sessionLimits` and `operationRetentionMs` in the host handler options.
-These settings are host code; they do not enter the exported profile.
-The handler stores version 3 operation records. It retains unresolved claims instead of restoring approvals after dispatch.
-A trusted `StudioRuntime.execution` service can supply the same kernel coordination contract to Studio turns, invokes, and host calls.
-New operation claims retain accepted request data and final prepared input through `SavedToolInvocation`.
-Its `lookup` method checks saved operations before preparation hooks. It must enforce current resource access before returning saved results.
-The default authoring runtime supplies no durable execution store. Browser replay cannot supply this service.
-Studio turn replay and live answers preserve both the call ID and the kernel-issued operation ID.
-Browser replay entries use operation IDs as keys. Live timers check the same reference before they stop.
-A live relay can use `createTheoremSessionBoundary` with its authenticated session resolver and atomic store.
-Pass its `toolExecution` to the kernel. Use `beforeEvent` to save checkpoint ownership before browser delivery.
-A failed ownership write stops delivery of that checkpoint.
-Live page callbacks wait for a claimed dispatch grant. Permission and sign-in decisions precede the grant.
-The grant carries final prepared arguments. The relay routes its correlated result to the session boundary.
-The local browser runtime supplies memory coordination and result delivery for its own authoring session.
-Text and host browser transports retain the same execution authority.
-A Studio chat keeps its conversation in a sealed store. A run in the page seals with a key that the tab keeps. A project run seals with one key that `serve.ts` makes for each Studio run and hands to every load, so a chat survives a Save or an edit. Quitting Studio ends the chats. The key is never written to disk.
-Its authority remains in that browser. It does not provide recovery after a browser restart.
-Text and live browser transports save checkpoint ownership before delivery and check it before resumption.
-Runtime methods retain their original receiver, including methods that read private class fields.
-An injected runtime coordinator also needs a paired `pageExecution` service when browser tools require it.
-For a custom protocol in a host-supplied authoring runtime, pass definitions through `StudioRuntime.providerDefinitions`.
-The runtime registers these definitions before profiles. They remain host code and never enter saved profile JSON.
-The public demo retains its separate provider policy.
-
-The kernel's boundary rule, "Host decides, Theorem runs", keeps assistants and
-demo product out of the `@theoremjs/agents` package.
-`scripts/verify-publish-bundle.ts` checks that `studio/` stays out of the
-kernel's npm and JSR packages. The npm package `@theoremjs/studio` holds only the
-`theorem-studio` command (`npm run build:npm:studio`). The surface below stays
-in the repo. Consumers link it directly, for example:
-
-```json
-{ "@theoremjs/studio": "file:../theoremai/studio" }
+export default defineConfig({
+  plugins: [react(), studioVite({ hostRoot: import.meta.dirname })],
+});
 ```
 
-## Surface (`mod.ts`)
+`hostRoot` is the folder of the app that shows the screen.
+
+### 2. Show the screen
+
+```tsx
+import { LayerProvider } from '@astryxdesign/core/Layer';
+import { Theme } from '@astryxdesign/core/theme';
+import { theoremStudioTheme } from '@theoremjs/studio/ui/built/theorem-studio.ts';
+import { openStudio } from '@theoremjs/studio/ui/lib/studio-open.ts';
+import { StudioScreen } from '@theoremjs/studio/ui/studio-screen.tsx';
+import '@theoremjs/studio/ui/figtree.css';
+import '@astryxdesign/core/reset.css';
+import '@astryxdesign/core/astryx.css';
+import '@theoremjs/studio/ui/built/theme.css';
+import '@theoremjs/studio/ui/motion.css';
+
+export function Studio() {
+  return (
+    <Theme theme={theoremStudioTheme} mode="dark">
+      <LayerProvider>
+        <StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.1' }} />
+      </LayerProvider>
+    </Theme>
+  );
+}
+```
+
+Render it in the browser only. `openStudio()` reads the tab's kept workspace, so it does not run on a server.
+
+`host` tells the screen about your page:
+
+| Field | What it does |
+| --- | --- |
+| `kernelVersion` | The `@theoremjs/agents` version, shown under the studio's title. Required. |
+| `lentKeys` | Keys your page lends to whoever opens the studio. See [Lend your keys](#lend-your-keys). |
+| `toolHandlers` | Handlers for your page's own function tools, by name. A tool with none answers with its sample reply or a stub. |
+| `hasSettings` | True when your page has a door to Settings. Keys then show in Settings, not in the editor's header. |
+| `mountSurface` | Mounts the screen's surface while the screen is open, and returns the unmount. |
+| `onReport` | Called as what is on screen changes, and with `null` when the screen closes. |
+
+### 3. Answer at `/api/studio`
+
+The screen sends every request under `/api/studio`. Mount one handler there:
+
+```ts
+import { createStudioDraftHandler, STUDIO_BASE } from '@theoremjs/studio/server';
+
+const studio = createStudioDraftHandler();
+
+export default {
+  fetch(request: Request): Promise<Response> | Response {
+    if (new URL(request.url).pathname.startsWith(`${STUDIO_BASE}/`)) return studio(request);
+    return new Response('Not found', { status: 404 });
+  },
+};
+```
+
+The handler takes a Web `Request` and returns a `Response`. It serves no project: each request carries its draft.
+
+Without lent keys, the handler answers three requests:
+
+- the guardrail probe, on a scripted model, so no model is called;
+- the key test, for a key the builder types;
+- the tool connection test, which reaches public hosts only.
+
+Drafts then run in the browser, on the builder's own keys.
+
+To call `onProbePassed` after the reply on a Worker, pass `ctx.waitUntil` as the second argument: `studio(request, (work) => ctx.waitUntil(work))`.
+
+## Lend your keys
+
+Use this when visitors without a key should still run drafts: a public playground on your free-tier keys. The drafts then run on your server, so you decide what they may use.
+
+You describe the keys once, as a `LentKeys`. It says which models the keys run and which built-in tools each model may use. It also says how large a decision may be, and what runs on the keys keep to. Give the same `LentKeys` to the screen and to the handler:
+
+```ts
+import type { LentKeys } from '@theoremjs/studio';
+import { createStudioDraftHandler } from '@theoremjs/studio/server';
+
+declare const keys: LentKeys;
+declare const env: { GEMINI_KEY: string };
+
+const studio = createStudioDraftHandler({
+  lent: {
+    mode: 'demo',
+    keys,
+    hostOptions: () => ({ vault: { gemini: env.GEMINI_KEY } }),
+  },
+  spend: (kind, request) => {
+    // Count `kind` for whoever sent `request`. Throw a TheoremError to refuse it.
+  },
+});
+```
+
+```tsx
+<StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.1', lentKeys: keys }} />
+```
+
+With `lent`, the handler also runs chats, calls, decisions and embeddings. A draft that names a model the keys do not run is refused with the reason `LentKeys.violation` gives.
+
+| Option | What it does |
+| --- | --- |
+| `lent` | `{ mode: 'demo', keys }`, with `hostOptions` filling each profile's key slots, and your tool handlers. Without it, no draft runs on the server. |
+| `spend` | Spends one `decision`, `call` or `agent` turn for whoever sent the request, before it runs. Throw a `TheoremError` to refuse it; the screen shows its wording. Default: nothing is counted. |
+| `resolveHost` | Resolves the names the connection test calls, so the network guard refuses one that answers a private address. Workers have no DNS lookup: pass `dnsOverHttpsResolver(...)`. Default: `lent.resolveHost`. |
+| `onProbePassed` | Gets each probed text that some guardrail boundary let through, after the reply. |
+| `sessionStore`, `pageToolBroker`, `steer` | Where visitor sessions, page tool results and a running chat's steers are kept. Default: in memory. A host on several isolates needs stores they all reach. |
+| `conversationKey` | The key chat conversations are sealed with. Default: a new one for this handler's lifetime. |
+| `draftNetwork` | True only when the handler serves the builder alone, on their own machine, as the command's does. A connection test then keeps to the draft's network guardrail. Otherwise it reaches public hosts only. |
+
+Live calls on lent keys open a WebSocket to `/api/live/relay`, not `/api/studio`. This package does not ship that relay. Build it on your server with `attachStudioLiveSession` from `@theoremjs/studio/browser`, and see the relay section of [`@theoremjs/react`](https://www.npmjs.com/package/@theoremjs/react).
+
+## Entry points
+
+| Import | What it holds |
+| --- | --- |
+| `theorem-studio` | The command. |
+| `@theoremjs/studio/server` | `createStudioDraftHandler`, `STUDIO_BASE` and their types. |
+| `@theoremjs/studio/ui/*` | The screen: `ui/studio-screen.tsx`, `ui/lib/studio-open.ts`, the theme in `ui/built/`, and the stylesheets. |
+| `@theoremjs/studio/vite` | `studioVite`. |
+| `@theoremjs/studio/people` | `StudioPeople` and `StudioActingAs`, for a setup file. |
+| `@theoremjs/studio/browser` | Runs a draft in the browser on the builder's keys, and `attachStudioLiveSession` for a live relay. |
+| `@theoremjs/studio/runtime` | `studioScope` and the run functions the handler is built on, for a server of your own. |
+| `@theoremjs/studio/surface` | `studioSurface`: the draft as nodes an agent can read and set. |
+| `@theoremjs/studio` | The draft and its tools (below). |
+
+## The `@theoremjs/studio` entry
+
+Use these when you build on the studio's draft yourself: compile it, export it as source, or probe its guardrails.
 
 | Export | Purpose |
 | --- | --- |
@@ -132,8 +282,3 @@ in the repo. Consumers link it directly, for example:
 | `registerStudioTools()`, `StudioToolHandlers` | Register a draft's tools; a function tool answers with its sample reply, else the handler the host gives for its name, else a stub from its output schema |
 | `stubOutputFromSchema()` | Generic stub object from a JSON Schema |
 | `StudioInputsSpec`, `StudioToolSeed`, `StudioToolSpecSeed` | Serializable seed shapes |
-
-Generic authoring vocabulary the kernel schema owns (`STUDIO_AUTH_TYPES`,
-`StudioAuthType`, `studio.*` field metadata) stays in `@theoremjs/agents/schema`.
-
-Tests live in the main repo: `tests/studio/`.

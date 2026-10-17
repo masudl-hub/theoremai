@@ -145,6 +145,17 @@ Deno.test('retryTransient stops backing off once the next wait would pass five s
   assertEquals(waits, [1000, 2000]);
 });
 
+Deno.test('retryTransient stops after four retries when Retry-After asks for no wait', async () => {
+  const { waits, wait } = recordWaits();
+  const upstream = answering(
+    new Response('busy', { status: 429, headers: { 'retry-after': '0' } }),
+  );
+  const res = await retryTransient(upstream.send, wait)('https://x.test');
+  assertEquals(res.status, 429);
+  assertEquals(upstream.calls(), 5);
+  assertEquals(waits, [0, 0, 0, 0]);
+});
+
 Deno.test('retryTransient sends a non-transient answer back at once', async () => {
   const { waits, wait } = recordWaits();
   for (const status of [200, 400, 401, 404]) {

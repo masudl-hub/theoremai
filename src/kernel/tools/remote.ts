@@ -4,6 +4,7 @@ import { fetchGuarded, type ResolveHost } from '../../guardrails/network.ts';
 import type { ErrorKind } from '../../guardrails/theorem-error.ts';
 import type { NetworkGuardrailSpec } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
+import { retryTransient } from '../../providers/shared/retry.ts';
 import type { ToolCredentialSource } from '../auth/credential-source.ts';
 import { refreshOAuthToken, tokenAudienceCovers } from '../auth/oauth.ts';
 import type { AuthScopeRefused } from '../auth/scope-refusal.ts';
@@ -857,6 +858,9 @@ async function* sendHttpRequest(
       {
         policy: toolNetworkPolicy(ctx),
         followRedirects: true,
+        // why: a read changes nothing, so a busy or briefly down service is asked again, as a
+        // model call is; a write is never sent twice.
+        ...(tool.access === 'read-only' ? { fetchFn: retryTransient(fetch) } : {}),
         originBoundHeaders: { ...tool.headers, ...authHeaders },
         resolveHost: ctx.resolveHost,
         onCheck: checks.onCheck,

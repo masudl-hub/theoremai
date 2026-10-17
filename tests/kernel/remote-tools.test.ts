@@ -1650,9 +1650,18 @@ Deno.test('a 403 that asks for no scope is the call failing, not a sign-in', asy
   assertEquals(toolEventsOf(events, 'gate').length, 0);
   assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'http_403');
 });
-Deno.test('a 429 from a tool server fails the call as a rate limit', async () => {
+Deno.test('a 429 from a tool server that stays busy fails the call as a rate limit', async () => {
   registerProfileTool({ slot: 'user_auth', type: 'bearer', scopes: ['read'] });
-  const events = await withFetch(refusingFetch(429), () => runProfileTool('1', BEARER_SLOT));
+  let sent = 0;
+  const busy: typeof fetch = () => {
+    sent += 1;
+    return Promise.resolve(
+      new Response('refused', { status: 429, headers: { 'retry-after': '0' } }),
+    );
+  };
+  const events = await withFetch(busy, () => runProfileTool('1', BEARER_SLOT));
+  // A read is asked again four times before the refusal stands.
+  assertEquals(sent, 5);
   const [failed] = toolEventsOf(events, 'error');
   assertEquals(failed?.failure?.code, 'http_429');
   assertEquals(failed?.failure?.kind, 'rate_limit');
@@ -1695,4 +1704,50 @@ Deno.test('an MCP server refusing the credential gates or fails as an HTTP tool 
     run,
   );
   assertEquals(toolEventsOf(outside, 'error')[0]?.failure?.code, 'out_of_scope');
+});
+Deno.test('Declarative HTTP Tool asks a busy service again for a read, never for a write', async () => {
+  resetTools();
+  const shared = {
+    description: 'Busy probe',
+    type: 'http' as const,
+    endpoint: 'https://api.example.com/search',
+    method: 'POST' as const,
+    category: 'api',
+    loadTier: 'T0' as const,
+    permission: 'auto' as const,
+    paths: ['*'],
+    input: z.object({ q: z.string() }),
+    output: z.object({ hits: z.number() }),
+  };
+  registerTool({ ...shared, name: 'fetch_everything', access: 'read-only' });
+  registerTool({ ...shared, name: 'http_post_mutate_probe', access: 'read-write' });
+  const originalFetch = globalThis.fetch;
+  let sent = 0;
+  globalThis.fetch = (() => {
+    sent += 1;
+    return Promise.resolve(
+      sent % 2 === 1
+        ? new Response('{"error":"Rate limit exceeded"}', {
+            status: 429,
+            headers: { 'retry-after': '0' },
+          })
+        : new Response('{"hits":3}', {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+    );
+  }) as typeof fetch;
+  try {
+    const read = await collectToolRun('fetch_everything', { q: 'fern' }, 'call_busy_read');
+    assertEquals(sent, 2);
+    assertEquals(toolEventsOf(read.events, 'complete')[0]?.output, { hits: 3 });
+
+    sent = 0;
+    const write = await collectToolRun('http_post_mutate_probe', { q: 'fern' }, 'call_busy_write');
+    assertEquals(sent, 1);
+    assertEquals(toolEventsOf(write.events, 'error')[0]?.failure?.code, 'http_429');
+    assertEquals(toolEventsOf(write.events, 'error')[0]?.failure?.kind, 'rate_limit');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

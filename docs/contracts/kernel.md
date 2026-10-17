@@ -984,6 +984,7 @@ A timed-out browser result produces `tool.page_timed_out`. It does not restore a
 A function tool with neither a handler nor `answeredBy` does not register.
 The kernel checks every result against `output`, and a mismatch fails the call as `invalid_output`.
 Declarative HTTP tools (`type: 'http'`) call REST APIs directly with templated URLs, query parameters, headers, and body mapping.
+A `read-only` HTTP tool is sent again after a network error or a 408, 429, 500, 502, 503 or 504 status, on the same waits and limits as a model call (`docs/contracts/providers.md`). A `read-write` or `destructive` one is sent once.
 Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers over Streamable HTTP.
 The preferred revision is `2026-07-28`; the kernel negotiates downward through
 `MCP_PROTOCOL_VERSIONS` (`2026-07-28` → `2025-11-25` → `2025-06-18` → `2025-03-26`)

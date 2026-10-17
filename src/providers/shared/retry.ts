@@ -6,6 +6,8 @@ export type Wait = (ms: number, signal?: AbortSignal | null) => Promise<void>;
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
 /** All the waiting one call may do between tries; a wait that would pass it sends the last answer back. */
 const WAIT_BUDGET_MS = 5000;
+/** The most tries after the first: a `Retry-After: 0` costs no wait, so the budget alone never ends it. */
+const MAX_RETRIES = BACKOFF_MS.length;
 const MS_PER_SECOND = 1000;
 
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -68,7 +70,7 @@ export function retryAfterMs(headers: Headers, now = Date.now()): number | undef
 
 /**
  * Retries a transient status (408, 429, 5xx gateway) or a network failure while the waits stay
- * within five seconds in all. Each wait is the response's `Retry-After` when it gives one, else
+ * within five seconds in all, at most four times. Each wait is the response's `Retry-After` when it gives one, else
  * 1s, 2s, 4s then 8s; a wait that would pass the five seconds, or the call's own time left, is not
  * taken, and the last answer or error goes back as it came. An abort ends the wait.
  */
@@ -88,13 +90,13 @@ export function retryTransient(
           return res;
         }
         delay = retryAfterMs(res.headers) ?? backoffMs(attempt);
-        if (delay > left) {
+        if (delay > left || attempt >= MAX_RETRIES) {
           return res;
         }
         await res.body?.cancel();
       } catch (err) {
         delay = backoffMs(attempt);
-        if (!isTransientThrown(err) || delay > left) {
+        if (!isTransientThrown(err) || delay > left || attempt >= MAX_RETRIES) {
           throw err;
         }
       }

@@ -67,6 +67,7 @@ export const TEST_KEYS: LentKeys = {
     timeoutMs: 30_000,
   },
   questionViolation: () => null,
+  stateViolation: () => null,
   liveInputTokens: 65_536,
   holds: { publicHostsOnly: true, afterRemoteRead: 'destructive' },
 };

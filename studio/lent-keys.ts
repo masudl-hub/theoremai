@@ -74,6 +74,8 @@ export interface LentKeys {
   decision: LentDecisionLimits;
   /** Why `question` can't be asked of `binding`'s model; `null` when it can. */
   questionViolation(binding: ModelRoute, question: DecisionQuestion): string | null;
+  /** Why `state` can't be decided on by `binding`'s model; `null` when it can. */
+  stateViolation(binding: ModelRoute, state: unknown): string | null;
   /** The most input tokens a Live session holds on the keys. Compression starts below it. */
   liveInputTokens: number;
   /** What runs on the keys keep to, whatever a profile says. */

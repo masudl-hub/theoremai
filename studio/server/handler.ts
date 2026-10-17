@@ -60,7 +60,10 @@ import {
   type StudioPeople,
   type StudioPeopleOffer,
 } from '../people.ts';
+import { createStudioDraftHandler, STUDIO_BASE } from './draft-handler.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
+
+export { STUDIO_BASE } from './draft-handler.ts';
 import { tracedToPage, withDecisionTraces, withRunTraces } from './run-traces.ts';
 import type { ProjectOrigins, ProviderPlace, SharedSetting, Unregistered } from './save-wire.ts';
 import {
@@ -499,8 +502,6 @@ async function freshPerson(
   }
 }
 
-/** Where the server is mounted unless the host says otherwise. */
-export const STUDIO_BASE = '/api/studio';
 
 /** The page's own origin, echoed: a request from any other was refused before this. */
 export function corsHeaders(request: Request, pageOrigins: readonly string[]): Record<string, string> {
@@ -645,6 +646,14 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
   return served;
 }
 
+/** `answer` with the page's CORS headers on it. */
+async function withCors(answer: Promise<Response>, cors: Record<string, string>): Promise<Response> {
+  const response = await answer;
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(cors)) headers.set(key, value);
+  return new Response(response.body, { status: response.status, headers });
+}
+
 /**
  * Serves the studio for the tools and profiles registered when it is called.
  * Register the project first.
@@ -666,6 +675,8 @@ export function createStudioHandler(
   const served = profileHandlers(handlerOptions, description.problems);
   const prefix = `${base}/profiles/`;
   const peoplePath = `${base}/people`;
+  // The screen's own requests (the guardrail probe, the key and connection tests) need no project.
+  const draft = createStudioDraftHandler({ base });
 
   const run = async (request: Request, path: string): Promise<Response> => {
     const cors = corsFor(request);
@@ -677,9 +688,7 @@ export function createStudioHandler(
     const response = await serve(request);
     // A socket's answer goes back as it is: it is not a response the page reads.
     if (response.status === 101) return response;
-    const headers = new Headers(response.headers);
-    for (const [key, value] of Object.entries(cors)) headers.set(key, value);
-    return new Response(response.body, { status: response.status, headers });
+    return withCors(Promise.resolve(response), cors);
   };
 
   const answer = (request: Request): Response | Promise<Response> => {
@@ -691,7 +700,7 @@ export function createStudioHandler(
     if (path.startsWith(prefix)) return run(request, path);
     if (path === peoplePath && request.method === 'GET') return existingPeople(people, request, cors);
     if (path === `${peoplePath}/fresh` && request.method === 'POST') return freshPerson(people, request, cors);
-    return json(404, {}, cors);
+    return withCors(draft(request), cors);
   };
   return (request) => Promise.resolve(answer(request));
 }

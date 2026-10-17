@@ -14,6 +14,7 @@
     "./browser": "./browser.ts",
     "./people": "./people.ts",
     "./surface": "./surface.ts",
+    "./server": "./server.ts",
     "./ui/*": "./ui/*",
     "./vite": "./vite.mjs"
   },

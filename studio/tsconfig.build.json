@@ -20,6 +20,7 @@
 		"browser.ts",
 		"people.ts",
 		"surface.ts",
+		"server.ts",
 		"vite.mjs",
 		"server/serve.ts",
 		"server/project.ts"

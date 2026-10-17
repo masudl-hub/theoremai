@@ -89,6 +89,37 @@ test('React source and package changes require the React README', async () => {
   }
 });
 
+test('studio changes require the studio README, and its runtime and packaging the studio contract', async () => {
+  const repoRoot = new URL('../..', import.meta.url).pathname;
+  for (const file of [
+    'studio/ui/studio-screen.tsx',
+    'studio/server/draft-handler.ts',
+    'studio/package.json',
+  ]) {
+    const stale = await lintDocsTruth({ repoRoot, changedFiles: [file] });
+    assert.ok(
+      stale.errors.some((error) =>
+        error.includes(`${file}: changed without touching owning doc studio/README.md`),
+      ),
+      stale.errors.join('\n'),
+    );
+    const fresh = await lintDocsTruth({ repoRoot, changedFiles: [file, 'studio/README.md'] });
+    assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
+  }
+  for (const file of ['studio/runtime.ts', 'scripts/build-npm-studio.ts']) {
+    const stale = await lintDocsTruth({ repoRoot, changedFiles: [file, 'studio/README.md'] });
+    assert.ok(
+      stale.errors.some((error) => error.includes('docs/contracts/studio.md')),
+      stale.errors.join('\n'),
+    );
+    const fresh = await lintDocsTruth({
+      repoRoot,
+      changedFiles: [file, 'studio/README.md', 'docs/contracts/studio.md'],
+    });
+    assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
+  }
+});
+
 test('provider and session changes also require the React guide', async () => {
   const repoRoot = new URL('../..', import.meta.url).pathname;
   for (const file of [

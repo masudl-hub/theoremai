@@ -2,6 +2,8 @@
 
 For maintainers of `studio/`. The package README (`studio/README.md`) speaks to builders; this file does not ship.
 
+## Ownership
+
 The studio's authoring logic and demo fixtures: the editable profile draft,
 its tree, the compiler that turns it into a kernel profile, TypeScript source
 export, the travel concierge demo (tool seeds, sample HTTP inputs, local
@@ -9,6 +11,8 @@ function handlers), and the run-tab handoff.
 
 The logic lives here, not in the frontend, so it is type-checked and tested
 against the kernel it compiles for.
+
+## Runs and sessions
 
 Studio runs resolve their models through an isolated kernel scope's provider registry.
 Provider host options can set `limits` for deadlines and upstream output. Studio uses the same kernel enforcement.
@@ -44,6 +48,8 @@ An injected runtime coordinator also needs a paired `pageExecution` service when
 For a custom protocol in a host-supplied authoring runtime, pass definitions through `StudioRuntime.providerDefinitions`.
 The runtime registers these definitions before profiles. They remain host code and never enter saved profile JSON.
 The public demo retains its separate provider policy.
+
+## Package boundary
 
 The kernel's boundary rule, "Host decides, Theorem runs", keeps assistants and
 demo product out of the `@theoremjs/agents` package.

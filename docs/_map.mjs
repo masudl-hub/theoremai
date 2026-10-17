@@ -10,6 +10,7 @@ const graph = {
     'docs/contracts/kernel.md': 280,
     'docs/contracts/providers.md': 160,
     'docs/contracts/guardrails.md': 110,
+    'docs/contracts/studio.md': 50,
   },
   production_roots: [
     'mod.ts',
@@ -78,6 +79,57 @@ const graph = {
         },
       ],
       validates: ['tests/react/', 'scripts/docs-truth/graph.test.mjs'],
+    },
+
+    'studio-package': {
+      export: '_internal/studio-package',
+      doc: 'studio/README.md',
+      owns: ['studio/'],
+      validates: ['tests/studio/', 'studio/tests/'],
+    },
+
+    'studio-contract': {
+      export: '_internal/studio-contract',
+      doc: 'docs/contracts/studio.md',
+      owns: [],
+      watches: [
+        {
+          path: 'studio/runtime.ts',
+          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          sections: ['Runs and sessions'],
+        },
+        {
+          path: 'studio/runtime-scope.ts',
+          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          sections: ['Runs and sessions'],
+        },
+        {
+          path: 'studio/browser-execution.ts',
+          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          sections: ['Runs and sessions'],
+        },
+        {
+          path: 'studio/browser-transport.ts',
+          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          sections: ['Runs and sessions'],
+        },
+        {
+          path: 'studio/live-session-bridge.ts',
+          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          sections: ['Runs and sessions'],
+        },
+        {
+          path: 'scripts/build-npm-studio.ts',
+          reason: 'The contract states what the studio package ships and what stays out of the kernel',
+          sections: ['Package boundary'],
+        },
+        {
+          path: 'scripts/verify-publish-bundle.ts',
+          reason: 'The contract states what the studio package ships and what stays out of the kernel',
+          sections: ['Package boundary'],
+        },
+      ],
+      validates: ['tests/studio/'],
     },
 
     'docs-truth': {

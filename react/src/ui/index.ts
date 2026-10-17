@@ -1,7 +1,7 @@
 /**
  * Astryx UI for Theorem — `<TheoremChat />` plus the pieces it is built from,
- * `<TheoremDecision />` for decision profiles, and `<TheoremHost />` for host
- * profiles.
+ * `<TheoremDecision />` for decision profiles, `<TheoremEmbedding />` for
+ * embedding profiles, and `<TheoremHost />` for host profiles.
  *
  * Styling is Astryx: pass `theme` (any `defineTheme` result, e.g. one that
  * `extends: theoremTheme`) or wrap your app in your own `<Theme>`.
@@ -40,10 +40,10 @@ export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 export {
   ConsoleFrame,
   type ConsoleFrameProps,
-  ConsoleRequestCard,
   RequestCard,
   ResponseColumn,
   RunBar,
+  useBytes,
 } from './ConsoleFrame.tsx';
 export { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
 export { useDisclosureMotion } from './disclosure-motion.ts';
@@ -76,6 +76,7 @@ export {
   type TheoremChatProps,
 } from './TheoremChat.tsx';
 export { TheoremDecision, type TheoremDecisionProps } from './TheoremDecision.tsx';
+export { TheoremEmbedding, type TheoremEmbeddingProps } from './TheoremEmbedding.tsx';
 export { TheoremHost, type TheoremHostProps } from './TheoremHost.tsx';
 export {
   ApprovalCard,

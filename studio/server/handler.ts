@@ -64,7 +64,7 @@ import { createStudioDraftHandler, STUDIO_BASE } from './draft-handler.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
 
 export { STUDIO_BASE } from './draft-handler.ts';
-import { tracedToPage, withDecisionTraces, withRunTraces } from './run-traces.ts';
+import { tracedToPage, withJsonTraces, withRunTraces } from './run-traces.ts';
 import type { ProjectOrigins, ProviderPlace, SharedSetting, Unregistered } from './save-wire.ts';
 import {
   addAgent,
@@ -589,7 +589,7 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
     if (!questions || questionsFault(profile.id, questions)) return undefined;
     const { vault, fetch } = options.provider ?? {};
     // The page shows a decision's trace, so the profile is served writing its records to the reply.
-    return withDecisionTraces(
+    return withJsonTraces(
       createTheoremDecisionHandler({ profile: tracedToPage(profile), questions, vault, fetch, clientEvents: STUDIO_READER }),
     );
   };
@@ -607,13 +607,16 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
         continue;
       }
       if (profile.type === 'embedding') {
+        // The page shows an embedding's trace, so its records ride in the reply as a decision's do.
         served.set(
           profile.id,
-          createTheoremEmbeddingHandler({
-            profile: tracedToPage(profile),
-            provider: options.provider,
-            clientEvents: STUDIO_READER,
-          }),
+          withJsonTraces(
+            createTheoremEmbeddingHandler({
+              profile: tracedToPage(profile),
+              provider: options.provider,
+              clientEvents: STUDIO_READER,
+            }),
+          ),
         );
         continue;
       }

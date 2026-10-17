@@ -24,7 +24,8 @@ const EASE = 'var(--duration-medium) var(--ease-standard)';
 /** Height of a share bar, as the trace draws one. */
 const SHARE_PX = 12;
 
-function useNumbers() {
+/** The reader's locale's percent, decimal and dollar formats. */
+export function useNumbers() {
   const locale = useLocale();
   return useMemo(
     () => ({
@@ -46,7 +47,7 @@ function answerFill(isLead: boolean): string {
 }
 
 /** The option's share as a bar, drawn like the trace's. */
-function Share({ value, isLead }: { value: number; isLead: boolean }) {
+export function Share({ value, isLead }: { value: number; isLead: boolean }) {
   return (
     <div
       style={{

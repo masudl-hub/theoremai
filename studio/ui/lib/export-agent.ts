@@ -29,9 +29,13 @@ const DECISION_ENDPOINT = '/api/decision';
 /** Where the host mounts `createTheoremHostHandler`; `TheoremHost`'s default endpoint. */
 const HOST_ENDPOINT = '/api/host';
 
+/** Where the host mounts `createTheoremEmbeddingHandler`; `TheoremEmbedding`'s default endpoint. */
+const EMBEDDING_ENDPOINT = '/api/embedding';
+
 /** Turn profiles run through `createTheoremHandler`; live profiles run through a relay. */
+const NOT_TURNS = new Set(['live', 'decision', 'host', 'embedding']);
 function servesTurns({ profile }: CompiledStudio): boolean {
-	return profile.type !== 'live' && profile.type !== 'decision' && profile.type !== 'host';
+	return !NOT_TURNS.has(profile.type);
 }
 
 /** The `keySlot` and `fallbackKeySlot` an object names, when they are strings. */
@@ -221,6 +225,27 @@ function hostEntry(agent: CompiledStudio): Entry {
 	};
 }
 
+/** An embedding agent's route and its inputs-and-vectors component. */
+function embeddingEntry(workspace: CompiledWorkspace, agent: CompiledStudio): Entry {
+	return {
+		endpoint: EMBEDDING_ENDPOINT,
+		route: serverFile(
+			agent,
+			'embedding',
+			'createTheoremEmbeddingHandler',
+			`Mount at ${EMBEDDING_ENDPOINT} and ${EMBEDDING_ENDPOINT}/embed.`,
+			['profile', `vault: ${vaultSource(workspace)}`],
+		),
+		ui: browserFile(
+			'AgentEmbedding.tsx',
+			'AgentEmbedding',
+			'TheoremEmbedding',
+			EMBEDDING_ENDPOINT,
+			'the inputs and their vectors',
+		),
+	};
+}
+
 /** A turn agent's route and its chat. */
 function turnEntry(workspace: CompiledWorkspace, agent: CompiledStudio): Entry {
 	return {
@@ -246,6 +271,7 @@ function turnEntry(workspace: CompiledWorkspace, agent: CompiledStudio): Entry {
 function entryFiles(workspace: CompiledWorkspace, agent: CompiledStudio): Entry {
 	if (agent.profile.type === 'decision') return decisionEntry(workspace, agent);
 	if (agent.profile.type === 'host') return hostEntry(agent);
+	if (agent.profile.type === 'embedding') return embeddingEntry(workspace, agent);
 	if (!servesTurns(agent)) return {};
 	return turnEntry(workspace, agent);
 }
@@ -343,6 +369,14 @@ function briefQuestions(agent: CompiledStudio, tools: string[]): string[] {
 			`- Which framework this app uses, and where server routes live (so the handler mounts at \`${HOST_ENDPOINT}\`, or the path you pick).`,
 			"- Where each tool's keys come from, if any need them.",
 			'- Who may call the route, and how often.',
+		];
+	}
+	if (type === 'embedding') {
+		return [
+			'- Where the inputs come from: typed by a person in `TheoremEmbedding` (`AgentEmbedding.tsx`), or sent by my own code, which then calls `runEmbedding` from `@theoremjs/agents` on the server and drops `route.ts` and `AgentEmbedding.tsx`.',
+			`- Which framework this app uses, and where server routes live (so the handler mounts at \`${EMBEDDING_ENDPOINT}\`, or the path you pick).`,
+			'- Where the model keys come from: environment variables or a secrets manager.',
+			'- Where the vectors go: the store or index that keeps them, and who may call the route: every request spends a key.',
 		];
 	}
 	const turns = servesTurns(agent);

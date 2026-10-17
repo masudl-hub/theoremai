@@ -316,7 +316,6 @@ export function createBrowserStudioEmbeddingTransport(
           },
           withBrowserExecution(runtime).runtime,
         );
-        for (const record of response.traces) traces.push(record);
         return { result: response.result, traces: response.traces };
       } catch (error) {
         throw withFailedTraces(failed(error, payload), failedTraces(error));

@@ -143,7 +143,7 @@ The profile, the keys and the system prompt stay on the server. The browser rece
 | Import | Content |
 | --- | --- |
 | `@theoremjs/react` | Hooks, transports and client logic |
-| `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision` and their parts |
+| `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision`, `TheoremEmbedding` and their parts |
 | `@theoremjs/react/live` | `LiveRunner`, the voice and video call UI |
 | `@theoremjs/react/server` | The handlers and the stores they use |
 | `@theoremjs/react/ui/theme` | `theoremTheme`, the base for your own Astryx theme |
@@ -273,6 +273,26 @@ Under the state, `TheoremDecision` shows the shortcut that asks for a decision, 
 In one column, the state sits in the middle of the page until you ask for a decision. It then eases up to the top, and the answers appear under it. With `columns`, the state moves to the left instead and the answers fill the right.
 
 For your own UI, use `useTheoremDecision`.
+
+### Embedding
+
+An `embedding` profile turns inputs into vectors. Each input is text, or an object with `parts`: text and files.
+
+```ts
+import { createTheoremEmbeddingHandler } from '@theoremjs/react/server';
+
+export const embed = createTheoremEmbeddingHandler({ profile, vault }); // mount at /api/embedding
+```
+
+```tsx
+import { TheoremEmbedding } from '@theoremjs/react/ui';
+
+<TheoremEmbedding endpoint="/api/embedding" />
+```
+
+`TheoremEmbedding` edits the inputs as fields or as JSON. It checks them against the `inputs` of the profile before it sends them: text when the profile takes text, and files within its `attachments` and its file limits. It shows each vector with its dimensions and its length, and the pairs of inputs that are most alike by cosine similarity.
+
+For your own UI, use `useTheoremEmbedding`.
 
 ### Live
 
@@ -715,7 +735,7 @@ Use `labels` to replace any message, for each locale:
 />
 ```
 
-`LiveRunner`, `TheoremHost` and `TheoremDecision` accept the same prop.
+`LiveRunner`, `TheoremHost`, `TheoremDecision` and `TheoremEmbedding` accept the same prop.
 
 - The locale is the locale of your Astryx `InternationalizationProvider`. Without a provider, it is `en`.
 - Your own Astryx `messages` and `overrides` also apply. They replace the defaults.

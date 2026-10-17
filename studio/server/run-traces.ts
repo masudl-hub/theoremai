@@ -99,14 +99,14 @@ export function withRunTraces(
 }
 
 /**
- * Serves a decision profile with each decision's records in its reply, where the page reads them.
- * A decision answers in one JSON body, so its records ride in it instead of behind a stream.
+ * Serves a decision or embedding profile with each call's records in its reply, where the page
+ * reads them. Each answers in one JSON body, so its records ride in it instead of behind a stream.
  */
-export function withDecisionTraces(
+export function withJsonTraces(
   serve: (request: Request) => Promise<Response>,
 ): (request: Request) => Promise<Response> {
   return recorded(serve, async (response, records) => {
-    // A failed decision is traced too, so its failure's body carries the records the same way.
+    // A failed call is traced too, so its failure's body carries the records the same way.
     if (records.length === 0 || !response.headers.get('content-type')?.includes('json')) return response;
     const reply: unknown = await response.json();
     const headers = new Headers(response.headers);

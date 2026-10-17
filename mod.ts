@@ -274,6 +274,7 @@ export {
   attachmentIssues,
   attachmentIssueText,
   attachmentsRefused,
+  base64Bytes,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,

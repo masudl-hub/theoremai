@@ -2,6 +2,7 @@ import { Button } from '@astryxdesign/core/Button';
 import { Card } from '@astryxdesign/core/Card';
 import { Center } from '@astryxdesign/core/Center';
 import { HStack } from '@astryxdesign/core/HStack';
+import { useLocale } from '@astryxdesign/core/i18n';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { useResizable } from '@astryxdesign/core/Resizable';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
@@ -16,6 +17,7 @@ import {
   type ReactNode,
   type RefObject,
   use,
+  useMemo,
   useRef,
   useSyncExternalStore,
 } from 'react';
@@ -359,32 +361,6 @@ export function RequestCard({ title, view, hasFields, onView, onRun, children }:
   );
 }
 
-export function ConsoleRequestCard({
-  title,
-  onRun,
-  children,
-}: {
-  title: string;
-  onRun: () => void;
-  children: ReactNode;
-}) {
-  const framed = use(ConsoleChrome);
-  const body = (
-    <VStack gap={3} padding={framed ? undefined : 4} onKeyDown={runShortcut(onRun)}>
-      <Text type="supporting" color="secondary" as="h3">
-        {title}
-      </Text>
-      {children}
-    </VStack>
-  );
-  if (!framed) return body;
-  return (
-    <Card variant="muted" padding={4} className="theorem-console-card" style={CONSOLE_CARD}>
-      {body}
-    </Card>
-  );
-}
-
 /** The field reads as code: the body font is swapped for the code font inside it. */
 const CODE_FONT = { '--font-family-body': 'var(--font-family-code)' } as CSSProperties;
 
@@ -459,4 +435,19 @@ export function RunBar({
       </HStack>
     </HStack>
   );
+}
+
+/** A size in bytes as the reader's locale writes it: bytes under a kilobyte, else kilobytes. */
+export function useBytes(): (bytes: number) => string {
+  const locale = useLocale();
+  return useMemo(() => {
+    const b = new Intl.NumberFormat(locale, { style: 'unit', unit: 'byte', unitDisplay: 'narrow' });
+    const kb = new Intl.NumberFormat(locale, {
+      style: 'unit',
+      unit: 'kilobyte',
+      unitDisplay: 'narrow',
+      maximumFractionDigits: 1,
+    });
+    return (bytes) => (bytes < 1024 ? b.format(bytes) : kb.format(bytes / 1024));
+  }, [locale]);
 }

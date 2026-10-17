@@ -1,5 +1,4 @@
 import { Banner } from '@astryxdesign/core/Banner';
-import { useLocale } from '@astryxdesign/core/i18n';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import type { DecisionJson } from '@theoremjs/agents';
 import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from 'react';
@@ -17,6 +16,7 @@ import {
   RequestCard,
   ResponseColumn,
   RunBar,
+  useBytes,
 } from './ConsoleFrame.tsx';
 import { TheoremDecisionAnswers } from './DecisionAnswers.tsx';
 import type { LabelText, TheoremLabels } from './labels.ts';
@@ -81,20 +81,6 @@ function checkState(text: string, maxBytes: number | undefined): StateCheck {
   if (maxBytes !== undefined && bytes > maxBytes)
     return { ok: false, reason: 'too_large', bytes, state };
   return { ok: true, state, bytes };
-}
-
-function useBytes(): (bytes: number) => string {
-  const locale = useLocale();
-  return useMemo(() => {
-    const b = new Intl.NumberFormat(locale, { style: 'unit', unit: 'byte', unitDisplay: 'narrow' });
-    const kb = new Intl.NumberFormat(locale, {
-      style: 'unit',
-      unit: 'kilobyte',
-      unitDisplay: 'narrow',
-      maximumFractionDigits: 1,
-    });
-    return (bytes) => (bytes < 1024 ? b.format(bytes) : kb.format(bytes / 1024));
-  }, [locale]);
 }
 
 function stateNote(

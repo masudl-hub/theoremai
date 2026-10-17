@@ -28,6 +28,7 @@ export {
   draftKey,
   type EffortDraft,
   EXAMPLE_DECISION_STATE,
+  EXAMPLE_EMBEDDING_INPUT,
   EXAMPLE_SPAN_DECISION_STATE,
   exampleDecisionDraft,
   excludeFacet,

@@ -19,11 +19,26 @@ export {
 } from './decision-transport.ts';
 export { type ComposerDraftFields, composerFieldsFromDraft } from './decode-composer-draft.ts';
 export {
+  checkEmbeddingInputs,
+  cosineSimilarity,
+  type EmbeddingInputCheck,
+  type EmbeddingMediaPart,
+  type EmbeddingPair,
+  type EmbeddingRow,
+  embeddingPairs,
+  embeddingRows,
+  readEmbeddingInputs,
+  rowInput,
+  vectorBins,
+  vectorNorm,
+} from './embedding-input.ts';
+export {
   createEmbeddingTransport,
   type EmbeddingInterface,
   type EmbeddingReply,
   type EmbeddingTransport,
   embeddingInterface,
+  postEmbedding,
   readEmbeddingReply,
 } from './embedding-transport.ts';
 export { encodeComposerDraft } from './encode-composer-draft.ts';

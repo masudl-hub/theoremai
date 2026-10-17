@@ -17,6 +17,7 @@ import {
   createDecisionTransport,
   failedDecisionTraces,
 } from '../../react/src/client/decision-transport.ts';
+import { createEmbeddingTransport } from '../../react/src/client/embedding-transport.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import {
   createStudioHandler,
@@ -25,7 +26,7 @@ import {
 } from '../../studio/server/handler.ts';
 import {
   STUDIO_RUN_TRACES,
-  withDecisionTraces,
+  withJsonTraces,
   withRunTraces,
 } from '../../studio/server/run-traces.ts';
 
@@ -224,7 +225,7 @@ Deno.test("a decision's trace rides in its reply, and a decision that records no
   // Any served run registers the destination; a decision profile writes to it the same way.
   await call('bench-tools', 'one');
   const record = { content: 'decided' } as unknown as TraceRecord;
-  const traced = withDecisionTraces(async () => {
+  const traced = withJsonTraces(async () => {
     await writeToRun(record);
     return Response.json({ result: { model: 'm' } });
   });
@@ -233,16 +234,14 @@ Deno.test("a decision's trace rides in its reply, and a decision that records no
     result: { model: 'm' },
     traces: [record],
   });
-  const quiet = withDecisionTraces(() =>
-    Promise.resolve(Response.json({ result: { model: 'm' } })),
-  );
+  const quiet = withJsonTraces(() => Promise.resolve(Response.json({ result: { model: 'm' } })));
   assertEquals(await (await quiet(request())).json(), { result: { model: 'm' } });
 });
 
 Deno.test("a failed decision's trace reaches the page on the failure thrown for it", async () => {
   const record = (await call('bench-tools', 'one')).find((line) => line.type === 'trace')
     ?.record as TraceRecord;
-  const serve = withDecisionTraces(async () => {
+  const serve = withJsonTraces(async () => {
     await writeToRun(record);
     return Response.json({ error: 'The model did not answer.' }, { status: 502 });
   });
@@ -253,4 +252,19 @@ Deno.test("a failed decision's trace reaches the page on the failure thrown for 
   const failure = await assertRejects(() => transport.decide({ note: 'one' }));
   assertEquals(failedDecisionTraces(failure), [record]);
   assertEquals(failedDecisionTraces(new Error('unrelated')), []);
+});
+
+Deno.test("a failed embedding's trace reaches the page on the failure thrown for it", async () => {
+  const record = (await call('bench-tools', 'one')).find((line) => line.type === 'trace')
+    ?.record as TraceRecord;
+  const serve = withJsonTraces(async () => {
+    await writeToRun(record);
+    return Response.json({ error: 'The model did not answer.' }, { status: 502 });
+  });
+  const transport = createEmbeddingTransport({
+    endpoint: `${BASE}/profiles/embedder`,
+    fetch: (input, init) => serve(new Request(input, init)),
+  });
+  const failure = await assertRejects(() => transport.embed(['one']));
+  assertEquals(failedDecisionTraces(failure), [record]);
 });

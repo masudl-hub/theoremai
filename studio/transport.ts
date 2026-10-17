@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import {
   type DecisionProfile,
+  type EmbeddingProfile,
   defineProfile,
   type Profile,
   TheoremError,
@@ -19,7 +20,6 @@ import {
   CHAT_LINES,
   type ChatLineSink,
   type ConversationLine,
-  createEmbeddingTransport,
   createTraceFeed,
   decisionInterface,
   embeddingInterface,
@@ -32,6 +32,7 @@ import {
   type HttpOptions,
   type MalformedEvent,
   postDecision,
+  postEmbedding,
   postJson,
   postNdjson,
   type TheoremTransport,
@@ -155,26 +156,18 @@ export function createStudioEmbeddingTransport(
   payload: StudioRunPayload,
   options: StudioTransportOptions = {},
 ): EmbeddingTransport {
-  const transport = createEmbeddingTransport({
-    ...options,
-    endpoint: '/api/studio/embedding',
-    requestBody: (input, model) => ({
-      profile: payload.profile,
-      input,
-      ...(model === undefined ? {} : { model }),
-    }),
-  });
+  const traces = options.traces ?? createTraceFeed();
   return {
-    ...transport,
     describe: () =>
-      Promise.resolve(
-        embeddingInterface(
-          defineProfile(payload.profile) as Extract<
-            ReturnType<typeof defineProfile>,
-            { type: 'embedding' }
-          >,
-        ),
+      Promise.resolve(embeddingInterface(defineProfile(payload.profile) as EmbeddingProfile)),
+    embed: (input, model, signal) =>
+      postEmbedding(
+        '/api/studio/embedding/embed',
+        { profile: payload.profile, input, ...(model === undefined ? {} : { model }) },
+        signal,
+        options,
       ),
+    traces,
   };
 }
 

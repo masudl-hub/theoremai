@@ -582,6 +582,17 @@ export const EXAMPLE_SPAN_DECISION_STATE = JSON.stringify(
   'The user asked to tidy screenshots. The proposed call recursively deletes 1,284 files, including a tax return.',
 );
 
+/** Inputs an embedding preview starts with: two that mean much the same, and one that doesn't. */
+export const EXAMPLE_EMBEDDING_INPUT = JSON.stringify(
+  [
+    'Delete every screenshot on my desktop.',
+    'Remove all the screen captures from the desktop.',
+    'What is the weather in Lisbon tomorrow?',
+  ],
+  null,
+  2,
+);
+
 /** A new question of `type`, with an id the draft doesn't use yet. */
 export function newDecisionQuestion(
   draft: StudioDraft,

@@ -93,6 +93,35 @@ Deno.test('a decision exports its questions with its profile, and a decision rou
   assertMatch(module, /export const questions = /);
 });
 
+Deno.test('an embedding exports an embedding route and its inputs-and-vectors component, not a chat', () => {
+  const workspace = compiled(workspaceFromDraft(createSpanExampleDraft()));
+  const [span] = workspace.agents;
+  assert(span);
+  const embedder = {
+    ...span,
+    agentId: 'docs.embeddings',
+    questions: undefined,
+    profile: {
+      id: 'docs.embeddings',
+      type: 'embedding' as const,
+      identity: { handle: 'Docs embeddings' },
+      inputs: { text: true },
+      models: { gemma: { protocol: 'ollamaEmbedding', provider: 'local', apiId: 'embeddinggemma' } },
+    },
+  };
+  const only = { ...workspace, agents: [embedder] };
+  const files = exportFiles(only, embedder);
+  assertEquals(files.map((file) => file.path).slice(-2), ['route.ts', 'AgentEmbedding.tsx']);
+  const route = files.find((file) => file.path === 'route.ts')?.code ?? '';
+  assertMatch(route, /createTheoremEmbeddingHandler\(\{/);
+  assertMatch(route, /import \{ profile \} from/);
+  const ui = files.find((file) => file.path === 'AgentEmbedding.tsx')?.code ?? '';
+  assertMatch(ui, /<TheoremEmbedding endpoint="\/api\/embedding" \/>/);
+  const brief = llmBrief(only, embedder);
+  assertMatch(brief, /runEmbedding/);
+  assertNotMatch(brief, /TheoremChat|useTheoremChat/);
+});
+
 Deno.test('the zip holds every file', () => {
   const workspace = compiled(conciergeAndHelper());
   const files = exportFiles(workspace, agent(workspace, 'travel.concierge'));

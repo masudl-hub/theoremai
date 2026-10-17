@@ -7,8 +7,8 @@ import {
   traceRecordSchema,
   z,
 } from '@theoremjs/agents';
-import { failedTraces, withFailedTraces } from './decision-transport.ts';
-import { createTraceFeed, type TraceFeed } from './trace-feed.ts';
+import { withFailedTraces } from './decision-transport.ts';
+import type { TraceFeed } from './trace-feed.ts';
 import { fetchJson, type HttpOptions } from './transport.ts';
 import { checkWire } from './wire-line.ts';
 
@@ -21,6 +21,7 @@ export type EmbeddingInterface = {
     maxFiles?: number;
     maxBytes?: number;
     maxTurnBytes?: number;
+    limitsByMime?: Record<string, number>;
   };
   observability?: { record: boolean };
 };
@@ -41,6 +42,9 @@ export function embeddingInterface(
       ...(profile.inputs.maxTurnBytes === undefined
         ? {}
         : { maxTurnBytes: profile.inputs.maxTurnBytes }),
+      ...(profile.inputs.limitsByMime === undefined
+        ? {}
+        : { limitsByMime: { ...profile.inputs.limitsByMime } }),
     },
     ...(profile.observability
       ? { observability: { record: resolveObservabilityPolicy(profile.observability).record } }
@@ -96,6 +100,7 @@ const describedSchema = z.object({
       maxFiles: z.number().optional(),
       maxBytes: z.number().optional(),
       maxTurnBytes: z.number().optional(),
+      limitsByMime: z.record(z.string(), z.number()).optional(),
     }),
     observability: z.object({ record: z.boolean() }).optional(),
   }),
@@ -105,15 +110,32 @@ export function readEmbeddingReply(raw: unknown): EmbeddingReply {
   return checkWire(embeddingReplySchema, raw, 'the embedding');
 }
 
+const failedBody = z.object({ traces: z.array(traceRecordSchema) });
+
+/** POSTs an embedding and reads its reply; a failure keeps the trace records its body carried. */
+export async function postEmbedding(
+  url: string,
+  body: unknown,
+  signal: AbortSignal | undefined,
+  options: HttpOptions = {},
+): Promise<EmbeddingReply> {
+  let traces: readonly TraceRecord[] = [];
+  const failed = (raw: unknown) => {
+    const read = failedBody.safeParse(raw);
+    if (read.success) traces = read.data.traces;
+  };
+  try {
+    return readEmbeddingReply(await fetchJson(url, { body, signal, failed }, options));
+  } catch (err) {
+    throw withFailedTraces(err, traces);
+  }
+}
+
+/** Transport for a host mounted with `createTheoremEmbeddingHandler`. Default endpoint `/api/embedding`. */
 export function createEmbeddingTransport(
-  options: HttpOptions & {
-    endpoint?: string;
-    traces?: TraceFeed;
-    requestBody?: (input: EmbeddingInput | readonly EmbeddingInput[], model?: string) => unknown;
-  } = {},
+  options: HttpOptions & { endpoint?: string } = {},
 ): EmbeddingTransport {
   const base = (options.endpoint ?? '/api/embedding').replace(/\/$/, '');
-  const traceFeed = options.traces ?? createTraceFeed();
   return {
     async describe(signal) {
       return checkWire(
@@ -122,34 +144,12 @@ export function createEmbeddingTransport(
         'the embedding description', // labels-exempt: internal diagnostic; the user reads error.bad_response
       ).interface;
     },
-    embed: async (input, model, signal) => {
-      let failedTraceRecords: readonly TraceRecord[] = [];
-      try {
-        const reply = readEmbeddingReply(
-          await fetchJson(
-            `${base}/embed`,
-            {
-              body: options.requestBody
-                ? options.requestBody(input, model)
-                : { input, ...(model === undefined ? {} : { model }) },
-              signal,
-              failed: (raw) => {
-                const read = z.object({ traces: z.array(traceRecordSchema) }).safeParse(raw);
-                if (read.success) failedTraceRecords = read.data.traces;
-              },
-            },
-            options,
-          ),
-        );
-        for (const record of reply.traces ?? []) traceFeed.push(record);
-        return reply;
-      } catch (error) {
-        throw withFailedTraces(
-          error,
-          failedTraceRecords.length ? failedTraceRecords : failedTraces(error),
-        );
-      }
-    },
-    traces: traceFeed,
+    embed: (input, model, signal) =>
+      postEmbedding(
+        `${base}/embed`,
+        { input, ...(model === undefined ? {} : { model }) },
+        signal,
+        options,
+      ),
   };
 }

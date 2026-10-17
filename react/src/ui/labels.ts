@@ -507,6 +507,123 @@ export const THEOREM_UI_CATALOG = {
     params: ['count'],
   },
 
+  '@theorem.embedding.inputs': {
+    defaultMessage: 'Inputs',
+    description: 'The texts and files an embedding turns into vectors (field label).',
+  },
+  '@theorem.embedding.input': {
+    defaultMessage: 'Input {number}',
+    description: 'One input to embed, by its place in the list.',
+    params: ['number'],
+  },
+  '@theorem.embedding.placeholder': {
+    defaultMessage: 'Text to embed',
+    description: "An input's empty text field.",
+  },
+  '@theorem.embedding.files': {
+    defaultMessage: 'Files',
+    description: 'Adds files to an input (field label).',
+  },
+  '@theorem.embedding.choose_files': {
+    defaultMessage: 'Choose files',
+    description: "The file field's prompt, before any are chosen.",
+  },
+  '@theorem.embedding.unreadable': {
+    defaultMessage: "{name} couldn't be read.",
+    description: 'A chosen file the browser could not read.',
+    params: ['name'],
+  },
+  '@theorem.embedding.remove_file': {
+    defaultMessage: 'Remove {name}',
+    description: 'Takes a file off its input.',
+    params: ['name'],
+  },
+  '@theorem.embedding.held_file': {
+    defaultMessage: 'Held by the provider',
+    description: 'A file the provider already holds, referred to by address, beside its type.',
+  },
+  '@theorem.embedding.add_input': {
+    defaultMessage: 'Add input',
+    description: 'Adds an empty input to the list.',
+  },
+  '@theorem.embedding.remove_input': {
+    defaultMessage: 'Remove input {number}',
+    description: 'Takes an input off the list.',
+    params: ['number'],
+  },
+  '@theorem.embedding.invalid_json': {
+    defaultMessage: 'Not a list of inputs: each is text, or an object with parts.',
+    description: "The JSON field doesn't read as the inputs an embedding takes.",
+  },
+  '@theorem.embedding.no_inputs': {
+    defaultMessage: 'Add an input to embed.',
+    description: 'The list of inputs is empty.',
+  },
+  '@theorem.embedding.empty_input': {
+    defaultMessage: 'Input {number} is empty.',
+    description: 'An input has no text and no file.',
+    params: ['number'],
+  },
+  '@theorem.embedding.text_off': {
+    defaultMessage: 'Input {number} has text, and this profile embeds files only.',
+    description: 'An input has text the profile does not take.',
+    params: ['number'],
+  },
+  '@theorem.embedding.shortcut': {
+    defaultMessage: '⌘↵ to embed',
+    description: 'The keyboard shortcut that runs the embedding, under the inputs.',
+  },
+  '@theorem.embedding.embed': {
+    defaultMessage: 'Embed',
+    description: 'Turns the inputs into vectors.',
+  },
+  '@theorem.embedding.embedding': {
+    defaultMessage: 'Embedding…',
+    description: 'The run button while the vectors are on their way.',
+  },
+  '@theorem.embedding.stop': {
+    defaultMessage: 'Stop',
+    description: 'Cancels the running embedding.',
+  },
+  '@theorem.embedding.vectors': {
+    defaultMessage: 'Vectors',
+    description: 'What came back: one vector per input (heading).',
+  },
+  '@theorem.embedding.dimensions': {
+    defaultMessage: '{count, plural, one {# dimension} other {# dimensions}}',
+    description: "A vector's length, its card's figure.",
+    params: ['count'],
+  },
+  '@theorem.embedding.norm': {
+    defaultMessage: 'norm {norm}',
+    description: "The vector's length, beside its dimensions.",
+    params: ['norm'],
+  },
+  '@theorem.embedding.values': {
+    defaultMessage: '{name}: values by dimension, from {min} to {max}',
+    description: "What the vector's chart draws, read out in place of it.",
+    params: ['name', 'min', 'max'],
+  },
+  '@theorem.embedding.similarity': {
+    defaultMessage: 'Cosine similarity',
+    description: 'How alike each pair of vectors points, from -1 to 1 (card title).',
+  },
+  '@theorem.embedding.pair': {
+    defaultMessage: '{a} and {b}',
+    description: 'Two inputs compared, in the similarity card.',
+    params: ['a', 'b'],
+  },
+  '@theorem.embedding.pairs_shown': {
+    defaultMessage: '{shown} of {count} pairs',
+    description: 'The similarity card lists the most alike pairs only.',
+    params: ['shown', 'count'],
+  },
+  '@theorem.embedding.tokens': {
+    defaultMessage: '{count, plural, one {# token} other {# tokens}}',
+    description: 'Input tokens the embedding used, in the line under the vectors.',
+    params: ['count'],
+  },
+
   '@theorem.host.tool': {
     defaultMessage: 'Tool',
     description: 'Picks which of the host’s tools to call (field label).',
@@ -648,7 +765,7 @@ export const THEOREM_UI_CATALOG = {
     description: 'Search field matching any text a span holds.',
   },
   '@theorem.panel.trace.search.text.description': {
-    defaultMessage: 'Names, values and stored text.',
+    defaultMessage: 'Names, values, and stored text.',
     description: 'What the any-text search field matches.',
   },
   '@theorem.panel.trace.no_match': {
@@ -661,7 +778,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.panel.trace.show_text': {
     defaultMessage: 'Show text',
-    description: 'Reveals stored text, JSON or messages.',
+    description: 'Reveals stored text, JSON, or messages.',
   },
   '@theorem.panel.trace.hide_text': {
     defaultMessage: 'Hide text',
@@ -811,7 +928,7 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage:
       '{checks, plural, one {# check} other {# checks}} · {flagged, plural, =0 {all passed} other {# acted}}',
     description:
-      'Under the guardrail time: how many checks ran, and how many redacted, flagged or blocked.',
+      'Under the guardrail time: how many checks ran, and how many redacted, flagged, or blocked.',
     params: ['checks', 'flagged'],
   },
   '@theorem.panel.trace.tokens.detail': {
@@ -821,7 +938,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.panel.trace.time': {
     defaultMessage: 'Where the time went',
-    description: 'Bar splitting a turn into model, tool and other time.',
+    description: 'Bar splitting a turn into model, tool, and other time.',
   },
   '@theorem.panel.trace.time.model': {
     defaultMessage: 'Model',
@@ -833,7 +950,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.panel.trace.time.guardrails': {
     defaultMessage: 'Guardrails',
-    description: 'Time guardrail checks took: on the input, the stream and the answer.',
+    description: 'Time guardrail checks took: on the input, the stream, and the answer.',
   },
   '@theorem.panel.trace.time.hooks': {
     defaultMessage: 'Hooks',
@@ -875,12 +992,12 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.panel.trace.charts.turnTime': {
     defaultMessage: 'Time per turn',
-    description: 'Chart of each turn: its model, tool and other time stacked.',
+    description: 'Chart of each turn: its model, tool, and other time stacked.',
   },
   '@theorem.panel.trace.charts.callTime': {
     defaultMessage: 'Time per call',
     description:
-      "Chart of each tool call of a host's trace: its tool, check and hook time stacked.",
+      "Chart of each tool call of a host's trace: its tool, check, and hook time stacked.",
   },
   '@theorem.panel.trace.charts.turnTokens': {
     defaultMessage: 'Tokens per turn',
@@ -950,7 +1067,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.panel.trace.details': {
     defaultMessage: 'All details',
-    description: "A span's every attribute, event and link.",
+    description: "A span's every attribute, event, and link.",
   },
   '@theorem.panel.trace.close': { defaultMessage: 'Close', description: 'Closes the open span.' },
   '@theorem.panel.captions.name': {
@@ -1048,7 +1165,7 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.live.state.ended': { defaultMessage: 'ended', description: 'Call status.' },
 } as const satisfies Record<`@theorem.${string}`, LabelEntry>;
 
-/** The default UI's catalog: each line's default message, description and values. */
+/** The default UI's catalog: each line's default message, description, and values. */
 export type TheoremUiCatalog = typeof THEOREM_UI_CATALOG;
 
 /** Every line the default UI writes. */

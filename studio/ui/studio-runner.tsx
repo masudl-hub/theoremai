@@ -1,12 +1,19 @@
 import {
   createDecisionTransport,
+  createEmbeddingTransport,
   createHostTransport,
   createHttpTransport,
   createTraceFeed,
   type TraceFeed,
 } from '@theoremjs/react/client';
 import { LiveRunner } from '@theoremjs/react/live';
-import { PaneState, TheoremChat, TheoremDecision, TheoremHost } from '@theoremjs/react/ui';
+import {
+	PaneState,
+	TheoremChat,
+	TheoremDecision,
+	TheoremEmbedding,
+	TheoremHost,
+} from '@theoremjs/react/ui';
 import {
 	compileWorkspace,
 	ON_OWN_KEYS,
@@ -55,7 +62,7 @@ import {
 import { ChooseConflictsContext } from './studio-conflicts.tsx';
 import { decisionSeed, StudioDecision } from './studio-decision.tsx';
 import { clearRemoves, useProjectSave } from './studio-save.tsx';
-import { StudioEmbedding } from './studio-embedding.tsx';
+import { embeddingSeed, StudioEmbedding } from './studio-embedding.tsx';
 
 export interface StudioRunnerProps {
 	payload: StudioRunPayload;
@@ -178,9 +185,10 @@ export function StudioRunner({
 				runtime={runtime}
 				traces={traces}
 				trace={trace}
+				className={className}
+				onActivity={note}
 				flush={flush}
 				columns={columns}
-				className={className}
 			/>
 		);
 	return (
@@ -302,7 +310,7 @@ type SideProps = Pick<
 	endpoint: string;
 };
 
-/** One profile on one endpoint, as its type runs: a chat, a decision, a tool console or a call. */
+/** One profile on one endpoint, as its type runs: a chat, a decision, an embedding, a tool console, or a call. */
 function SideRun({
 	payload,
 	endpoint,
@@ -339,6 +347,13 @@ function SideRun({
 				: null,
 		[type, endpoint, traces, note],
 	);
+	const embedding = useMemo(
+		() =>
+			type === 'embedding'
+				? noting({ ...createEmbeddingTransport({ endpoint }), traces }, note)
+				: null,
+		[type, endpoint, traces, note],
+	);
 	if (chat)
 		return (
 			<TheoremChat
@@ -358,6 +373,17 @@ function SideRun({
 			<TheoremDecision
 				transport={decision}
 				defaultState={decisionSeed(payload.profile)}
+				trace={trace}
+				flush={flush}
+				columns={columns}
+				className={className}
+			/>
+		);
+	if (embedding)
+		return (
+			<TheoremEmbedding
+				transport={embedding}
+				defaultInput={embeddingSeed(payload.profile)}
 				trace={trace}
 				flush={flush}
 				columns={columns}

@@ -1514,6 +1514,12 @@ function compileSpeech(
       );
     }
   }
+  const onGoogle = draft.modelBindings.find((binding) =>
+    isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
+  );
+  if (onGoogle && !speech.voice.trim()) {
+    report('speech', `Gemini needs a voice to speak; ${onGoogle.modelId} is on ${onGoogle.provider}.`, 'voice');
+  }
   const { speed } = speech;
   return {
     ...(speech.voice.trim() ? { voice: speech.voice.trim() } : {}),

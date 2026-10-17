@@ -135,7 +135,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'image.outputCompression': { unset: 'Provider default' },
   'image.references': { unset: 'None' },
   'image.includeText': { unset: 'Off', value: false },
-  'speech.voice': { unset: "The turn's speech.voice, else the provider default" },
+  'speech.voice': { unset: "The turn's speech.voice; Gemini refuses speech without one" },
   'speech.style': { unset: "The turn's speech.style, else no direction" },
   'speech.speed': { unset: "The turn's speech.speed, else the voice's own pace" },
   'speech.format': { unset: 'Provider default' },

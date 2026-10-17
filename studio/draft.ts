@@ -55,7 +55,7 @@ import {
   TOOL_PERMISSION,
 } from '@theoremjs/agents/schema';
 import type { ModelPicks, ModelProfileType, ModelStart } from './lent-keys.ts';
-import { STUDIO_TRACE_DESTINATION, startingBinding } from './policy.ts';
+import { isGoogleRoute, STUDIO_TRACE_DESTINATION, startingBinding } from './policy.ts';
 import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } from './providers.ts';
 import { keySlotUnset } from './requirements.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
@@ -862,9 +862,15 @@ export function setProfileType(
   };
   const modelBindings = kept.length ? kept : [newModelBinding(retyped, keys?.start)];
   const needsKey = !draft.models.key && keySlotUnset({ ...retyped, modelBindings });
+  // why: Gemini speaks only in a named voice, so a speech agent on it starts with one.
+  const voiceless =
+    type === 'speech' &&
+    !draft.speech.voice.trim() &&
+    modelBindings.some((binding) => isGoogleRoute(modelRoute(draft.providers, type, binding)));
   return {
     ...retyped,
     inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,
+    ...(voiceless ? { speech: { ...draft.speech, voice: GOOGLE_STARTING_VOICE } } : {}),
     models: {
       ...draft.models,
       defaultModel: defaultAmong(draft.models.defaultModel, modelBindings),
@@ -873,6 +879,9 @@ export function setProfileType(
     modelBindings,
   };
 }
+
+/** The voice a new Gemini speech agent starts with; Google's own examples read in it. */
+const GOOGLE_STARTING_VOICE = 'Kore';
 
 const MODEL_PROFILE_TYPES: readonly ModelProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
 

@@ -181,7 +181,6 @@ export function attachResponseFormat(
       );
     }
     camel.responseFormat = { type: 'audio' };
-    camel.responseModalities = ['audio'];
     return;
   }
   if (req.image) {
@@ -233,13 +232,38 @@ export function attachSpeechConfig(
     );
   }
   if (!voice) {
-    return;
+    // why: Interactions has no default voice and refuses the request without one (live, 17/10/2026).
+    throw new TheoremError('config', 'Gemini speech needs a voice: set speech.voice');
   }
   generationConfig.speechConfig = [{ voice }];
 }
 
-/** The script's text parts, each carrying the delivery note: Gemini reads `text` aloud and `speech_metadata` as direction. */
-function speechInputStep(parts: InteractionPart[], style: string): Record<string, unknown> {
+/**
+ * The speech models that read a delivery note as a `speech_metadata` annotation. The others refuse
+ * it ("Speech metadata is not supported for this model", gemini-3.1-flash-tts-preview, live
+ * 17/10/2026) and take the note as a direction ahead of the script, as Google's guide shows.
+ */
+const SPEECH_METADATA_MODELS: ReadonlySet<string> = new Set([
+  'gemini-3.8-flash-tts',
+  'gemini-3.8-flash-lite-tts',
+]);
+
+/** The script with its delivery note, in the form the model reads it. */
+function speechInputStep(
+  parts: InteractionPart[],
+  style: string,
+  apiId: string,
+): Record<string, unknown> {
+  if (!SPEECH_METADATA_MODELS.has(apiId)) {
+    return {
+      type: USER_INPUT,
+      content: [
+        { type: 'text', text: `Read the following aloud. ${style.trim()}\n` },
+        ...parts.map(wirePart),
+      ],
+    };
+  }
+  // why: Gemini reads `text` aloud and `speech_metadata` as direction.
   const annotations = [{ type: 'speech_metadata', style }];
   return {
     type: USER_INPUT,
@@ -290,7 +314,9 @@ export function inputStepsFromRequest(req: InteractionsRequest): Record<string, 
   const inputSteps = historyStepsOf(withToolNames(req.history ?? []));
   if (req.input.length > 0 || inputSteps.length === 0) {
     const style = req.speech?.style;
-    inputSteps.push(style ? speechInputStep(req.input, style) : userInputStep(req.input));
+    inputSteps.push(
+      style ? speechInputStep(req.input, style, req.apiId) : userInputStep(req.input),
+    );
   }
   return inputSteps;
 }

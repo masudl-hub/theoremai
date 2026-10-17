@@ -281,7 +281,7 @@ export function* finalizeStructured(req: ModelRequest, fold: StreamFold): Genera
 }
 
 function isVoiceProfile(req: ModelRequest): boolean {
-  return Boolean(req.speech?.voice);
+  return Boolean(req.speech);
 }
 
 /** What the profile asked for and the model did not return; even an empty turn fails. */

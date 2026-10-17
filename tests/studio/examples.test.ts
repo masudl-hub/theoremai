@@ -285,7 +285,7 @@ Deno.test("the narrator's style and a speed reach its profile as written", () =>
   const narrator = createNarratorExampleDraft();
   const result = compileStudio(narrator, ON_OWN_KEYS);
   assert(result.ok && result.profile.type === 'speech');
-  assertEquals(result.profile.speech, { style: narrator.speech.style });
+  assertEquals(result.profile.speech, { voice: 'Kore', style: narrator.speech.style });
 
   const fast = compileStudio(
     { ...narrator, speech: { ...narrator.speech, speed: 1.2 } },

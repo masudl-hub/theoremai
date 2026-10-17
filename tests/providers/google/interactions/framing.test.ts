@@ -232,8 +232,7 @@ Deno.test('attachResponseFormat sets an audio response format for speech-only re
   const req = baseReq({ speech: { voice: 'Kore' } });
   const camel: Record<string, unknown> = {};
   attachResponseFormat(req, camel);
-  assertEquals(camel.responseFormat, { type: 'audio' });
-  assertEquals(camel.responseModalities, ['audio']);
+  assertEquals(camel, { responseFormat: { type: 'audio' } });
 });
 
 Deno.test('attachResponseFormat refuses a speech format Gemini cannot return', () => {
@@ -330,11 +329,13 @@ Deno.test('attachSpeechConfig does nothing when speech is absent', () => {
   assertEquals(generationConfig, {});
 });
 
-Deno.test('attachSpeechConfig does nothing when speech has no voice', () => {
-  const req = baseReq({ speech: {} });
-  const generationConfig: Record<string, unknown> = {};
-  attachSpeechConfig(req, generationConfig);
-  assertEquals(generationConfig, {});
+Deno.test('attachSpeechConfig refuses speech with no voice, which Gemini has no default for', () => {
+  const refused = assertThrows(
+    () => attachSpeechConfig(baseReq({ speech: { style: 'Warm' } }), {}),
+    TheoremError,
+    'speech.voice',
+  );
+  assertEquals(refused.kind, 'config');
 });
 
 Deno.test('attachSpeechConfig sets speechConfig from the requested voice', () => {

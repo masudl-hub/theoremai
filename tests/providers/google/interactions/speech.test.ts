@@ -62,13 +62,13 @@ Deno.test('speech settings on a profile that does not speak are refused', () => 
   );
 });
 
-Deno.test('Interactions carries the style beside the script, and refuses a speed', () => {
+Deno.test('Interactions carries the style beside the script on a model that reads it, and refuses a speed', () => {
   const { generation } = resolveTurn({
     profile: 'speech',
     input: { text: 'Hello there' },
     speech: { style: 'Slow and warm.' },
   });
-  const req = speechRequest(generation);
+  const req = { ...speechRequest(generation), apiId: 'gemini-3.8-flash-tts' };
   assertEquals(toInteractionsBody(req).input, [
     {
       type: 'user_input',
@@ -86,6 +86,25 @@ Deno.test('Interactions carries the style beside the script, and refuses a speed
     TheoremError,
     'no speed field',
   );
+});
+
+Deno.test('a speech model that refuses speech_metadata hears the style as a direction before the script', () => {
+  const { generation } = resolveTurn({
+    profile: 'speech',
+    input: { text: 'Hello there' },
+    speech: { style: 'Slow and warm.' },
+  });
+  const body = toInteractionsBody(speechRequest(generation));
+  assertEquals(body.model, 'gemini-3.1-flash-tts-preview');
+  assertEquals(body.input, [
+    {
+      type: 'user_input',
+      content: [
+        { type: 'text', text: 'Read the following aloud. Slow and warm.\n' },
+        { type: 'text', text: 'Hello there' },
+      ],
+    },
+  ]);
 });
 
 Deno.test('Interactions body for speech uses audio response_format and speech_config', () => {

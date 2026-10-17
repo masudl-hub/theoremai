@@ -9,6 +9,7 @@ import type {
   DecisionResult,
   EmbeddingInput,
   EmbeddingResult,
+  EmbeddingTask,
   InteractionPart,
   ModelRequest,
   TurnContext,
@@ -83,6 +84,7 @@ export type DecisionCall = Pick<DecisionRequest, 'state' | 'questions'> & {
 export type EmbeddingCall = {
   apiId: string;
   input: EmbeddingInput | readonly EmbeddingInput[];
+  task?: EmbeddingTask;
   options?: JsonObject;
   signal?: AbortSignal;
 };

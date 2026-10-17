@@ -178,13 +178,10 @@ The input declaration is provider-neutral:
   },
   models: {
     default: {
-      protocol: 'googleEmbedding',
+      protocol: 'geminiEmbedding',
       provider: 'gemini',
       apiId: 'gemini-embedding-2',
-      options: {
-        taskType: 'RETRIEVAL_DOCUMENT',
-        outputDimensionality: 768,
-      },
+      options: { outputDimensionality: 768 },
     },
   },
 }
@@ -218,8 +215,12 @@ The initial multimodal input vocabulary is:
 | `media` | Inline base64 data with a MIME type |
 | `media-ref` | Provider-readable URI with a MIME type |
 
-The kernel does not choose a task type or output dimension. Provider presets
-validate those options and declare model capabilities.
+A request can say what its inputs are for with `task`: `'query'` for what
+someone asks, `'document'` for what is searched. The kernel refuses any other
+value and records it on the trace as `theorem.embedding.task`. The protocol
+tells the model in the model's own way, and a model that embeds both the same
+way ignores it. The kernel does not choose an output dimension. Provider
+presets validate that option and declare model capabilities.
 
 Embedding model bindings must not assume a network endpoint. A binding can name
 an in-process model, a worker, a native inference library, or a local service.

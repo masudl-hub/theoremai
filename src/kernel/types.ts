@@ -729,11 +729,19 @@ export interface EmbeddingProfile extends Omit<ProfileCommon, 'identity' | 'outp
   inputs: EmbeddingInputsSpec;
 }
 
+/**
+ * What the inputs are for in a search: `query` for what someone asks,
+ * `document` for what is searched. A model that embeds the two the same way
+ * ignores it.
+ */
+export type EmbeddingTask = 'query' | 'document';
+
 /** A request to `runEmbedding`. */
 export interface EmbeddingRequest {
   profile: ProfileId;
   model?: ModelId;
   input: EmbeddingInput | readonly EmbeddingInput[];
+  task?: EmbeddingTask;
   signal?: AbortSignal;
   metadata?: Record<string, unknown>;
   traceparent?: string;

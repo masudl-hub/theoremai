@@ -165,3 +165,16 @@ Deno.test('runEmbedding refuses text over the inbound cap before any provider ca
   assertEquals(refused.kind, 'input');
   assertEquals(called, false);
 });
+
+Deno.test('runEmbedding refuses a task that is not query or document', async () => {
+  await assertRejects(
+    () =>
+      scope().runEmbedding({
+        profile: 'local-embeddings',
+        input: 'one',
+        task: 'answer' as never,
+      }),
+    TheoremError,
+    "Embedding task must be 'query' or 'document'",
+  );
+});

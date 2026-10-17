@@ -190,8 +190,8 @@ The protocol operation shape is:
 }
 ```
 
-`EmbeddingCall` contains the normalized ordered inputs, the selected upstream
-model id, provider options, and the abort signal. The protocol context supplies
+`EmbeddingCall` contains the normalized ordered inputs, the request's `task`,
+the selected upstream model id, provider options, and the abort signal. The protocol context supplies
 the provider transport, signing, limits, and upstream tap. The embedding
 operation does not use turn events or session checkpoints.
 
@@ -249,6 +249,15 @@ The direct API currently lists `gemini-embedding-2`, its preview model, and
 `gemini-embedding-001`. The first implementation targets
 `gemini-embedding-2`; it must not invent a Gemma embedding model ID.
 The kernel treats these declarations as provider facts, not product policy.
+
+The Google protocol sends a request's `task` the way each model takes it.
+`gemini-embedding-001` gets `RETRIEVAL_QUERY` or `RETRIEVAL_DOCUMENT` as its
+`taskType`, in place of the binding's default. Gemini Embedding 2 refuses
+`taskType`, so the protocol writes the task into an input that is all text,
+with Google's formats `task: search result | query: …` and
+`title: none | text: …`. An input with media is sent as it is, as Google
+advises. A binding that sets `taskType` on Gemini Embedding 2 fails with a
+`config` error. The OpenRouter and Ollama protocols send no task.
 
 OpenRouter presets can declare text and image content support for the selected
 embedding model. On 2026-10-16, the embedding model catalog listed
@@ -360,11 +369,9 @@ Use `geminiProvider` with the `geminiInteractions` protocol for Gemini text, ima
 Its options contain `store` and `persistViaInteractionId`. Its `googleMaps` builtin takes a `location` from the request's `builtInArgs`.
 The provider signs each request with the key in the `x-goog-api-key` header. Its connection takes an optional `host`.
 
-The planned `googleEmbedding` protocol uses the same Google API key and host.
+The `geminiEmbedding` protocol uses the same Google API key and host.
 It sends text or provider-supported media to the embedding methods and
-normalizes the returned values to the kernel vector result. Gemini Embedding 2
-and Gemma Embedding 2 require separate capability probes; the protocol must not
-assume that their media, task, dimension, or batch support is identical.
+normalizes the returned values to the kernel vector result.
 
 ```ts
 const binding = gemini.model('geminiInteractions', 'model-id', {

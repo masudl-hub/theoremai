@@ -20,7 +20,7 @@ import type {
   TurnStopKind,
 } from '../kernel/schema.ts';
 import type { StageAffordance } from '../kernel/stages.ts';
-import type { SessionEventKind } from '../kernel/types.ts';
+import type { EmbeddingTask, SessionEventKind } from '../kernel/types.ts';
 import type { TraceSpan } from './trace-span.ts';
 
 /** How a value reads: the unit or shape a viewer formats it by. */
@@ -526,6 +526,11 @@ const SEVERITY_OPTIONS: Readonly<Record<Severity, TraceOptionMeta>> = {
   low: { label: 'Low', doc: 'Low risk.' },
   medium: { label: 'Medium', doc: 'Medium risk.' },
   high: { label: 'High', doc: 'High risk.' },
+};
+
+const EMBEDDING_TASKS: Readonly<Record<EmbeddingTask, TraceOptionMeta>> = {
+  query: { label: 'Query', doc: 'The input is what a search looks for.' },
+  document: { label: 'Document', doc: 'The input is what a search looks through.' },
 };
 
 const GATE_KINDS: Readonly<Record<ToolGateKind, TraceOptionMeta>> = {
@@ -1137,6 +1142,13 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'Inputs',
     'number',
     'How many inputs the call embedded, one vector each.',
+  ),
+  'theorem.embedding.task': attr(
+    'request',
+    'Task',
+    'text',
+    'Whether the inputs are queries or documents, as the request said.',
+    EMBEDDING_TASKS,
   ),
   'theorem.decision.contract': attr(
     'decision',

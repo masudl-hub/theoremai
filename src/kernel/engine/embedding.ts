@@ -17,6 +17,7 @@ import type {
   EmbeddingProfile,
   EmbeddingRequest,
   EmbeddingResult,
+  EmbeddingTask,
   EmbeddingVector,
   ModelBinding,
 } from '../types.ts';
@@ -46,6 +47,13 @@ function chooseModel(
   const binding = profile.models[modelId];
   if (!binding) throw new TheoremError('request', `Unknown model '${modelId}' for ${profile.id}`); // labels-exempt: developer contract error
   return [modelId, binding];
+}
+
+const TASKS: readonly EmbeddingTask[] = ['query', 'document'];
+
+function checkTask(task: unknown): void {
+  if (task !== undefined && !TASKS.includes(task as EmbeddingTask))
+    throw new TheoremError('request', `Embedding task must be 'query' or 'document'`); // labels-exempt: developer contract error
 }
 
 function inputsOf(input: EmbeddingRequest['input']): readonly EmbeddingInput[] {
@@ -122,6 +130,7 @@ export async function runEmbeddingInRegistry(
   const profile = requireEmbeddingProfile(registry, request.profile);
   const [modelId, binding] = chooseModel(profile, request.model);
   const inputs = inputsOf(request.input);
+  checkTask(request.task);
   validateInputs(profile, inputs);
   const provider = registry.providers.require(binding.provider, binding.apiId);
   const call = guardedCall(provider, binding, 'embedding', options, {
@@ -137,6 +146,7 @@ export async function runEmbeddingInRegistry(
         'gen_ai.request.model': binding.apiId,
         'theorem.model.id': modelId,
         'theorem.embedding.inputs': inputs.length,
+        ...(request.task ? { 'theorem.embedding.task': request.task } : {}),
       },
       traceparent: request.traceparent,
       metadata: request.metadata,
@@ -150,6 +160,7 @@ export async function runEmbeddingInRegistry(
       const result = await call.embed({
         apiId: binding.apiId,
         input: request.input,
+        ...(request.task ? { task: request.task } : {}),
         ...(binding.options ? { options: binding.options } : {}),
         ...(request.signal ? { signal: request.signal } : {}),
       });

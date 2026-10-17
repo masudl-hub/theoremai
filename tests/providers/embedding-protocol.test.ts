@@ -1,4 +1,4 @@
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertRejects } from '@std/assert';
 import type { JsonObject } from '../../src/kernel/json.ts';
 import { resolveProviderLimits } from '../../src/kernel/protocols/limits.ts';
 import type { ProtocolContext } from '../../src/kernel/protocols/protocol.ts';
@@ -119,4 +119,69 @@ Deno.test('Ollama embedding sends its documented text request', async () => {
   });
   assertEquals(body?.input, ['hello']);
   assertEquals(result?.embeddings[0]?.dimensions, 2);
+});
+
+function sentParts(body: JsonObject): JsonObject[][] {
+  const requests = (body.requests as JsonObject[] | undefined) ?? [body];
+  return requests.map((request) => (request.content as JsonObject).parts as JsonObject[]);
+}
+
+Deno.test('Gemini Embedding 2 writes the task into text-only inputs and leaves media as sent', async () => {
+  const bodies: JsonObject[] = [];
+  const call = geminiEmbedding.create(
+    context('gemini-embedding-2', (body) => {
+      bodies.push(body);
+      return { embeddings: [{ values: [0.1] }, { values: [0.2] }] };
+    }),
+  );
+  await call.embed?.({
+    apiId: 'gemini-embedding-2',
+    input: [
+      'cats',
+      {
+        parts: [
+          { type: 'text', text: 'a dog' },
+          { type: 'media', mimeType: 'image/png', data: 'AA==' },
+        ],
+      },
+    ],
+    task: 'document',
+  });
+  await call.embed?.({ apiId: 'gemini-embedding-2', input: 'pets', task: 'query' });
+  assertEquals(sentParts(bodies[0])[0], [{ text: 'title: none | text: cats' }]);
+  assertEquals(sentParts(bodies[0])[1]?.[0], { text: 'a dog' });
+  assertEquals(sentParts(bodies[1])[0], [{ text: 'task: search result | query: pets' }]);
+  assertEquals(bodies[1]?.taskType, undefined);
+});
+
+Deno.test('Gemini Embedding 001 sends the task as its taskType, over the binding default', async () => {
+  let body: JsonObject | undefined;
+  const call = geminiEmbedding.create(
+    context('gemini-embedding-001', (sent) => {
+      body = sent;
+      return { embedding: { values: [0.1] } };
+    }),
+  );
+  await call.embed?.({
+    apiId: 'gemini-embedding-001',
+    input: 'pets',
+    task: 'query',
+    options: { taskType: 'CLUSTERING' },
+  });
+  assertEquals(body?.taskType, 'RETRIEVAL_QUERY');
+  assertEquals(sentParts(body ?? {})[0], [{ text: 'pets' }]);
+});
+
+Deno.test('Gemini Embedding 2 refuses a binding taskType', async () => {
+  const call = geminiEmbedding.create(context('gemini-embedding-2', () => ({})));
+  await assertRejects(
+    async () =>
+      await call.embed?.({
+        apiId: 'gemini-embedding-2',
+        input: 'pets',
+        options: { taskType: 'RETRIEVAL_QUERY' },
+      }),
+    Error,
+    'takes no taskType',
+  );
 });

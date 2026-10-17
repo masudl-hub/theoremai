@@ -15,6 +15,7 @@
     "jsr:@ts-morph/bootstrap@0.29": "0.29.0",
     "jsr:@ts-morph/common@0.29": "0.29.0",
     "npm:@ast-grep/cli@0.41": "0.41.1",
+    "npm:@biomejs/biome@2.5.14": "2.5.14",
     "npm:@eslint-community/regexpp@4.12.2": "4.12.2",
     "npm:@stryker-mutator/core@10": "10.0.0_@types+node@20.19.43",
     "npm:@types/node@^20.19.43": "20.19.43",
@@ -740,13 +741,6 @@
         "@jridgewell/resolve-uri",
         "@jridgewell/sourcemap-codec"
       ]
-    },
-    "@openrouter/sdk@1.4.25": {
-      "integrity": "sha512-H218lYMy9WhU5cMigUvW/k+e1BimCqTTP+9PqssdDXnQ0gFCeEME0HTsFGPbR6UgJgyYh2hTct43/9pMcBem5A==",
-      "dependencies": [
-        "zod"
-      ],
-      "scripts": true
     },
     "@sec-ant/readable-stream@0.4.1": {
       "integrity": "sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg=="
@@ -1499,7 +1493,7 @@
     "packageJson": {
       "dependencies": [
         "npm:@ast-grep/cli@0.41",
-        "npm:@biomejs/biome@^2.5.14",
+        "npm:@biomejs/biome@2.5.14",
         "npm:@eslint-community/regexpp@4.12.2",
         "npm:@stryker-mutator/core@10",
         "npm:@types/node@^20.19.43",

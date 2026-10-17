@@ -330,6 +330,19 @@ function failedHit(
 const MAX_INBOUND_CHARS = 1_000_000;
 const INBOUND: ReadonlySet<Boundary> = new Set(INBOUND_BOUNDARIES);
 
+/** Refuses a text the person or host sent that is over `MAX_INBOUND_CHARS`; `where` names it for the log. */
+function refuseOverlong(text: string, where: string): void {
+  if (text.length <= MAX_INBOUND_CHARS) return;
+  // labels-exempt: internal diagnostic; the person reads `input.too_long`
+  throw new TheoremError(
+    'input',
+    `${where} text of ${text.length} characters is over ${MAX_INBOUND_CHARS}`,
+    {
+      copy: { key: 'input.too_long', params: { maxChars: MAX_INBOUND_CHARS } },
+    },
+  );
+}
+
 /** Reads `text` as it crosses `boundary` under the profile's resolved matrix. */
 function detectAt(
   text: string,
@@ -337,16 +350,7 @@ function detectAt(
   detect: ResolvedDetect,
   scope: DetectScope = NO_SCOPE,
 ): Detection {
-  if (INBOUND.has(boundary) && text.length > MAX_INBOUND_CHARS) {
-    // labels-exempt: internal diagnostic; the person reads `input.too_long`
-    throw new TheoremError(
-      'input',
-      `${boundary} text of ${text.length} characters is over ${MAX_INBOUND_CHARS}`,
-      {
-        copy: { key: 'input.too_long', params: { maxChars: MAX_INBOUND_CHARS } },
-      },
-    );
-  }
+  if (INBOUND.has(boundary)) refuseOverlong(text, boundary);
   const hits: GuardrailHit[] = [];
   const redact: RedactSpan[] = [];
   let action: DetectOutcome = 'allow';
@@ -637,6 +641,7 @@ export {
   isScoped,
   leakScopeOf,
   redactDetectors,
+  refuseOverlong,
   scopeOf,
   storedHostSpans,
   storedSpans,

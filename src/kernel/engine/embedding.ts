@@ -1,3 +1,4 @@
+import { refuseOverlong } from '../../guardrails/detect-at.ts';
 import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import type { ProviderHostOptions } from '../protocols/runtime.ts';
@@ -53,6 +54,7 @@ function validateInput(profile: EmbeddingProfile, input: EmbeddingInput): void {
   if (parts.length === 0)
     throw new TheoremError('request', `Profile ${profile.id} received an empty embedding input`); // labels-exempt: developer contract error
   for (const part of parts) {
+    if (part.type === 'text') refuseOverlong(part.text, 'embedding input');
     if (part.type === 'text' && profile.inputs.text === false)
       throw new TheoremError(
         'unsupported',

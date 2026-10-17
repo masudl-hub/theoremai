@@ -5,15 +5,15 @@ Breaking cut. No deprecation aliases.
 ## Removed: studio entrypoint
 
 Demo fixtures moved to the package `@theoremjs/studio` (`studio/` in the repo).
-The kernel package never contains it. Its npm package holds only the
-`theorem-studio` command; the fixtures stay in the repo.
+The kernel package never contains it. Its npm package ships the fixtures,
+the `theorem-studio` command and the studio screen.
 
 ```diff
 - import { demoToolSpecs } from '@theoremjs/studio';
 + import { demoToolSpecs } from '@theoremjs/studio';
 ```
 
-Hosts link it with `"@theoremjs/studio": "file:../theoremai/studio"`.
+Hosts install it from npm: `npm install -D @theoremjs/studio`.
 `STUDIO_AUTH_TYPES` / `StudioAuthType` remain on `@theoremjs/agents/schema`
 (authoring vocabulary, not demo product).
 

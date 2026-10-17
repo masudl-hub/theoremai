@@ -419,7 +419,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/presets/google/speech-voices` / `@theoremjs/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
 
-The studio is a separate package, `@theoremjs/studio`. It is never part of the kernel package. Install it beside the kernel to open your project's agents in a local studio: `npm install -D @theoremjs/studio`, then `npx theorem-studio`. It needs Deno. Demo fixtures, such as the travel concierge seeds and local handlers, are only in the repo: a host that needs them links `file:../theoremai/studio`.
+The studio is a separate package, `@theoremjs/studio`. It is never part of the kernel package. Install it beside the kernel to open your project's agents in a local studio: `npm install -D @theoremjs/studio`, then `npx theorem-studio`. It needs Deno. The same package shows the studio as a screen in your own app, with one server handler. Its README has both.
 
 Internal files stay in the source for maintainability. Package consumers should use the public entrypoints above.
 

@@ -162,6 +162,7 @@ import { modelFamilyMark } from './brand-icons.tsx';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel } from './lib/panel-motion.ts';
 import { ActingAsContext, chatKeyOf, useActingAsState } from './lib/acting-as.ts';
+import { screenEndpoint } from './lib/project-address.ts';
 import { recordsTraces } from './lib/project-traces.ts';
 import {
 	clearConversation,
@@ -1176,7 +1177,7 @@ function keyAndToolMembers(
 			const key = page.current.connection.vault[slot]?.trim();
 			if (!key) return { ok: false, error: 'No key in this slot.' };
 			try {
-				const response = await fetch('/api/studio/test-key', {
+				const response = await fetch(`${screenEndpoint()}/test-key`, {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
 					body: JSON.stringify({ key }),

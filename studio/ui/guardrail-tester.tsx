@@ -50,6 +50,7 @@ import {
 } from '../mod.ts';
 import { createContext, type ReactNode, useContext, useState } from 'react';
 import { InspectorSection } from './inspector.tsx';
+import { screenEndpoint } from './lib/project-address.ts';
 
 const BOUNDARY_ICONS: Record<ProbeBoundary, typeof IconUser> = {
 	user: IconUser,
@@ -75,7 +76,7 @@ type Outcome = Pick<Sent, 'answers' | 'error'>;
 /** Sends `text` across the draft's boundaries; given `only`, read with that detector alone. */
 async function sendProbe(payload: StudioRunPayload, text: string, only?: string): Promise<Outcome> {
 	try {
-		const response = await fetch('/api/studio/probe', {
+		const response = await fetch(`${screenEndpoint()}/probe`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ ...probeDraft(payload), text, only }),

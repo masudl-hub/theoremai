@@ -9,6 +9,7 @@ import {
 	type ToolSpecDraft,
 	unheldProblem,
 } from '../../mod.ts';
+import { screenEndpoint } from './project-address.ts';
 
 /** What the test-connection route answers: an HTTP response, or an MCP server's tool list. */
 export interface ProbeResult {
@@ -112,7 +113,7 @@ export async function runToolProbe(
 	const request = probeRequest(tool, sampleInput, credential);
 	if (!request.body) return { ok: false, error: request.error };
 	try {
-		const response = await fetch('/api/studio/test-connection', {
+		const response = await fetch(`${screenEndpoint()}/test-connection`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(request.body),

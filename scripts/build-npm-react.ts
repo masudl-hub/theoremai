@@ -78,7 +78,7 @@ const pkg = {
   engines,
   repository: {
     type: 'git',
-    url: 'https://github.com/masudl-hub/theoremai',
+    url: 'git+https://github.com/masudl-hub/theoremai.git',
     directory: 'react',
   },
   sideEffects: sideEffects.sort(),

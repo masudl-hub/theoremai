@@ -70,7 +70,7 @@ await build({
     },
     repository: {
       type: 'git',
-      url: 'https://github.com/masudl-hub/theoremai',
+      url: 'git+https://github.com/masudl-hub/theoremai.git',
     },
   },
   postBuild: async () => {

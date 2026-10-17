@@ -74,10 +74,11 @@ const pkg = {
   engines,
   repository: {
     type: 'git',
-    url: 'https://github.com/masudl-hub/theoremai',
+    url: 'git+https://github.com/masudl-hub/theoremai.git',
     directory: 'studio',
   },
-  bin: { 'theorem-studio': './start.mjs' },
+  // npm publish drops a bin path that starts with "./".
+  bin: { 'theorem-studio': 'start.mjs' },
   exports: Object.fromEntries(
     setupExports.map((entry) => [entry, builtEntry(manifest.exports, entry)]),
   ),

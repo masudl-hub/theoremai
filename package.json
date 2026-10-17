@@ -82,7 +82,7 @@
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.41.0",
-    "@biomejs/biome": "^2.5.8",
+    "@biomejs/biome": "^2.5.14",
     "@stryker-mutator/core": "^10.0.0",
     "@types/node": "^20.19.43",
     "fallow": "3.17.0",

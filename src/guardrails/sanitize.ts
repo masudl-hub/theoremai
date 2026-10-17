@@ -119,6 +119,29 @@ function sanitizeHistory(
   });
 }
 
+/** The longest single text a request may send, in characters: far over any model's context, and under what the detectors read safely. */
+const MAX_REQUEST_TEXT_CHARS = 1_000_000;
+
+/** `reader`, refusing a text longer than {@linkcode MAX_REQUEST_TEXT_CHARS} before any detector reads it. */
+function capped(reader: BoundaryReader): BoundaryReader {
+  return {
+    read(text) {
+      if (text.length > MAX_REQUEST_TEXT_CHARS) {
+        // labels-exempt: internal diagnostic; the user reads `input.too_long`
+        throw new TheoremError(
+          'input',
+          `request text of ${text.length} characters is over ${MAX_REQUEST_TEXT_CHARS}`,
+          {
+            copy: { key: 'input.too_long', params: { maxChars: MAX_REQUEST_TEXT_CHARS } },
+          },
+        );
+      }
+      return reader.read(text);
+    },
+    found: () => reader.found(),
+  };
+}
+
 /** The error a turn ends on when a detector set to `block` matched at `boundary`. */
 function requestRefused(boundary: Boundary): TheoremError {
   // labels-exempt: developer contract / internal diagnostic — the user's wording is `detect.blocked`
@@ -143,7 +166,7 @@ interface SanitizedTurnRequest {
  */
 function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): SanitizedTurnRequest {
   const { detect } = resolveGuardrailPolicy(profile.guardrails);
-  const at = recordOf(REQUEST_BOUNDARIES, (boundary) => boundaryReader(boundary, detect));
+  const at = recordOf(REQUEST_BOUNDARIES, (boundary) => capped(boundaryReader(boundary, detect)));
   const input = req.input ?? {};
 
   const text = input.text === undefined ? undefined : at.user.read(input.text);
@@ -152,7 +175,7 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
       ? undefined
       : mapSystemPrompt(req.system, 'TurnRequest.system', (part) => at.system.read(part));
   const slots = sanitizeSlots(input.slots, at.slots);
-  const told = sanitizeContext(input.context, () => boundaryReader('context', detect));
+  const told = sanitizeContext(input.context, () => capped(boundaryReader('context', detect)));
   const repair = sanitizeRepair(input.repair, at.repair);
   const history = input.history ? sanitizeHistory(input.history, at.history) : undefined;
   const { attachments, voice } =

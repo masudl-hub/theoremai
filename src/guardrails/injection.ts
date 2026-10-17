@@ -88,11 +88,14 @@ const REAL_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 const TYPO_TARGET_SET: ReadonlySet<string> = new Set(TYPO_TARGETS);
+/** The longest word a typo can be read from: a target with a letter added. */
+const TYPO_WORD_MAX = Math.max(...TYPO_TARGETS.map((target) => target.length)) + 1;
 
 /** Pipe evasion only when the first token is a known injection lead-in. */
 const PIPE_HEAD_VERBS =
   /^(ignore|disregard|forget|bypass|reveal|show|repeat|output|disable|override|new|jailbreak|pretend|act|enter|activate|void|supersede|do)$/i;
-const WORD = /\b[A-Za-z]{4,}\b/g;
+// why: Bounded, so a long run of letters can't overflow the regex engine's stack; no longer word can be a typo.
+const WORD = new RegExp(`\\b[A-Za-z]{4,${TYPO_WORD_MAX}}\\b`, 'g');
 const PRINTABLE_MIN = 0.85;
 const CODE_TAB = 9;
 const CODE_LF = 10;
@@ -171,11 +174,7 @@ function isMisspelling(word: string, target: string): boolean {
 
 /** For a word length, the targets a scramble of that length can be, and the targets a one-edit misspelling of it can be. */
 const TARGETS_BY_LENGTH = new Map<number, { same: string[]; near: string[] }>();
-for (
-  let length = 4;
-  length <= Math.max(...TYPO_TARGETS.map((target) => target.length)) + 1;
-  length += 1
-) {
+for (let length = 4; length <= TYPO_WORD_MAX; length += 1) {
   TARGETS_BY_LENGTH.set(length, {
     same: TYPO_TARGETS.filter((target) => target.length === length),
     near: TYPO_TARGETS.filter(

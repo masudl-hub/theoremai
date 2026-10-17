@@ -7,7 +7,7 @@
  * @module
  */
 
-import { type KernelScope, type ProfileDefinition } from '@theoremjs/agents';
+import type { KernelScope, ProfileDefinition } from '@theoremjs/agents';
 import type { RegisteredTool } from '@theoremjs/agents/kernel';
 import type { CompiledStudio } from '../compile.ts';
 import { heldSetting, unheldProblem } from '../held-credentials.ts';

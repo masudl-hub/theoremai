@@ -316,7 +316,7 @@ async function refuseSlowSchemaPatterns(tools: readonly ToolRegistration[]): Pro
     const slow = slowPatternProblem(source);
     if (slow) {
       // labels-exempt: builder diagnostic
-      throw new TheoremError('config', `${tool}: the pattern /${source}/ in its ${side} schema ${slow}`);
+      throw new TheoremError('request', `${tool}: the pattern /${source}/ in its ${side} schema ${slow}`);
     }
   }
 }
@@ -356,7 +356,7 @@ async function registerDraft(
   runtime: StudioRuntime,
 ): Promise<Profile> {
   if (studioKeySlots(profile).length > STUDIO_KEY_SLOT_CAP) {
-    throw new TheoremError('config', 'The studio supports up to 32 key slots.'); // labels-exempt: builder diagnostic
+    throw new TheoremError('request', 'The studio supports up to 32 key slots.'); // labels-exempt: builder diagnostic
   }
   await refuseSlowSchemaPatterns(customTools);
   const defined = defineDraft(
@@ -376,7 +376,7 @@ async function registerDraft(
         },
         runtime,
       );
-      if (violation) throw new TheoremError('config', violation.message); // labels-exempt: builder connection diagnostic
+      if (violation) throw new TheoremError('request', violation.message); // labels-exempt: builder connection diagnostic
     }
   }
   return registerDefined(scope, defined, customTools, structured, runtime.toolHandlers);

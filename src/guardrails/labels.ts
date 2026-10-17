@@ -66,6 +66,7 @@ export const LABEL_KEYS = [
   'attachments.turn_too_large',
   'attachments.not_accepted',
   'attachments.mime_not_allowed',
+  'input.too_long',
   'attachments.limits_unconfigured',
   'quota.exhausted',
   'error.config',
@@ -222,6 +223,7 @@ export const CLIENT_LABEL_KEYS = [
   'attachments.turn_too_large',
   'attachments.not_accepted',
   'attachments.mime_not_allowed',
+  'input.too_long',
   'attachments.limits_unconfigured',
   'detect.blocked',
   'error.config',
@@ -401,6 +403,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
       ? `Sorry, ${name} is a file type that can't be used here.`
       : "Sorry, that file type can't be used here.";
   },
+  'input.too_long': (params) =>
+    `Sorry, that message is too long. Please keep it under ${Number(params.maxChars).toLocaleString('en-US')} characters.`,
   'attachments.limits_unconfigured': "Sorry, files can't be used here at the moment.",
   'quota.exhausted': (params) =>
     params.perDay === 1
@@ -648,6 +652,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     "Shown to the user who sends files or a voice note to an agent that takes none. Takes {channel}: 'voice' or 'attachment'.",
   'attachments.mime_not_allowed':
     "Shown to the user when a file's type is not in the agent's accepted types. Takes {mimeType}, {channel} ('voice' or 'attachment'), and {fileName} when the file has one.",
+  'input.too_long':
+    'Shown to the user when one text a turn sends, such as the message or a text file, is longer than Theorem reads. Takes {maxChars}.',
   'attachments.limits_unconfigured':
     'Shown to the user who sends a file to an agent whose file limits are not set.',
   'quota.exhausted': 'Shown to the user who has used up the daily message cap. Takes {perDay}.',
@@ -901,6 +907,7 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'attachments.turn_too_large': ['maxTurnBytes'],
   'attachments.not_accepted': ['channel'],
   'attachments.mime_not_allowed': ['mimeType', 'channel', 'fileName'],
+  'input.too_long': ['maxChars'],
   'quota.exhausted': ['perDay'],
   'repair.history_heading': ['count'],
   'compaction.tool_call': ['tool', 'arguments'],

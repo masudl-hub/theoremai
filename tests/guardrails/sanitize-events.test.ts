@@ -209,3 +209,29 @@ Deno.test('a blocked request is refused, and the event says where', () => {
   assertEquals(refusal?.copy, { key: 'detect.blocked' });
   assertThrows(() => sanitizeTurnRequest(request, profile), TheoremError);
 });
+
+Deno.test('a request text over a million characters is refused before any detector reads it', () => {
+  const long = 'a'.repeat(1_000_001);
+  const atLimit = sanitizeTurnRequestWithEvents(
+    { profile: 'chat', input: { text: long.slice(1) } },
+    getProfile('chat'),
+  );
+  assertEquals(atLimit.refusal, undefined);
+  for (const request of [
+    { profile: 'chat', input: { text: long } },
+    { profile: 'chat', system: long, input: { text: 'hello' } },
+    { profile: 'chat', input: { text: 'hello', history: [{ role: 'user', content: long }] } },
+  ] satisfies TurnRequest[]) {
+    let error: unknown;
+    try {
+      sanitizeTurnRequestWithEvents(request, getProfile('chat'));
+    } catch (caught) {
+      error = caught;
+    }
+    if (!(error instanceof TheoremError)) throw new Error('expected a TheoremError');
+    assertEquals(
+      [error.kind, error.copy],
+      ['input', { key: 'input.too_long', params: { maxChars: 1_000_000 } }],
+    );
+  }
+});

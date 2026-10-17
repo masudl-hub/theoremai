@@ -118,6 +118,47 @@ Deno.test('a draft the kernel refuses is a bad request, not the host', async () 
   );
 });
 
+Deno.test('a draft outside its outline is a bad request, never the host', async () => {
+  const handler = createStudioDraftHandler({ lent: ON_TEST_KEYS });
+  const run = concierge();
+  for (const body of [
+    null,
+    { input: { text: 'Hello' } },
+    { profile: null, input: { text: 'Hello' } },
+    { ...run, customTools: 'tools', input: { text: 'Hello' } },
+    { ...run, structured: [[[]]], input: { text: 'Hello' } },
+    { ...run, dependencies: [{ profile: 1 }], input: { text: 'Hello' } },
+  ]) {
+    const response = await handler(post('turn', body));
+    assertEquals(
+      [response.status, (await response.json()).errorKind],
+      [400, 'request'],
+      JSON.stringify(body)?.slice(0, 80),
+    );
+  }
+});
+
+Deno.test('a model the keys refuse is a bad request, not the host', async () => {
+  const handler = createStudioDraftHandler({ lent: ON_TEST_KEYS });
+  const run = concierge();
+  assert(run.profile.type === 'text');
+  const models = Object.fromEntries(
+    Object.entries(run.profile.models).map(([name, binding]) => [
+      name,
+      { ...binding, apiId: 'not-on-the-keys' },
+    ]),
+  );
+  const response = await handler(
+    post('turn', { ...run, profile: { ...run.profile, models }, input: { text: 'Hello' } }),
+  );
+  assertEquals(
+    (await lines(response))
+      .filter((event) => event.type === 'error')
+      .map((event) => event.errorKind),
+    ['request'],
+  );
+});
+
 Deno.test('a refused spend refuses the call before it runs', async () => {
   const spent: StudioSpend[] = [];
   const handler = createStudioDraftHandler({

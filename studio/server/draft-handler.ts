@@ -126,6 +126,18 @@ type DraftBody = {
   sessionPermissions?: unknown;
 };
 
+/** A draft's outline: whatever else it holds, `defineProfile` and the tool registry check when the run opens. */
+const record = z.record(z.string(), z.unknown());
+const structuredOutline = z.object({ id: z.string(), spec: record });
+const draftOutline = z.looseObject({
+  profile: record,
+  customTools: z.array(record).optional(),
+  structured: structuredOutline.optional(),
+  dependencies: z
+    .array(z.looseObject({ profile: record, customTools: z.array(record), structured: structuredOutline.optional() }))
+    .optional(),
+});
+
 /** The tools a page allowed for the rest of its visit, as the browser holds them. */
 const pagePermissions = z.array(z.string().min(1).max(128)).max(256).optional();
 
@@ -193,7 +205,7 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
   ): Promise<Response> => {
     let draft: DraftBody | undefined;
     try {
-      draft = (await readBody(request, z.unknown())) as DraftBody;
+      draft = (await readBody(request, draftOutline)) as DraftBody;
       const boundary = await createTheoremSessionBoundary({ request, sessionStore, pageToolBroker });
       const response = await handle(draft, boundary);
       if (boundary.setCookie) response.headers.append('set-cookie', boundary.setCookie);

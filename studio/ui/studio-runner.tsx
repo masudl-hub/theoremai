@@ -383,7 +383,7 @@ function SideRun({
 		return (
 			<TheoremEmbedding
 				transport={embedding}
-				defaultInput={embeddingSeed(payload.profile)}
+				{...embeddingSeed(payload.profile)}
 				trace={trace}
 				flush={flush}
 				columns={columns}

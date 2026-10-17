@@ -582,16 +582,15 @@ export const EXAMPLE_SPAN_DECISION_STATE = JSON.stringify(
   'The user asked to tidy screenshots. The proposed call recursively deletes 1,284 files, including a tax return.',
 );
 
-/** Inputs an embedding preview starts with: two that mean much the same, and one that doesn't. */
-export const EXAMPLE_EMBEDDING_INPUT = JSON.stringify(
-  [
-    'Delete every screenshot on my desktop.',
-    'Remove all the screen captures from the desktop.',
-    'What is the weather in Lisbon tomorrow?',
-  ],
-  null,
-  2,
-);
+/** Documents an embedding preview starts with, one per paragraph: two about the same thing, and one that isn't. */
+export const EXAMPLE_EMBEDDING_TEXT = [
+  'To clear your desktop, select the screenshots and move them to the Trash. Empty the Trash to delete them for good.',
+  'Screen captures save to the desktop by default. You can change where they go in the Screenshot app\'s Options menu.',
+  'Lisbon has mild, wet winters and warm, dry summers. Expect highs near 28 °C in August.',
+].join('\n\n');
+
+/** The question an embedding preview starts with, nearest the first document. */
+export const EXAMPLE_EMBEDDING_QUERY = 'How do I delete every screenshot on my desktop?';
 
 /** A new question of `type`, with an id the draft doesn't use yet. */
 export function newDecisionQuestion(

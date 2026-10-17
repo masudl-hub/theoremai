@@ -507,120 +507,201 @@ export const THEOREM_UI_CATALOG = {
     params: ['count'],
   },
 
-  '@theorem.embedding.inputs': {
-    defaultMessage: 'Inputs',
-    description: 'The texts and files an embedding turns into vectors (field label).',
+  '@theorem.embedding.documents': {
+    defaultMessage: 'Documents',
+    description: 'What a search looks through: the texts and files to embed (card title).',
   },
-  '@theorem.embedding.input': {
-    defaultMessage: 'Input {number}',
-    description: 'One input to embed, by its place in the list.',
+  '@theorem.embedding.document': {
+    defaultMessage: 'Document {number}',
+    description: 'One document, by its place in the list.',
     params: ['number'],
   },
-  '@theorem.embedding.placeholder': {
-    defaultMessage: 'Text to embed',
-    description: "An input's empty text field.",
+  '@theorem.embedding.text': {
+    defaultMessage: 'Text',
+    description: 'Text to split into documents (field label).',
+  },
+  '@theorem.embedding.text_placeholder': {
+    defaultMessage: 'Paste text to search through',
+    description: 'The empty text field on the documents card.',
+  },
+  '@theorem.embedding.split': {
+    defaultMessage: 'Split by',
+    description: 'Where the text is cut into documents (field label).',
+  },
+  '@theorem.embedding.split_whole': {
+    defaultMessage: 'Nothing: one document',
+    description: 'The text is one document.',
+  },
+  '@theorem.embedding.split_lines': {
+    defaultMessage: 'Lines',
+    description: 'Each line of the text is a document.',
+  },
+  '@theorem.embedding.split_paragraphs': {
+    defaultMessage: 'Paragraphs',
+    description: 'Each run of text between blank lines is a document.',
+  },
+  '@theorem.embedding.split_commas': {
+    defaultMessage: 'Commas',
+    description: 'Each piece of the text between commas is a document.',
+  },
+  '@theorem.embedding.split_custom': {
+    defaultMessage: 'A separator you type',
+    description: 'The text is cut wherever a separator of the user’s own appears.',
+  },
+  '@theorem.embedding.separator': {
+    defaultMessage: 'Separator',
+    description: 'The text the documents are cut at (field label).',
   },
   '@theorem.embedding.files': {
     defaultMessage: 'Files',
-    description: 'Adds files to an input (field label).',
+    description: 'Adds files as documents (field label).',
   },
-  '@theorem.embedding.choose_files': {
-    defaultMessage: 'Choose files',
-    description: "The file field's prompt, before any are chosen.",
+  '@theorem.embedding.drop_files': {
+    defaultMessage: 'Drop files, or choose them. Text files are split like the text.',
+    description: "The file field's prompt.",
   },
   '@theorem.embedding.unreadable': {
     defaultMessage: "{name} couldn't be read.",
     description: 'A chosen file the browser could not read.',
     params: ['name'],
   },
-  '@theorem.embedding.remove_file': {
+  '@theorem.embedding.remove': {
     defaultMessage: 'Remove {name}',
-    description: 'Takes a file off its input.',
+    description: 'Takes a document off the list.',
     params: ['name'],
+  },
+  '@theorem.embedding.from_file': {
+    defaultMessage: 'From {name}',
+    description: 'A document that is a piece of a text file, under its text.',
+    params: ['name'],
+  },
+  '@theorem.embedding.from_text': {
+    defaultMessage: 'From the text',
+    description: 'A document that is a piece of the pasted text, under its text.',
   },
   '@theorem.embedding.held_file': {
     defaultMessage: 'Held by the provider',
     description: 'A file the provider already holds, referred to by address, beside its type.',
   },
-  '@theorem.embedding.add_input': {
-    defaultMessage: 'Add input',
-    description: 'Adds an empty input to the list.',
-  },
-  '@theorem.embedding.remove_input': {
-    defaultMessage: 'Remove input {number}',
-    description: 'Takes an input off the list.',
-    params: ['number'],
+  '@theorem.embedding.more': {
+    defaultMessage: '{count, plural, one {# more document} other {# more documents}}',
+    description: 'Documents past the ones the list shows.',
+    params: ['count'],
   },
   '@theorem.embedding.invalid_json': {
-    defaultMessage: 'Not a list of inputs: each is text, or an object with parts.',
-    description: "The JSON field doesn't read as the inputs an embedding takes.",
+    defaultMessage: 'Not a list of documents: each is text, or an object with parts.',
+    description: "The documents' JSON doesn't read as the inputs an embedding takes.",
   },
-  '@theorem.embedding.no_inputs': {
-    defaultMessage: 'Add an input to embed.',
-    description: 'The list of inputs is empty.',
+  '@theorem.embedding.no_documents': {
+    defaultMessage: 'Add text or files to search through.',
+    description: 'There are no documents yet.',
   },
-  '@theorem.embedding.empty_input': {
-    defaultMessage: 'Input {number} is empty.',
-    description: 'An input has no text and no file.',
-    params: ['number'],
+  '@theorem.embedding.empty': {
+    defaultMessage: '{name} is empty.',
+    description: 'A document or the query has no text and no file.',
+    params: ['name'],
   },
   '@theorem.embedding.text_off': {
-    defaultMessage: 'Input {number} has text, and this profile embeds files only.',
-    description: 'An input has text the profile does not take.',
-    params: ['number'],
+    defaultMessage: '{name} has text, and this profile embeds files only.',
+    description: 'A document or the query has text the profile does not take.',
+    params: ['name'],
   },
-  '@theorem.embedding.shortcut': {
-    defaultMessage: '⌘↵ to embed',
-    description: 'The keyboard shortcut that runs the embedding, under the inputs.',
+  '@theorem.embedding.ready': {
+    defaultMessage:
+      '{count, plural, one {# document} other {# documents}} in {requests, plural, one {# request} other {# requests}} · ⌘↵ to index',
+    description:
+      'The documents are ready: how many, how many requests the profile’s limits make them, and the shortcut.',
+    params: ['count', 'requests'],
   },
-  '@theorem.embedding.embed': {
-    defaultMessage: 'Embed',
-    description: 'Turns the inputs into vectors.',
+  '@theorem.embedding.index': {
+    defaultMessage: 'Index',
+    description: 'Embeds the documents so they can be searched.',
   },
-  '@theorem.embedding.embedding': {
-    defaultMessage: 'Embedding…',
-    description: 'The run button while the vectors are on their way.',
+  '@theorem.embedding.indexing': {
+    defaultMessage: 'Indexing…',
+    description: 'The index button while the documents are embedded.',
   },
   '@theorem.embedding.stop': {
     defaultMessage: 'Stop',
-    description: 'Cancels the running embedding.',
+    description: 'Cancels the running index or search.',
   },
-  '@theorem.embedding.vectors': {
-    defaultMessage: 'Vectors',
-    description: 'What came back: one vector per input (heading).',
+  '@theorem.embedding.query': {
+    defaultMessage: 'Query',
+    description: 'What to search the documents for (card title).',
   },
-  '@theorem.embedding.dimensions': {
-    defaultMessage: '{count, plural, one {# dimension} other {# dimensions}}',
-    description: "A vector's length, its card's figure.",
+  '@theorem.embedding.query_placeholder': {
+    defaultMessage: 'What to search for',
+    description: 'The empty query field.',
+  },
+  '@theorem.embedding.query_file': {
+    defaultMessage: 'Search with a file',
+    description: 'Adds a file to the query, such as an image to find documents like it.',
+  },
+  '@theorem.embedding.query_invalid_json': {
+    defaultMessage: 'Not a query: text, or an object with parts.',
+    description: "The query's JSON doesn't read as one embedding input.",
+  },
+  '@theorem.embedding.not_indexed': {
+    defaultMessage: 'Index the documents first.',
+    description: 'A search needs the documents embedded.',
+  },
+  '@theorem.embedding.stale': {
+    defaultMessage: 'The documents changed. Index them again.',
+    description: 'The documents differ from the ones last embedded.',
+  },
+  '@theorem.embedding.search_shortcut': {
+    defaultMessage: '⌘↵ to search',
+    description: 'The keyboard shortcut that runs the search, under the query.',
+  },
+  '@theorem.embedding.search': {
+    defaultMessage: 'Search',
+    description: 'Embeds the query and ranks the documents by it.',
+  },
+  '@theorem.embedding.searching': {
+    defaultMessage: 'Searching…',
+    description: 'The search button while the query is embedded.',
+  },
+  '@theorem.embedding.results': {
+    defaultMessage: 'Results',
+    description: 'The index and the matches (heading).',
+  },
+  '@theorem.embedding.progress': {
+    defaultMessage: '{done} of {total, plural, one {# request} other {# requests}}',
+    description: 'How far indexing has come.',
+    params: ['done', 'total'],
+  },
+  '@theorem.embedding.indexed': {
+    defaultMessage: '{count, plural, one {# document} other {# documents}}',
+    description: 'How many documents the index holds, its card’s figure.',
     params: ['count'],
   },
-  '@theorem.embedding.norm': {
-    defaultMessage: 'norm {norm}',
-    description: "The vector's length, beside its dimensions.",
-    params: ['norm'],
+  '@theorem.embedding.indexed_note': {
+    defaultMessage:
+      '{dimensions, plural, one {# dimension} other {# dimensions}} · {requests, plural, one {# request} other {# requests}}',
+    description: 'The width of each vector, and how many requests indexing took.',
+    params: ['dimensions', 'requests'],
   },
-  '@theorem.embedding.values': {
-    defaultMessage: '{name}: values by dimension, from {min} to {max}',
-    description: "What the vector's chart draws, read out in place of it.",
-    params: ['name', 'min', 'max'],
+  '@theorem.embedding.matches': {
+    defaultMessage: 'Matches',
+    description: 'The documents most like the query, best first (card title).',
   },
-  '@theorem.embedding.similarity': {
-    defaultMessage: 'Cosine similarity',
-    description: 'How alike each pair of vectors points, from -1 to 1 (card title).',
-  },
-  '@theorem.embedding.pair': {
-    defaultMessage: '{a} and {b}',
-    description: 'Two inputs compared, in the similarity card.',
-    params: ['a', 'b'],
-  },
-  '@theorem.embedding.pairs_shown': {
-    defaultMessage: '{shown} of {count} pairs',
-    description: 'The similarity card lists the most alike pairs only.',
+  '@theorem.embedding.matches_shown': {
+    defaultMessage: 'Top {shown} of {count}',
+    description: 'The matches card lists the best documents only.',
     params: ['shown', 'count'],
+  },
+  '@theorem.embedding.best': {
+    defaultMessage: 'Best: {name}',
+    description: 'The document most like the query, under the matches figure.',
+    params: ['name'],
+  },
+  '@theorem.embedding.no_matches': {
+    defaultMessage: 'No document has a vector as wide as the query’s.',
+    description: 'The query and the documents were embedded by models of different widths.',
   },
   '@theorem.embedding.tokens': {
     defaultMessage: '{count, plural, one {# token} other {# tokens}}',
-    description: 'Input tokens the embedding used, in the line under the vectors.',
+    description: 'Input tokens a call used, in the line under the results.',
     params: ['count'],
   },
 

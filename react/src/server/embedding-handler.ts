@@ -33,6 +33,7 @@ export type TheoremEmbeddingHandlerOptions = {
 const embedBodySchema = z.object({
   input: z.unknown(),
   model: z.string().min(1).optional(),
+  task: z.enum(['query', 'document']).optional(),
 });
 
 export function createTheoremEmbeddingHandler(
@@ -64,6 +65,7 @@ export function createTheoremEmbeddingHandler(
           profile: profile.id,
           input: body.input as never,
           ...(body.model === undefined ? {} : { model: body.model }),
+          ...(body.task === undefined ? {} : { task: body.task }),
           signal: request.signal,
           metadata: options.metadata?.(request),
         },

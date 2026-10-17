@@ -2,6 +2,7 @@ import {
   type EmbeddingInput,
   type EmbeddingProfile,
   type EmbeddingResult,
+  type EmbeddingTask,
   resolveObservabilityPolicy,
   type TraceRecord,
   traceRecordSchema,
@@ -54,11 +55,14 @@ export function embeddingInterface(
 
 export type EmbeddingReply = { result: EmbeddingResult; traces?: TraceRecord[] };
 
+/** What an embedding asks beyond its inputs: a named model, and what the inputs are for. */
+export type EmbedOptions = { model?: string; task?: EmbeddingTask };
+
 export interface EmbeddingTransport {
   describe(signal?: AbortSignal): Promise<EmbeddingInterface>;
   embed(
     input: EmbeddingInput | readonly EmbeddingInput[],
-    model?: string,
+    options?: EmbedOptions,
     signal?: AbortSignal,
   ): Promise<EmbeddingReply>;
   traces?: TraceFeed;
@@ -133,12 +137,7 @@ export function createEmbeddingTransport(
         'the embedding description', // labels-exempt: internal diagnostic; the user reads error.bad_response
       ).interface;
     },
-    embed: (input, model, signal) =>
-      postEmbedding(
-        `${base}/embed`,
-        { input, ...(model === undefined ? {} : { model }) },
-        signal,
-        options,
-      ),
+    embed: (input, embed, signal) =>
+      postEmbedding(`${base}/embed`, { input, ...embed }, signal, options),
   };
 }

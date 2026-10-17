@@ -160,10 +160,10 @@ export function createStudioEmbeddingTransport(
   return {
     describe: () =>
       Promise.resolve(embeddingInterface(defineProfile(payload.profile) as EmbeddingProfile)),
-    embed: (input, model, signal) =>
+    embed: (input, embed, signal) =>
       postEmbedding(
         '/api/studio/embedding/embed',
-        { profile: payload.profile, input, ...(model === undefined ? {} : { model }) },
+        { profile: payload.profile, input, ...embed },
         signal,
         options,
       ),

@@ -16,6 +16,7 @@ const embeddingRequestSchema = z.object({
   profile: z.record(z.string(), z.unknown()),
   input: z.unknown(),
   model: z.string().min(1).optional(),
+  task: z.enum(['query', 'document']).optional(),
 });
 
 /** Embeds the input on the lent keys, once the keys allow the profile's model. */
@@ -33,7 +34,11 @@ export async function draftEmbedding(request: Request, runtime: LentRuntime): Pr
     lentVault(runtime, profile, 'embedding');
     const { result, traces } = await runStudioEmbedding(
       { agentId: profile.id, profile: body.profile as EmbeddingProfileDefinition, customTools: [] },
-      { input: body.input as never, ...(body.model === undefined ? {} : { model: body.model }) },
+      {
+        input: body.input as never,
+        ...(body.model === undefined ? {} : { model: body.model }),
+        ...(body.task === undefined ? {} : { task: body.task }),
+      },
       runtime,
     );
     return noStoreJson({ result, traces });

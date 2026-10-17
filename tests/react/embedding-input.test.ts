@@ -1,12 +1,14 @@
 import { assertAlmostEquals, assertEquals } from '@std/assert';
 import {
+  addUsage,
   checkEmbeddingInputs,
   cosineSimilarity,
-  embeddingPairs,
-  embeddingRows,
-  rowInput,
-  vectorBins,
-  vectorNorm,
+  embeddingBatches,
+  fieldsInput,
+  inputFields,
+  rankMatches,
+  readsAsText,
+  splitText,
 } from '../../react/src/client/embedding-input.ts';
 
 const TEXT = { text: true };
@@ -61,50 +63,88 @@ Deno.test('the embedding request is held to the profile as the kernel holds it',
   assertEquals(!empty.ok && empty.reason === 'empty_input' && empty.index, 1);
 });
 
-Deno.test('rows round-trip the inputs, and refuse inputs with two text parts', () => {
+Deno.test('fields round-trip an input, and refuse one with two text parts', () => {
   const inputs = ['plain', { parts: [{ type: 'text' as const, text: 'with' }, image('AAA=')] }];
-  const rows = embeddingRows(inputs);
-  assertEquals(rows, [
+  const fields = inputs.map(inputFields);
+  assertEquals(fields, [
     { text: 'plain', media: [] },
     { text: 'with', media: [image('AAA=')] },
   ]);
-  assertEquals(rows?.map(rowInput), inputs);
-  assertEquals(rowInput({ text: '', media: [image('AAA=')] }), { parts: [image('AAA=')] });
   assertEquals(
-    embeddingRows([
-      {
-        parts: [
-          { type: 'text', text: 'a' },
-          { type: 'text', text: 'b' },
-        ],
-      },
-    ]),
+    fields.map((f) => f && fieldsInput(f)),
+    inputs,
+  );
+  assertEquals(fieldsInput({ text: '', media: [image('AAA=')] }), { parts: [image('AAA=')] });
+  assertEquals(
+    inputFields({
+      parts: [
+        { type: 'text', text: 'a' },
+        { type: 'text', text: 'b' },
+      ],
+    }),
     null,
   );
 });
 
-Deno.test('vectors compare by cosine, pair only at the same width, and bin to a width', () => {
+Deno.test('text splits into trimmed documents at the chosen separator', () => {
+  const text = ' one, two\nthree\n  \nfour ';
+  assertEquals(splitText(text, 'whole'), ['one, two\nthree\n  \nfour']);
+  assertEquals(splitText(text, 'lines'), ['one, two', 'three', 'four']);
+  assertEquals(splitText(text, 'paragraphs'), ['one, two\nthree', 'four']);
+  assertEquals(splitText('a\r\n\r\nb', 'paragraphs'), ['a', 'b']);
+  assertEquals(splitText(text, 'commas'), ['one', 'two\nthree\n  \nfour']);
+  assertEquals(splitText('a;;b;;', { separator: ';;' }), ['a', 'b']);
+  assertEquals(splitText(' a ', { separator: '' }), ['a']);
+  assertEquals(splitText('  \n ', 'lines'), []);
+});
+
+Deno.test('text files are read as words; other files are media', () => {
+  assertEquals(readsAsText({ name: 'notes.md', type: '' }), true);
+  assertEquals(readsAsText({ name: 'a', type: 'text/csv' }), true);
+  assertEquals(readsAsText({ name: 'a', type: 'application/json' }), true);
+  assertEquals(readsAsText({ name: 'photo.png', type: 'image/png' }), false);
+  assertEquals(readsAsText({ name: 'deck.pdf', type: 'application/pdf' }), false);
+});
+
+Deno.test('documents batch as the fewest requests the profile allows', () => {
+  assertEquals(embeddingBatches(['a', 'b', 'c'], TEXT), [['a', 'b', 'c']]);
+  assertEquals(embeddingBatches(['a', 'b', 'c'], TEXT, 2), [['a', 'b'], ['c']]);
+  // One file per request: each image goes alone, and the text rides with the one before it.
+  const one = { parts: [image('AAA=')] };
+  const two = { parts: [image('AA==')] };
+  assertEquals(embeddingBatches(['a', one, 'b', two], MEDIA), [['a', one, 'b'], [two]]);
+  // An input the profile refuses on its own still goes, alone, for the kernel to refuse.
+  const big = { parts: [image('AAAAAAAA')] };
+  assertEquals(embeddingBatches(['a', big, 'b'], MEDIA), [['a'], [big], ['b']]);
+  assertEquals(embeddingBatches([], TEXT), []);
+});
+
+Deno.test('usage adds across requests', () => {
+  assertEquals(addUsage(undefined, { inputTokens: 3 }), { inputTokens: 3 });
+  assertEquals(addUsage({ inputTokens: 3, costUsd: 0.5 }, { inputTokens: 4, estimated: true }), {
+    inputTokens: 7,
+    costUsd: 0.5,
+    estimated: true,
+  });
+  assertEquals(addUsage(undefined, undefined), undefined);
+});
+
+Deno.test('vectors compare by cosine, and matches rank only at the query width', () => {
   assertAlmostEquals(cosineSimilarity([1, 0], [1, 0]), 1);
   assertAlmostEquals(cosineSimilarity([1, 0], [-1, 0]), -1);
   assertEquals(cosineSimilarity([0, 0], [1, 0]), 0);
-  assertAlmostEquals(vectorNorm([3, 4]), 5);
-  const pairs = embeddingPairs({
-    model: 'm',
-    embeddings: [
-      { index: 0, values: [1, 0], dimensions: 2 },
-      { index: 1, values: [0, 1], dimensions: 2 },
-      { index: 2, values: [1, 0.1], dimensions: 2 },
-      { index: 3, values: [1, 0, 0], dimensions: 3 },
-    ],
-  });
-  assertEquals(
-    pairs.map(({ a, b }) => [a, b]),
+  const ranked = rankMatches(
+    [1, 0],
     [
-      [0, 2],
-      [1, 2],
       [0, 1],
+      [1, 0.1],
+      [1, 0, 0],
+      [-1, 0],
     ],
   );
-  assertEquals(vectorBins([1, 2, 3], 4), [1, 2, 3]);
-  assertEquals(vectorBins([1, 3, 5, 7], 2), [2, 6]);
+  assertEquals(
+    ranked.map(({ index }) => index),
+    [1, 0, 3],
+  );
+  assertAlmostEquals(ranked[2].score, -1);
 });

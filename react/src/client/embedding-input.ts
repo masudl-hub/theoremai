@@ -1,7 +1,8 @@
 /**
  * The rules behind an embedding console: the inputs as the JSON a request
- * sends, edited as rows of text and files, checked the way the kernel checks
- * them, and the vectors that come back compared.
+ * sends, text split into documents, documents packed into the requests the
+ * profile allows, all checked the way the kernel checks them, and documents
+ * ranked by how alike they point to a query.
  *
  * @module
  */
@@ -12,7 +13,7 @@ import {
   base64Bytes,
   type EmbeddingInput,
   type EmbeddingPart,
-  type EmbeddingResult,
+  type EmbeddingUsage,
   resolveMediaLimits,
 } from '@theoremjs/agents';
 import type { AttachmentValidationIssue } from '@theoremjs/agents/interface';
@@ -20,9 +21,6 @@ import type { EmbeddingInterface } from './embedding-transport.ts';
 
 /** A part that is not text: a file sent inline, or one the provider already holds. */
 export type EmbeddingMediaPart = Exclude<EmbeddingPart, { type: 'text' }>;
-
-/** One input as the fields edit it: its words, and the files beside them. */
-export type EmbeddingRow = { text: string; media: EmbeddingMediaPart[] };
 
 export type EmbeddingInputCheck =
   | { ok: true; inputs: EmbeddingInput[] }
@@ -66,26 +64,39 @@ function partsOf(input: EmbeddingInput): readonly EmbeddingPart[] {
   return typeof input === 'string' ? [{ type: 'text', text: input }] : input.parts;
 }
 
-/** The inputs as rows, or `null` when one holds more than one text part and rows would lose it. */
-export function embeddingRows(inputs: readonly EmbeddingInput[]): EmbeddingRow[] | null {
-  const rows: EmbeddingRow[] = [];
-  for (const input of inputs) {
-    const parts = partsOf(input);
-    const texts = parts.filter((part) => part.type === 'text');
-    if (texts.length > 1) return null;
-    rows.push({
-      text: texts[0]?.text ?? '',
-      media: parts.filter((part): part is EmbeddingMediaPart => part.type !== 'text'),
-    });
+/** One input, read from its JSON; `undefined` when it is not one. */
+export function readEmbeddingInput(text: string): EmbeddingInput | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return undefined;
   }
-  return rows;
+  return isInput(value) ? value : undefined;
 }
 
-/** A row as the input it sends: plain text alone, else its parts with the text first. */
-export function rowInput(row: EmbeddingRow): EmbeddingInput {
-  if (row.media.length === 0) return row.text;
+/** One input as fields edit it: its words, and the files beside them. */
+export type EmbeddingFields = { text: string; media: EmbeddingMediaPart[] };
+
+/** The input as fields, or `null` when it holds more than one text part and fields would lose it. */
+export function inputFields(input: EmbeddingInput): EmbeddingFields | null {
+  const parts = partsOf(input);
+  const texts = parts.filter((part) => part.type === 'text');
+  if (texts.length > 1) return null;
   return {
-    parts: [...(row.text ? [{ type: 'text' as const, text: row.text }] : []), ...row.media],
+    text: texts[0]?.text ?? '',
+    media: parts.filter((part): part is EmbeddingMediaPart => part.type !== 'text'),
+  };
+}
+
+/** Fields as the input they send: plain text alone, else its parts with the text first. */
+export function fieldsInput(fields: EmbeddingFields): EmbeddingInput {
+  if (fields.media.length === 0) return fields.text;
+  return {
+    parts: [
+      ...(fields.text ? [{ type: 'text' as const, text: fields.text }] : []),
+      ...fields.media,
+    ],
   };
 }
 
@@ -95,21 +106,20 @@ function mediaFacts(part: EmbeddingMediaPart): AttachmentFacts {
     : { mimeType: part.mimeType };
 }
 
-/** The request's JSON as the inputs it sends, held to the profile's rules as the kernel holds them. */
-export function checkEmbeddingInputs(
-  text: string,
+/** The inputs, held to the profile's rules as the kernel holds them in one request. */
+export function checkInputs(
+  inputs: readonly EmbeddingInput[],
   rules: EmbeddingInterface['inputs'],
 ): EmbeddingInputCheck {
-  const inputs = readEmbeddingInputs(text);
-  if (inputs === undefined) return { ok: false, reason: 'invalid_json' };
-  if (inputs.length === 0) return { ok: false, reason: 'no_inputs' };
+  const list = [...inputs];
+  if (list.length === 0) return { ok: false, reason: 'no_inputs' };
   const media: AttachmentFacts[] = [];
-  for (const [index, input] of inputs.entries()) {
+  for (const [index, input] of list.entries()) {
     const parts = partsOf(input);
     if (parts.length === 0 || parts.every((part) => part.type === 'text' && !part.text.trim()))
-      return { ok: false, reason: 'empty_input', index, inputs };
+      return { ok: false, reason: 'empty_input', index, inputs: list };
     if (!rules.text && parts.some((part) => part.type === 'text' && part.text.trim()))
-      return { ok: false, reason: 'text_off', index, inputs };
+      return { ok: false, reason: 'text_off', index, inputs: list };
     for (const part of parts) {
       if (part.type === 'text') continue;
       try {
@@ -125,8 +135,91 @@ export function checkEmbeddingInputs(
     [],
   );
   return issues.length > 0
-    ? { ok: false, reason: 'attachments', issues, inputs }
-    : { ok: true, inputs };
+    ? { ok: false, reason: 'attachments', issues, inputs: list }
+    : { ok: true, inputs: list };
+}
+
+/** The request's JSON as the inputs it sends, held to the profile's rules. */
+export function checkEmbeddingInputs(
+  text: string,
+  rules: EmbeddingInterface['inputs'],
+): EmbeddingInputCheck {
+  const inputs = readEmbeddingInputs(text);
+  return inputs === undefined ? { ok: false, reason: 'invalid_json' } : checkInputs(inputs, rules);
+}
+
+/** Where text is cut into documents: not at all, at each line, at blank lines, at commas, or at a separator of your own. */
+export type EmbeddingSplit = 'whole' | 'lines' | 'paragraphs' | 'commas' | { separator: string };
+
+/** The text as documents, each trimmed, none empty. */
+export function splitText(text: string, split: EmbeddingSplit): string[] {
+  const pieces =
+    split === 'whole'
+      ? [text]
+      : split === 'lines'
+        ? text.split(/\r?\n/)
+        : split === 'paragraphs'
+          ? text.split(/\r?\n[^\S\r\n]*\r?\n/)
+          : split === 'commas'
+            ? text.split(',')
+            : split.separator
+              ? text.split(split.separator)
+              : [text];
+  return pieces.map((piece) => piece.trim()).filter((piece) => piece !== '');
+}
+
+/** A file read as words and split, not sent as media: plain text, Markdown, CSV, and JSON. */
+export function readsAsText(file: { name: string; type: string }): boolean {
+  return (
+    file.type.startsWith('text/') ||
+    file.type === 'application/json' ||
+    /\.(txt|md|markdown|csv|tsv|json)$/i.test(file.name)
+  );
+}
+
+// why: Gemini's batch embedding takes at most 100 inputs in one call; no profile sets fewer.
+/** The most inputs the console sends in one request. */
+export const MAX_BATCH_INPUTS = 100;
+
+/**
+ * The inputs, in order, as the fewest requests the profile allows: each holds
+ * at most `most` inputs and stays within the file count and byte limits the
+ * kernel holds one request to. An input the profile refuses on its own goes
+ * alone, for the kernel to refuse.
+ */
+export function embeddingBatches(
+  inputs: readonly EmbeddingInput[],
+  rules: EmbeddingInterface['inputs'],
+  most: number = MAX_BATCH_INPUTS,
+): EmbeddingInput[][] {
+  const batches: EmbeddingInput[][] = [];
+  let current: EmbeddingInput[] = [];
+  for (const input of inputs) {
+    const next = [...current, input];
+    if (current.length > 0 && (next.length > most || !checkInputs(next, rules).ok)) {
+      batches.push(current);
+      current = [input];
+    } else current = next;
+  }
+  if (current.length > 0) batches.push(current);
+  return batches;
+}
+
+/** Two calls' usage as one: token counts and costs added, estimated when either was. */
+export function addUsage(
+  a: EmbeddingUsage | undefined,
+  b: EmbeddingUsage | undefined,
+): EmbeddingUsage | undefined {
+  if (!a || !b) return a ?? b;
+  const sum = (x?: number, y?: number) =>
+    x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0);
+  const inputTokens = sum(a.inputTokens, b.inputTokens);
+  const costUsd = sum(a.costUsd, b.costUsd);
+  return {
+    ...(inputTokens === undefined ? {} : { inputTokens }),
+    ...(costUsd === undefined ? {} : { costUsd }),
+    ...(a.estimated || b.estimated ? { estimated: true as const } : {}),
+  };
 }
 
 /** How alike two vectors point, from -1 to 1. */
@@ -142,36 +235,17 @@ export function cosineSimilarity(a: readonly number[], b: readonly number[]): nu
   return aa === 0 || bb === 0 ? 0 : dot / Math.sqrt(aa * bb);
 }
 
-/** A vector's length. */
-export function vectorNorm(values: readonly number[]): number {
-  return Math.sqrt(values.reduce((sum, value) => sum + value * value, 0));
-}
+/** A document and how alike it points to the query, from -1 to 1. */
+export type EmbeddingMatch = { index: number; score: number };
 
-export type EmbeddingPair = { a: number; b: number; similarity: number };
-
-/** Every pair of vectors of the same width, most alike first. */
-export function embeddingPairs(result: EmbeddingResult): EmbeddingPair[] {
-  const pairs: EmbeddingPair[] = [];
-  const vectors = result.embeddings;
-  for (let i = 0; i < vectors.length; i += 1)
-    for (let j = i + 1; j < vectors.length; j += 1)
-      if (vectors[i].dimensions === vectors[j].dimensions)
-        pairs.push({
-          a: vectors[i].index,
-          b: vectors[j].index,
-          similarity: cosineSimilarity(vectors[i].values, vectors[j].values),
-        });
-  return pairs.sort((x, y) => y.similarity - x.similarity);
-}
-
-/** The values in `bins` equal runs, each its mean: a long vector drawn at the width it has. */
-export function vectorBins(values: readonly number[], bins: number): number[] {
-  if (values.length <= bins) return [...values];
-  return Array.from({ length: bins }, (_, bin) => {
-    const start = Math.floor((bin * values.length) / bins);
-    const end = Math.floor(((bin + 1) * values.length) / bins);
-    let sum = 0;
-    for (let i = start; i < end; i += 1) sum += values[i];
-    return sum / (end - start);
-  });
+/** The documents, most alike to the query first; a vector of another width is left out. */
+export function rankMatches(
+  query: readonly number[],
+  documents: readonly (readonly number[])[],
+): EmbeddingMatch[] {
+  return documents
+    .flatMap((values, index) =>
+      values.length === query.length ? [{ index, score: cosineSimilarity(query, values) }] : [],
+    )
+    .sort((a, b) => b.score - a.score);
 }

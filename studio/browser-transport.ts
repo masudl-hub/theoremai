@@ -305,13 +305,13 @@ export function createBrowserStudioEmbeddingTransport(
           >,
         ),
       ),
-    embed: async (input, model, signal) => {
+    embed: async (input, embed, signal) => {
       try {
         const response = await runStudioEmbedding(
           payload,
           {
             input,
-            ...(model === undefined ? {} : { model }),
+            ...embed,
             signal: runSignal(runtime, signal),
           },
           withBrowserExecution(runtime).runtime,

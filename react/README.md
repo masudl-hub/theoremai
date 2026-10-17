@@ -246,7 +246,7 @@ The handler accepts these requests:
 - `POST /call` with `{ name, input }` streams the events of the call.
 - `POST /invoke` answers a gate that paused a call.
 
-The console builds a form from the input schema. It shows the result as figures, charts, tables, images, audio or Markdown, with the raw JSON beside it. For your own UI, use `createHostTransport` and `useTheoremHost`.
+The console builds a form from the input schema. It shows the result as figures, charts, tables, images, audio, or Markdown, with the raw JSON beside it. If the data renderer fails, the view switches to JSON so the selected view matches what is shown. For your own UI, use `createHostTransport` and `useTheoremHost`.
 
 ### Decision
 
@@ -290,9 +290,11 @@ import { TheoremEmbedding } from '@theoremjs/react/ui';
 <TheoremEmbedding endpoint="/api/embedding" />
 ```
 
-`TheoremEmbedding` edits the inputs as fields or as JSON. It checks them against the `inputs` of the profile before it sends them: text when the profile takes text, and files within its `attachments` and its file limits. It shows each vector with its dimensions and its length, and the pairs of inputs that are most alike by cosine similarity.
+`TheoremEmbedding` is a search bench. Paste text and choose where it splits: not at all, at each line, at blank lines, at commas, or at a separator of your own. Or drop files: a text, Markdown, CSV, or JSON file splits the same way, and an image, audio, video, or PDF file is one document. **Index** embeds the documents with the `document` task, in as few requests as the profile's `inputs` allow. Type a query and press **Search**: it embeds the query with the `query` task and ranks the documents by cosine similarity. `defaultText` and `defaultQuery` fill the two cards.
 
-For your own UI, use `useTheoremEmbedding`.
+Each request is held to the `inputs` of the profile before it is sent, and each shows as JSON and in the trace.
+
+For your own UI, use `useTheoremEmbedding` for one request, and `embed(inputs, { task })` to set the task. Use `useEmbeddingIndex` to embed many documents in batches. `splitText`, `embeddingBatches`, and `rankMatches` from `@theoremjs/react/client` split, batch, and rank as the bench does.
 
 ### Live
 

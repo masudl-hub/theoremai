@@ -11,6 +11,11 @@
 export * from './client/index.ts';
 export { type PageDispatchResult, withPageToolDispatch } from './client/page-dispatch.ts';
 export {
+  type EmbeddingIndex,
+  type IndexProgress,
+  useEmbeddingIndex,
+} from './hooks/use-embedding-index.ts';
+export {
   type SentTurn,
   type UseTheoremChatOptions,
   useTheoremChat,

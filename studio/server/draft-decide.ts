@@ -6,12 +6,13 @@
  *
  * @module
  */
-import { defineProfile, TheoremError, validateDecisionRequest, z } from '@theoremjs/agents';
+import { TheoremError, validateDecisionRequest, z } from '@theoremjs/agents';
 import type { DecisionProfileDefinition } from '@theoremjs/agents/kernel';
 import { KEY_SLOT_NAME } from '@theoremjs/agents/schema';
 import { readBody } from '@theoremjs/react/server';
 import type { LentDecisionLimits } from '../lent-keys.ts';
 import { runStudioDecision } from '../runtime.ts';
+import { defineDraft } from '../runtime-scope.ts';
 import type { LentRuntime } from './draft-handler.ts';
 import { errorJson, noStoreJson } from './draft-replies.ts';
 import { lentRoute, lentVault } from './lent-draft.ts';
@@ -77,7 +78,7 @@ export async function draftDecide(request: Request, options: DraftDecideOptions)
   let labels: DecisionProfileDefinition['labels'];
   try {
     const body = await readBody(request, decisionRequestSchema(options.runtime.keys.decision));
-    const profile = defineProfile(body.profile as DecisionProfileDefinition);
+    const profile = defineDraft(body.profile as DecisionProfileDefinition);
     labels = profile.labels;
     const selected = lentRoute('decision', profile);
     const { keys } = options.runtime;

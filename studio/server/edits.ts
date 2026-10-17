@@ -7,14 +7,14 @@
  * @module
  */
 
-import { defineProfile, type KernelScope, type ProfileDefinition } from '@theoremjs/agents';
+import { type KernelScope, type ProfileDefinition } from '@theoremjs/agents';
 import type { RegisteredTool } from '@theoremjs/agents/kernel';
 import type { CompiledStudio } from '../compile.ts';
 import { heldSetting, unheldProblem } from '../held-credentials.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { registerStudioProvider, type StudioProvider } from '../providers.ts';
 import type { ProjectQuestions } from './handler.ts';
-import { withCompiledPatterns } from '../runtime-scope.ts';
+import { defineDraft, withCompiledPatterns } from '../runtime-scope.ts';
 import { zodFromJsonSchema, type JsonSchema } from '../tool-schema.ts';
 import { registerCustomTool } from '../tools.ts';
 import type { NewSubjects } from './save-new.ts';
@@ -138,7 +138,7 @@ async function registerAgent(scope: KernelScope, agent: CompiledStudio, subject:
   const definition = registered
     ? withSettings(registered, profileChanges(subject?.before, subject?.after))
     : agent.profile;
-  scope.profiles.register(defineProfile(await withCompiledPatterns(definition as ProfileDefinition)));
+  scope.profiles.register(defineDraft(await withCompiledPatterns(definition as ProfileDefinition)));
 }
 
 /**

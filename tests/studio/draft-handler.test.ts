@@ -89,6 +89,35 @@ Deno.test('on lent keys, a chat turn streams to its end and the session cookie i
   );
 });
 
+Deno.test('a draft the kernel refuses is a bad request, not the host', async () => {
+  const handler = createStudioDraftHandler({
+    lent: { ...ON_TEST_KEYS, provider: () => says('Hi.') },
+  });
+  const response = await handler(
+    post('turn', {
+      profile: {
+        type: 'text',
+        id: 'hello',
+        identity: { handle: 'hello' },
+        inputs: { text: true },
+        models: {
+          main: {
+            protocol: 'geminiInteractions',
+            provider: 'gemini',
+            apiId: 'gemini-3.1-flash-lite',
+          },
+        },
+      },
+      input: { text: 'Hello' },
+    }),
+  );
+  const events = await lines(response);
+  assertEquals(
+    events.filter((event) => event.type === 'error').map((event) => event.errorKind),
+    ['request'],
+  );
+});
+
 Deno.test('a refused spend refuses the call before it runs', async () => {
   const spent: StudioSpend[] = [];
   const handler = createStudioDraftHandler({

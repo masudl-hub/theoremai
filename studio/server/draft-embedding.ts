@@ -3,10 +3,11 @@
  *
  * @module
  */
-import { defineProfile, type ProfileDefinition, TheoremError, z } from '@theoremjs/agents';
+import { type ProfileDefinition, TheoremError, z } from '@theoremjs/agents';
 import type { EmbeddingProfileDefinition } from '@theoremjs/agents/kernel';
 import { readBody } from '@theoremjs/react/server';
 import { runStudioEmbedding } from '../runtime.ts';
+import { defineDraft } from '../runtime-scope.ts';
 import type { LentRuntime } from './draft-handler.ts';
 import { errorJson, noStoreJson } from './draft-replies.ts';
 import { lentRoute, lentVault } from './lent-draft.ts';
@@ -22,7 +23,7 @@ export async function draftEmbedding(request: Request, runtime: LentRuntime): Pr
   let labels: EmbeddingProfileDefinition['labels'];
   try {
     const body = await readBody(request, embeddingRequestSchema);
-    const profile = defineProfile(body.profile as ProfileDefinition);
+    const profile = defineDraft(body.profile as ProfileDefinition);
     if (profile.type !== 'embedding') {
       throw new TheoremError('request', 'studio embedding requires an embedding profile.');
     }

@@ -332,6 +332,21 @@ function schemaPatterns(value: unknown): string[] {
   ]);
 }
 
+/**
+ * `defineProfile` for a draft a request carries: the sender wrote the draft, so a draft the kernel
+ * refuses is a bad request (`request`), not the host's configuration (`config`).
+ */
+export const defineDraft = ((definition: ProfileDefinition) => {
+  try {
+    return defineProfile(definition as never);
+  } catch (err) {
+    if (err instanceof TheoremError && err.kind === 'config') {
+      throw new TheoremError('request', err.message, { cause: err });
+    }
+    throw err;
+  }
+}) as typeof defineProfile;
+
 /** Registers the draft's tools, schema, and profile into `scope`, as the runtime runs it. */
 async function registerDraft(
   scope: KernelScope,
@@ -344,7 +359,7 @@ async function registerDraft(
     throw new TheoremError('config', 'The studio supports up to 32 key slots.'); // labels-exempt: builder diagnostic
   }
   await refuseSlowSchemaPatterns(customTools);
-  const defined = defineProfile(
+  const defined = defineDraft(
     runtimeProfileDefinition(await withCompiledPatterns(profile), runtime),
   );
   if (defined.type !== 'host') {
@@ -435,7 +450,7 @@ export async function writtenScope(drafts: readonly StudioDependency[]): Promise
     await refuseSlowSchemaPatterns(draft.customTools);
     profile = registerDefined(
       scope,
-      defineProfile(await withCompiledPatterns(draft.profile)),
+      defineDraft(await withCompiledPatterns(draft.profile)),
       draft.customTools,
       draft.structured,
     );

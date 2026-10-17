@@ -38,6 +38,10 @@ jobs:
       - name: Install react dependencies
         run: npm --prefix react ci
 
+      # Coverage runs tests/, whose studio tests import the studio's React and Astryx packages.
+      - name: Install studio dependencies
+        run: npm --prefix studio ci
+
       - name: Docs truth
         run: npm run lint:docs
         env:

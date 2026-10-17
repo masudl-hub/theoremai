@@ -2,6 +2,8 @@ import { toBase64Url } from '@theoremjs/agents/kernel';
 export type Session = { id: string; setCookie?: string };
 const SESSION_COOKIE = 'theorem_session';
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
+/** How long a visitor keeps their session, so a chat they come back to opens as theirs: 30 days. */
+const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 function readCookie(request: Request, name: string): string | undefined {
   for (const part of (request.headers.get('cookie') ?? '').split(';')) {
     const [key, ...rest] = part.trim().split('=');
@@ -36,6 +38,6 @@ export function theoremSession(request: Request): Session {
   const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
   return {
     id,
-    setCookie: `${SESSION_COOKIE}=${id}; Path=/; HttpOnly; SameSite=Lax${secure}`,
+    setCookie: `${SESSION_COOKIE}=${id}; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}; HttpOnly; SameSite=Lax${secure}`,
   };
 }

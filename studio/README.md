@@ -66,7 +66,7 @@ theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
 | --- | --- |
 | `setup` | The setup file to open, by its file or its name. |
 | `--editor <command>` | The editor the studio opens a line of your files in. Default: `$VISUAL` or `$EDITOR` when it opens a window, else `code`. |
-| `--deno-config <file>` | The Deno config your project loads with. Default: the `deno.json` or `deno.jsonc` in the folder you ran the command in. |
+| `--deno-config <file>` | The Deno config your project loads with. Default: the `deno.json` or `deno.jsonc` in the folder you ran the command in, else the studio's. |
 | `--no-watch` | Do not watch the files the setup reads. The studio reads them again when you come back to it. |
 
 ### What a setup file exports
@@ -217,7 +217,14 @@ const studio = createStudioDraftHandler({
   lent: {
     mode: 'demo',
     keys,
-    hostOptions: () => ({ vault: { gemini: env.GEMINI_KEY } }),
+    // Fill each key slot the draft's models name.
+    hostOptions: (profile) => ({
+      vault: Object.fromEntries(
+        'models' in profile
+          ? Object.values(profile.models).flatMap((model) => (model.keySlot ? [[model.keySlot, env.GEMINI_KEY]] : []))
+          : [],
+      ),
+    }),
   },
   spend: (kind, request) => {
     // Count `kind` for whoever sent `request`. Throw a TheoremError to refuse it.
@@ -228,6 +235,8 @@ const studio = createStudioDraftHandler({
 ```tsx
 <StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.1', lentKeys: keys }} />
 ```
+
+`hostOptions` gets each draft's profile. The draft names its own key slots, so fill the slots its models name. A decision or embedding whose vault holds no key is refused with `auth`.
 
 With `lent`, the handler also runs chats, calls, decisions and embeddings. A draft that names a model the keys do not run is refused with the reason `LentKeys.violation` gives.
 

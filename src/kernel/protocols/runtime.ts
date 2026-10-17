@@ -185,6 +185,14 @@ async function failure(
   return Object.assign(error, { status: response.status });
 }
 
+/**
+ * invariant: the ids this request asks for, not the binding's whole list: a step that answers
+ * only, or a turn that toggles a tool off, sends fewer than the binding names.
+ */
+function builtinIds(request: ProtocolRequest): string[] {
+  return request.builtins.map((builtin) => builtin.id);
+}
+
 function refuseUnwritten(
   protocol: Protocol,
   asked: readonly string[],
@@ -284,6 +292,7 @@ function protocolContext(
   slot: KeySlot | undefined,
   raw: JsonObject[],
   wire: { sent: boolean } = { sent: false },
+  asked: readonly string[] = [],
 ): ProtocolContext<unknown> {
   const serve = serveOf(setup);
   const { protocol } = serve;
@@ -315,7 +324,7 @@ function protocolContext(
     ...(setup.signal ? { signal: setup.signal } : {}),
     tapUpstream: tap,
     async *send(body, init: SendInit) {
-      refuseUnwritten(protocol, builtInTools, init.wroteTools);
+      refuseUnwritten(protocol, asked, init.wroteTools);
       const headers = new Headers({ 'content-type': 'application/json' });
       if (init.stream) headers.set('accept', 'text/event-stream');
       for (const [name, value] of Object.entries(serve.headers ?? {})) headers.set(name, value);
@@ -351,7 +360,7 @@ function protocolContext(
       }
     },
     async connect(setupFrame, init) {
-      refuseUnwritten(protocol, builtInTools, init?.wroteTools);
+      refuseUnwritten(protocol, asked, init?.wroteTools);
       const outgoing: Outgoing = {
         transport: 'ws',
         url: urlFor(serve, pathFor(undefined), apiId, true),
@@ -590,7 +599,7 @@ export function callProtocol(setup: CallSetup): ProtocolCall {
       const events = withKeys(setup, (slot, clean) => {
         wire.sent = false;
         const operations = protocol.create(
-          protocolContext(setup, slot, raw, wire),
+          protocolContext(setup, slot, raw, wire, builtinIds(request)),
         ) as ProtocolOperations;
         return operation(protocol, operations, 'complete')(clean ? cleanRequest(request) : request);
       });
@@ -614,7 +623,7 @@ export function callProtocol(setup: CallSetup): ProtocolCall {
       for await (const session of withKeys(setup, (slot, clean) =>
         (async function* () {
           const operations = protocol.create(
-            protocolContext(setup, slot, raw),
+            protocolContext(setup, slot, raw, undefined, builtinIds(request)),
           ) as ProtocolOperations;
           yield await operation(
             protocol,

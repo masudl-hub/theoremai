@@ -613,8 +613,9 @@ returns the tiered spec (`t1Policy`, `t2Loader`) for `text` and `image` only;
 T2 loading see no tools on `speech` and `decision`, and `invokeTool` rejects
 `decision` explicitly.
 
-The model's protocol writes each builtin the binding lists and owns how each is sent.
-It reports what it wrote (`SendInit.wroteTools`). The kernel refuses a listed builtin the protocol did not write (`unsupported`).
+The model's protocol writes each builtin the request asks for and owns how each is sent.
+A request asks for fewer than the binding lists when a tool is toggled off or a step must answer.
+The protocol reports what it wrote (`SendInit.wroteTools`). The kernel refuses an asked builtin the protocol did not write (`unsupported`).
 A builtin's registered tool is its entry in the tool list: name, description, category, labels.
 A builtin may take args. A request addresses them to a tool the model lists, by id, and the protocol parses them:
 `runTurn({ profile, model, builtInArgs: { googleMaps: { location } } })`.

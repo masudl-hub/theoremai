@@ -129,7 +129,7 @@ export interface SendInit {
   /** In place of the profile type's endpoint, for a call the shape makes elsewhere. */
   path?: string;
   headers?: Record<string, string>;
-  /** The `builtInTools` ids this request wrote. Any other id the binding names is refused. */
+  /** The builtin ids this request wrote. Any other id the request asked for is refused. */
   wroteTools?: readonly string[];
 }
 

@@ -321,7 +321,8 @@ Deno.test('a call is sent where the provider says, signed, with the extension bo
   assertEquals(tokens.tokens.cost, { usd: 0.002, estimated: true } as never);
 });
 
-Deno.test('a built-in tool no protocol wrote is refused by name before the call', async () => {
+Deno.test('a built-in tool the turn asked for and no protocol wrote is refused by name before the call', async () => {
+  const asking = { ...request, builtins: [{ id: 'web' }] } as ProtocolRequest;
   const registry = createProviderRegistry();
   registry.register(host, { keySlot: 'main' });
   const { sent, send } = fakeFetch(() => sse([]));
@@ -330,14 +331,14 @@ Deno.test('a built-in tool no protocol wrote is refused by name before the call'
     { protocol: 'routedEcho', provider: 'host', apiId: 'm', builtInTools: ['search', 'web'] },
     send,
   );
-  await collect(callProtocol(wrote).complete(request));
+  await collect(callProtocol(wrote).complete(asking));
   const missing = setupFor(
     registry,
     { protocol: 'echo', provider: 'host', apiId: 'm', builtInTools: ['web'] },
     send,
   );
   await assertRejects(
-    () => collect(callProtocol(missing).complete(request)),
+    () => collect(callProtocol(missing).complete(asking)),
     TheoremError,
     "does not write the built-in tool 'web'",
   );

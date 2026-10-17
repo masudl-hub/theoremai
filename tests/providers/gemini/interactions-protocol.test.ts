@@ -143,6 +143,30 @@ Deno.test('geminiInteractions streams at /interactions with the key in its heade
   assertEquals(out.at(-1)?.type, 'done');
 });
 
+Deno.test('a turn that asks for fewer built-ins than the binding names writes only those it asked for', async () => {
+  const done = sse([
+    row('interaction.completed', { interaction: { id: 'v1_int', status: 'completed' } }),
+  ]);
+  const host = { builtInTools: ['urlContext', 'googleSearch'] };
+  const { sent, events } = run(done, { builtins: [] }, {}, host);
+  assertEquals((await events()).at(-1)?.type, 'done');
+  assertEquals(sent[0]?.body.tools, undefined);
+});
+
+Deno.test('a built-in the turn asks for that the protocol does not write is refused, and nothing is posted', async () => {
+  const { sent, events } = run(
+    sse([]),
+    { builtins: [{ id: 'webSearch' }] },
+    {},
+    {
+      builtInTools: ['webSearch'],
+    },
+  );
+  const error = await assertRejects(events, TheoremError);
+  assertEquals(error.kind, 'unsupported');
+  assertEquals(sent, []);
+});
+
 Deno.test('a thought signature becomes reasoning for its call, and goes back on that call', async () => {
   const { events } = run(
     sse([

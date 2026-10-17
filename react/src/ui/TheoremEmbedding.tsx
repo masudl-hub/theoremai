@@ -8,11 +8,10 @@ import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { Token } from '@astryxdesign/core/Token';
-import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconPlus, IconX } from '@tabler/icons-react';
 import { attachmentIssueText, base64Bytes, type EmbeddingResult } from '@theoremjs/agents';
-import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useMemo, useRef, useState } from 'react';
 import {
   checkEmbeddingInputs,
   type EmbeddingInputCheck,
@@ -31,11 +30,11 @@ import {
   type EmbeddingTransport,
 } from '../client/embedding-transport.ts';
 import { encodeFiles } from '../client/encode-files.ts';
-import type { HttpOptions } from '../client/transport.ts';
 import { useTheoremEmbedding } from '../hooks/use-theorem-embedding.ts';
-import { Arrive, Stream } from './arrive.tsx';
+import { Arrive } from './arrive.tsx';
 import {
   ConsoleFrame,
+  type ConsolePageProps,
   type ConsoleView,
   JsonRequest,
   RequestCard,
@@ -43,8 +42,8 @@ import {
   RunBar,
   useBytes,
 } from './ConsoleFrame.tsx';
-import { Share, useNumbers } from './DecisionAnswers.tsx';
-import { type LabelText, type TheoremLabels, workDuration } from './labels.ts';
+import { ResultStack, Share, useNumbers } from './DecisionAnswers.tsx';
+import type { LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { textRows } from './StateFields.tsx';
@@ -52,37 +51,13 @@ import { useTraceInspector } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
 import { ChartCard, TRACE_RADIUS, traceFill } from './trace-patterns.tsx';
 
-export type TheoremEmbeddingProps = {
+export type TheoremEmbeddingProps = ConsolePageProps & {
   /** Where `createTheoremEmbeddingHandler` is mounted. Default `/api/embedding`. Ignored when `transport` is set. */
   endpoint?: string;
-  /** Extra fetch options for the default HTTP transport (auth headers, custom fetch). */
-  http?: HttpOptions;
   /** Bring your own transport (tests, studios, non-HTTP hosts). */
   transport?: EmbeddingTransport;
   /** The inputs the form starts with, as the JSON list a request sends. Default one empty text. */
   defaultInput?: string;
-  theme?: DefinedTheme;
-  mode?: 'system' | 'light' | 'dark';
-  /** Replacement lines by locale, for any `@theorem.*` or `@astryx.*` key. */
-  labels?: TheoremLabels;
-  /** Widest the column may grow, as a CSS length. Default `960px`. */
-  maxWidth?: string;
-  /**
-   * Drive the trace from the host's own control. The built-in toggle hides.
-   * The open trace takes the vectors' place, unless this page is inside
-   * `TracePlacement value="panel"`, where it docks. Omit to keep the toggle.
-   * Needs a profile that records traces.
-   */
-  trace?: boolean;
-  /**
-   * The page is already a raised panel. The console sits in it instead of
-   * painting the ground it uses on a flat page.
-   */
-  flush?: boolean;
-  /** The inputs on the left and the vectors on the right. */
-  columns?: boolean;
-  className?: string;
-  style?: CSSProperties;
 };
 
 const EASE = 'var(--duration-medium) var(--ease-standard)';
@@ -475,44 +450,28 @@ function EmbeddingVectors({
   isStale: boolean;
 }) {
   const t = useLabels();
-  const n = useNumbers();
   const name = (index: number) => t('@theorem.embedding.input', { number: index + 1 });
-  const usage = result.usage;
-  const meta = [
-    result.model,
-    elapsedMs == null ? null : workDuration(t, elapsedMs),
-    usage?.inputTokens === undefined
-      ? null
-      : t('@theorem.embedding.tokens', { count: usage.inputTokens }),
-    usage?.costUsd === undefined ? null : n.usd.format(usage.costUsd),
-  ].filter(Boolean);
   return (
-    <Stream>
-      <VStack
-        key={elapsedMs ?? 0}
-        gap={3}
-        style={{ opacity: isStale ? 0.5 : 1, transition: `opacity ${EASE}` }}
-        aria-busy={isStale}
-      >
-        {result.embeddings.length > 1 ? (
-          <Arrive>
-            <SimilarityCard result={result} name={name} />
-          </Arrive>
-        ) : null}
-        <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
-          {result.embeddings.map((vector) => (
-            <Arrive key={vector.index}>
-              <VectorCard name={name(vector.index)} values={vector.values} />
-            </Arrive>
-          ))}
-        </Grid>
+    <ResultStack
+      model={result.model}
+      usage={result.usage}
+      elapsedMs={elapsedMs}
+      isStale={isStale}
+      tokens={(count) => t('@theorem.embedding.tokens', { count })}
+    >
+      {result.embeddings.length > 1 ? (
         <Arrive>
-          <Text type="supporting" color="secondary" hasTabularNumbers>
-            {meta.join(' · ')}
-          </Text>
+          <SimilarityCard result={result} name={name} />
         </Arrive>
-      </VStack>
-    </Stream>
+      ) : null}
+      <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
+        {result.embeddings.map((vector) => (
+          <Arrive key={vector.index}>
+            <VectorCard name={name(vector.index)} values={vector.values} />
+          </Arrive>
+        ))}
+      </Grid>
+    </ResultStack>
   );
 }
 

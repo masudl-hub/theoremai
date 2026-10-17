@@ -139,23 +139,34 @@ export const failedDecisionTraces = failedTraces;
 
 const failedBody = z.object({ traces: z.array(traceRecordSchema) });
 
+/** POSTs `body` and reads its reply with `read`; a failure keeps the trace records its body carried. */
+export async function postWithTraces<Reply>(
+  url: string,
+  body: unknown,
+  signal: AbortSignal | undefined,
+  options: HttpOptions,
+  read: (raw: unknown) => Reply,
+): Promise<Reply> {
+  let traces: readonly TraceRecord[] = [];
+  const failed = (raw: unknown) => {
+    const parsed = failedBody.safeParse(raw);
+    if (parsed.success) traces = parsed.data.traces;
+  };
+  try {
+    return read(await fetchJson(url, { body, signal, failed }, options));
+  } catch (err) {
+    throw withFailedTraces(err, traces);
+  }
+}
+
 /** POSTs a decision and reads its reply; a failure keeps the trace records its body carried. */
-export async function postDecision(
+export function postDecision(
   url: string,
   body: unknown,
   signal: AbortSignal | undefined,
   options: HttpOptions = {},
 ): Promise<DecisionReply> {
-  let traces: readonly TraceRecord[] = [];
-  const failed = (raw: unknown) => {
-    const read = failedBody.safeParse(raw);
-    if (read.success) traces = read.data.traces;
-  };
-  try {
-    return readDecisionReply(await fetchJson(url, { body, signal, failed }, options));
-  } catch (err) {
-    throw withFailedTraces(err, traces);
-  }
+  return postWithTraces(url, body, signal, options, readDecisionReply);
 }
 
 /** A host's decide reply, checked: the answers, and any trace records it delivers. */

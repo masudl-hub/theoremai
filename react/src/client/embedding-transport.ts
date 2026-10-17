@@ -7,7 +7,7 @@ import {
   traceRecordSchema,
   z,
 } from '@theoremjs/agents';
-import { withFailedTraces } from './decision-transport.ts';
+import { postWithTraces } from './decision-transport.ts';
 import type { TraceFeed } from './trace-feed.ts';
 import { fetchJson, type HttpOptions } from './transport.ts';
 import { checkWire } from './wire-line.ts';
@@ -110,25 +110,14 @@ export function readEmbeddingReply(raw: unknown): EmbeddingReply {
   return checkWire(embeddingReplySchema, raw, 'the embedding');
 }
 
-const failedBody = z.object({ traces: z.array(traceRecordSchema) });
-
 /** POSTs an embedding and reads its reply; a failure keeps the trace records its body carried. */
-export async function postEmbedding(
+export function postEmbedding(
   url: string,
   body: unknown,
   signal: AbortSignal | undefined,
   options: HttpOptions = {},
 ): Promise<EmbeddingReply> {
-  let traces: readonly TraceRecord[] = [];
-  const failed = (raw: unknown) => {
-    const read = failedBody.safeParse(raw);
-    if (read.success) traces = read.data.traces;
-  };
-  try {
-    return readEmbeddingReply(await fetchJson(url, { body, signal, failed }, options));
-  } catch (err) {
-    throw withFailedTraces(err, traces);
-  }
+  return postWithTraces(url, body, signal, options, readEmbeddingReply);
 }
 
 /** Transport for a host mounted with `createTheoremEmbeddingHandler`. Default endpoint `/api/embedding`. */

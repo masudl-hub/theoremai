@@ -1230,6 +1230,28 @@ export function workDuration(t: LabelText, durationMs: number): string {
   return minutesAndSeconds(t, Math.floor(ms / 60_000), Math.round((ms % 60_000) / 1_000));
 }
 
+/** A console result's quiet line: model, time, tokens, and cost, leaving out what it lacks. */
+export function resultMeta(
+  t: LabelText,
+  usd: Intl.NumberFormat,
+  result: {
+    model: string;
+    usage?: { inputTokens?: number; costUsd?: number };
+    elapsedMs?: number | null;
+    tokens: (count: number) => string;
+  },
+): string {
+  const { usage, elapsedMs } = result;
+  return [
+    result.model,
+    elapsedMs == null ? null : workDuration(t, elapsedMs),
+    usage?.inputTokens === undefined ? null : result.tokens(usage.inputTokens),
+    usage?.costUsd === undefined ? null : usd.format(usage.costUsd),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 /** Whole-second ticker while a turn runs: "0s", "12s", "1m 5s". */
 export function liveDuration(t: LabelText, durationMs: number): string {
   const total = Math.floor(Math.max(0, durationMs) / 1_000);

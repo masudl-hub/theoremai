@@ -19,45 +19,54 @@ export function decisionSeed(profile: StudioRunPayload['profile']) {
 	return model?.apiId.startsWith('respan/') ? EXAMPLE_SPAN_DECISION_STATE : EXAMPLE_DECISION_STATE;
 }
 
-/** The same decision runner in the builder preview and the standalone run tab. */
-export function StudioDecision({
-	payload,
-	className,
-	runtime = null,
-	traces,
-	onActivity,
-	trace,
-	flush,
-	columns,
-}: {
+/** What the builder preview and the standalone run tab hand a one-call console. */
+export interface StudioConsoleProps {
 	payload: StudioRunPayload;
 	className?: string;
 	runtime?: StudioBrowserRuntime | null;
 	/** The conversation's trace feed, kept across recompiles. */
 	traces?: TraceFeed;
-	/** Called before each decision is asked; stable, or the transport is rebuilt each render. */
+	/** Called before each call; stable, or the transport is rebuilt each render. */
 	onActivity?: () => void;
 	/** The page's own trace control. */
 	trace?: boolean;
 	/** The page is already the shell. The console sits in it. */
 	flush?: boolean;
-	/** The request on the left and the answers on the right. */
+	/** The request on the left and the result on the right. */
 	columns?: boolean;
-}) {
-	const transport = useMemo(() => {
-		const made = runtime
-			? createBrowserStudioDecisionTransport(payload, runtime, { traces })
-			: createStudioDecisionTransport(payload, { traces });
+}
+
+/** A console's transport: in the browser's runtime when there is one, else through the studio's server. */
+export function useStudioTransport<T extends object>(
+	{ payload, runtime = null, traces, onActivity }: StudioConsoleProps,
+	onServer: (payload: StudioRunPayload, options: { traces?: TraceFeed }) => T,
+	inBrowser: (
+		payload: StudioRunPayload,
+		runtime: StudioBrowserRuntime,
+		options: { traces?: TraceFeed },
+	) => T,
+): T {
+	return useMemo(() => {
+		const made = runtime ? inBrowser(payload, runtime, { traces }) : onServer(payload, { traces });
 		return onActivity ? noting(made, onActivity) : made;
-	}, [payload, runtime, traces, onActivity]);
+	}, [payload, runtime, traces, onActivity, onServer, inBrowser]);
+}
+
+/** The same decision runner in the builder preview and the standalone run tab. */
+export function StudioDecision(props: StudioConsoleProps) {
+	const transport = useStudioTransport(
+		props,
+		createStudioDecisionTransport,
+		createBrowserStudioDecisionTransport,
+	);
 	return (
 		<TheoremDecision
 			transport={transport}
-			defaultState={decisionSeed(payload.profile)}
-			trace={trace}
-			flush={flush}
-			columns={columns}
-			className={className}
+			defaultState={decisionSeed(props.payload.profile)}
+			trace={props.trace}
+			flush={props.flush}
+			columns={props.columns}
+			className={props.className}
 		/>
 	);
 }

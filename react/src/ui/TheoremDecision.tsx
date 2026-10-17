@@ -1,16 +1,15 @@
 import { Banner } from '@astryxdesign/core/Banner';
-import type { DefinedTheme } from '@astryxdesign/core/theme';
 import type { DecisionJson } from '@theoremjs/agents';
-import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useMemo, useRef, useState } from 'react';
 import {
   createDecisionTransport,
   type DecisionInterface,
   type DecisionTransport,
 } from '../client/decision-transport.ts';
-import type { HttpOptions } from '../client/transport.ts';
 import { useTheoremDecision } from '../hooks/use-theorem-decision.ts';
 import {
   ConsoleFrame,
+  type ConsolePageProps,
   type ConsoleView,
   JsonRequest,
   RequestCard,
@@ -19,44 +18,20 @@ import {
   useBytes,
 } from './ConsoleFrame.tsx';
 import { TheoremDecisionAnswers } from './DecisionAnswers.tsx';
-import type { LabelText, TheoremLabels } from './labels.ts';
+import type { LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { StateFields } from './StateFields.tsx';
 import { useTraceInspector } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
 
-export type TheoremDecisionProps = {
+export type TheoremDecisionProps = ConsolePageProps & {
   /** Where `createTheoremDecisionHandler` is mounted. Default `/api/decision`. Ignored when `transport` is set. */
   endpoint?: string;
-  /** Extra fetch options for the default HTTP transport (auth headers, custom fetch). */
-  http?: HttpOptions;
   /** Bring your own transport (tests, studios, non-HTTP hosts). */
   transport?: DecisionTransport;
   /** The JSON the state field starts with. Default `{}`. */
   defaultState?: string;
-  theme?: DefinedTheme;
-  mode?: 'system' | 'light' | 'dark';
-  /** Replacement lines by locale, for any `@theorem.*` or `@astryx.*` key. */
-  labels?: TheoremLabels;
-  /** Widest the column may grow, as a CSS length. Default `960px`. */
-  maxWidth?: string;
-  /**
-   * Drive the trace from the host's own control. The built-in toggle hides.
-   * The open trace takes the decision's place, unless this page is inside
-   * `TracePlacement value="panel"`, where it docks. Omit to keep the toggle.
-   * Needs a profile that records traces.
-   */
-  trace?: boolean;
-  /**
-   * The page is already a raised panel. The console sits in it instead of
-   * painting the ground it uses on a flat page.
-   */
-  flush?: boolean;
-  /** The request on the left and the answers on the right. */
-  columns?: boolean;
-  className?: string;
-  style?: CSSProperties;
 };
 
 type StateCheck =

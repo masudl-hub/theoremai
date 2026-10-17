@@ -8,6 +8,7 @@ import { useResizable } from '@astryxdesign/core/Resizable';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
+import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
   Children,
@@ -21,11 +22,41 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
+import type { HttpOptions } from '../client/transport.ts';
 import { useGlide } from './glide.ts';
+import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';
 import { textRows } from './StateFields.tsx';
 import { type TraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
+
+/** The props a one-call console page shares: its look, its wording, its trace, and its layout. */
+export type ConsolePageProps = {
+  /** Extra fetch options for the default HTTP transport (auth headers, custom fetch). */
+  http?: HttpOptions;
+  theme?: DefinedTheme;
+  mode?: 'system' | 'light' | 'dark';
+  /** Replacement lines by locale, for any `@theorem.*` or `@astryx.*` key. */
+  labels?: TheoremLabels;
+  /** Widest the column may grow, as a CSS length. Default `960px`. */
+  maxWidth?: string;
+  /**
+   * Drive the trace from the host's own control. The built-in toggle hides.
+   * The open trace takes the result's place, unless this page is inside
+   * `TracePlacement value="panel"`, where it docks. Omit to keep the toggle.
+   * Needs a profile that records traces.
+   */
+  trace?: boolean;
+  /**
+   * The page is already a raised panel. The console sits in it instead of
+   * painting the ground it uses on a flat page.
+   */
+  flush?: boolean;
+  /** The request on the left and the result on the right. */
+  columns?: boolean;
+  className?: string;
+  style?: CSSProperties;
+};
 
 export type ConsoleFrameProps = {
   inspector: TraceInspector;

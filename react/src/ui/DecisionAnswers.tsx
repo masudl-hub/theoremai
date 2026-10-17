@@ -4,10 +4,10 @@ import { useLocale } from '@astryxdesign/core/i18n';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import type { DecisionAnswer, DecisionResult } from '@theoremjs/agents';
-import { useMemo } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import type { DecisionInterface, DecisionQuestionView } from '../client/decision-transport.ts';
 import { Arrive, Stream } from './arrive.tsx';
-import { workDuration } from './labels.ts';
+import { resultMeta } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { ChartCard, TRACE_RADIUS, traceFill } from './trace-patterns.tsx';
 
@@ -232,6 +232,47 @@ function AnswerCard({
 }
 
 /**
+ * A console's result as it streams in: dimmed while the next one runs, then
+ * one quiet line for the model, time, tokens, and cost.
+ */
+export function ResultStack({
+  model,
+  usage,
+  elapsedMs,
+  isStale,
+  tokens,
+  children,
+}: {
+  model: string;
+  usage?: { inputTokens?: number; costUsd?: number };
+  elapsedMs?: number | null;
+  isStale?: boolean;
+  /** The tokens read, as the console words them. */
+  tokens: (count: number) => string;
+  children: ReactNode;
+}) {
+  const t = useLabels();
+  const n = useNumbers();
+  return (
+    <Stream>
+      <VStack
+        key={elapsedMs ?? 0}
+        gap={3}
+        style={{ opacity: isStale ? 0.5 : 1, transition: `opacity ${EASE}` }}
+        aria-busy={isStale}
+      >
+        {children}
+        <Arrive>
+          <Text type="supporting" color="secondary" hasTabularNumbers>
+            {resultMeta(t, n.usd, { model, usage, elapsedMs, tokens })}
+          </Text>
+        </Arrive>
+      </VStack>
+    </Stream>
+  );
+}
+
+/**
  * A decision's answers, one card per question in the order the profile asks
  * them, and one quiet line for the model, time, tokens, and cost.
  */
@@ -242,34 +283,21 @@ export function TheoremDecisionAnswers({
   isStale,
 }: TheoremDecisionAnswersProps) {
   const t = useLabels();
-  const n = useNumbers();
-  const meta = [
-    result.model,
-    elapsedMs == null ? null : workDuration(t, elapsedMs),
-    result.usage ? t('@theorem.decision.tokens', { count: result.usage.inputTokens }) : null,
-    result.usage?.costUsd === undefined ? null : n.usd.format(result.usage.costUsd),
-  ].filter(Boolean);
   return (
-    <Stream>
-      <VStack
-        key={elapsedMs ?? 0}
-        gap={3}
-        style={{ opacity: isStale ? 0.5 : 1, transition: `opacity ${EASE}` }}
-        aria-busy={isStale}
-      >
-        <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
-          {iface.questions.map((question) => (
-            <Arrive key={question.id}>
-              <AnswerCard question={question} answer={result.answers[question.id]} />
-            </Arrive>
-          ))}
-        </Grid>
-        <Arrive>
-          <Text type="supporting" color="secondary" hasTabularNumbers>
-            {meta.join(' · ')}
-          </Text>
-        </Arrive>
-      </VStack>
-    </Stream>
+    <ResultStack
+      model={result.model}
+      usage={result.usage}
+      elapsedMs={elapsedMs}
+      isStale={isStale}
+      tokens={(count) => t('@theorem.decision.tokens', { count })}
+    >
+      <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
+        {iface.questions.map((question) => (
+          <Arrive key={question.id}>
+            <AnswerCard question={question} answer={result.answers[question.id]} />
+          </Arrive>
+        ))}
+      </Grid>
+    </ResultStack>
   );
 }

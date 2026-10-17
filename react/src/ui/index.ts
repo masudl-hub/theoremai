@@ -40,6 +40,7 @@ export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';
 export {
   ConsoleFrame,
   type ConsoleFrameProps,
+  type ConsolePageProps,
   RequestCard,
   ResponseColumn,
   RunBar,

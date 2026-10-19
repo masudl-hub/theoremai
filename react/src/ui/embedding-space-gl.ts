@@ -12,6 +12,7 @@
 import type { EmbeddingSpace, SpacePoint } from '../client/embedding-space.ts';
 import {
   DOT_FLOATS,
+  FRAME_SLOT,
   type QueryMatch,
   queryGeometry,
   SEGMENT_FLOATS,
@@ -84,6 +85,11 @@ float facingFade(vec3 p) {
 float facingSize(vec3 p) {
   return mix(0.6, 1.1, facing(p));
 }
+// The axes' circles fade with the square of depth, so their front reads strongly and their back recedes.
+float frameFade(vec3 p) {
+  float k = mix(0.2, 1.0, facing(p));
+  return mix(0.24, 1.0, k * k);
+}
 `;
 
 const SEGMENT_VERTEX = `${PREAMBLE}
@@ -124,8 +130,10 @@ void main() {
   vec2 normal = vec2(-dir.y, dir.x);
   vec3 p = corner.x < 0.5 ? pa : pb;
   vec4 c = corner.x < 0.5 ? ca : cb;
+  // invariant: only the axes' circles read the frame slot, and they keep one width at every depth.
+  bool frame = slots.x < ${FRAME_SLOT + 0.5};
   // why: a line thinner than a device pixel is drawn one pixel wide and fainter, so it stays smooth.
-  float full = width * ratio * facingSize(p) * (1.0 + 0.8 * hover);
+  float full = width * ratio * (frame ? 1.0 : facingSize(p)) * (1.0 + 0.8 * hover);
   float half_ = 0.5 * max(full, 1.0);
   float reach = half_ + 1.0;
   c.xy += normal * corner.y * reach * 2.0 / viewport * c.w;
@@ -140,7 +148,7 @@ void main() {
     gaps.y * ratio * facingSize(pb) * (1.0 + 0.6 * sb.b)
   );
   vColour = colour;
-  vAlpha = min(alpha * shown * min(sa.r, sb.r) * (1.0 + hover), 1.0) * facingFade(p) * min(full, 1.0);
+  vAlpha = min(alpha * shown * min(sa.r, sb.r) * (1.0 + hover), 1.0) * (frame ? frameFade(p) : facingFade(p)) * min(full, 1.0);
 }`;
 
 const SEGMENT_FRAGMENT = `${PREAMBLE}

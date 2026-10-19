@@ -165,8 +165,9 @@ function strengthOf(space: EmbeddingSpace, similarity: number): number {
 
 /** The axes' circles: a hairline round the rim in each plane two of the three axes span. */
 const FRAME_COLOUR = [0.88, 0.9, 0.94] as const;
-const FRAME_ALPHA = 0.16;
-const FRAME_WIDTH = 0.5;
+/** At the ball's front; the renderer fades a circle with the square of its depth, toward a quarter of this at the back. */
+const FRAME_ALPHA = 0.29;
+const FRAME_WIDTH = 0.7;
 const FRAME_STEPS = 96;
 
 function frame(strokes: Strokes) {

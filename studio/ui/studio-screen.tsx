@@ -148,6 +148,7 @@ import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { GuardrailTester, ProbedAgent } from './guardrail-tester.tsx';
 import './studio.css';
 import {
+  Activity,
   type CSSProperties,
   type Dispatch,
   memo,
@@ -237,7 +238,7 @@ import {
 } from './studio-host.ts';
 import { StudioMap } from './studio-map.tsx';
 import { NAV_WIDTH } from './studio-nav.ts';
-import { StudioRunner } from './studio-runner.tsx';
+import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
 import { ActingAsButton, StudioSettings } from './studio-settings.tsx';
 
@@ -1828,11 +1829,15 @@ function useConversationRun(
   actingAs: StudioActingAs | undefined,
   question: string | undefined,
 ) {
-  // Bumping this remounts the runner: a fresh transcript and trace feed, the same profile.
+  // Bumping this remounts every runner: fresh transcripts and trace feeds, the same profiles.
   const [restarts, setConversation] = useState(0);
+  // Bumping a chat's own count remounts only its runner.
+  const [cleared, setCleared] = useState<Readonly<Record<string, number>>>({});
   // Each person the runs act as has their own chat with each agent.
   const chatKey = chatKeyOf(chatWith, actingAs);
-  const runKey = `${mode}:${chatKey}:${String(restarts)}`;
+  /** The runners that still stand: another mode or a restart replaces them all. */
+  const generation = `${mode}:${String(restarts)}`;
+  const runKey = `${generation}:${chatKey}:${String(cleared[chatKey] ?? 0)}`;
   // Each kept conversation resumes in the first runner it has here; a cleared or remade one
   // starts empty.
   const [firstRuns] = useState(() => new Map<string, string>());
@@ -1846,30 +1851,31 @@ function useConversationRun(
   /** A docs seed's question waits in its agent's first composer, when that resumes nothing. */
   const initialText = isFirstRun && chatWith === seeded && !conversation ? question : undefined;
   /**
-   * The runner that last sent something; a new one (cleared, or another mode) has no history,
+   * The runners that have sent something; a new one (cleared, or another mode) has no history,
    * unless it resumed a kept conversation.
    */
-  const [usedRun, setUsedRun] = useState<string>();
-  const isUsed = usedRun === runKey || conversation !== undefined;
+  const [usedRuns, setUsedRuns] = useState<ReadonlySet<string>>(() => new Set());
+  const isUsed = usedRuns.has(runKey) || conversation !== undefined;
   return useMemo(
     () => ({
       runKey,
       chatKey,
+      generation,
       sealer,
       conversation,
       initialText,
       isUsed,
       markUsed: () => {
-        setUsedRun(runKey);
+        setUsedRuns((runs) => (runs.has(runKey) ? runs : new Set(runs).add(runKey)));
       },
-      /** Forgets this chat and starts it again; the profile stays. */
+      /** Forgets this chat and starts it again; the profile stays, and other chats are left be. */
       clear: () => {
         clearConversation(chatKey);
-        setConversation((count) => count + 1);
+        setCleared((counts) => ({ ...counts, [chatKey]: (counts[chatKey] ?? 0) + 1 }));
       },
       setConversation,
     }),
-    [runKey, chatKey, sealer, conversation, initialText, isUsed],
+    [runKey, chatKey, generation, sealer, conversation, initialText, isUsed],
   );
 }
 
@@ -2896,19 +2902,38 @@ function PreviewBody({
   const pageInputs = useMemo(() => (payload ? pageInputsOf(payload) : null), [payload]);
   const [pageValues] = usePageValues(chatWith);
   const sent = useMemo(() => sentPageValues(pageInputs, pageValues), [pageInputs, pageValues]);
-  if (unserved) {
-    return (
-      <PaneFailure
-        title={`${unserved.profile} does not run here yet`}
-        description={unserved.message}
-      />
-    );
-  }
-  if (!payload) return <ConfigIssues compile={compile} chatWith={chatWith} onIssue={onIssue} />;
+  const shown: KeptRun | null =
+    payload && !unserved
+      ? {
+          chatKey: run.chatKey,
+          generation: run.generation,
+          props: {
+            payload,
+            onActivity: run.markUsed,
+            conversation: run.conversation,
+            initialText: run.initialText,
+            onConversationChange: (ref) => {
+              saveConversation(run.chatKey, run.sealer, ref);
+            },
+            slots: sent.slots,
+            context: sent.context,
+            tested,
+          },
+        }
+      : null;
+  const kept = useKeptRuns(run, shown);
+  const blocked = unserved ? (
+    <PaneFailure
+      title={`${unserved.profile} does not run here yet`}
+      description={unserved.message}
+    />
+  ) : payload ? null : (
+    <ConfigIssues compile={compile} chatWith={chatWith} onIssue={onIssue} />
+  );
   return (
     <InPlace
       view={
-        testing ? (
+        testing && payload ? (
           <RaisedPane>
             {(isWide) => <GuardrailTester payload={payload} isWide={isWide} />}
           </RaisedPane>
@@ -2917,27 +2942,57 @@ function PreviewBody({
     >
       <VStack height="100%">
         <StackItem size="fill">
-          <StudioRunner
-            key={run.runKey}
-            payload={payload}
-            mode={connection.mode}
-            runtime={connection.runtime}
-            trace={traced ? traceOpen : undefined}
-            onActivity={run.markUsed}
-            conversation={run.conversation}
-            initialText={run.initialText}
-            onConversationChange={(ref) => {
-              saveConversation(run.chatKey, run.sealer, ref);
-            }}
-            chatRef={chatRef}
-            slots={sent.slots}
-            context={sent.context}
-            tested={tested}
-          />
+          {blocked}
+          {kept.map(([key, { props }]) => {
+            const isShown = shown !== null && key === run.runKey;
+            return (
+              <Activity key={key} mode={isShown ? 'visible' : 'hidden'}>
+                <StudioRunner
+                  {...props}
+                  mode={connection.mode}
+                  runtime={connection.runtime}
+                  trace={traced ? traceOpen : undefined}
+                  chatRef={isShown ? chatRef : undefined}
+                />
+              </Activity>
+            );
+          })}
         </StackItem>
       </VStack>
     </InPlace>
   );
+}
+
+/** A runner the preview has shown: its chat, the runners it belongs with, and what it ran with last. */
+type KeptRun = {
+  chatKey: string;
+  generation: string;
+  props: Pick<
+    StudioRunnerProps,
+    | 'payload'
+    | 'onActivity'
+    | 'conversation'
+    | 'initialText'
+    | 'onConversationChange'
+    | 'slots'
+    | 'context'
+    | 'tested'
+  >;
+};
+
+/**
+ * Every runner the preview has shown, each as it was last shown. Switching agents hides one and
+ * shows another, so neither loses its conversation, results or trace. A cleared chat drops its
+ * own runner; another mode or a new workspace drops them all.
+ */
+function useKeptRuns(run: ConversationRun, shown: KeptRun | null): [string, KeptRun][] {
+  const [kept] = useState(() => new Map<string, KeptRun>());
+  for (const [key, each] of kept) {
+    const replaced = each.chatKey === run.chatKey && key !== run.runKey;
+    if (each.generation !== run.generation || replaced) kept.delete(key);
+  }
+  if (shown) kept.set(run.runKey, shown);
+  return [...kept];
 }
 
 /**

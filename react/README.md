@@ -296,6 +296,8 @@ Each request is held to the `inputs` of the profile before it is sent, and each 
 
 For your own UI, use `useTheoremEmbedding` for one request, and `embed(inputs, { task })` to set the task. Use `useEmbeddingIndex` to embed many documents in batches. `splitText`, `embeddingBatches`, and `rankMatches` from `@theoremjs/react/client` split, batch, and rank as the bench does.
 
+**Index** also draws the documents as a space: each a dot in a ball, placed by the three directions their vectors differ most along, and joined to its nearest neighbour when that pair is far more alike than the typical pair. A query is a white dot joined to its matches. Drag to turn it; point at a dot to name its document. For your own UI, `EmbeddingSpaceView` from `@theoremjs/react/ui` draws a space from `layoutSpace(vectors)`, or from `layoutSpaceSoon(vectors, signal)`, which lays it out in slices so the page stays responsive, and places a query with `placeQuery(space, vector)`, all from `@theoremjs/react/client`. Where the browser cannot draw it, the view calls `onUnavailable`, and the bench lists the vectors instead.
+
 ### Live
 
 A `live` profile runs a voice or video call. The call goes through a WebSocket relay that you host with `runSession` from `@theoremjs/agents`.

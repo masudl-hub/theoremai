@@ -39,6 +39,16 @@ export {
   splitText,
 } from './embedding-input.ts';
 export {
+  type EmbeddingSpace,
+  layoutSpace,
+  layoutSpaceSoon,
+  placeQuery,
+  type SpaceCluster,
+  type SpaceDocument,
+  type SpaceLink,
+  type SpacePoint,
+} from './embedding-space.ts';
+export {
   createEmbeddingTransport,
   type EmbeddingInterface,
   type EmbeddingReply,
@@ -101,6 +111,7 @@ export {
   type SourceCitation,
   type SourceCitationBlock,
 } from './source-citations.ts';
+export type { QueryMatch } from './space-geometry.ts';
 export {
   layoutResult,
   type ResultChart,

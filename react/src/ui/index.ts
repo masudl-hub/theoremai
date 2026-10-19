@@ -48,6 +48,7 @@ export {
 } from './ConsoleFrame.tsx';
 export { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
 export { useDisclosureMotion } from './disclosure-motion.ts';
+export { EmbeddingSpaceView, type EmbeddingSpaceViewProps } from './EmbeddingSpace.tsx';
 export { tablerIcons } from './icons.ts';
 export { LiveCaptionsPanel, type LiveCaptionsPanelProps } from './LiveCaptionsPanel.tsx';
 export {

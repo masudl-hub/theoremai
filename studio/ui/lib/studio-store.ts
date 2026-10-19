@@ -352,16 +352,13 @@ function updateFocusedDraft(
 
 /**
  * Opens a node: not an edit, so the revision stays. An agent's node focuses that agent, and the
- * preview talks to it.
+ * preview talks to it, including one an edit just added and selected.
  */
 function selectNode(state: StoreState, id: string): void {
-  if (id === state.workspace.selected) return;
   const agent = agentOf(state.workspace, id);
-  const workspace = {
-    ...state.workspace,
-    selected: id,
-    chatWith: agent ?? state.workspace.chatWith,
-  };
+  const chatWith = agent ?? state.workspace.chatWith;
+  if (id === state.workspace.selected && chatWith === state.workspace.chatWith) return;
+  const workspace = { ...state.workspace, selected: id, chatWith };
   state.focus = agent ?? state.focus;
   state.agreed.clear();
   moveWorkspace(state, workspace);

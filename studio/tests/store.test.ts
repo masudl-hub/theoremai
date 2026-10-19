@@ -144,6 +144,16 @@ Deno.test('opening an agent in the tree is the agent the preview talks to', () =
   assertEquals(store.getWorkspace().chatWith, concierge.key);
 });
 
+Deno.test('an agent added and opened is the agent the preview talks to', () => {
+  const workspace = twoAgents();
+  const store = createStudioStore({ workspace, revision: 0 });
+  store.update(addAgent(store.getWorkspace(), createBlankDraft()));
+  const added = store.getWorkspace().agents.at(-1);
+  assert(added);
+  store.select(store.getWorkspace().selected);
+  assertEquals(store.getWorkspace().chatWith, added.key);
+});
+
 Deno.test('each agent keeps a conversation of its own', () => {
   saveConversation('a', 'page', 'ref-a');
   saveConversation('b', 'page', 'ref-b');

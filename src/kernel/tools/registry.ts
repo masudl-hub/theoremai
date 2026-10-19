@@ -11,6 +11,7 @@ import type {
   FunctionToolDef,
   FunctionToolInput,
   HttpToolDef,
+  HttpToolLimit,
   McpToolDef,
   RegisteredTool,
   ToolAuthConfig,
@@ -82,6 +83,26 @@ function assertQueryParam(
   }
 }
 
+/** A limit is a whole number of requests in a window of some time. */
+function assertLimit(name: string, limit: HttpToolLimit | undefined): void {
+  if (limit === undefined) return;
+  const whole = Number.isInteger(limit.requests) && limit.requests > 0;
+  if (whole && Number.isFinite(limit.windowMs) && limit.windowMs > 0) return;
+  throw new TheoremError(
+    'config',
+    `Tool "${name}" limit needs a whole number of requests above 0 and a window above 0 ms`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
+/** A timeout is some time: a finite number of ms above 0. */
+function assertTimeout(name: string, timeoutMs: number | undefined): void {
+  if (timeoutMs === undefined || (Number.isFinite(timeoutMs) && timeoutMs > 0)) return;
+  throw new TheoremError(
+    'config',
+    `Tool "${name}" timeoutMs needs a finite number of ms above 0`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
 function normalizeHttp<TIn = unknown, TOut = unknown>(
   def: Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
     input: z.ZodType<TIn>;
@@ -91,6 +112,8 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
   assertFixedEndpointOrigin(def.endpoint);
   assertAuthService(def.name, def.auth);
   assertQueryParam(def.name, def.auth, def.mapping?.queryParams);
+  assertLimit(def.name, def.limit);
+  assertTimeout(def.name, def.timeoutMs);
   return { ...def, type: 'http', ...schemasFromZod(def) };
 }
 
@@ -147,7 +170,7 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   return normalizeFunction(def);
 }
 
-/** The tools a scope has registered: register, look up and list them, find a profile for agent tools, and reset. */
+/** The tools a scope has registered: register, look up, and list them, find a profile for agent tools, and reset. */
 interface ToolRegistry {
   /** Replaces a tool of the same name. */
   register<TIn, TOut>(def: ToolDefinitionInput<TIn, TOut>): RegisteredTool<TIn, TOut>;

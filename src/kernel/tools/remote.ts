@@ -33,6 +33,7 @@ import {
   toolNetworkPolicy,
 } from './events.ts';
 import type { HandlerEvents } from './handler-events.ts';
+import { answeredIn, type LimitFull, takeLimitPlace } from './http-limit.ts';
 import {
   createMcpSessionCache,
   isMcpSessionId,
@@ -65,6 +66,8 @@ export type AuthResolveResult = {
   audience?: string;
   unauthenticated?: boolean;
   modelMessage?: string;
+  /** Why the call fails, under `onUnauthenticated: 'fail'`. */
+  failureMessage?: string;
   gate?: ToolGate;
 };
 
@@ -122,6 +125,7 @@ function unauthenticatedResult(
     const gate = buildAuthGate(toolName, authConfig, message, extras);
     return { headers: {}, unauthenticated: true, gate };
   }
+  if (policy === 'fail') return { headers: {}, unauthenticated: true, failureMessage: message };
   return { headers: {}, unauthenticated: true, modelMessage: message };
 }
 
@@ -462,11 +466,16 @@ function remoteParseAndPermit(
   return { ok: true, input: started.data };
 }
 
-export function outcomeFromUnauth(authRes: {
-  unauthenticated?: boolean;
-  gate?: import('./types.ts').ToolGate;
-  modelMessage?: string;
-}): ToolBodyOutcome | undefined {
+/** `sent`: the service refused a request the call already sent, so the call has started. */
+export function outcomeFromUnauth(
+  authRes: {
+    unauthenticated?: boolean;
+    gate?: import('./types.ts').ToolGate;
+    modelMessage?: string;
+    failureMessage?: string;
+  },
+  sent = false,
+): ToolBodyOutcome | undefined {
   if (!authRes.unauthenticated) return undefined;
   if (authRes.gate) return { kind: 'gated', gate: authRes.gate };
   if (authRes.modelMessage) {
@@ -476,9 +485,12 @@ export function outcomeFromUnauth(authRes: {
       outputRaw: { unauthenticated: true, message: authRes.modelMessage },
     };
   }
+  if (authRes.failureMessage === undefined) {
+    throw new Error('An unauthenticated call carries a gate, a model message or a failure'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  }
   return failureOutcome(
-    { code: 'not_authorized', kind: 'auth', message: 'Tool authentication required' }, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    true,
+    { code: 'not_authorized', kind: 'auth', message: authRes.failureMessage },
+    !sent,
   );
 }
 
@@ -530,7 +542,7 @@ export function* refusedCredentialOutcome(
   const policy = auth.onUnauthenticated ?? 'gate';
   if (refusal.status === 401) {
     const message = `The credential for '${tool.name}' (slot: '${auth.slot}') was refused.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    return outcomeFromUnauth(unauthenticatedResult(tool.name, auth, message, policy));
+    return outcomeFromUnauth(unauthenticatedResult(tool.name, auth, message, policy), true);
   }
   const challenge = bearerChallenge(refusal.challenge);
   if (challenge.error !== 'insufficient_scope') return undefined;
@@ -538,7 +550,7 @@ export function* refusedCredentialOutcome(
   const requested = challenge.scopes;
   if (requested.length > 0 && requested.every((scope) => declared.includes(scope))) {
     const message = `'${tool.name}' needs scopes its credential (slot: '${auth.slot}') does not carry.`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    return outcomeFromUnauth(unauthenticatedResult(tool.name, auth, message, policy));
+    return outcomeFromUnauth(unauthenticatedResult(tool.name, auth, message, policy), true);
   }
   const refused: AuthScopeRefused = {
     kind: 'auth_scope_refused',
@@ -727,7 +739,7 @@ export function failureWithoutSecret(failure: ToolFailure, secret: string): Tool
   };
 }
 
-/** An echo endpoint or debug page can repeat the credential; it must never reach the model, trace or client. */
+/** An echo endpoint or debug page can repeat the credential; it must never reach the model, trace, or client. */
 function withoutSecret(outcome: ToolBodyOutcome, secret: string | undefined): ToolBodyOutcome {
   if (!secret) return outcome;
   if (outcome.kind === 'ok') {
@@ -851,20 +863,30 @@ async function* sendHttpRequest(
     headers['Content-Type'] = 'application/json';
   }
 
+  let timedOut: AbortSignal | undefined;
   try {
-    const response = await fetchGuarded(
-      targetUrl.href,
-      { method: tool.method, headers, body, signal: ctx.signal },
-      {
-        policy: toolNetworkPolicy(ctx),
-        followRedirects: true,
-        // why: a read changes nothing, so a busy or briefly down service is asked again, as a
-        // model call is; a write is never sent twice.
-        ...(tool.access === 'read-only' ? { fetchFn: retryTransient(fetch) } : {}),
-        originBoundHeaders: { ...tool.headers, ...authHeaders },
-        resolveHost: ctx.resolveHost,
-        onCheck: checks.onCheck,
-      },
+    const place = tool.limit ? await takeLimitPlace(tool, tool.limit, ctx.signal) : undefined;
+    if (place && 'full' in place) return failureOutcome(limitFullFailure(tool, place), false);
+    // why: the timeout starts at send, so a call's wait for a place is not counted against it.
+    timedOut = tool.timeoutMs === undefined ? undefined : AbortSignal.timeout(tool.timeoutMs);
+    const signal =
+      timedOut && ctx.signal ? AbortSignal.any([ctx.signal, timedOut]) : (timedOut ?? ctx.signal);
+    const response = await answeredIn(
+      place,
+      fetchGuarded(
+        targetUrl.href,
+        { method: tool.method, headers, body, signal },
+        {
+          policy: toolNetworkPolicy(ctx),
+          followRedirects: true,
+          // why: a read changes nothing, so a busy or briefly down service is asked again, as a
+          // model call is; a write is never sent twice.
+          ...(tool.access === 'read-only' ? { fetchFn: retryTransient(fetch) } : {}),
+          originBoundHeaders: { ...tool.headers, ...authHeaders },
+          resolveHost: ctx.resolveHost,
+          onCheck: checks.onCheck,
+        },
+      ),
     );
 
     const text = yield* readHttpBody(response, shown, secret);
@@ -909,10 +931,22 @@ async function* sendHttpRequest(
       outputRaw: checked.data,
     };
   } catch (err) {
+    if (tool.timeoutMs !== undefined && timedOut?.aborted && !ctx.signal?.aborted) {
+      return failureOutcome(timeoutFailure(targetUrl.hostname, tool.timeoutMs), false);
+    }
     return yield* thrownOutcome(err, checks);
   } finally {
     checks.record();
   }
+}
+
+/** The service did not answer within the tool's `timeoutMs`. */
+function timeoutFailure(hostname: string, timeoutMs: number): ToolFailure {
+  return {
+    code: 'timeout',
+    kind: 'timeout',
+    message: `${hostname} did not answer within ${timeoutMs} ms`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  };
 }
 
 /** Preferred first. */
@@ -1287,6 +1321,21 @@ async function negotiateInSession(
       kind: 'failed',
       message: 'MCP server ended the session again right after it was reopened', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     },
+  };
+}
+
+/** A limited tool with no place in its window within the wait budget: nothing was sent. */
+function limitFullFailure(tool: HttpToolDef, full: LimitFull): ToolFailure {
+  const { requests, windowMs } = full.limit;
+  // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  const opens =
+    full.opensInMs === undefined
+      ? 'every one is still unanswered'
+      : `the next place opens in ${Math.ceil(full.opensInMs)} ms`;
+  return {
+    code: 'rate_limit_window',
+    kind: 'rate_limit',
+    message: `${tool.name} is at its limit of ${requests} requests per ${windowMs} ms; ${opens}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   };
 }
 

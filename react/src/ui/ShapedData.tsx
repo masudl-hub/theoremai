@@ -440,13 +440,17 @@ function Node({
 
 /** A render the rules didn't foresee throws into the JSON, never into the transcript. */
 class ShapeBoundary extends Component<
-  { fallback: ReactNode; children: ReactNode },
+  { fallback: ReactNode; children: ReactNode; onFallback: () => void },
   { failed: boolean }
 > {
   override state = { failed: false };
 
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true };
+  }
+
+  override componentDidCatch(): void {
+    this.props.onFallback();
   }
 
   override render(): ReactNode {
@@ -517,7 +521,7 @@ export function ShapedData({ value: raw, title, lead, ledKeys = [] }: ShapedData
       {view === 'json' && structured ? (
         <Json text={text} />
       ) : (
-        <ShapeBoundary fallback={<Json text={text} />}>
+        <ShapeBoundary fallback={<Json text={text} />} onFallback={() => setView('json')}>
           <VStack gap={3}>
             {lead}
             {rest === undefined ? null : <Node value={rest} depth={0} />}

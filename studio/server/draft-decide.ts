@@ -1,7 +1,7 @@
 /**
  * `POST <base>/decide`: one decision on lent keys. The browser authors the profile and its
  * questions, so the server takes only the fields a studio decision compiles to, within the keys'
- * decision limits, and checks the model, the state and each question against the keys before it
+ * decision limits, and checks the model, the state, and each question against the keys before it
  * spends anything.
  *
  * @module
@@ -37,7 +37,13 @@ export function decisionRequestSchema(limits: LentDecisionLimits) {
       criteria: z.array(entry).min(2).max(limits.criteria),
     }),
     z.object({ type: z.literal('noul'), instructions, criteria: labelled.optional() }),
+    z.object({ type: z.literal('box'), instructions }),
   ]);
+  // why: Base64 is four characters for every three bytes, so the byte limit bounds the text before it is decoded.
+  const image = z.object({
+    mimeType: z.enum(['image/png', 'image/jpeg']),
+    data: z.string().max(Math.ceil(limits.imageBytes / 3) * 4),
+  });
   return z.object({
     profile: z.object({
       type: z.literal('decision'),
@@ -72,6 +78,10 @@ export function decisionRequestSchema(limits: LentDecisionLimits) {
           Object.keys(record).length > 0 && Object.keys(record).length <= limits.questions,
       ),
     state: z.unknown(),
+    assets: z
+      .record(name, image)
+      .refine((record) => Object.keys(record).length <= limits.images)
+      .optional(),
   });
 }
 
@@ -102,7 +112,13 @@ export async function draftDecide(
         .find(Boolean);
     if (refused) throw new TheoremError('request', `studio decide: ${refused}`);
     validateDecisionRequest(
-      { profile: profile.id, state: body.state, questions: body.questions, signal: request.signal },
+      {
+        profile: profile.id,
+        state: body.state,
+        questions: body.questions,
+        assets: body.assets,
+        signal: request.signal,
+      },
       profile,
     );
     const vault = lentVault(options.runtime, profile, 'decide');
@@ -112,6 +128,7 @@ export async function draftDecide(
       body.state as Parameters<typeof runStudioDecision>[1],
       { vault },
       request.signal,
+      body.assets,
     );
     return noStoreJson({ result, traces });
   } catch (err) {

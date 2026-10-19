@@ -4,6 +4,9 @@ import { Spinner } from '@astryxdesign/core/Spinner';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconAlertTriangle } from '@tabler/icons-react';
 import { type ReactNode, useEffect, useState } from 'react';
+import { useSecondTicker } from '../hooks/use-second-ticker.ts';
+import { liveDuration } from './labels.ts';
+import { useLabels } from './labels-provider.tsx';
 
 /**
  * What a pane says when it has nothing of its own to show: centred both ways
@@ -28,7 +31,7 @@ export function PaneState({
 }) {
   return (
     <VStack height="100%" vAlign="center" hAlign="center" gap={3} padding={4}>
-      <EmptyState icon={icon} title={title} description={description} actions={actions} />
+      <EmptyState icon={icon} title={title} description={description} actions={actions} isCompact />
       {children}
     </VStack>
   );
@@ -36,12 +39,21 @@ export function PaneState({
 
 /**
  * A pane that is waiting: the spinner where an empty pane's icon would be,
- * once the wait has gone on a moment; blank and busy before then.
+ * once the wait has gone on a moment; blank and busy before then. Given when
+ * the work began, it counts the seconds under the label.
  */
-export function PaneLoading({ label }: { label: string }) {
+export function PaneLoading({ label, since }: { label: string; since?: number | null }) {
+  const t = useLabels();
+  const now = useSecondTicker(since != null);
   const long = useLongWait();
   if (!long) return <div aria-busy="true" style={{ height: '100%' }} />;
-  return <PaneState icon={<Spinner size="lg" />} title={label} />;
+  return (
+    <PaneState
+      icon={<Spinner size="lg" />}
+      title={label}
+      description={since == null ? undefined : liveDuration(t, now - since)}
+    />
+  );
 }
 
 /**

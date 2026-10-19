@@ -8,11 +8,13 @@ import { Switch } from '@astryxdesign/core/Switch';
 import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
+import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconPlus, IconX } from '@tabler/icons-react';
 import type { DecisionJson } from '@theoremjs/agents';
-import { useId, useState } from 'react';
+import { createContext, useContext, useId, useState } from 'react';
+import { type DecisionImages, imageSrc } from '../client/decision-images.ts';
 import { humanize, isPlain } from '../client/shaped-data.ts';
 import { blankLike, isWordList, tableColumns } from '../client/state-fields.ts';
 import { useLabels } from './labels-provider.tsx';
@@ -30,12 +32,50 @@ export function textRows(text: string, min: number, max: number): number {
   return Math.min(Math.max(text.split('\n').length, min), max);
 }
 
+/** The images the state can refer to by name; a field whose whole text is one shows it. */
+export const StateImages = createContext<DecisionImages>({});
+
+/** A field that holds an image's reference: the image, beside the reference it can be changed to. */
+function ImageField({
+  value,
+  onChange,
+  label,
+  isLabelHidden,
+  images,
+}: Edit<string> & { label: string; isLabelHidden?: boolean; images: DecisionImages }) {
+  const row = (
+    <HStack gap={2} vAlign="center">
+      <Thumbnail
+        src={Object.hasOwn(images, value) ? imageSrc(images[value]) : undefined}
+        alt={value}
+        label={value}
+      />
+      <StackItem size="fill">
+        <TextInput label={label} isLabelHidden size="sm" value={value} onChange={onChange} />
+      </StackItem>
+    </HStack>
+  );
+  return isLabelHidden ? row : <Labelled label={label}>{row}</Labelled>;
+}
+
 /** A string, number, true/false, or null, as its input. */
 function PlainField({ value, onChange, label, isLabelHidden }: FieldProps) {
-  // why: Decided once, so the field doesn't swap inputs (and lose focus) as the text grows.
+  const images = useContext(StateImages);
+  // why: Decided once, so the field doesn't swap inputs (and lose focus) as the text grows or changes.
   const [isLong] = useState(
     () => typeof value === 'string' && (value.length > LONG_TEXT || value.includes('\n')),
   );
+  const [isImage] = useState(() => typeof value === 'string' && Object.hasOwn(images, value));
+  if (isImage && typeof value === 'string')
+    return (
+      <ImageField
+        value={value}
+        onChange={onChange}
+        label={label}
+        isLabelHidden={isLabelHidden}
+        images={images}
+      />
+    );
   if (typeof value === 'boolean') return <Switch label={label} value={value} onChange={onChange} />;
   if (typeof value === 'number') {
     return (

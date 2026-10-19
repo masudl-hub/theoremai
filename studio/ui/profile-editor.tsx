@@ -44,7 +44,6 @@ import {
   IconBulb,
   IconBulbOff,
   IconCertificate,
-  IconChartBar,
   IconCheck,
   IconChevronRight,
   IconCircleDashed,
@@ -72,11 +71,9 @@ import {
   IconInputAi,
   IconKey,
   IconLayersUnion,
-  IconListCheck,
   IconLockOpen,
   IconMessage,
   IconMicrophone,
-  IconNumber,
   IconPackage,
   IconPaperclip,
   IconPencil,
@@ -155,6 +152,7 @@ import {
   type ContextType,
   type Dispatch,
   type ReactNode,
+  type RefObject,
   type SetStateAction,
   useContext,
   useLayoutEffect,
@@ -257,7 +255,6 @@ import {
 } from './inspector.tsx';
 import {
   ConfirmWrite,
-  ISSUE_ROW_ATTRIBUTE,
   LeavePage,
   ListBadges,
   LocalConnection,
@@ -284,7 +281,12 @@ import {
   toolCredential,
 } from './lib/tool-credentials.ts';
 import { type ProbeResult, runToolProbe } from './lib/tool-probe.ts';
-import { PROFILE_TYPE_ICON, TOOL_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import {
+  PROFILE_TYPE_ICON,
+  QUESTION_TYPE_ICON,
+  TOOL_TYPE_ICON,
+  toolTypeIcon,
+} from './lib/type-icons.ts';
 import { slotDescription, useProviderModels } from './studio-connection.tsx';
 import { IconTheorem } from './theorem-mark.tsx';
 
@@ -525,7 +527,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
   );
 }
 
-/** The policy every model of the profile shares: default, switching, steps and key slots. */
+/** The policy every model of the profile shares: default, switching, steps, and key slots. */
 function ModelPolicySection({
   draft,
   type,
@@ -1363,7 +1365,7 @@ function BuiltinsRow({ binding, set }: { binding: ModelBindingDraft; set: SetBin
   );
 }
 
-/** Which model the binding runs: its id, transport, key slots and API model. */
+/** Which model the binding runs: its id, transport, key slots, and API model. */
 function ModelSection({
   draft,
   binding,
@@ -1407,7 +1409,7 @@ function ModelSection({
   );
 }
 
-/** How the model generates: its output cap, temperature and summaries. */
+/** How the model generates: its output cap, temperature, and summaries. */
 function GenerationSection({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
   return (
     <InspectorSection title="Generation">
@@ -1452,7 +1454,7 @@ type SetEfforts = (
   renamed?: { from: string; to: string },
 ) => void;
 
-/** One effort: its alias, a remove button and its level. */
+/** One effort: its alias, a remove button, and its level. */
 function EffortRow({
   efforts,
   index,
@@ -1511,7 +1513,7 @@ function EffortRow({
   );
 }
 
-/** The model's named efforts, its default effort and whether people can switch. */
+/** The model's named efforts, its default effort, and whether people can switch. */
 function EffortsSection({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
   const aliases = binding.efforts.map((effort) => effort.alias).filter(Boolean);
   /**
@@ -1820,7 +1822,7 @@ function SlotPreviewRows({ slotsJson }: { slotsJson: string }) {
 function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { inputs } = draft;
   const set = patch(setDraft, 'inputs');
-  /** An image profile takes images, video and PDF as references, and no voice. */
+  /** An image profile takes images, video, and PDF as references, and no voice. */
   const image = draft.identity.profileType === 'image';
   return (
     <>
@@ -1903,7 +1905,7 @@ function CompactionSummariserRow({
   );
 }
 
-/** How compaction runs once it has a timing: its budget, threshold, kept turns and meter. */
+/** How compaction runs once it has a timing: its budget, threshold, kept turns, and meter. */
 function CompactionRows({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
   return (
     <>
@@ -2115,7 +2117,7 @@ interface ImageRowsProps {
   set: SetSection<'image'>;
 }
 
-/** An image's aspect ratio, resolution and format. */
+/** An image's aspect ratio, resolution, and format. */
 function ImageShapeRows({ image, set, google }: ImageRowsProps & { google: boolean }) {
   return (
     <>
@@ -2153,7 +2155,7 @@ function ImageShapeRows({ image, set, google }: ImageRowsProps & { google: boole
   );
 }
 
-/** The pins only OpenRouter takes: quality, background, compression and image count. */
+/** The pins only OpenRouter takes: quality, background, compression, and image count. */
 function OpenRouterImageRows({ image, set }: ImageRowsProps) {
   return (
     <>
@@ -4071,26 +4073,32 @@ function DetectSection({
 }
 
 /**
- * The top of a detector's page: the way back to the list, its name, and what it finds.
+ * The top of a page inside a node, such as a detector's: the way back to the list, its name, and
+ * what it is, with anything wrong with the list as a whole under them.
  */
-function DetectorHeader({
+function PageHeader({
   title,
   doc,
+  back,
   trailing,
   onBack,
+  children,
 }: {
   title: string;
   doc?: string;
+  /** What the back button says, such as "Back to detectors". */
+  back: string;
   trailing?: ReactNode;
   onBack: () => void;
+  children?: ReactNode;
 }) {
   return (
     <Section variant="transparent" padding={3}>
       <VStack gap={1}>
         <HStack gap={1} vAlign="center">
-          <Tooltip content="Back to detectors">
+          <Tooltip content={back}>
             <IconButton
-              label="Back to detectors"
+              label={back}
               variant="ghost"
               size="sm"
               icon={<Icon icon={IconArrowLeft} size="sm" />}
@@ -4105,7 +4113,7 @@ function DetectorHeader({
           {trailing}
         </HStack>
         {doc && <Text type="supporting">{doc}</Text>}
-        <DetectIssue />
+        {children}
       </VStack>
     </Section>
   );
@@ -4134,7 +4142,9 @@ function DetectorPage({
   };
   return (
     <>
-      <DetectorHeader title={meta.label} doc={meta.doc} onBack={onBack} />
+      <PageHeader title={meta.label} doc={meta.doc} back="Back to detectors" onBack={onBack}>
+        <DetectIssue />
+      </PageHeader>
       <ActionSection
         detector={detector}
         defaults={meta.defaults}
@@ -4207,9 +4217,10 @@ function OwnDetectorPage({
   };
   return (
     <>
-      <DetectorHeader
+      <PageHeader
         title={ownName(detector)}
         doc={fieldMeta('guardrails.detect.*')?.doc}
+        back="Back to detectors"
         trailing={
           <Tooltip content={remove}>
             <IconButton
@@ -4222,7 +4233,9 @@ function OwnDetectorPage({
           </Tooltip>
         }
         onBack={onBack}
-      />
+      >
+        <DetectIssue />
+      </PageHeader>
       <InspectorSection title="Detector">
         <TextRow
           label="Name"
@@ -4341,18 +4354,18 @@ async function fadeOut(node: HTMLElement): Promise<void> {
   await fade.finished.catch(() => undefined);
 }
 
-function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
-  const { guardrails } = draft;
-  const set = patch(setDraft, 'guardrails');
-  const on = useContext(RunsOn);
-  const boundaries = draft.identity.profileType === 'host' ? TOOL_BOUNDARIES : BOUNDARIES;
-  const [open, setOpen] = useState<OpenDetector | null>(null);
+/**
+ * A node's list and the page one of its rows opens, one at a time: `show` fades the view out and
+ * swaps it, and `frame` holds what is shown. A page opens at its top, and the list comes back
+ * where it was left.
+ */
+function usePageSwap<T>() {
+  const [open, setOpen] = useState<T | null>(null);
   const view = useRef<HTMLDivElement>(null);
   // Where the list was scrolled to when a page opened, to put it back there.
   const listScroll = useRef(0);
   const leavePage = useContext(LeavePage);
-  /** Fades the view out, then swaps it; the one that mounts fades in (`.detector-view`). */
-  const show = (next: OpenDetector | null) => {
+  const show = (next: T | null) => {
     const node = view.current;
     if (node && open === null) listScroll.current = scrollerOf(node)?.scrollTop ?? 0;
     const left = leavePage();
@@ -4363,28 +4376,56 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
     if (node) void fadeOut(node).then(swap);
     else swap();
   };
-  const page = openDetectorPage(open, { guardrails, set }, boundaries, plantsCanary(draft), () => {
-    show(null);
-  });
-  const viewKey = page ? JSON.stringify(open) : 'list';
+  /** `viewKey` is `'list'` for the list, and names the page otherwise. */
+  const frame = (viewKey: string, children: ReactNode) => (
+    <PageFrame viewKey={viewKey} view={view} listScroll={listScroll}>
+      {children}
+    </PageFrame>
+  );
+  return { open, show, frame };
+}
+
+/** What `usePageSwap` shows; the view that mounts fades in (`.editor-page`). */
+function PageFrame({
+  viewKey,
+  view,
+  listScroll,
+  children,
+}: {
+  viewKey: string;
+  view: RefObject<HTMLDivElement | null>;
+  listScroll: RefObject<number>;
+  children: ReactNode;
+}) {
   const shown = useRef(viewKey);
-  // A page opens at its top, and the list comes back where it was left, before either fades in.
+  // Before either fades in.
   useLayoutEffect(() => {
     const node = view.current;
     if (!node || shown.current === viewKey) return;
     shown.current = viewKey;
     if (viewKey === 'list') scrollerOf(node)?.scrollTo({ top: listScroll.current });
     else node.scrollIntoView({ block: 'start' });
-  }, [viewKey]);
-  if (page) {
-    return (
-      <div key={viewKey} ref={view} className="detector-view">
-        {page}
-      </div>
-    );
-  }
+  }, [viewKey, view, listScroll]);
   return (
-    <div key={viewKey} ref={view} className="detector-view">
+    <div key={viewKey} ref={view} className="editor-page">
+      {children}
+    </div>
+  );
+}
+
+function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
+  const { guardrails } = draft;
+  const set = patch(setDraft, 'guardrails');
+  const on = useContext(RunsOn);
+  const boundaries = draft.identity.profileType === 'host' ? TOOL_BOUNDARIES : BOUNDARIES;
+  const { open, show, frame } = usePageSwap<OpenDetector>();
+  const page = openDetectorPage(open, { guardrails, set }, boundaries, plantsCanary(draft), () => {
+    show(null);
+  });
+  if (page) return frame(JSON.stringify(open), page);
+  return frame(
+    'list',
+    <>
       <DetectSection guardrails={guardrails} boundaries={boundaries} set={set} onOpen={show} />
       {draftAllows(draft, 'guardrails.blockedReply') && (
         <BlockedReplySection
@@ -4421,7 +4462,7 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
         </InspectorSection>
       )}
       <QuotaSection guardrails={guardrails} set={set} />
-    </div>
+    </>,
   );
 }
 
@@ -4677,6 +4718,7 @@ const AUTH_TYPE_SEGMENTS: Segment<StudioAuthType>[] = [
 const UNAUTHENTICATED_SEGMENTS: Segment<AuthUnauthenticatedPolicy>[] = [
   { value: 'gate', label: 'Stop the turn', icon: IconPlayerPause },
   { value: 'report_to_model', label: 'Tell the model', icon: IconMessage },
+  { value: 'fail', label: 'Fail the call', icon: IconX },
 ];
 
 /** The prefix the kernel puts before the credential when none is set, by auth type. */
@@ -5179,7 +5221,7 @@ function ToolTypeRow({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   );
 }
 
-/** What the tool is: its name, type, description and category. */
+/** What the tool is: its name, type, description, and category. */
 function ToolSection({
   draft,
   setDraft,
@@ -5611,7 +5653,7 @@ function AuthCredentialRows({
   );
 }
 
-/** An OAuth tool's scopes, client id and redirect. */
+/** An OAuth tool's scopes, client id, and redirect. */
 function OAuthRows({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   return (
     <>
@@ -6097,7 +6139,7 @@ function LabelsEditor({
         <TextInput
           label="Search labels"
           isLabelHidden
-          placeholder="Search names, defaults and text"
+          placeholder="Search names, defaults, and text"
           value={query}
           onChange={setQuery}
           startIcon={IconSearch}
@@ -6138,7 +6180,7 @@ function LabelsEditor({
 
 /**
  * The areas on show, each with its lines. A search spans both readers: a line matches on its area,
- * its name, its default or its text.
+ * its name, its default, or its text.
  */
 function labelAreas(draft: StudioDraft, needle: string, audience: LabelAudience) {
   return LABEL_AREAS.filter((area) => needle || area.audience === audience)
@@ -6261,9 +6303,10 @@ function LabelAreaLines({
 }
 
 const QUESTION_TYPE_SEGMENTS: Segment<DecisionQuestionType>[] = [
-  { value: 'choice', label: 'Choice', icon: IconListCheck },
-  { value: 'score', label: 'Score', icon: IconChartBar },
-  { value: 'noul', label: 'Noul', icon: IconNumber },
+  { value: 'choice', label: 'Choice', icon: QUESTION_TYPE_ICON.choice },
+  { value: 'score', label: 'Score', icon: QUESTION_TYPE_ICON.score },
+  { value: 'noul', label: 'Noul', icon: QUESTION_TYPE_ICON.noul },
+  { value: 'box', label: 'Box', icon: QUESTION_TYPE_ICON.box },
 ];
 
 /** What a question's rows are called, and what a new one's text says. */
@@ -6275,89 +6318,156 @@ const CRITERIA_COPY = {
   },
   score: { title: 'Levels', row: 'Level', note: 'The scale from 0 up, each level described.' },
   noul: { title: 'Criteria', row: 'Criterion', note: 'Optional named things the number weighs.' },
+  box: { title: 'Criteria', row: 'Criterion', note: 'A box takes no criteria.' },
 } satisfies Record<DecisionQuestionType, { title: string; row: string; note: string }>;
 
-/** One question: its id and answer type, what to ask, and its options or levels. */
-function DecisionQuestionEditor({
+/** What a question is called in its row and on its page, before it has a name. */
+const questionName = (question: DecisionQuestionDraft, index: number) =>
+  question.id.trim() || `Question ${String(index + 1)}`;
+
+/** A question's issues, wherever on its page they are. */
+function useQuestionIssues(): (index: number) => string[] {
+  const issues = useContext(NodeIssues);
+  return (index) =>
+    issues
+      .filter((issue) => issue.field === 'questions' && issue.index === index)
+      .map((issue) => issue.message);
+}
+
+/**
+ * One question's row: its answer type's icon, its name, and its instructions, with how many options
+ * or levels it has, or what is wrong with it. A click anywhere on it presses its Open button.
+ */
+function QuestionRow({
   question,
-  index,
-  count,
-  onChange,
-  onMove,
-  onRemove,
+  name,
+  issues,
+  onOpen,
 }: {
   question: DecisionQuestionDraft;
-  index: number;
-  count: number;
-  onChange: (change: Partial<DecisionQuestionDraft>) => void;
-  onMove: (to: number) => void;
-  onRemove: () => void;
+  name: string;
+  issues: readonly string[];
+  onOpen: () => void;
 }) {
-  const status = useFieldStatus()('questions', index);
+  const button = useRef<HTMLButtonElement>(null);
+  const segment = QUESTION_TYPE_SEGMENTS.find((each) => each.value === question.type);
+  const open = `Open ${name}: its answer and instructions`;
+  const listed = question.type !== 'box' && question.criteria.length > 0;
+  const trailing =
+    issues.length > 0 ? (
+      <Tooltip content={issues.join(' ')}>
+        <Badge variant="error" label={String(issues.length)} />
+      </Tooltip>
+    ) : (
+      listed && (
+        <Tooltip
+          content={question.criteria
+            .map((criterion) => criterion.label.trim() || criterion.text.trim())
+            .join(', ')}
+        >
+          <Token
+            label={`${String(question.criteria.length)} ${CRITERIA_COPY[question.type].title.toLowerCase()}`}
+            size="sm"
+          />
+        </Tooltip>
+      )
+    );
   return (
-    <Section variant="transparent" padding={3}>
-      <VStack gap={3} {...{ [ISSUE_ROW_ATTRIBUTE]: status !== undefined || undefined }}>
-        <QuestionHeader
-          question={question}
-          index={index}
-          count={count}
-          status={status}
-          onChange={onChange}
-          onMove={onMove}
-          onRemove={onRemove}
-        />
-        <SegmentedRow
-          label="Answer"
-          path="decision.questions.type"
-          value={question.type}
-          segments={QUESTION_TYPE_SEGMENTS}
-          onChange={(type) => {
-            // Options carry over between choice and number; a score's levels are a different list.
-            const keeps = type !== 'score' && question.type !== 'score';
-            onChange({ type, ...(keeps ? {} : { criteria: newCriteria(type) }) });
-          }}
-        />
-        <TextArea
-          label="Instructions"
-          size="sm"
-          rows={3}
-          value={question.instructions}
-          placeholder="What should the model decide, given the state?"
-          onChange={(instructions) => {
-            onChange({ instructions });
-          }}
-        />
-        <CriteriaList question={question} onChange={onChange} />
-      </VStack>
-    </Section>
+    <ListItem
+      label={name}
+      description={question.instructions.trim() || undefined}
+      interactiveRef={button}
+      startContent={
+        <Tooltip
+          content={`${segment?.label ?? question.type}: ${fieldMeta('decision.questions.type')?.optionDescriptions?.[question.type] ?? ''}`}
+        >
+          <Icon icon={QUESTION_TYPE_ICON[question.type]} size="sm" color="secondary" />
+        </Tooltip>
+      }
+      endContent={
+        <HStack gap={1} vAlign="center">
+          {trailing}
+          <Tooltip content={open}>
+            <IconButton
+              ref={button}
+              label={open}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={IconChevronRight} size="sm" />}
+              onClick={onOpen}
+            />
+          </Tooltip>
+        </HStack>
+      }
+    />
   );
 }
 
-/** A question's id, and the buttons that move and remove it. */
-function QuestionHeader({
+/** Every question on one line, in the order they are answered. Each opens its own page. */
+function QuestionList({
+  questions,
+  onOpen,
+}: {
+  questions: readonly DecisionQuestionDraft[];
+  onOpen: (key: string) => void;
+}) {
+  const issuesAt = useQuestionIssues();
+  return (
+    <List density="compact">
+      {questions.map((question, index) => (
+        <QuestionRow
+          key={question.key}
+          question={question}
+          name={questionName(question, index)}
+          issues={issuesAt(index)}
+          onOpen={() => {
+            onOpen(question.key);
+          }}
+        />
+      ))}
+    </List>
+  );
+}
+
+/** One question's page: its name and answer type, what to ask, and its options or levels. */
+function QuestionPage({
   question,
   index,
   count,
-  status,
   onChange,
   onMove,
   onRemove,
+  onBack,
 }: {
   question: DecisionQuestionDraft;
   index: number;
   count: number;
-  status: ReturnType<ReturnType<typeof useFieldStatus>>;
   onChange: (change: Partial<DecisionQuestionDraft>) => void;
   onMove: (to: number) => void;
   onRemove: () => void;
+  onBack: () => void;
 }) {
+  const status = useFieldStatus()('questions', index);
   return (
-    <HStack gap={1} vAlign="center">
-      <StackItem size="fill">
-        <TextInput
-          label={`Question ${String(index + 1)} id`}
-          isLabelHidden
-          size="sm"
+    <>
+      <PageHeader
+        title={questionName(question, index)}
+        back="Back to questions"
+        trailing={
+          <QuestionActions
+            name={questionName(question, index)}
+            index={index}
+            count={count}
+            onMove={onMove}
+            onRemove={onRemove}
+          />
+        }
+        onBack={onBack}
+      />
+      <InspectorSection>
+        <TextRow
+          label="Name"
+          path="decision.questions.id"
           status={status}
           value={question.id}
           placeholder="verdict"
@@ -6365,18 +6475,36 @@ function QuestionHeader({
             onChange({ id });
           }}
         />
-      </StackItem>
-      <QuestionActions
-        name={question.id || `question ${String(index + 1)}`}
-        index={index}
-        count={count}
-        onMove={onMove}
-        onRemove={onRemove}
-      />
-    </HStack>
+        <SegmentedRow
+          label="Answer"
+          path="decision.questions.type"
+          value={question.type}
+          segments={QUESTION_TYPE_SEGMENTS}
+          selectorPast={0}
+          onChange={(type) => {
+            // Options carry over between choice and number; a score's levels and a box's none are different lists.
+            const listed = (kind: DecisionQuestionType) => kind === 'choice' || kind === 'noul';
+            const keeps = listed(type) && listed(question.type);
+            onChange({ type, ...(keeps ? {} : { criteria: newCriteria(type) }) });
+          }}
+        />
+        <TextAreaRow
+          label="Instructions"
+          path="decision.questions.instructions"
+          rows={3}
+          value={question.instructions}
+          hint="What should the model decide, given the state?"
+          onChange={(instructions) => {
+            onChange({ instructions });
+          }}
+        />
+      </InspectorSection>
+      {question.type !== 'box' && <CriteriaList question={question} onChange={onChange} />}
+    </>
   );
 }
 
+/** The buttons on a question's page that move it in the list and remove it. */
 function QuestionActions({
   name,
   index,
@@ -6390,40 +6518,49 @@ function QuestionActions({
   onMove: (to: number) => void;
   onRemove: () => void;
 }) {
+  const up = `Ask ${name} one place earlier. Its answer shows earlier too.`;
+  const down = `Ask ${name} one place later. Its answer shows later too.`;
+  const remove = `Remove ${name}`;
   return (
     <>
-      <IconButton
-        label={`Move ${name} up`}
-        variant="ghost"
-        size="sm"
-        isDisabled={index === 0}
-        icon={<Icon icon={IconArrowUp} size="sm" />}
-        onClick={() => {
-          onMove(index - 1);
-        }}
-      />
-      <IconButton
-        label={`Move ${name} down`}
-        variant="ghost"
-        size="sm"
-        isDisabled={index === count - 1}
-        icon={<Icon icon={IconArrowDown} size="sm" />}
-        onClick={() => {
-          onMove(index + 1);
-        }}
-      />
-      <IconButton
-        label={`Remove ${name}`}
-        variant="ghost"
-        size="sm"
-        icon={<Icon icon={IconTrash} size="sm" />}
-        onClick={onRemove}
-      />
+      <Tooltip content={up}>
+        <IconButton
+          label={up}
+          variant="ghost"
+          size="sm"
+          isDisabled={index === 0}
+          icon={<Icon icon={IconArrowUp} size="sm" />}
+          onClick={() => {
+            onMove(index - 1);
+          }}
+        />
+      </Tooltip>
+      <Tooltip content={down}>
+        <IconButton
+          label={down}
+          variant="ghost"
+          size="sm"
+          isDisabled={index === count - 1}
+          icon={<Icon icon={IconArrowDown} size="sm" />}
+          onClick={() => {
+            onMove(index + 1);
+          }}
+        />
+      </Tooltip>
+      <Tooltip content={remove}>
+        <IconButton
+          label={remove}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconTrash} size="sm" />}
+          onClick={onRemove}
+        />
+      </Tooltip>
     </>
   );
 }
 
-/** One row of a question's options, levels or criteria, and the setter for the whole list. */
+/** One row of a question's options, levels, or criteria, and the setter for the whole list. */
 interface CriterionProps {
   question: DecisionQuestionDraft;
   row: DecisionQuestionDraft['criteria'][number];
@@ -6486,7 +6623,7 @@ function CriterionRow({ question, row, at, setCriteria }: CriterionProps) {
   );
 }
 
-/** A question's options, levels or criteria, and the button that adds one. */
+/** A question's options, levels, or criteria, and the button that adds one. */
 function CriteriaList({
   question,
   onChange,
@@ -6500,15 +6637,7 @@ function CriteriaList({
     onChange({ criteria });
   };
   return (
-    <VStack gap={2}>
-      <VStack gap={0}>
-        <Text type="supporting" weight="semibold" color="primary">
-          {copy.title}
-        </Text>
-        <Text type="supporting" color="secondary">
-          {copy.note}
-        </Text>
-      </VStack>
+    <InspectorSection title={copy.title} note={copy.note}>
       {question.criteria.map((row, at) => (
         <CriterionRow
           key={row.key}
@@ -6530,7 +6659,7 @@ function CriteriaList({
           }}
         />
       </HStack>
-    </VStack>
+    </InspectorSection>
   );
 }
 
@@ -6560,7 +6689,7 @@ function DecisionContractSection({ decision, set }: DecisionSectionProps) {
 function DecisionStateSection({ decision, set }: DecisionSectionProps) {
   const keys = useLentKeys();
   return (
-    <InspectorSection note={sectionNote('decision.state')}>
+    <InspectorSection>
       <NumberRow
         label="Max state"
         path="inputs.maxStateBytes"
@@ -6578,14 +6707,54 @@ function DecisionStateSection({ decision, set }: DecisionSectionProps) {
   );
 }
 
-/** A decision: the contract it answers to, how much state it takes, and the questions it asks of it. */
+type SetQuestions = (
+  change: (questions: DecisionQuestionDraft[]) => DecisionQuestionDraft[],
+) => void;
+
+/** The page for the question keyed `open`, or `undefined` when there is none or it is gone. */
+function openQuestionPage(
+  open: string | null,
+  questions: readonly DecisionQuestionDraft[],
+  setQuestions: SetQuestions,
+  onBack: () => void,
+): ReactNode {
+  const index = questions.findIndex((question) => question.key === open);
+  const question = questions[index];
+  if (!question) return undefined;
+  return (
+    <QuestionPage
+      question={question}
+      index={index}
+      count={questions.length}
+      onChange={(change) => {
+        setQuestions((all) => all.map((q) => (q.key === question.key ? { ...q, ...change } : q)));
+      }}
+      onMove={(to) => {
+        setQuestions((all) => {
+          const next = all.filter((q) => q.key !== question.key);
+          next.splice(to, 0, question);
+          return next;
+        });
+      }}
+      onRemove={() => {
+        setQuestions((all) => all.filter((q) => q.key !== question.key));
+        onBack();
+      }}
+      onBack={onBack}
+    />
+  );
+}
+
+/**
+ * A decision: the contract it answers to, how much state it takes, and the questions it asks of
+ * it, listed one to a line. A question opens its own page.
+ */
 function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { decision } = draft;
   const set = patch(setDraft, 'decision');
   const listStatus = useFieldStatus()('questions');
-  const setQuestions = (
-    change: (questions: DecisionQuestionDraft[]) => DecisionQuestionDraft[],
-  ) => {
+  const { open, show, frame } = usePageSwap<string>();
+  const setQuestions: SetQuestions = (change) => {
     setDraft((current) => ({
       ...current,
       decision: { ...current.decision, questions: change(current.decision.questions) },
@@ -6593,81 +6762,76 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
   };
   // A project's files hold the questions outside the profile: the studio shows them and says where.
   const inFiles = useRowOrigin('decision.questions');
-  const rows = (
-    <>
-      {decision.questions.map((question, index) => (
-        <DecisionQuestionEditor
-          key={question.key}
-          question={question}
-          index={index}
-          count={decision.questions.length}
-          onChange={(change) => {
-            setQuestions((questions) =>
-              questions.map((q) => (q.key === question.key ? { ...q, ...change } : q)),
-            );
-          }}
-          onMove={(to) => {
-            setQuestions((questions) => {
-              const next = questions.filter((q) => q.key !== question.key);
-              next.splice(to, 0, question);
-              return next;
-            });
-          }}
-          onRemove={() => {
-            setQuestions((questions) => questions.filter((q) => q.key !== question.key));
-          }}
-        />
-      ))}
-      <AddQuestionSection count={decision.questions.length} setDraft={setDraft} />
-    </>
-  );
-  return (
+  const inCode = (rows: ReactNode) =>
+    inFiles ? (
+      <SaidOrigin value={inFiles.origin}>
+        <SetInCode>{rows}</SetInCode>
+      </SaidOrigin>
+    ) : (
+      rows
+    );
+  const page = openQuestionPage(open, decision.questions, setQuestions, () => {
+    show(null);
+  });
+  if (page) return frame(open ?? '', inCode(page));
+  return frame(
+    'list',
     <>
       <DecisionContractSection decision={decision} set={set} />
       <DecisionStateSection decision={decision} set={set} />
       <InspectorSection title="Questions" note={sectionNote('decision.questions')}>
         {inFiles && !inFiles.said && <OriginLine origin={inFiles.origin} onOpen={inFiles.open} />}
         {listStatus && <Banner status="error" title={listStatus.message} />}
+        {inCode(
+          <>
+            {decision.questions.length > 0 && (
+              <QuestionList questions={decision.questions} onOpen={show} />
+            )}
+            <AddQuestionButton draft={draft} setDraft={setDraft} onOpen={show} />
+          </>,
+        )}
       </InspectorSection>
-      {inFiles ? (
-        <SaidOrigin value={inFiles.origin}>
-          <SetInCode>{rows}</SetInCode>
-        </SaidOrigin>
-      ) : (
-        rows
-      )}
-    </>
+    </>,
   );
 }
 
-/** Adds a question, up to the most a decision takes on lent keys. */
-function AddQuestionSection({ count, setDraft }: { count: number; setDraft: SetDraft }) {
+/** Adds a question and opens its page, up to the most a decision takes on lent keys. */
+function AddQuestionButton({
+  draft,
+  setDraft,
+  onOpen,
+}: {
+  draft: StudioDraft;
+  setDraft: SetDraft;
+  onOpen: (key: string) => void;
+}) {
   const keys = useLentKeys();
+  const count = draft.decision.questions.length;
   return (
-    <Section variant="transparent" padding={3}>
-      <HStack>
-        <Button
-          label="Add question"
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={IconPlus} size="sm" />}
-          isDisabled={count >= (keys?.decision.questions ?? Infinity)}
-          onClick={() => {
-            setDraft((current) => ({
-              ...current,
-              decision: {
-                ...current.decision,
-                questions: [...current.decision.questions, newDecisionQuestion(current)],
-              },
-            }));
-          }}
-        />
-      </HStack>
-    </Section>
+    <HStack>
+      <Button
+        label="Add question"
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={IconPlus} size="sm" />}
+        isDisabled={count >= (keys?.decision.questions ?? Infinity)}
+        onClick={() => {
+          const question = newDecisionQuestion(draft);
+          setDraft((current) => ({
+            ...current,
+            decision: {
+              ...current.decision,
+              questions: [...current.decision.questions, question],
+            },
+          }));
+          onOpen(question.key);
+        }}
+      />
+    </HStack>
   );
 }
 
-/** The editor for a node's facet: one per section of the profile, model and tool. */
+/** The editor for a node's facet: one per section of the profile, model, and tool. */
 function facetEditor(
   ref: NonNullable<ReturnType<typeof studioNodeRef>>,
   draft: StudioDraft,

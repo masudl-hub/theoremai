@@ -69,7 +69,7 @@ interface TraceOptionMeta {
   doc: string;
 }
 
-/** What the catalog says about a span attribute: its label, description and format. */
+/** What the catalog says about a span attribute: its label, description, and format. */
 interface TraceAttributeMeta {
   label: string;
   doc: string;
@@ -82,7 +82,7 @@ interface TraceAttributeMeta {
   fields?: Readonly<Record<string, TraceAttributeMeta>>;
 }
 
-/** What the catalog says about a span event: its label, description and keys. */
+/** What the catalog says about a span event: its label, description, and keys. */
 interface TraceEventMeta {
   label: string;
   doc: string;
@@ -103,7 +103,7 @@ type TraceSpanType =
   | 'evaluation'
   | 'host';
 
-/** `subject` is the thing the span acted on (the model, tool or agent), when it names one. */
+/** `subject` is the thing the span acted on (the model, tool, or agent), when it names one. */
 interface TraceSpanMeta {
   type: TraceSpanType;
   label: string;
@@ -174,7 +174,7 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
   },
   gate: {
     label: 'Waiting for approval',
-    doc: 'A tool call needs confirmation, permission or sign-in before it runs; the host resumes it.',
+    doc: 'A tool call needs confirmation, permission, or sign-in before it runs; the host resumes it.',
   },
   filtered: {
     label: 'Filtered',
@@ -243,10 +243,10 @@ const TOOL_OUTCOMES: Readonly<
 > = {
   ok: { label: 'Succeeded', doc: 'The tool ran and returned a result.' },
   error: { label: 'Failed', doc: 'The tool ran and failed, or could not run.' },
-  denied: { label: 'Denied', doc: 'A guardrail, a hook or the user refused the call.' },
+  denied: { label: 'Denied', doc: 'A guardrail, a hook, or the user refused the call.' },
   gated: {
     label: 'Waiting for approval',
-    doc: 'The call needs confirmation, permission or sign-in; it has not run.',
+    doc: 'The call needs confirmation, permission, or sign-in; it has not run.',
   },
   paused: { label: 'Paused', doc: 'The call was handed back to the host to finish.' },
   cancelled: { label: 'Cancelled', doc: 'The turn was stopped before the call settled.' },
@@ -389,7 +389,7 @@ const GUARDRAIL_STAGE_OPTIONS: Readonly<Record<GuardrailStage, TraceOptionMeta>>
 const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> = {
   'detect.ids': {
     label: 'IDs',
-    doc: 'A US SSN, ITIN or EIN number. The decision names the boundary it was crossing and what was done with it.',
+    doc: 'A US SSN, ITIN, or EIN number. The decision names the boundary it was crossing and what was done with it.',
   },
   'detect.financial': {
     label: 'Financial',
@@ -401,7 +401,7 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   },
   'detect.credentials': {
     label: 'Credentials',
-    doc: 'An API key, token, password assignment or private key. The decision names the boundary it was crossing and what was done with it.',
+    doc: 'An API key, token, password assignment, or private key. The decision names the boundary it was crossing and what was done with it.',
   },
   'detect.injection': {
     label: 'Injection',
@@ -457,7 +457,7 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   },
   'network.blocked': {
     label: 'Address blocked',
-    doc: 'A tool tried to reach a private, local or disallowed address. The request was never made.',
+    doc: 'A tool tried to reach a private, local, or disallowed address. The request was never made.',
   },
 };
 
@@ -557,7 +557,7 @@ const COMPACTION_METER_OPTIONS: Readonly<Record<CompactionMeter, TraceOptionMeta
   history: { label: 'History', doc: 'Counts tokens across earlier turns.' },
   input: {
     label: 'Whole input',
-    doc: "Counts the turn's whole input: instructions, history and attachments.",
+    doc: "Counts the turn's whole input: instructions, history, and attachments.",
   },
 };
 
@@ -1161,13 +1161,19 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'decision',
     'Questions',
     'json',
-    'Each question by id: its kind, instructions and criteria.',
+    'Each question by id: its kind, instructions, and criteria.',
+  ),
+  'theorem.decision.assets': attr(
+    'decision',
+    'Images',
+    'json',
+    'Each image by reference: its type and size. The image itself is never recorded.',
   ),
   'theorem.decision.answers': attr(
     'decision',
     'Answers',
     'json',
-    'Each answer by question id: the choice or score, its confidence and probabilities.',
+    'Each answer by question id: the choice, score, number or box, its confidence, and probabilities.',
   ),
 
   'gen_ai.evaluation.name': attr(
@@ -1291,7 +1297,7 @@ function traceAttributeMeta(key: string): TraceAttributeMeta | undefined {
       'http',
       `${capitalize(direction)} header ${name}`,
       'list',
-      `The ${direction} header, as sent. A key, auth, cookie, secret or token header is [redacted].`,
+      `The ${direction} header, as sent. A key, auth, cookie, secret, or token header is [redacted].`,
     );
   }
   return undefined;
@@ -1686,7 +1692,7 @@ function withSubject(type: TraceSpanType, subject: string | undefined): TraceSpa
   return subject ? { ...meta, subject } : meta;
 }
 
-/** The label, subject and description to show for a span. */
+/** The label, subject, and description to show for a span. */
 function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
   switch (stringAttribute(span, 'gen_ai.operation.name')) {
     case 'invoke_agent':

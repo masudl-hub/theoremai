@@ -249,10 +249,10 @@ export function createStudioDecisionTransport(
       Promise.resolve(
         decisionInterface(defineProfile(payload.profile) as DecisionProfile, questions),
       ),
-    decide: (state, signal) =>
+    decide: (state, signal, assets) =>
       postDecision(
         '/api/studio/decide',
-        { profile: payload.profile, questions, state },
+        { profile: payload.profile, questions, state, ...(assets ? { assets } : {}) },
         signal,
         options,
       ),

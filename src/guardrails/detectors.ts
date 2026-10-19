@@ -1,4 +1,4 @@
-// invariant: Imports the boundary vocabulary, the sensitive groups and the host's patterns only:
+// invariant: Imports the boundary vocabulary, the sensitive groups, and the host's patterns only:
 // nothing from `src/guardrails/types.ts` or `src/kernel/`, so `types.ts` can read these types
 // without a cycle.
 
@@ -40,7 +40,7 @@ const DETECTORS = [
   'ungiven_links',
   'tool_leak',
 ] as const;
-/** One of {@linkcode DETECTORS}. */
+/** A detector recognizes a particular kind of content in text. Its configured action determines what happens when it finds a match. */
 type Detector = (typeof DETECTORS)[number];
 
 /**
@@ -48,7 +48,7 @@ type Detector = (typeof DETECTORS)[number];
  * - `ignore` — the text is not checked.
  * - `flag` — the match is recorded in the trace; nothing changes.
  * - `redact` — the match is replaced with a placeholder; the rest is kept.
- * - `block` — the whole message, reply or tool call is stopped.
+ * - `block` — the whole message, reply, or tool call is stopped.
  */
 const DETECT_ACTIONS = ['ignore', 'flag', 'redact', 'block'] as const;
 /** One of {@linkcode DETECT_ACTIONS}. */
@@ -61,7 +61,7 @@ interface UrlAllow {
   /**
    * Whether a URL a tool returned counts as given. Default true. A tool result can offer the
    * model URLs to pick from, and the pick tells their server something; false closes that
-   * channel, and keeps only what the system prompt, the user and host history gave.
+   * channel, and keeps only what the system prompt, the user, and host history gave.
    */
   fromTools?: boolean;
 }
@@ -122,7 +122,7 @@ interface HostSpan {
 type HostFind = (text: string, context: { boundary?: Boundary }) => readonly HostSpan[];
 
 /**
- * A detector of the host's own, under a key with a dot. It reads with `patterns`, `find` or both,
+ * A detector of the host's own, under a key with a dot. It reads with `patterns`, `find`, or both,
  * and has no default: it reads the boundaries `action` and `at` put above `ignore`.
  */
 interface HostDetectorConfig {
@@ -174,7 +174,7 @@ const HOST_FIND_HOLD = 256;
 /** The same in a Live reply, which is spoken as it is written. */
 const HOST_FIND_HOLD_LIVE = 96;
 
-/** Whose patterns a detector reads with: Theorem's, the host's, both or neither. */
+/** Whose patterns a detector reads with: Theorem's, the host's, both, or neither. */
 interface DetectorSource {
   /** Whether Theorem's own patterns run. */
   theorem: boolean;
@@ -204,7 +204,7 @@ type ResolvedDetect = DetectMatrix & {
   readonly host?: readonly HostDetector[];
 };
 
-/** How a detector, a group or an action is named and described to a builder. */
+/** How a detector, a group, or an action is named and described to a builder. */
 interface DetectMeta {
   label: string;
   doc: string;
@@ -275,7 +275,7 @@ function leaving(toTool: DetectAction, said: DetectAction, thought: DetectAction
   };
 }
 
-/** What a tool returns, its output and its error text: `remote` from a tool the host did not write, `local` from a function. */
+/** What a tool returns, its output, and its error text: `remote` from a tool the host did not write, `local` from a function. */
 function returned(remote: DetectAction, local: DetectAction): BoundaryActions {
   const crossings = ['tool_output', 'tool_failure'] as const;
   return Object.fromEntries(
@@ -293,11 +293,11 @@ function shown(said: DetectAction, thought: DetectAction): BoundaryActions {
   return { reply: said, reply_structured: said, live_reply: said, thought };
 }
 
-/** Every detector's declaration. The editor, validation and the catalog are built from it. */
+/** Every detector's declaration. The editor, validation, and the catalog are built from it. */
 const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   ids: {
     label: 'IDs',
-    doc: 'US SSN, ITIN and EIN numbers.',
+    doc: 'US SSN, ITIN, and EIN numbers.',
     group: 'data',
     defaults: everywhere('flag'),
     patterns: true,
@@ -318,7 +318,7 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   },
   credentials: {
     label: 'Credentials',
-    doc: 'API keys, tokens, passwords and private keys.',
+    doc: 'API keys, tokens, passwords, and private keys.',
     group: 'data',
     // why: A key the model was handed (in its instructions or a tool's output) is a key the person
     // reading the reply should not get, nor one a tool returned; the rest still shows. A thought and
@@ -414,7 +414,7 @@ const DETECT_ACTION_META: Readonly<Record<DetectAction, DetectMeta>> = {
   },
   block: {
     label: 'Block',
-    doc: 'Stops the whole message, reply or tool call. None of it gets through.',
+    doc: 'Stops the whole message, reply, or tool call. None of it gets through.',
   },
 };
 
@@ -602,7 +602,7 @@ function namesProblem(path: string, allow: Record<string, unknown>): string | un
     : `${path}.names lists ${JSON.stringify(bad)}, which is not a name`;
 }
 
-/** A hostname is all an allowed host is: a scheme, port or path would never match one. */
+/** A hostname is all an allowed host is: a scheme, port, or path would never match one. */
 function allowProblem(path: string, allow: unknown, detector: Detector): string | undefined {
   if (allow === undefined) return undefined;
   const lists = DETECTOR_META[detector].allow;
@@ -651,7 +651,7 @@ function ruleProblem(
   );
 }
 
-/** `theorem`, `patterns` and `compiled`: settings of a detector that reads with patterns. */
+/** `theorem`, `patterns`, and `compiled`: settings of a detector that reads with patterns. */
 function sourceProblem(
   path: string,
   rule: Record<string, unknown>,

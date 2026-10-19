@@ -216,3 +216,89 @@ Deno.test('the turn handler refuses a decision profile and names the decision ha
     'createTheoremDecisionHandler',
   );
 });
+
+const PNG = 'iVBORw0KGgo=';
+const boxReply = {
+  model: 'jev-1.14.0',
+  answers: {
+    where: { type: 'box', box: { top: 0.1, bottom: 0.6, left: 0.2, right: 0.5 }, confidence: 0.9 },
+  },
+  usage: { input_tokens: 1000, output_tokens: 5 },
+};
+
+Deno.test('POST carries the posted images to the model and answers a box', async () => {
+  const seen: { body: Record<string, unknown>; headers: Headers }[] = [];
+  const fetch: typeof globalThis.fetch = (_url, init) => {
+    seen.push({
+      body: JSON.parse(String(init?.body)),
+      headers: new Headers(init?.headers),
+    });
+    return Promise.resolve(Response.json(boxReply));
+  };
+  const base = profile('decision-handler-box');
+  const handler = createTheoremDecisionHandler({
+    profile: {
+      ...base,
+      models: {
+        jev: {
+          protocol: 'systemOne',
+          provider: 'typesafe',
+          apiId: 'jev-1.14.0',
+          timeoutMs: 1000,
+          options: { images: true },
+        },
+      },
+    },
+    questions: { where: { type: 'box', instructions: 'Box the lemon.' } },
+    vault: { slot_a: 'k' },
+    fetch,
+  });
+  const response = await handler(
+    new Request(`${BASE}/decide`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        state: { shelf: 'photo' },
+        assets: { photo: { mimeType: 'image/png', data: PNG } },
+      }),
+    }),
+  );
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).result.answers.where.type, 'box');
+  assertEquals(seen[0].headers.get('TypeSafe-Danger-Zone-Images'), 'true');
+  assertEquals(seen[0].body.assets, { photo: { type: 'image', format: 'png', data_base64: PNG } });
+});
+
+Deno.test('POST refuses a posted image that is not PNG or JPEG bytes, before any request', async () => {
+  const model = jev();
+  const base = profile('decision-handler-bad-image');
+  const handler = createTheoremDecisionHandler({
+    profile: {
+      ...base,
+      models: {
+        jev: {
+          protocol: 'systemOne',
+          provider: 'typesafe',
+          apiId: 'jev-1.14.0',
+          timeoutMs: 1000,
+          options: { images: true },
+        },
+      },
+    },
+    questions: { where: { type: 'box', instructions: 'Box the lemon.' } },
+    vault: { slot_a: 'k' },
+    fetch: model.fetch,
+  });
+  const response = await handler(
+    new Request(`${BASE}/decide`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        state: { shelf: 'photo' },
+        assets: { photo: { mimeType: 'image/gif', data: PNG } },
+      }),
+    }),
+  );
+  assertEquals(response.ok, false);
+  assertEquals(model.calls.length, 0);
+});

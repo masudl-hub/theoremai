@@ -1,4 +1,4 @@
-# Protocols, providers and models: the shape before publish
+# Protocols, providers, and models: the shape before publish
 
 Status: proposal, 16 Oct 2026. Nothing here is built. It replaces the provider layer the audit
 (`theoremai-frontend/tmp/providers-audit.md`) and the code sweep of 16 Oct found:
@@ -11,15 +11,15 @@ Status: proposal, 16 Oct 2026. Nothing here is built. It replaces the provider l
 - OpenRouter's extras inside the "generic" OpenAI code;
 - options that do nothing.
 
-The question it answers: **how does someone plug any protocol, provider or model into Theorem, and have it
+The question it answers: **how does someone plug any protocol, provider, or model into Theorem, and have it
 just work?** The rule throughout: **each concept has one owner, and everything else reads it.**
 
 ## Invariants
 
-1. **Three layers.** Every model binding names a `protocol`, a `provider` and an `apiId`.
+1. **Three layers.** Every model binding names a `protocol`, a `provider`, and an `apiId`.
 2. **A protocol owns everything on the wire.** Framing, decoding, typed errors, options, extras,
-   reasoning, tool-call ids and the path for each profile type. A service whose wire differs gets its
-   own protocol, extended from a base one. A protocol never sees a key, a slot or a base URL.
+   reasoning, tool-call ids, and the path for each profile type. A service whose wire differs gets its
+   own protocol, extended from a base one. A protocol never sees a key, a slot, or a base URL.
 3. **A provider is where and who, nothing more.** Where a service is, how to sign in, its headers,
    key slots and prices, and which protocols it serves. It is data plus one sign-in function; it
    can't change a request or read a reply.
@@ -38,7 +38,7 @@ just work?** The rule throughout: **each concept has one owner, and everything e
    custom parts each have a schema declared by the protocol that writes them, are checked when
    written and read, and are keyed by that protocol's id, written by the kernel. They go back to that
    protocol and the protocols extended from it.
-9. **Only the kernel retries:** transient failures, one fallback key and one sign-in refresh, all
+9. **Only the kernel retries:** transient failures, one fallback key, and one sign-in refresh, all
    before the first event.
 10. **Theorem owns ids.** The kernel mints tool-call ids; protocols translate them.
 11. **One owner per concept.** Lists of names are read from what's registered, never written twice.
@@ -66,7 +66,7 @@ refusal comes back as a typed error.
 **Why the protocol is on the binding.** One provider serves several shapes on the same profile type.
 Vertex serves Gemini (`generateContent` / Interactions), Claude (Anthropic Messages, through
 `:rawPredict`) and open models (Chat Completions) all as text. OpenRouter serves Chat Completions,
-Responses, Anthropic Messages, its own `/images` and System One. Without a model catalog, only the
+Responses, Anthropic Messages, its own `/images`, and System One. Without a model catalog, only the
 binding can say which shape a model is spoken in.
 
 ## 2. The door: a profile's `models`
@@ -79,7 +79,7 @@ const modelBindingSchema = z.strictObject({
   protocol: z.string().min(1)
     .describe('The API shape this model is spoken to in.'),
   provider: z.string().min(1)
-    .describe('The registered provider that serves this model.'),
+    .describe('The service that runs the model or routes requests to one, such as Gemini or OpenRouter. Its registration supplies the endpoint and authentication.'),
   apiId: z.string().min(1)
     .describe('The id the provider knows the model by.'),
 
@@ -152,12 +152,12 @@ There are three checks. Each happens once, at the earliest point that has what i
 - the two key slots are the same;
 - the provider's sign-in needs WebSocket headers on a runtime that can't send them.
 
-That is all. It does not check the model, its built-in tools or its efforts against any list.
+That is all. It does not check the model, its built-in tools, or its efforts against any list.
 
 It returns the parsed binding and changes nothing in place. Today `validateProviderModel` writes
 `binding.providerOptions` back.
 
-Removed from `defineProfile`: the loop that refuses `key`, `fallbackKey`, `protocol` and `provider`
+Removed from `defineProfile`: the loop that refuses `key`, `fallbackKey`, `protocol`, and `provider`
 at the top level, and the `Omit<…>` in `ProviderModelSettings`. Both exist only to catch an old
 shape.
 
@@ -197,7 +197,7 @@ function defineProtocol<O, S>(definition: ProtocolDefinition<O, S>): Protocol<O,
 const openRouter = extendProtocol(openAi, {
   id: 'openRouter',
   name: 'OpenRouter Chat Completions',
-  description: 'Chat Completions with OpenRouter\'s caching, routing, web search, cost and reasoning.',
+  description: 'Chat Completions with OpenRouter\'s caching, routing, web search, cost, and reasoning.',
   options: z.strictObject({ cacheControl, sessionId, requireParameters }),  // added to openAi's
   reasoning: reasoningDetails,
   custom: { citations },
@@ -211,7 +211,7 @@ const openRouter = extendProtocol(openAi, {
 - Its options are the base's plus its own. A field the base already has is refused when the protocol
   is extended. The cost: a base adding a field an extension already uses is a breaking change for
   that extension. First-party protocols ship together, so our own tests catch it before release.
-- Its endpoints, `framing` and `callId` are the base's unless it gives its own.
+- Its endpoints, `framing`, and `callId` are the base's unless it gives its own.
 - `read` sees every reply row before the base: it may emit events (citations, cost, its own error
   rows, the reasoning it adds up) and may take a row so the base never parses it.
 - It is how a builder tries a new upstream field: a few typed lines, under a new id.
@@ -227,7 +227,7 @@ The first-party endpoint table:
 | `openRouterImages` | | `/images` | | | |
 | `systemOne` | | | | | `/systemone` |
 
-- Gemini Interactions uses one path for text, image and speech; only the body differs. The OpenAI
+- Gemini Interactions uses one path for text, image, and speech; only the body differs. The OpenAI
   shape uses a path per type. The table holds both.
 - `openRouterImages` is its own protocol: OpenRouter's `/images` body (`aspect_ratio`,
   `input_references`, `resolution`) is not OpenAI's images API. When an image profile also wants
@@ -240,7 +240,7 @@ The first-party endpoint table:
   place the URL itself (`url`), as Vertex `:streamRawPredict` and Bedrock do: that is location, not
   shape.
 - The kernel passes the profile type in. Protocol code stops choosing its endpoint from `req.speech`,
-  `req.image`, `apiId.includes('live')` or `apiId.startsWith('openai/')`.
+  `req.image`, `apiId.includes('live')`, or `apiId.startsWith('openai/')`.
 
 **What the kernel hands a protocol, and what it hands back.**
 
@@ -253,7 +253,7 @@ interface ProtocolContext<O, S> {
   signal?: AbortSignal;
 
   /** Posts to this profile type's endpoint on the provider and yields the reply's rows, decoded by
-   *  the protocol's `framing`. The provider's URL, headers and sign-in are applied on the way out. */
+   *  the protocol's `framing`. The provider's URL, headers, and sign-in are applied on the way out. */
   send(body: JsonObject, init: { stream: boolean; path?: string; headers?: Record<string, string> }):
     AsyncIterable<JsonObject>;
   /** Opens this profile type's WebSocket on the provider, signed in the same way. */
@@ -268,7 +268,7 @@ interface ProtocolOperations<S> {
 }
 ```
 
-- A protocol never sees a key, a slot name or a base URL. `send` and `connect` carry them.
+- A protocol never sees a key, a slot name, or a base URL. `send` and `connect` carry them.
 - **Built-in tools have one writer.** The protocol writes the `builtInTools` ids its shape defines
   (Interactions puts `googleSearch` in `tools`; Live puts it in the setup frame; `openRouter` writes
   `webSearch` as `web_search_options`). It reports the ids it wrote, so no list is declared anywhere;
@@ -282,7 +282,7 @@ interface ProtocolOperations<S> {
   another.
 - Errors are typed: a protocol maps its error envelope to `TheoremError` kinds (`quota`, `auth`,
   `transient`, …). It does not retry.
-- `TurnRequest`, `LiveSession` and `TurnEvent` are today's `ProviderTurnRequest`,
+- `TurnRequest`, `LiveSession`, and `TurnEvent` are today's `ProviderTurnRequest`,
   `ProviderLiveConnection` and `ProviderModelEvent`, renamed. The request loses its vendor fields
   (`previousInteractionId`, `store`, `continuation`, `sessionId`): those are options or continuation.
 - A call's cost: the protocol reads it from the reply when the upstream reports one (`openRouter`
@@ -530,8 +530,8 @@ extra with a schema.
 2. Protocols: `openAi` first (one loop, from the two), then `openRouter` extended from it, then
    `geminiInteractions`, `geminiLive`, `openRouterImages`, `systemOne`.
 3. Providers: `gemini`, `openrouter`, `typesafe`, `local`, as data.
-4. Delete section 9, and update `docs/contracts/providers.md`, README and the catalog.
-5. Studio: read names, descriptions, endpoints and option rows from what's registered, and fix
+4. Delete section 9, and update `docs/contracts/providers.md`, README, and the catalog.
+5. Studio: read names, descriptions, endpoints, and option rows from what's registered, and fix
    C17 / C21 / C22.
 
 Coordinate with the host/live session before editing `src/kernel/mod.ts`, `schema.ts` and
@@ -546,7 +546,7 @@ Decided on 16 Oct: protocol → provider → model; the protocol owns the path p
 Also decided on 16 Oct: a provider is where and who only (location, sign-in, headers, key slots,
 prices, which protocols it serves). Every difference on the wire is a protocol, extended from a base
 where it nearly matches one. This removes the provider's `body`, `decode`, `open`, `callId`,
-`options`, `state`, `extras` and `custom`, and `extendProvider`.
+`options`, `state`, `extras`, and `custom`, and `extendProvider`.
 
 Also decided on 16 Oct: switching provider or model mid-conversation always works; `onMismatch`
 goes; `history: 'provider'` stays, and the host carries the conversation across a switch.
@@ -554,7 +554,7 @@ goes; `history: 'provider'` stays, and the host carries the conversation across 
 Decided on 16 Oct, the two model facts the kernel kept:
 
 1. **Media token counts for compaction are dropped.** Compaction uses the generic estimate for
-   images, audio and video. The upstream usually returns the real count, so a hand-kept table per
+   images, audio, and video. The upstream usually returns the real count, so a hand-kept table per
    model family isn't worth maintaining. `presets/google/media-tokens.ts`, `MediaTokenFamily`,
    `mediaTokenFamily` and `PROVIDER_FACTS.mediaFamily` go.
 2. **Prices are kept where the API returns no cost.** TypeSafe's Jev price stays as it is, moved

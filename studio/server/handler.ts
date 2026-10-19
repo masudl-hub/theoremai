@@ -566,13 +566,20 @@ const CRITERIA = new Map<unknown, { fits: (criteria: unknown) => boolean; fault:
       fault: 'has criteria that are not an object',
     },
   ],
+  [
+    'box',
+    {
+      fits: (criteria) => criteria === undefined,
+      fault: 'has criteria, and a box takes none',
+    },
+  ],
 ]);
 
 /** What is wrong with one question as the setup wrote it, or nothing. */
 function questionFault(question: unknown): string | undefined {
   if (!isRecord(question)) return 'is not a question';
   const kind = CRITERIA.get(question.type);
-  if (!kind) return "needs a type: 'choice', 'noul', or 'score'";
+  if (!kind) return "needs a type: 'choice', 'noul', 'score', or 'box'";
   if (question.instructions === undefined) return 'needs instructions';
   return kind.fits(question.criteria) ? undefined : kind.fault;
 }

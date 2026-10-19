@@ -27,7 +27,7 @@ type AgentRun =
   | { output: AgentToolOutput; tokens?: TurnTokens }
   | { failure: ToolFailure; tokens?: TurnTokens };
 
-/** Runs agent tool calls for one turn, which supplies the scope, provider and hook. */
+/** Runs agent tool calls for one turn, which supplies the scope, provider, and hook. */
 interface AgentCaller {
   run(call: {
     tool: RegisteredAgentTool;
@@ -188,7 +188,7 @@ function toolCanGate(tool: RegisteredTool): boolean {
   if (tool.type === 'builtin') return false;
   if (tool.permission !== 'auto') return true;
   return (
-    'auth' in tool && tool.auth !== undefined && tool.auth.onUnauthenticated !== 'report_to_model'
+    'auth' in tool && tool.auth !== undefined && (tool.auth.onUnauthenticated ?? 'gate') === 'gate'
   );
 }
 
@@ -198,7 +198,7 @@ function agentProfileProblem(
   find: (name: string) => RegisteredTool | undefined,
 ): string | undefined {
   if (!AGENT_TOOL_TYPES.has(profile.type)) {
-    return `it is a ${profile.type} profile; an agent tool runs a text, image or speech profile`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    return `it is a ${profile.type} profile; an agent tool runs a text, image, or speech profile`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   if (!profileTakesText(profile)) return 'it does not take text'; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   for (const id of profileToolAllow(profile)) {
@@ -247,7 +247,7 @@ function agentToolOrigin(profile: Profile | undefined): ToolOrigin {
 }
 
 /**
- * The called agent's reply: its text or its last structured reply, its media as parts and what it cited.
+ * The called agent's reply: its text or its last structured reply, its media as parts, and what it cited.
  *
  * why: A structured reply's text is the same JSON as a string, so returning both would have the caller's model read the answer twice.
  */

@@ -4,16 +4,27 @@ import { useMemo } from 'react';
 import { createBrowserStudioDecisionTransport, type StudioBrowserRuntime } from '../browser.ts';
 import {
   createStudioDecisionTransport,
+  DECISION_EXAMPLE_AGENT_ID,
+  DECISION_EXAMPLE_ASSETS,
+  DECISION_EXAMPLE_STATE,
   EXAMPLE_DECISION_STATE,
   EXAMPLE_SPAN_DECISION_STATE,
   type StudioRunPayload,
 } from '../mod.ts';
 import { noting } from './lib/studio-activity.ts';
 
-/** The state a decision's form starts with: an example its model can be asked about. */
-export function decisionSeed(profile: StudioRunPayload['profile']) {
+/** What a decision's form starts with: an example its model can be asked about, and the pictures the example names. */
+export function decisionSeed(payload: StudioRunPayload) {
+  if (payload.agentId === DECISION_EXAMPLE_AGENT_ID) {
+    return { defaultState: DECISION_EXAMPLE_STATE, defaultImages: { ...DECISION_EXAMPLE_ASSETS } };
+  }
+  const { profile } = payload;
   const model = profile.type === 'decision' ? Object.values(profile.models)[0] : undefined;
-  return model?.apiId.startsWith('respan/') ? EXAMPLE_SPAN_DECISION_STATE : EXAMPLE_DECISION_STATE;
+  return {
+    defaultState: model?.apiId.startsWith('respan/')
+      ? EXAMPLE_SPAN_DECISION_STATE
+      : EXAMPLE_DECISION_STATE,
+  };
 }
 
 /** What the builder preview and the standalone run tab hand a one-call console. */
@@ -59,7 +70,7 @@ export function StudioDecision(props: StudioConsoleProps) {
   return (
     <TheoremDecision
       transport={transport}
-      defaultState={decisionSeed(props.payload.profile)}
+      {...decisionSeed(props.payload)}
       trace={props.trace}
       flush={props.flush}
       columns={props.columns}

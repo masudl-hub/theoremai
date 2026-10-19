@@ -11,7 +11,7 @@ Define an agent once. Get the server and the user interface from the same defini
 In Theorem, you write an agent as a **profile** (see [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents)). The profile states:
 
 - which models the agent can use
-- what the agent accepts: text, images, files or voice
+- what the agent accepts: text, images, files, or voice
 - which tools the agent can call
 - what the agent must return
 - how the kernel guards each input and output
@@ -42,9 +42,11 @@ This package uses the same profile on both sides.
 
 Edit the profile, and both sides change. You do not write the UI code again.
 
+When a profile records traces, the chat offers a floating trace toggle. Opening the trace uses the same toggle to close it, with a selected appearance. When the trace replaces the chat, its pane has equal padding on all sides.
+
 The package has three parts:
 
-- A ready-made chat, voice call, host console and decision form. They are built on [Astryx](https://www.npmjs.com/package/@astryxdesign/core).
+- A ready-made chat, voice call, host console, and decision form. They are built on [Astryx](https://www.npmjs.com/package/@astryxdesign/core).
 - Hooks and a transport, for your own UI.
 - A server handler. It takes a Web `Request` and returns a `Response`.
 
@@ -62,9 +64,9 @@ npm install @astryxdesign/core @stylexjs/stylex
 
 To build your own theme from the Theorem theme (`/ui/theme`), also install `@astryxdesign/theme-neutral`.
 
-Use the versions that this package lists in `peerDependencies`. The Astryx and StyleX peers are optional. The hooks, the client and the server handler work without them.
+Use the versions that this package lists in `peerDependencies`. The Astryx and StyleX peers are optional. The hooks, the client, and the server handler work without them.
 
-When a chat turn, a call, a host request or a decision fails, the ready-made UI shows the error in a banner that screen readers announce at once. The end of a live call is announced when the reader is next idle.
+When a chat turn, a call, a host request, or a decision fails, the ready-made UI shows the error in a banner that screen readers announce at once. The end of a live call is announced when the reader is next idle.
 
 Requirements:
 
@@ -112,7 +114,7 @@ The memory store keeps each conversation in process memory. For other stores, se
 
 ### 2. Mount the handler
 
-`createTheoremHandler` returns a function: `(request: Request) => Promise<Response>`. It works in Workers, Deno, Bun, Hono and Next route handlers. In Node, use an adapter.
+`createTheoremHandler` returns a function: `(request: Request) => Promise<Response>`. It works in Workers, Deno, Bun, Hono, and Next route handlers. In Node, use an adapter.
 
 Send all requests under one path to the handler. The default path is `/api/theorem`.
 
@@ -136,14 +138,14 @@ export function App() {
 }
 ```
 
-The profile, the keys and the system prompt stay on the server. The browser receives only the interface of the profile: the models, the inputs, the tool names and the wording. The handler removes the system prompt from this description.
+The profile, the keys, and the system prompt stay on the server. The browser receives only the interface of the profile: the models, the inputs, the tool names, and the wording. The handler removes the system prompt from this description.
 
 ## Entry points
 
 | Import | Content |
 | --- | --- |
-| `@theoremjs/react` | Hooks, transports and client logic |
-| `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision`, `TheoremEmbedding` and their parts |
+| `@theoremjs/react` | Hooks, transports, and client logic |
+| `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision`, `TheoremEmbedding`, and their parts |
 | `@theoremjs/react/live` | `LiveRunner`, the voice and video call UI |
 | `@theoremjs/react/server` | The handlers and the stores they use |
 | `@theoremjs/react/ui/theme` | `theoremTheme`, the base for your own Astryx theme |
@@ -159,7 +161,7 @@ The profile, the keys and the system prompt stay on the server. The browser rece
 | `endpoint` | The path where the handler is mounted. Default: `/api/theorem`. |
 | `http` | Fetch options for the default transport, such as auth headers or a custom `fetch`. |
 | `transport` | Your own transport, instead of `endpoint`. Use it for tests or for hosts that do not use HTTP. |
-| `theme`, `mode` | An Astryx theme, and `'system'`, `'light'` or `'dark'`. Without `theme`, the chat uses your theme or the Theorem theme. |
+| `theme`, `mode` | An Astryx theme, and `'system'`, `'light'`, or `'dark'`. Without `theme`, the chat uses your theme or the Theorem theme. |
 | `labels` | Replacement text for each locale. See [Wording](#wording). |
 | `placeholder`, `emptyState` | The composer placeholder, and the content above the composer before the first message. |
 | `density`, `maxWidth`, `className`, `style` | Layout. `maxWidth` is a CSS length. Default: half of the chat width, or the full width on a narrow screen. |
@@ -196,7 +198,7 @@ A profile whose `providerContinuation.history` is `'stateless'` keeps no convers
 
 ### Send a message from your code
 
-`chatRef` gives you `send(text)`. It sends the text as the user. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
+`chatRef` gives you `send(text, files?)`. It sends the text and optional array of browser files as the user. Files use the same profile validation and encoding as composer attachments. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
 `chatRef` also gives you `stop()`. It stops the reply that streams, as the composer's stop button does.
 
 ```tsx
@@ -218,7 +220,7 @@ The chat shows each gate as a card in the transcript. When the person answers, t
 
 The server saves a typed key. The browser does not keep it. For OAuth and typed keys, see [Tool credentials](https://github.com/masudl-hub/theoremai/blob/main/react/docs/credentials.md). For the data that each answer sends, see [The wire](https://github.com/masudl-hub/theoremai/blob/main/react/docs/wire.md).
 
-If the person sends a new message while a gate is open, the server cancels the open calls. The message names only the calls it cancels. The server reads each call from the reply it saved, not from the browser. The reply to the new message follows in the same stream. See [Composer, queue and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md).
+If the person sends a new message while a gate is open, the server cancels the open calls. The message names only the calls it cancels. The server reads each call from the reply it saved, not from the browser. The reply to the new message follows in the same stream. See [Composer, queue, and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md).
 
 ## Other profile types
 
@@ -272,7 +274,11 @@ Under the state, `TheoremDecision` shows the shortcut that asks for a decision, 
 
 In one column, the state sits in the middle of the page until you ask for a decision. It then eases up to the top, and the answers appear under it. With `columns`, the state moves to the left instead and the answers fill the right.
 
-For your own UI, use `useTheoremDecision`.
+A profile whose model takes images (`images: true`, see the TypeSafe options in `docs/contracts/providers.md`) shows an **Attach image** button when a question is a box. Each attached PNG or JPEG gets a reference: its file name in angle brackets, such as `<pantry_shelf>`. Write the reference wherever the image belongs. A state field whose whole value is a reference shows the image beside it. Each image that no field shows appears as a chip under the state. It can be a state value, such as `{ "photo": "<pantry_shelf>" }`, or part of a question, such as "Which jar in `photo` matches <union_jack>?". TypeSafe reads a reference anywhere it appears as text. The brackets keep a reference from matching an ordinary word. The images travel with the decision as `assets`, and the kernel refuses any that are not PNG or JPEG bytes before a request leaves. Pass `defaultImages` to start with some attached.
+
+A box answer is drawn as the part of the image it covers, with its edges beside it as shares of the image. The image is the one at the field its question first names in backticks, such as `chart` in "Where on `chart` would the green apple in `photo` sit?". Without one, it is the first image the state names, or else the first attached.
+
+For your own UI, use `useTheoremDecision`. Its `decide(state, assets)` takes the images by reference.
 
 ### Embedding
 
@@ -315,7 +321,7 @@ import { LiveRunner } from '@theoremjs/react/live';
 
 This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own message to the relay, add `openMessage`. To use your own socket, add `createSocket`.
 
-`LiveRunner` also accepts `theme`, `mode`, `labels` and `trace`. Tool gates in a call appear in a dialog over the call.
+`LiveRunner` also accepts `theme`, `mode`, `labels`, and `trace`. Tool gates in a call appear in a dialog over the call.
 
 ### The page's part in a call
 
@@ -361,7 +367,7 @@ The runner shows `reconnecting`. It tries five times, after 0.5, 1, 2, 4, and 8 
 If all attempts fail, it reports a `network` error.
 The relay receives the absence duration. If the profile sets `live.resumed`, the agent announces its return after the configured `afterMs`.
 
-The kernel validates native state before resumption. A protocol, provider, model, connection, key slot or history mismatch rebuilds from portable history.
+The kernel validates native state before resumption. A protocol, provider, model, connection, key slot, or history mismatch rebuilds from portable history.
 It emits `provider_warning`. The client then discards the incompatible checkpoint and retains the history.
 A rebuilt session with history does not repeat the initial greeting.
 
@@ -407,7 +413,7 @@ for await (const event of session.events()) {
 - `open.host` is the `openMessage` that your `connection` returned.
 - Read later messages with `parseLiveClientMessage`. Give context messages to `session.sendContext({ client: message.context })`.
 
-To build your own call view, use `useLiveRunnerModel(iface, connection, { slots, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions and its controls. `LiveCaptionsPanel` draws the captions.
+To build your own call view, use `useLiveRunnerModel(iface, connection, { slots, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions, and its controls. `LiveCaptionsPanel` draws the captions.
 
 ### A custom browser transport
 
@@ -476,7 +482,7 @@ Pass the ref as `conversation` and the view as `conversationView`. The chat draw
 ### Keep the conversation
 
 The conversation store keeps the transcript, the history that the model reads, the provider's native state, and a reply that waits for a gate.
-The session store keeps gates, permissions and operations. The two stores are separate.
+The session store keeps gates, permissions, and operations. The two stores are separate.
 
 | Store | Where the conversation is kept |
 | --- | --- |
@@ -620,7 +626,7 @@ The default result deadline is 20 seconds. An expired or interrupted result cann
 
 ## Build your own server
 
-`createTheoremHandler` runs each chat reply through a small loop that `@theoremjs/react/server` exports. Use the loop when your server is not a `fetch` handler, or when your routes differ from the handler's. The conversation store, the guardrails and the wire stay the same, so `TheoremChat` and the hooks work with your server unchanged.
+`createTheoremHandler` runs each chat reply through a small loop that `@theoremjs/react/server` exports. Use the loop when your server is not a `fetch` handler, or when your routes differ from the handler's. The conversation store, the guardrails, and the wire stay the same, so `TheoremChat` and the hooks work with your server unchanged.
 
 | Function | Use |
 | --- | --- |
@@ -633,7 +639,7 @@ The default result deadline is 20 seconds. An expired or interrupted result cann
 | `conversationView(host, conversation)` | The conversation as the chat draws it. |
 | `waitingCalls(conversation)` | The calls a paused reply waits on. A message or a rewind walks away from exactly these. |
 
-`use` says what the request opens the conversation for: `{ kind: 'read' }`, `{ kind: 'message', abandon? }`, `{ kind: 'answer', call }` or `{ kind: 'rewind', at }`.
+`use` says what the request opens the conversation for: `{ kind: 'read' }`, `{ kind: 'message', abandon? }`, `{ kind: 'answer', call }`, or `{ kind: 'rewind', at }`.
 
 The runner is how your server runs the model for a reply. This server answers a message for `support`, the profile from the [Quick start](#quick-start):
 
@@ -692,7 +698,7 @@ On the browser side, `@theoremjs/react/client` reads what your server sends:
 
 The hooks give you the same state and actions that the ready-made components use. They draw nothing.
 
-`useTheoremInterface` reads the interface of the profile from the server. `useTheoremChat` keeps the transcript, the streaming state, the drafts, the queue and the gates.
+`useTheoremInterface` reads the interface of the profile from the server. `useTheoremChat` keeps the transcript, the streaming state, the drafts, the queue, and the gates.
 
 ```tsx
 import { createHttpTransport, useTheoremChat, useTheoremInterface } from '@theoremjs/react';
@@ -709,16 +715,16 @@ function MyChat() {
 }
 ```
 
-`chat.phase` is `'idle'`, `'streaming'` or `'gated'`. The actions are `handleSubmit`, `handleStop`, `handleSendNow` and `handleToolDecision`.
+`chat.phase` is `'idle'`, `'streaming'`, or `'gated'`. The actions are `handleSubmit`, `handleStop`, `handleSendNow`, and `handleToolDecision`.
 
 To show the transcript and the composer, use `ChatTranscript` and `ChatComposerBar` from `/ui`. You can also draw your own from `chat.blocks`.
 
-The hooks and the client write no English text. They return kinds, codes and states. You write the words.
+The hooks and the client write no English text. They return kinds, codes, and states. You write the words.
 
 - A failure is a `ClientFailure`: `{ error, errorKind, errorInternal? }`. Show `error` to the user. It is the wording of the profile. `errorKind` and `errorInternal` are for your code.
 - An attachment problem is an `AttachmentValidationIssue`. Use `attachmentIssueText(issue, iface.labels)` from `@theoremjs/agents` to get its text.
 - A provider can end a live call after it gives a warning. This is not a failure. `LiveSessionClient` calls `onSessionEnded(session)`. `session.message` is the wording of the profile (`live.session_ended`). `session.ended` has the close code and the timing.
-- The state of the UI is given as values, such as `liveState`, the work status, the drawer parts and the hint ids. You choose the words for them.
+- The state of the UI is given as values, such as `liveState`, the work status, the drawer parts, and the hint ids. You choose the words for them.
 
 ## Wording
 
@@ -739,7 +745,7 @@ Use `labels` to replace any message, for each locale:
 />
 ```
 
-`LiveRunner`, `TheoremHost`, `TheoremDecision` and `TheoremEmbedding` accept the same prop.
+`LiveRunner`, `TheoremHost`, `TheoremDecision`, and `TheoremEmbedding` accept the same prop.
 
 - The locale is the locale of your Astryx `InternationalizationProvider`. Without a provider, it is `en`.
 - Your own Astryx `messages` and `overrides` also apply. They replace the defaults.
@@ -753,8 +759,10 @@ Use `labels` to replace any message, for each locale:
 ## More documentation
 
 - [The wire](https://github.com/masudl-hub/theoremai/blob/main/react/docs/wire.md): the requests and events between the browser and the server, and the checks on each side.
-- [Tool credentials](https://github.com/masudl-hub/theoremai/blob/main/react/docs/credentials.md): typed keys, OAuth and token refresh, with a full callback route.
-- [Composer, queue and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md): the actions for stash, queue, steer and send now.
-- [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents): profiles, tools, guardrails and providers.
+- [Tool credentials](https://github.com/masudl-hub/theoremai/blob/main/react/docs/credentials.md): typed keys, OAuth, and token refresh, with a full callback route.
+- [Composer, queue, and steer](https://github.com/masudl-hub/theoremai/blob/main/react/docs/composer.md): the actions for stash, queue, steer, and send now.
+- [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents): profiles, tools, guardrails, and providers.
 
 License: MIT.
+
+Set `--theorem-pane-background` on a containing element to change the fill of raised panes within it. The default is `--color-background-card`.

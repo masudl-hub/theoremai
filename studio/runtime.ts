@@ -1,4 +1,5 @@
 import {
+  type DecisionAsset,
   labelText,
   type ProfileDefinition,
   registerTraceDestination,
@@ -563,6 +564,7 @@ export async function runStudioDecision(
   state: Parameters<DecisionTransport['decide']>[0],
   options: RunDecisionOptions,
   signal?: AbortSignal,
+  assets?: Record<string, DecisionAsset>,
 ) {
   const { scope, profile } = await studioScope(payload.profile, [], undefined, {
     mode: 'byok',
@@ -570,7 +572,7 @@ export async function runStudioDecision(
   const { traces, sink } = collectTraces(profile.observability);
   try {
     const result = await scope.runDecision(
-      { profile: profile.id, state, questions: payload.questions ?? {}, signal },
+      { profile: profile.id, state, questions: payload.questions ?? {}, assets, signal },
       { ...options, ...(sink ? { sink } : {}) },
     );
     return { result, traces };

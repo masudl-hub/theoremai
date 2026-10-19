@@ -16,6 +16,7 @@ const SECOND_TEXT: LentModel = { id: 'gemini-3.5-flash-lite', label: '3.5 Flash 
 const GEMINI_IDS = new Set([...Object.values(GEMINI), SECOND_TEXT].map((model) => model.id));
 const ROUTER: LentModel = { id: 'openrouter/free', label: 'Free router' };
 const JEV: LentModel = { id: 'jev-latest', label: 'Jev' };
+const JEV_BOXES: LentModel = { id: 'jev-1.14.0', label: 'Jev 1.14' };
 
 /** The protocol each Gemini model of a type is spoken to in. */
 const GEMINI_PROTOCOL: Record<Exclude<ModelProfileType, 'decision'>, string> = {
@@ -27,7 +28,7 @@ const GEMINI_PROTOCOL: Record<Exclude<ModelProfileType, 'decision'>, string> = {
 };
 
 const models: LentKeys['models'] = (type, definition) => {
-  if (type === 'decision') return definition === 'typesafe' ? [JEV] : [];
+  if (type === 'decision') return definition === 'typesafe' ? [JEV, JEV_BOXES] : [];
   if (definition === 'gemini') return type === 'text' ? [GEMINI.text, SECOND_TEXT] : [GEMINI[type]];
   return definition === 'openrouter' && type === 'text' ? [ROUTER] : [];
 };
@@ -64,6 +65,8 @@ export const TEST_KEYS: LentKeys = {
     nameChars: 64,
     idChars: 128,
     stateBytes: 16_384,
+    images: 3,
+    imageBytes: 1_048_576,
     timeoutMs: 30_000,
   },
   questionViolation: () => null,

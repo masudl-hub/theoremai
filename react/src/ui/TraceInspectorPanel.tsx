@@ -136,7 +136,7 @@ function openTrace(
   return (
     <TraceView
       id={id}
-      header={toggle ? <SidePanelHeader>{toggle}</SidePanelHeader> : undefined}
+      header={toggle ? <SidePanelHeader floating>{toggle}</SidePanelHeader> : undefined}
       traces={traces}
     />
   );

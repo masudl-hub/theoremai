@@ -10,6 +10,7 @@ import {
   workspaceFromDraft,
   workspaceRunAgent,
 } from '../../studio/mod.ts';
+import { decisionRequestSchema } from '../../studio/server/draft-decide.ts';
 import { errorJson, ndjsonEventStream } from '../../studio/server/draft-replies.ts';
 import { createStudioHandler } from '../../studio/server/handler.ts';
 import {
@@ -17,7 +18,7 @@ import {
   type ProbeEntry,
   type StudioSpend,
 } from '../../studio/server.ts';
-import { ON_TEST_KEYS } from '../fixtures/lent-keys.ts';
+import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 /** The example concierge, compiled as the screen sends it. */
 function concierge() {
@@ -485,4 +486,58 @@ Deno.test('a request that is not a probe is refused and nothing is kept', async 
     assertEquals(response.status, 400);
     assertEquals(kept.length, 0);
   }
+});
+
+const boxRequest = (assets: unknown) => ({
+  profile: {
+    type: 'decision',
+    id: 'find',
+    identity: { handle: 'find' },
+    models: {
+      main: {
+        protocol: 'systemOne',
+        provider: 'typesafe',
+        apiId: 'jev-1.14.0',
+        options: { images: true },
+      },
+    },
+    inputs: { state: 'json' },
+    decision: { contract: 'find' },
+  },
+  questions: { where: { type: 'box', instructions: 'Box the lemon.' } },
+  state: { shelf: 'photo' },
+  assets,
+});
+const png = { mimeType: 'image/png', data: 'iVBORw0KGgo=' };
+
+Deno.test('a lent decision takes a box question and images within the keys limits', () => {
+  const schema = decisionRequestSchema(TEST_KEYS.decision);
+  assert(schema.safeParse(boxRequest({ photo: png })).success);
+  assert(schema.safeParse(boxRequest(undefined)).success);
+});
+
+Deno.test('a lent decision refuses too many images, a heavy one, or one that is not PNG or JPEG', () => {
+  const limits = { ...TEST_KEYS.decision, images: 1, imageBytes: 3 };
+  const schema = decisionRequestSchema(limits);
+  assert(!schema.safeParse(boxRequest({ a: png, b: png })).success);
+  assert(!schema.safeParse(boxRequest({ a: { ...png, data: 'AAAAAAAA' } })).success);
+  assert(
+    !decisionRequestSchema(TEST_KEYS.decision).safeParse(
+      boxRequest({ a: { mimeType: 'image/gif', data: png.data } }),
+    ).success,
+  );
+  assert(
+    !decisionRequestSchema({ ...limits, images: 0 }).safeParse(boxRequest({ a: png })).success,
+  );
+});
+
+Deno.test('a lent decision with too many images spends nothing', async () => {
+  const spent: StudioSpend[] = [];
+  const handler = createStudioDraftHandler({
+    lent: ON_TEST_KEYS,
+    spend: (kind) => void spent.push(kind),
+  });
+  const many = Object.fromEntries([1, 2, 3, 4].map((n) => [`p${String(n)}`, png]));
+  assertEquals((await handler(post('decide', boxRequest(many)))).status, 400);
+  assertEquals(spent, []);
 });

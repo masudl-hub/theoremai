@@ -173,7 +173,7 @@ Deno.test('OpenRouter decisions use their binding, provider cost, and trace iden
   assertEquals(records[0]?.spans[0]?.attributes['gen_ai.provider.name'], 'openrouter');
   assertEquals(records[0]?.spans[0]?.attributes['theorem.usage.cost_usd'], 0);
 });
-Deno.test('decision bindings need a provider, a model and a protocol the provider serves', async () => {
+Deno.test('decision bindings need a provider, a model, and a protocol the provider serves', async () => {
   for (const binding of [
     { protocol: 'systemOne', provider: '', apiId: 'jev-latest' },
     { protocol: 'systemOne', provider: 'typesafe', apiId: '' },
@@ -730,4 +730,111 @@ Deno.test('runDecision reads its key only from the vault slot the profile names'
     assertEquals((err.cause as { kind?: unknown }).kind, 'auth');
   }
   assertEquals(calls, 0);
+});
+
+function boxProfile(id: string, disclosed?: (assets: unknown) => void) {
+  return defineProfile({
+    ...profile(id),
+    models: {
+      jev: {
+        protocol: 'systemOne',
+        provider: 'typesafe',
+        apiId: 'jev-1.14.0',
+        options: { images: true },
+      },
+    },
+    ...(disclosed
+      ? {
+          guardrails: {
+            disclosure: {
+              enforce: (_state: unknown, context: { assets?: unknown }) => {
+                disclosed(context.assets);
+                return { action: 'allow' as const, hits: [] };
+              },
+            },
+          },
+        }
+      : {}),
+  });
+}
+
+const boxRequest = (profileId: string): DecisionRequest => ({
+  profile: profileId,
+  state: 'Find the cup in img-1.',
+  questions: { cup: { type: 'box', instructions: 'Where is the cup in `img-1`?' } },
+  assets: { 'img-1': { mimeType: 'image/png', data: 'iVBORw0K' } },
+});
+
+const boxReply = (box: unknown) =>
+  Promise.resolve(
+    Response.json({
+      model: 'jev-1.14.0',
+      answers: { cup: { type: 'box', box, confidence: 0.8 } },
+      usage: { input_tokens: 10, output_tokens: 0 },
+    }),
+  );
+
+Deno.test('a box decision sends its image, shows the hook the image, and keeps bytes out of the trace', async () => {
+  clearProfiles();
+  const disclosed: unknown[] = [];
+  registerProfile(boxProfile('box-decision', (assets) => disclosed.push(assets)));
+  const records: TraceRecord[] = [];
+  const box = { top: 0.1, bottom: 0.5, left: 0.2, right: 0.6 };
+  const result = await runDecision(boxRequest('box-decision'), {
+    vault: { slot_a: 'test-key' },
+    sink: memorySink(records),
+    fetch: (_url, init) => {
+      const headers = new Headers(init?.headers);
+      assertEquals(headers.get('TypeSafe-Danger-Zone-Images'), 'true');
+      assertEquals(JSON.parse(String(init?.body)).assets['img-1'].data_base64, 'iVBORw0K');
+      return boxReply(box);
+    },
+  });
+  assertEquals(result.answers.cup, { type: 'box', box, confidence: 0.8 });
+  assertEquals(disclosed, [{ 'img-1': { mimeType: 'image/png', data: 'iVBORw0K' } }]);
+  assertEquals(JSON.stringify(records).includes('iVBORw0K'), false);
+  assertEquals(
+    Object.keys((records[0]?.spans[0]?.attributes['theorem.decision.assets'] as object) ?? {}),
+    ['json_sha256'],
+  );
+});
+
+Deno.test('a box answer with an edge out of range or order is refused', async () => {
+  clearProfiles();
+  registerProfile(boxProfile('box-bad'));
+  for (const box of [
+    { top: 0.1, bottom: 0.5, left: 0.6, right: 0.2 },
+    { top: 0.5, bottom: 0.1, left: 0.2, right: 0.6 },
+    { top: 0.1, bottom: 1.5, left: 0.2, right: 0.6 },
+    { top: 0.1, bottom: 0.5, left: 0.2 },
+  ])
+    await assertRejects(
+      () =>
+        runDecision(boxRequest('box-bad'), {
+          vault: { slot_a: 'test-key' },
+          fetch: () => boxReply(box),
+        }),
+      DecisionError,
+    );
+});
+
+Deno.test('a bad image makes no network request', async () => {
+  clearProfiles();
+  registerProfile(boxProfile('box-asset'));
+  for (const data of ['data:image/png;base64,iVBO', 'iVBO Rw0K', 'iVBORw0', '']) {
+    await assertRejects(
+      () =>
+        runDecision(
+          { ...boxRequest('box-asset'), assets: { 'img-1': { mimeType: 'image/png', data } } },
+          {
+            vault: { slot_a: 'test-key' },
+            fetch: () => {
+              throw new Error('must not dispatch');
+            },
+          },
+        ),
+      DecisionError,
+      'padded base64',
+    );
+  }
 });

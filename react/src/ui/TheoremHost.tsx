@@ -5,7 +5,6 @@ import type { IconType } from '@astryxdesign/core/Icon';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Selector, SelectorOption } from '@astryxdesign/core/Selector';
-import { Spinner } from '@astryxdesign/core/Spinner';
 import { StatusDot, type StatusDotVariant } from '@astryxdesign/core/StatusDot';
 import { Text } from '@astryxdesign/core/Text';
 import { Token } from '@astryxdesign/core/Token';
@@ -215,20 +214,6 @@ function responseFills(call: TheoremHostCall): boolean {
   return !callSettled(call) && state?.phase !== 'gate';
 }
 
-/** A call still running: its activity and the clock, centred in the card. */
-function CallWaiting({ label, duration }: { label: string; duration: string | null }) {
-  return (
-    <VStack height="100%" vAlign="center" padding={4}>
-      <EmptyState
-        icon={<Spinner size="lg" />}
-        title={label}
-        description={duration ?? undefined}
-        isCompact
-      />
-    </VStack>
-  );
-}
-
 /** A settled call: its failure or its output, then the activity line once it has stopped. */
 function CallSettled({ call, activity }: { call: TheoremHostCall; activity: ReactNode }) {
   const state = call.call?.state;
@@ -266,7 +251,7 @@ function CallOutcome({
   const t = useLabels();
   const now = useSecondTicker(call.isRunning);
   const { label, duration } = callActivity(t, call, now);
-  if (responseFills(call)) return <CallWaiting label={label} duration={duration} />;
+  if (responseFills(call)) return <PaneLoading label={label} since={call.startedAt} />;
   const activity = (
     <Text size="sm" color="secondary">
       {duration ? t('@theorem.host.finished', { activity: label, duration }) : label}

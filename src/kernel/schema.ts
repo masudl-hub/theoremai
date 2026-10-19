@@ -225,7 +225,7 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 /** One of {@linkcode HTTP_METHODS}. */
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 /** When remote tool auth is missing or expired. */
-export const AUTH_UNAUTHENTICATED_POLICIES = ['gate', 'report_to_model'] as const;
+export const AUTH_UNAUTHENTICATED_POLICIES = ['gate', 'report_to_model', 'fail'] as const;
 /** One of {@linkcode AUTH_UNAUTHENTICATED_POLICIES}. */
 export type AuthUnauthenticatedPolicy = (typeof AUTH_UNAUTHENTICATED_POLICIES)[number];
 /** The kinds of tool a profile can list. */
@@ -1367,15 +1367,21 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'Off',
   },
+  'decision.questions.id': field('string', "The question's name. Its answer comes back under it."),
   'decision.questions.type': field(
-    "'choice' | 'score' | 'noul'",
+    "'choice' | 'score' | 'noul' | 'box'",
     'The kind of answer the question takes.',
-    ['choice', 'score', 'noul'],
+    ['choice', 'score', 'noul', 'box'],
     {
       choice: 'One of the named options, with a confidence and a probability for each option.',
       score: 'A level on an ordered scale, with a confidence.',
-      noul: 'One number, with no options.',
+      noul: 'One number, which may weigh named criteria.',
+      box: 'Where something is in an image: its top, bottom, left and right edges, with a confidence.',
     },
+  ),
+  'decision.questions.instructions': field(
+    'DecisionEntry',
+    'What to ask about the state. Name a state field in backticks, such as `photo`, and an image by its reference, such as <ginger>. A box looks in the image of the first field it names.',
   ),
   'registerTool.name': field(
     'string',
@@ -1509,6 +1515,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       {
         gate: 'The turn stops and asks the host for a credential.',
         report_to_model: "The model is told the tool isn't signed in, and the turn goes on.",
+        fail: 'The call fails as not signed in, for a key the host holds that no person can sign in to replace.',
       },
     ),
     unset: 'gate',

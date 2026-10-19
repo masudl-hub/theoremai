@@ -105,10 +105,7 @@ Deno.test('quotaExhausted is a rate_limit error the user reads as the quota line
   assertEquals(err?.kind, 'rate_limit');
   assertEquals(caughtStatus(err), 429);
   assertEquals(publicError(err), labelDefault('quota.exhausted', { perDay: 4 }));
-  assertEquals(
-    publicError(err),
-    "You've reached today's limit of 4 messages. Please come back tomorrow.",
-  );
+  assertEquals(publicError(err), "You've reached today's limit of 4 messages.");
 });
 
 Deno.test('quotaExhausted wording comes from the profile labels', () => {

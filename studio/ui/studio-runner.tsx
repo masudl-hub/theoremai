@@ -75,7 +75,7 @@ export interface StudioRunnerProps {
   flush?: boolean;
   /** A decision or host puts the request on the left and the response on the right. */
   columns?: boolean;
-  /** Called on each request the conversation sends: a turn, call, decision or live session. */
+  /** Called on each request the conversation sends: a turn, call, decision, or live session. */
   onActivity?: () => void;
   /**
    * The ref of a chat conversation to resume, as `onConversationChange` reported it (text and
@@ -385,7 +385,7 @@ function SideRun({
     return (
       <TheoremDecision
         transport={decision}
-        defaultState={decisionSeed(payload.profile)}
+        {...decisionSeed(payload)}
         trace={trace}
         flush={flush}
         columns={columns}

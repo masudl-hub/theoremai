@@ -7,6 +7,7 @@ import type { Provider, RegisteredProvider, Registration } from './protocols/pro
 import type { ProviderHostOptions } from './protocols/runtime.ts';
 import type { ProfileDefinition } from './registry/profiles.ts';
 import { defaultKernelScope as scope } from './scope.ts';
+import type { ToolCallResult, ToolStepCallResult } from './tools/run.ts';
 import type {
   InvokeToolRequest,
   InvokeToolStepRequest,
@@ -69,7 +70,7 @@ function registerProfile(profile: Profile | ProfileDefinition): void {
   scope.profiles.register(profile);
 }
 
-/** Define, validate and register several profiles in the default scope. */
+/** Define, validate, and register several profiles in the default scope. */
 function registerProfiles(profiles: Array<Profile | ProfileDefinition>): void {
   scope.profiles.registerMany(profiles);
 }
@@ -147,7 +148,20 @@ function invokeToolStep(
   return scope.invokeToolStep(request, sinkOverride);
 }
 
-/** Resolve a turn request in the default scope: its profile, model and generation settings. */
+/** Run one tool call in the default scope to its end: how it settled, with every event it emitted. */
+function runTool(request: InvokeToolRequest, sinkOverride?: TraceSink): Promise<ToolCallResult> {
+  return scope.runTool(request, sinkOverride);
+}
+
+/** Run the host's calls as one step in the default scope, giving each call's end as it settles. */
+function runToolStep(
+  request: InvokeToolStepRequest,
+  sinkOverride?: TraceSink,
+): AsyncGenerator<ToolStepCallResult> {
+  return scope.runToolStep(request, sinkOverride);
+}
+
+/** Resolve a turn request in the default scope: its profile, model, and generation settings. */
 function resolveTurn(req: TurnRequest): ReturnType<typeof scope.resolveTurn> {
   return scope.resolveTurn(req);
 }
@@ -199,6 +213,8 @@ export {
   runDecision,
   runEmbedding,
   runSession,
+  runTool,
+  runToolStep,
   runTurn,
 };
 

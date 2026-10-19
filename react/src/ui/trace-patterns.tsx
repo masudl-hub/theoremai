@@ -3,7 +3,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import type { CSSProperties, ReactNode } from 'react';
+import type { ComponentProps, CSSProperties, ReactNode } from 'react';
 import type { TraceActor } from '../client/trace-story.ts';
 
 /**
@@ -85,8 +85,8 @@ export const CONSOLE_CARD = {
   borderRadius: 'var(--radius-page)',
 } as CSSProperties;
 
-/** A chart as a card: its name, one figure that answers it, then the chart and its key. */
-export function ChartCard({
+/** A chart's content: its name, one figure that answers it, then the chart and its key. */
+export function ChartBody({
   title,
   value,
   note,
@@ -106,29 +106,36 @@ export function ChartCard({
     </Text>
   );
   return (
-    <Card variant="muted" padding={4} style={CONSOLE_CARD}>
-      <VStack gap={3}>
-        {aside ? (
-          <HStack gap={3} vAlign="center">
-            <StackItem size="fill">{heading}</StackItem>
-            {aside}
-          </HStack>
-        ) : (
-          heading
-        )}
-        {/* why: HStack aligns boxes, not text; the figure and its note share a baseline. */}
-        <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 8 }}>
-          <Text size="2xl" weight="medium" hasTabularNumbers>
-            {value}
+    <VStack gap={3}>
+      {aside ? (
+        <HStack gap={3} vAlign="center">
+          <StackItem size="fill">{heading}</StackItem>
+          {aside}
+        </HStack>
+      ) : (
+        heading
+      )}
+      {/* why: HStack aligns boxes, not text; the figure and its note share a baseline. */}
+      <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 8 }}>
+        <Text size="2xl" weight="medium" hasTabularNumbers>
+          {value}
+        </Text>
+        {note ? (
+          <Text type="supporting" hasTabularNumbers>
+            <span style={{ color: TRACE_ACCENT }}>{note}</span>
           </Text>
-          {note ? (
-            <Text type="supporting" hasTabularNumbers>
-              <span style={{ color: TRACE_ACCENT }}>{note}</span>
-            </Text>
-          ) : null}
-        </div>
-        {children}
-      </VStack>
+        ) : null}
+      </div>
+      {children}
+    </VStack>
+  );
+}
+
+/** A chart as a card. */
+export function ChartCard(props: ComponentProps<typeof ChartBody>) {
+  return (
+    <Card variant="muted" padding={4} style={CONSOLE_CARD}>
+      <ChartBody {...props} />
     </Card>
   );
 }

@@ -68,7 +68,11 @@ function serving(respond: (url: URL, body: unknown) => Response) {
   return { fetchFn, sent };
 }
 
-async function run(scope: KernelScope, fetchFn: typeof fetch) {
+async function run(
+  scope: KernelScope,
+  fetchFn: typeof fetch,
+  credentials: Record<string, ToolCredential> = CREDENTIALS,
+) {
   const original = globalThis.fetch;
   globalThis.fetch = fetchFn;
   try {
@@ -79,7 +83,7 @@ async function run(scope: KernelScope, fetchFn: typeof fetch) {
       name: 'weather',
       input: { city: 'Oslo' },
       callId: 'call-1',
-      ctx: { credentials: memoryCredentialSource(CREDENTIALS), resolveHost: RESOLVE },
+      ctx: { credentials: memoryCredentialSource(credentials), resolveHost: RESOLVE },
     });
     for (;;) {
       const next = await exec.next();
@@ -139,6 +143,30 @@ Deno.test('a refused key in the query asks for a new sign-in, as a refused heade
     const [gate] = toolEventsOf(events, 'gate');
     assertEquals({ [tool.type]: gate?.gate.kind }, { [tool.type]: 'auth' });
   }
+});
+
+Deno.test("a host's key that fails its call: refused, it fails as a call that started, with no gate", async () => {
+  const failing = httpTool({ ...AUTH, onUnauthenticated: 'fail' });
+  const { fetchFn, sent } = serving(() => json({ error: 'unauthorized' }, 401));
+  const { events, settlement } = await run(scopeOf(failing), fetchFn);
+  assertEquals(toolEventsOf(events, 'gate').length, 0);
+  assertEquals(
+    { code: settlement.failure?.code, kind: settlement.failure?.kind },
+    { code: 'not_authorized', kind: 'auth' },
+  );
+  assertEquals(settlement.callNotStarted, undefined);
+  assertEquals(sent.length, 1);
+  assertEquals(JSON.stringify({ events, settlement }).includes(KEY), false);
+});
+
+Deno.test("a host's key that fails its call: missing, nothing is sent", async () => {
+  const failing = httpTool({ ...AUTH, onUnauthenticated: 'fail' });
+  const { fetchFn, sent } = serving(() => json({ temp: 4 }));
+  const { events, settlement } = await run(scopeOf(failing), fetchFn, {});
+  assertEquals(toolEventsOf(events, 'gate').length, 0);
+  assertEquals(settlement.failure?.code, 'not_authorized');
+  assertEquals(settlement.callNotStarted, true);
+  assertEquals(sent.length, 0);
 });
 
 Deno.test('a function tool signed in by query sends the key on its signed-in fetch', async () => {

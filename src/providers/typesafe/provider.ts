@@ -26,9 +26,9 @@ export const typesafeProvider: Provider<TypesafeConnection, string> = defineProv
     .default({}),
   key: z.string().trim().min(1),
   authorize: bearer(),
-  // probed 2026-09-28: Jev input is $0.042 per million tokens; output is free. The API reports no cost.
+  // why: docs.typesafe.ai/models, read 2026-10-19, prices Jev 1.13 and 1.14 alike at $0.042 per million input tokens, output free. The API reports no cost.
   prices: {
-    checked: '2026-09-28',
+    checked: '2026-10-19',
     models: { 'jev-*': { input: 0.042, output: 0 } },
   },
   serves: (at) => [{ protocol: systemOne, baseUrl: at.baseUrl ?? 'https://api.typesafe.ai/v1' }],

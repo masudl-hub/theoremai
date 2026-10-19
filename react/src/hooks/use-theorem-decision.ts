@@ -1,4 +1,4 @@
-import type { DecisionJson, DecisionResult } from '@theoremjs/agents';
+import type { DecisionAsset, DecisionJson, DecisionResult } from '@theoremjs/agents';
 import type { DecisionInterface, DecisionTransport } from '../client/decision-transport.ts';
 import type { ClientFailure } from '../client/failure.ts';
 import { useDescribed } from './use-described.ts';
@@ -15,14 +15,18 @@ const decideWith = (
   transport: DecisionTransport,
   signal: AbortSignal,
   state: Exclude<DecisionJson, null>,
-) => transport.decide(state, signal);
+  assets?: Record<string, DecisionAsset>,
+) => transport.decide(state, signal, assets);
 
 /**
  * One decision profile: describe it once, then `decide(state)` as often as
  * needed. A new decision aborts the one still running.
  */
 export function useTheoremDecision(transport: DecisionTransport): TheoremDecisionState & {
-  decide: (state: Exclude<DecisionJson, null>) => Promise<void>;
+  decide: (
+    state: Exclude<DecisionJson, null>,
+    assets?: Record<string, DecisionAsset>,
+  ) => Promise<void>;
   cancel: () => void;
 } {
   const { iface, describeFailure } = useDescribed(transport);

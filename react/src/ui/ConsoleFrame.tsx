@@ -23,7 +23,6 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { HttpOptions } from '../client/transport.ts';
-import { useGlide } from './glide.ts';
 import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';
@@ -110,23 +109,18 @@ function useNarrow() {
 /**
  * One column: the request, then the response under it, in the page's own card.
  * `wide` is a pair stacked on a narrow page, which takes the page's width.
- * `alone` is a request with no response yet: it sits centred, and eases up to
- * the top when the response arrives under it.
  */
 function ConsoleSingle({
   flush,
   wide,
-  alone,
   maxWidth,
   children,
 }: {
   flush: boolean;
   wide: boolean;
-  alone: boolean;
   maxWidth: string;
   children: ReactNode;
 }) {
-  const column = useGlide<HTMLElement>(alone);
   return (
     <VStack height="100%" paddingInline={3} style={flush ? FLUSH_CARD : undefined}>
       <Card
@@ -135,14 +129,8 @@ function ConsoleSingle({
         padding={0}
         style={flush ? { overflowY: 'auto' } : { ...RAISED, overflowY: 'auto' }}
       >
-        <Center axis={alone ? 'both' : 'horizontal'} width="100%" minHeight="100%">
-          <VStack
-            ref={column}
-            width="100%"
-            maxWidth={wide ? undefined : maxWidth}
-            gap={3}
-            padding={4}
-          >
+        <Center axis="horizontal" width="100%" minHeight="100%">
+          <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
             {children}
           </VStack>
         </Center>
@@ -219,7 +207,7 @@ function ConsoleBody({
     );
   }
   return (
-    <ConsoleSingle flush={flush} wide={paired} alone={!columns && drawn < 2} maxWidth={maxWidth}>
+    <ConsoleSingle flush={flush} wide={paired} maxWidth={maxWidth}>
       {children}
     </ConsoleSingle>
   );
@@ -279,13 +267,22 @@ function ConsoleColumns({
         }
         content={
           <LayoutContent padding={0} isScrollable={false}>
-            <PanelBody inset="end" className="theorem-console-response">
+            <PanelBody inset="beside" className="theorem-console-response">
               {response}
             </PanelBody>
           </LayoutContent>
         }
       />
     </ConsoleChrome>
+  );
+}
+
+/** One card of a response with several: its request and result sit in it without cards of their own. */
+export function ConsoleSection({ children }: { children: ReactNode }) {
+  return (
+    <Card variant="muted" padding={0} className="theorem-console-card" style={CONSOLE_CARD}>
+      <ConsoleChrome value={false}>{children}</ConsoleChrome>
+    </Card>
   );
 }
 

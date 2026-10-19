@@ -511,3 +511,60 @@ Deno.test('a decision on the builder own keys says why it failed and keeps its t
   assert(clientFailure(failure).error.includes('has no credential in slot'));
   assertEquals(failedDecisionTraces(failure).length, 1);
 });
+
+Deno.test('the decision example sends its pictures from the browser and returns boxes', async () => {
+  const { createBrowserStudioDecisionTransport } = await import('../../studio/browser.ts');
+  const {
+    DECISION_EXAMPLE_ASSETS,
+    DECISION_EXAMPLE_STATE,
+    compileStudio: compile,
+    createDecisionExampleDraft,
+  } = await import('../../studio/mod.ts');
+  const compiled = compile(createDecisionExampleDraft(), ON_OWN_KEYS);
+  if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
+  assert(compiled.profile.type === 'decision');
+  const slot = compiled.profile.models.decision.keySlot;
+  assert(slot);
+  const seen: { body: Record<string, unknown>; headers: Headers }[] = [];
+  const box = { top: 0.1, bottom: 0.9, left: 0.1, right: 0.4 };
+  const transport = createBrowserStudioDecisionTransport(compiled, {
+    mode: 'byok',
+    decision: {
+      vault: { [slot]: 'k' },
+      fetch: (_url, init) => {
+        seen.push({ body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) });
+        return Promise.resolve(
+          Response.json({
+            model: 'jev-1.14.0',
+            answers: {
+              Ginger: { type: 'box', box, confidence: 0.9 },
+              'Something to drink': { type: 'noul', noul: 0.95 },
+              'Fruit salad': { type: 'noul', noul: 0.7 },
+              'Where the green apple lands on the chart': { type: 'box', box, confidence: 0.6 },
+              'Bread on the shelf': { type: 'noul', noul: 0.05 },
+              'Union Jack': { type: 'box', box, confidence: 0.8 },
+              Brunch: {
+                type: 'choice',
+                choice: 'fruit',
+                confidence: 0.6,
+                probabilities: { toast: 0.3, fruit: 0.6, shop: 0.1 },
+              },
+            },
+            usage: { input_tokens: 10, output_tokens: 1 },
+          }),
+        );
+      },
+    },
+  });
+  const reply = await transport.decide(JSON.parse(DECISION_EXAMPLE_STATE), undefined, {
+    ...DECISION_EXAMPLE_ASSETS,
+  });
+  assertEquals(reply.result.answers.Ginger, { type: 'box', box, confidence: 0.9 });
+  assertEquals(seen[0].headers.get('TypeSafe-Danger-Zone-Images'), 'true');
+  assertEquals(Object.keys(seen[0].body.assets as object), [
+    '<pantry_shelf>',
+    '<ginger>',
+    '<union_jack>',
+    '<apple_ripeness>',
+  ]);
+});

@@ -2,7 +2,7 @@
 export const STUDIO_EXAMPLES = {
   concierge: {
     label: 'Travel concierge',
-    description: 'Text agent with weather, places, currency and trip tools.',
+    description: 'Text agent with weather, places, currency, and trip tools.',
   },
   'live-concierge': {
     label: 'Live concierge',
@@ -16,7 +16,7 @@ export const STUDIO_EXAMPLES = {
   console: { label: 'Tool console', description: 'No model. Run its tools by hand.' },
   decision: {
     label: 'Jev decision',
-    description: 'Checks tool calls with the Jev decision model.',
+    description: 'Asks Jev about a pantry photo: finds things in it and answers questions.',
   },
   'gemini-embedding-2': {
     label: 'Gemini Embeddings 2',

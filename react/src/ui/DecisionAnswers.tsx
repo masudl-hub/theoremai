@@ -3,8 +3,14 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import type { DecisionAnswer, DecisionResult } from '@theoremjs/agents';
-import { type ReactNode, useMemo } from 'react';
+import type {
+  DecisionAnswer,
+  DecisionAsset,
+  DecisionJson,
+  DecisionResult,
+} from '@theoremjs/agents';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { boxSource, cropOf, type DecisionImages, imageSrc } from '../client/decision-images.ts';
 import type { DecisionInterface, DecisionQuestionView } from '../client/decision-transport.ts';
 import { Arrive, Stream } from './arrive.tsx';
 import { resultMeta } from './labels.ts';
@@ -18,6 +24,8 @@ export type TheoremDecisionAnswersProps = {
   elapsedMs?: number | null;
   /** A newer decision is running: the answers dim until it lands. */
   isStale?: boolean;
+  /** The images and state the answers were asked about, which box answers are cut from. Without an image, a box is drawn in a plain frame. */
+  asked?: { images: DecisionImages; state: DecisionJson };
 };
 
 const EASE = 'var(--duration-medium) var(--ease-standard)';
@@ -214,21 +222,142 @@ function NumberAnswer({
   return <ChartCard title={title} value={n.decimal.format(answer.noul)} />;
 }
 
+const BOX_FRAME_HEIGHT = 72;
+const CROP_HEIGHT = 168;
+
+/** An image's natural size, once the page has loaded it. */
+function useImageSize(src: string): { width: number; height: number } | null {
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  useEffect(() => {
+    const image = new Image();
+    image.onload = () => {
+      setSize({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.src = src;
+  }, [src]);
+  return size;
+}
+
+/** The part of the image the box covers, cut out at its own proportions. */
+function BoxCrop({
+  source,
+  box,
+}: {
+  source: DecisionAsset;
+  box: Extract<DecisionAnswer, { type: 'box' }>['box'];
+}) {
+  const t = useLabels();
+  const src = imageSrc(source);
+  const size = useImageSize(src);
+  if (!size) return null;
+  const crop = cropOf(box);
+  const ratio = (size.width * (box.right - box.left)) / (size.height * (box.bottom - box.top));
+  return (
+    <div
+      role="img"
+      aria-label={t('@theorem.decision.box_in')}
+      style={{
+        position: 'relative',
+        overflow: 'hidden',
+        aspectRatio: String(ratio),
+        height: CROP_HEIGHT,
+        maxWidth: '100%',
+        borderRadius: TRACE_RADIUS,
+        border: '1px solid var(--color-border)',
+      }}
+    >
+      <img
+        src={src}
+        alt=""
+        style={{
+          position: 'absolute',
+          width: `${String(crop.width)}%`,
+          height: `${String(crop.height)}%`,
+          left: `${String(crop.left)}%`,
+          top: `${String(crop.top)}%`,
+          maxWidth: 'none',
+        }}
+      />
+    </div>
+  );
+}
+
+/** The box cut from the image its question names, or drawn in a frame that stands for the whole image. */
+function BoxAnswer({
+  title,
+  answer,
+  field,
+  asked,
+}: {
+  title: string;
+  answer: Extract<DecisionAnswer, { type: 'box' }>;
+  field?: string;
+  asked?: TheoremDecisionAnswersProps['asked'];
+}) {
+  const t = useLabels();
+  const source = asked && boxSource(asked.images, asked.state, field);
+  const n = useNumbers();
+  const { top, bottom, left, right } = answer.box;
+  const edges = t('@theorem.decision.box_edges', {
+    left: n.percent.format(left),
+    top: n.percent.format(top),
+    right: n.percent.format(right),
+    bottom: n.percent.format(bottom),
+  });
+  return (
+    <ChartCard
+      title={title}
+      value={edges}
+      note={t('@theorem.decision.confidence', { percent: n.percent.format(answer.confidence) })}
+    >
+      {source ? (
+        <BoxCrop source={source} box={answer.box} />
+      ) : (
+        <div
+          aria-hidden
+          style={{
+            position: 'relative',
+            height: BOX_FRAME_HEIGHT,
+            borderRadius: TRACE_RADIUS,
+            border: '1px solid var(--color-border)',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              insetInlineStart: `${String(left * 100)}%`,
+              insetBlockStart: `${String(top * 100)}%`,
+              width: `${String((right - left) * 100)}%`,
+              height: `${String((bottom - top) * 100)}%`,
+              borderRadius: 2,
+              background: answerFill(true),
+              transition: `all ${EASE}`,
+            }}
+          />
+        </div>
+      )}
+    </ChartCard>
+  );
+}
+
 /** One question's answer in the trace's chart card, titled by the question and its kind. */
 function AnswerCard({
   question,
   answer,
+  asked,
 }: {
   question: DecisionQuestionView;
   answer: DecisionAnswer | undefined;
+  asked?: TheoremDecisionAnswersProps['asked'];
 }) {
   const t = useLabels();
   const title = `${question.id} · ${t(`@theorem.decision.type.${question.type}`)}`;
-  if (answer?.type === 'choice') return <ChoiceAnswer title={title} answer={answer} />;
-  if (answer?.type === 'score')
+  if (!answer) return null;
+  if (answer.type === 'choice') return <ChoiceAnswer title={title} answer={answer} />;
+  if (answer.type === 'score')
     return <ScoreAnswer title={title} answer={answer} labels={question.labels} />;
-  if (answer?.type === 'noul') return <NumberAnswer title={title} answer={answer} />;
-  return null;
+  if (answer.type === 'noul') return <NumberAnswer title={title} answer={answer} />;
+  return <BoxAnswer title={title} answer={answer} field={question.field} asked={asked} />;
 }
 
 /**
@@ -281,6 +410,7 @@ export function TheoremDecisionAnswers({
   result,
   elapsedMs,
   isStale,
+  asked,
 }: TheoremDecisionAnswersProps) {
   const t = useLabels();
   return (
@@ -294,7 +424,7 @@ export function TheoremDecisionAnswers({
       <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
         {iface.questions.map((question) => (
           <Arrive key={question.id}>
-            <AnswerCard question={question} answer={result.answers[question.id]} />
+            <AnswerCard question={question} answer={result.answers[question.id]} asked={asked} />
           </Arrive>
         ))}
       </Grid>

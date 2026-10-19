@@ -75,7 +75,7 @@ export type ProtocolRequest<S = unknown> = Omit<ModelRequest, 'providerState' | 
   stateHistoryLength?: number;
 };
 
-export type DecisionCall = Pick<DecisionRequest, 'state' | 'questions'> & {
+export type DecisionCall = Pick<DecisionRequest, 'state' | 'questions' | 'assets'> & {
   apiId: string;
   signal?: AbortSignal;
 };
@@ -135,7 +135,7 @@ export interface SendInit {
   wroteTools?: readonly string[];
 }
 
-/** What the kernel hands a protocol for one call. It never holds a key, a slot or a base URL. */
+/** What the kernel hands a protocol for one call. It never holds a key, a slot, or a base URL. */
 export interface ProtocolContext<O = unknown> {
   profileType: ModelProfileType;
   apiId: string;
@@ -559,7 +559,7 @@ function either<K extends 'framing' | 'error' | 'embeddingLimits' | 'refusedOpti
 
 /**
  * A new protocol built on a base it nearly matches. It has its own id, so what it sends has one
- * answer: its definition. Its options are the base's plus its own; its endpoints, framing and error
+ * answer: its definition. Its options are the base's plus its own; its endpoints, framing, and error
  * typing are the base's unless it gives its own.
  */
 export function extendProtocol<O, S, E = JsonObject>(

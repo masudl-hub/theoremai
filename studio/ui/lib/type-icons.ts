@@ -1,23 +1,28 @@
 /**
- * The icon for each type of agent and of tool, wherever the studio shows one: the editor's Type
- * controls, the tree, the map, and the loader's map of a project being read.
+ * The icon for each type of agent, of tool, and of decision question, wherever the studio shows
+ * one: the editor's Type controls and lists, the tree, the map, and the loader's map of a project
+ * being read.
  */
 import type { IconType } from '@astryxdesign/core/Icon';
 import {
+  IconChartBar,
+  IconChartScatter3d,
   IconGitBranch,
   IconHeadset,
   IconLetterT,
+  IconListCheck,
   IconMathFunction,
   IconMessageForward,
+  IconNumber,
   IconPhoto,
   IconServer,
+  IconSquareDashed,
   IconTool,
-  IconTopologyStar,
   IconVolume,
   IconWorld,
 } from '@tabler/icons-react';
 import type { CustomToolType } from '@theoremjs/agents';
-import type { StudioProfileType } from '../../mod.ts';
+import type { DecisionQuestionType, StudioProfileType } from '../../mod.ts';
 import { IconMcp } from '../mcp-icon.tsx';
 
 /** Each profile type's icon: the Type control's segments and the tree's Identity row. */
@@ -27,7 +32,7 @@ export const PROFILE_TYPE_ICON = {
   speech: IconVolume,
   live: IconHeadset,
   decision: IconGitBranch,
-  embedding: IconTopologyStar,
+  embedding: IconChartScatter3d,
   host: IconServer,
 } satisfies Record<StudioProfileType, IconType>;
 
@@ -45,6 +50,14 @@ export const TOOL_TYPE_ICON = {
   mcp: IconMcp,
   agent: IconMessageForward,
 } satisfies Record<CustomToolType, IconType>;
+
+/** Each decision question type's icon: the Answer control's segments and the question list. */
+export const QUESTION_TYPE_ICON = {
+  choice: IconListCheck,
+  score: IconChartBar,
+  noul: IconNumber,
+  box: IconSquareDashed,
+} satisfies Record<DecisionQuestionType, IconType>;
 
 /** The icon for a tool type, or the plain tool icon when the type is not one of those. */
 export function toolTypeIcon(type: string): IconType {

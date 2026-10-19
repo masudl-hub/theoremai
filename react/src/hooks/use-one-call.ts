@@ -13,10 +13,18 @@ export type OneCallState<Busy extends string, Result> = {
   result: Result | null;
   /** How long the last call took, round trip, in milliseconds. */
   elapsedMs: number | null;
+  /** When the call now running began, as `Date.now()`; null while none runs. */
+  startedAt: number | null;
   failure: ClientFailure | null;
 };
 
-const IDLE = { status: 'idle', result: null, elapsedMs: null, failure: null } as const;
+const IDLE = {
+  status: 'idle',
+  result: null,
+  elapsedMs: null,
+  startedAt: null,
+  failure: null,
+} as const;
 
 /** Hands a call's trace records to the transport's feed, when it has one. */
 function feed(transport: OneCallTransport, records: readonly TraceRecord[] | undefined): void {
@@ -54,7 +62,7 @@ export function useOneCall<
     running.current = null;
     setRun((previous) =>
       previous.status === busy
-        ? { ...previous, status: previous.result ? 'done' : 'idle' }
+        ? { ...previous, status: previous.result ? 'done' : 'idle', startedAt: null }
         : previous,
     );
   }, [busy]);
@@ -68,6 +76,7 @@ export function useOneCall<
         status: busy,
         result: previous.result,
         elapsedMs: previous.elapsedMs,
+        startedAt: Date.now(),
         failure: null,
       }));
       const started = performance.now();
@@ -79,12 +88,18 @@ export function useOneCall<
           status: 'done',
           result: reply.result,
           elapsedMs: performance.now() - started,
+          startedAt: null,
           failure: null,
         });
       } catch (err) {
         if (controller.signal.aborted) return;
         feed(transport, failedTraces(err));
-        setRun((previous) => ({ ...previous, status: 'error', failure: clientFailure(err) }));
+        setRun((previous) => ({
+          ...previous,
+          status: 'error',
+          startedAt: null,
+          failure: clientFailure(err),
+        }));
       } finally {
         if (running.current === controller) running.current = null;
       }

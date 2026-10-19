@@ -7,7 +7,8 @@ import type { ProviderHostOptions } from './protocols/runtime.ts';
 import { resolveRegisteredTurnModel } from './provider-dispatch.ts';
 import { createKernelRegistry, type KernelRegistry } from './registry/kernel-registry.ts';
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
-import { invokeTool, invokeToolStep } from './tools/invoke.ts';
+import { invokeTool, invokeToolStep, startInvoke, startInvokeStep } from './tools/invoke.ts';
+import { runTool, runToolStep, type ToolCallResult, type ToolStepCallResult } from './tools/run.ts';
 import type { InvokeToolRequest, InvokeToolStepRequest } from './tools/types.ts';
 import type {
   CompactHistoryRequest,
@@ -23,7 +24,7 @@ import type {
   TurnRequest,
 } from './types.ts';
 
-/** A kernel scope: its registries and the operations that run against them (turns, live sessions, history compaction, tool invocation, turn resolution, profile projection and decisions). */
+/** A kernel scope: its registries and the operations that run against them (turns, live sessions, history compaction, tool invocation, turn resolution, profile projection, and decisions). */
 interface KernelScope extends KernelRegistry {
   runTurn(
     req: TurnRequest,
@@ -45,6 +46,11 @@ interface KernelScope extends KernelRegistry {
     request: InvokeToolStepRequest,
     sinkOverride?: TraceSink,
   ): AsyncGenerator<TurnEvent>;
+  runTool(request: InvokeToolRequest, sinkOverride?: TraceSink): Promise<ToolCallResult>;
+  runToolStep(
+    request: InvokeToolStepRequest,
+    sinkOverride?: TraceSink,
+  ): AsyncGenerator<ToolStepCallResult>;
   resolveTurn(req: TurnRequest): ReturnType<typeof resolveTurnInRegistry>;
   projectProfile(id: string): ProjectedProfile;
   runDecision(request: DecisionRequest, options: RunDecisionOptions): Promise<DecisionResult>;
@@ -88,6 +94,9 @@ function createKernelScope(): KernelScope {
       ),
     invokeTool: (request, sinkOverride) => invokeTool(registry, request, sinkOverride),
     invokeToolStep: (request, sinkOverride) => invokeToolStep(registry, request, sinkOverride),
+    runTool: (request, sinkOverride) => runTool(startInvoke(registry, request, sinkOverride)),
+    runToolStep: (request, sinkOverride) =>
+      runToolStep(startInvokeStep(registry, request, sinkOverride)),
     resolveTurn: (req) => resolveTurnInRegistry(registry, req),
     projectProfile: (id) => projectProfileInRegistry(registry, id),
     runDecision: (request, options) => runDecisionInRegistry(registry, request, options),

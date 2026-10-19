@@ -39,8 +39,8 @@ Use Theorem when your application runs an AI agent and you need the agent to do 
 You describe an agent once, as a **profile**. A profile says:
 
 - which models the agent may use;
-- what the agent accepts: text, images, PDFs, audio, voice or typed slots;
-- what the agent must return: free text, JSON that a schema checks, images, speech or a live audio session;
+- what the agent accepts: text, images, PDFs, audio, voice, or typed slots;
+- what the agent must return: free text, JSON that a schema checks, images, speech, or a live audio session;
 - which tools the agent may call;
 - how every input and output is guarded.
 
@@ -58,9 +58,9 @@ Install `jsr:@theoremjs/agents` from JSR or `@theoremjs/agents` from npm.
 | :--- | :--- | :--- |
 | Describe the whole agent in one place | Six profile types, several models per profile, typed file inputs, and outputs that a schema checks | [Profile types](#profile-types) |
 | Stop a prompt injection or a data leak | Input scanning by trust level, canary tokens, and egress checks that can send the model back to try again | [Guardrails](#guardrails) |
-| Let the model act, safely | One tool registry for function, HTTP, MCP and provider tools, gated in layers, with OAuth 2.1 and PKCE built in | [Tools](#tools) |
-| Connect model servers | Protocols for Gemini, OpenRouter, TypeSafe and OpenAI-compatible servers, and providers that you define | [Providers](#providers) |
-| See what happened | Traces to JSONL, memory or your own sink, with sampling, scrubbing and retention | [Observability](#observability) |
+| Let the model act, safely | One tool registry for function, HTTP, MCP, and provider tools, gated in layers, with OAuth 2.1 and PKCE built in | [Tools](#tools) |
+| Connect model servers | Protocols for Gemini, OpenRouter, TypeSafe, and OpenAI-compatible servers, and providers that you define | [Providers](#providers) |
+| See what happened | Traces to JSONL, memory, or your own sink, with sampling, scrubbing, and retention | [Observability](#observability) |
 | Trust the kernel | A kernel that imports with every Deno permission denied. A test proves it. | [Package Boundary](#package-boundary) |
 
 ---
@@ -145,7 +145,7 @@ const support = defineProfile({
 registerProfile(support);
 ```
 
-The profile sets no `guardrails`, so input cleaning, sensitive-data redaction and the canary stay on. [Guardrails](#guardrails) says what each one does.
+The profile sets no `guardrails`, so input cleaning, sensitive-data redaction, and the canary stay on. [Guardrails](#guardrails) says what each one does.
 
 ### Run a turn
 
@@ -162,7 +162,7 @@ for await (const event of runTurn(
 }
 ```
 
-Every event is typed. A `structured` event arrives only after validation and the egress checks pass. The `done` event carries a normalized `stop`: `completed`, `length`, `gate`, `cancelled` or another kind. Read `stop` to decide whether to continue, resume or stop.
+Every event is typed. A `structured` event arrives only after validation and the egress checks pass. The `done` event carries a normalized `stop`: `completed`, `length`, `gate`, `cancelled`, or another kind. Read `stop` to decide whether to continue, resume, or stop.
 
 ---
 
@@ -176,12 +176,12 @@ Use the `type` field to choose what the agent does. The type sets the shape of t
 | `image` | `runTurn` | prompt + reference images | images, optionally with interleaved text | `geminiInteractions`, `openRouterImages` |
 | `speech` | `runTurn` | text | audio (WAV, or MP3 on OpenRouter) | `geminiInteractions`, `openRouter`, `openAi` |
 | `live` | `runSession` | realtime mic audio, camera frames, typed text | streamed audio, transcripts, tool calls | `geminiLive` |
-| `host` | `invokeTool`, `invokeToolStep` | tool calls from your own code, one at a time or as a step | guarded tool results | none; it never calls a model |
+| `host` | `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep` | tool calls from your own code, one at a time or as a step; the `run` pair gives how each call ended | guarded tool results | none; it never calls a model |
 | `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, or `noul` | `systemOne` |
 
 A protocol that you define can serve the same profile types. Its `endpoints` name the profile types that it serves.
 
-`defineProfile` rejects a field that does not belong to the type. Quota, canary or egress on a `host` profile, attachments on `live`, and steering on `image` all fail at startup, not halfway through a turn.
+`defineProfile` rejects a field that does not belong to the type. Quota, canary, or egress on a `host` profile, attachments on `live`, and steering on `image` all fail at startup, not halfway through a turn.
 
 
 ---
@@ -238,7 +238,7 @@ Use tools to let the model act: look something up, call an API, change a record.
 | Type | What runs |
 | :--- | :--- |
 | `function` | Your handler, in process. |
-| `http` | A declarative REST call. Auth is `bearer`, `api_key` or `oauth2`. |
+| `http` | A declarative REST call. Auth is `bearer`, `api_key`, or `oauth2`. |
 | `mcp` | One tool on a remote MCP server over Streamable HTTP. |
 | `builtin` | A provider-native tool (Google Search, Maps, URL context, code execution) from a preset. |
 
@@ -251,7 +251,7 @@ Every client-tool call uses the same gated pipeline. Provider-native tools execu
 | **Paths** | Tool | `paths` globs matched against `TurnRequest.path` |
 | **Visibility** | Registry and profile | `T0` always visible; `T2` on demand: picked at turn start by `tools.t1Policy(ctx)` or loaded mid-turn by `tools.t2Loader` |
 | **Permission** | Tool and host | `auto` runs; `session_consent` asks once per session; `always_confirm` asks every call |
-| **Hooks** | Tool and host | The tool's `preTool` and the turn's `onStage` can deny, confirm or rewrite the call |
+| **Hooks** | Tool and host | The tool's `preTool` and the turn's `onStage` can deny, confirm, or rewrite the call |
 
 A tool that must act as the signed-in user takes OAuth 2.1 with PKCE. The call becomes an auth gate, and the helpers in `@theoremjs/agents/kernel` finish the sign-in.
 
@@ -267,16 +267,16 @@ Theorem scans each piece of text according to where it came from.
 | `assembled` | `TurnRequest.system`, built by your code per turn | Full scan |
 | `untrusted` | User text, history, slots, attachments, steering, stage injections | Full injection and sensitive-data scan |
 
-- **Coming in.** `detect` replaces prompt-injection phrasing, secrets and personal data with a placeholder before the model sees them.
+- **Coming in.** `detect` replaces prompt-injection phrasing, secrets, and personal data with a placeholder before the model sees them.
 - **Going out.** A **canary** is a secret token that Theorem hides in the system prompt. If the token appears in a reply, the prompt leaked, and the `canary_leak` detector stops the reply. The `prompt_leak` detector also stops a reply that repeats 12 words of the prompt. Both are set in `detect`, like every other detector. `egress` checks every outbound payload and can send the model back to repair its answer.
 - **Tool results.** Remote content is data. Theorem fences it, scans it, and refuses destructive calls after a remote read when `taint.afterRemoteRead` is set. `taint.remoteDestination` gates a call that sends to an address only remote content named.
 - **Network.** HTTP and MCP targets must pass `network.allowedHosts`. Theorem refuses private and metadata addresses by default.
 
-The checks fail closed: a payload that cannot be scanned counts as a block. The guardrails have an adversarial corpus, fuzzing and mutation tests. The corpus ships as `@theoremjs/agents/guardrails/testing`.
+The checks fail closed: a payload that cannot be scanned counts as a block. The guardrails have an adversarial corpus, fuzzing, and mutation tests. The corpus ships as `@theoremjs/agents/guardrails/testing`.
 
 ### Observability
 
-`observability` writes OpenTelemetry-shaped trace records for turns, host tool calls and live sessions to a destination that you register: JSONL, memory or your own sink. Use `sampleRate`, `include` and `scrub` to shape what it writes. `toOtlpJson` reshapes records for any OpenTelemetry backend.
+`observability` writes OpenTelemetry-shaped trace records for turns, host tool calls, and live sessions to a destination that you register: JSONL, memory, or your own sink. Use `sampleRate`, `include`, and `scrub` to shape what it writes. `toOtlpJson` reshapes records for any OpenTelemetry backend.
 
 ---
 
@@ -288,7 +288,7 @@ Retries share the deadline and byte budget. Limits do not enter the profile.
 
 A model call uses a **protocol**, a **provider** and a **binding**.
 The protocol is the code for one API shape. The provider is data: an address, the protocols that it serves, and a sign-in.
-The binding under `models` names the protocol, the registered provider ID and the model.
+The binding under `models` names the protocol, the registered provider ID, and the model.
 
 | Provider | ID | Protocols |
 | :--- | :--- | :--- |
@@ -319,7 +319,7 @@ const gateway = defineProvider({
 registerProvider(gateway, { connection: { baseUrl: "https://gateway.example/v1" }, keySlot: "gateway" });
 ```
 
-Use `defineProvider` for a server that speaks a protocol that Theorem has. `bearer`, `header` and `query` put the key on each request.
+Use `defineProvider` for a server that speaks a protocol that Theorem has. `bearer`, `header`, and `query` put the key on each request.
 Use `extendProtocol` for an API that nearly matches a protocol. Use `defineProtocol` for a new API shape.
 A protocol never holds a key or an address. The kernel signs and sends each request.
 
@@ -404,7 +404,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | :--- | :--- |
 | `jsr:@theoremjs/agents` / `@theoremjs/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
 | `jsr:@theoremjs/agents/kernel` / `@theoremjs/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
-| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | Protocols, first-party providers, provider definitions, sign-in helpers and vault contracts. |
+| `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | Protocols, first-party providers, provider definitions, sign-in helpers, and vault contracts. |
 | `jsr:@theoremjs/agents/guardrails` / `@theoremjs/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |
 | `jsr:@theoremjs/agents/guardrails/testing` / `@theoremjs/agents/guardrails/testing` | Adversarial corpus + fuzz helpers (test/harness only). |
 | `jsr:@theoremjs/agents/observability` / `@theoremjs/agents/observability` | Trace sinks, trace record helpers and OTLP/JSON export. |
@@ -453,7 +453,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `LIVE_ACTIVITY_HANDLINGS`, `LIVE_START_SENSITIVITIES`, `LIVE_END_SENSITIVITIES` |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `resolveTurn`, `pickModel` |
-| Tools | `ToolContext`, `GateReference`, `gateReferenceSchema`, `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `GATE_DECISIONS`, `GateDecision`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `uncheckedOutput`, `UncheckedOutput` |
+| Tools | `ToolContext`, `GateReference`, `gateReferenceSchema`, `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `uncheckedOutput`, `UncheckedOutput` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `StepLimitMode`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — contract [`docs/contracts/stages.md`](https://github.com/masudl-hub/theoremai/blob/main/docs/contracts/stages.md) |
@@ -494,7 +494,7 @@ live_sessions = "registered provider via runSession; host owns mic, camera, and 
 session_memory_in_kernel = false
 ```
 
-**Facts and policy.** Provider facts may ship, such as prices, wire shapes and protocol metadata. For example, see `@theoremjs/agents/presets/google`. Product policy may not ship: prompts, personas, end-user copy, demo apps and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
+**Facts and policy.** Provider facts may ship, such as prices, wire shapes, and protocol metadata. For example, see `@theoremjs/agents/presets/google`. Product policy may not ship: prompts, personas, end-user copy, demo apps, and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
 
 Four properties are invariant. Where a test or a lint checks one, the table names it.
 
@@ -505,9 +505,9 @@ Four properties are invariant. Where a test or a lint checks one, the table name
 | P3 | No buried policy — behavioral defaults are declared profile-schema fields | `PROFILE_FIELDS` / schema |
 | P4 | Inert extras — optional entrypoints removable without behavior change | publish-bundle gate excludes `studio/` |
 
-Provider definition and registration validate without opening transport (`src/kernel/protocols/provider.ts`). A protocol never holds a key, a key slot or a base URL. The kernel signs each request with the registered provider's sign-in.
+Provider definition and registration validate without opening transport (`src/kernel/protocols/provider.ts`). A protocol never holds a key, a key slot, or a base URL. The kernel signs each request with the registered provider's sign-in.
 
-Domain rules, delivery policy, product copy, database access and session memory belong in your application, not in Theorem.
+Domain rules, delivery policy, product copy, database access, and session memory belong in your application, not in Theorem.
 
 
 ## Contributing

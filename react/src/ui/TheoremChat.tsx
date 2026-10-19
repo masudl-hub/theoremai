@@ -61,7 +61,7 @@ export type TheoremChatProps = {
   labels?: TheoremLabels;
   /**
    * Colour code the reply left untagged: a fence with no language is read and, when it is plainly
-   * one of JavaScript, TypeScript, Python, shell, JSON, CSS, HTML, XML, YAML or Markdown, shown as it.
+   * one of JavaScript, TypeScript, Python, shell, JSON, CSS, HTML, XML, YAML, or Markdown, shown as it.
    * A fence with a language is never changed. Off by default.
    */
   detectCodeLanguage?: boolean;
@@ -140,10 +140,10 @@ export type TheoremChatProps = {
 /** What a host can do to a mounted {@link TheoremChat}. */
 export type TheoremChatHandle = {
   /**
-   * Sends `text` as the user, and resolves with the blocks the turn added once the reply is done;
+   * Sends `text` and optional `files` as the user, and resolves with the blocks the turn added once the reply is done;
    * `null` when the chat can't take a message now (a reply is streaming, or waits on a gate).
    */
-  send: (text: string) => Promise<SentTurn | null>;
+  send: (text: string, files?: readonly File[]) => Promise<SentTurn | null>;
   /** Stops the reply that is streaming, as the composer's stop button does. */
   stop: () => void;
 };
@@ -297,7 +297,7 @@ function ChatBody({
   const inputRef = useRef<ChatComposerInputHandle | null>(null);
   const composerRef = useGlide<HTMLElement>(landing, () => inputRef.current?.focus());
   const inspector = useTraceInspector(iface, transport.traces, trace);
-  const header = <SidePanelHeader>{inspector.toggle}</SidePanelHeader>;
+  const header = <SidePanelHeader floating>{inspector.toggle}</SidePanelHeader>;
 
   // why: the composer says when a turn failed. Without one, the chat says it where the composer was.
   const composer = hasComposer ? (
@@ -312,7 +312,7 @@ function ChatBody({
       <Layout
         height="fill"
         className={className}
-        style={style}
+        style={{ position: 'relative', ...style }}
         header={header}
         content={
           <LayoutContent padding={0}>

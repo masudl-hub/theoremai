@@ -256,21 +256,21 @@ button.inspector-origin:hover {
 }
 
 /*
- * The guardrails editor swaps its list of detectors for one detector's page, and back. Each side
+ * An editor swaps its list for one row's page, and back: a detector's, a question's. Each side
  * fades in as it mounts, so the swap reads as a move rather than a jump.
  */
-.detector-view {
-  animation: detector-view-enter var(--duration-fast) var(--ease-standard);
+.editor-page {
+  animation: editor-page-enter var(--duration-fast) var(--ease-standard);
 }
 
-@keyframes detector-view-enter {
+@keyframes editor-page-enter {
   from {
     opacity: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .detector-view {
+  .editor-page {
     animation: none;
   }
 }

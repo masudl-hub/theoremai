@@ -624,7 +624,7 @@ Deno.test(
           // The comment above the address stays where the builder wrote it.
           assert(written.includes('\t\t\t// where the gateway listens\r\n'), written);
           assert(written.includes('\t\tkeySlot: "changed_key",\r\n'), written);
-          // A setting the file did not hold is written in its tabs, quotes and line endings.
+          // A setting the file did not hold is written in its tabs, quotes, and line endings.
           assert(written.includes('\t\tfallbackKeySlot: "changed_spare",\r\n'), written);
           const reopened = await open(studio);
           const house = reopened.workspace.providers.find((provider) => provider.id === 'house');
@@ -662,49 +662,55 @@ Deno.test(
         assertSameFiles(snapshot(studio.root), original);
       });
 
-      await step('a forged, replayed or raced stamp writes nothing it did not review', async () => {
-        const first = renamed(opened.workspace, 'First');
-        const second = renamed(opened.workspace, 'Second');
-        const forged = await studio.post<SaveRefusal>(SAVE, {
-          workspace: first,
-          stamp: '0'.repeat(64),
-        });
-        assertEquals(forged.body.reason, 'stale');
-        const firstReview = (await studio.post<SaveReview>(SAVE, { workspace: first })).body;
-        const secondReview = (await studio.post<SaveReview>(SAVE, { workspace: second })).body;
-        // The second's stamp, sent with the first's workspace: what is written must be what was read.
-        const swapped = await studio.post<SaveRefusal>(SAVE, {
-          workspace: first,
-          stamp: secondReview.stamp,
-        });
-        assertEquals(swapped.body.reason, 'stale');
-        assertSameFiles(snapshot(studio.root), original);
-        const [a, b] = await Promise.all([
-          studio.post<SaveDone | SaveRefusal>(SAVE, { workspace: first, stamp: firstReview.stamp }),
-          studio.post<SaveDone | SaveRefusal>(SAVE, {
-            workspace: second,
+      await step(
+        'a forged, replayed, or raced stamp writes nothing it did not review',
+        async () => {
+          const first = renamed(opened.workspace, 'First');
+          const second = renamed(opened.workspace, 'Second');
+          const forged = await studio.post<SaveRefusal>(SAVE, {
+            workspace: first,
+            stamp: '0'.repeat(64),
+          });
+          assertEquals(forged.body.reason, 'stale');
+          const firstReview = (await studio.post<SaveReview>(SAVE, { workspace: first })).body;
+          const secondReview = (await studio.post<SaveReview>(SAVE, { workspace: second })).body;
+          // The second's stamp, sent with the first's workspace: what is written must be what was read.
+          const swapped = await studio.post<SaveRefusal>(SAVE, {
+            workspace: first,
             stamp: secondReview.stamp,
-          }),
-        ]);
-        assertEquals([a.body.ok, b.body.ok], [true, false], JSON.stringify([a.body, b.body]));
-        assertEquals((b.body as SaveRefusal).reason, 'stale');
-        const afterFirst = snapshot(studio.root);
-        assert(
-          new TextDecoder().decode(afterFirst.get('agents/desk.ts')).includes("handle: 'First'"),
-        );
-        const replay = await studio.post<SaveRefusal>(SAVE, {
-          workspace: first,
-          stamp: firstReview.stamp,
-        });
-        assertEquals(replay.body.ok, false);
-        assertSameFiles(snapshot(studio.root), afterFirst);
-        assertEquals((await studio.post(`${SAVE}/undo`, {})).body, {
-          ok: true,
-          written: ['agents/desk.ts'],
-        });
-        assertSameFiles(snapshot(studio.root), original);
-        opened = await open(studio);
-      });
+          });
+          assertEquals(swapped.body.reason, 'stale');
+          assertSameFiles(snapshot(studio.root), original);
+          const [a, b] = await Promise.all([
+            studio.post<SaveDone | SaveRefusal>(SAVE, {
+              workspace: first,
+              stamp: firstReview.stamp,
+            }),
+            studio.post<SaveDone | SaveRefusal>(SAVE, {
+              workspace: second,
+              stamp: secondReview.stamp,
+            }),
+          ]);
+          assertEquals([a.body.ok, b.body.ok], [true, false], JSON.stringify([a.body, b.body]));
+          assertEquals((b.body as SaveRefusal).reason, 'stale');
+          const afterFirst = snapshot(studio.root);
+          assert(
+            new TextDecoder().decode(afterFirst.get('agents/desk.ts')).includes("handle: 'First'"),
+          );
+          const replay = await studio.post<SaveRefusal>(SAVE, {
+            workspace: first,
+            stamp: firstReview.stamp,
+          });
+          assertEquals(replay.body.ok, false);
+          assertSameFiles(snapshot(studio.root), afterFirst);
+          assertEquals((await studio.post(`${SAVE}/undo`, {})).body, {
+            ok: true,
+            written: ['agents/desk.ts'],
+          });
+          assertSameFiles(snapshot(studio.root), original);
+          opened = await open(studio);
+        },
+      );
 
       await step(
         "the builder's editor, writing between the review and the write, wins",

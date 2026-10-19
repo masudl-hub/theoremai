@@ -7,6 +7,7 @@
 
 import {
   type DecisionAnswer,
+  type DecisionAsset,
   type DecisionEntry,
   type DecisionJson,
   type DecisionProfile,
@@ -27,6 +28,8 @@ export type DecisionQuestionView = {
   type: DecisionQuestion['type'];
   /** A choice's labels, a score's levels from 0 up; empty for a number. */
   labels: string[];
+  /** A box's image: the state field its instructions first name in backticks, if they name one. */
+  field?: string;
 };
 
 /** What a decision profile shows the page. */
@@ -44,6 +47,21 @@ function entryLabel(entry: DecisionEntry, fallback: string): string {
   if (typeof entry === 'string') return entry;
   const entries = Array.isArray(entry) ? entry : Object.keys(entry);
   return entries.length ? entryLabel(entries[0], fallback) : fallback;
+}
+
+function withField(field: string | undefined): { field?: string } {
+  return field === undefined ? {} : { field };
+}
+
+/** The first field an entry names in backticks, as in "the mug in `photo`". */
+function namedField(entry: DecisionEntry): string | undefined {
+  if (typeof entry === 'string') return /\x60([^\x60\s]+)\x60/.exec(entry)?.[1];
+  const entries = Array.isArray(entry) ? entry : Object.values(entry);
+  for (const each of entries) {
+    const field = namedField(each);
+    if (field !== undefined) return field;
+  }
+  return undefined;
 }
 
 /** The page's view of a decision profile and the questions its host asks. */
@@ -67,6 +85,7 @@ export function decisionInterface(
           : question.type === 'score'
             ? question.criteria.map((entry, level) => entryLabel(entry, String(level)))
             : [],
+      ...(question.type === 'box' ? withField(namedField(question.instructions)) : {}),
     })),
     ...(profile.observability
       ? { observability: { record: resolveObservabilityPolicy(profile.observability).record } }
@@ -79,7 +98,12 @@ export type DecisionReply = { result: DecisionResult; traces?: TraceRecord[] };
 
 export interface DecisionTransport {
   describe(signal?: AbortSignal): Promise<DecisionInterface>;
-  decide(state: Exclude<DecisionJson, null>, signal?: AbortSignal): Promise<DecisionReply>;
+  /** `assets` are the images the state names, by reference. */
+  decide(
+    state: Exclude<DecisionJson, null>,
+    signal?: AbortSignal,
+    assets?: Record<string, DecisionAsset>,
+  ): Promise<DecisionReply>;
   /** Where the host's trace records land, for the inspector. */
   traces?: TraceFeed;
 }
@@ -98,6 +122,11 @@ const answerSchema: z.ZodType<DecisionAnswer> = z.discriminatedUnion('type', [
     probabilities,
   }),
   z.object({ type: z.literal('noul'), noul: probability }),
+  z.object({
+    type: z.literal('box'),
+    box: z.object({ top: probability, bottom: probability, left: probability, right: probability }),
+    confidence: probability,
+  }),
   z.object({
     type: z.literal('score'),
     score: z.number().nonnegative(),
@@ -183,8 +212,9 @@ const describedSchema = z.object({
     questions: z.array(
       z.object({
         id: z.string(),
-        type: z.enum(['choice', 'noul', 'score']),
+        type: z.enum(['choice', 'noul', 'score', 'box']),
         labels: z.array(z.string()),
+        field: z.string().optional(),
       }),
     ),
     observability: z.object({ record: z.boolean() }).optional(),
@@ -204,6 +234,7 @@ export function createDecisionTransport(
         'the decision description', // labels-exempt: internal diagnostic; the user reads error.bad_response
       ).interface;
     },
-    decide: (state, signal) => postDecision(`${base}/decide`, { state }, signal, options),
+    decide: (state, signal, assets) =>
+      postDecision(`${base}/decide`, { state, ...(assets ? { assets } : {}) }, signal, options),
   };
 }

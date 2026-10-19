@@ -11,8 +11,10 @@ import {
   demoInputsSpec,
   demoToolSpecs,
 } from './concierge-demo.ts';
+import { DECISION_EXAMPLE_IMAGES } from './decision-example-images.ts';
 import {
   createBlankDraft,
+  type DecisionDraft,
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
@@ -59,9 +61,45 @@ const EXAMPLE_PICKS: ModelPicks = {
   },
 };
 
+/** The agent id the decision example opens under; its run starts with the pantry's state and pictures. */
+export const DECISION_EXAMPLE_AGENT_ID = 'pantry.jev';
+
+/** What the decision example's questions are asked about: the shelf, a colour chart, and why we ask. */
+export const DECISION_EXAMPLE_STATE = JSON.stringify(
+  {
+    photo: '<pantry_shelf>',
+    chart: '<apple_ripeness>',
+    note: 'Friends are coming round for brunch.',
+  },
+  null,
+  2,
+);
+
+/** The pictures the decision example starts with, by the references its state and questions write. */
+export const DECISION_EXAMPLE_ASSETS = DECISION_EXAMPLE_IMAGES;
+
+type ExampleQuestion = DecisionDraft['questions'][number];
+
+function exampleQuestion(
+  id: string,
+  type: ExampleQuestion['type'],
+  instructions: string,
+  options: readonly (readonly [string, string])[] = [],
+): ExampleQuestion {
+  return {
+    key: draftKey('question'),
+    id,
+    type,
+    instructions,
+    criteria: options.map(([label, text]) => ({ key: draftKey('criterion'), label, text })),
+  };
+}
+
 /**
- * A tool-call safety decision on TypeSafe's Jev: the draft a blank agent becomes when its type is
- * set to decision, with every section that type brings, named so it runs as it opens.
+ * A look at a pantry shelf on TypeSafe's Jev 1.14: boxes around what it finds, a colour chart and
+ * a flag to match against, and plain questions about what is there. The draft a blank agent becomes
+ * when its type is set to decision, with every section that type brings, and the pictures ship with
+ * it, so it runs as it opens.
  */
 export function createDecisionExampleDraft(): StudioDraft {
   const blank = createBlankDraft();
@@ -70,9 +108,32 @@ export function createDecisionExampleDraft(): StudioDraft {
   const draft = includableFacets(decision)
     .filter((facet) => !had.has(facet))
     .reduce(includeFacet, decision);
+  const binding = draft.modelBindings[0];
   return {
     ...draft,
-    identity: { ...draft.identity, agentId: 'guardrails.tool_call.jev', handle: 'jev' },
+    identity: { ...draft.identity, agentId: DECISION_EXAMPLE_AGENT_ID, handle: 'jev' },
+    modelBindings: binding ? [{ ...binding, apiId: 'jev-1.14.0', options: { images: true } }] : [],
+    decision: {
+      ...draft.decision,
+      contract: 'pantry.v1',
+      questions: [
+        exampleQuestion('Ginger', 'box', 'Where is <ginger> in `photo`?'),
+        exampleQuestion('Something to drink', 'noul', "There's something to drink in `photo`."),
+        exampleQuestion('Fruit salad', 'noul', 'Do we have what we need for a fruit salad?'),
+        exampleQuestion(
+          'Where the green apple lands on the chart',
+          'box',
+          'Where on `chart` would the green apple in `photo` sit?',
+        ),
+        exampleQuestion('Bread on the shelf', 'noul', 'Does the shelf have bread?'),
+        exampleQuestion('Union Jack', 'box', 'Which jar in `photo` matches <union_jack>?'),
+        exampleQuestion('Brunch', 'choice', 'What can we make for brunch from `photo`?', [
+          ['toast', 'Toast with a spread.'],
+          ['fruit', 'A bowl of fruit.'],
+          ['shop', 'Nothing yet. Someone goes to the shop.'],
+        ]),
+      ],
+    },
   };
 }
 

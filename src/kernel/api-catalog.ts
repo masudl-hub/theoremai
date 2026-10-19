@@ -130,7 +130,7 @@ export const REQUEST_FIELDS: Record<
   },
   'runTurn.links': {
     type: 'TurnTraceLink[]',
-    doc: 'Earlier traces this turn follows: a resume, a continue or a retry.',
+    doc: 'Earlier traces this turn follows: a resume, a continue, or a retry.',
   },
   'runTurn.continueFrom': {
     type: 'TurnContinueFrom',
@@ -142,7 +142,7 @@ export const REQUEST_FIELDS: Record<
   },
   'runTurn.speech': {
     type: 'TurnSpeech',
-    doc: "This turn's voice, style and speed; each one given replaces the profile's speech field of that name. Refused on a profile that is not speech.",
+    doc: "This turn's voice, style, and speed; each one given replaces the profile's speech field of that name. Refused on a profile that is not speech.",
     unset: "The profile's speech settings",
   },
   'runTurn.resolveHost': {
@@ -195,7 +195,7 @@ export const API_EXPORTS = {
   },
   runTurn: {
     kind: 'function',
-    doc: 'Runs one turn of a text, image or speech profile and yields its events.',
+    doc: 'Runs one turn of a text, image, or speech profile and yields its events.',
   },
   runSession: {
     kind: 'function',
@@ -209,13 +209,17 @@ export const API_EXPORTS = {
     kind: 'function',
     doc: 'Runs one registered tool through a profile, with no model.',
   },
+  runTool: {
+    kind: 'function',
+    doc: 'Runs one registered tool through a profile, with no model, and returns how the call settled.',
+  },
   compactHistory: {
     kind: 'function',
     doc: 'Shortens a conversation history with the compaction the profile sets.',
   },
   takeSlot: {
     kind: 'function',
-    doc: "Takes a client's turn slot on a profile; it answers ok, busy, quota or not_configured.",
+    doc: "Takes a client's turn slot on a profile; it answers ok, busy, quota, or not_configured.",
   },
   releaseSlot: {
     kind: 'function',

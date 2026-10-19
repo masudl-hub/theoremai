@@ -5,7 +5,7 @@ export type Wait = (ms: number, signal?: AbortSignal | null) => Promise<void>;
 
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
 /** All the waiting one call may do between tries; a wait that would pass it sends the last answer back. */
-const WAIT_BUDGET_MS = 5000;
+export const WAIT_BUDGET_MS = 5000;
 /** The most tries after the first: a `Retry-After: 0` costs no wait, so the budget alone never ends it. */
 const MAX_RETRIES = BACKOFF_MS.length;
 const MS_PER_SECOND = 1000;

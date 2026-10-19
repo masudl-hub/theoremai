@@ -5,8 +5,9 @@ import {
   createDecisionExampleDraft,
   createExampleDraft,
   createSpanExampleDraft,
+  DECISION_EXAMPLE_ASSETS,
+  DECISION_EXAMPLE_STATE,
   draftFacets,
-  exampleDecisionDraft,
   newCriteria,
   newDecisionQuestion,
   type StudioDraft,
@@ -31,16 +32,59 @@ function issues(draft: StudioDraft, on: StudioRunsOn = ON_OWN_KEYS): StudioIssue
   return result.issues;
 }
 
-Deno.test('the decision example is a new decision agent on Jev, and compiles', () => {
-  const draft = createDecisionExampleDraft();
-  const result = compileStudio(draft, ON_OWN_KEYS);
+Deno.test('the decision example asks Jev 1.14 about the pantry, with images on', () => {
+  const result = compileStudio(createDecisionExampleDraft(), ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
-  assert(result.profile.type === 'decision');
-  assertEquals(result.profile.models.decision.apiId, 'jev-latest');
+  const { profile, questions } = result;
+  assert(profile.type === 'decision');
+  assertEquals(profile.models.decision.apiId, 'jev-1.14.0');
+  assertEquals(profile.models.decision.options, { images: true });
   assertEquals(
-    draft.decision.questions.map((question) => question.id),
-    exampleDecisionDraft().questions.map((question) => question.id),
+    Object.fromEntries(Object.entries(questions ?? {}).map(([id, each]) => [id, each.type])),
+    {
+      Ginger: 'box',
+      'Something to drink': 'noul',
+      'Fruit salad': 'noul',
+      'Where the green apple lands on the chart': 'box',
+      'Bread on the shelf': 'noul',
+      'Union Jack': 'box',
+      Brunch: 'choice',
+    },
   );
+});
+
+/** A PNG's or JPEG's width and height, read from its header. */
+function imageSize(data: string): [number, number] {
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  if (bytes[0] === 0x89) return [view.getUint32(16), view.getUint32(20)];
+  assertEquals([...bytes.slice(0, 3)], [0xff, 0xd8, 0xff]);
+  // The size sits in the first start-of-frame marker (SOF0 to SOF2).
+  let at = 2;
+  while (bytes[at + 1] < 0xc0 || bytes[at + 1] > 0xc2) at += 2 + view.getUint16(at + 2);
+  return [view.getUint16(at + 7), view.getUint16(at + 5)];
+}
+
+Deno.test('the decision example writes every picture it ships, each in TypeSafe image limits', () => {
+  const draft = createDecisionExampleDraft();
+  const written = [DECISION_EXAMPLE_STATE, ...draft.decision.questions.map((q) => q.instructions)];
+  for (const [reference, image] of Object.entries(DECISION_EXAMPLE_ASSETS)) {
+    // TypeSafe refuses a request with an image nothing refers to.
+    assert(
+      written.some((text) => text.includes(reference)),
+      reference,
+    );
+    const [width, height] = imageSize(image.data);
+    assert(width >= 280 && height >= 280 && width <= 1568 && height <= 1568, reference);
+    assert(width * height >= 78_400 && width * height <= 2_458_624, reference);
+  }
+});
+
+Deno.test('on keys that take no images, a Box question is an issue on that question', () => {
+  const keys: LentKeys = { ...TEST_KEYS, decision: { ...TEST_KEYS.decision, images: 0 } };
+  const found = issues(createDecisionExampleDraft(), { mode: 'demo', keys });
+  assert(found.some((issue) => issue.message.includes('take no images')));
+  assert(compileStudio(createDecisionExampleDraft(), ON_TEST_KEYS).ok);
 });
 
 Deno.test('the Span example compiles to the free model with Number questions', () => {
@@ -217,12 +261,12 @@ Deno.test('a question the lent keys refuse is an issue on that question', () => 
   const keys: LentKeys = {
     ...TEST_KEYS,
     questionViolation: (_, question) =>
-      question.type === 'score' ? 'No scores on these keys.' : null,
+      question.type === 'choice' ? 'No choices on these keys.' : null,
   };
   const found = issues(createDecisionExampleDraft(), { mode: 'demo', keys });
   assertEquals(
     found.map(({ field, index, message }) => [field, index, message]),
-    [['questions', 1, 'No scores on these keys.']],
+    [['questions', 6, 'No choices on these keys.']],
   );
 });
 
@@ -236,4 +280,23 @@ Deno.test('studioSource writes the questions beside the profile', () => {
   assertStringIncludes(source, 'type DecisionQuestion');
   assertStringIncludes(source, 'satisfies Record<string, DecisionQuestion>;');
   assertStringIncludes(source, "contract: 'guardrails.tool_call.v1'");
+});
+
+Deno.test('a Box question compiles to instructions alone, and keeps no criteria', () => {
+  const jev = createDecisionExampleDraft();
+  const box = {
+    ...newDecisionQuestion(jev, 'box'),
+    id: 'cup',
+    instructions: 'Where is the cup in the first image?',
+  };
+  assertEquals(newCriteria('box'), []);
+  const result = compileStudio(
+    withQuestions(jev, () => [{ ...box, criteria: newCriteria('choice') }]),
+    ON_OWN_KEYS,
+  );
+  if (!result.ok) throw new Error(JSON.stringify(result.issues));
+  assertEquals(result.questions?.cup, {
+    type: 'box',
+    instructions: 'Where is the cup in the first image?',
+  });
 });

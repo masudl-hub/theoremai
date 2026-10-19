@@ -89,7 +89,7 @@ export interface BuiltinToolDef extends ToolBase {
   conflictsWith?: string[];
 }
 
-/** How a held tool call resumes: approved, refused or retried after sign-in. */
+/** How a held tool call resumes: approved, refused, or retried after sign-in. */
 export interface InvokeToolResume {
   gateKind?: ToolGateKind;
   /**
@@ -231,7 +231,7 @@ export interface FunctionToolDef<TIn = unknown, TOut = unknown>
   auth?: ToolAuthConfig;
 }
 
-/** How a tool that acts for the person signs in to the service; http, mcp and function tools share it. */
+/** How a tool that acts for the person signs in to the service; http, mcp, and function tools share it. */
 export interface ToolAuthConfig {
   slot: string;
   type: ToolAuthType;
@@ -269,6 +269,20 @@ export interface HttpToolDef<TIn = unknown, TOut = unknown>
     queryParams?: string[];
     bodyParam?: string;
   };
+  /** The service's own limit for one key; the kernel keeps this tool's requests within it. */
+  limit?: HttpToolLimit;
+  /**
+   * How long the service may take to answer, its body read included. Past it the call
+   * fails `timeout` and frees its place in the limit. Left out, a call waits as long as
+   * the caller's signal lets it.
+   */
+  timeoutMs?: number;
+}
+
+/** The most requests a service takes from one key in a window. */
+export interface HttpToolLimit {
+  requests: number;
+  windowMs: number;
 }
 
 export interface McpToolDef<TIn = unknown, TOut = unknown>
@@ -315,7 +329,7 @@ export type AgentToolChannel = 'attachments' | 'voice' | 'slots';
  */
 export interface AgentToolDef extends ToolBase {
   type: 'agent';
-  /** A text, image or speech profile, registered before this tool. Nothing it can call may gate. */
+  /** A text, image, or speech profile, registered before this tool. Nothing it can call may gate. */
   profile: ProfileId;
   /** Calls to this tool in one turn of its caller. Omit: only `maxSteps` bounds them. */
   maxCallsPerTurn?: number;
@@ -362,7 +376,7 @@ export interface AgentCall {
 
 /**
  * What the host sets on the called agent's turn. The kernel fixes its profile,
- * signal, trace parent and hook. `provider` runs the turn; omit it to use the
+ * signal, trace parent, and hook. `provider` runs the turn; omit it to use the
  * caller's, which works only when both are on the same provider and protocol.
  * `host` is what the called agent's tools read as `ctx.host`; omit it and they
  * read none, because the caller's is not passed down.
@@ -394,7 +408,7 @@ export type AgentCallHook = (
   | undefined
   | Promise<AgentCallRequest | { refuse: string } | undefined>;
 
-/** A tool in a registry: builtin, function, HTTP, MCP or agent. */
+/** A tool in a registry: builtin, function, HTTP, MCP, or agent. */
 export type RegisteredTool<TIn = unknown, TOut = unknown> =
   | BuiltinToolDef
   | FunctionToolDef<TIn, TOut>
@@ -432,7 +446,7 @@ export interface PromoteLoadedResult {
   failure?: ToolFailure;
 }
 
-/** What a tool's loader is told: the profile, the input and the path. */
+/** What a tool's loader is told: the profile, the input, and the path. */
 export interface ToolLoadContext {
   profile: Profile;
   input?: TurnInput;
@@ -556,7 +570,7 @@ export interface HostProfileToolsSpec {
   parallel?: boolean;
 }
 
-/** Every transport returns this; one settlement projects, guards and runs `post_tool`. */
+/** Every transport returns this; one settlement projects, guards, and runs `post_tool`. */
 export type ToolBodyOutcome =
   | { kind: 'ok'; outputRaw: unknown; modelResult: ModelToolResult }
   | { kind: 'gated'; gate: ToolGate }

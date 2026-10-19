@@ -20,7 +20,7 @@ export const TRUST_LEVELS = ['trusted', 'assembled', 'untrusted'] as const;
 /** One of {@linkcode TRUST_LEVELS}. */
 export type TrustLevel = (typeof TRUST_LEVELS)[number];
 
-/** The points a guardrail can run: input, history, system, attachments, tool calls and results, output, thoughts, network, live audio and traces. */
+/** The points a guardrail can run: input, history, system, attachments, tool calls, and results, output, thoughts, network, live audio, and traces. */
 export const GUARDRAIL_STAGES = [
   'input',
   'history',
@@ -213,7 +213,7 @@ export interface OutboundPayload {
 
 /** Which hosts and networks a tool's requests may reach. */
 export interface NetworkGuardrailSpec {
-  /** Allows localhost, loopback and private subnets (local dev and testing). Default false. */
+  /** Allows localhost, loopback, and private subnets (local dev and testing). Default false. */
   allowPrivateNetworks?: boolean;
   /** Hostnames or IP addresses permitted regardless of private subnet status. */
   allowedHosts?: string[];
@@ -257,6 +257,8 @@ export type DecisionDisclosureEnforcer = (
     profileId: string;
     model: string;
     questionIds: string[];
+    /** The images the call sends with the state, by reference. Absent: none. */
+    assets?: Record<string, { mimeType: 'image/png' | 'image/jpeg'; data: string }>;
   },
 ) => DecisionDisclosureVerdict | Promise<DecisionDisclosureVerdict>;
 

@@ -72,8 +72,10 @@ export interface DecisionModelBinding
 const modelBinding = z.strictObject({
   // labels-exempt: builder field description, read by the studio and docs
   protocol: z.string().min(1).describe('The API shape this model is spoken to in.'),
-  // labels-exempt: builder field description, read by the studio and docs
-  provider: z.string().min(1).describe('The registered provider that serves this model.'),
+  provider: z.string().min(1).describe(
+    // labels-exempt: builder field description, read by the studio and docs
+    'The service that runs the model or routes requests to one, such as Gemini or OpenRouter. Its registration supplies the endpoint and authentication.',
+  ),
   // labels-exempt: builder field description, read by the studio and docs
   apiId: z.string().min(1).describe('The id the provider knows the model by.'),
   maxOutputTokens: shared.maxOutputTokens.describe(

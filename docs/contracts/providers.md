@@ -123,7 +123,7 @@ Use a binding to select a protocol, a registered provider, and an upstream model
 | `protocol` | Nonempty ID of a protocol that the provider serves |
 | `provider` | Nonempty registered provider ID |
 | `apiId` | Nonempty upstream model or deployment ID |
-| Shared settings | Output tokens, temperature, effort aliases and selection, summaries, builtins, and compaction |
+| Shared settings | Output tokens, temperature, effort aliases, and selection, summaries, builtins, and compaction |
 | `keySlot`, `fallbackKeySlot` | Optional overrides of the registration's credential slots |
 | `options` | JSON object, parsed by the protocol's options schema; defaults to an empty object |
 | Decision timeout | Decision bindings add `timeoutMs` |
@@ -357,6 +357,23 @@ EOF alone is not successful completion. Cancellation does not silently replay a 
 Its optional `closeInfo` reports the close code, diagnostic reason, and preceding close warning.
 The live kernel applies its labels and tracing policy to these values.
 
+## TypeSafe
+
+Use `typesafeProvider` for TypeSafe's Jev models. It signs each request with a bearer key and serves `systemOne`.
+Jev 1.14 is `jev-1.14.0`, and `jev-preview` is its alias. `jev-latest` is the alias for the stable release, and TypeSafe moves it.
+Pin the versioned id when a decision must not change under you.
+
+`systemOne` takes two binding options. Both send one of TypeSafe's "danger zone" headers, which TypeSafe calls experimental. Leave an option out to keep the default.
+
+| Option | Header it sends | Effect |
+| --- | --- | --- |
+| `images` | `TypeSafe-Danger-Zone-Images: true` | The decision may hold images (`DecisionRequest.assets`) and `box` questions |
+| `longContext` | `TypeSafe-Danger-Zone-Long-Context: true` | The context window grows from 64k to 262k tokens, with less speed and accuracy |
+
+`systemOne` sends each image in the `assets` map as `data_base64` with its format. It does not send multipart bodies.
+Without `images`, a request that holds images or a `box` question fails before it leaves the process.
+A `box` question also fails on a pinned `jev-1.13.*` id.
+
 ## OpenRouter
 
 Use `openRouterProvider` for OpenRouter. It signs each request with a bearer key.
@@ -523,8 +540,8 @@ Failed or discarded output does not commit a usable history prefix or authorize 
 
 ## Exported API
 
-The providers barrel exports the protocols, the first-party providers, the definition and sign-in helpers, and the vault contracts.
-The root also exports the default-scope registry functions, the binding schemas and `checkBinding`, the limits, and `callProtocol`.
+The providers barrel exports the protocols, the first-party providers, the definition, and sign-in helpers, and the vault contracts.
+The root also exports the default-scope registry functions, the binding schemas, and `checkBinding`, the limits, and `callProtocol`.
 
 | Group | Symbols |
 | --- | --- |

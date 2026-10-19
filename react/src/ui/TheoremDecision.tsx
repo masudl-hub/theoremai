@@ -1,6 +1,7 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import type { DecisionJson } from '@theoremjs/agents';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { type DecisionImages, inStateFields } from '../client/decision-images.ts';
 import {
   createDecisionTransport,
   type DecisionInterface,
@@ -17,11 +18,12 @@ import {
   RunBar,
   useBytes,
 } from './ConsoleFrame.tsx';
-import { TheoremDecisionAnswers } from './DecisionAnswers.tsx';
+import { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
+import { ImagesField } from './DecisionImages.tsx';
 import type { LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
-import { StateFields } from './StateFields.tsx';
+import { StateFields, StateImages } from './StateFields.tsx';
 import { useTraceInspector } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
 
@@ -32,6 +34,11 @@ export type TheoremDecisionProps = ConsolePageProps & {
   transport?: DecisionTransport;
   /** The JSON the state field starts with. Default `{}`. */
   defaultState?: string;
+  /**
+   * Images attached when the page opens, by the name the state refers to them by. The visitor
+   * can add and remove more; they travel with each decision.
+   */
+  defaultImages?: DecisionImages;
 };
 
 type StateCheck =
@@ -74,7 +81,7 @@ function stateNote(
     );
   }
   return maxBytes === undefined
-    ? t('@theorem.decision.shortcut')
+    ? null
     : t('@theorem.decision.state_size', { size: bytes(check.bytes), limit: bytes(maxBytes) });
 }
 
@@ -109,12 +116,18 @@ function useDecisionState(defaultState: string, maxStateBytes: DecisionInterface
 /** The state, as fields or JSON, and Decide. */
 function DecisionRequest({
   form,
+  iface,
+  images,
+  onImages,
   note,
   isRunning,
   onRun,
   onStop,
 }: {
   form: ReturnType<typeof useDecisionState>;
+  iface: DecisionInterface;
+  images: DecisionImages;
+  onImages: (next: DecisionImages) => void;
   note: string | null;
   isRunning: boolean;
   onRun: () => void;
@@ -122,6 +135,9 @@ function DecisionRequest({
 }) {
   const t = useLabels();
   const { text, setText, check, shown, setView } = form;
+  const withImages =
+    iface.questions.some((question) => question.type === 'box') || Object.keys(images).length > 0;
+  const fields = shown === 'fields' ? check.state : undefined;
   return (
     <RequestCard
       title={t('@theorem.decision.state')}
@@ -130,14 +146,16 @@ function DecisionRequest({
       onView={setView}
       onRun={onRun}
     >
-      {shown === 'fields' && check.state !== undefined ? (
-        <StateFields
-          label={t('@theorem.decision.state')}
-          value={check.state}
-          onChange={(next) => {
-            setText(JSON.stringify(next, null, 2));
-          }}
-        />
+      {fields !== undefined ? (
+        <StateImages value={images}>
+          <StateFields
+            label={t('@theorem.decision.state')}
+            value={fields}
+            onChange={(next) => {
+              setText(JSON.stringify(next, null, 2));
+            }}
+          />
+        </StateImages>
       ) : (
         <JsonRequest
           label={t('@theorem.decision.state')}
@@ -146,6 +164,13 @@ function DecisionRequest({
           onChange={setText}
         />
       )}
+      {withImages ? (
+        <ImagesField
+          images={images}
+          inFields={fields === undefined ? new Set() : inStateFields(images, fields)}
+          onChange={onImages}
+        />
+      ) : null}
       <RunBar
         note={note}
         isReady={check.ok}
@@ -161,7 +186,15 @@ function DecisionRequest({
 }
 
 /** What came back: the failure, the answers, or a spinner until the first of either. */
-function DecisionAnswered({ iface, decision }: { iface: DecisionInterface; decision: Decision }) {
+function DecisionAnswered({
+  iface,
+  decision,
+  asked,
+}: {
+  iface: DecisionInterface;
+  decision: Decision;
+  asked?: TheoremDecisionAnswersProps['asked'];
+}) {
   const t = useLabels();
   const deciding = decision.status === 'deciding';
   return (
@@ -170,12 +203,13 @@ function DecisionAnswered({ iface, decision }: { iface: DecisionInterface; decis
         <Banner status="error" role="alert" title={decision.failure.error} />
       ) : null}
       {deciding && !decision.result ? (
-        <PaneLoading label={t('@theorem.decision.deciding')} />
+        <PaneLoading label={t('@theorem.decision.deciding')} since={decision.startedAt} />
       ) : null}
       {decision.result ? (
         <TheoremDecisionAnswers
           iface={iface}
           result={decision.result}
+          asked={asked}
           elapsedMs={decision.elapsedMs}
           isStale={deciding}
         />
@@ -192,6 +226,7 @@ function decisionResponse(
   columns: boolean,
   phase: ReturnType<typeof decisionPhase>,
   labels: { answers: string; deciding: string },
+  since: number | null,
   answers: ReactNode,
 ): ReactNode {
   if (phase === 'idle') return null;
@@ -199,7 +234,7 @@ function decisionResponse(
   const waiting = phase === 'waiting';
   return (
     <ResponseColumn label={labels.answers} fill={waiting}>
-      {waiting ? <PaneLoading label={labels.deciding} /> : answers}
+      {waiting ? <PaneLoading label={labels.deciding} since={since} /> : answers}
     </ResponseColumn>
   );
 }
@@ -209,6 +244,7 @@ function DecisionBody({
   iface,
   decision,
   defaultState = '{}',
+  defaultImages,
   maxWidth = '960px',
   trace,
   flush,
@@ -220,10 +256,15 @@ function DecisionBody({
   const bytes = useBytes();
   const form = useDecisionState(defaultState, iface.maxStateBytes);
   const { check } = form;
+  const [images, setImages] = useState<DecisionImages>(defaultImages ?? {});
+  /** The images and state the answers were asked about, kept with them: later edits don't redraw them. */
+  const [asked, setAsked] = useState<TheoremDecisionAnswersProps['asked']>();
   const inspector = useTraceInspector(iface, transport.traces, trace);
 
   const decide = () => {
-    if (check.ok) void decision.decide(check.state);
+    if (!check.ok) return;
+    setAsked({ images, state: check.state });
+    void decision.decide(check.state, Object.keys(images).length > 0 ? images : undefined);
   };
 
   return (
@@ -238,6 +279,9 @@ function DecisionBody({
     >
       <DecisionRequest
         form={form}
+        iface={iface}
+        images={images}
+        onImages={setImages}
         note={stateNote(t, check, iface.maxStateBytes, bytes)}
         isRunning={decision.status === 'deciding'}
         onRun={decide}
@@ -247,7 +291,8 @@ function DecisionBody({
         columns,
         decisionPhase(decision),
         { answers: t('@theorem.decision.answers'), deciding: t('@theorem.decision.deciding') },
-        <DecisionAnswered iface={iface} decision={decision} />,
+        decision.startedAt,
+        <DecisionAnswered iface={iface} decision={decision} asked={asked} />,
       )}
     </ConsoleFrame>
   );

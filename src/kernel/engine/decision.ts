@@ -48,7 +48,7 @@ export class DecisionError extends TheoremError {
   }
 }
 
-/** Options for running a decision: the key vault, transport utilities and a trace sink that replaces the profile's. */
+/** Options for running a decision: the key vault, transport utilities, and a trace sink that replaces the profile's. */
 export interface RunDecisionOptions extends ProviderHostOptions {
   /** Replaces the profile's `observability.writeTo`; an explicit sink always records, unsampled. */
   sink?: TraceSink;
@@ -103,6 +103,20 @@ function distribution(value: unknown, labels: string[], path: string): Record<st
   return out;
 }
 
+/** A box's four edges, each a fraction of the image, with the low edge before the high one. */
+function box(value: unknown, path: string) {
+  if (!isRecord(value)) throw new DecisionError('malformed_response', `${path} is invalid`); // labels-exempt: upstream contract error
+  const edges = {
+    top: finite(value.top, `${path}.top`),
+    bottom: finite(value.bottom, `${path}.bottom`),
+    left: finite(value.left, `${path}.left`),
+    right: finite(value.right, `${path}.right`),
+  };
+  if (edges.left >= edges.right || edges.top >= edges.bottom)
+    throw new DecisionError('malformed_response', `${path} has an edge out of order`); // labels-exempt: upstream contract error
+  return edges;
+}
+
 /** A score's legend: text for every declared level. */
 function legend(value: unknown, labels: string[], path: string): Record<string, string> {
   if (
@@ -154,6 +168,12 @@ function validateAnswers(
       };
     } else if (question.type === 'noul') {
       answers[id] = { type: 'noul', noul: finite(answer.noul, `${id}.noul`) };
+    } else if (question.type === 'box') {
+      answers[id] = {
+        type: 'box',
+        box: box(answer.box, `${id}.box`),
+        confidence: finite(answer.confidence, `${id}.confidence`),
+      };
     } else {
       const labels = question.criteria.map((_, index) => String(index));
       answers[id] = {
@@ -208,7 +228,8 @@ function validateQuestion(id: string, question: unknown): void {
       `Decision question '${id}' must include instructions`,
     );
   }
-  if (question.type === 'noul' && question.criteria === undefined) return;
+  if ((question.type === 'noul' || question.type === 'box') && question.criteria === undefined)
+    return;
   if (
     typeof question.type !== 'string' ||
     !['choice', 'noul', 'score'].includes(question.type) ||
@@ -271,6 +292,30 @@ export function validateDecisionRequest(
     );
   }
   for (const [id, question] of Object.entries(request.questions)) validateQuestion(id, question);
+  if (request.assets !== undefined) validateAssets(request.assets);
+}
+
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Only what any provider needs: a known image type and bare, padded base64. The provider holds its own limits. */
+function validateAssets(assets: unknown): void {
+  if (!isRecord(assets) || Object.keys(assets).length === 0)
+    throw new DecisionError('invalid_request', 'Decision assets must name at least one image'); // labels-exempt: developer contract error
+  for (const [reference, asset] of Object.entries(assets)) {
+    if (
+      !reference.trim() ||
+      !isRecord(asset) ||
+      (asset.mimeType !== 'image/png' && asset.mimeType !== 'image/jpeg') ||
+      typeof asset.data !== 'string' ||
+      asset.data.length % 4 !== 0 ||
+      !BASE64.test(asset.data)
+    )
+      throw new DecisionError(
+        'invalid_request',
+        // labels-exempt: developer contract error
+        `Decision asset '${reference}' must be PNG or JPEG bytes as padded base64`,
+      );
+  }
 }
 
 function isDecisionEntry(value: unknown): boolean {
@@ -301,6 +346,7 @@ async function enforceDisclosure(
       profileId: profile.id,
       model,
       questionIds: Object.keys(request.questions),
+      ...(request.assets ? { assets: request.assets } : {}),
     });
   if (verdict?.action === 'block') {
     throw new DecisionError('disclosure_blocked', 'Decision disclosure was blocked'); // labels-exempt: developer contract error
@@ -322,6 +368,19 @@ function decisionSpanAttributes(
     'theorem.decision.contract': profile.decision.contract,
     'theorem.decision.state': traceJson(request.state),
     'theorem.decision.questions': traceJson(request.questions),
+    ...(request.assets
+      ? {
+          // invariant: Image bytes never reach a trace; it keeps each image's type and size.
+          'theorem.decision.assets': traceJson(
+            Object.fromEntries(
+              Object.entries(request.assets).map(([reference, { mimeType, data }]) => [
+                reference,
+                { mimeType, bytes: data.length },
+              ]),
+            ),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -392,6 +451,7 @@ async function decide(
       apiId: binding.apiId,
       state: request.state,
       questions: request.questions,
+      ...(request.assets ? { assets: request.assets } : {}),
     });
     if (typeof result.model !== 'string' || !result.model.trim())
       throw new DecisionError('malformed_response', labelText('provider.decision_model_missing'));

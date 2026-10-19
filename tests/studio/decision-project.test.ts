@@ -159,7 +159,7 @@ Deno.test('questions a setup file wrote wrongly are named, not run', () => {
   );
   assertEquals(
     questionsFault('desk', { next: { type: 'pick', instructions: 'Which?' } }),
-    "The question 'next' the setup file exports for desk needs a type: 'choice', 'noul', or 'score'.",
+    "The question 'next' the setup file exports for desk needs a type: 'choice', 'noul', 'score', or 'box'.",
   );
 });
 

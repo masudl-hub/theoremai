@@ -26,8 +26,6 @@ const SECTION_NOTES = {
   'tool.headers': 'Headers are saved in the profile, so keep secrets under Auth.',
   'tool.auth':
     'The studio stores no credential: at a sign-in gate you type one for that call only.',
-  'decision.state':
-    "The JSON every question is asked about. It's filled in the preview, not saved.",
   'decision.questions': 'Asked together in one call, answered in this order.',
   connection: 'Kept in this tab. Sent directly to the provider.',
 } as const;

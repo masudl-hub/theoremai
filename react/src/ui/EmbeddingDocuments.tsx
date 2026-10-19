@@ -75,12 +75,16 @@ export function inputIssue(t: LabelText, check: EmbeddingInputCheck, name: strin
  * The documents: pasted text split as chosen, then files and JSON, in that
  * order. Text files are split as the text is; any other file is one document.
  */
-export function useEmbeddingDocuments(defaultText: string, rules: Rules) {
+export function useEmbeddingDocuments(
+  defaultText: string,
+  rules: Rules,
+  defaultDocuments: readonly EmbeddingDocument[] = [],
+) {
   const t = useLabels();
   const [text, setText] = useState(defaultText);
   const [choice, setChoice] = useState<SplitChoice>('paragraphs');
   const [separator, setSeparator] = useState('');
-  const [added, setAdded] = useState<EmbeddingDocument[]>([]);
+  const [added, setAdded] = useState<EmbeddingDocument[]>(() => [...defaultDocuments]);
   const [view, setView] = useState<ConsoleView>('fields');
   const [json, setJson] = useState<string | null>(null);
   const split: EmbeddingSplit = choice === 'custom' ? { separator } : choice;

@@ -214,13 +214,13 @@ export interface PatternDraft {
   kind: 'pattern' | 'words';
   /** The regular expression's source, while `kind` is `pattern`. */
   pattern: string;
-  /** Its flags, from `i`, `m`, `s` and `u`. */
+  /** Its flags, from `i`, `m`, `s`, and `u`. */
   flags: string;
   /** The words, while `kind` is `words`. */
   words: string[];
 }
 
-/** Whose patterns a detector reads with: Theorem's, the builder's, both or neither. */
+/** Whose patterns a detector reads with: Theorem's, the builder's, both, or neither. */
 export interface PatternSourceDraft {
   theorem: boolean;
   patterns: PatternDraft[];
@@ -351,7 +351,7 @@ export interface LiveDraft {
   vadSilenceDurationMs: number | null;
 }
 
-export type DecisionQuestionType = 'choice' | 'score' | 'noul';
+export type DecisionQuestionType = 'choice' | 'score' | 'noul' | 'box';
 
 /** A choice's option or a number's named criterion (`label`), or a score's level (`text` only). */
 export interface DecisionCriterionDraft {
@@ -587,11 +587,34 @@ export const EXAMPLE_SPAN_DECISION_STATE = JSON.stringify(
   'The user asked to tidy screenshots. The proposed call recursively deletes 1,284 files, including a tax return.',
 );
 
-/** Documents an embedding preview starts with, one per paragraph: two about the same thing, and one that isn't. */
+/** Documents an embedding preview starts with, one per paragraph: a small help centre in a few topics, with a couple that belong to none. */
 export const EXAMPLE_EMBEDDING_TEXT = [
   'To clear your desktop, select the screenshots and move them to the Trash. Empty the Trash to delete them for good.',
   "Screen captures save to the desktop by default. You can change where they go in the Screenshot app's Options menu.",
+  'Press Command-Shift-5 to record the screen or capture a window. Recordings are saved as movie files next to your screenshots.',
+  'Stacks group desktop files by kind, date or tag, so a cluttered desktop folds into a few piles you can open one at a time.',
+  'Deleted files stay in the Trash for 30 days. Drag a file out of the Trash to put it back where it was.',
+  'When your disk is almost full, open Storage settings and review the largest files. Old downloads and installers are safe to remove.',
+  'Offloading unused apps frees space and keeps their documents. Reinstalling an app brings its data back.',
+  'Photos you have backed up can be optimised so the originals live in the cloud and smaller copies stay on the device.',
+  'Your plan renews on the same date each month. You can see the next charge under Billing, then Upcoming invoices.',
+  'To get a refund, open the invoice and choose Request refund. Charges from the last 14 days are refunded in full.',
+  'Update your card under Billing, then Payment methods. The new card is used for the next renewal, not for past invoices.',
+  'Annual plans cost two months less than paying monthly. Switching mid-term credits the unused months to the new plan.',
+  'Invoices are emailed as PDFs and list your company name and tax number. Edit those details before the invoice is issued.',
+  'Turn on two-step verification under Security. You will be asked for a code from your authenticator app each time you sign in on a new device.',
+  'If you forget your password, choose Forgot password on the sign-in page. The reset link expires after one hour.',
+  "Review signed-in devices under Security and sign out any you don't recognise. This ends their sessions immediately.",
+  'Passkeys replace your password with your fingerprint or face. Create one under Security, then Passkeys.',
+  'To close your account, export your data first. Closing deletes your workspace after a 30-day grace period.',
+  'Share a folder by choosing Share, then entering an email address. Viewers can read; editors can change and delete.',
+  'Public links work for anyone who has them. Set an expiry date, or turn the link off to stop sharing at once.',
+  'Transfer ownership of a folder before you leave a team, or its contents will be archived with your account.',
   'Lisbon has mild, wet winters and warm, dry summers. Expect highs near 28 °C in August.',
+  'The best months for the Algarve coast are May, June and September, when the beaches are warm and the crowds are thin.',
+  'Trams in Lisbon climb the steep hills of Alfama and Graça. Line 28 is the famous one, and the busiest.',
+  'For a crisp pizza base, preheat the oven and the baking tray together at the highest setting for at least thirty minutes.',
+  'Rest steak for five minutes after cooking so the juices settle back into the meat instead of running onto the board.',
 ].join('\n\n');
 
 /** The question an embedding preview starts with, nearest the first document. */
@@ -609,7 +632,7 @@ export function newDecisionQuestion(
 
 /** The rows a question of `type` starts with: two options, two levels, or none. */
 export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[] {
-  if (type === 'noul') return [];
+  if (type === 'noul' || type === 'box') return [];
   return criteria(
     type === 'choice'
       ? [
@@ -763,7 +786,7 @@ export function includableFacets(draft: StudioDraft): ProfileGraphFacetId[] {
   ).map((facet) => facet.id);
 }
 
-/** Inputs an image profile can take: no voice, attachments within images, video and PDF. */
+/** Inputs an image profile can take: no voice, attachments within images, video, and PDF. */
 function imageInputs(inputs: InputsDraft): InputsDraft {
   return {
     ...inputs,

@@ -157,18 +157,40 @@ async function invokeSnapshot(
   return { profile, snapshot };
 }
 
+/** A call's name and the id it goes by, known before any of its events. */
+export interface StartedCall {
+  name: string;
+  callId: string;
+}
+
+/** A started invoke: its call and its events. */
+export interface StartedInvoke extends StartedCall {
+  events: AsyncGenerator<TurnEvent>;
+}
+
 function invokeTool(
   registry: KernelRegistry,
   request: InvokeToolRequest,
   sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
+  return startInvoke(registry, request, sinkOverride).events;
+}
+
+function startInvoke(
+  registry: KernelRegistry,
+  request: InvokeToolRequest,
+  sinkOverride?: TraceSink,
+): StartedInvoke {
   const callId = request.callId ?? newCallId(request.name);
-  const invoke = { ...request, operationId: request.operationId ?? crypto.randomUUID() };
+  const invoke = {
+    ...request,
+    operationId: request.operationId ?? crypto.randomUUID(),
+  };
   const openSpan = (tree: TraceTree) => (_name: string, attributes: TraceAttributes) => {
     tree.root.set(attributes);
     return tree.root;
   };
-  return invokeInTrace(registry, invoke, toolSpanName(invoke.name), sinkOverride, {
+  const events = invokeInTrace(registry, invoke, toolSpanName(invoke.name), sinkOverride, {
     events: (tree, canaries) =>
       invokeTraced(
         registry,
@@ -186,6 +208,7 @@ function invokeTool(
         callId,
       )(isAbortError(err) ? { outcome: 'cancelled' } : { outcome: 'error', thrown: err }),
   });
+  return { name: invoke.name, callId, events };
 }
 
 /**
@@ -202,11 +225,49 @@ function invokeToolStep(
   request: InvokeToolStepRequest,
   sinkOverride?: TraceSink,
 ): AsyncGenerator<TurnEvent> {
-  return invokeInTrace(registry, request, `tool_step ${request.profile}`, sinkOverride, {
+  return startInvokeStep(registry, request, sinkOverride).events;
+}
+
+/** One call of a started step: the id it goes by, and whether the step announces it. */
+interface StepCall {
+  callId: string;
+  invoke: InvokeToolRequest;
+  announce: boolean;
+}
+
+/** A started step: its calls in the order given, and the step's events. */
+export interface StartedStep {
+  calls: StartedCall[];
+  events: AsyncGenerator<TurnEvent>;
+}
+
+function startInvokeStep(
+  registry: KernelRegistry,
+  request: InvokeToolStepRequest,
+  sinkOverride?: TraceSink,
+): StartedStep {
+  const { calls: given, ...shared } = request;
+  const calls = given.map((call): StepCall => {
+    const callId = call.callId ?? newCallId(call.name);
+    return {
+      callId,
+      invoke: {
+        ...shared,
+        name: call.name,
+        input: call.input,
+        callId,
+        operationId: call.operationId ?? crypto.randomUUID(),
+      },
+      // why: A model's call was already announced by its turn; only a call the step names itself is announced here.
+      announce: call.callId === undefined,
+    };
+  });
+  const events = invokeInTrace(registry, request, `tool_step ${request.profile}`, sinkOverride, {
     events: (tree, canaries) =>
       invokeStepTraced(
         registry,
         request,
+        calls,
         (name, attributes) => tree.root.child(name, { attributes }),
         tree.root.traceparent(),
         canaries,
@@ -217,30 +278,21 @@ function invokeToolStep(
       else endThrownSpan(tree.root, err);
     },
   });
+  return {
+    calls: calls.map(({ callId, invoke }) => ({ name: invoke.name, callId })),
+    events,
+  };
 }
 
 async function* invokeStepTraced(
   registry: KernelRegistry,
   request: InvokeToolStepRequest,
+  calls: StepCall[],
   openSpan: (name: string, attributes: TraceAttributes) => SpanHandle,
   traceparent: string,
   canaries: string[],
 ): AsyncGenerator<TurnEvent> {
   const { profile, snapshot } = await invokeSnapshot(registry, request);
-  const { calls: given, ...shared } = request;
-  const calls = given.map((call) => {
-    // why: A model's call was already announced by its turn; only a call the step names itself is announced here.
-    const announce = call.callId === undefined;
-    const callId = call.callId ?? newCallId(call.name);
-    const invoke: InvokeToolRequest = {
-      ...shared,
-      name: call.name,
-      input: call.input,
-      callId,
-      operationId: call.operationId ?? crypto.randomUUID(),
-    };
-    return { callId, invoke, announce };
-  });
   const stepId = crypto.randomUUID();
   for (const { callId, invoke, announce } of calls) {
     if (!announce) continue;
@@ -287,7 +339,13 @@ async function* invokeStepTraced(
   } catch (err) {
     yield toErrorEvent(err);
   }
-  yield turnDoneOf({ stop: { kind: gated ? 'gate' : 'completed' }, traceparent }, snapshot);
+  yield turnDoneOf(
+    {
+      stop: { kind: gated ? 'gate' : 'completed' },
+      traceparent,
+    },
+    snapshot,
+  );
 }
 
 async function* invokeTraced(
@@ -325,7 +383,13 @@ async function* invokeTraced(
   } catch (err) {
     yield toErrorEvent(err);
   }
-  yield turnDoneOf({ stop: { kind: gated ? 'gate' : 'completed' }, traceparent }, snapshot);
+  yield turnDoneOf(
+    {
+      stop: { kind: gated ? 'gate' : 'completed' },
+      traceparent,
+    },
+    snapshot,
+  );
 }
 
 /** The step a call runs in: the calls `pre_tool` sees and the wait its `waitFor` holds on. */
@@ -451,4 +515,4 @@ async function* invokePrepared(
   });
 }
 
-export { invokeTool, invokeToolStep };
+export { invokeTool, invokeToolStep, startInvoke, startInvokeStep };

@@ -4,8 +4,8 @@
  * - `GET  <base>`        → `{ interface }` the profile's handle, contract, and questions
  * - `POST <base>/decide` → `{ result }` the answers for the posted `{ state }`
  *
- * The host owns the questions: the browser sends only the state, so a visitor
- * can't spend the host's key asking questions of their own.
+ * The host owns the questions: the browser sends only the state and the images it names,
+ * so a visitor can't spend the host's key asking questions of their own.
  *
  * @module
  */
@@ -47,7 +47,10 @@ export type TheoremDecisionHandlerOptions = {
   onError?: (err: unknown, ctx: { request: Request }) => void;
 };
 
-const decideBodySchema = z.object({ state: z.unknown() });
+const decideBodySchema = z.object({
+  state: z.unknown(),
+  assets: z.record(z.string(), z.object({ mimeType: z.string(), data: z.string() })).optional(),
+});
 
 export function createTheoremDecisionHandler(
   options: TheoremDecisionHandlerOptions,
@@ -75,6 +78,8 @@ export function createTheoremDecisionHandler(
           profile: profile.id,
           // why: The kernel checks the state is non-null JSON within the profile's size.
           state: body.state as never,
+          // why: The kernel checks each image's type and bytes before any request leaves.
+          assets: body.assets as never,
           questions: options.questions,
           signal: request.signal,
           metadata: options.metadata?.(request),

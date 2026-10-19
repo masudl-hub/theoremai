@@ -212,6 +212,8 @@ export {
   runDecision,
   runEmbedding,
   runSession,
+  runTool,
+  runToolStep,
   runTurn,
 } from './src/kernel/default-scope.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
@@ -461,6 +463,11 @@ export {
   toolInvocationHash,
   toolOperationOutcomeSchema,
 } from './src/kernel/tools/operation.ts';
+export type {
+  SettledToolCall,
+  ToolCallResult,
+  ToolStepCallResult,
+} from './src/kernel/tools/run.ts';
 export type { ModelToolResult, PageAnswer, ToolContext } from './src/kernel/tools/types.ts';
 export {
   awaitingUserInputSchema,

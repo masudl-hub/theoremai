@@ -272,13 +272,14 @@ export function createBrowserStudioDecisionTransport(
           payload.questions ?? {},
         ),
       ),
-    decide: async (state, signal) => {
+    decide: async (state, signal, assets) => {
       try {
         return await runStudioDecision(
           payload,
           state,
           runtime.decision ?? {},
           runSignal(runtime, signal),
+          assets,
         );
       } catch (err) {
         // The failure keeps the trace the kernel left.

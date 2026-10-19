@@ -550,7 +550,7 @@ function listed(ids: readonly string[]): string {
   const rest = ids.length - NAMED;
   const shown = rest > 0 ? [...ids.slice(0, NAMED), `${String(rest)} more`] : ids;
   return shown.length > 1
-    ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1) ?? ''}`
+    ? `${shown.slice(0, -1).join(', ')}${shown.length > 2 ? ',' : ''} and ${shown.at(-1) ?? ''}`
     : (shown[0] ?? '');
 }
 

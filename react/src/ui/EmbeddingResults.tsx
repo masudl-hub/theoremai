@@ -4,7 +4,6 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { useClipboard } from '@astryxdesign/core/hooks';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
-import { ProgressBar } from '@astryxdesign/core/ProgressBar';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
@@ -29,7 +28,7 @@ import { ResultStack, Share, useNumbers } from './DecisionAnswers.tsx';
 import { documentLabel, type EmbeddingDocument } from './EmbeddingDocuments.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { keyedByContent } from './row-keys.ts';
-import { ChartCard } from './trace-patterns.tsx';
+import { ChartBody, ChartCard } from './trace-patterns.tsx';
 
 const EmbeddingSpaceView = lazy(() =>
   import('./EmbeddingSpace.tsx').then((module) => ({ default: module.EmbeddingSpaceView })),
@@ -78,7 +77,7 @@ function useDocumentName(
 }
 
 /** The documents most like the query, each with its cosine similarity, best first. */
-function MatchesCard({
+function MatchesBody({
   matches,
   index,
   documents,
@@ -96,7 +95,7 @@ function MatchesCard({
   if (!lead) return <Banner status="warning" title={t('@theorem.embedding.no_matches')} />;
   const shown = matches.slice(0, MATCHES_SHOWN);
   return (
-    <ChartCard
+    <ChartBody
       title={t('@theorem.embedding.matches')}
       value={n.decimal.format(lead.score)}
       note={
@@ -139,7 +138,7 @@ function MatchesCard({
           );
         })}
       </ul>
-    </ChartCard>
+    </ChartBody>
   );
 }
 
@@ -205,12 +204,10 @@ function VectorList({
                       {name(at)}
                     </Text>
                     <Text type="supporting" color="secondary" maxLines={1} hasTabularNumbers>
-                      <code>
-                        {`[${vector
-                          .slice(0, PREVIEW_VALUES)
-                          .map((v) => v.toFixed(4))
-                          .join(', ')}${vector.length > PREVIEW_VALUES ? ', …' : ''}]`}
-                      </code>
+                      {`[${vector
+                        .slice(0, PREVIEW_VALUES)
+                        .map((v) => v.toFixed(4))
+                        .join(', ')}${vector.length > PREVIEW_VALUES ? ', …' : ''}]`}
                     </Text>
                   </VStack>
                 </StackItem>
@@ -257,24 +254,6 @@ function closenessOf(matches: readonly EmbeddingMatch[]): QueryMatch[] {
       index: m.index,
       closeness: threshold < 1 ? Math.min((m.score - threshold) / (1 - threshold), 1) : 1,
     }));
-}
-
-/** The index while it runs: how many documents are done. */
-function IndexingCard({ progress }: { progress: IndexProgress }) {
-  const t = useLabels();
-  return (
-    <ChartCard
-      title={t('@theorem.embedding.indexing')}
-      value={t('@theorem.embedding.progress', { done: progress.done, total: progress.total })}
-    >
-      <ProgressBar
-        label={t('@theorem.embedding.indexing')}
-        isLabelHidden
-        value={progress.done}
-        max={Math.max(progress.total, 1)}
-      />
-    </ChartCard>
-  );
 }
 
 const SPACE_ROOM = { width: '100%', aspectRatio: '1 / 1', maxHeight: SPACE_PX } as const;
@@ -396,10 +375,6 @@ function IndexedCard({
         <ChartCard
           title={t('@theorem.embedding.index')}
           value={t('@theorem.embedding.indexed', { count: result.vectors.length })}
-          note={t('@theorem.embedding.indexed_note', {
-            dimensions: result.vectors[0]?.length ?? 0,
-            requests: result.requests,
-          })}
           aside={isDrawable ? <ViewSwitch view={view} onChange={setView} /> : null}
         >
           {isDrawable && view === 'space' ? (
@@ -425,10 +400,9 @@ function IndexedCard({
   );
 }
 
-/** The index: its progress while it runs, then the documents as a space or a list, or why it failed. */
+/** The index: the documents as a space or a list, or why it failed. */
 export function IndexCard(props: IndexCardProps) {
-  const { progress, result, status, failure } = props.run;
-  if (progress && (!result || status === 'indexing')) return <IndexingCard progress={progress} />;
+  const { result, failure } = props.run;
   if (!result) return <Failure failure={failure} />;
   return <IndexedCard {...props} result={result} />;
 }
@@ -466,7 +440,7 @@ export function EmbeddingResults({
           tokens={(count) => t('@theorem.embedding.tokens', { count })}
         >
           <Arrive>
-            <MatchesCard
+            <MatchesBody
               matches={matches}
               index={index.result}
               documents={documents}

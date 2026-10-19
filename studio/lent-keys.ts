@@ -49,6 +49,10 @@ export interface LentDecisionLimits {
   /** The profile id, the contract, and the API model. */
   idChars: number;
   stateBytes: number;
+  /** Images one decision may carry; 0 takes none, and a box question then has nothing to read. */
+  images: number;
+  /** The most one image may weigh, in bytes, before it is encoded. */
+  imageBytes: number;
   timeoutMs: number;
 }
 

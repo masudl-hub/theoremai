@@ -149,7 +149,7 @@ function usePageTools(
   usePageToolWarnings(iface && 'tools' in iface ? iface.tools.page : undefined, pageTools);
 }
 
-/** What `sendText` hands back: the blocks the turn added, its user message and the reply. */
+/** What `sendText` hands back: the blocks the turn added, its user message, and the reply. */
 export type SentTurn = { blocks: TranscriptBlock[] };
 
 /**
@@ -646,13 +646,13 @@ export function useTheoremChat({
     actions.resumeGatedTool,
   );
 
-  /** Sends `text` as the composer would, and resolves once the reply is done; `null` when it can't go now. */
+  /** Sends `text` and optional files as the composer would, and resolves once the reply is done; `null` when it can't go now. */
   const sendText = useCallback(
-    async (text: string): Promise<SentTurn | null> => {
+    async (text: string, files: readonly File[] = []): Promise<SentTurn | null> => {
       if (!iface || state.busyRef.current || state.sessionRef.current.gatedTool !== null)
         return null;
       const before = state.blocksRef.current.length;
-      await actions.startTurnFromFields({ text, files: [], voice: [] });
+      await actions.startTurnFromFields({ text, files: [...files], voice: [] });
       return { blocks: state.blocksRef.current.slice(before) };
     },
     [actions, iface, state],

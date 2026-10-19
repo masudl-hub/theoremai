@@ -231,7 +231,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.data.shaped': {
     defaultMessage: 'Data',
-    description: 'Tool data drawn as fields, sections and tables.',
+    description: 'Tool data drawn as fields, sections, and tables.',
   },
   '@theorem.data.json': { defaultMessage: 'JSON', description: 'Tool data as its raw JSON.' },
   '@theorem.data.item': {
@@ -418,11 +418,6 @@ export const THEOREM_UI_CATALOG = {
     description: "The state's size against the profile's limit, under the field.",
     params: ['size', 'limit'],
   },
-  '@theorem.decision.shortcut': {
-    defaultMessage: '⌘↵ to decide',
-    description:
-      'The keyboard shortcut that asks for a decision, under the field, when the profile sets no size limit.',
-  },
   '@theorem.decision.view': {
     defaultMessage: 'Edit as',
     description: 'Switch between the state as fields and as JSON.',
@@ -501,6 +496,44 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Noul',
     description: 'A question answered with one number.',
   },
+  '@theorem.decision.type.box': {
+    defaultMessage: 'Box',
+    description: 'A question answered with one box in an image.',
+  },
+  '@theorem.decision.box_edges': {
+    defaultMessage: 'Left {left}, top {top}, right {right}, bottom {bottom}',
+    description:
+      'Where a box sits in its image, each edge as a share of the image from its top-left corner.',
+    params: ['left', 'top', 'right', 'bottom'],
+  },
+  '@theorem.decision.images': {
+    defaultMessage: 'Images',
+    description:
+      'The images a decision reads that no state field shows: the state or a question refers to each by name.',
+  },
+  '@theorem.decision.attach': {
+    defaultMessage: 'Attach image',
+    description: 'Adds a PNG or JPEG the state or a question can refer to by name.',
+  },
+  '@theorem.decision.remove_image': {
+    defaultMessage: 'Remove {name}',
+    description: 'Removes an attached image.',
+    params: ['name'],
+  },
+  '@theorem.decision.image_hint': {
+    defaultMessage: 'Refer to an image by its name, such as {name}, in the state or in a question.',
+    description: 'Under the attached images: how the state or a question points at one.',
+    params: ['name'],
+  },
+  '@theorem.decision.image_bad': {
+    defaultMessage: '{file} is not a PNG or JPEG.',
+    description: 'A file attached as an image that is neither.',
+    params: ['file'],
+  },
+  '@theorem.decision.box_in': {
+    defaultMessage: 'The box, cut from the image',
+    description: 'The alt text of the part of the image a box answer covers.',
+  },
   '@theorem.decision.tokens': {
     defaultMessage: '{count, plural, one {# token} other {# tokens}}',
     description: 'Input tokens the decision used, in the line under the answers.',
@@ -557,7 +590,7 @@ export const THEOREM_UI_CATALOG = {
     description: 'Adds files as documents (field label).',
   },
   '@theorem.embedding.drop_files': {
-    defaultMessage: 'Drop files, or choose them. Text files are split like the text.',
+    defaultMessage: 'Drop files here, or click to upload',
     description: "The file field's prompt.",
   },
   '@theorem.embedding.unreadable': {
@@ -575,9 +608,14 @@ export const THEOREM_UI_CATALOG = {
     description: 'A document that is a piece of a text file, under its text.',
     params: ['name'],
   },
-  '@theorem.embedding.from_text': {
-    defaultMessage: 'From the text',
-    description: 'A document that is a piece of the pasted text, under its text.',
+  '@theorem.embedding.from_json': {
+    defaultMessage: 'From the JSON',
+    description: 'The documents of a pasted list, as a group.',
+  },
+  '@theorem.embedding.group': {
+    defaultMessage: '{source} · {count, plural, one {# document} other {# documents}}',
+    description: 'A group of documents from one source, above its first few.',
+    params: ['source', 'count'],
   },
   '@theorem.embedding.held_file': {
     defaultMessage: 'Held by the provider',
@@ -587,15 +625,6 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: '{count, plural, one {# more document} other {# more documents}}',
     description: 'Documents past the ones the list shows.',
     params: ['count'],
-  },
-  '@theorem.embedding.from_json': {
-    defaultMessage: 'From the JSON',
-    description: 'The documents of a pasted list, as a group.',
-  },
-  '@theorem.embedding.group': {
-    defaultMessage: '{source} · {count, plural, one {# document} other {# documents}}',
-    description: 'A group of documents from one source, above its first few.',
-    params: ['source', 'count'],
   },
   '@theorem.embedding.invalid_json': {
     defaultMessage: 'Not a list of documents: each is text, or an object with parts.',
@@ -622,9 +651,9 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.embedding.ready': {
     defaultMessage:
-      '{count, plural, one {# document} other {# documents}} in {requests, plural, one {# request} other {# requests}} · ⌘↵ to index',
+      '{count, plural, one {# document} other {# documents}} in {requests, plural, one {# request} other {# requests}}',
     description:
-      'The documents are ready: how many, how many requests the profile’s limits make them, and the shortcut.',
+      'The documents are ready: how many, and how many requests the profile’s limits make them.',
     params: ['count', 'requests'],
   },
   '@theorem.embedding.index': {
@@ -634,6 +663,12 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.embedding.indexing': {
     defaultMessage: 'Indexing…',
     description: 'The index button while the documents are embedded.',
+  },
+  '@theorem.embedding.indexing_progress': {
+    defaultMessage: 'Indexing {done}/{total}…',
+    description:
+      'The pane while the documents are embedded: the request in flight, of all of them.',
+    params: ['done', 'total'],
   },
   '@theorem.embedding.stop': {
     defaultMessage: 'Stop',
@@ -655,10 +690,6 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Not a query: text, or an object with parts.',
     description: "The query's JSON doesn't read as one embedding input.",
   },
-  '@theorem.embedding.not_indexed': {
-    defaultMessage: 'Index the documents first.',
-    description: 'A search needs the documents embedded.',
-  },
   '@theorem.embedding.stale': {
     defaultMessage: 'The documents changed. Index them again.',
     description: 'The documents differ from the ones last embedded.',
@@ -667,10 +698,6 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'The model changed. Index the documents again.',
     description:
       'The last query came from another model than the one the documents were embedded with.',
-  },
-  '@theorem.embedding.search_shortcut': {
-    defaultMessage: '⌘↵ to search',
-    description: 'The keyboard shortcut that runs the search, under the query.',
   },
   '@theorem.embedding.search': {
     defaultMessage: 'Search',
@@ -684,21 +711,10 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Results',
     description: 'The index and the matches (heading).',
   },
-  '@theorem.embedding.progress': {
-    defaultMessage: '{done} of {total, plural, one {# request} other {# requests}}',
-    description: 'How far indexing has come.',
-    params: ['done', 'total'],
-  },
   '@theorem.embedding.indexed': {
     defaultMessage: '{count, plural, one {# document} other {# documents}}',
     description: 'How many documents the index holds, its card’s figure.',
     params: ['count'],
-  },
-  '@theorem.embedding.indexed_note': {
-    defaultMessage:
-      '{dimensions, plural, one {# dimension} other {# dimensions}} · {requests, plural, one {# request} other {# requests}}',
-    description: 'The width of each vector, and how many requests indexing took.',
-    params: ['dimensions', 'requests'],
   },
   '@theorem.embedding.view': {
     defaultMessage: 'View',

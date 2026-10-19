@@ -680,7 +680,7 @@ function toolLabels(
   return Object.keys(labels).length ? labels : undefined;
 }
 
-// Headers are saved in the draft, sent on every run and written into the export; a secret there outlives the call.
+// Headers are saved in the draft, sent on every run, and written into the export; a secret there outlives the call.
 /** Why these headers can't be saved, when one of them looks like a credential. */
 export function credentialHeaderProblem(
   headers: Record<string, string> | undefined,
@@ -882,14 +882,14 @@ function compileInputs(
   if (outside.length) {
     report(
       'inputs',
-      `An image profile takes images, video and PDF only, not ${outside.join(', ')}.`,
+      `An image profile takes images, video, and PDF only, not ${outside.join(', ')}.`,
       'attachmentsAccept',
     );
   }
   if (!inputs.text && !inputs.attachmentsAccept.length && !inputs.voiceAccept.length) {
     report(
       'inputs',
-      'Take text, files or voice notes: with none, the agent can be sent nothing.',
+      'Take text, files, or voice notes: with none, the agent can be sent nothing.',
       'text',
     );
   }
@@ -1257,7 +1257,7 @@ function ownKeyIssue(key: string, boundaries: readonly Boundary[]): string | und
   const sound = { label: key, action: 'flag', find: PATTERNS_PENDING };
   return detectProblem('Detect', { [key]: sound }, boundaries) === undefined
     ? undefined
-    : 'A key is a namespace, a dot, and a name, in lower case letters, digits, and _, such as acme.codenames.';
+    : 'A key is a namespace, a dot, and a name, in lower case letters, digits and _, such as acme.codenames.';
 }
 
 /** The builder's own detectors, each read at the boundaries of the profile it sets above `ignore`. */
@@ -1739,6 +1739,10 @@ function compileQuestions(
       text: row.text.trim(),
     }));
     if (!id || !instructions) return;
+    if (question.type === 'box') {
+      questions[id] = { type: 'box', instructions };
+      return;
+    }
     if (question.type === 'score') {
       if (rows.length < 2 || rows.some((row) => !row.text)) {
         fail(`Score '${id}' needs at least two levels, each described.`);
@@ -1861,6 +1865,9 @@ function checkLentDecision(
     if (over(question.id, limits.nameChars)) {
       fail(`Question ids are limited to ${limits.nameChars} characters on these keys.`);
     }
+    if (question.type === 'box' && limits.images === 0) {
+      fail('These keys take no images, so a Box question has nothing to read.');
+    }
     if (over(question.instructions, limits.instructionsChars)) {
       fail(`Instructions are limited to ${limits.instructionsChars} characters on these keys.`);
     }
@@ -1935,7 +1942,7 @@ function compileDecision(
   return { profile, customTools: [], questions };
 }
 
-/** A host: its custom tools, called directly, and the guardrails, trace and labels a host keeps. */
+/** A host: its custom tools, called directly, and the guardrails, trace, and labels a host keeps. */
 function compileHost(
   draft: StudioDraft,
   report: Report,

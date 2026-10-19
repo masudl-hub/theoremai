@@ -44,7 +44,28 @@ export function useSidePanel(
 }
 
 /** The Layout header row: side panel toggles, at the end. */
-export function SidePanelHeader({ children }: { children?: ReactNode }) {
+export function SidePanelHeader({
+  children,
+  floating = false,
+}: {
+  children?: ReactNode;
+  floating?: boolean;
+}) {
+  if (floating)
+    return (
+      <div
+        style={{
+          position: 'absolute',
+          insetBlockStart: 'var(--spacing-4)',
+          insetInlineEnd: 'var(--spacing-4)',
+          zIndex: 3,
+        }}
+      >
+        <HStack hAlign="end" gap={1}>
+          {children}
+        </HStack>
+      </div>
+    );
   return (
     <LayoutHeader hasDivider={false}>
       <HStack hAlign="end" gap={1}>
@@ -76,7 +97,7 @@ export function SidePanelToggle({
     <IconButton
       label={action}
       tooltip={action}
-      variant="ghost"
+      variant={open ? 'secondary' : 'ghost'}
       aria-expanded={open}
       aria-controls={panelId}
       icon={icon}
@@ -109,7 +130,7 @@ export type SidePanelProps = {
 
 /** Page corners like the host's raised panels, no border or shadow; the card fill, so surface-filled cards read on it. */
 export const RAISED = {
-  background: 'var(--color-background-card)',
+  background: 'var(--theorem-pane-background, var(--color-background-card))',
   borderRadius: 'var(--radius-page)',
   overflow: 'hidden',
 };
@@ -253,10 +274,11 @@ export function RaisedPane({
   return (
     <Layout
       height="fill"
+      style={{ position: 'relative' }}
       header={header}
       content={
         <LayoutContent padding={0} isScrollable={false}>
-          <VStack height="100%" paddingInline={3}>
+          <VStack height="100%" padding={3}>
             <Card variant="transparent" height="100%" padding={0} style={RAISED}>
               <div id={id} ref={ref} style={{ height: '100%' }}>
                 {children(isSidePanelWide(width))}

@@ -9,7 +9,12 @@ import {
 } from '../client/embedding-transport.ts';
 import { useEmbeddingIndex } from '../hooks/use-embedding-index.ts';
 import { useTheoremEmbedding } from '../hooks/use-theorem-embedding.ts';
-import { ConsoleFrame, type ConsolePageProps, ResponseColumn } from './ConsoleFrame.tsx';
+import {
+  ConsoleFrame,
+  type ConsolePageProps,
+  ConsoleSection,
+  ResponseColumn,
+} from './ConsoleFrame.tsx';
 import {
   type EmbeddingDocument,
   EmbeddingDocuments,
@@ -29,6 +34,8 @@ export type TheoremEmbeddingProps = ConsolePageProps & {
   transport?: EmbeddingTransport;
   /** The text the documents card starts with, split into paragraphs. Default none. */
   defaultText?: string;
+  /** Documents the card starts with beside the text, each with the file it came from. Default none. */
+  defaultDocuments?: readonly EmbeddingDocument[];
   /** The query the search starts with. Default none. */
   defaultQuery?: string;
 };
@@ -51,21 +58,32 @@ function sameInputs(a: readonly EmbeddingInput[], b: readonly EmbeddingInput[]):
  * The frame's second child. A call, not a component: the frame counts its
  * children to choose a layout, and nothing indexed yet has to count as none.
  */
-/** Where the documents stand for the last query: none embedded, embedded, changed since, or embedded by another model. */
+/** Where the documents stand for the last query: embedded, changed since, or embedded by another model. */
 function indexStateOf(
   indexed: { inputs: readonly EmbeddingInput[]; model: string } | null,
   queried: { model: string } | null,
   inputs: readonly EmbeddingInput[],
 ): IndexState {
-  if (!indexed) return 'none';
+  if (!indexed) return 'fresh';
   // why: A query from another model than the index's is in another space; no score between them means anything.
   if (queried && queried.model !== indexed.model) return 'model';
   return sameInputs(indexed.inputs, inputs) ? 'fresh' : 'stale';
 }
 
-function embeddingResponse(columns: boolean, label: string, results: ReactNode | null): ReactNode {
+function embeddingResponse(
+  columns: boolean,
+  label: string,
+  fill: boolean,
+  results: ReactNode | null,
+): ReactNode {
   if (results === null) return null;
-  return columns ? <ResponseColumn label={label}>{results}</ResponseColumn> : results;
+  return columns ? (
+    <ResponseColumn label={label} fill={fill}>
+      {results}
+    </ResponseColumn>
+  ) : (
+    results
+  );
 }
 
 function EmbeddingBody({
@@ -73,6 +91,7 @@ function EmbeddingBody({
   iface,
   search,
   defaultText = '',
+  defaultDocuments,
   defaultQuery = '',
   maxWidth = '960px',
   trace,
@@ -82,7 +101,7 @@ function EmbeddingBody({
   style,
 }: BodyProps) {
   const t = useLabels();
-  const documents = useEmbeddingDocuments(defaultText, iface.inputs);
+  const documents = useEmbeddingDocuments(defaultText, iface.inputs, defaultDocuments);
   const query = useEmbeddingQuery(defaultQuery, iface.inputs);
   const index = useEmbeddingIndex(transport);
   const [indexed, setIndexed] = useState<readonly EmbeddingDocument[]>([]);
@@ -104,53 +123,76 @@ function EmbeddingBody({
   const [hovered, setHovered] = useState<number | null>(null);
   const pointing = useMemo(() => ({ hovered, onHover: setHovered }), [hovered]);
 
+  const indexing = index.status === 'indexing';
+  const hasIndex = index.result !== null || index.failure !== null;
   return (
     <ConsoleFrame
       inspector={inspector}
       maxWidth={maxWidth}
       flush={flush}
       columns={columns}
-      requestLabel={t('@theorem.embedding.search')}
+      requestLabel={t('@theorem.embedding.documents')}
       className={className}
       style={style}
     >
-      <VStack gap={3}>
-        <EmbeddingDocuments
-          form={documents}
-          rules={iface.inputs}
-          isRunning={index.status === 'indexing'}
-          onRun={runIndex}
-          onStop={index.cancel}
-        />
-        <IndexCard
-          run={index}
-          documents={indexed}
-          query={queried}
-          matches={matches}
-          pointing={pointing}
-        />
-        <EmbeddingQuery
-          form={query}
-          rules={iface.inputs}
-          index={state}
-          isRunning={search.status === 'embedding'}
-          onRun={(input) => {
-            void search.embed([input], { task: 'query' });
-          }}
-          onStop={search.cancel}
-        />
-      </VStack>
+      <EmbeddingDocuments
+        form={documents}
+        rules={iface.inputs}
+        isRunning={index.status === 'indexing'}
+        onRun={runIndex}
+        onStop={index.cancel}
+      />
       {embeddingResponse(
         columns,
         t('@theorem.embedding.results'),
-        searched ? (
-          <EmbeddingResults
-            index={index}
-            search={search}
-            documents={indexed}
-            matches={matches}
-            pointing={pointing}
+        indexing,
+        indexing ? (
+          <PaneLoading
+            label={
+              index.progress
+                ? t('@theorem.embedding.indexing_progress', {
+                    done: Math.min(index.progress.done + 1, index.progress.total),
+                    total: index.progress.total,
+                  })
+                : t('@theorem.embedding.indexing')
+            }
+            since={index.startedAt}
           />
+        ) : hasIndex ? (
+          <VStack gap={3}>
+            <IndexCard
+              run={index}
+              documents={indexed}
+              query={queried}
+              matches={matches}
+              pointing={pointing}
+            />
+            {index.result ? (
+              <ConsoleSection>
+                <EmbeddingQuery
+                  form={query}
+                  rules={iface.inputs}
+                  index={state}
+                  isRunning={search.status === 'embedding'}
+                  onRun={(input) => {
+                    void search.embed([input], { task: 'query' });
+                  }}
+                  onStop={search.cancel}
+                />
+                {searched ? (
+                  <VStack padding={4}>
+                    <EmbeddingResults
+                      index={index}
+                      search={search}
+                      documents={indexed}
+                      matches={matches}
+                      pointing={pointing}
+                    />
+                  </VStack>
+                ) : null}
+              </ConsoleSection>
+            ) : null}
+          </VStack>
         ) : null,
       )}
     </ConsoleFrame>

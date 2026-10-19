@@ -520,7 +520,7 @@ function useWorkspaceList(selectedId: string, listRef: RefObject<HTMLDivElement 
 /**
  * Which list shows: the tools library once a tool is open, the providers once a provider is, and
  * whatever the toggle last chose. Following the selection, it switches when the open row changes
- * between an agent, a tool and a provider.
+ * between an agent, a tool, and a provider.
  */
 function useListShown(selectedId: string) {
   const isTool = toolSpecKeyOf(selectedId) !== undefined;
@@ -2013,7 +2013,7 @@ function useEditorView(store: StudioStore) {
     move({ settings: settingsWanted });
   }, [move, settingsWanted]);
   /**
-   * Opens a node from the tree, the editor or the map, closing Keys over it. The map stays open
+   * Opens a node from the tree, the editor, or the map, closing Keys over it. The map stays open
    * beside the editor; on a phone it covers the editor, so it closes.
    */
   const open = useCallback(
@@ -2261,7 +2261,7 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
         variant: 'ghost',
         isIconOnly: true,
         icon: <Icon icon={current.icon} size="sm" />,
-        tooltip: 'Switch between the editor, the code and the map',
+        tooltip: 'Switch between the editor, the code, and the map',
       }}
       menuWidth="15rem"
       hasChevron={false}
@@ -2378,7 +2378,7 @@ function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
   }, [store, filesChanged, toast]);
 }
 
-/** The editor column's header: its title, the next issue, Keys, what to start from and the view toggle. */
+/** The editor column's header: its title, the next issue, Keys, what to start from, and the view toggle. */
 function EditorToolbar({
   heading,
   compile,
@@ -2534,7 +2534,7 @@ function KeySlots({
 
 /**
  * Whether Settings is asked for, for a host that has a door to them. They open in the studio's
- * panel, with the tree, the editor and the preview kept under them: a run goes on, and the editor
+ * panel, with the tree, the editor, and the preview kept under them: a run goes on, and the editor
  * is where it was left.
  */
 function useStudioSettings() {
@@ -2740,7 +2740,7 @@ function ClearHistoryButton({ run }: { run: ConversationRun }) {
   );
 }
 
-/** The preview's header: back to the editor, the agent to chat with, history, trace and Export. */
+/** The preview's header: back to the editor, the agent to chat with, history, trace, and Export. */
 function PreviewHeader({
   store,
   chatAgents,
@@ -3079,7 +3079,7 @@ function useScreenReport(
   useEffect(() => () => onReport?.(null), [onReport]);
 }
 
-/** Everything the page holds: the workspace, its connection, the editor's view, the compile and the run. */
+/** Everything the page holds: the workspace, its connection, the editor's view, the compile, and the run. */
 /** What the page opens on: the studio's own loader data, or an open project's. */
 function useStudioPage(opened: StudioOpened) {
   const { onReport } = useStudioHost();

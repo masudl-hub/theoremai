@@ -231,7 +231,7 @@ export interface CompactionTriggerContext {
   unknownMedia: number;
 }
 
-/** When history compacts and how: the meter, the token budget and the compactor. */
+/** When history compacts and how: the meter, the token budget, and the compactor. */
 export interface CompactionSpec {
   /**
    * Token budget compared by the trigger (`compactAt * maxTokens`).
@@ -472,7 +472,7 @@ export interface LiveResumedSpec {
   afterMs?: number;
 }
 
-/** The settings only a live profile has: ingress, voice, detection, windowing, transcription and resumption. */
+/** The settings only a live profile has: ingress, voice, detection, windowing, transcription, and resumption. */
 export interface ProfileLiveSpec {
   ingress?: LiveIngressSpec;
   voice?: string;
@@ -551,7 +551,7 @@ export interface ProfileContextSpec {
 /** The context each sender gives a turn: any JSON, or text. */
 export type TurnContext = Partial<Record<ContextSender, unknown>>;
 
-/** What a profile returns: its structured schema, validation and streaming. */
+/** What a profile returns: its structured schema, validation, and streaming. */
 export interface ProfileOutputsSpec {
   structured?: StructuredSchemaId | StructuredBySlot | null;
   validation?: ProfileValidationSpec;
@@ -664,17 +664,35 @@ export interface DecisionScoreQuestion {
   criteria: readonly DecisionEntry[];
 }
 
+/** A question answered with the one box that holds what the instructions name, in an image. */
+export interface DecisionBoxQuestion {
+  type: 'box';
+  instructions: DecisionEntry;
+}
+
 /** One question a decision answers. */
 export type DecisionQuestion =
   | DecisionChoiceQuestion
   | DecisionNoulQuestion
-  | DecisionScoreQuestion;
+  | DecisionScoreQuestion
+  | DecisionBoxQuestion;
 
-/** A request to `runDecision`: the profile, the state to judge and the questions to answer. */
+/** An image a decision reads: PNG or JPEG bytes as base64, with no `data:` prefix. */
+export interface DecisionAsset {
+  mimeType: 'image/png' | 'image/jpeg';
+  data: string;
+}
+
+/** A request to `runDecision`: the profile, the state to judge, and the questions to answer. */
 export interface DecisionRequest {
   profile: ProfileId;
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
+  /**
+   * Images by reference. Write a reference as a string where its image belongs, in `state`, in a
+   * question's instructions, or in its criteria; the provider puts the image there.
+   */
+  assets?: Record<string, DecisionAsset>;
   signal?: AbortSignal;
   /** Host-owned metadata preserved on the decision's trace record; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
@@ -696,6 +714,12 @@ export type DecisionAnswer =
       confidence: number;
       legend: Record<string, string>;
       probabilities: Record<string, number>;
+    }
+  /** Edges are fractions of the image, from its top-left corner. */
+  | {
+      type: 'box';
+      box: { top: number; bottom: number; left: number; right: number };
+      confidence: number;
     };
 
 /** What `runDecision` returns: the model and an answer for each question. */
@@ -818,8 +842,8 @@ export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
 
 /**
  * Host-driven tool execution; never runs a model. `invokeTool` runs any tool in
- * `tools.allow` with no visibility, loading tiers or path gating. `guardrails` holds only
- * the guards that fire on `invokeTool`: quota, canary and egress guard a model turn, so
+ * `tools.allow` with no visibility, loading tiers, or path gating. `guardrails` holds only
+ * the guards that fire on `invokeTool`: quota, canary, and egress guard a model turn, so
  * `defineProfile` refuses them rather than accept inert config.
  */
 export interface HostProfile {
@@ -832,7 +856,7 @@ export interface HostProfile {
   labels?: LabelOverrides;
 }
 
-/** Any profile, discriminated by `type`. */
+/** The contract that defines an agent’s capabilities and the rules for its interactions. Its type determines which settings it accepts. */
 export type Profile =
   | TextProfile
   | ImageProfile
@@ -886,7 +910,7 @@ export interface TurnRepairRequest {
   guidance?: string;
 }
 
-/** What the user sent for a turn: text, slots, attachments, voice and history. */
+/** What the user sent for a turn: text, slots, attachments, voice, and history. */
 export interface TurnInput {
   text?: string;
   role?: string;
@@ -926,7 +950,7 @@ export interface TurnTraceLink {
   stop?: TurnStopKind;
 }
 
-/** A request to `runTurn`: the profile, the input and the host's hooks and keys. */
+/** A request to `runTurn`: the profile, the input, and the host's hooks and keys. */
 export interface TurnRequest {
   execution?: ToolExecutionCoordinator;
   pageExecution?: PageToolExecution;
@@ -949,7 +973,7 @@ export interface TurnRequest {
   builtInArgs?: BuiltInArgs;
   /** Host-provided dynamic system prompt combined with profile persona */
   system?: SystemPrompt;
-  /** This turn's voice, style and speed, over `profile.speech`. Speech profiles only. */
+  /** This turn's voice, style, and speed, over `profile.speech`. Speech profiles only. */
   speech?: TurnSpeech;
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
@@ -1069,7 +1093,7 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   host?: unknown;
 }
 
-/** One model call as the engine asks it: the resolved generation, the conversation and the tools. */
+/** One model call as the engine asks it: the resolved generation, the conversation, and the tools. */
 export interface ModelRequest extends Omit<ProviderGenerationConfig, 'summaries' | 'builtins'> {
   /** The turn's builtins with the args addressed to each. */
   builtins: ProviderBuiltin[];

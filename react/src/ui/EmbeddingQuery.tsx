@@ -21,8 +21,8 @@ import type { LabelText } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { textRows } from './StateFields.tsx';
 
-/** Where the documents stand for a search: none embedded, embedded, or changed since. */
-export type IndexState = 'none' | 'fresh' | 'stale' | 'model';
+/** Where the embedded documents stand for a search: as embedded, or changed since. */
+export type IndexState = 'fresh' | 'stale' | 'model';
 
 /** The query, held as the JSON of the one input it sends, and the view it is edited in. */
 export function useEmbeddingQuery(defaultQuery: string, rules: Rules) {
@@ -136,7 +136,6 @@ function queryNote(
 ): string | null {
   if (!tried) return null;
   if (form.issue) return form.issue;
-  if (index === 'none') return t('@theorem.embedding.not_indexed');
   if (index === 'stale') return t('@theorem.embedding.stale');
   if (index === 'model') return t('@theorem.embedding.remodelled');
   return null;

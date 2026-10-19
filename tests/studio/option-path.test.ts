@@ -1,5 +1,6 @@
 import { assertEquals } from '@std/assert';
-import { optionAt, withOption } from '../../studio/providers.ts';
+import { geminiEmbedding } from '../../src/providers/mod.ts';
+import { optionAt, protocolOptionFields, withOption } from '../../studio/providers.ts';
 
 Deno.test('optionAt reads a dotted path, and nothing past a value that is not an object', () => {
   const options = { thinking: { level: 'high' }, dims: 768, list: [1] };
@@ -28,4 +29,16 @@ Deno.test('withOption leaves out an undefined value, and an object it leaves emp
   assertEquals(withOption({ keep: 1 }, 'empty', {}), { keep: 1 });
   assertEquals(withOption({}, 'list', []), { list: [] });
   assertEquals(withOption({}, 'nothing', null), { nothing: null });
+});
+
+Deno.test('protocolOptionFields keeps the name and description a protocol gives each choice', () => {
+  const taskType = protocolOptionFields(geminiEmbedding).find((field) => field.path === 'taskType');
+  assertEquals(taskType?.kind, 'choice');
+  assertEquals(taskType?.choices?.[0]?.value, 'RETRIEVAL_QUERY');
+  assertEquals(taskType?.choices?.[0]?.label, 'Retrieval query');
+  assertEquals(typeof taskType?.choices?.[0]?.description, 'string');
+  const dims = protocolOptionFields(geminiEmbedding).find(
+    (field) => field.path === 'outputDimensionality',
+  );
+  assertEquals(dims?.choices, [{ value: '768' }, { value: '1536' }, { value: '3072' }]);
 });

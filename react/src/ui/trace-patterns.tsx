@@ -1,7 +1,7 @@
 import { Card } from '@astryxdesign/core/Card';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import type { TraceActor } from '../client/trace-story.ts';
 
 /**
@@ -77,6 +77,12 @@ export function TraceSwatch({ fill }: { fill: TraceFill }) {
   );
 }
 
+/** Every console card, request, response and result alike: one ground and one radius. A flush page points the ground at the muted one. */
+export const CONSOLE_CARD = {
+  background: 'var(--theorem-console-card, var(--color-background-surface))',
+  borderRadius: 'var(--radius-page)',
+} as CSSProperties;
+
 /** A chart as a card: its name, one figure that answers it, then the chart and its key. */
 export function ChartCard({
   title,
@@ -90,11 +96,7 @@ export function ChartCard({
   children?: ReactNode;
 }) {
   return (
-    <Card
-      variant="muted"
-      padding={4}
-      style={{ background: 'var(--theorem-console-card, var(--color-background-surface))' }}
-    >
+    <Card variant="muted" padding={4} style={CONSOLE_CARD}>
       <VStack gap={3}>
         <Text type="supporting" color="secondary">
           {title}

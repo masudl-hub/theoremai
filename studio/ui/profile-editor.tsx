@@ -1279,6 +1279,7 @@ function ProtocolOptionRow({
 					{...common}
 					value={option.choiceType === 'number' && typeof value === 'number' ? String(value) : typeof value === 'string' ? value : ''}
 					options={option.choices ?? []}
+					hasHoverDescriptions
 					onChange={(next) => {
 						write(next ? option.choiceType === 'number' ? Number(next) : next : undefined);
 					}}

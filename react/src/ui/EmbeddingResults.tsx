@@ -123,8 +123,8 @@ function IndexCard({ run }: { run: IndexRun }) {
 }
 
 /**
- * What came back: the matches for the last query, best first, then the index
- * they were ranked in. Each keeps one quiet line for the model, time, tokens,
+ * What came back: the index, then the matches for the last query ranked in it,
+ * best first. Each keeps one quiet line for the model, time, tokens,
  * and cost of its own calls.
  */
 export function EmbeddingResults({
@@ -140,6 +140,8 @@ export function EmbeddingResults({
   const query = search.result?.embeddings[0]?.values;
   return (
     <VStack gap={4}>
+      <Failure failure={index.failure} />
+      <IndexCard run={index} />
       <Failure failure={search.failure} />
       {query && index.result ? (
         <ResultStack
@@ -154,8 +156,6 @@ export function EmbeddingResults({
           </Arrive>
         </ResultStack>
       ) : null}
-      <Failure failure={index.failure} />
-      <IndexCard run={index} />
     </VStack>
   );
 }

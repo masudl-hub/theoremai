@@ -9,7 +9,7 @@ import { MultiSelector } from '@astryxdesign/core/MultiSelector';
 import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { Section } from '@astryxdesign/core/Section';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
-import { Selector, type SelectorOptionType } from '@astryxdesign/core/Selector';
+import { Selector, SelectorOption, type SelectorOptionData, type SelectorOptionType } from '@astryxdesign/core/Selector';
 import { Slider } from '@astryxdesign/core/Slider';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
@@ -762,6 +762,8 @@ export type ChoiceRowProps<T extends string> = {
 	placeholder?: string;
 	/** A status of the row's own, such as a list that failed to load; the field's issues win. */
 	status?: InputStatus;
+	/** Each option's description shows on hover, not under its name: for long ones, such as a protocol's. */
+	hasHoverDescriptions?: boolean;
 	onChange: (next: T | '') => void;
 } & IsRequired;
 
@@ -783,6 +785,7 @@ export function ChoiceRow<T extends string>({
 	emptyText,
 	placeholder,
 	status: given,
+	hasHoverDescriptions,
 	onChange,
 }: ChoiceRowProps<T>) {
 	const status = useFieldStatus()(field) ?? given;
@@ -808,6 +811,7 @@ export function ChoiceRow<T extends string>({
 		hasSearch,
 		isLoading,
 		emptyText,
+		...(hasHoverDescriptions ? { renderOption: hoverDescribed } : {}),
 	};
 	return (
 		<InspectorRow
@@ -837,6 +841,18 @@ export function ChoiceRow<T extends string>({
 				)}
 			</StackItem>
 		</InspectorRow>
+	);
+}
+
+/** An option named on its row, with its description in a tooltip. */
+function hoverDescribed(option: SelectorOptionData) {
+	const row = <SelectorOption label={option.label ?? option.value} />;
+	return option.description ? (
+		<Tooltip content={option.description} placement="end">
+			{row}
+		</Tooltip>
+	) : (
+		row
 	);
 }
 

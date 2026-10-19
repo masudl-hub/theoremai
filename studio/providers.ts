@@ -308,14 +308,15 @@ export interface ProtocolOptionField {
   required: boolean;
   /** What the protocol says the option is. */
   description?: string;
-  /** The values a choice takes, each with what the protocol says it is. */
-  choices?: { value: string; description?: string }[];
+  /** The values a choice takes, each with the name and description the protocol gives it. */
+  choices?: { value: string; label?: string; description?: string }[];
   /** Choice values are numbers in the protocol schema and must remain numbers in the draft. */
   choiceType?: 'number';
 }
 
 interface OptionSchema {
   type?: string;
+  title?: string;
   enum?: unknown[];
   const?: unknown;
   anyOf?: OptionSchema[];
@@ -344,9 +345,11 @@ function fieldsOf(node: OptionSchema, prefix: string, held: boolean): ProtocolOp
       required,
       ...(property.description ? { description: property.description } : {}),
     };
-    const literalChoices = property.anyOf
-      ?.map((choice) => choice.const)
-      .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number');
+    const literals = property.anyOf?.filter(
+      (choice): choice is OptionSchema & { const: string | number } =>
+        typeof choice.const === 'string' || typeof choice.const === 'number',
+    );
+    const literalChoices = literals?.map((choice) => choice.const);
     if (property.enum?.every((value) => typeof value === 'string')) {
       return [{ ...base, kind: 'choice' as const, choices: property.enum.map((value) => ({ value: value as string })) }];
     }
@@ -356,7 +359,11 @@ function fieldsOf(node: OptionSchema, prefix: string, held: boolean): ProtocolOp
         return [{
           ...base,
           kind: 'choice' as const,
-          choices: literalChoices.map((value) => ({ value: String(value) })),
+          choices: (literals ?? []).map((choice) => ({
+            value: String(choice.const),
+            ...(choice.title ? { label: choice.title } : {}),
+            ...(choice.description ? { description: choice.description } : {}),
+          })),
           ...(numeric ? { choiceType: 'number' as const } : {}),
         }];
       }

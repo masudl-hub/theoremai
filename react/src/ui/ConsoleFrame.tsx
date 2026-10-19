@@ -29,6 +29,7 @@ import { useLabels } from './labels-provider.tsx';
 import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';
 import { textRows } from './StateFields.tsx';
 import { type TraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
+import { CONSOLE_CARD } from './trace-patterns.tsx';
 
 /** The props a one-call console page shares: its look, its wording, its trace, and its layout. */
 export type ConsolePageProps = {
@@ -84,12 +85,6 @@ export type ConsoleFrameProps = {
 /** Cards on a flush console. The flat page uses the surface; a raised page uses the card. */
 const FLUSH_CARD = {
   '--theorem-console-card': 'var(--color-background-muted)',
-} as CSSProperties;
-
-/** The request and response cards. A flush page points this at the muted ground. */
-const CONSOLE_CARD = {
-  background: 'var(--theorem-console-card, var(--color-background-surface))',
-  borderRadius: 'var(--radius-page)',
 } as CSSProperties;
 
 /** Below the app shell's drawer breakpoint, where the two columns stack. */

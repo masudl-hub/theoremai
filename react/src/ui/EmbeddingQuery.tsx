@@ -116,8 +116,14 @@ function QueryFields({
   );
 }
 
-/** What stands between the query and a search, or the shortcut. */
-function queryNote(t: LabelText, form: EmbeddingQueryForm, index: IndexState): string {
+/** What stands between the query and a search, once someone has tried one; else the shortcut. */
+function queryNote(
+  t: LabelText,
+  form: EmbeddingQueryForm,
+  index: IndexState,
+  tried: boolean,
+): string {
+  if (!tried) return t('@theorem.embedding.search_shortcut');
   if (form.issue) return form.issue;
   if (index === 'none') return t('@theorem.embedding.not_indexed');
   if (index === 'stale') return t('@theorem.embedding.stale');
@@ -143,7 +149,10 @@ export function EmbeddingQuery({
   const t = useLabels();
   const { input } = form;
   const isReady = form.issue === null && index === 'fresh' && input !== undefined;
+  // why: What blocks a search is said only once someone tries one, not before they have started.
+  const [tried, setTried] = useState(false);
   const run = () => {
+    setTried(true);
     if (isReady) onRun(input);
   };
   return (
@@ -165,8 +174,8 @@ export function EmbeddingQuery({
         />
       )}
       <RunBar
-        note={queryNote(t, form, index)}
-        isReady={isReady}
+        note={queryNote(t, form, index, tried)}
+        isReady={isReady || !tried}
         isRunning={isRunning}
         runLabel={t('@theorem.embedding.search')}
         runningLabel={t('@theorem.embedding.searching')}

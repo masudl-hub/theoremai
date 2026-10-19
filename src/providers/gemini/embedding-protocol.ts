@@ -24,17 +24,54 @@ export interface GeminiEmbeddingOptions {
   outputDimensionality?: 768 | 1536 | 3072;
 }
 
+function task<T extends string>(value: T, title: string, description: string) {
+  return z.literal(value).meta({ title, description });
+}
+
 const options: z.ZodType<GeminiEmbeddingOptions> = z.strictObject({
+  // why: Labels and descriptions are Google's own task-type table (ai.google.dev/gemini-api/docs/embeddings), so a studio can show them.
   taskType: z
-    .enum([
-      'RETRIEVAL_QUERY',
-      'RETRIEVAL_DOCUMENT',
-      'SEMANTIC_SIMILARITY',
-      'CLASSIFICATION',
-      'CLUSTERING',
-      'QUESTION_ANSWERING',
-      'FACT_VERIFICATION',
-      'CODE_RETRIEVAL_QUERY',
+    .union([
+      task(
+        'RETRIEVAL_QUERY',
+        'Retrieval query',
+        'Embeddings optimized for general search queries. Pair with Retrieval document for the documents searched.',
+      ),
+      task(
+        'RETRIEVAL_DOCUMENT',
+        'Retrieval document',
+        'Embeddings optimized for document search, such as indexing articles, books or web pages.',
+      ),
+      task(
+        'SEMANTIC_SIMILARITY',
+        'Semantic similarity',
+        'Embeddings optimized to assess text similarity, such as for recommendations or duplicate detection.',
+      ),
+      task(
+        'CLASSIFICATION',
+        'Classification',
+        'Embeddings optimized to classify texts according to preset labels, such as sentiment or spam.',
+      ),
+      task(
+        'CLUSTERING',
+        'Clustering',
+        'Embeddings optimized to cluster texts based on their similarities.',
+      ),
+      task(
+        'QUESTION_ANSWERING',
+        'Question answering',
+        'Embeddings for questions, optimized for finding documents that answer them. Pair with Retrieval document.',
+      ),
+      task(
+        'FACT_VERIFICATION',
+        'Fact verification',
+        'Embeddings for statements to verify, optimized for retrieving evidence that supports or refutes them. Pair with Retrieval document.',
+      ),
+      task(
+        'CODE_RETRIEVAL_QUERY',
+        'Code retrieval query',
+        'Embeddings optimized for finding code blocks from natural language queries. Pair with Retrieval document for the code.',
+      ),
     ])
     .optional(),
   outputDimensionality: z.union([z.literal(768), z.literal(1536), z.literal(3072)]).optional(),

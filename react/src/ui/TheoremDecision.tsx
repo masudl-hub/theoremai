@@ -1,7 +1,12 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import type { DecisionJson } from '@theoremjs/agents';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
-import { type DecisionImages, imageField, namedImages } from '../client/decision-images.ts';
+import {
+  type DecisionImages,
+  droppedImages,
+  namedImages,
+  stateFields,
+} from '../client/decision-images.ts';
 import {
   createDecisionTransport,
   type DecisionInterface,
@@ -140,8 +145,7 @@ function DecisionRequest({
   const withImages =
     iface.questions.some((question) => question.type === 'box') || Object.keys(images).length > 0;
   const fields = shown === 'fields' ? check.state : undefined;
-  const named =
-    fields !== null && typeof fields === 'object' && !Array.isArray(fields) ? fields : undefined;
+  const named = stateFields(fields);
   return (
     <RequestCard
       title={t('@theorem.decision.state')}
@@ -171,19 +175,9 @@ function DecisionRequest({
       {withImages && named ? (
         <ImageDrop
           onImages={(dropped) => {
-            let nextImages = images;
-            let nextState = named;
-            for (const [file, image] of dropped) {
-              const { key, reference } = imageField(
-                file.name,
-                { ...iface.images, ...nextImages },
-                Object.keys(nextState),
-              );
-              nextImages = { ...nextImages, [reference]: image };
-              nextState = { ...nextState, [key]: reference };
-            }
-            onImages(nextImages);
-            setText(JSON.stringify(nextState, null, 2));
+            const next = droppedImages(dropped, { images, host: iface.images, state: named });
+            onImages(next.images);
+            setText(JSON.stringify(next.state, null, 2));
           }}
         />
       ) : null}

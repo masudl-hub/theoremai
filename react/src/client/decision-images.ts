@@ -68,6 +68,34 @@ export function imageField(
   return { key: reference.slice(1, -1), reference };
 }
 
+/** The state as named fields, or undefined when it is a list, a value, or nothing. */
+export function stateFields(
+  state: DecisionJson | undefined,
+): Record<string, DecisionJson> | undefined {
+  return state !== null && typeof state === 'object' && !Array.isArray(state) ? state : undefined;
+}
+
+/**
+ * The images and state after files are dropped: each file a field named after it, holding a
+ * reference no image the page or the host holds, nor any field, has yet.
+ */
+export function droppedImages(
+  dropped: readonly (readonly [File, DecisionAsset])[],
+  held: { images: DecisionImages; host?: DecisionImages; state: Record<string, DecisionJson> },
+): { images: DecisionImages; state: Record<string, DecisionJson> } {
+  let { images, state } = held;
+  for (const [file, image] of dropped) {
+    const { key, reference } = imageField(
+      file.name,
+      { ...held.host, ...images },
+      Object.keys(state),
+    );
+    images = { ...images, [reference]: image };
+    state = { ...state, [key]: reference };
+  }
+  return { images, state };
+}
+
 function at(state: DecisionJson, path: string): DecisionJson | undefined {
   let value: DecisionJson | undefined = state;
   for (const step of path.split('.')) {

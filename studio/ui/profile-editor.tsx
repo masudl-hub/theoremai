@@ -2314,6 +2314,22 @@ function ImageReferenceRow({
   );
 }
 
+/** A dropzone's `changeAction`: the files picked, read while it shows as loading. */
+function useFilesRead(read: (files: File[]) => Promise<void>) {
+  const [reading, setReading] = useState(false);
+  const changeAction = async (files: File | File[] | null) => {
+    const picked = files === null ? [] : Array.isArray(files) ? files : [files];
+    if (!picked.length) return;
+    setReading(true);
+    try {
+      await read(picked);
+    } finally {
+      setReading(false);
+    }
+  };
+  return { reading, changeAction };
+}
+
 /** Reference images sent with every turn, ahead of what the user attaches: files or links. */
 function ImageReferencesEditor({
   references,
@@ -2322,7 +2338,9 @@ function ImageReferencesEditor({
   references: ImageReferenceDraft[];
   onChange: (references: ImageReferenceDraft[]) => void;
 }) {
-  const [reading, setReading] = useState(false);
+  const { reading, changeAction } = useFilesRead(async (picked) => {
+    onChange([...references, ...(await Promise.all(picked.map(referenceFromFile)))]);
+  });
   const replace = (key: string, next: ImageReferenceDraft) => {
     onChange(references.map((reference) => (reference.key === key ? next : reference)));
   };
@@ -2351,16 +2369,7 @@ function ImageReferencesEditor({
         isLoading={reading}
         placeholder="Drop images or choose files, up to 4 MB each"
         value={null}
-        changeAction={async (files) => {
-          const picked = files === null ? [] : Array.isArray(files) ? files : [files];
-          if (!picked.length) return;
-          setReading(true);
-          try {
-            onChange([...references, ...(await Promise.all(picked.map(referenceFromFile)))]);
-          } finally {
-            setReading(false);
-          }
-        }}
+        changeAction={changeAction}
         onChange={() => undefined}
       />
       <Button
@@ -6893,7 +6902,22 @@ function DecisionImageRow({
 /** The pictures every decision sends, each under the name its questions write, and a drop to add more. */
 function DecisionImagesSection({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const keys = useLentKeys();
-  const [reading, setReading] = useState(false);
+  const { reading, changeAction } = useFilesRead(async (picked) => {
+    const read = await Promise.all(
+      picked.map(async (file) => ({ file: file.name, image: await fileData(file) })),
+    );
+    setDraft((current) => {
+      let next = current;
+      for (const { file, image } of read) {
+        const added = newDecisionImage(next, file, image);
+        next = {
+          ...next,
+          decision: { ...next.decision, images: [...next.decision.images, added] },
+        };
+      }
+      return next;
+    });
+  });
   const listStatus = useFieldStatus()('images');
   const { images } = draft.decision;
   const setImages = (change: (images: DecisionImageDraft[]) => DecisionImageDraft[]) => {
@@ -6932,29 +6956,7 @@ function DecisionImagesSection({ draft, setDraft }: { draft: StudioDraft; setDra
         isLoading={reading}
         placeholder="Drop a PNG or JPEG, or choose one. Its file name becomes the name a question writes."
         value={null}
-        changeAction={async (files) => {
-          const picked = files === null ? [] : Array.isArray(files) ? files : [files];
-          if (!picked.length) return;
-          setReading(true);
-          try {
-            const read = await Promise.all(
-              picked.map(async (file) => ({ file: file.name, image: await fileData(file) })),
-            );
-            setDraft((current) => {
-              let next = current;
-              for (const { file, image } of read) {
-                const added = newDecisionImage(next, file, image);
-                next = {
-                  ...next,
-                  decision: { ...next.decision, images: [...next.decision.images, added] },
-                };
-              }
-              return next;
-            });
-          } finally {
-            setReading(false);
-          }
-        }}
+        changeAction={changeAction}
         onChange={() => undefined}
       />
     </InspectorSection>

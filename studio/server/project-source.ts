@@ -114,11 +114,6 @@ export function setupExport(
   return undefined;
 }
 
-/** The setup module's `export const questions`, when it writes one. */
-export function questionsExport(source: ts.SourceFile): ts.VariableDeclaration | undefined {
-  return setupExport(source, 'questions');
-}
-
 /** `expression` without the wrappers that do not change its value. */
 export function unwrapped(expression: ts.Expression): ts.Expression {
   let node = expression;

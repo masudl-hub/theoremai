@@ -2,10 +2,12 @@ import { assertAlmostEquals, assertEquals } from '@std/assert';
 import {
   boxSource,
   cropOf,
+  droppedImages,
   imageField,
   imageName,
   namedImages,
   readImage,
+  stateFields,
 } from '../../react/src/client/decision-images.ts';
 import { decisionInterface } from '../../react/src/client/decision-transport.ts';
 
@@ -86,4 +88,26 @@ Deno.test('a box question shows the page its image, else the field its instructi
     { id: 'Strip', type: 'box', labels: [], field: '<chart>' },
     { id: 'Bread', type: 'noul', labels: [] },
   ]);
+});
+
+Deno.test('dropped files become fields, numbered past the page, the host and the state', () => {
+  const file = (name: string) => new File(['x'], name, { type: 'image/png' });
+  assertEquals(
+    droppedImages(
+      [
+        [file('shelf.png'), lemon],
+        [file('shelf.png'), lemon],
+      ],
+      { images: { '<shelf>': shelf }, host: { '<shelf_2>': shelf }, state: { shelf_3: 'x' } },
+    ),
+    {
+      images: { '<shelf>': shelf, '<shelf_4>': lemon, '<shelf_5>': lemon },
+      state: { shelf_3: 'x', shelf_4: '<shelf_4>', shelf_5: '<shelf_5>' },
+    },
+  );
+});
+
+Deno.test('only a state of named fields takes dropped images', () => {
+  assertEquals(stateFields({ a: 1 }), { a: 1 });
+  for (const state of [null, [1], 'text', undefined]) assertEquals(stateFields(state), undefined);
 });

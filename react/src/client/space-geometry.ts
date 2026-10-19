@@ -27,11 +27,11 @@ export const QUERY_SLOT = -1;
 const LIGHTNESS = 0.72;
 const CHROMA = 0.085;
 const QUERY_COLOUR: readonly [number, number, number] = [0.97, 0.98, 1.0];
-/** Every line is white; only its weight says how alike its two ends are. */
+/** Every line is a faint white hairline: it hints at a connection, and the dots carry the picture. */
 const LINE_COLOUR: readonly [number, number, number] = [1, 1, 1];
 /** A line's width in CSS pixels and its opacity, at the threshold and at identical. */
-const LINE_WIDTH = [0.4, 0.9] as const;
-const LINE_ALPHA = [0.18, 0.6] as const;
+const LINE_WIDTH = [0.3, 0.5] as const;
+const LINE_ALPHA = [0.07, 0.2] as const;
 
 function weighted([at, to]: readonly [number, number], strength: number): number {
   return at + (to - at) * strength;

@@ -1,4 +1,6 @@
 import { Card } from '@astryxdesign/core/Card';
+import { HStack } from '@astryxdesign/core/HStack';
+import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import type { CSSProperties, ReactNode } from 'react';
@@ -88,19 +90,32 @@ export function ChartCard({
   title,
   value,
   note,
+  aside,
   children,
 }: {
   title: string;
   value: ReactNode;
   note?: ReactNode;
+  /** A control beside the title, such as a switch between views. */
+  aside?: ReactNode;
   children?: ReactNode;
 }) {
+  const heading = (
+    <Text type="supporting" color="secondary">
+      {title}
+    </Text>
+  );
   return (
     <Card variant="muted" padding={4} style={CONSOLE_CARD}>
       <VStack gap={3}>
-        <Text type="supporting" color="secondary">
-          {title}
-        </Text>
+        {aside ? (
+          <HStack gap={3} vAlign="center">
+            <StackItem size="fill">{heading}</StackItem>
+            {aside}
+          </HStack>
+        ) : (
+          heading
+        )}
         {/* why: HStack aligns boxes, not text; the figure and its note share a baseline. */}
         <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 8 }}>
           <Text size="2xl" weight="medium" hasTabularNumbers>

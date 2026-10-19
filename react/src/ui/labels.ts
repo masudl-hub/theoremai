@@ -686,6 +686,49 @@ export const THEOREM_UI_CATALOG = {
     description: 'The width of each vector, and how many requests indexing took.',
     params: ['dimensions', 'requests'],
   },
+  '@theorem.embedding.view': {
+    defaultMessage: 'View',
+    description: 'Switches the index card between the space and the list of vectors.',
+  },
+  '@theorem.embedding.space': {
+    defaultMessage: 'Space',
+    description: 'The index drawn as a sphere, alike documents together.',
+  },
+  '@theorem.embedding.list': {
+    defaultMessage: 'List',
+    description: 'The index as a list of documents and their vectors.',
+  },
+  '@theorem.embedding.space_label': {
+    defaultMessage:
+      '{count, plural, one {# document} other {# documents}} drawn on a sphere: alike documents sit together, and threads join the most alike.',
+    description: 'What the space shows, for screen readers.',
+    params: ['count'],
+  },
+  '@theorem.embedding.space_query': {
+    defaultMessage: 'The query lands among its matches, with a thread to each.',
+    description: 'What the space shows after a search, for screen readers.',
+  },
+  '@theorem.embedding.space_off': {
+    defaultMessage: 'This browser can’t draw the space, so the vectors are listed.',
+    description: 'WebGL2 is unavailable, so the index card shows the list.',
+  },
+  '@theorem.embedding.copy_vector': {
+    defaultMessage: 'Copy vector',
+    description: "Copies one document's vector as JSON.",
+  },
+  '@theorem.embedding.copy_vectors': {
+    defaultMessage: 'Copy all',
+    description: 'Copies every vector in the index as JSON, in document order.',
+  },
+  '@theorem.embedding.copied': {
+    defaultMessage: 'Copied',
+    description: 'Right after copying a vector.',
+  },
+  '@theorem.embedding.width': {
+    defaultMessage: '{dimensions, plural, one {# dimension} other {# dimensions}}',
+    description: "How wide a vector is, after its first values in the list.",
+    params: ['dimensions'],
+  },
   '@theorem.embedding.matches': {
     defaultMessage: 'Matches',
     description: 'The documents most like the query, best first (card title).',

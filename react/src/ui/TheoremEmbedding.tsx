@@ -1,6 +1,7 @@
 import { VStack } from '@astryxdesign/core/VStack';
 import type { EmbeddingInput } from '@theoremjs/agents';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
+import { rankMatches } from '../client/embedding-input.ts';
 import {
   createEmbeddingTransport,
   type EmbeddingInterface,
@@ -86,6 +87,13 @@ function EmbeddingBody({
     void index.index(documents.inputs, iface.inputs);
   };
   const searched = search.status !== 'idle' || search.result !== null;
+  const queried = search.result?.embeddings[0]?.values ?? null;
+  const matches = useMemo(
+    () => (queried && index.result ? rankMatches(queried, index.result.vectors) : []),
+    [queried, index.result],
+  );
+  const [hovered, setHovered] = useState<number | null>(null);
+  const pointing = useMemo(() => ({ hovered, onHover: setHovered }), [hovered]);
 
   return (
     <ConsoleFrame
@@ -105,7 +113,13 @@ function EmbeddingBody({
           onRun={runIndex}
           onStop={index.cancel}
         />
-        <IndexCard run={index} />
+        <IndexCard
+          run={index}
+          documents={indexed}
+          query={queried}
+          matches={matches}
+          pointing={pointing}
+        />
         <EmbeddingQuery
           form={query}
           rules={iface.inputs}
@@ -120,7 +134,15 @@ function EmbeddingBody({
       {embeddingResponse(
         columns,
         t('@theorem.embedding.results'),
-        searched ? <EmbeddingResults index={index} search={search} documents={indexed} /> : null,
+        searched ? (
+          <EmbeddingResults
+            index={index}
+            search={search}
+            documents={indexed}
+            matches={matches}
+            pointing={pointing}
+          />
+        ) : null,
       )}
     </ConsoleFrame>
   );

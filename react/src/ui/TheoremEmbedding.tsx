@@ -1,7 +1,7 @@
 import { VStack } from '@astryxdesign/core/VStack';
 import type { EmbeddingInput } from '@theoremjs/agents';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
-import { rankMatches } from '../client/embedding-input.ts';
+import { type EmbeddingMatch, rankMatches } from '../client/embedding-input.ts';
 import {
   createEmbeddingTransport,
   type EmbeddingInterface,
@@ -21,7 +21,7 @@ import {
   useEmbeddingDocuments,
 } from './EmbeddingDocuments.tsx';
 import { EmbeddingQuery, type IndexState, useEmbeddingQuery } from './EmbeddingQuery.tsx';
-import { EmbeddingResults, IndexCard } from './EmbeddingResults.tsx';
+import { EmbeddingResults, IndexCard, type Pointing } from './EmbeddingResults.tsx';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { useTraceInspector } from './TraceInspectorPanel.tsx';
@@ -54,10 +54,6 @@ function sameInputs(a: readonly EmbeddingInput[], b: readonly EmbeddingInput[]):
   return a.length === b.length && a.every((input, at) => input === b[at]);
 }
 
-/**
- * The frame's second child. A call, not a component: the frame counts its
- * children to choose a layout, and nothing indexed yet has to count as none.
- */
 /** Where the documents stand for the last query: embedded, changed since, or embedded by another model. */
 function indexStateOf(
   indexed: { inputs: readonly EmbeddingInput[]; model: string } | null,
@@ -70,19 +66,156 @@ function indexStateOf(
   return sameInputs(indexed.inputs, inputs) ? 'fresh' : 'stale';
 }
 
+type IndexRunState = ReturnType<typeof useEmbeddingIndex>;
+
+function indexPhase(index: IndexRunState): 'idle' | 'indexing' | 'indexed' {
+  if (index.status === 'indexing') return 'indexing';
+  return index.result !== null || index.failure !== null ? 'indexed' : 'idle';
+}
+
+/**
+ * The frame's second child. A call, not a component: the frame counts its
+ * children to choose a layout, and nothing indexed yet has to count as none.
+ */
 function embeddingResponse(
   columns: boolean,
   label: string,
-  fill: boolean,
-  results: ReactNode | null,
+  phase: ReturnType<typeof indexPhase>,
+  results: ReactNode,
 ): ReactNode {
-  if (results === null) return null;
+  if (phase === 'idle') return null;
   return columns ? (
-    <ResponseColumn label={label} fill={fill}>
+    <ResponseColumn label={label} fill={phase === 'indexing'}>
       {results}
     </ResponseColumn>
   ) : (
     results
+  );
+}
+
+/** The spinner while the documents embed, counting the requests once there is more than one. */
+function IndexingPane({ index }: { index: IndexRunState }) {
+  const t = useLabels();
+  const { progress } = index;
+  return (
+    <PaneLoading
+      label={
+        progress
+          ? t('@theorem.embedding.indexing_progress', {
+              done: Math.min(progress.done + 1, progress.total),
+              total: progress.total,
+            })
+          : t('@theorem.embedding.indexing')
+      }
+      since={index.startedAt}
+    />
+  );
+}
+
+/** Where the last query stands against the index: whether it searched, and its vector while both share a model. */
+function searchOf(
+  index: IndexRunState,
+  search: BodyProps['search'],
+  inputs: readonly EmbeddingInput[],
+) {
+  const state = indexStateOf(index.result, search.result, inputs);
+  if (state === 'model') return { state, searched: false, queried: null };
+  return {
+    state,
+    searched: search.status !== 'idle' || search.result !== null,
+    queried: search.result?.embeddings[0]?.values ?? null,
+  };
+}
+
+type IndexedProps = {
+  iface: EmbeddingInterface;
+  index: IndexRunState;
+  search: BodyProps['search'];
+  query: ReturnType<typeof useEmbeddingQuery>;
+  /** The documents as they were indexed. */
+  indexed: readonly EmbeddingDocument[];
+};
+
+/** The query against the index, and once it ran, what it found. */
+function IndexSearch({
+  iface,
+  index,
+  search,
+  query,
+  indexed,
+  state,
+  searched,
+  matches,
+  pointing,
+}: IndexedProps & {
+  state: IndexState;
+  searched: boolean;
+  matches: readonly EmbeddingMatch[];
+  pointing: Pointing;
+}) {
+  return (
+    <ConsoleSection>
+      <EmbeddingQuery
+        form={query}
+        rules={iface.inputs}
+        index={state}
+        isRunning={search.status === 'embedding'}
+        onRun={(input) => {
+          void search.embed([input], { task: 'query' });
+        }}
+        onStop={search.cancel}
+      />
+      {searched ? (
+        <VStack padding={4}>
+          <EmbeddingResults
+            index={index}
+            search={search}
+            documents={indexed}
+            matches={matches}
+            pointing={pointing}
+          />
+        </VStack>
+      ) : null}
+    </ConsoleSection>
+  );
+}
+
+/** The index, and once it holds vectors, the search over them. */
+function EmbeddingIndexed({
+  inputs,
+  ...props
+}: IndexedProps & {
+  /** The documents as they stand now. */
+  inputs: readonly EmbeddingInput[];
+}) {
+  const { index, indexed } = props;
+  const { state, searched, queried } = searchOf(index, props.search, inputs);
+  const vectors = index.result?.vectors;
+  const matches = useMemo(
+    () => (queried && vectors ? rankMatches(queried, vectors) : []),
+    [queried, vectors],
+  );
+  const [hovered, setHovered] = useState<number | null>(null);
+  const pointing = useMemo(() => ({ hovered, onHover: setHovered }), [hovered]);
+  return (
+    <VStack gap={3}>
+      <IndexCard
+        run={index}
+        documents={indexed}
+        query={queried}
+        matches={matches}
+        pointing={pointing}
+      />
+      {index.result ? (
+        <IndexSearch
+          {...props}
+          state={state}
+          searched={searched}
+          matches={matches}
+          pointing={pointing}
+        />
+      ) : null}
+    </VStack>
   );
 }
 
@@ -107,24 +240,12 @@ function EmbeddingBody({
   const [indexed, setIndexed] = useState<readonly EmbeddingDocument[]>([]);
   const inspector = useTraceInspector(iface, transport.traces, trace);
 
-  const state = indexStateOf(index.result, search.result, documents.inputs);
-  const remodelled = state === 'model';
   const runIndex = () => {
     if (documents.jsonInvalid || documents.issue || documents.inputs.length === 0) return;
     setIndexed(documents.documents);
     void index.index(documents.inputs, iface.inputs);
   };
-  const searched = !remodelled && (search.status !== 'idle' || search.result !== null);
-  const queried = remodelled ? null : (search.result?.embeddings[0]?.values ?? null);
-  const matches = useMemo(
-    () => (queried && index.result ? rankMatches(queried, index.result.vectors) : []),
-    [queried, index.result],
-  );
-  const [hovered, setHovered] = useState<number | null>(null);
-  const pointing = useMemo(() => ({ hovered, onHover: setHovered }), [hovered]);
-
-  const indexing = index.status === 'indexing';
-  const hasIndex = index.result !== null || index.failure !== null;
+  const phase = indexPhase(index);
   return (
     <ConsoleFrame
       inspector={inspector}
@@ -138,62 +259,26 @@ function EmbeddingBody({
       <EmbeddingDocuments
         form={documents}
         rules={iface.inputs}
-        isRunning={index.status === 'indexing'}
+        isRunning={phase === 'indexing'}
         onRun={runIndex}
         onStop={index.cancel}
       />
       {embeddingResponse(
         columns,
         t('@theorem.embedding.results'),
-        indexing,
-        indexing ? (
-          <PaneLoading
-            label={
-              index.progress
-                ? t('@theorem.embedding.indexing_progress', {
-                    done: Math.min(index.progress.done + 1, index.progress.total),
-                    total: index.progress.total,
-                  })
-                : t('@theorem.embedding.indexing')
-            }
-            since={index.startedAt}
+        phase,
+        phase === 'indexing' ? (
+          <IndexingPane index={index} />
+        ) : (
+          <EmbeddingIndexed
+            iface={iface}
+            index={index}
+            search={search}
+            query={query}
+            indexed={indexed}
+            inputs={documents.inputs}
           />
-        ) : hasIndex ? (
-          <VStack gap={3}>
-            <IndexCard
-              run={index}
-              documents={indexed}
-              query={queried}
-              matches={matches}
-              pointing={pointing}
-            />
-            {index.result ? (
-              <ConsoleSection>
-                <EmbeddingQuery
-                  form={query}
-                  rules={iface.inputs}
-                  index={state}
-                  isRunning={search.status === 'embedding'}
-                  onRun={(input) => {
-                    void search.embed([input], { task: 'query' });
-                  }}
-                  onStop={search.cancel}
-                />
-                {searched ? (
-                  <VStack padding={4}>
-                    <EmbeddingResults
-                      index={index}
-                      search={search}
-                      documents={indexed}
-                      matches={matches}
-                      pointing={pointing}
-                    />
-                  </VStack>
-                ) : null}
-              </ConsoleSection>
-            ) : null}
-          </VStack>
-        ) : null,
+        ),
       )}
     </ConsoleFrame>
   );

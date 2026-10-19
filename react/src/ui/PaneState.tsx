@@ -3,7 +3,7 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { Spinner } from '@astryxdesign/core/Spinner';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconAlertTriangle } from '@tabler/icons-react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 /**
  * What a pane says when it has nothing of its own to show: centred both ways
@@ -34,9 +34,31 @@ export function PaneState({
   );
 }
 
-/** A pane that is waiting: the spinner where an empty pane's icon would be. */
+/**
+ * A pane that is waiting: the spinner where an empty pane's icon would be,
+ * once the wait has gone on a moment; blank and busy before then.
+ */
 export function PaneLoading({ label }: { label: string }) {
+  const long = useLongWait();
+  if (!long) return <div aria-busy="true" style={{ height: '100%' }} />;
   return <PaneState icon={<Spinner size="lg" />} title={label} />;
+}
+
+/**
+ * How long a wait stays blank before its spinner shows. Most waits (a profile
+ * describing itself, a switch to another agent) end sooner, and the pane
+ * changes straight to what it waited for instead of flashing a spinner.
+ */
+const QUIET_WAIT_MS = 300;
+
+/** Whether a wait has gone on long enough to say so. */
+function useLongWait(): boolean {
+  const [long, setLong] = useState(false);
+  useEffect(() => {
+    const timer = globalThis.setTimeout(() => setLong(true), QUIET_WAIT_MS);
+    return () => globalThis.clearTimeout(timer);
+  }, []);
+  return long;
 }
 
 /** A pane that could not show what it is for, and why. */

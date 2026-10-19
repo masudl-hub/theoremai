@@ -8,7 +8,12 @@ import { resolveRegisteredTurnModel } from './provider-dispatch.ts';
 import { createKernelRegistry, type KernelRegistry } from './registry/kernel-registry.ts';
 import { projectProfileInRegistry, resolveTurnInRegistry } from './registry/resolve.ts';
 import { invokeTool, invokeToolStep, startInvoke, startInvokeStep } from './tools/invoke.ts';
-import { runTool, runToolStep, type ToolCallResult, type ToolStepCallResult } from './tools/run.ts';
+import {
+  settledCall,
+  settledCalls,
+  type ToolCallResult,
+  type ToolStepCallResult,
+} from './tools/run.ts';
 import type { InvokeToolRequest, InvokeToolStepRequest } from './tools/types.ts';
 import type {
   CompactHistoryRequest,
@@ -94,9 +99,9 @@ function createKernelScope(): KernelScope {
       ),
     invokeTool: (request, sinkOverride) => invokeTool(registry, request, sinkOverride),
     invokeToolStep: (request, sinkOverride) => invokeToolStep(registry, request, sinkOverride),
-    runTool: (request, sinkOverride) => runTool(startInvoke(registry, request, sinkOverride)),
+    runTool: (request, sinkOverride) => settledCall(startInvoke(registry, request, sinkOverride)),
     runToolStep: (request, sinkOverride) =>
-      runToolStep(startInvokeStep(registry, request, sinkOverride)),
+      settledCalls(startInvokeStep(registry, request, sinkOverride)),
     resolveTurn: (req) => resolveTurnInRegistry(registry, req),
     projectProfile: (id) => projectProfileInRegistry(registry, id),
     runDecision: (request, options) => runDecisionInRegistry(registry, request, options),

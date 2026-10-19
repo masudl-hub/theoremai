@@ -1,7 +1,7 @@
 /**
  * A call's end, for a host that wants how a call settled rather than its stream:
- * `runTool` and `runToolStep` run `invokeTool` and `invokeToolStep` and give each
- * call's terminal `tool` event with every event it emitted.
+ * `settledCall` and `settledCalls` read a started `invokeTool` or `invokeToolStep` and give each
+ * call's terminal `tool` event with every event it emitted. `runTool` and `runToolStep` use them.
  */
 
 import { labelText } from '../../guardrails/labels.ts';
@@ -65,7 +65,7 @@ function settle(fold: CallFold, invokeError: TurnEventOf<'error'> | undefined): 
 }
 
 /** Run one call to its end. */
-async function runTool(started: StartedInvoke): Promise<ToolCallResult> {
+async function settledCall(started: StartedInvoke): Promise<ToolCallResult> {
   const fold: CallFold = {
     name: started.name,
     callId: started.callId,
@@ -83,7 +83,7 @@ async function runTool(started: StartedInvoke): Promise<ToolCallResult> {
 }
 
 /** Run a step's calls, yielding each one's result as it settles; a call the step never settled comes last. */
-async function* runToolStep(started: StartedStep): AsyncGenerator<ToolStepCallResult> {
+async function* settledCalls(started: StartedStep): AsyncGenerator<ToolStepCallResult> {
   const folds = started.calls.map(
     ({ name, callId }): CallFold => ({
       name,
@@ -112,4 +112,4 @@ async function* runToolStep(started: StartedStep): AsyncGenerator<ToolStepCallRe
   }
 }
 
-export { runTool, runToolStep };
+export { settledCall, settledCalls };

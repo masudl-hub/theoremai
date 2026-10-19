@@ -10,6 +10,7 @@ import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tab
 import { createHttpTransport, createTraceFeed, type TraceFeed } from '@theoremjs/react/client';
 import {
   ChatComposerBar,
+  InPlace,
   PaneFailure,
   PaneLoading,
   TheoremChat,
@@ -86,6 +87,17 @@ export function useEditedLoad(
   }, [project, edits, hold, held]);
   if (!edits) return { answer: undefined, pending: false };
   return { answer: held?.answer, pending: held?.of !== edits };
+}
+
+/**
+ * The stamp of the last load of the edits that ran. A refused load leaves the one before it
+ * standing under the refusal, so the edited side keeps what it showed; with no edits, none.
+ */
+export function useLoadedStamp(answer: EditedAnswer | undefined): string | undefined {
+  const [loaded, setLoaded] = useState<string>();
+  const now = answer === undefined ? undefined : answer.ok ? answer.stamp : loaded;
+  if (now !== loaded) setLoaded(now);
+  return now;
 }
 
 /**
@@ -432,8 +444,9 @@ export function EditedSide({
         )
       }
     >
-      {refused && <NotRunning refusal={refused} actions={actions} />}
-      {children}
+      <InPlace view={refused ? <NotRunning refusal={refused} actions={actions} /> : null}>
+        {children}
+      </InPlace>
       {isLoading && <PaneLoading label="Loading your edits" />}
     </Pane>
   );
@@ -456,8 +469,9 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
   const inFiles =
     !isEditing || (chatsInFiles && (answer?.saved ?? project.profiles).includes(ids.saved));
   const { conversations, onChange } = useConversations(isEditing);
-  const stamp = answer?.ok ? answer.stamp : undefined;
+  const stamp = useLoadedStamp(answer);
   const transports = useTransports(project, ids, stamp, { note, traces });
+  const refused = answer && !answer.ok && !pending ? answer : undefined;
   return {
     pair,
     isBusy,
@@ -468,8 +482,8 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
     conversations,
     onChange,
     transports,
-    refused: answer && !answer.ok && !pending ? answer : undefined,
-    isReady: !pending && transports.edited !== null,
+    refused,
+    isReady: !pending && !refused && transports.edited !== null,
   };
 }
 
@@ -559,7 +573,8 @@ export function ProjectChat(props: ProjectChatProps) {
                       view.conversations.current.edited ?? view.conversations.current.saved
                     }
                     onConversationChange={view.onChange.edited}
-                    chatRef={pair.refs.edited}
+                    // Under a refusal nothing reaches it: the edits it ran are not loaded.
+                    chatRef={refused ? undefined : pair.refs.edited}
                   />
                 )}
               </EditedSide>

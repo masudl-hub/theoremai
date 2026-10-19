@@ -57,6 +57,7 @@ import {
   SavedSlot,
   unsavedEdits,
   useEditedLoad,
+  useLoadedStamp,
   useSavedHidden,
 } from './studio-compare.tsx';
 import { ChooseConflictsContext } from './studio-conflicts.tsx';
@@ -445,7 +446,7 @@ function ProjectSides({
   edits: StudioWorkspace;
 }) {
   const { answer, pending } = useEditedLoad(project, edits, false);
-  const stamp = answer?.ok ? answer.stamp : undefined;
+  const stamp = useLoadedStamp(answer);
   const refused = answer && !answer.ok && !pending ? answer : undefined;
   const isSavedHidden = useSavedHidden();
   // The edited side's own feed, so its traces are not the files' side's.
@@ -476,7 +477,7 @@ function ProjectSides({
             />
           }
         >
-          {stamp !== undefined && !refused && (
+          {stamp !== undefined && (
             <SideRun
               {...shared}
               load={stamp}

@@ -663,6 +663,11 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'The documents changed. Index them again.',
     description: 'The documents differ from the ones last embedded.',
   },
+  '@theorem.embedding.remodelled': {
+    defaultMessage: 'The model changed. Index the documents again.',
+    description:
+      'The last query came from another model than the one the documents were embedded with.',
+  },
   '@theorem.embedding.search_shortcut': {
     defaultMessage: '⌘↵ to search',
     description: 'The keyboard shortcut that runs the search, under the query.',

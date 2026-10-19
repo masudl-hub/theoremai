@@ -16,8 +16,6 @@ export type OneCallState<Busy extends string, Result> = {
   failure: ClientFailure | null;
 };
 
-type Run<T, Busy extends string, Result> = OneCallState<Busy, Result> & { transport: T };
-
 const IDLE = { status: 'idle', result: null, elapsedMs: null, failure: null } as const;
 
 /** Hands a call's trace records to the transport's feed, when it has one. */
@@ -27,8 +25,10 @@ function feed(transport: OneCallTransport, records: readonly TraceRecord[] | und
 
 /**
  * One call at a time to `transport`, through `send`: a new call aborts the one
- * still running, and the last result stays on screen while the same host
- * answers again. `send` must not change between renders.
+ * still running, and the last result stays on screen while the next one runs.
+ * A new transport (a recompiled profile) keeps the result and any call still
+ * running, as a chat keeps its transcript; give the component a new `key` to
+ * start over. `send` must not change between renders.
  */
 export function useOneCall<
   T extends OneCallTransport,
@@ -44,13 +44,8 @@ export function useOneCall<
     ...args: Args
   ) => Promise<{ result: Result; traces?: readonly TraceRecord[] }>,
 ): OneCallState<Busy, Result> & { call: (...args: Args) => Promise<void>; cancel: () => void } {
-  const [run, setRun] = useState<Run<T, Busy, Result>>({ transport, ...IDLE });
+  const [run, setRun] = useState<OneCallState<Busy, Result>>(IDLE);
   const running = useRef<AbortController | null>(null);
-  const runningFor = useRef<T | null>(null);
-
-  useEffect(() => {
-    if (runningFor.current !== transport) running.current?.abort();
-  }, [transport]);
 
   useEffect(() => () => running.current?.abort(), []);
 
@@ -69,24 +64,18 @@ export function useOneCall<
       running.current?.abort();
       const controller = new AbortController();
       running.current = controller;
-      runningFor.current = transport;
-      setRun((previous) => {
-        const kept = previous.transport === transport ? previous : IDLE;
-        return {
-          transport,
-          status: busy,
-          result: kept.result,
-          elapsedMs: kept.elapsedMs,
-          failure: null,
-        };
-      });
+      setRun((previous) => ({
+        status: busy,
+        result: previous.result,
+        elapsedMs: previous.elapsedMs,
+        failure: null,
+      }));
       const started = performance.now();
       try {
         const reply = await send(transport, controller.signal, ...args);
         if (controller.signal.aborted) return;
         feed(transport, reply.traces);
         setRun({
-          transport,
           status: 'done',
           result: reply.result,
           elapsedMs: performance.now() - started,
@@ -103,6 +92,5 @@ export function useOneCall<
     [transport, busy, send],
   );
 
-  const { status, result, elapsedMs, failure } = run.transport === transport ? run : IDLE;
-  return { status, result, elapsedMs, failure, call, cancel };
+  return { ...run, call, cancel };
 }

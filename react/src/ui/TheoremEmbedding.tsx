@@ -76,18 +76,23 @@ function EmbeddingBody({
   const [indexed, setIndexed] = useState<readonly EmbeddingDocument[]>([]);
   const inspector = useTraceInspector(iface, transport.traces, trace);
 
-  const state: IndexState = !index.result
-    ? 'none'
-    : sameInputs(index.result.inputs, documents.inputs)
-      ? 'fresh'
-      : 'stale';
+  // why: A query from another model than the index's is in another space; no score between them means anything.
+  const remodelled =
+    search.result !== null && index.result !== null && search.result.model !== index.result.model;
+  const state: IndexState = remodelled
+    ? 'model'
+    : !index.result
+      ? 'none'
+      : sameInputs(index.result.inputs, documents.inputs)
+        ? 'fresh'
+        : 'stale';
   const runIndex = () => {
     if (documents.jsonInvalid || documents.issue || documents.inputs.length === 0) return;
     setIndexed(documents.documents);
     void index.index(documents.inputs, iface.inputs);
   };
-  const searched = search.status !== 'idle' || search.result !== null;
-  const queried = search.result?.embeddings[0]?.values ?? null;
+  const searched = !remodelled && (search.status !== 'idle' || search.result !== null);
+  const queried = remodelled ? null : (search.result?.embeddings[0]?.values ?? null);
   const matches = useMemo(
     () => (queried && index.result ? rankMatches(queried, index.result.vectors) : []),
     [queried, index.result],

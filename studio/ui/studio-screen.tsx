@@ -148,7 +148,6 @@ import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { GuardrailTester, ProbedAgent } from './guardrail-tester.tsx';
 import './studio.css';
 import {
-  Activity,
   type CSSProperties,
   type Dispatch,
   memo,
@@ -2946,7 +2945,8 @@ function PreviewBody({
           {kept.map(([key, { props }]) => {
             const isShown = shown !== null && key === run.runKey;
             return (
-              <Activity key={key} mode={isShown ? 'visible' : 'hidden'}>
+              // Hidden, not unmounted: a call it is running goes on, and what it showed stays.
+              <div key={key} style={{ display: isShown ? 'contents' : 'none' }}>
                 <StudioRunner
                   {...props}
                   mode={connection.mode}
@@ -2954,7 +2954,7 @@ function PreviewBody({
                   trace={traced ? traceOpen : undefined}
                   chatRef={isShown ? chatRef : undefined}
                 />
-              </Activity>
+              </div>
             );
           })}
         </StackItem>
@@ -2982,8 +2982,8 @@ type KeptRun = {
 
 /**
  * Every runner the preview has shown, each as it was last shown. Switching agents hides one and
- * shows another, so neither loses its conversation, results or trace. A cleared chat drops its
- * own runner; another mode or a new workspace drops them all.
+ * shows another, so neither loses its conversation, results, trace or a call still running. A
+ * cleared chat drops its own runner; another mode or a new workspace drops them all.
  */
 function useKeptRuns(run: ConversationRun, shown: KeptRun | null): [string, KeptRun][] {
   const [kept] = useState(() => new Map<string, KeptRun>());

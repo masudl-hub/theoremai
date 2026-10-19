@@ -28,7 +28,8 @@ import {
   kernelImportOf,
   namedValue,
   type ProjectSource,
-  questionsExport,
+  type SetupExport,
+  setupExport,
   specifierTo,
   unwrapped,
 } from './project-source.ts';
@@ -165,6 +166,12 @@ function namesIn(source: ts.SourceFile): Set<string> {
   return names;
 }
 
+/** The note above each export the studio writes into a setup that has none yet. */
+const SETUP_NOTES: Record<SetupExport, string> = {
+  questions: '/** What each decision profile is asked, by profile id. The studio reads it. */',
+  images: '/** The pictures each decision profile sends, by profile id. The studio reads it. */',
+};
+
 /** The places in the setup a new line can go, each as the position and the text around the line. */
 class Setup {
   private readonly edits: SourceEdit[] = [];
@@ -174,8 +181,8 @@ class Setup {
   private readonly imported = new Map<string, string>();
   /** The lines that go after everything the setup registers, in order. */
   private readonly tail: string[] = [];
-  /** The questions of each new decision, as the entries the setup's `questions` export gains. */
-  private readonly asked: string[] = [];
+  /** What each new decision is asked and sends, as the entries the setup's exports gain. */
+  private readonly entries: Record<SetupExport, string[]> = { questions: [], images: [] };
 
   constructor(
     private readonly project: ProjectSource,
@@ -194,44 +201,47 @@ class Setup {
     );
   }
 
-  /** The object the setup's `questions` export writes out, when it has the export and writes it so. */
-  private get questions(): ts.ObjectLiteralExpression | undefined {
-    const value = questionsExport(this.source)?.initializer;
+  /** The object the setup's `name` export writes out, when it has the export and writes it so. */
+  private held(name: SetupExport): ts.ObjectLiteralExpression | undefined {
+    const value = setupExport(this.source, name)?.initializer;
     const held = value && unwrapped(value);
     return held && ts.isObjectLiteralExpression(held) ? held : undefined;
   }
 
   /**
-   * Whether the setup can name a new decision's questions. The studio reads them from the module
-   * it opens, so that is the file that must hold them: as an object it writes out, or not yet.
+   * Whether the setup can name what a new decision is asked, or the pictures it sends. The studio
+   * reads them from the module it opens, so that is the file that must hold them: as an object it
+   * writes out, or not yet.
    */
-  get asks(): boolean {
+  names(name: SetupExport): boolean {
     if (this.file !== this.project.entry) return false;
-    return this.questions !== undefined || !namesIn(this.source).has('questions');
+    return this.held(name) !== undefined || !namesIn(this.source).has(name);
   }
 
-  /** Names the questions a new decision profile is asked: `expression`, under the profile's id. */
-  ask(profile: string, expression: string) {
-    this.asked.push(`${keySource(profile)}: ${expression}`);
+  /** Names what a new decision profile is asked or sends: `expression`, under the profile's id. */
+  add(name: SetupExport, profile: string, expression: string) {
+    this.entries[name].push(`${keySource(profile)}: ${expression}`);
   }
 
-  /** The new decisions' questions: more entries of the `questions` export, or the export itself at the end. */
-  private placeAsked() {
-    const held = this.questions;
+  /** The new decisions' entries: more of the `name` export, or the export itself at the end. */
+  private place(name: SetupExport) {
+    const added = this.entries[name];
+    const held = this.held(name);
     if (!held) {
       const { text } = this.source;
       const unit = indentUnit(this.source);
-      const entries = this.asked.map((entry) => `${unit}${entry},\n`).join('');
+      const entries = added.map((entry) => `${unit}${entry},\n`).join('');
       const gap = text && !text.endsWith('\n') ? '\n\n' : '\n';
-      const note =
-        '/** What each decision profile is asked, by profile id. The studio reads it. */';
-      return this.insert(text.length, `${gap}${note}\nexport const questions = {\n${entries}};\n`);
+      return this.insert(
+        text.length,
+        `${gap}${SETUP_NOTES[name]}\nexport const ${name} = {\n${entries}};\n`,
+      );
     }
     const last = held.properties.at(-1);
-    if (!last) return this.insert(held.getStart(this.source) + 1, ` ${this.asked.join(', ')} `);
+    if (!last) return this.insert(held.getStart(this.source) + 1, ` ${added.join(', ')} `);
     const indent = indentAt(this.source, last.getStart(this.source));
     const between = held.getText(this.source).includes('\n') ? `,\n${indent}` : ', ';
-    this.insert(last.end, this.asked.map((entry) => `${between}${entry}`).join(''));
+    this.insert(last.end, added.map((entry) => `${between}${entry}`).join(''));
   }
 
   private insert(position: number, text: string) {
@@ -332,7 +342,8 @@ class Setup {
   /** Every line placed, as edits to the setup. */
   finish(): SourceEdit[] {
     if (this.tail.length) this.placeTail();
-    if (this.asked.length) this.placeAsked();
+    for (const name of ['questions', 'images'] as const)
+      if (this.entries[name].length) this.place(name);
     return this.edits;
   }
 }
@@ -535,8 +546,11 @@ class NewPlan {
       });
       return false;
     }
-    // A decision is asked the questions the setup names, so one the setup cannot name is not written.
-    if (agent.questions && !this.setup.asks) {
+    // A decision is asked the questions the setup names and sends the pictures it names, so one the setup cannot name them for is not written.
+    if (
+      (agent.questions && !this.setup.names('questions')) ||
+      (agent.images && !this.setup.names('images'))
+    ) {
       this.refuse('profile', agent.agentId, 'setup', this.ground.project.entry);
       return false;
     }
@@ -579,7 +593,8 @@ class NewPlan {
     }
     const kernel = carried(agents.specifier, agents.file, source.fileName);
     const lines = waits.flatMap((registration) => this.tool(registration));
-    if (agent.questions) this.setup.ask(agent.agentId, `${name}.questions`);
+    if (agent.questions) this.setup.add('questions', agent.agentId, `${name}.questions`);
+    if (agent.images) this.setup.add('images', agent.agentId, `${name}.images`);
     if (agent.structured) {
       const structured = this.setup.needs('registerStructured', kernel);
       lines.push(`${structured}(${name}.structured.id, ${name}.structured.spec);`);

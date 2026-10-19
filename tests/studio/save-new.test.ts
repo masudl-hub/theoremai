@@ -473,6 +473,35 @@ export const questions = {
   assertEquals(tail('{} satisfies Asked'), '{ a: a.questions, b: b.questions } satisfies Asked;\n');
 });
 
+Deno.test('a new decision that sends pictures has them named beside its questions', () => {
+  const pictured: CompiledStudio = {
+    ...decision('a'),
+    images: { '<ghs02>': { mimeType: 'image/png', data: 'AAAA' } },
+  };
+  const added = { agents: [pictured], profiles: ['a'], tools: [] };
+  const plan = planned({ 'setup.ts': INLINE }, added);
+  assertEquals(plan.written['a.ts'].includes('export const images = {'), true);
+  assertEquals(
+    plan.written['setup.ts'].split('registerProfile(a.profile);\n}\n')[1],
+    `
+/** What each decision profile is asked, by profile id. The studio reads it. */
+export const questions = {
+  a: a.questions,
+};
+
+/** The pictures each decision profile sends, by profile id. The studio reads it. */
+export const images = {
+  a: a.images,
+};
+`,
+  );
+  // Pictures made by code are not the studio's to add to.
+  assertEquals(
+    planned({ 'setup.ts': `${INLINE}\nexport const images = pictures();\n` }, added).statuses,
+    [['a', 'setup', 'setup.ts']],
+  );
+});
+
 Deno.test('a new decision is not written when the setup cannot name its questions', () => {
   const added = { agents: [decision('a')], profiles: ['a'], tools: [] };
   const refused = { written: {}, statuses: [['a', 'setup', 'setup.ts']] };

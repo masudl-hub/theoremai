@@ -119,7 +119,7 @@ Deno.test('a named profile goes with its registration, and stays when other code
   );
 });
 
-Deno.test('a profile in its own module goes with the module, its reply shape, and its questions', () => {
+Deno.test('a profile in its own module goes with the module, its reply shape, its questions, and its pictures', () => {
   const setup = lines(
     "import { registerProfile, registerStructured } from '@theoremjs/agents';",
     "import * as triage from './triage.ts';",
@@ -132,6 +132,10 @@ Deno.test('a profile in its own module goes with the module, its reply shape, an
     'export const questions = {',
     "  'triage': triage.questions,",
     '  desk: desk.questions,',
+    '};',
+    '',
+    'export const images = {',
+    '  triage: triage.images,',
     '};',
   );
   const module = (id: string) =>
@@ -156,6 +160,9 @@ Deno.test('a profile in its own module goes with the module, its reply shape, an
       '',
       'export const questions = {',
       '  desk: desk.questions,',
+      '};',
+      '',
+      'export const images = {',
       '};',
     ),
   });

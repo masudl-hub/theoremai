@@ -94,18 +94,29 @@ function importedFile(
   return undefined;
 }
 
-/** The setup module's `export const questions`, when it writes one. */
-export function questionsExport(source: ts.SourceFile): ts.VariableDeclaration | undefined {
+/** What the setup module exports for each decision, by profile id: its questions, or its pictures. */
+export type SetupExport = 'questions' | 'images';
+
+/** The setup module's `export const <name>`, when it writes one. */
+export function setupExport(
+  source: ts.SourceFile,
+  name: SetupExport,
+): ts.VariableDeclaration | undefined {
   for (const statement of source.statements) {
     if (!ts.isVariableStatement(statement)) continue;
     if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword))
       continue;
     const found = statement.declarationList.declarations.find(
-      (declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === 'questions',
+      (declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === name,
     );
     if (found) return found;
   }
   return undefined;
+}
+
+/** The setup module's `export const questions`, when it writes one. */
+export function questionsExport(source: ts.SourceFile): ts.VariableDeclaration | undefined {
+  return setupExport(source, 'questions');
 }
 
 /** `expression` without the wrappers that do not change its value. */

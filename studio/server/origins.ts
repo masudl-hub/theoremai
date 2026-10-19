@@ -21,9 +21,10 @@ import {
   type ObjectShape,
   type ProjectSource,
   propertyName,
-  questionsExport,
+  type SetupExport,
   type SourceTarget,
   type SubjectKind,
+  setupExport,
   shapeOf,
   unwrapped,
   usersOf,
@@ -296,18 +297,18 @@ function originsOf(
 }
 
 /**
- * Where a decision profile's questions are set: the setup module's `questions` export, at the
- * profile's own key when it writes one. A profile does not hold its questions, so the studio
- * shows them and does not change them. No place when the setup exports them another way.
+ * Where a decision profile's questions or pictures are set: the setup module's export of `name`,
+ * at the profile's own key when it writes one. A profile does not hold them, so the studio shows
+ * them and does not change them. No place when the setup exports them another way.
  */
-function questionsOrigin(project: ProjectSource, profileId: string): SettingOrigin {
+function setupOrigin(project: ProjectSource, profileId: string, name: SetupExport): SettingOrigin {
   const origin: SettingOrigin = {
-    path: ['decision', 'questions'],
+    path: ['decision', name],
     kind: 'code',
-    text: 'export const questions',
+    text: `export const ${name}`,
   };
   const source = project.files.get(project.entry);
-  const held = source && questionsExport(source);
+  const held = source && setupExport(source, name);
   if (!source || !held) return origin;
   const value = held.initializer && unwrapped(held.initializer);
   const own =
@@ -320,7 +321,7 @@ function questionsOrigin(project: ProjectSource, profileId: string): SettingOrig
 /**
  * The settings the project's files set in code, for each profile, tool, and provider the files
  * define. One with none is left out. `decisions` names the decision profiles the studio
- * shows: each one's questions are set in the setup module.
+ * shows: each one's questions and pictures are set in the setup module.
  */
 export function sourceOrigins(
   project: ProjectSource,
@@ -344,7 +345,11 @@ export function sourceOrigins(
   const [profiles, tools] = [read('profile', project.profiles), read('tool', project.tools)];
   const providers = read('provider', project.providers);
   for (const id of decisions)
-    profiles.origins[id] = [...(profiles.origins[id] ?? []), questionsOrigin(project, id)];
+    profiles.origins[id] = [
+      ...(profiles.origins[id] ?? []),
+      setupOrigin(project, id, 'questions'),
+      setupOrigin(project, id, 'images'),
+    ];
   /** The places something else reads too, and under each of them the ones a setting has to itself. */
   const sites = (written: Record<string, Written[]>) => {
     const sites: Record<string, SettingSite[]> = {};

@@ -12,8 +12,8 @@ import {
   isRead,
   type ProjectSource,
   propertyName,
-  questionsExport,
   type SourceTarget,
+  setupExport,
   sourceOf,
   unwrapped,
 } from './project-source.ts';
@@ -198,13 +198,19 @@ function callPart(call: ts.CallExpression, value: ts.Node, callable: boolean): P
   return registers || called ? statementOf(call) : undefined;
 }
 
-/** `value`'s entry in the setup's `questions`, when that is where it sits. */
-function questionsEntry(parent: ts.Node, value: ts.Node, source: ts.SourceFile): Part | undefined {
-  const questions = questionsExport(source)?.initializer;
+const SETUP_EXPORTS = ['questions', 'images'] as const;
+
+/** `value`'s entry in the setup's `questions` or `images`, when that is where it sits. */
+function setupEntry(parent: ts.Node, value: ts.Node, source: ts.SourceFile): Part | undefined {
   const entry =
     ts.isShorthandPropertyAssignment(parent) ||
     (ts.isPropertyAssignment(parent) && parent.initializer === value);
-  return entry && questions && parent.parent === unwrapped(questions) ? parent : undefined;
+  if (!entry) return undefined;
+  const held = SETUP_EXPORTS.some((name) => {
+    const value = setupExport(source, name)?.initializer;
+    return value && parent.parent === unwrapped(value);
+  });
+  return held ? parent : undefined;
 }
 
 class Removal {
@@ -237,7 +243,7 @@ class Removal {
   /**
    * What a read of a name is there for, when taking it out leaves nothing behind: a statement
    * that registers it, a statement that calls it when it is a function, or its entry in the
-   * setup's `questions`.
+   * setup's `questions` or `images`.
    */
   private partOf(read: ts.Identifier, source: ts.SourceFile, callable = false): Part | undefined {
     let value: ts.Node = read;
@@ -247,7 +253,7 @@ class Removal {
     value = wrapped(value);
     const { parent } = value;
     if (ts.isCallExpression(parent)) return callPart(parent, value, callable);
-    return questionsEntry(parent, value, source);
+    return setupEntry(parent, value, source);
   }
 
   /**
@@ -351,14 +357,16 @@ class Removal {
     );
   }
 
-  /** A removed decision's entry in the setup's `questions`, under its id. */
+  /** A removed decision's entries in the setup's `questions` and `images`, under its id. */
   private unasked(id: string) {
     for (const source of this.project.files.values()) {
-      const held = questionsExport(source)?.initializer;
-      const questions = held && unwrapped(held);
-      if (!questions || !ts.isObjectLiteralExpression(questions)) continue;
-      const entry = questions.properties.find((property) => propertyName(property) === id);
-      if (entry) this.cut.set(entry, source);
+      for (const name of SETUP_EXPORTS) {
+        const held = setupExport(source, name)?.initializer;
+        const named = held && unwrapped(held);
+        if (!named || !ts.isObjectLiteralExpression(named)) continue;
+        const entry = named.properties.find((property) => propertyName(property) === id);
+        if (entry) this.cut.set(entry, source);
+      }
     }
   }
 

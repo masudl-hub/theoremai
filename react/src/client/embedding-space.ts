@@ -5,12 +5,14 @@
  * centre is its direction along those three; its distance is how far it sits
  * from the index's mean along them, as `r / (r + median)`, scaled so the
  * farthest document is on the rim: the order of distances is kept, and no
- * one far document squeezes the rest into the centre. Two documents are linked
- * when their cosine similarity stands out against every other pair in the
- * index: more than {@link OUTLIER} robust deviations above the median pair.
- * Most pairs in an index are unrelated, so the median and its deviation say
- * what unrelated looks like for this model and these documents. A cluster is
- * documents the links connect. Positions are a projection and only
+ * one far document squeezes the rest into the centre. A pair is alike when
+ * its cosine similarity stands out against every other pair in the index:
+ * more than {@link OUTLIER} robust deviations above the median pair. Most
+ * pairs in an index are unrelated, so the median and its deviation say what
+ * unrelated looks like for this model and these documents. Each document is
+ * linked to its nearest neighbour, the one its cosine similarity is highest
+ * with, when that pair is alike. A cluster is documents alike pairs connect,
+ * directly or through each other. Positions are a projection and only
  * approximate; links and clusters are the vectors' own cosine similarity.
  *
  * @module
@@ -29,7 +31,7 @@ export type SpaceDocument = {
   readonly cluster: number;
 };
 
-/** Documents the links connect, directly or through each other. */
+/** Documents alike pairs connect, directly or through each other. */
 export type SpaceCluster = {
   /** Its documents' indexes, in order. */
   readonly members: readonly number[];
@@ -37,7 +39,7 @@ export type SpaceCluster = {
   readonly tone: number;
 };
 
-/** Two documents whose cosine similarity is above the space's threshold. */
+/** A document and its nearest neighbour, whose cosine similarity is above the space's threshold. */
 export type SpaceLink = {
   readonly a: number;
   readonly b: number;
@@ -61,7 +63,7 @@ export type SpaceBasis = {
 export type EmbeddingSpace = {
   readonly documents: readonly SpaceDocument[];
   readonly clusters: readonly SpaceCluster[];
-  /** Every pair above the threshold, once each. */
+  /** Each document's nearest neighbour, where that pair is above the threshold; a pair that is each other's nearest appears once. */
   readonly links: readonly SpaceLink[];
   /** The cosine similarity a pair must pass to be linked; `Infinity` when the index has too few pairs, or too alike, to say what unrelated looks like. */
   readonly threshold: number;
@@ -316,7 +318,7 @@ function pairsOf(cosine: Float64Array, n: number): Float64Array {
   return pairs;
 }
 
-/** Every pair above the threshold, a row at a time. */
+/** Every pair above the threshold, a row at a time: what clusters are made of. */
 function* linksOf(
   cosine: Float64Array,
   n: number,
@@ -329,6 +331,34 @@ function* linksOf(
     yield;
   }
   return links;
+}
+
+/** The document whose cosine similarity with `i` is highest, the first on a tie; -1 when there is no other. */
+function nearestTo(cosine: Float64Array, n: number, i: number): number {
+  let best = -1;
+  for (let j = 0; j < n; j += 1)
+    if (j !== i && (best < 0 || cosine[i * n + j] > cosine[i * n + best])) best = j;
+  return best;
+}
+
+/** Each document's nearest neighbour where that pair passes the threshold, each pair once, a row at a time. */
+function* nearestOf(
+  cosine: Float64Array,
+  n: number,
+  threshold: number,
+): Generator<void, SpaceLink[]> {
+  const seen = new Set<number>();
+  const links: SpaceLink[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const best = nearestTo(cosine, n, i);
+    const [a, b] = i < best ? [i, best] : [best, i];
+    if (best >= 0 && cosine[i * n + best] > threshold && !seen.has(a * n + b)) {
+      seen.add(a * n + b);
+      links.push({ a, b, similarity: cosine[i * n + best] });
+    }
+    yield;
+  }
+  return links.sort((x, y) => x.a - y.a || x.b - y.b);
 }
 
 /** The groups the links connect, each in document order. */
@@ -395,6 +425,7 @@ function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, 
   const threshold = outlierThreshold(pairsOf(cosine, n));
   const found = yield* linksOf(cosine, n, threshold);
   const groups = groupsOf(n, found);
+  const nearest = yield* nearestOf(cosine, n, threshold);
   const clusters: SpaceCluster[] = groups.map((group) => ({
     members: group.map((i) => original[i]),
     tone: toneOf(project(basis, meanOfRows(rows, group, dimensions))),
@@ -410,7 +441,7 @@ function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, 
       cluster: clusterOf.get(index) ?? 0,
     }),
   );
-  const links = found.map((link) => ({ ...link, a: original[link.a], b: original[link.b] }));
+  const links = nearest.map((link) => ({ ...link, a: original[link.a], b: original[link.b] }));
   return { documents, clusters, links, threshold, basis, dimensions };
 }
 

@@ -700,7 +700,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.embedding.space_label': {
     defaultMessage:
-      '{count, plural, one {# document} other {# documents}} drawn in three dimensions by where their vectors differ most: a line joins two documents only when they are far more alike than the typical pair in this index, heavier the more alike, and documents the lines connect share a colour.',
+      '{count, plural, one {# document} other {# documents}} drawn in three dimensions by where their vectors differ most: each document is joined to the one most like it when that pair is far more alike than the typical pair in this index, heavier the more alike, documents the lines connect share a colour, and three circles mark the planes of the axes.',
     description: 'What the space shows, for screen readers.',
     params: ['count'],
   },

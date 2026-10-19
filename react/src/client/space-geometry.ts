@@ -1,10 +1,10 @@
 /**
  * What the embedding space draws, as flat arrays a GPU takes as they are:
- * each document's dot, a line for each link, heavier the further its cosine
- * similarity passes the threshold, and a query's ring with a line to each
- * match that passes its own.
- * Every line joins two real points and stands for their cosine similarity;
- * nothing is drawn for show.
+ * the axes' three circles, each document's dot, a line for each link, heavier
+ * the further its cosine similarity passes the threshold, and a query's ring
+ * with a line to each match that passes its own.
+ * Every other line joins two real points and stands for their cosine
+ * similarity; nothing is drawn for show.
  *
  * @module
  */
@@ -22,15 +22,20 @@ export const SEGMENT_FLOATS = 16;
 export const DOT_FLOATS = 11;
 /** Stands for the query where a slot would go. */
 export const QUERY_SLOT = -1;
+/** Stands for the axes' circles, which no document's state reaches. */
+export const FRAME_SLOT = -2;
 
 /** Every cluster's colour has this lightness and chroma, so none reads dirtier or louder than another. */
 const LIGHTNESS = 0.72;
 const CHROMA = 0.085;
 const QUERY_COLOUR: readonly [number, number, number] = [0.97, 0.98, 1.0];
-/** Every line is a faint hairline in its documents' colour: it hints at a connection, and the dots carry the picture. */
-/** A line's width in CSS pixels and its opacity, at the threshold and at identical. */
+/**
+ * Every line is a faint hairline in its documents' colour: it hints at a
+ * connection, and the dots carry the picture. Its width in CSS pixels and its
+ * opacity, at the threshold and at identical.
+ */
 const LINE_WIDTH = [0.3, 0.5] as const;
-const LINE_ALPHA = [0.07, 0.2] as const;
+const LINE_ALPHA = [0.18, 0.4] as const;
 
 function weighted([at, to]: readonly [number, number], strength: number): number {
   return at + (to - at) * strength;
@@ -125,6 +130,17 @@ class Strokes {
     }
   }
 
+  /** One segment no document's state reaches, always shown, with no gaps. */
+  segment(
+    from: SpacePoint,
+    to: SpacePoint,
+    colour: readonly number[],
+    alpha: number,
+    width: number,
+  ) {
+    this.segments.push(...from, ...to, ...colour, alpha, width, FRAME_SLOT, FRAME_SLOT, 0, 0, 0);
+  }
+
   dot({ at, colour, alpha, radius, ring, slot, along }: Dot) {
     this.dots.push(...at, ...colour, alpha, radius, ring, slot, along);
   }
@@ -151,9 +167,33 @@ function strengthOf(space: EmbeddingSpace, similarity: number): number {
   return Math.min(Math.max((similarity - space.threshold) / (1 - space.threshold), 0), 1);
 }
 
-/** Everything a space draws before any query: a line for each link, then every document's dot. */
+/** The axes' circles: a hairline round the rim in each plane two of the three axes span. */
+const FRAME_COLOUR = [0.88, 0.9, 0.94] as const;
+const FRAME_ALPHA = 0.16;
+const FRAME_WIDTH = 0.5;
+const FRAME_STEPS = 96;
+
+function frame(strokes: Strokes) {
+  const planes = [
+    (a: number): SpacePoint => [Math.cos(a), Math.sin(a), 0],
+    (a: number): SpacePoint => [Math.cos(a), 0, Math.sin(a)],
+    (a: number): SpacePoint => [0, Math.cos(a), Math.sin(a)],
+  ];
+  for (const at of planes)
+    for (let i = 0; i < FRAME_STEPS; i += 1)
+      strokes.segment(
+        at((i / FRAME_STEPS) * 2 * Math.PI),
+        at(((i + 1) / FRAME_STEPS) * 2 * Math.PI),
+        FRAME_COLOUR,
+        FRAME_ALPHA,
+        FRAME_WIDTH,
+      );
+}
+
+/** Everything a space draws before any query: the axes' circles, a line for each link, then every document's dot. */
 export function spaceGeometry(space: EmbeddingSpace): SpaceGeometry {
   const strokes = new Strokes();
+  frame(strokes);
   const colourOfDocument = (index: number) =>
     colourOf(space.clusters[space.documents[index].cluster].tone);
   for (const link of space.links) {

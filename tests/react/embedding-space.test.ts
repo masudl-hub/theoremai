@@ -7,6 +7,7 @@ import {
 } from '../../react/src/client/embedding-space.ts';
 import {
   DOT_FLOATS,
+  FRAME_SLOT,
   QUERY_SLOT,
   queryGeometry,
   SEGMENT_FLOATS,
@@ -94,7 +95,7 @@ Deno.test('alike documents form a cluster each; strangers stand alone', () => {
   assert(distance(a.position, b.position) < distance(a.position, space.documents[5].position));
 });
 
-Deno.test('a link is exactly a pair whose cosine passes the threshold, and only inside a cluster', () => {
+Deno.test('a link is each document to its nearest neighbour, past the threshold, inside a cluster', () => {
   const vectors = groups();
   const space = layoutSpace(vectors);
   const cosine = (i: number, j: number) =>
@@ -102,15 +103,23 @@ Deno.test('a link is exactly a pair whose cosine passes the threshold, and only 
     (Math.hypot(...vectors[i]) * Math.hypot(...vectors[j]));
   const pairs = vectors.flatMap((_, i) => vectors.flatMap((_, j) => (i < j ? [cosine(i, j)] : [])));
   assertAlmostEquals(space.threshold, outlierThreshold(pairs), 1e-12);
-  const linked = new Set(space.links.map((l) => `${l.a}:${l.b}`));
-  for (let i = 0; i < vectors.length; i += 1)
-    for (let j = i + 1; j < vectors.length; j += 1)
-      assertEquals(linked.has(`${i}:${j}`), cosine(i, j) > space.threshold, `${i}:${j}`);
+  const expected = new Set<string>();
+  for (const [i] of vectors.entries()) {
+    const others = vectors.map((_, j) => j).filter((j) => j !== i);
+    const best = others.reduce((b, j) => (cosine(i, j) > cosine(i, b) ? j : b));
+    if (cosine(i, best) > space.threshold)
+      expected.add(`${Math.min(i, best)}:${Math.max(i, best)}`);
+  }
+  assertEquals(new Set(space.links.map((l) => `${l.a}:${l.b}`)), expected);
   for (const link of space.links) {
     assertAlmostEquals(link.similarity, cosine(link.a, link.b), 1e-9);
     assertEquals(space.documents[link.a].cluster, space.documents[link.b].cluster);
   }
-  assertEquals(space.links.length, 3 * 10, 'every pair inside each group of five, and no other');
+  for (const stranger of [15, 16, 17, 18])
+    assert(
+      space.links.every((l) => l.a !== stranger && l.b !== stranger),
+      'a stranger has no alike neighbour',
+    );
 });
 
 Deno.test('the threshold is the median pair plus three robust deviations, and nothing without spread', () => {
@@ -138,7 +147,7 @@ Deno.test('one, two, or identical documents still draw', () => {
     one.clusters.map((c) => c.members),
     [[0]],
   );
-  assertEquals(spaceGeometry(one).segments.length, 0, 'a document alone is a dot, with no line');
+  assertEquals(one.links, [], 'a document alone is a dot, with no line');
   const two = layoutSpace([vector(1), vector(2)]);
   assertAlmostEquals(distance(two.documents[0].position, two.documents[1].position), 2, 1e-6);
   const same = layoutSpace([vector(3), vector(3), vector(3)]);
@@ -174,9 +183,19 @@ Deno.test('the geometry packs whole segments and dots, every number finite, ever
   assertEquals(drawn.segments.length % SEGMENT_FLOATS, 0);
   assertEquals(drawn.dots.length % DOT_FLOATS, 0);
   assert(drawn.segments.every(Number.isFinite) && drawn.dots.every(Number.isFinite));
-  for (let at = 0; at < drawn.segments.length; at += SEGMENT_FLOATS)
-    for (const slot of [drawn.segments[at + 11], drawn.segments[at + 12]])
-      assert(slot >= 0 && slot < space.documents.length);
+  let circles = 0;
+  for (let at = 0; at < drawn.segments.length; at += SEGMENT_FLOATS) {
+    const slots = [drawn.segments[at + 11], drawn.segments[at + 12]];
+    if (slots[0] === FRAME_SLOT && slots[1] === FRAME_SLOT) {
+      circles += 1;
+      for (const k of [0, 3])
+        assertAlmostEquals(Math.hypot(...drawn.segments.slice(at + k, at + k + 3)), 1, 1e-6);
+      continue;
+    }
+    for (const slot of slots) assert(slot >= 0 && slot < space.documents.length);
+  }
+  assertEquals(circles % 3, 0, 'three whole circles on the rim');
+  assert(circles > 0);
   const dotSlots = new Set<number>();
   for (let at = 0; at < drawn.dots.length; at += DOT_FLOATS) dotSlots.add(drawn.dots[at + 9]);
   assertEquals(dotSlots.size, space.documents.length, 'a dot per document');

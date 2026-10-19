@@ -167,6 +167,7 @@ import {
   agentToolTarget,
   bindingSlots,
   COMPACTION_DRAFT_DEFAULTS,
+  type DecisionImageDraft,
   type DecisionQuestionDraft,
   type DecisionQuestionType,
   defaultEffortRequired,
@@ -193,6 +194,7 @@ import {
   modelRoute,
   modelSlots,
   newCriteria,
+  newDecisionImage,
   newDecisionQuestion,
   newModelBinding,
   newOwnDetector,
@@ -2091,8 +2093,8 @@ const OPENROUTER_IMAGE_BACKGROUNDS = ['auto', 'transparent', 'opaque'] as const;
 /** A pinned file rides in every turn's request, so it stays small. */
 const REFERENCE_MAX_BYTES = 4 * 1024 * 1024;
 
-/** A picked image file as a pinned reference: its bytes in base64. */
-async function referenceFromFile(file: File): Promise<ImageReferenceDraft> {
+/** A picked file's type and its bytes in base64. */
+async function fileData(file: File): Promise<{ mimeType: string; data: string }> {
   const url = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -2103,12 +2105,12 @@ async function referenceFromFile(file: File): Promise<ImageReferenceDraft> {
     };
     reader.readAsDataURL(file);
   });
-  return {
-    key: draftKey('reference'),
-    name: file.name,
-    mimeType: file.type,
-    data: url.slice(url.indexOf(',') + 1),
-  };
+  return { mimeType: file.type, data: url.slice(url.indexOf(',') + 1) };
+}
+
+/** A picked image file as a pinned reference. */
+async function referenceFromFile(file: File): Promise<ImageReferenceDraft> {
+  return { key: draftKey('reference'), name: file.name, ...(await fileData(file)) };
 }
 
 /** The image slice of the draft and its setter, for each group of image rows. */
@@ -6791,7 +6793,126 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
           </>,
         )}
       </InspectorSection>
+      <DecisionImagesSection draft={draft} setDraft={setDraft} />
     </>,
+  );
+}
+
+/** One of a decision's pictures: its thumbnail, the name its questions write it by, and a remove button. */
+function DecisionImageRow({
+  image,
+  index,
+  onRename,
+  onRemove,
+}: {
+  image: DecisionImageDraft;
+  index: number;
+  onRename: (name: string) => void;
+  onRemove: () => void;
+}) {
+  const status = useFieldStatus()('images', index);
+  const label = `Image ${String(index + 1)}`;
+  const reference = `<${image.name}>`;
+  return (
+    <InspectorRow label={label} path="decision.images.name" hasIssue={status !== undefined}>
+      <Tooltip content={`Questions write it as ${reference}`}>
+        <Thumbnail
+          src={`data:${image.mimeType};base64,${image.data}`}
+          alt={reference}
+          label={reference}
+        />
+      </Tooltip>
+      <StackItem size="fill">
+        <TextInput
+          label={`${label} name`}
+          isLabelHidden
+          size="sm"
+          status={status}
+          value={image.name}
+          onChange={onRename}
+        />
+      </StackItem>
+      <Tooltip content={`Remove ${reference}. A question that names it then has no image to read.`}>
+        <IconButton
+          label={`Remove ${reference}`}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconX} size="sm" />}
+          onClick={onRemove}
+        />
+      </Tooltip>
+    </InspectorRow>
+  );
+}
+
+/** The pictures every decision sends, each under the name its questions write, and a drop to add more. */
+function DecisionImagesSection({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
+  const keys = useLentKeys();
+  const [reading, setReading] = useState(false);
+  const listStatus = useFieldStatus()('images');
+  const { images } = draft.decision;
+  const setImages = (change: (images: DecisionImageDraft[]) => DecisionImageDraft[]) => {
+    setDraft((current) => ({
+      ...current,
+      decision: { ...current.decision, images: change(current.decision.images) },
+    }));
+  };
+  const most = keys?.decision.images ?? Infinity;
+  return (
+    <InspectorSection title="Images" path="decision.images">
+      {listStatus && <Banner status="error" title={listStatus.message} />}
+      {images.map((image, index) => (
+        <DecisionImageRow
+          key={image.key}
+          image={image}
+          index={index}
+          onRename={(name) => {
+            setImages((all) =>
+              all.map((each) => (each.key === image.key ? { ...each, name } : each)),
+            );
+          }}
+          onRemove={() => {
+            setImages((all) => all.filter((each) => each.key !== image.key));
+          }}
+        />
+      ))}
+      <FileInput
+        label="Add images"
+        isLabelHidden
+        mode="dropzone"
+        accept="image/png,image/jpeg"
+        isMultiple
+        isDisabled={images.length >= most}
+        maxSize={keys?.decision.imageBytes}
+        isLoading={reading}
+        placeholder="Drop a PNG or JPEG, or choose one. Its file name becomes the name a question writes."
+        value={null}
+        changeAction={async (files) => {
+          const picked = files === null ? [] : Array.isArray(files) ? files : [files];
+          if (!picked.length) return;
+          setReading(true);
+          try {
+            const read = await Promise.all(
+              picked.map(async (file) => ({ file: file.name, image: await fileData(file) })),
+            );
+            setDraft((current) => {
+              let next = current;
+              for (const { file, image } of read) {
+                const added = newDecisionImage(next, file, image);
+                next = {
+                  ...next,
+                  decision: { ...next.decision, images: [...next.decision.images, added] },
+                };
+              }
+              return next;
+            });
+          } finally {
+            setReading(false);
+          }
+        }}
+        onChange={() => undefined}
+      />
+    </InspectorSection>
   );
 }
 

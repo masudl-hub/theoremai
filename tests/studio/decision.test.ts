@@ -9,6 +9,7 @@ import {
   DECISION_EXAMPLE_STATE,
   draftFacets,
   newCriteria,
+  newDecisionImage,
   newDecisionQuestion,
   readStudioSource,
   type StudioDraft,
@@ -365,4 +366,12 @@ Deno.test('studioSource writes the pictures beside the questions, and reads them
   const read = readStudioSource(source, draft);
   if (!read.ok) throw new Error(JSON.stringify(read.errors));
   assertEquals(read.draft.decision.images, draft.decision.images);
+});
+
+Deno.test('an added picture is named after its file, and numbered after a name the draft has', () => {
+  const draft = createDecisionExampleDraft();
+  const png = { mimeType: 'image/png', data: 'AAAA' };
+  assertEquals(newDecisionImage(draft, 'GHS 02.png', png).name, 'ghs_02');
+  assertEquals(newDecisionImage(draft, 'ginger.jpg', png).name, 'ginger_2');
+  assertEquals(newDecisionImage(draft, '.png', png).name, 'image');
 });

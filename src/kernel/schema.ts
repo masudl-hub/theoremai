@@ -1355,7 +1355,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     },
   ),
   'registerTool.type': TOOL_TYPE_FIELD,
-  /** Studio-only rows: the editor's local-model connection, and a decision question's kind. */
+  /** Studio-only rows: the editor's local-model connection, and a decision's questions and images. */
   'local.baseUrl': field(
     'string',
     'Where your local model server listens, such as Ollama, llama.cpp or vLLM. The browser calls it directly.',
@@ -1381,7 +1381,15 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   'decision.questions.instructions': field(
     'DecisionEntry',
-    'What to ask about the state. Name a state field in backticks, such as `photo`, and an image by its reference, such as <ginger>. A box looks in the image of the first field it names.',
+    "What to ask about the state. Name a state field in backticks, such as `photo`, and one of the decision's images by its reference, such as <ginger>. A box looks in the image of the first field it names.",
+  ),
+  'decision.images': field(
+    'Record<string, DecisionAsset>',
+    'Pictures sent with every decision, beside the state. A question names one by its reference, such as <ghs02>. A PNG or JPEG.',
+  ),
+  'decision.images.name': field(
+    'string',
+    'The reference a question writes, without its angle brackets: ghs02 is written <ghs02>. Lowercase letters, digits and _.',
   ),
   'registerTool.name': field(
     'string',

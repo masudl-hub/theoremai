@@ -641,6 +641,26 @@ export function newDecisionQuestion(
   return { key: draftKey('question'), id, type, instructions: '', criteria: newCriteria(type) };
 }
 
+/**
+ * A picture added from `file`, named after it in the way a reference is written: lowercase, with
+ * `_` for anything else, and `_2`, `_3` after a name the draft has.
+ */
+export function newDecisionImage(
+  draft: StudioDraft,
+  file: string,
+  image: { mimeType: string; data: string },
+): DecisionImageDraft {
+  const base =
+    file
+      .replace(/\.[^.]*$/, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'image';
+  const taken = draft.decision.images.map((each) => each.name);
+  const name = freeName(base, taken, (n) => `${base}_${n}`);
+  return { key: draftKey('image'), name, ...image };
+}
+
 /** The rows a question of `type` starts with: two options, two levels, or none. */
 export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[] {
   if (type === 'noul' || type === 'box') return [];

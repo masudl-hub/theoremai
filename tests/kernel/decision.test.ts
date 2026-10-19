@@ -6,6 +6,7 @@ registerFixtureProviders(defaultKernelScope);
 import { assertEquals, assertRejects } from '@std/assert';
 import {
   clearProfiles,
+  type DecisionEntry,
   DecisionError,
   type DecisionModelBinding,
   type DecisionRequest,
@@ -837,4 +838,57 @@ Deno.test('a bad image makes no network request', async () => {
       'padded base64',
     );
   }
+});
+
+Deno.test("a box's image is said in its instructions, and leaves the request as no field", async () => {
+  clearProfiles();
+  registerProfile(boxProfile('box-image'));
+  const sent: unknown[] = [];
+  const asked = (image: string, instructions: DecisionEntry, state: DecisionRequest['state']) =>
+    runDecision(
+      {
+        ...boxRequest('box-image'),
+        state,
+        questions: { cup: { type: 'box', instructions, image } },
+      },
+      {
+        vault: { slot_a: 'test-key' },
+        fetch: (_url, init) => {
+          sent.push(JSON.parse(String(init?.body)).questions.cup);
+          return boxReply({ top: 0.1, bottom: 0.5, left: 0.2, right: 0.6 });
+        },
+      },
+    );
+  await asked('img-1', 'Where is the cup?', 'Find the cup.');
+  await asked('photo.front', ['Where is the cup?'], { photo: { front: 'img-1' } });
+  assertEquals(sent, [
+    { type: 'box', instructions: 'Where is the cup? Give the box in img-1.' },
+    { type: 'box', instructions: [['Where is the cup?'], 'Give the box in `photo.front`.'] },
+  ]);
+});
+
+Deno.test('a box image the request does not hold, or on another question, makes no network request', async () => {
+  clearProfiles();
+  registerProfile(boxProfile('box-image-bad'));
+  const box = { type: 'box' as const, instructions: 'Where is the cup?' };
+  for (const [questions, state] of [
+    [{ cup: { ...box, image: 'img-2' } }, 'Find the cup.'],
+    [{ cup: { ...box, image: 'photo' } }, { photo: 'img-2' }],
+    [{ cup: { ...box, image: 'photo.front' } }, { photo: 'img-1' }],
+    [{ cup: { type: 'noul', instructions: 'How many?', image: 'img-1' } }, 'Count.'],
+  ] as const)
+    await assertRejects(
+      () =>
+        runDecision(
+          { ...boxRequest('box-image-bad'), questions, state } as unknown as DecisionRequest,
+          {
+            vault: { slot_a: 'test-key' },
+            fetch: () => {
+              throw new Error('must not dispatch');
+            },
+          },
+        ),
+      DecisionError,
+      'neither a held image',
+    );
 });

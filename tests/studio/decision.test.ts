@@ -315,17 +315,18 @@ Deno.test('a decision sends its own pictures, and a question names only those', 
   const draft = createDecisionExampleDraft();
   const result = compileStudio(draft, ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
-  assertEquals(Object.keys(result.images ?? {}), ['<ginger>', '<union_jack>']);
+  assertEquals(Object.keys(result.images ?? {}), ['<ginger>', '<union_jack>', '<apple_ripeness>']);
   assertEquals(
     issues(withImages(draft, () => [])).map(({ field, index, message }) => [field, index, message]),
     [
       ['questions', 0, 'No image is named <ginger>.'],
+      ['questions', 3, 'No image is named <apple_ripeness>.'],
       ['questions', 5, 'No image is named <union_jack>.'],
     ],
   );
-  const [ginger, flag] = draft.decision.images;
+  const [ginger, flag, chart] = draft.decision.images;
   assertEquals(
-    issues(withImages(draft, () => [ginger, { ...flag, name: 'ginger' }])).map(
+    issues(withImages(draft, () => [ginger, { ...flag, name: 'ginger' }, chart])).map(
       ({ field, index }) => [field, index],
     ),
     [
@@ -334,10 +335,10 @@ Deno.test('a decision sends its own pictures, and a question names only those', 
     ],
   );
   assertEquals(
-    issues(withImages(draft, () => [ginger, flag, { ...flag, name: 'Union Jack' }])).map(
+    issues(withImages(draft, () => [ginger, flag, chart, { ...flag, name: 'Union Jack' }])).map(
       ({ field, index }) => [field, index],
     ),
-    [['images', 2]],
+    [['images', 3]],
   );
 });
 
@@ -353,6 +354,7 @@ Deno.test('lent keys cap how many pictures a decision sends, and what each weigh
       ['images', undefined],
       ['images', 0],
       ['images', 1],
+      ['images', 2],
     ],
   );
 });
@@ -374,4 +376,32 @@ Deno.test('an added picture is named after its file, and numbered after a name t
   assertEquals(newDecisionImage(draft, 'GHS 02.png', png).name, 'ghs_02');
   assertEquals(newDecisionImage(draft, 'ginger.jpg', png).name, 'ginger_2');
   assertEquals(newDecisionImage(draft, '.png', png).name, 'image');
+});
+
+Deno.test("a box's image is one of the decision's own, and goes to source and back", () => {
+  const draft = createDecisionExampleDraft();
+  const result = compileStudio(draft, ON_OWN_KEYS);
+  if (!result.ok) throw new Error(JSON.stringify(result.issues));
+  const chart = 'Where the green apple lands on the chart';
+  assertEquals(result.questions?.[chart], {
+    type: 'box',
+    instructions: 'Where on <apple_ripeness> would the green apple in `photo` sit?',
+    image: '<apple_ripeness>',
+  });
+  const read = readStudioSource(studioSource(result), draft);
+  if (!read.ok) throw new Error(JSON.stringify(read.errors));
+  assertEquals(read.draft.decision.questions[3].image, '<apple_ripeness>');
+  const moved = {
+    ...draft,
+    decision: {
+      ...draft.decision,
+      questions: draft.decision.questions.map((question, index) =>
+        index === 3 ? { ...question, image: '<orchard>' } : question,
+      ),
+    },
+  };
+  assertEquals(
+    issues(moved).map(({ field, index, message }) => [field, index, message]),
+    [['questions', 3, 'No image is named <orchard>.']],
+  );
 });

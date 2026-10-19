@@ -37,7 +37,11 @@ export function decisionRequestSchema(limits: LentDecisionLimits) {
       criteria: z.array(entry).min(2).max(limits.criteria),
     }),
     z.object({ type: z.literal('noul'), instructions, criteria: labelled.optional() }),
-    z.object({ type: z.literal('box'), instructions }),
+    z.object({
+      type: z.literal('box'),
+      instructions,
+      image: z.string().trim().min(1).max(limits.instructionsChars).optional(),
+    }),
   ]);
   // why: Base64 is four characters for every three bytes, so the byte limit bounds the text before it is decoded.
   const image = z.object({

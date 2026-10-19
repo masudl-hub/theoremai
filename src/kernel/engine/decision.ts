@@ -293,6 +293,52 @@ export function validateDecisionRequest(
   }
   for (const [id, question] of Object.entries(request.questions)) validateQuestion(id, question);
   if (request.assets !== undefined) validateAssets(request.assets);
+  for (const [id, question] of Object.entries(request.questions))
+    validateBoxImage(id, question, request.state, request.assets);
+}
+
+function stateAt(state: unknown, path: string): unknown {
+  let value = state;
+  for (const step of path.split('.')) {
+    if (!isRecord(value) && !Array.isArray(value)) return undefined;
+    value = Array.isArray(value) ? value[Number(step)] : value[step];
+  }
+  return value;
+}
+
+/** A box's image names an image the request holds, itself or through the state field it gives. */
+function validateBoxImage(
+  id: string,
+  question: DecisionJson,
+  state: unknown,
+  assets: DecisionRequest['assets'],
+): void {
+  if (!isRecord(question) || question.image === undefined) return;
+  const image = question.image;
+  const reference = typeof image === 'string' && !assets?.[image] ? stateAt(state, image) : image;
+  if (question.type !== 'box' || typeof reference !== 'string' || assets?.[reference] === undefined)
+    throw new DecisionError(
+      'invalid_request',
+      // labels-exempt: developer contract error
+      `Decision question '${id}' has an image that is neither a held image nor a state field holding one`,
+    );
+}
+
+/** The question as a provider reads it: a box's image said in its instructions, not as a field. */
+function providerQuestion(
+  question: DecisionQuestion,
+  assets: DecisionRequest['assets'],
+): DecisionQuestion {
+  if (question.type !== 'box' || question.image === undefined) return question;
+  const { image, instructions } = question;
+  const hint = labelText('decision.box_image', {
+    image: assets?.[image] ? image : `\`${image}\``,
+  });
+  return {
+    type: 'box',
+    instructions:
+      typeof instructions === 'string' ? `${instructions} ${hint}` : [instructions, hint],
+  };
 }
 
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
@@ -450,7 +496,12 @@ async function decide(
     const result = await call.decide({
       apiId: binding.apiId,
       state: request.state,
-      questions: request.questions,
+      questions: Object.fromEntries(
+        Object.entries(request.questions).map(([id, question]) => [
+          id,
+          providerQuestion(question, request.assets),
+        ]),
+      ),
       ...(request.assets ? { assets: request.assets } : {}),
     });
     if (typeof result.model !== 'string' || !result.model.trim())

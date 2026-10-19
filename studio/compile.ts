@@ -1743,7 +1743,8 @@ function compileQuestions(
     }));
     if (!id || !instructions) return;
     if (question.type === 'box') {
-      questions[id] = { type: 'box', instructions };
+      const image = question.image?.trim();
+      questions[id] = { type: 'box', instructions, ...(image ? { image } : {}) };
       return;
     }
     if (question.type === 'score') {
@@ -1803,7 +1804,10 @@ function compileDecisionImages(
       };
   });
   decision.questions.forEach((question, index) => {
-    for (const [reference] of question.instructions.matchAll(/<[a-z0-9_]+>/g)) {
+    const named = [...question.instructions.matchAll(/<[a-z0-9_]+>/g)].map(([each]) => each);
+    const image = question.type === 'box' ? question.image?.trim() : undefined;
+    if (image?.startsWith('<')) named.push(image);
+    for (const reference of new Set(named)) {
       if (!Object.hasOwn(images, reference))
         report('decision', `No image is named ${reference}.`, 'questions', index);
     }

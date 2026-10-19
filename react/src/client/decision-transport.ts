@@ -29,7 +29,10 @@ export type DecisionQuestionView = {
   type: DecisionQuestion['type'];
   /** A choice's labels, a score's levels from 0 up; empty for a number. */
   labels: string[];
-  /** A box's image: the state field its instructions first name in backticks, if they name one. */
+  /**
+   * A box's image: the one its question gives, a reference or a state field, else the field its
+   * instructions first name in backticks.
+   */
   field?: string;
 };
 
@@ -89,7 +92,9 @@ export function decisionInterface(
           : question.type === 'score'
             ? question.criteria.map((entry, level) => entryLabel(entry, String(level)))
             : [],
-      ...(question.type === 'box' ? withField(namedField(question.instructions)) : {}),
+      ...(question.type === 'box'
+        ? withField(question.image ?? namedField(question.instructions))
+        : {}),
     })),
     ...(images && Object.keys(images).length > 0 ? { images } : {}),
     ...(profile.observability

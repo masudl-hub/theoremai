@@ -102,6 +102,7 @@ export const LABEL_KEYS = [
   'compaction.request',
   'compaction.tool_call',
   'compaction.tool_result',
+  'decision.box_image',
   'detect.blocked',
   'detect.call_blocked',
   'detect.output_blocked',
@@ -460,6 +461,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     'Summarize the conversation above, including any earlier summary in it. Call the participants the user and the assistant, and keep every name, number, fact, and decision either may need later. Reply with the summary only.',
   'compaction.tool_call': 'Called {tool} with {arguments}',
   'compaction.tool_result': '{tool} returned: {result}',
+  'decision.box_image': 'Give the box in {image}.',
   'egress.default_repair_guidance':
     'Write the reply again for the user. Keep what was helpful in it, and leave out everything the rejection names.',
   'detect.hint.ids': 'Leave out ID numbers such as an SSN, ITIN, or EIN.',
@@ -734,6 +736,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     'How a tool call reads to the compactor. Takes {tool} and {arguments}, the call as JSON.',
   'compaction.tool_result':
     'How a tool result reads to the compactor. Takes {tool} and {result}, the output as sent to the model.',
+  'decision.box_image':
+    "Added to a box question's instructions to say which image the box is in. Takes {image}, a reference such as <ghs02> or a state field in backticks.",
   'detect.blocked':
     'Shown to the user when a detector set to block matched something in what they sent, so the turn was refused.',
   'detect.call_blocked':
@@ -936,6 +940,7 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'repair.history_heading': ['count'],
   'compaction.tool_call': ['tool', 'arguments'],
   'compaction.tool_result': ['tool', 'result'],
+  'decision.box_image': ['image'],
   'detect.hint.own': ['label'],
   'egress.rejection': ['found'],
   'egress.rejection_found': ['hint', 'matches'],

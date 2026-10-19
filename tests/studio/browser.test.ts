@@ -564,7 +564,13 @@ Deno.test('the decision example sends its pictures from the browser and returns 
   assertEquals(Object.keys(seen[0].body.assets as object), [
     '<ginger>',
     '<union_jack>',
-    '<pantry_shelf>',
     '<apple_ripeness>',
+    '<pantry_shelf>',
   ]);
+  const questions = seen[0].body.questions as Record<string, unknown>;
+  assertEquals(questions['Where the green apple lands on the chart'], {
+    type: 'box',
+    instructions:
+      'Where on <apple_ripeness> would the green apple in `photo` sit? Give the box in <apple_ripeness>.',
+  });
 });

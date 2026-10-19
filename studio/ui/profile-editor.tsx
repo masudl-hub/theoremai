@@ -167,6 +167,7 @@ import {
   agentToolTarget,
   bindingSlots,
   COMPACTION_DRAFT_DEFAULTS,
+  type DecisionDraft,
   type DecisionImageDraft,
   type DecisionQuestionDraft,
   type DecisionQuestionType,
@@ -6439,11 +6440,13 @@ function QuestionPage({
   onChange,
   onMove,
   onRemove,
+  images,
   onBack,
 }: {
   question: DecisionQuestionDraft;
   index: number;
   count: number;
+  images: readonly DecisionImageDraft[];
   onChange: (change: Partial<DecisionQuestionDraft>) => void;
   onMove: (to: number) => void;
   onRemove: () => void;
@@ -6500,10 +6503,42 @@ function QuestionPage({
             onChange({ instructions });
           }}
         />
+        {question.type === 'box' && (
+          <ChoiceRow
+            label="In image"
+            path="decision.questions.image"
+            value={question.image ?? ''}
+            options={boxImages(question, images)}
+            emptyText="Add an image under Images, or name a state field in backticks."
+            onChange={(image) => {
+              onChange({ image: image || undefined });
+            }}
+          />
+        )}
       </InspectorSection>
       {question.type !== 'box' && <CriteriaList question={question} onChange={onChange} />}
     </>
   );
+}
+
+/** What a box can be in: the decision's own images, then the state fields its instructions name. */
+function boxImages(
+  question: DecisionQuestionDraft,
+  images: readonly DecisionImageDraft[],
+): Choice<string>[] {
+  const fields = [...question.instructions.matchAll(/\x60([^\x60\s]+)\x60/g)].map(
+    ([, name]) => name,
+  );
+  return [
+    ...images.map((image) => ({
+      value: `<${image.name}>`,
+      description: "One of the decision's images",
+    })),
+    ...[...new Set(fields)].map((name) => ({
+      value: name,
+      description: 'The image in this state field',
+    })),
+  ];
 }
 
 /** The buttons on a question's page that move it in the list and remove it. */
@@ -6716,7 +6751,7 @@ type SetQuestions = (
 /** The page for the question keyed `open`, or `undefined` when there is none or it is gone. */
 function openQuestionPage(
   open: string | null,
-  questions: readonly DecisionQuestionDraft[],
+  { questions, images }: DecisionDraft,
   setQuestions: SetQuestions,
   onBack: () => void,
 ): ReactNode {
@@ -6728,6 +6763,7 @@ function openQuestionPage(
       question={question}
       index={index}
       count={questions.length}
+      images={images}
       onChange={(change) => {
         setQuestions((all) => all.map((q) => (q.key === question.key ? { ...q, ...change } : q)));
       }}
@@ -6772,7 +6808,7 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
     ) : (
       rows
     );
-  const page = openQuestionPage(open, decision.questions, setQuestions, () => {
+  const page = openQuestionPage(open, decision, setQuestions, () => {
     show(null);
   });
   if (page) return frame(open ?? '', inCode(page));

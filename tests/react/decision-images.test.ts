@@ -19,10 +19,11 @@ Deno.test('imageName writes the file name as a bracketed reference, and numbers 
   assertEquals(imageName('.png', []), '<image>');
 });
 
-Deno.test('boxSource is the image at the field the question names, else the first the state names, else the first held', () => {
+Deno.test('boxSource is the image the question names, or the one at its field, else the first the state names, else the first held', () => {
   const images = { '<shelf>': shelf, '<lemon>': lemon };
   const state = { photo: '<shelf>', chart: { strip: '<lemon>' } };
   assertEquals(boxSource(images, state, 'chart.strip'), lemon);
+  assertEquals(boxSource(images, state, '<lemon>'), lemon);
   assertEquals(boxSource(images, state, 'photo'), shelf);
   assertEquals(boxSource(images, { fruit: ['x', '<lemon>'] }, 'missing'), lemon);
   assertEquals(boxSource(images, { note: 'no pictures here' }), shelf);
@@ -62,7 +63,7 @@ Deno.test('readImage reads a PNG or JPEG as bare base64 and refuses any other fi
   assertEquals(await readImage(new File(['x'], 'a.gif', { type: 'image/gif' })), null);
 });
 
-Deno.test('a box question shows the page the field its instructions first name, and nothing more', () => {
+Deno.test('a box question shows the page its image, else the field its instructions first name, and nothing more', () => {
   const view = decisionInterface(
     {
       identity: { handle: 'jev' },
@@ -75,12 +76,14 @@ Deno.test('a box question shows the page the field its instructions first name, 
         instructions: 'Where on `chart` would the green apple in `photo` sit?',
       },
       Ginger: { type: 'box', instructions: 'Where is <ginger>?' },
+      Strip: { type: 'box', instructions: 'Where in `photo` is the apple?', image: '<chart>' },
       Bread: { type: 'noul', instructions: 'Is there bread in `photo`?' },
     },
   );
   assertEquals(view.questions, [
     { id: 'Apple on the chart', type: 'box', labels: [], field: 'chart' },
     { id: 'Ginger', type: 'box', labels: [] },
+    { id: 'Strip', type: 'box', labels: [], field: '<chart>' },
     { id: 'Bread', type: 'noul', labels: [] },
   ]);
 });

@@ -124,6 +124,11 @@ A `box` question has `instructions` and no criteria. Its answer is `box` with th
 `bottom`, `left`, and `right`, plus `confidence`. Each edge is a share of the image from its
 top-left corner, from 0 to 1. The kernel rejects an answer whose `left` is not below `right`, or
 whose `top` is not below `bottom`.
+A `box` question may set `image`: a reference in `assets`, or the state field that holds one,
+such as `photo.front`. A reference in `assets` wins over a field of the same name. The kernel
+refuses an `image` on any other question type, or one that names no held image. The field never
+reaches the provider: the kernel adds the `decision.box_image` label, "Give the box in <ghs02>.",
+to the instructions, with a field written in backticks.
 
 A request may carry `assets`: PNG or JPEG images as base64, by reference (`DecisionAsset`).
 Write the reference as a string in `state`, in a question's instructions, or in its criteria.

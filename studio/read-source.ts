@@ -969,6 +969,7 @@ function questionsOf(
       type,
       instructions: text(question.instructions),
       criteria: rows,
+      ...(type === 'box' && text(question.image) ? { image: text(question.image) } : {}),
     };
   });
 }

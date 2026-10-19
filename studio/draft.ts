@@ -366,7 +366,8 @@ export interface DecisionQuestionDraft {
   type: DecisionQuestionType;
   instructions: string;
   /** A score's levels run from 0 at the top. */
-  criteria: DecisionCriterionDraft[];
+  criteria: DecisionCriterionDraft[] /** A box's image: one of the decision's images, such as `<ghs02>`, or a state field. Unset, the instructions say. */;
+  image?: string;
 }
 
 /** A picture every decision sends, which the questions write as its name in angle brackets. */

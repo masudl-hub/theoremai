@@ -668,6 +668,11 @@ export interface DecisionScoreQuestion {
 export interface DecisionBoxQuestion {
   type: 'box';
   instructions: DecisionEntry;
+  /**
+   * The image the box is in: a reference in `assets`, such as `<ghs02>`, or the state field that
+   * holds one, such as `photo.front`. Unset, the model reads the image from the instructions.
+   */
+  image?: string;
 }
 
 /** One question a decision answers. */

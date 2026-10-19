@@ -65,23 +65,22 @@ const EXAMPLE_PICKS: ModelPicks = {
 /** The agent id the decision example opens under; its run starts with the pantry's state and pictures. */
 export const DECISION_EXAMPLE_AGENT_ID = 'pantry.jev';
 
-/** What the decision example's questions are asked about: the shelf, a colour chart, and why we ask. */
+/** What the decision example's questions are asked about: the shelf, and why we ask. */
 export const DECISION_EXAMPLE_STATE = JSON.stringify(
   {
     photo: '<pantry_shelf>',
-    chart: '<apple_ripeness>',
     note: 'Friends are coming round for brunch.',
   },
   null,
   2,
 );
 
-const { '<pantry_shelf>': shelf, '<apple_ripeness>': chart, ...fixed } = DECISION_EXAMPLE_IMAGES;
+const { '<pantry_shelf>': shelf, ...fixed } = DECISION_EXAMPLE_IMAGES;
 
-/** The pictures the decision example's state starts with, by the references it writes: the shelf and the chart. */
-export const DECISION_EXAMPLE_ASSETS = { '<pantry_shelf>': shelf, '<apple_ripeness>': chart };
+/** The picture the decision example's state starts with, by the reference it writes: the shelf. */
+export const DECISION_EXAMPLE_ASSETS = { '<pantry_shelf>': shelf };
 
-/** The example's own pictures, sent with every decision: the ginger and the flag its questions name. */
+/** The example's own pictures, sent with every decision: the ginger, the colour chart and the flag its questions name. */
 function exampleImages(): DecisionImageDraft[] {
   return Object.entries(fixed).map(([reference, image]) => ({
     key: draftKey('image'),
@@ -132,11 +131,14 @@ export function createDecisionExampleDraft(): StudioDraft {
         exampleQuestion('Ginger', 'box', 'Where is <ginger> in `photo`?'),
         exampleQuestion('Something to drink', 'noul', "There's something to drink in `photo`."),
         exampleQuestion('Fruit salad', 'noul', 'Do we have what we need for a fruit salad?'),
-        exampleQuestion(
-          'Where the green apple lands on the chart',
-          'box',
-          'Where on `chart` would the green apple in `photo` sit?',
-        ),
+        {
+          ...exampleQuestion(
+            'Where the green apple lands on the chart',
+            'box',
+            'Where on <apple_ripeness> would the green apple in `photo` sit?',
+          ),
+          image: '<apple_ripeness>',
+        },
         exampleQuestion('Bread on the shelf', 'noul', 'Does the shelf have bread?'),
         exampleQuestion('Union Jack', 'box', 'Which jar in `photo` matches <union_jack>?'),
         exampleQuestion('Brunch', 'choice', 'What can we make for brunch from `photo`?', [

@@ -46,6 +46,8 @@ export type TheoremDecisionProps = ConsolePageProps & {
   defaultImages?: DecisionImages;
   /** Opens a question where it is set up, such as an editor. Each answer then has a button for it. */
   onQuestion?: (id: string) => void;
+  /** Each question's text by its id, shown under its answer's title. The page is never sent a question's instructions, so it shows only what it is given here. */
+  questionText?: TheoremDecisionAnswersProps['questionText'];
 };
 
 type StateCheck =
@@ -201,11 +203,13 @@ function DecisionAnswered({
   decision,
   asked,
   onQuestion,
+  questionText,
 }: {
   iface: DecisionInterface;
   decision: Decision;
   asked?: TheoremDecisionAnswersProps['asked'];
   onQuestion?: TheoremDecisionAnswersProps['onQuestion'];
+  questionText?: TheoremDecisionAnswersProps['questionText'];
 }) {
   const t = useLabels();
   const deciding = decision.status === 'deciding';
@@ -223,6 +227,7 @@ function DecisionAnswered({
           result={decision.result}
           asked={asked}
           onQuestion={onQuestion}
+          questionText={questionText}
           elapsedMs={decision.elapsedMs}
           isStale={deciding}
         />
@@ -259,6 +264,7 @@ function DecisionBody({
   defaultState = '{}',
   defaultImages,
   onQuestion,
+  questionText,
   maxWidth = '960px',
   trace,
   flush,
@@ -312,6 +318,7 @@ function DecisionBody({
           decision={decision}
           asked={asked}
           onQuestion={onQuestion}
+          questionText={questionText}
         />,
       )}
     </ConsoleFrame>

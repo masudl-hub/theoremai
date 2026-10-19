@@ -281,6 +281,8 @@ A box answer is drawn as the part of the image it covers, with its edges beside 
 
 Pass `onQuestion` to open a question where it is set up, such as in an editor. Each answer then has a button that calls it with the question's id.
 
+Pass `questionText`, each question's text by its id, to show it under its answer's title, cut to two lines with the rest on hover. The page is never sent a question's instructions, so it shows only the text you give it.
+
 For your own UI, use `useTheoremDecision`. Its `decide(state, assets)` takes the images by reference.
 
 ### Embedding

@@ -91,19 +91,32 @@ export function ChartBody({
   value,
   note,
   aside,
+  detail,
   children,
 }: {
   title: string;
   value: ReactNode;
   note?: ReactNode;
+  /** A line under the title that says more, cut to two lines with the rest on hover. */
+  detail?: string;
   /** A control beside the title, such as a switch between views. */
   aside?: ReactNode;
   children?: ReactNode;
 }) {
-  const heading = (
+  const titled = (
     <Text type="supporting" color="secondary">
       {title}
     </Text>
+  );
+  const heading = detail ? (
+    <VStack gap={1}>
+      {titled}
+      <Text type="supporting" maxLines={2}>
+        {detail}
+      </Text>
+    </VStack>
+  ) : (
+    titled
   );
   return (
     <VStack gap={3}>

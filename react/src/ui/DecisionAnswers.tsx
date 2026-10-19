@@ -41,6 +41,8 @@ export type TheoremDecisionAnswersProps = {
   asked?: { images: DecisionImages; state: DecisionJson };
   /** Opens a question where it is set up. Each answer then has a button that calls it with the question's id. */
   onQuestion?: (id: string) => void;
+  /** Each question's text by its id, shown under its answer's title. The page is never sent a question's instructions, so it shows only what it is given here. */
+  questionText?: Readonly<Record<string, string>>;
 };
 
 const EASE = 'var(--duration-medium) var(--ease-standard)';
@@ -87,10 +89,12 @@ export function Share({ value, isLead }: { value: number; isLead: boolean }) {
 function ChoiceAnswer({
   title,
   aside,
+  detail,
   answer,
 }: {
   title: string;
   aside?: ReactNode;
+  detail?: string;
   answer: Extract<DecisionAnswer, { type: 'choice' }>;
 }) {
   const t = useLabels();
@@ -100,6 +104,7 @@ function ChoiceAnswer({
     <ChartCard
       title={title}
       aside={aside}
+      detail={detail}
       value={answer.choice}
       note={t('@theorem.decision.confidence', { percent: n.percent.format(answer.confidence) })}
     >
@@ -139,11 +144,13 @@ function levelName(label: string): string {
 function ScoreAnswer({
   title,
   aside,
+  detail,
   answer,
   labels,
 }: {
   title: string;
   aside?: ReactNode;
+  detail?: string;
   answer: Extract<DecisionAnswer, { type: 'score' }>;
   labels: string[];
 }) {
@@ -155,6 +162,7 @@ function ScoreAnswer({
     <ChartCard
       title={title}
       aside={aside}
+      detail={detail}
       value={
         labels[nearest] === undefined ? n.decimal.format(answer.score) : levelName(labels[nearest])
       }
@@ -235,14 +243,18 @@ function ScoreAnswer({
 function NumberAnswer({
   title,
   aside,
+  detail,
   answer,
 }: {
   title: string;
   aside?: ReactNode;
+  detail?: string;
   answer: Extract<DecisionAnswer, { type: 'noul' }>;
 }) {
   const n = useNumbers();
-  return <ChartCard title={title} aside={aside} value={n.decimal.format(answer.noul)} />;
+  return (
+    <ChartCard title={title} aside={aside} detail={detail} value={n.decimal.format(answer.noul)} />
+  );
 }
 
 const BOX_FRAME_HEIGHT = 72;
@@ -294,8 +306,6 @@ function BoxCrop({
         <ClickableCard
           label={open}
           padding={0}
-          width="fit-content"
-          maxWidth="100%"
           onClick={(event) => {
             const marks = {
               outline: themeColor(event.currentTarget, '--color-accent'),
@@ -347,12 +357,14 @@ function BoxCrop({
 function BoxAnswer({
   title,
   aside,
+  detail,
   answer,
   field,
   asked,
 }: {
   title: string;
   aside?: ReactNode;
+  detail?: string;
   answer: Extract<DecisionAnswer, { type: 'box' }>;
   field?: string;
   asked?: TheoremDecisionAnswersProps['asked'];
@@ -371,6 +383,7 @@ function BoxAnswer({
     <ChartCard
       title={title}
       aside={aside}
+      detail={detail}
       value={edges}
       note={t('@theorem.decision.confidence', { percent: n.percent.format(answer.confidence) })}
     >
@@ -410,11 +423,13 @@ function AnswerCard({
   answer,
   asked,
   onQuestion,
+  detail,
 }: {
   question: DecisionQuestionView;
   answer: DecisionAnswer | undefined;
   asked?: TheoremDecisionAnswersProps['asked'];
   onQuestion?: TheoremDecisionAnswersProps['onQuestion'];
+  detail?: string;
 }) {
   const t = useLabels();
   const title = `${question.id} · ${t(`@theorem.decision.type.${question.type}`)}`;
@@ -422,6 +437,7 @@ function AnswerCard({
   const edit = t('@theorem.decision.edit_question', { question: question.id });
   const head = {
     title,
+    detail,
     aside: onQuestion ? (
       <IconButton
         label={edit}
@@ -494,6 +510,7 @@ export function TheoremDecisionAnswers({
   isStale,
   asked,
   onQuestion,
+  questionText,
 }: TheoremDecisionAnswersProps) {
   const t = useLabels();
   return (
@@ -512,6 +529,7 @@ export function TheoremDecisionAnswers({
               answer={result.answers[question.id]}
               asked={asked}
               onQuestion={onQuestion}
+              detail={questionText?.[question.id]}
             />
           </Arrive>
         ))}

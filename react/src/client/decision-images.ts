@@ -137,6 +137,9 @@ export function boxRect(box: DecisionBox, width: number, height: number) {
   };
 }
 
+/** How much of the shade's colour lies over the rest of the image, so the image still shows through it. */
+const SHADE_ALPHA = 0.45;
+
 /** The colours a marked image is drawn in: the box's outline, and the shade over the rest. */
 export type BoxMarks = { outline: string; shade: string };
 
@@ -153,10 +156,12 @@ export async function markedBox(src: string, box: DecisionBox, marks: BoxMarks):
   const rect = boxRect(box, canvas.width, canvas.height);
   context.drawImage(image, 0, 0);
   context.fillStyle = marks.shade;
+  context.globalAlpha = SHADE_ALPHA;
   context.beginPath();
   context.rect(0, 0, canvas.width, canvas.height);
   context.rect(rect.x, rect.y, rect.width, rect.height);
   context.fill('evenodd');
+  context.globalAlpha = 1;
   context.strokeStyle = marks.outline;
   context.lineWidth = rect.line;
   context.strokeRect(rect.x, rect.y, rect.width, rect.height);

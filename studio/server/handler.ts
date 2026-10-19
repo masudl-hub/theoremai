@@ -458,10 +458,11 @@ export function isForeign(
   return !options.pageOrigins.includes(origin);
 }
 
-/** The place a people request names, when the setup offers it; the page sends its id. */
 /** What the application answered when it was asked for people and could not say. */
 function applicationFailed(error: unknown, cors: Record<string, string>): Response {
-  return json(502, { message: error instanceof Error ? error.message : String(error) }, cors);
+  // why: only an Error's own message reaches the page, never whatever else was thrown, which may carry a stack.
+  const message = error instanceof Error ? error.message : 'The application did not say why.'; // labels-exempt: builder diagnostic
+  return json(502, { message }, cors);
 }
 
 /** `GET <base>/people?place=<id>`: the people the application offers in a place. */
@@ -539,7 +540,7 @@ const CRITERIA = new Map<unknown, { fits: (criteria: unknown) => boolean; fault:
 function questionFault(question: unknown): string | undefined {
   if (!isRecord(question)) return 'is not a question';
   const kind = CRITERIA.get(question.type);
-  if (!kind) return "needs a type: 'choice', 'noul' or 'score'";
+  if (!kind) return "needs a type: 'choice', 'noul', or 'score'";
   if (question.instructions === undefined) return 'needs instructions';
   return kind.fits(question.criteria) ? undefined : kind.fault;
 }

@@ -30,7 +30,10 @@ export type EmbeddingInterface = {
  * `protocols` when a model speaks a protocol of your own.
  */
 export function embeddingInterface(
-  profile: Pick<EmbeddingProfile, 'identity' | 'inputs' | 'observability' | 'models' | 'defaultModel'>,
+  profile: Pick<
+    EmbeddingProfile,
+    'identity' | 'inputs' | 'observability' | 'models' | 'defaultModel'
+  >,
   protocols: readonly Protocol[] = [],
 ): EmbeddingInterface {
   const binding = profile.models[profile.defaultModel];

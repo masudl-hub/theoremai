@@ -49,7 +49,7 @@ export function plainWebSocket(provider: string): OpenWebSocket {
   };
 }
 
-/** What a host lends every provider call: its keys, its network, its clock and its budgets. */
+/** What a host lends every provider call: its keys, its network, its clock, and its budgets. */
 export interface ProviderHostOptions {
   limits?: Partial<ProviderLimits>;
   vault?: KeyVault;
@@ -80,11 +80,16 @@ export interface CallSetup {
 
 const CALL_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
-/** A tool-call id Theorem owns: 24 letters and digits, the same for every provider. */
+/** The bytes below this map evenly onto the alphabet; the rest are drawn again. */
+const CALL_ID_EVEN = 256 - (256 % CALL_ID_ALPHABET.length);
+
+/** A tool-call id Theorem owns: 24 letters and digits, each equally likely, the same for every provider. */
 function mintCallId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
   let id = '';
-  for (const byte of bytes) id += CALL_ID_ALPHABET[byte % CALL_ID_ALPHABET.length];
+  while (id.length < 24) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(24 - id.length)))
+      if (byte < CALL_ID_EVEN) id += CALL_ID_ALPHABET[byte % CALL_ID_ALPHABET.length];
+  }
   return id;
 }
 
@@ -300,7 +305,7 @@ function socketFrames(socket: WebSocket, tap: (row: JsonObject) => void): Protoc
   };
 }
 
-/** The context one protocol call gets: `send` and `connect` carry the URL, headers and sign-in. */
+/** The context one protocol call gets: `send` and `connect` carry the URL, headers, and sign-in. */
 function protocolContext(
   setup: CallSetup,
   slot: KeySlot | undefined,
@@ -596,7 +601,7 @@ async function answerOnce<K extends keyof OneAnswer>(
 
 /**
  * One binding's call, as the kernel runs it: the protocol's operations with the kernel's retries,
- * ids, origins and prices around them.
+ * ids, origins, and prices around them.
  */
 /** What the kernel runs for one binding. */
 export type ProtocolCall = Required<Omit<ProtocolOperations, 'decide'>> & {

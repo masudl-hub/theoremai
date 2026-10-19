@@ -16,8 +16,9 @@ const DAY_TIME = new Intl.DateTimeFormat(undefined, {
 });
 
 const JOINED = /^\+\s+/;
-const WHEN = /^when\s+(.+?):(?:\s+|$)(.*)$/s;
-const CHECK = /^(\S+)\s+is\s+(not\s+)?(.+)$/;
+/** The colon that ends a line's condition: the first one followed by a space or the line's end. */
+const WHEN_ENDS = /:(?:\s|$)/;
+const CHECK = /^(\S+) is (?:(not) )?(\S.*)$/;
 
 /** One line of wording, or a list of lines read top to bottom: the first that fits is shown. */
 export type LabelTemplate = string | readonly string[];
@@ -80,7 +81,8 @@ function labelValue(value: unknown): string | undefined {
 
 function parseChecks(raw: string): Check[] | 'unreadable' {
   const checks: Check[] = [];
-  for (const part of raw.split(/\s+and\s+/)) {
+  // why: one space between words first, so no pattern below can try a run of spaces two ways.
+  for (const part of raw.replace(/\s+/g, ' ').split(' and ')) {
     const match = CHECK.exec(part.trim());
     const [, path, not, expected] = match ?? [];
     if (!path || !expected) return 'unreadable';
@@ -95,9 +97,9 @@ function parseLine(raw: string): Line {
   const joined = JOINED.test(raw);
   const rest = raw.replace(JOINED, '').trim();
   if (!/^when(\s|$)/.test(rest)) return { joined, when: [], text: rest };
-  const [, checks, text] = WHEN.exec(rest) ?? [];
-  if (checks === undefined || text === undefined) return { joined, when: 'unreadable', text: '' };
-  return { joined, when: parseChecks(checks), text: text.trim() };
+  const end = rest.search(WHEN_ENDS);
+  if (end < 0) return { joined, when: 'unreadable', text: '' };
+  return { joined, when: parseChecks(rest.slice(4, end)), text: rest.slice(end + 1).trim() };
 }
 
 function entriesOf(template: LabelTemplate): Entry[] {
@@ -129,10 +131,10 @@ function checkHolds(check: Check, input: unknown): boolean {
   return is !== check.negated;
 }
 
-/** "a", "a and b", "a, b and c". */
+/** "a", "a and b", "a, b, and c". */
 function joinedInWords(parts: readonly string[]): string {
   if (parts.length <= 1) return parts[0] ?? '';
-  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
+  return `${parts.slice(0, -1).join(', ')}${parts.length > 2 ? ',' : ''} and ${parts.at(-1)}`;
 }
 
 /** A tool's name as a label shows it: `manage_alert` reads "manage alert". */
@@ -274,7 +276,9 @@ function tryInstead(paths: readonly string[]): string {
   const shown = [...new Set(paths)].slice(0, 4).map((path) => `{${path}}`);
   if (shown.length === 0) return '';
   const list =
-    shown.length === 1 ? shown[0] : `${shown.slice(0, -1).join(', ')} or ${shown.at(-1)}`;
+    shown.length === 1
+      ? shown[0]
+      : `${shown.slice(0, -1).join(', ')}${shown.length > 2 ? ',' : ''} or ${shown.at(-1)}`;
   return ` Try ${list}.`;
 }
 
@@ -372,7 +376,7 @@ function oneOf(values: readonly string[]): string {
   const shown = [...new Set(values)].map((value) => `"${value}"`);
   return shown.length <= 1
     ? (shown[0] ?? '')
-    : `${shown.slice(0, -1).join(', ')} or ${shown.at(-1)}`;
+    : `${shown.slice(0, -1).join(', ')}${shown.length > 2 ? ',' : ''} or ${shown.at(-1)}`;
 }
 
 function checkProblem(check: Check, input: unknown): string | undefined {
@@ -410,7 +414,7 @@ function lineProblem(
   mustShow: boolean,
 ): string | undefined {
   if (line.when === 'unreadable') {
-    return 'A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null" and "and".'; // labels-exempt: builder diagnostic
+    return 'A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null", and "and".'; // labels-exempt: builder diagnostic
   }
   for (const check of line.when) {
     const problem = checkProblem(check, schemas.input);

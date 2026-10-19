@@ -52,7 +52,7 @@ const templates = [...source.matchAll(/`(\w[\w.*]*\$\{[^`]*)`/g)].map(
     new RegExp(
       `^${match[1]
         .split(/\$\{[^}]*\}/)
-        .map((part) => part.replace(/[.*]/g, '\\$&'))
+        .map((part) => part.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&'))
         .join('[^.]+')}$`,
     ),
 );

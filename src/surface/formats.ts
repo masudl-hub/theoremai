@@ -74,7 +74,7 @@ export function secretCard(
 /** A URL's `user:pass@`, after its scheme. */
 const USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)([^/?#@]*)@/i;
 /** One `name=value` of a URL, with the separator before it. */
-const PAIR = /([?&;])([^=&;#\s]*)=([^&;#\s]*)/g;
+const PAIR = /([?&;])([^=?&;#\s]*)=([^&;#\s]*)/g;
 
 /** A `user:pass`, as its two parts. A password keeps its own colons. */
 function userinfo(text: string): [user: string, password: string | undefined] {

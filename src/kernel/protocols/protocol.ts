@@ -211,6 +211,8 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
   error?(failure: UpstreamFailure): TheoremError;
   /** What the named embedding model takes. Absent: the kernel holds requests to the profile alone. */
   embeddingLimits?(apiId: string): EmbeddingModelLimits;
+  /** The options the named model refuses, though the protocol takes them for others. Absent: none. */
+  refusedOptions?(apiId: string): readonly string[];
   create(context: ProtocolContext<O>): ProtocolOperations<S>;
 }
 
@@ -308,6 +310,30 @@ function stampOperations<S>(
   };
 }
 
+/**
+ * `options` as model `apiId` takes them on `protocol`: the protocol's schema, less any option that
+ * model refuses. Throws a `config` error naming what does not fit.
+ */
+export function modelOptions<O>(
+  protocol: Pick<Protocol<O>, 'id' | 'options' | 'refusedOptions'>,
+  apiId: string,
+  options: unknown,
+): O {
+  const given = options ?? {};
+  const parsed = protocol.options.safeParse(given);
+  const refused = (protocol.refusedOptions?.(apiId) ?? []).filter(
+    (key) => typeof given === 'object' && given !== null && key in given,
+  );
+  if (parsed.success && refused.length === 0) return parsed.data;
+  const issues = parsed.success
+    ? refused.map((key) => `✖ ${apiId} takes no ${key}`).join('\n') // labels-exempt: builder config error
+    : z.prettifyError(parsed.error);
+  throw new TheoremError(
+    'config',
+    labelText('protocol.options', { apiId, protocol: protocol.id, issues }),
+  );
+}
+
 /** Defines a protocol: the code that speaks one API shape, and everything on its wire. */
 export function defineProtocol<O, S = unknown>(
   definition: ProtocolDefinition<O, S>,
@@ -349,7 +375,15 @@ export interface ExtensionReader<S = unknown> {
 export interface ProtocolExtension<E = unknown, S = unknown>
   extends Pick<
     ProtocolDefinition<E, S>,
-    'id' | 'name' | 'description' | 'reasoning' | 'custom' | 'framing' | 'error' | 'embeddingLimits'
+    | 'id'
+    | 'name'
+    | 'description'
+    | 'reasoning'
+    | 'custom'
+    | 'framing'
+    | 'error'
+    | 'embeddingLimits'
+    | 'refusedOptions'
   > {
   /** What it adds to the base's options. A field the base already has is refused. */
   options?: z.ZodObject & z.ZodType<E>;
@@ -514,7 +548,7 @@ function extendedOperations<S>(
 }
 
 /** The extension's own value for a field, else the base's; absent when neither has one. */
-function either<K extends 'framing' | 'error' | 'embeddingLimits'>(
+function either<K extends 'framing' | 'error' | 'embeddingLimits' | 'refusedOptions'>(
   key: K,
   extension: Partial<Record<K, unknown>>,
   base: Partial<Record<K, unknown>>,
@@ -548,6 +582,7 @@ export function extendProtocol<O, S, E = JsonObject>(
     ...either('framing', extension, base),
     ...either('error', extension, base),
     ...either('embeddingLimits', extension, base),
+    ...either('refusedOptions', extension, base),
     base: base as Protocol,
     lineage: Object.freeze([extension.id, ...base.lineage]),
     create: (context: ProtocolContext<O & E>) =>

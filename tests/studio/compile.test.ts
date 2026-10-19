@@ -1469,3 +1469,32 @@ Deno.test('a prompt leak action, schemes, taint and trace resource compile when 
     ['resourceJson'],
   );
 });
+
+Deno.test('an option the model refuses is an issue at that option, though its protocol takes it', () => {
+  const draft = setProfileType(createExampleDraft(), 'embedding');
+  const [first, ...rest] = draft.modelBindings;
+  assert(first);
+  const gemini2 = {
+    ...first,
+    protocol: 'geminiEmbedding',
+    provider: 'gemini',
+    apiId: 'gemini-embedding-2-preview',
+    options: { taskType: 'CLUSTERING' },
+  };
+  const refused = compileStudio({ ...draft, modelBindings: [gemini2, ...rest] }, ON_OWN_KEYS);
+  assert(!refused.ok);
+  assertEquals(
+    refused.issues
+      .filter((issue) => issue.field === 'options.taskType')
+      .map((issue) => issue.message),
+    ['gemini-embedding-2-preview takes no taskType.'],
+  );
+  const taken = compileStudio(
+    { ...draft, modelBindings: [{ ...gemini2, apiId: 'gemini-embedding-001' }, ...rest] },
+    ON_OWN_KEYS,
+  );
+  assertEquals(
+    taken.ok ? [] : taken.issues.filter((issue) => issue.field === 'options.taskType'),
+    [],
+  );
+});

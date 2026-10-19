@@ -11,7 +11,7 @@ import {
   modelBindingSchema,
 } from './binding.ts';
 import type { PriceTable } from './prices.ts';
-import type { Protocol } from './protocol.ts';
+import { modelOptions, type Protocol } from './protocol.ts';
 
 /** One outgoing call or socket, for a sign-in to put its key on. `body` is final, for signing. */
 export interface Outgoing {
@@ -247,17 +247,7 @@ export function createProviderRegistry(): ProviderRegistry {
         { id, serves },
         typeof protocol === 'string' ? protocol : protocol.id,
       );
-      const checked = spoken.options.safeParse(options ?? {});
-      if (!checked.success)
-        throw new TheoremError(
-          'config',
-          labelText('protocol.options', {
-            apiId,
-            protocol: spoken.id,
-            issues: z.prettifyError(checked.error),
-          }),
-        );
-      return { protocol: spoken.id, options: checked.data };
+      return { protocol: spoken.id, options: modelOptions(spoken, apiId, options) };
     };
     const registered: RegisteredProvider = Object.freeze({
       id,

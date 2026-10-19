@@ -37,7 +37,12 @@ export type {
   SendInit,
   UpstreamFailure,
 } from '../kernel/protocols/protocol.ts';
-export { carriesTo, defineProtocol, extendProtocol } from '../kernel/protocols/protocol.ts';
+export {
+  carriesTo,
+  defineProtocol,
+  extendProtocol,
+  modelOptions,
+} from '../kernel/protocols/protocol.ts';
 export type {
   Authorize,
   Outgoing,

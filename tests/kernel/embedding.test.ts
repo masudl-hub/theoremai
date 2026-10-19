@@ -211,3 +211,20 @@ Deno.test('runEmbedding refuses a task that is not query or document', async () 
     "Embedding task must be 'query' or 'document'",
   );
 });
+
+Deno.test('a model that refuses an option is refused it when its profile registers', () => {
+  const register = (apiId: string) =>
+    mediaScope({
+      protocol: 'geminiEmbedding',
+      provider: 'gemini',
+      apiId,
+      options: { taskType: 'CLUSTERING' },
+    } as never);
+  const refused = assertThrows(
+    () => register('gemini-embedding-2-preview'),
+    TheoremError,
+    'gemini-embedding-2-preview takes no taskType',
+  );
+  assertEquals(refused.kind, 'config');
+  register('gemini-embedding-001');
+});

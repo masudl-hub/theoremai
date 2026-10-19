@@ -1,7 +1,6 @@
 import { z } from 'zod';
-import { TheoremError } from '../../guardrails/error.ts';
 import type { JsonObject } from '../../kernel/json.ts';
-import { defineProtocol } from '../../kernel/protocols/mod.ts';
+import { defineProtocol, modelOptions } from '../../kernel/protocols/mod.ts';
 import type {
   EmbeddingCall,
   EmbeddingModelLimits,
@@ -73,8 +72,16 @@ const options: z.ZodType<GeminiEmbeddingOptions> = z.strictObject({
         'Embeddings optimized for finding code blocks from natural language queries. Pair with Retrieval document for the code.',
       ),
     ])
-    .optional(),
-  outputDimensionality: z.union([z.literal(768), z.literal(1536), z.literal(3072)]).optional(),
+    .optional()
+    .describe(
+      "What the vectors will be used for, so Google tunes them to it. Only gemini-embedding-001 takes it; later models read the request's task from the text. Absent: no tuning.",
+    ),
+  outputDimensionality: z
+    .union([z.literal(768), z.literal(1536), z.literal(3072)])
+    .optional()
+    .describe(
+      'How many numbers each vector holds. A shorter vector is cheaper to store and compare and a little less precise. Absent: the 3072 the model returns.',
+    ),
 });
 
 /** Models that take the task as `taskType`. Later ones (Gemini Embedding 2 on) refuse the field and read the task from the text. */
@@ -150,16 +157,13 @@ export const geminiEmbedding: Protocol<GeminiEmbeddingOptions> = defineProtocol(
   endpoints: { embedding: '/models/{apiId}:embedContent' },
   options,
   embeddingLimits: (apiId) => (TASK_FIELD_MODELS.test(apiId) ? TEXT_ONLY : MULTIMODAL),
+  // why: Gemini Embedding 2 reads the task from the text and refuses the field; the request's `task` says it.
+  refusedOptions: (apiId) => (TASK_FIELD_MODELS.test(apiId) ? [] : ['taskType']),
   create(context) {
     return {
       async embed(request: EmbeddingCall): Promise<EmbeddingResult> {
-        const parsed = options.parse(request.options ?? {});
+        const parsed = modelOptions(geminiEmbedding, context.apiId, request.options);
         const taskField = TASK_FIELD_MODELS.test(context.apiId);
-        if (!taskField && parsed.taskType)
-          throw new TheoremError(
-            'config',
-            `${context.apiId} takes no taskType; send the request's task instead`, // labels-exempt: builder config error
-          );
         const shape: Shape = { taskField, ...(request.task ? { task: request.task } : {}) };
         const inputs = Array.isArray(request.input) ? request.input : [request.input];
         const body: JsonObject =

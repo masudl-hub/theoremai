@@ -327,11 +327,21 @@ interface OptionSchema {
 
 /**
  * The options `protocol` takes, a field per setting, read from its own schema. A setting inside an
- * object is a field of its own; one a row cannot hold (a list, a free record) is left to code.
+ * object is a field of its own; one a row cannot hold (a list, a free record) is left to code. Given
+ * the model, an option it refuses is left out, unless `options` already holds it: that row stays,
+ * where its issue shows.
  */
-export function protocolOptionFields(protocol: Protocol): ProtocolOptionField[] {
+export function protocolOptionFields(
+  protocol: Protocol,
+  model?: { apiId: string; options: JsonObject },
+): ProtocolOptionField[] {
   const schema = z.toJSONSchema(protocol.options, { io: 'input', unrepresentable: 'any' }) as OptionSchema;
-  return fieldsOf(schema, '', true);
+  const fields = fieldsOf(schema, '', true);
+  const refused = model ? (protocol.refusedOptions?.(model.apiId.trim()) ?? []) : [];
+  return fields.filter((field) => {
+    const top = field.path.split('.')[0] ?? field.path;
+    return !refused.includes(top) || model?.options[top] !== undefined;
+  });
 }
 
 function fieldsOf(node: OptionSchema, prefix: string, held: boolean): ProtocolOptionField[] {

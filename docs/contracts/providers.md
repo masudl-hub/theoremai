@@ -151,11 +151,14 @@ Reuse a protocol when the endpoint speaks it. An endpoint address alone does not
 | `reasoning`, `custom` | Optional schemas for the reasoning data and custom content that it emits |
 | `framing` | Optional reader of the reply framing. Absent: SSE for a stream, one JSON row otherwise |
 | `error` | Optional typing of a failed answer. Absent: the kind follows the HTTP status |
+| `embeddingLimits` | Optional: what a named embedding model takes, per input and per request |
+| `refusedOptions` | Optional: the options a named model refuses, though the protocol takes them for others. Absent: none |
 | `create` | Returns the operations for one call |
 
 `extendProtocol(base, extension)` gives the extension its own ID. Its options are the base's plus its own. It refuses a repeated field.
 Its `body` adds to each request. Its `read` sees each reply row before the base. Endpoints, framing, and error typing default to the base's.
 `carriesTo` reports whether reasoning that one protocol wrote may go back to another protocol in its lineage.
+`modelOptions(protocol, apiId, options)` parses a model's options by the protocol's schema, less any option that model refuses, and throws a `config` error naming what does not fit. A binding is checked with it when it is registered, and a protocol may call it in its own operations.
 
 `ProtocolContext` supplies the profile type, model ID, parsed options, built-in tool IDs, resolved limits, and abort signal.
 `send` posts to the endpoint of the profile type and yields reply rows. `connect` opens the WebSocket and sends the first frame.
@@ -527,7 +530,7 @@ The root also exports the default-scope registry functions, the binding schemas 
 | --- | --- |
 | Providers | `defineProvider`, `createProviderRegistry`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `geminiInteractions`, `geminiLive`, `geminiEmbedding`, `openAi`, `openRouter`, `openRouterImages`, `openRouterEmbedding`, `ollamaEmbedding`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbedding`, `openAi`, `openRouter`, `openRouterImages`, `openRouterEmbedding`, `ollamaEmbedding`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |

@@ -127,7 +127,7 @@ export type {
   SendInit,
   UpstreamFailure,
 } from './protocols/protocol.ts';
-export { carriesTo, defineProtocol, extendProtocol } from './protocols/protocol.ts';
+export { carriesTo, defineProtocol, extendProtocol, modelOptions } from './protocols/protocol.ts';
 export type {
   Authorize,
   DecisionModelSettings,

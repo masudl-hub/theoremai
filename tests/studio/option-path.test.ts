@@ -42,3 +42,14 @@ Deno.test('protocolOptionFields keeps the name and description a protocol gives 
   );
   assertEquals(dims?.choices, [{ value: '768' }, { value: '1536' }, { value: '3072' }]);
 });
+
+Deno.test('protocolOptionFields leaves out what the model refuses, unless the binding holds it', () => {
+  const paths = (apiId: string, options = {}) =>
+    protocolOptionFields(geminiEmbedding, { apiId, options }).map((field) => field.path);
+  assertEquals(paths('gemini-embedding-001').includes('taskType'), true);
+  assertEquals(paths('gemini-embedding-2-preview').includes('taskType'), false);
+  assertEquals(
+    paths('gemini-embedding-2-preview', { taskType: 'CLUSTERING' }).includes('taskType'),
+    true,
+  );
+});

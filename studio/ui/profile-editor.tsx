@@ -1200,7 +1200,7 @@ function ProtocolOptionRows({
 	if (!protocol) return null;
 	return (
 		<>
-			{protocolOptionFields(protocol).map((option) => (
+			{protocolOptionFields(protocol, binding).map((option) => (
 				<ProtocolOptionRow key={option.path} option={option} binding={binding} set={set} />
 			))}
 		</>
@@ -1230,7 +1230,7 @@ function ProtocolOptionsSection({
 	set: SetBinding;
 }) {
 	const protocol = protocolOf(providers, binding, type);
-	if (!protocol || protocolOptionFields(protocol).length === 0) return null;
+	if (!protocol || protocolOptionFields(protocol, binding).length === 0) return null;
 	return (
 	<InspectorSection title={protocol.name} path="models.*.options">
 			<ProtocolOptionRows providers={providers} binding={binding} type={type} set={set} />

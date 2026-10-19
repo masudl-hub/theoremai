@@ -329,7 +329,7 @@ function compileBinding(
  * about. A protocol the studio does not hold is the project's to judge.
  */
 function checkOptions(
-  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'options'>,
+  binding: Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId' | 'options'>,
   providers: readonly StudioProvider[],
   type: Exclude<StudioProfileType, 'host'>,
   nodeId: string,
@@ -340,6 +340,10 @@ function checkOptions(
   for (const issue of protocol?.options.safeParse(binding.options).error?.issues ?? []) {
     const name = issue.code === 'unrecognized_keys' ? issue.keys[0] : issue.path[0];
     report(nodeId, issue.message, typeof name === 'string' ? `options.${name}` : 'options');
+  }
+  const apiId = binding.apiId.trim();
+  for (const key of apiId ? (protocol?.refusedOptions?.(apiId) ?? []) : []) {
+    if (binding.options[key] !== undefined) report(nodeId, `${apiId} takes no ${key}.`, `options.${key}`);
   }
 }
 

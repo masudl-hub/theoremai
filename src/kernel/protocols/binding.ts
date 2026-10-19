@@ -4,7 +4,7 @@ import { labelText } from '../../guardrails/labels.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import { KEY_SLOT_NAME, type KeySlot } from '../schema.ts';
 import type { Equals } from '../util/exact-type.ts';
-import type { ModelProfileType, Protocol } from './protocol.ts';
+import { type ModelProfileType, modelOptions, type Protocol } from './protocol.ts';
 import type { RegisteredProvider } from './provider.ts';
 
 /** A vault slot name. */
@@ -194,17 +194,7 @@ export function checkBinding<B extends ModelBinding | DecisionModelBinding>(
       'unsupported',
       labelText('protocol.profile_type', { protocol: protocol.id, profileType }),
     );
-  const parsed = protocol.options.safeParse(binding.options ?? {});
-  if (!parsed.success)
-    throw new TheoremError(
-      'config',
-      labelText('protocol.options', {
-        apiId: binding.apiId,
-        protocol: protocol.id,
-        issues: z.prettifyError(parsed.error),
-      }),
-    );
-  const options = jsonObjectSchema.parse(parsed.data);
+  const options = jsonObjectSchema.parse(modelOptions(protocol, binding.apiId, binding.options));
   const slots = keySlotsOf(provider, binding);
   if (slots.keySlot !== undefined && slots.keySlot === slots.fallbackKeySlot)
     throw new TheoremError('config', labelText('provider.model_fallback_slot'));

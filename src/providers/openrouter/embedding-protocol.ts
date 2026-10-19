@@ -13,13 +13,16 @@ const options: z.ZodType<OpenRouterEmbeddingOptions> = z.strictObject({
   encodingFormat: z.enum(['float', 'base64']).optional(),
 });
 
-function inputValue(input: EmbeddingInput): string | JsonObject[] {
+/** A string stays a string; a multimodal input is one `{ content }` item, as OpenRouter documents. */
+function inputValue(input: EmbeddingInput): string | JsonObject {
   if (typeof input === 'string') return input;
-  return input.parts.map((part): JsonObject => {
-    if (part.type === 'text') return { type: 'text', text: part.text };
-    const url = part.type === 'media' ? `data:${part.mimeType};base64,${part.data}` : part.uri;
-    return { type: 'image_url', image_url: { url } };
-  });
+  return {
+    content: input.parts.map((part): JsonObject => {
+      if (part.type === 'text') return { type: 'text', text: part.text };
+      const url = part.type === 'media' ? `data:${part.mimeType};base64,${part.data}` : part.uri;
+      return { type: 'image_url', image_url: { url } };
+    }),
+  };
 }
 
 function embeddingValues(value: unknown): number[] {
@@ -58,7 +61,10 @@ export const openRouterEmbedding: Protocol<OpenRouterEmbeddingOptions> = defineP
         const inputs = Array.isArray(request.input) ? request.input : [request.input];
         const body: JsonObject = {
           model: context.apiId,
-          input: inputs.length === 1 ? inputValue(inputs[0]) : inputs.map(inputValue),
+          input:
+            inputs.length === 1 && typeof inputs[0] === 'string'
+              ? inputs[0]
+              : inputs.map(inputValue),
         };
         if (parsed.encodingFormat) body.encoding_format = parsed.encodingFormat;
         let row: Record<string, unknown> | undefined;

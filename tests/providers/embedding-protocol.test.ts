@@ -82,8 +82,13 @@ Deno.test('OpenRouter embedding encodes text and media batches', async () => {
     input: { parts: [{ type: 'media', mimeType: 'image/png', data: 'AA==' }] },
   });
   assertEquals(body?.input, [
-    { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
+    { content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }] },
   ]);
+  await call.embed?.({
+    apiId: 'nvidia/llama-nemotron-embed-vl-1b-v2:free',
+    input: ['a red square', { parts: [{ type: 'text', text: 'red' }] }],
+  });
+  assertEquals(body?.input, ['a red square', { content: [{ type: 'text', text: 'red' }] }]);
 });
 
 Deno.test('OpenRouter embedding decodes base64 vectors', async () => {

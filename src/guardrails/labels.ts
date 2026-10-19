@@ -282,9 +282,11 @@ type LabelDefault = string | ((params: LabelParams) => string);
 
 const KIB = 1024;
 
-function formatMb(bytes: number): string {
-  const mb = bytes / (KIB * KIB);
-  return Number.isInteger(mb) ? `${String(mb)} MB` : `${mb.toFixed(1)} MB`;
+/** A size limit as people read it: `1 byte`, `500 KB`, `4 MB`, `1.5 MB`. Never `0.0 MB`. */
+function formatSize(bytes: number): string {
+  if (bytes < KIB) return bytes === 1 ? '1 byte' : `${String(bytes)} bytes`;
+  const [value, unit] = bytes < KIB * KIB ? [bytes / KIB, 'KB'] : [bytes / (KIB * KIB), 'MB'];
+  return `${String(Math.round(value * 10) / 10)} ${unit}`;
 }
 
 /** The file's name when the host sent one; the line words itself without it. */
@@ -396,9 +398,9 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
       ? `Sorry, only 1 ${String(params.kind)} file can be sent at once.`
       : `Sorry, only ${String(params.maxFiles)} ${String(params.kind)} files can be sent at once.`,
   'attachments.file_too_large': (params) =>
-    `Sorry, ${fileNameOf(params) ?? 'that file'} is too large. Each file needs to be ${formatMb(Number(params.maxBytes))} or smaller.`,
+    `Sorry, ${fileNameOf(params) ?? 'that file'} is too large. Each file needs to be ${formatSize(Number(params.maxBytes))} or smaller.`,
   'attachments.turn_too_large': (params) =>
-    `Sorry, those files are too large together. Please keep them under ${formatMb(Number(params.maxTurnBytes))} in total.`,
+    `Sorry, those files are too large together. Please keep them under ${formatSize(Number(params.maxTurnBytes))} in total.`,
   'attachments.not_accepted': (params) =>
     params.channel === 'voice'
       ? "Sorry, voice notes can't be used here."

@@ -117,8 +117,8 @@ Deno.test('refused files name every reason, one line per problem, in the profile
     [
       "Sorry, clip.mp4 is a file type that can't be used here.",
       'Sorry, only 1 file can be sent per message.',
-      'Sorry, photo.png is too large. Each file needs to be 0.0 MB or smaller.',
-      'Sorry, those files are too large together. Please keep them under 0.0 MB in total.',
+      'Sorry, photo.png is too large. Each file needs to be 1 byte or smaller.',
+      'Sorry, those files are too large together. Please keep them under 1 byte in total.',
     ].join('\n'),
   );
   assertEquals(

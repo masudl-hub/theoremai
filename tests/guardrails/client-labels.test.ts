@@ -49,6 +49,15 @@ Deno.test('attachmentIssueText words an issue with its file name and the profile
   );
   assertEquals(
     attachmentIssueText(named),
-    'Sorry, huge.png is too large. Each file needs to be 0.0 MB or smaller.',
+    'Sorry, huge.png is too large. Each file needs to be 1 byte or smaller.',
   );
+});
+
+Deno.test('a size limit reads in the unit that fits it, never 0.0 MB', () => {
+  const text = (maxBytes: number) =>
+    attachmentIssueText({ code: 'file_too_large', params: { maxBytes } });
+  assertEquals(text(512).endsWith('512 bytes or smaller.'), true);
+  assertEquals(text(500 * 1024).endsWith('500 KB or smaller.'), true);
+  assertEquals(text(4 * 1024 * 1024).endsWith('4 MB or smaller.'), true);
+  assertEquals(text(1.5 * 1024 * 1024).endsWith('1.5 MB or smaller.'), true);
 });

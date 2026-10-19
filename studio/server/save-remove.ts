@@ -190,6 +190,23 @@ function readersOf(project: ProjectSource, named: Named): Reader[] {
 }
 
 /** One plan in the making: what goes, and what could not be followed. */
+/** The statement a call is, when it registers `value` or, for a function, calls it. */
+function callPart(call: ts.CallExpression, value: ts.Node, callable: boolean): Part | undefined {
+  const registers =
+    call.arguments.includes(value as ts.Expression) && REGISTERS.has(calleeName(call) ?? '');
+  const called = callable && call.expression === value;
+  return registers || called ? statementOf(call) : undefined;
+}
+
+/** `value`'s entry in the setup's `questions`, when that is where it sits. */
+function questionsEntry(parent: ts.Node, value: ts.Node, source: ts.SourceFile): Part | undefined {
+  const questions = questionsExport(source)?.initializer;
+  const entry =
+    ts.isShorthandPropertyAssignment(parent) ||
+    (ts.isPropertyAssignment(parent) && parent.initializer === value);
+  return entry && questions && parent.parent === unwrapped(questions) ? parent : undefined;
+}
+
 class Removal {
   readonly changes: SaveChange[] = [];
   private readonly cut = new Map<Part, ts.SourceFile>();
@@ -229,18 +246,8 @@ class Removal {
       value = value.parent;
     value = wrapped(value);
     const { parent } = value;
-    if (ts.isCallExpression(parent)) {
-      const registers =
-        parent.arguments.includes(value as ts.Expression) &&
-        REGISTERS.has(calleeName(parent) ?? '');
-      const called = callable && parent.expression === value;
-      return registers || called ? statementOf(parent) : undefined;
-    }
-    const questions = questionsExport(source)?.initializer;
-    const entry =
-      ts.isShorthandPropertyAssignment(parent) ||
-      (ts.isPropertyAssignment(parent) && parent.initializer === value);
-    return entry && questions && parent.parent === unwrapped(questions) ? parent : undefined;
+    if (ts.isCallExpression(parent)) return callPart(parent, value, callable);
+    return questionsEntry(parent, value, source);
   }
 
   /**

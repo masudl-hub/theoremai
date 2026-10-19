@@ -759,6 +759,19 @@ export function isRead(node: ts.Identifier): boolean {
   return (parent as { name?: ts.Node }).name !== node;
 }
 
+/** Each import in `source` that names what it brings in, with where it brings it from. */
+function* namedImports(
+  source: ts.SourceFile,
+): Generator<{ specifier: string; elements: ts.NodeArray<ts.ImportSpecifier> }> {
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier))
+      continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings))
+      yield { specifier: statement.moduleSpecifier.text, elements: bindings.elements };
+  }
+}
+
 /** The name `source` knows a constant by: its own, or the one an import gives it. */
 function localName(
   project: ProjectSource,
@@ -766,15 +779,9 @@ function localName(
   binding: Binding,
 ): string | undefined {
   if (source === binding.source) return binding.name;
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier))
-      continue;
-    const bindings = statement.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
-    const element = bindings.elements.find(
-      (each) => (each.propertyName ?? each.name).text === binding.name,
-    );
-    if (element && sourceOf(project, source, statement.moduleSpecifier.text) === binding.source)
+  for (const { specifier, elements } of namedImports(source)) {
+    const element = elements.find((each) => (each.propertyName ?? each.name).text === binding.name);
+    if (element && sourceOf(project, source, specifier) === binding.source)
       return element.name.text;
   }
   return undefined;
@@ -1151,18 +1158,9 @@ function importOf(
   source: ts.SourceFile,
   name: string,
 ): { specifier: string; name: string } | undefined {
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier))
-      continue;
-    const bindings = statement.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
-    for (const element of bindings.elements) {
-      if (element.name.text !== name) continue;
-      return {
-        specifier: statement.moduleSpecifier.text,
-        name: (element.propertyName ?? element.name).text,
-      };
-    }
+  for (const { specifier, elements } of namedImports(source)) {
+    const element = elements.find((each) => each.name.text === name);
+    if (element) return { specifier, name: (element.propertyName ?? element.name).text };
   }
   return undefined;
 }

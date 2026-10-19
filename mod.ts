@@ -292,6 +292,8 @@ export {
   modelEntryByApiId,
   requireModelBinding,
 } from './src/kernel/registry/catalog.ts';
+export type { EmbeddingRules } from './src/kernel/registry/embedding-rules.ts';
+export { embeddingMediaIssues, embeddingRules } from './src/kernel/registry/embedding-rules.ts';
 export type { KernelRegistry } from './src/kernel/registry/kernel-registry.ts';
 export { createKernelRegistry } from './src/kernel/registry/kernel-registry.ts';
 export type {

@@ -192,6 +192,7 @@ function attachmentIssues(
 const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LabelKey> = {
   mime_not_allowed: 'attachments.mime_not_allowed',
   too_many_files: 'attachments.too_many_files',
+  too_many_of_kind: 'attachments.too_many_of_kind',
   file_too_large: 'attachments.file_too_large',
   turn_too_large: 'attachments.turn_too_large',
   attachments_not_accepted: 'attachments.not_accepted',

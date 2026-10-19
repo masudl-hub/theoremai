@@ -62,6 +62,7 @@ export const LABEL_KEYS = [
   'advisory.notice_high',
   'advisory.guidance',
   'attachments.too_many_files',
+  'attachments.too_many_of_kind',
   'attachments.file_too_large',
   'attachments.turn_too_large',
   'attachments.not_accepted',
@@ -219,6 +220,7 @@ export type LabelKey = (typeof LABEL_KEYS)[number];
  */
 export const CLIENT_LABEL_KEYS = [
   'attachments.too_many_files',
+  'attachments.too_many_of_kind',
   'attachments.file_too_large',
   'attachments.turn_too_large',
   'attachments.not_accepted',
@@ -389,6 +391,10 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     params.maxFiles === 1
       ? 'Sorry, only 1 file can be sent per message.'
       : `Sorry, only ${String(params.maxFiles)} files can be sent per message.`,
+  'attachments.too_many_of_kind': (params) =>
+    params.maxFiles === 1
+      ? `Sorry, only 1 ${String(params.kind)} file can be sent at once.`
+      : `Sorry, only ${String(params.maxFiles)} ${String(params.kind)} files can be sent at once.`,
   'attachments.file_too_large': (params) =>
     `Sorry, ${fileNameOf(params) ?? 'that file'} is too large. Each file needs to be ${formatMb(Number(params.maxBytes))} or smaller.`,
   'attachments.turn_too_large': (params) =>
@@ -644,6 +650,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     'Your own guidance, added to the model after either advisory notice. Empty by default, which adds nothing.',
   'attachments.too_many_files':
     'Shown to the user when a message carries more files than Max files allows. Takes {maxFiles}.',
+  'attachments.too_many_of_kind':
+    'Shown to the user when one embedding input holds more of one kind of media than its model takes, such as a second PDF. Takes {maxFiles} and {kind}.',
   'attachments.file_too_large':
     'Shown to the user when one file is larger than Max bytes. Takes {maxBytes}, and {fileName} when the file has one.',
   'attachments.turn_too_large':
@@ -903,6 +911,7 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'taint.destination_blocked': ['destination', 'sources'],
   'taint.destination_confirm': ['destination', 'sources'],
   'attachments.too_many_files': ['maxFiles'],
+  'attachments.too_many_of_kind': ['maxFiles', 'kind'],
   'attachments.file_too_large': ['maxBytes', 'fileName'],
   'attachments.turn_too_large': ['maxTurnBytes'],
   'attachments.not_accepted': ['channel'],

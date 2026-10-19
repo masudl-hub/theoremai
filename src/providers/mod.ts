@@ -18,6 +18,8 @@ export type {
   Continuation,
   DecisionCall,
   EmbeddingCall,
+  EmbeddingMediaKind,
+  EmbeddingModelLimits,
   ExtensionBodyAt,
   ExtensionReader,
   LiveToolResult,
@@ -62,6 +64,7 @@ export type {
   KeyCredential,
   KeyVault,
 } from '../kernel/registry/vault.ts';
+export { embeddingModelLimits } from './embedding-limits.ts';
 export { geminiEmbedding } from './gemini/embedding-protocol.ts';
 export { geminiInteractions } from './gemini/interactions-protocol.ts';
 export { geminiLive } from './gemini/live-protocol.ts';

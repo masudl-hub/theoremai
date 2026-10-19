@@ -305,6 +305,7 @@ export interface MimeInputs extends Partial<MediaLimits> {
 export type AttachmentValidationCode =
   | 'mime_not_allowed'
   | 'too_many_files'
+  | 'too_many_of_kind'
   | 'file_too_large'
   | 'turn_too_large'
   | 'attachments_not_accepted'
@@ -320,6 +321,8 @@ export interface AttachmentValidationParams {
   maxBytes?: number;
   maxTurnBytes?: number;
   mimeType?: string;
+  /** The kind of media a count is of, such as `PDF` or `image`. */
+  kind?: string;
   channel?: 'attachment' | 'voice';
 }
 

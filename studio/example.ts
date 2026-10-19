@@ -26,7 +26,7 @@ import {
 import { addAgent, agentNodeId, markAgentStart, type StudioWorkspace, workspaceFromDraft } from './workspace.ts';
 import type { ModelPicks } from './lent-keys.ts';
 import { firstServed } from './policy.ts';
-import { ATTACHMENT_ACCEPT_MIMES } from '@theoremjs/agents/schema';
+import { embeddingModelLimits } from '@theoremjs/agents';
 
 /**
  * Where each example's models start: Google's Flash models and TypeSafe's Jev, which free keys
@@ -97,7 +97,12 @@ export function createSpanExampleDraft(): StudioDraft {
   };
 }
 
-/** A multimodal embedding profile using Gemini Embeddings 2's free preview model. */
+const GEMINI_EMBEDDING = {
+  protocol: firstServed('gemini', 'embedding').protocol,
+  apiId: 'gemini-embedding-2-preview',
+};
+
+/** A multimodal embedding profile using Gemini Embeddings 2's free preview model, taking every file type it does. */
 export function createGeminiEmbeddingExampleDraft(): StudioDraft {
   const draft = setProfileType(createBlankDraft(), 'embedding', EXAMPLE_PICKS);
   const binding = draft.modelBindings[0];
@@ -117,16 +122,19 @@ export function createGeminiEmbeddingExampleDraft(): StudioDraft {
       ? [{
           ...binding,
           provider: 'gemini',
-          protocol: firstServed('gemini', 'embedding').protocol,
-          apiId: 'gemini-embedding-2-preview',
+          protocol: GEMINI_EMBEDDING.protocol,
+          apiId: GEMINI_EMBEDDING.apiId,
           options: { outputDimensionality: 768 },
         }]
       : [],
     inputs: {
       ...draft.inputs,
       text: true,
-      attachmentsAccept: [...ATTACHMENT_ACCEPT_MIMES],
-      maxFiles: 1,
+      attachmentsAccept: (embeddingModelLimits(GEMINI_EMBEDDING)?.media ?? []).flatMap((kind) => [
+        ...kind.accept,
+      ]),
+      // why: the most media Gemini Embedding 2 takes in one input is 6 images.
+      maxFiles: 6,
       maxBytes: 10_000_000,
       maxTurnBytes: 10_000_000,
     },

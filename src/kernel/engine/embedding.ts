@@ -1,15 +1,12 @@
 import { refuseOverlong } from '../../guardrails/detect-at.ts';
 import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
+import { protocolOf } from '../protocols/binding.ts';
+import type { EmbeddingModelLimits } from '../protocols/protocol.ts';
 import type { ProviderHostOptions } from '../protocols/runtime.ts';
 import { guardedCall } from '../provider-runtime.ts';
-import {
-  type AttachmentFacts,
-  attachmentIssues,
-  attachmentsRefused,
-  base64Bytes,
-  resolveMediaLimits,
-} from '../registry/attachments.ts';
+import { type AttachmentFacts, attachmentsRefused, base64Bytes } from '../registry/attachments.ts';
+import { embeddingMediaIssues, embeddingRules } from '../registry/embedding-rules.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import type {
   EmbeddingInput,
@@ -66,38 +63,44 @@ function partsOf(input: EmbeddingInput): readonly EmbeddingPart[] {
   return input && Array.isArray(input.parts) ? input.parts : [];
 }
 
-/** Text is checked per part; media goes through the turn's attachment check across the whole request. */
-function validateInputs(profile: EmbeddingProfile, inputs: readonly EmbeddingInput[]): void {
-  const media: AttachmentFacts[] = [];
+/** Text is checked per part; media per input, held to the profile and to what the model takes. */
+function validateInputs(
+  profile: EmbeddingProfile,
+  modelId: string,
+  inputs: readonly EmbeddingInput[],
+  model: EmbeddingModelLimits | undefined,
+): void {
+  const rules = embeddingRules(profile.inputs, model);
+  if (rules.maxInputs !== undefined && inputs.length > rules.maxInputs)
+    throw new TheoremError(
+      'request',
+      `Model '${modelId}' of ${profile.id} takes at most ${rules.maxInputs} inputs per request`, // labels-exempt: developer contract error
+    );
+  const media: AttachmentFacts[][] = [];
   for (const input of inputs) {
     const parts = partsOf(input);
     if (parts.length === 0)
       throw new TheoremError('request', `Profile ${profile.id} received an empty embedding input`); // labels-exempt: developer contract error
+    const files: AttachmentFacts[] = [];
     for (const part of parts) {
       if (part.type === 'text') {
         refuseOverlong(part.text, 'embedding input');
-        if (profile.inputs.text === false)
+        if (!rules.text)
           throw new TheoremError(
             'unsupported',
             `Profile ${profile.id} does not accept text embedding input`, // labels-exempt: developer contract error
           );
         continue;
       }
-      media.push(
+      files.push(
         part.type === 'media'
           ? { mimeType: part.mimeType, sizeBytes: base64Bytes(part.data) }
           : { mimeType: part.mimeType },
       );
     }
+    media.push(files);
   }
-  const issues = attachmentIssues(
-    {
-      attachments: profile.inputs.attachments?.accept,
-      limits: resolveMediaLimits(profile.inputs),
-    },
-    media,
-    [],
-  );
+  const issues = embeddingMediaIssues(rules, media);
   if (issues.length > 0) throw attachmentsRefused(issues);
 }
 
@@ -131,8 +134,13 @@ export async function runEmbeddingInRegistry(
   const [modelId, binding] = chooseModel(profile, request.model);
   const inputs = inputsOf(request.input);
   checkTask(request.task);
-  validateInputs(profile, inputs);
   const provider = registry.providers.require(binding.provider, binding.apiId);
+  validateInputs(
+    profile,
+    modelId,
+    inputs,
+    protocolOf(provider, binding).embeddingLimits?.(binding.apiId),
+  );
   const call = guardedCall(provider, binding, 'embedding', options, {
     ...(request.signal ? { signal: request.signal } : {}),
   });

@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import type { JsonObject } from '../../kernel/json.ts';
-import { defineProtocol, type EmbeddingCall, type Protocol } from '../../kernel/protocols/mod.ts';
+import {
+  defineProtocol,
+  type EmbeddingCall,
+  type EmbeddingModelLimits,
+  type Protocol,
+} from '../../kernel/protocols/mod.ts';
 import type { EmbeddingInput, EmbeddingResult } from '../../kernel/types.ts';
 import { base64ToBytes } from '../../kernel/util/base64.ts';
 
@@ -12,6 +17,9 @@ export interface OpenRouterEmbeddingOptions {
 const options: z.ZodType<OpenRouterEmbeddingOptions> = z.strictObject({
   encodingFormat: z.enum(['float', 'base64']).optional(),
 });
+
+// why: OpenRouter's embeddings reference takes images only and caps neither inputs nor images per input; a text-only model refuses an image itself.
+const LIMITS: EmbeddingModelLimits = { media: [{ accept: ['image/*'] }] };
 
 /** A string stays a string; a multimodal input is one `{ content }` item, as OpenRouter documents. */
 function inputValue(input: EmbeddingInput): string | JsonObject {
@@ -54,6 +62,7 @@ export const openRouterEmbedding: Protocol<OpenRouterEmbeddingOptions> = defineP
   description: 'OpenRouter embedding models, including supported multimodal models.',
   endpoints: { embedding: '/embeddings' },
   options,
+  embeddingLimits: () => LIMITS,
   create(context) {
     return {
       async embed(request: EmbeddingCall): Promise<EmbeddingResult> {

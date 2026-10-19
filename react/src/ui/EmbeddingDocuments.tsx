@@ -58,19 +58,21 @@ const SPLITS: readonly { value: SplitChoice; icon: ReactNode }[] = [
 const LISTED = 50;
 const THUMB_PX = 40;
 
+const REASON_LABELS = {
+  invalid_json: '@theorem.embedding.empty',
+  no_inputs: '@theorem.embedding.empty',
+  empty_input: '@theorem.embedding.empty',
+  text_off: '@theorem.embedding.text_off',
+} as const;
+
 /** What the check says is wrong, about the input it names. */
 export function inputIssue(t: LabelText, check: EmbeddingInputCheck, name: string): string | null {
   if (check.ok) return null;
-  switch (check.reason) {
-    case 'invalid_json':
-    case 'no_inputs':
-    case 'empty_input':
-      return t('@theorem.embedding.empty', { name });
-    case 'text_off':
-      return t('@theorem.embedding.text_off', { name });
-    case 'attachments':
-      return `${name}: ${check.issues.map((issue) => attachmentIssueText(issue)).join(' ')}`;
-  }
+  if (check.reason === 'attachments')
+    return `${name}: ${check.issues.map((issue) => attachmentIssueText(issue)).join(' ')}`;
+  if (check.reason === 'too_many_inputs')
+    return t('@theorem.embedding.too_many', { max: check.max });
+  return t(REASON_LABELS[check.reason], { name });
 }
 
 /**

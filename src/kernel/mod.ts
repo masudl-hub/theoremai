@@ -108,6 +108,8 @@ export type {
   Continuation,
   DecisionCall,
   EmbeddingCall,
+  EmbeddingMediaKind,
+  EmbeddingModelLimits,
   ExtensionBodyAt,
   ExtensionReader,
   LiveToolResult,

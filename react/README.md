@@ -290,7 +290,7 @@ import { TheoremEmbedding } from '@theoremjs/react/ui';
 <TheoremEmbedding endpoint="/api/embedding" />
 ```
 
-`TheoremEmbedding` is a search bench. Paste text and choose where it splits: not at all, at each line, at blank lines, at commas, or at a separator of your own. Or drop files: a text, Markdown, CSV, or JSON file splits the same way, and an image, audio, video, or PDF file is one document. **Index** embeds the documents with the `document` task, in as few requests as the profile's `inputs` allow. Type a query and press **Search**: it embeds the query with the `query` task and ranks the documents by cosine similarity. `defaultText` and `defaultQuery` fill the two cards.
+`TheoremEmbedding` is a search bench. Paste text and choose where it splits: not at all, at each line, at blank lines, at commas, or at a separator of your own. Or drop files: a text, Markdown, CSV, or JSON file splits the same way, and an image, audio, video, or PDF file is one document. **Index** embeds the documents with the `document` task, in as few requests as the profile's `inputs` and its model allow. The interface holds the profile's inputs to what its default model takes: the file types both accept, the files one input may hold, and the inputs one request may carry, read from the model's protocol. For a protocol of your own, pass it to `embeddingInterface(profile, [protocol])`. Type a query and press **Search**: it embeds the query with the `query` task and ranks the documents by cosine similarity. `defaultText` and `defaultQuery` fill the two cards.
 
 Each request is held to the `inputs` of the profile before it is sent, and each shows as JSON and in the trace.
 

@@ -606,6 +606,11 @@ export const THEOREM_UI_CATALOG = {
     description: 'A document or the query has text the profile does not take.',
     params: ['name'],
   },
+  '@theorem.embedding.too_many': {
+    defaultMessage: 'One request takes at most {max} documents.',
+    description: "A request holds more inputs than the profile's model takes in one call.",
+    params: ['max'],
+  },
   '@theorem.embedding.ready': {
     defaultMessage:
       '{count, plural, one {# document} other {# documents}} in {requests, plural, one {# request} other {# requests}} · ⌘↵ to index',

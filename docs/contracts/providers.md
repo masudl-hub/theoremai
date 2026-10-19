@@ -263,9 +263,25 @@ OpenRouter presets can declare text and image content support for the selected
 embedding model. On 2026-10-16, the embedding model catalog listed
 `liquid/lfm-2.5-embedding-350m:free`,
 `nvidia/nemotron-3-embed-1b:free`, and
-`nvidia/llama-nemotron-embed-vl-1b-v2:free`. The protocol maps mixed inputs to
-the provider's content blocks. It must reject media that the selected model
-does not declare.
+`nvidia/llama-nemotron-embed-vl-1b-v2:free`. The protocol sends a string as it
+is and each input with parts as one `{ content }` item of text and
+`image_url` blocks, as OpenRouter documents.
+
+Each protocol declares its models' limits, from the provider's documentation
+and checked live on 2026-10-19:
+
+| Protocol | Media one input may hold | Inputs per request |
+| --- | --- | --- |
+| Google, Gemini Embedding 2 | PNG and JPEG, at most 6; one PDF; MP3 and WAV; MP4 and MOV | 100 |
+| Google, `gemini-embedding-001` | None | 100 |
+| OpenRouter | Images, no count | No cap |
+| Ollama | None | No cap |
+
+Google caps audio and video by length (180 and 120 seconds) and a PDF at 6
+pages, not by count; the kernel does not measure these, so Google truncates or
+refuses. OpenRouter sends images only. A text-only OpenRouter model refuses an
+image itself, since the protocol cannot tell its models apart. The OpenRouter
+VL model took 13 images in one input, and timed out at 30.
 
 #### Embedding trace, guardrail, and evaluation contract
 
@@ -511,8 +527,8 @@ The root also exports the default-scope registry functions, the binding schemas 
 | --- | --- |
 | Providers | `defineProvider`, `createProviderRegistry`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `geminiInteractions`, `geminiLive`, `geminiEmbedding`, `openAi`, `openRouter`, `openRouterImages`, `openRouterEmbedding`, `ollamaEmbedding`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
-| Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `LiveToolResult` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `geminiInteractions`, `geminiLive`, `geminiEmbedding`, `openAi`, `openRouter`, `openRouterImages`, `openRouterEmbedding`, `ollamaEmbedding`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |
 | Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket` |

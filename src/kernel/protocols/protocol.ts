@@ -172,6 +172,20 @@ export interface Continuation<S> {
   keyOptions?: readonly string[];
 }
 
+/** One kind of media an embedding model takes: its MIME types, and how many one input may hold when the provider caps it. */
+export interface EmbeddingMediaKind {
+  accept: readonly string[];
+  maxPerInput?: number;
+}
+
+/** What one embedding model takes, as its provider documents it. */
+export interface EmbeddingModelLimits {
+  /** Inputs one request may carry, when the provider caps them. */
+  maxInputs?: number;
+  /** The media it embeds; empty for a model that embeds text only. */
+  media: readonly EmbeddingMediaKind[];
+}
+
 export interface ProtocolDefinition<O = unknown, S = unknown> {
   /** What bindings write, e.g. `'openAi'`. */
   id: string;
@@ -195,6 +209,8 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
   framing?(response: Response, stream: boolean): AsyncIterable<JsonObject>;
   /** Types a failed answer. Absent: the kind follows the HTTP status. */
   error?(failure: UpstreamFailure): TheoremError;
+  /** What the named embedding model takes. Absent: the kernel holds requests to the profile alone. */
+  embeddingLimits?(apiId: string): EmbeddingModelLimits;
   create(context: ProtocolContext<O>): ProtocolOperations<S>;
 }
 
@@ -333,7 +349,7 @@ export interface ExtensionReader<S = unknown> {
 export interface ProtocolExtension<E = unknown, S = unknown>
   extends Pick<
     ProtocolDefinition<E, S>,
-    'id' | 'name' | 'description' | 'reasoning' | 'custom' | 'framing' | 'error'
+    'id' | 'name' | 'description' | 'reasoning' | 'custom' | 'framing' | 'error' | 'embeddingLimits'
   > {
   /** What it adds to the base's options. A field the base already has is refused. */
   options?: z.ZodObject & z.ZodType<E>;
@@ -498,7 +514,7 @@ function extendedOperations<S>(
 }
 
 /** The extension's own value for a field, else the base's; absent when neither has one. */
-function either<K extends 'framing' | 'error'>(
+function either<K extends 'framing' | 'error' | 'embeddingLimits'>(
   key: K,
   extension: Partial<Record<K, unknown>>,
   base: Partial<Record<K, unknown>>,
@@ -531,6 +547,7 @@ export function extendProtocol<O, S, E = JsonObject>(
     ...(extension.custom ? { custom: extension.custom } : {}),
     ...either('framing', extension, base),
     ...either('error', extension, base),
+    ...either('embeddingLimits', extension, base),
     base: base as Protocol,
     lineage: Object.freeze([extension.id, ...base.lineage]),
     create: (context: ProtocolContext<O & E>) =>

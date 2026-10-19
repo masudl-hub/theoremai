@@ -2,7 +2,11 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import type { JsonObject } from '../../kernel/json.ts';
 import { defineProtocol } from '../../kernel/protocols/mod.ts';
-import type { EmbeddingCall, Protocol } from '../../kernel/protocols/protocol.ts';
+import type {
+  EmbeddingCall,
+  EmbeddingModelLimits,
+  Protocol,
+} from '../../kernel/protocols/protocol.ts';
 import type { EmbeddingInput, EmbeddingResult, EmbeddingTask } from '../../kernel/types.ts';
 
 /** What a `geminiEmbedding` binding sets in `options`. */
@@ -38,6 +42,19 @@ const options: z.ZodType<GeminiEmbeddingOptions> = z.strictObject({
 
 /** Models that take the task as `taskType`. Later ones (Gemini Embedding 2 on) refuse the field and read the task from the text. */
 const TASK_FIELD_MODELS = /^(gemini-embedding-001|text-embedding-|embedding-)/;
+
+// why: ai.google.dev/gemini-api/docs/embeddings gives 6 images and 1 PDF per input, and duration caps (not counts) for audio and video; a batch of 101 inputs is refused (checked 2026-10-19).
+const MULTIMODAL: EmbeddingModelLimits = {
+  maxInputs: 100,
+  media: [
+    { accept: ['image/png', 'image/jpeg'], maxPerInput: 6 },
+    { accept: ['application/pdf'], maxPerInput: 1 },
+    { accept: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav'] },
+    { accept: ['video/mp4', 'video/quicktime'] },
+  ],
+};
+
+const TEXT_ONLY: EmbeddingModelLimits = { maxInputs: 100, media: [] };
 
 const TASK_TYPES = {
   query: 'RETRIEVAL_QUERY',
@@ -95,6 +112,7 @@ export const geminiEmbedding: Protocol<GeminiEmbeddingOptions> = defineProtocol(
   description: "Google's embedding API for text and supported media.",
   endpoints: { embedding: '/models/{apiId}:embedContent' },
   options,
+  embeddingLimits: (apiId) => (TASK_FIELD_MODELS.test(apiId) ? TEXT_ONLY : MULTIMODAL),
   create(context) {
     return {
       async embed(request: EmbeddingCall): Promise<EmbeddingResult> {

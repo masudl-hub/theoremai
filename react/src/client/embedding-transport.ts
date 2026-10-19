@@ -2,7 +2,11 @@ import {
   type EmbeddingInput,
   type EmbeddingProfile,
   type EmbeddingResult,
+  type EmbeddingRules,
   type EmbeddingTask,
+  embeddingModelLimits,
+  embeddingRules,
+  type Protocol,
   resolveObservabilityPolicy,
   type TraceRecord,
   traceRecordSchema,
@@ -16,37 +20,27 @@ import { checkWire } from './wire-line.ts';
 export type EmbeddingInterface = {
   type: 'embedding';
   identity: { handle: string };
-  inputs: {
-    text: boolean;
-    attachments?: { accept: string[] };
-    maxFiles?: number;
-    maxBytes?: number;
-    maxTurnBytes?: number;
-    limitsByMime?: Record<string, number>;
-  };
+  /** The profile's inputs held to what its default model takes. */
+  inputs: EmbeddingRules;
   observability?: { record: boolean };
 };
 
+/**
+ * The interface a client reads: the profile's inputs held to its default model's limits. Pass
+ * `protocols` when a model speaks a protocol of your own.
+ */
 export function embeddingInterface(
-  profile: Pick<EmbeddingProfile, 'identity' | 'inputs' | 'observability'>,
+  profile: Pick<EmbeddingProfile, 'identity' | 'inputs' | 'observability' | 'models' | 'defaultModel'>,
+  protocols: readonly Protocol[] = [],
 ): EmbeddingInterface {
+  const binding = profile.models[profile.defaultModel];
   return {
     type: 'embedding',
     identity: { handle: profile.identity.handle },
-    inputs: {
-      text: profile.inputs.text !== false,
-      ...(profile.inputs.attachments
-        ? { attachments: { accept: [...profile.inputs.attachments.accept] } }
-        : {}),
-      ...(profile.inputs.maxFiles === undefined ? {} : { maxFiles: profile.inputs.maxFiles }),
-      ...(profile.inputs.maxBytes === undefined ? {} : { maxBytes: profile.inputs.maxBytes }),
-      ...(profile.inputs.maxTurnBytes === undefined
-        ? {}
-        : { maxTurnBytes: profile.inputs.maxTurnBytes }),
-      ...(profile.inputs.limitsByMime === undefined
-        ? {}
-        : { limitsByMime: { ...profile.inputs.limitsByMime } }),
-    },
+    inputs: embeddingRules(
+      profile.inputs,
+      binding ? embeddingModelLimits(binding, protocols) : undefined,
+    ),
     ...(profile.observability
       ? { observability: { record: resolveObservabilityPolicy(profile.observability).record } }
       : {}),

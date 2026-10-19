@@ -30,6 +30,7 @@ export const ollamaEmbedding: Protocol<OllamaEmbeddingOptions> = defineProtocol(
   description: 'Ollama’s local embedding endpoint.',
   endpoints: { embedding: '/api/embed' },
   options,
+  embeddingLimits: () => ({ media: [] }),
   create(context) {
     return {
       async embed(request) {

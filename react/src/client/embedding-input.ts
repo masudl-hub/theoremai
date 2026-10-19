@@ -9,12 +9,11 @@
 
 import {
   type AttachmentFacts,
-  attachmentIssues,
   base64Bytes,
   type EmbeddingInput,
   type EmbeddingPart,
   type EmbeddingUsage,
-  resolveMediaLimits,
+  embeddingMediaIssues,
 } from '@theoremjs/agents';
 import type { AttachmentValidationIssue } from '@theoremjs/agents/interface';
 import type { EmbeddingInterface } from './embedding-transport.ts';
@@ -25,6 +24,7 @@ export type EmbeddingMediaPart = Exclude<EmbeddingPart, { type: 'text' }>;
 export type EmbeddingInputCheck =
   | { ok: true; inputs: EmbeddingInput[] }
   | { ok: false; reason: 'invalid_json' | 'no_inputs' }
+  | { ok: false; reason: 'too_many_inputs'; max: number; inputs: EmbeddingInput[] }
   | { ok: false; reason: 'empty_input' | 'text_off'; index: number; inputs: EmbeddingInput[] }
   | {
       ok: false;
@@ -106,34 +106,34 @@ function mediaFacts(part: EmbeddingMediaPart): AttachmentFacts {
     : { mimeType: part.mimeType };
 }
 
-/** The inputs, held to the profile's rules as the kernel holds them in one request. */
+/** The inputs, held to the profile's rules and its model's limits as the kernel holds them in one request. */
 export function checkInputs(
   inputs: readonly EmbeddingInput[],
   rules: EmbeddingInterface['inputs'],
 ): EmbeddingInputCheck {
   const list = [...inputs];
   if (list.length === 0) return { ok: false, reason: 'no_inputs' };
-  const media: AttachmentFacts[] = [];
+  if (rules.maxInputs !== undefined && list.length > rules.maxInputs)
+    return { ok: false, reason: 'too_many_inputs', max: rules.maxInputs, inputs: list };
+  const media: AttachmentFacts[][] = [];
   for (const [index, input] of list.entries()) {
     const parts = partsOf(input);
     if (parts.length === 0 || parts.every((part) => part.type === 'text' && !part.text.trim()))
       return { ok: false, reason: 'empty_input', index, inputs: list };
     if (!rules.text && parts.some((part) => part.type === 'text' && part.text.trim()))
       return { ok: false, reason: 'text_off', index, inputs: list };
+    const files: AttachmentFacts[] = [];
     for (const part of parts) {
       if (part.type === 'text') continue;
       try {
-        media.push(mediaFacts(part));
+        files.push(mediaFacts(part));
       } catch {
         return { ok: false, reason: 'invalid_json' };
       }
     }
+    media.push(files);
   }
-  const issues = attachmentIssues(
-    { attachments: rules.attachments?.accept, limits: resolveMediaLimits(rules) },
-    media,
-    [],
-  );
+  const issues = embeddingMediaIssues(rules, media);
   return issues.length > 0
     ? { ok: false, reason: 'attachments', issues, inputs: list }
     : { ok: true, inputs: list };
@@ -177,15 +177,14 @@ export function readsAsText(file: { name: string; type: string }): boolean {
   );
 }
 
-// why: Gemini's batch embedding takes at most 100 inputs in one call; no profile sets fewer.
-/** The most inputs the console sends in one request. */
+// why: OpenRouter caps no batch (it took 101 inputs); 100 is Gemini's cap, a size every provider checked carries.
+/** The most inputs the console sends in one request when the model sets no cap. */
 export const MAX_BATCH_INPUTS = 100;
 
 /**
- * The inputs, in order, as the fewest requests the profile allows: each holds
- * at most `most` inputs and stays within the file count and byte limits the
- * kernel holds one request to. An input the profile refuses on its own goes
- * alone, for the kernel to refuse.
+ * The inputs, in order, as the fewest requests the profile and its model
+ * allow: each holds at most `most` inputs and passes {@linkcode checkInputs}.
+ * An input refused on its own goes alone, for the kernel to refuse.
  */
 export function embeddingBatches(
   inputs: readonly EmbeddingInput[],

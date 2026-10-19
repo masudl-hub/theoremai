@@ -2,6 +2,7 @@ import { assertAlmostEquals, assertEquals } from '@std/assert';
 import {
   addUsage,
   checkEmbeddingInputs,
+  checkInputs,
   cosineSimilarity,
   embeddingBatches,
   fieldsInput,
@@ -10,6 +11,7 @@ import {
   readsAsText,
   splitText,
 } from '../../react/src/client/embedding-input.ts';
+import { embeddingInterface } from '../../react/src/client/embedding-transport.ts';
 
 const TEXT = { text: true };
 const MEDIA = {
@@ -109,10 +111,16 @@ Deno.test('text files are read as words; other files are media', () => {
 Deno.test('documents batch as the fewest requests the profile allows', () => {
   assertEquals(embeddingBatches(['a', 'b', 'c'], TEXT), [['a', 'b', 'c']]);
   assertEquals(embeddingBatches(['a', 'b', 'c'], TEXT, 2), [['a', 'b'], ['c']]);
-  // One file per request: each image goes alone, and the text rides with the one before it.
-  const one = { parts: [image('AAA=')] };
+  // Files count per input, bytes per request: 3 and 1 bytes fill one request of 4, the text rides along.
+  const one = { parts: [image('AAAA')] };
   const two = { parts: [image('AA==')] };
-  assertEquals(embeddingBatches(['a', one, 'b', two], MEDIA), [['a', one, 'b'], [two]]);
+  const three = { parts: [image('AA==')] };
+  assertEquals(embeddingBatches(['a', one, 'b', two, three], MEDIA), [
+    ['a', one, 'b', two],
+    [three],
+  ]);
+  // The model's cap on inputs a request holds splits too.
+  assertEquals(embeddingBatches(['a', 'b', 'c'], { ...TEXT, maxInputs: 2 }), [['a', 'b'], ['c']]);
   // An input the profile refuses on its own still goes, alone, for the kernel to refuse.
   const big = { parts: [image('AAAAAAAA')] };
   assertEquals(embeddingBatches(['a', big, 'b'], MEDIA), [['a'], [big], ['b']]);
@@ -147,4 +155,32 @@ Deno.test('vectors compare by cosine, and matches rank only at the query width',
     [1, 0, 3],
   );
   assertAlmostEquals(ranked[2].score, -1);
+});
+
+Deno.test("the interface holds the profile's inputs to its default model's limits", () => {
+  const iface = embeddingInterface({
+    identity: { handle: 'Search' },
+    defaultModel: 'gemini',
+    models: {
+      gemini: {
+        protocol: 'geminiEmbedding',
+        provider: 'gemini',
+        apiId: 'gemini-embedding-2-preview',
+      },
+    },
+    inputs: {
+      text: true,
+      attachments: { accept: ['image/*', 'text/plain'] },
+      maxFiles: 10,
+      maxBytes: 100,
+      maxTurnBytes: 1000,
+    },
+  });
+  assertEquals(iface.inputs.attachments?.accept, ['image/png', 'image/jpeg']);
+  assertEquals(iface.inputs.maxInputs, 100);
+  const seven = { parts: Array.from({ length: 7 }, () => image('AA==')) };
+  const check = checkInputs([seven], iface.inputs);
+  assertEquals(check.ok ? [] : 'issues' in check ? check.issues : [], [
+    { code: 'too_many_of_kind', params: { maxFiles: 6, kind: 'image' } },
+  ]);
 });

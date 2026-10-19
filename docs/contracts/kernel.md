@@ -172,7 +172,7 @@ The input declaration is provider-neutral:
   inputs: {
     text: true,
     attachments: { accept: ['image/*', 'application/pdf'] },
-    maxFiles: 1,
+    maxFiles: 6,
     maxBytes: 20_000_000,
     maxTurnBytes: 20_000_000,
   },
@@ -195,7 +195,17 @@ when the selected model accepts only media.
 
 The kernel validates structure, MIME patterns, byte limits, and input order.
 The selected protocol encodes the parts for its provider or local runtime.
-Provider presets declare which modalities each model accepts.
+
+Each embedding protocol declares, through `embeddingLimits(apiId)`, what a
+model takes: the MIME types of its media, how many of each kind one input may
+hold, and how many inputs one request may carry. The kernel holds a request to
+the profile and the model together. A file must be in both accept lists.
+`maxFiles` counts the files in one input, and each kind is also held to the
+model's own count. `maxBytes` is per file and `maxTurnBytes` is across the
+request. A model with no media takes text only. A protocol that declares no
+limits leaves the profile's alone. `embeddingRules` and `embeddingMediaIssues`
+are the one check, which the kernel throws on and a client runs before it
+sends.
 
 runEmbedding resolves the profile, selects the model binding, validates the
 input, and calls the protocol's embedding operation. The operation returns
@@ -1642,7 +1652,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Model bindings | `ModelBinding`, `DecisionModelBinding`, `ModelProfileType`, `ProviderGenerationConfig`, `ProviderBuiltin`, `checkBinding`, `keySlotsOf`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `DecisionModelSettings` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `EstimatedCost` |
 | Provider vault | `KeySlot`, `keySlotSchema`, `KeyVault`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket` |
-| Protocol operations | `ProtocolOperations`, `ProtocolContext`, `ProtocolRequest`, `ProtocolCall`, `ProtocolSession`, `ProtocolSocket`, `SendInit`, `Outgoing`, `DecisionCall`, `EmbeddingCall`, `LiveToolResult`, `UpstreamFailure`, `CallSetup` |
+| Protocol operations | `ProtocolOperations`, `ProtocolContext`, `ProtocolRequest`, `ProtocolCall`, `ProtocolSession`, `ProtocolSocket`, `SendInit`, `Outgoing`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult`, `UpstreamFailure`, `CallSetup` |
 | Provider output | `ProtocolEvent`, `ProtocolContentEvent`, `ProviderCheckpoint`, `ProviderStateRebuilt`, `ProviderWarning`, `ProviderEvidence`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
 | Provider limits | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |

@@ -1257,7 +1257,7 @@ function ownKeyIssue(key: string, boundaries: readonly Boundary[]): string | und
   const sound = { label: key, action: 'flag', find: PATTERNS_PENDING };
   return detectProblem('Detect', { [key]: sound }, boundaries) === undefined
     ? undefined
-    : 'A key is a namespace, a dot and a name, in lower case letters, digits and _, such as acme.codenames.';
+    : 'A key is a namespace, a dot, and a name, in lower case letters, digits, and _, such as acme.codenames.';
 }
 
 /** The builder's own detectors, each read at the boundaries of the profile it sets above `ignore`. */

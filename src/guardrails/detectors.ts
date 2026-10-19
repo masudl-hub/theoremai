@@ -607,7 +607,7 @@ function allowProblem(path: string, allow: unknown, detector: Detector): string 
   if (allow === undefined) return undefined;
   const lists = DETECTOR_META[detector].allow;
   if (!lists) {
-    return `${path} is a setting of ungiven_images, ungiven_links and tool_leak only`;
+    return `${path} is a setting of ungiven_images, ungiven_links, and tool_leak only`;
   }
   if (!isRecord(allow)) return `${path} must be an object`;
   if (lists === 'names') return namesProblem(path, allow);

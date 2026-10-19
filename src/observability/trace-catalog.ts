@@ -409,7 +409,7 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   },
   'detect.tool_instructions': {
     label: 'Tool instructions',
-    doc: 'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+    doc: 'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
   },
   'detect.canary_leak': {
     label: 'Canary leak',

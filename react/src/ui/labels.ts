@@ -588,6 +588,15 @@ export const THEOREM_UI_CATALOG = {
     description: 'Documents past the ones the list shows.',
     params: ['count'],
   },
+  '@theorem.embedding.from_json': {
+    defaultMessage: 'From the JSON',
+    description: 'The documents of a pasted list, as a group.',
+  },
+  '@theorem.embedding.group': {
+    defaultMessage: '{source} · {count, plural, one {# document} other {# documents}}',
+    description: 'A group of documents from one source, above its first few.',
+    params: ['source', 'count'],
+  },
   '@theorem.embedding.invalid_json': {
     defaultMessage: 'Not a list of documents: each is text, or an object with parts.',
     description: "The documents' JSON doesn't read as the inputs an embedding takes.",

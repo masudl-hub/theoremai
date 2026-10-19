@@ -1,7 +1,4 @@
-import { HStack } from '@astryxdesign/core/HStack';
 import { TextArea } from '@astryxdesign/core/TextArea';
-import { Token } from '@astryxdesign/core/Token';
-import { VStack } from '@astryxdesign/core/VStack';
 import { base64Bytes, type EmbeddingInput } from '@theoremjs/agents';
 import { useState } from 'react';
 import {
@@ -13,7 +10,13 @@ import {
 } from '../client/embedding-input.ts';
 import { encodeFiles } from '../client/encode-files.ts';
 import { type ConsoleView, JsonRequest, RequestCard, RunBar, useBytes } from './ConsoleFrame.tsx';
-import { EmbeddingFileDrop, inputIssue, type Rules } from './EmbeddingDocuments.tsx';
+import {
+  EmbeddingFileDrop,
+  FileTile,
+  inputIssue,
+  type Rules,
+  TextBesideFile,
+} from './EmbeddingDocuments.tsx';
 import type { LabelText } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { textRows } from './StateFields.tsx';
@@ -48,6 +51,53 @@ export function useEmbeddingQuery(defaultQuery: string, rules: Rules) {
 
 export type EmbeddingQueryForm = ReturnType<typeof useEmbeddingQuery>;
 
+/** The query's one file, or a drop for it when the profile takes files. */
+function QueryFile({
+  fields,
+  accept,
+  onChange,
+}: {
+  fields: EmbeddingFields;
+  accept: readonly string[] | undefined;
+  onChange: (next: EmbeddingFields) => void;
+}) {
+  const t = useLabels();
+  const bytes = useBytes();
+  const part = fields.media[0];
+  if (part) {
+    const size =
+      part.type === 'media' ? bytes(base64Bytes(part.data)) : t('@theorem.embedding.held_file');
+    return (
+      <FileTile
+        part={part}
+        label={[part.mimeType, size].join(' · ')}
+        onRemove={() => {
+          onChange({ ...fields, media: [] });
+        }}
+      />
+    );
+  }
+  if (!accept) return null;
+  return (
+    <EmbeddingFileDrop
+      label={t('@theorem.embedding.query_file')}
+      placeholder={t('@theorem.embedding.query_file')}
+      accept={accept}
+      onFiles={async (files) => {
+        const encoded = await encodeFiles(files);
+        onChange({
+          ...fields,
+          media: encoded.map(({ mimeType, data }) => ({
+            type: 'media' as const,
+            mimeType,
+            data,
+          })),
+        });
+      }}
+    />
+  );
+}
+
 /** The query's words, and one file to search with when the profile takes files. */
 function QueryFields({
   fields,
@@ -59,75 +109,36 @@ function QueryFields({
   onChange: (next: EmbeddingFields) => void;
 }) {
   const t = useLabels();
-  const bytes = useBytes();
   const accept = rules.attachments?.accept;
-  return (
-    <VStack gap={2}>
-      {rules.text ? (
-        <TextArea
-          label={t('@theorem.embedding.query')}
-          isLabelHidden
-          value={fields.text}
-          placeholder={t('@theorem.embedding.query_placeholder')}
-          rows={textRows(fields.text, 2, 6)}
-          onChange={(text) => {
-            onChange({ ...fields, text });
-          }}
-        />
-      ) : null}
-      {fields.media.length > 0 ? (
-        <HStack gap={2} wrap="wrap">
-          {fields.media.map((part, at) => (
-            <Token
-              // why: A file has no name in the request; its place on the query is its identity.
-              key={`${String(at)}:${part.mimeType}`}
-              label={part.mimeType}
-              size="sm"
-              description={
-                part.type === 'media'
-                  ? bytes(base64Bytes(part.data))
-                  : t('@theorem.embedding.held_file')
-              }
-              onRemove={() => {
-                onChange({ ...fields, media: fields.media.filter((_, other) => other !== at) });
-              }}
-            />
-          ))}
-        </HStack>
-      ) : accept ? (
-        <EmbeddingFileDrop
-          label={t('@theorem.embedding.query_file')}
-          placeholder={t('@theorem.embedding.query_file')}
-          accept={accept}
-          onFiles={async (files) => {
-            const encoded = await encodeFiles(files);
-            onChange({
-              ...fields,
-              media: encoded.map(({ mimeType, data }) => ({
-                type: 'media' as const,
-                mimeType,
-                data,
-              })),
-            });
-          }}
-        />
-      ) : null}
-    </VStack>
-  );
+  const text = rules.text ? (
+    <TextArea
+      label={t('@theorem.embedding.query')}
+      isLabelHidden
+      value={fields.text}
+      placeholder={t('@theorem.embedding.query_placeholder')}
+      rows={textRows(fields.text, 2, 6)}
+      onChange={(next) => {
+        onChange({ ...fields, text: next });
+      }}
+    />
+  ) : null;
+  const hasFile = fields.media.length > 0 || accept !== undefined;
+  const file = hasFile ? <QueryFile fields={fields} accept={accept} onChange={onChange} /> : null;
+  return <TextBesideFile text={text} file={file} />;
 }
 
-/** What stands between the query and a search, once someone has tried one; else the shortcut. */
+/** What stands between the query and a search, once someone has tried one. */
 function queryNote(
   t: LabelText,
   form: EmbeddingQueryForm,
   index: IndexState,
   tried: boolean,
-): string {
-  if (!tried) return t('@theorem.embedding.search_shortcut');
+): string | null {
+  if (!tried) return null;
   if (form.issue) return form.issue;
   if (index === 'none') return t('@theorem.embedding.not_indexed');
   if (index === 'stale') return t('@theorem.embedding.stale');
-  return t('@theorem.embedding.search_shortcut');
+  return null;
 }
 
 /** The query card: its words and file, or its input as JSON, and Search. */

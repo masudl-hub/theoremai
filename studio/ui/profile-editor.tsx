@@ -6869,13 +6869,10 @@ function DecisionImageRow({
   const reference = `<${image.name}>`;
   return (
     <InspectorRow label={label} path="decision.images.name" hasIssue={status !== undefined}>
-      <Tooltip content={`Questions write it as ${reference}`}>
-        <Thumbnail
-          src={`data:${image.mimeType};base64,${image.data}`}
-          alt={reference}
-          label={reference}
-        />
-      </Tooltip>
+      <Thumbnail
+        src={`data:${image.mimeType};base64,${image.data}`}
+        label={`Questions write it as ${reference}`}
+      />
       <StackItem size="fill">
         <TextInput
           label={`${label} name`}

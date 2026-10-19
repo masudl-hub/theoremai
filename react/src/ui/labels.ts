@@ -700,12 +700,12 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.embedding.space_label': {
     defaultMessage:
-      '{count, plural, one {# document} other {# documents}} drawn on a sphere: alike documents sit together, and threads join the most alike.',
+      '{count, plural, one {# document} other {# documents}} drawn on a sphere: alike documents gather in clusters, each a hub with a line to every member, and lines join the clusters.',
     description: 'What the space shows, for screen readers.',
     params: ['count'],
   },
   '@theorem.embedding.space_query': {
-    defaultMessage: 'The query lands among its matches, with a thread to each.',
+    defaultMessage: 'The query lands among its matches, with a line to each.',
     description: 'What the space shows after a search, for screen readers.',
   },
   '@theorem.embedding.space_off': {
@@ -726,7 +726,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.embedding.width': {
     defaultMessage: '{dimensions, plural, one {# dimension} other {# dimensions}}',
-    description: "How wide a vector is, after its first values in the list.",
+    description: 'How wide a vector is, after its first values in the list.',
     params: ['dimensions'],
   },
   '@theorem.embedding.matches': {

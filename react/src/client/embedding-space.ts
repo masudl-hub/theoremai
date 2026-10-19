@@ -1,52 +1,43 @@
 /**
- * The index as a space: each document a colony on a sphere, placed by the
- * three directions its vectors differ most along, grown from its own vector,
- * and joined by threads to the documents it points most alike. Positions are
- * a projection and only approximate; the threads and their strength are the
- * vectors' own cosine similarity.
+ * The index as a space: each document a point on a sphere, placed by the
+ * three directions its vectors differ most along. Documents join their most
+ * alike until all are linked (a maximum-similarity spanning tree); a link
+ * weaker than this index's typical link is a border, and the groups it
+ * leaves are clusters. Positions are a projection and only approximate; the
+ * links and clusters are the vectors' own cosine similarity.
  *
  * @module
  */
 
-/** A point in the space, on or near the unit sphere. */
+/** A point in the space, on the unit sphere. */
 export type SpacePoint = readonly [number, number, number];
 
-/**
- * How a colony grows, read from its vector: every gene is from 0 to 1, and
- * near-identical vectors grow near-identical colonies.
- */
-export type ColonyGenome = {
-  /** How long each frond reaches. */
-  readonly reach: readonly number[];
-  /** How far each frond curls, either way from 0.5. */
-  readonly curl: readonly number[];
-  /** How far each frond lifts off the sphere. */
-  readonly lift: readonly number[];
-  /** How dense the halo of spores around it is. */
-  readonly halo: number;
-  /** How wide the whole colony is. */
-  readonly size: number;
-};
-
 /** One document in the space. */
-export type SpaceColony = {
+export type SpaceDocument = {
   /** Its index among the documents. */
   readonly index: number;
   /** Where it sits on the unit sphere. */
   readonly position: SpacePoint;
-  /** Where on the palette it sits, from 0 to 1: neighbours share a family. */
-  readonly tone: number;
-  readonly genome: ColonyGenome;
+  /** The cluster it belongs to. */
+  readonly cluster: number;
 };
 
-/** A thread between two documents that point alike. */
-export type SpaceThread = {
+/** Documents more alike each other than the links between them. */
+export type SpaceCluster = {
+  /** Its documents' indexes, in order. */
+  readonly members: readonly number[];
+  /** Where its members' mean vector lands, through the same projection. */
+  readonly hub: SpacePoint;
+  /** Where on the palette it sits, from 0 to 1, read from where its hub is. */
+  readonly tone: number;
+};
+
+/** A link of the spanning tree between two clusters: its two most alike documents. */
+export type SpaceLink = {
   readonly a: number;
   readonly b: number;
   /** Their cosine similarity. */
   readonly similarity: number;
-  /** How strong the thread draws, from 0 to 1, against the rest of this index. */
-  readonly strength: number;
 };
 
 /** The three directions the space is drawn along, kept so a query lands consistently. */
@@ -57,17 +48,15 @@ export type SpaceBasis = {
 };
 
 export type EmbeddingSpace = {
-  readonly colonies: readonly SpaceColony[];
-  readonly threads: readonly SpaceThread[];
+  readonly documents: readonly SpaceDocument[];
+  readonly clusters: readonly SpaceCluster[];
+  /** The tree's links that cross from one cluster to another. */
+  readonly links: readonly SpaceLink[];
   readonly basis: SpaceBasis;
   /** How wide the vectors are. */
   readonly dimensions: number;
 };
 
-/** Fronds on every colony; a short one reads as absent. */
-export const FRONDS = 12;
-/** Threads each document reaches for, at most. */
-const THREADS_EACH = 4;
 /** Power-iteration rounds per axis; the Gram matrix is small, so this converges well inside it. */
 const ROUNDS = 200;
 /** Where a point lands when the projection says nothing about it. */
@@ -236,76 +225,79 @@ function axisOf(rows: Float64Array, mean: Float64Array, weights: Float64Array): 
   return axis;
 }
 
-/** Squeezes a sum of `count` unit-scale terms to between 0 and 1. */
-function gene(sum: number, count: number): number {
-  return 0.5 + 0.5 * Math.tanh(sum * Math.sqrt(1 / Math.max(count, 1)) * 1.6);
-}
-
-/**
- * A colony's genome from its vector about the documents' mean (or the raw
- * vector, when there is nothing to differ from). Each gene sums an
- * interleaved band of the dimensions, so every dimension counts and close
- * vectors grow close colonies.
- */
-export function genomeOf(vector: readonly number[], mean?: Float64Array): ColonyGenome {
-  const dimensions = vector.length;
-  const offset = mean ? Array.from(vector, (v, d) => v - (mean[d] ?? 0)) : [...vector];
-  const length = Math.hypot(...offset);
-  const source = length > 1e-9 ? offset : [...vector];
-  const norm = Math.hypot(...source) || 1;
-  const genes = FRONDS * 3 + 2;
-  const sums = new Float64Array(genes);
-  const counts = new Float64Array(genes);
-  for (let d = 0; d < dimensions; d += 1) {
-    // why: about unit length, each value is about 1/sqrt(D); scaled up it is about 1.
-    sums[d % genes] += (source[d] / norm) * Math.sqrt(dimensions);
-    counts[d % genes] += 1;
-  }
-  const at = (g: number) => gene(sums[g], counts[g]);
-  return {
-    reach: Array.from({ length: FRONDS }, (_, f) => at(f)),
-    curl: Array.from({ length: FRONDS }, (_, f) => at(FRONDS + f)),
-    lift: Array.from({ length: FRONDS }, (_, f) => at(FRONDS * 2 + f)),
-    halo: at(FRONDS * 3),
-    size: at(FRONDS * 3 + 1),
-  };
-}
-
-/** Each document's strongest threads, both ends counted, strength measured against this index's own spread. */
-function* threadsOf(gram: Float64Array, n: number): Generator<void, SpaceThread[]> {
+/** Every pair's cosine similarity, from the raw products. */
+function cosineOf(gram: Float64Array, n: number): Float64Array {
   const norms = Array.from({ length: n }, (_, i) => Math.sqrt(Math.max(gram[i * n + i], 0)));
   const cosine = new Float64Array(n * n);
-  const pairs: number[] = [];
   for (let i = 0; i < n; i += 1)
+    for (let j = 0; j < n; j += 1)
+      cosine[i * n + j] =
+        norms[i] === 0 || norms[j] === 0 ? 0 : gram[i * n + j] / (norms[i] * norms[j]);
+  return cosine;
+}
+
+/** The maximum-similarity spanning tree, by Prim's algorithm: each document joins the tree by its most alike document already in it. */
+function* spanningTree(cosine: Float64Array, n: number): Generator<void, SpaceLink[]> {
+  const joined = new Uint8Array(n);
+  const best = new Float64Array(n).fill(-Infinity);
+  const via = new Int32Array(n).fill(-1);
+  const links: SpaceLink[] = [];
+  let next = 0;
+  for (let step = 0; step < n; step += 1) {
+    const at = next;
+    joined[at] = 1;
+    if (via[at] >= 0)
+      links.push({ a: Math.min(at, via[at]), b: Math.max(at, via[at]), similarity: best[at] });
+    next = -1;
     for (let j = 0; j < n; j += 1) {
-      const value = norms[i] === 0 || norms[j] === 0 ? 0 : gram[i * n + j] / (norms[i] * norms[j]);
-      cosine[i * n + j] = value;
-      if (j > i) pairs.push(value);
-    }
-  if (pairs.length === 0) return [];
-  const sorted = pairs.sort((a, b) => a - b);
-  const floor = sorted[Math.floor((sorted.length - 1) / 2)];
-  const spread = sorted[sorted.length - 1] - floor;
-  const chosen = new Map<number, SpaceThread>();
-  const others = Array.from({ length: n }, (_, j) => j);
-  for (let i = 0; i < n; i += 1) {
-    const row = cosine.subarray(i * n, i * n + n);
-    const nearest = others
-      .filter((j) => j !== i)
-      .sort((x, y) => row[y] - row[x])
-      .slice(0, THREADS_EACH);
-    for (const j of nearest) {
-      const similarity = row[j];
-      // invariant: below the index's median a pair is not alike, only less unlike.
-      if (spread <= 1e-9 ? n > 2 : similarity <= floor) continue;
-      const a = Math.min(i, j);
-      const b = Math.max(i, j);
-      const strength = spread <= 1e-9 ? 1 : (similarity - floor) / spread;
-      chosen.set(a * n + b, { a, b, similarity, strength });
+      if (joined[j]) continue;
+      if (cosine[at * n + j] > best[j]) {
+        best[j] = cosine[at * n + j];
+        via[j] = at;
+      }
+      if (next < 0 || best[j] > best[next]) next = j;
     }
     yield;
   }
-  return [...chosen.values()].sort((x, y) => x.a - y.a || x.b - y.b);
+  return links;
+}
+
+/** The weakest a link may be and stay inside a cluster: a deviation below the tree's mean link. */
+function borderOf(links: readonly SpaceLink[]): number {
+  if (links.length === 0) return -Infinity;
+  const mean = links.reduce((sum, link) => sum + link.similarity, 0) / links.length;
+  const variance =
+    links.reduce((sum, link) => sum + (link.similarity - mean) ** 2, 0) / links.length;
+  return mean - Math.sqrt(variance);
+}
+
+/** The groups the tree's links leave once the links below the border are cut, each in document order. */
+function groupsOf(n: number, links: readonly SpaceLink[], border: number): number[][] {
+  const root = Array.from({ length: n }, (_, i) => i);
+  const find = (i: number): number => {
+    while (root[i] !== i) {
+      root[i] = root[root[i]];
+      i = root[i];
+    }
+    return i;
+  };
+  for (const link of links) if (link.similarity >= border) root[find(link.a)] = find(link.b);
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i += 1) {
+    const top = find(i);
+    const group = groups.get(top);
+    if (group) group.push(i);
+    else groups.set(top, [i]);
+  }
+  return [...groups.values()];
+}
+
+/** The mean of some rows. */
+function meanOfRows(rows: Float64Array, members: readonly number[], dimensions: number): number[] {
+  const mean = new Array<number>(dimensions).fill(0);
+  for (const i of members)
+    for (let d = 0; d < dimensions; d += 1) mean[d] += rows[i * dimensions + d];
+  return mean.map((v) => v / Math.max(members.length, 1));
 }
 
 /** A position's place on the palette: along the space's widest direction, turned a little by the next. */
@@ -317,37 +309,45 @@ function toneOf(position: SpacePoint): number {
 
 /**
  * The layout, a slice at a time. Vectors whose width differs from the first
- * are left out of the threads and placed facing the viewer.
+ * are placed facing the viewer, each a cluster of its own.
  */
 function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, EmbeddingSpace> {
   const dimensions = vectors[0]?.length ?? 0;
-  const usable = vectors.map((vector) => vector.length === dimensions);
-  const kept = vectors.filter((_, i) => usable[i]);
-  const n = kept.length;
-  const rows = packed(kept, dimensions);
+  const original = vectors.flatMap((vector, i) => (vector.length === dimensions ? [i] : []));
+  const n = original.length;
+  const rows = packed(
+    original.map((i) => vectors[i]),
+    dimensions,
+  );
   const mean = meanOf(rows, n, dimensions);
   const gram = yield* gramOf(rows, n, dimensions);
   const axes = (yield* topEigen(centred(gram, n), n, 3)).map(({ vector }) =>
     axisOf(rows, mean, vector),
   );
   const basis = { mean, axes };
-  const colonies = vectors.map((vector, index): SpaceColony => {
-    // invariant: documents and queries go through the one projection, so a query lands on its own document.
-    const position = usable[index] ? project(basis, vector) : FACING;
-    return {
-      index,
-      position,
-      tone: toneOf(position),
-      genome: genomeOf(vector, n > 1 ? mean : undefined),
-    };
+  const tree = yield* spanningTree(cosineOf(gram, n), n);
+  const border = borderOf(tree);
+  const groups = groupsOf(n, tree, border);
+  const clusters: SpaceCluster[] = groups.map((group) => {
+    const hub = project(basis, meanOfRows(rows, group, dimensions));
+    return { members: group.map((i) => original[i]), hub, tone: toneOf(hub) };
   });
-  const original = vectors.flatMap((_, i) => (usable[i] ? [i] : []));
-  const threads = (yield* threadsOf(gram, n)).map((thread) => ({
-    ...thread,
-    a: original[thread.a],
-    b: original[thread.b],
-  }));
-  return { colonies, threads, basis, dimensions };
+  for (const [i, vector] of vectors.entries())
+    if (vector.length !== dimensions)
+      clusters.push({ members: [i], hub: FACING, tone: toneOf(FACING) });
+  const clusterOf = new Map(clusters.flatMap((c, k) => c.members.map((i) => [i, k] as const)));
+  const documents = vectors.map(
+    (vector, index): SpaceDocument => ({
+      index,
+      // invariant: documents and queries go through the one projection, so a query lands on its own document.
+      position: vector.length === dimensions ? project(basis, vector) : FACING,
+      cluster: clusterOf.get(index) ?? 0,
+    }),
+  );
+  const links = tree
+    .filter((link) => link.similarity < border)
+    .map((link) => ({ ...link, a: original[link.a], b: original[link.b] }));
+  return { documents, clusters, links, basis, dimensions };
 }
 
 /** The space for a set of document vectors, all at once. */

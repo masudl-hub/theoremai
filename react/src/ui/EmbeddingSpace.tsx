@@ -137,9 +137,9 @@ function SpaceCanvas({
 }
 
 /**
- * The index drawn as a space: each document a colony grown from its vector,
- * alike documents together, threads between the most alike, and a query's
- * spore with a thread to each match. Drag to turn it; point at a colony to
+ * The index drawn as a space: each document a dot, alike documents together,
+ * each cluster a hub with a spoke to every member, links between clusters,
+ * and a query's dot with a spoke to each match. Drag to turn it; point at a dot to
  * name its document.
  */
 export function EmbeddingSpaceView(props: EmbeddingSpaceViewProps) {

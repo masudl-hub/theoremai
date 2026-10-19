@@ -1,16 +1,15 @@
 import { assert, assertAlmostEquals, assertEquals, assertRejects } from '@std/assert';
 import {
-  FRONDS,
-  genomeOf,
   layoutSpace,
   layoutSpaceSoon,
   placeQuery,
 } from '../../react/src/client/embedding-space.ts';
 import {
-  QUERY_COLONY,
+  DOT_FLOATS,
+  hubSlot,
+  QUERY_SLOT,
   queryGeometry,
   SEGMENT_FLOATS,
-  SPORE_FLOATS,
   spaceGeometry,
 } from '../../react/src/client/space-geometry.ts';
 
@@ -34,9 +33,13 @@ function distance(a: readonly number[], b: readonly number[]): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
-Deno.test('every colony sits on the unit sphere, and the axes are orthonormal', () => {
+Deno.test('every document and hub sits on the unit sphere, and the axes are orthonormal', () => {
   const space = layoutSpace(Array.from({ length: 12 }, (_, i) => vector(i + 1)));
-  for (const colony of space.colonies) assertAlmostEquals(Math.hypot(...colony.position), 1, 1e-9);
+  for (const point of [
+    ...space.documents.map((d) => d.position),
+    ...space.clusters.map((c) => c.hub),
+  ])
+    assertAlmostEquals(Math.hypot(...point), 1, 1e-9);
   assertEquals(space.basis.axes.length, 3);
   for (const [i, a] of space.basis.axes.entries())
     for (const [j, b] of space.basis.axes.entries()) {
@@ -47,50 +50,49 @@ Deno.test('every colony sits on the unit sphere, and the axes are orthonormal', 
 
 Deno.test('the same documents always draw the same space', () => {
   const vectors = Array.from({ length: 8 }, (_, i) => vector(i + 3));
-  assertEquals(layoutSpace(vectors).colonies, layoutSpace(vectors).colonies);
+  assertEquals(layoutSpace(vectors), layoutSpace(vectors));
 });
 
-Deno.test('near-duplicates sit together and grow alike; strangers do not', () => {
-  const base = vector(7);
-  const vectors = [
-    base,
-    nudge(base, 0.02, 99),
-    ...Array.from({ length: 8 }, (_, i) => vector(i + 20)),
+/** Three groups of five near-duplicates, then four strangers. */
+function groups(): number[][] {
+  return [
+    ...[vector(7), vector(8), vector(9)].flatMap((centre, g) =>
+      Array.from({ length: 5 }, (_, i) => nudge(centre, 0.1, 100 + g * 10 + i)),
+    ),
+    ...Array.from({ length: 4 }, (_, i) => vector(i + 50)),
   ];
-  const space = layoutSpace(vectors);
-  const [a, b, c] = space.colonies;
-  assert(distance(a.position, b.position) < distance(a.position, c.position));
-  const reach = (i: number) => space.colonies[i].genome.reach;
-  const gap = (x: readonly number[], y: readonly number[]) =>
-    Math.max(...x.map((v, i) => Math.abs(v - y[i])));
-  assert(gap(reach(0), reach(1)) < 0.1, 'near-duplicates grow alike');
-  assert(gap(reach(0), reach(2)) > 0.1, 'strangers grow apart');
+}
+
+Deno.test('alike documents form a cluster each; strangers stand alone', () => {
+  const space = layoutSpace(groups());
+  const members = space.clusters.map((c) => c.members);
+  assertEquals(members, [
+    [0, 1, 2, 3, 4],
+    [5, 6, 7, 8, 9],
+    [10, 11, 12, 13, 14],
+    [15],
+    [16],
+    [17],
+    [18],
+  ]);
+  for (const document of space.documents)
+    assert(space.clusters[document.cluster].members.includes(document.index));
+  const [a, b, c] = space.documents;
+  assert(distance(a.position, b.position) < distance(a.position, space.documents[5].position));
+  assert(distance(c.position, space.clusters[0].hub) < distance(c.position, space.clusters[1].hub));
 });
 
-Deno.test('a genome has every gene between 0 and 1', () => {
-  const genome = genomeOf(vector(5, 3072));
-  assertEquals(genome.reach.length, FRONDS);
-  for (const value of [...genome.reach, ...genome.curl, ...genome.lift, genome.halo, genome.size])
-    assert(value >= 0 && value <= 1);
-});
-
-Deno.test('threads join each document to its most alike, once each, never below the median', () => {
-  const base = vector(11);
-  const vectors = [
-    base,
-    nudge(base, 0.05, 1),
-    ...Array.from({ length: 6 }, (_, i) => vector(i + 40)),
-  ];
-  const space = layoutSpace(vectors);
-  const keys = space.threads.map((t) => `${t.a}:${t.b}`);
-  assertEquals(new Set(keys).size, keys.length);
-  for (const thread of space.threads) {
-    assert(thread.a < thread.b);
-    assert(thread.strength > 0 && thread.strength <= 1);
+Deno.test('the links join every cluster into one tree, across clusters only', () => {
+  const space = layoutSpace(groups());
+  assertEquals(space.links.length, space.clusters.length - 1);
+  const root = space.clusters.map((_, k) => k);
+  const find = (k: number): number => (root[k] === k ? k : find(root[k]));
+  for (const link of space.links) {
+    const [x, y] = [space.documents[link.a].cluster, space.documents[link.b].cluster];
+    assert(x !== y, 'a link crosses clusters');
+    assert(find(x) !== find(y), 'no link closes a loop');
+    root[find(x)] = find(y);
   }
-  const strongest = space.threads.reduce((x, y) => (y.strength > x.strength ? y : x));
-  assertEquals([strongest.a, strongest.b], [0, 1]);
-  assertEquals(strongest.strength, 1);
 });
 
 Deno.test('a query lands where its own document is', () => {
@@ -98,26 +100,32 @@ Deno.test('a query lands where its own document is', () => {
   const space = layoutSpace(vectors);
   const landed = placeQuery(space, vectors[4]);
   assert(landed);
-  assertAlmostEquals(distance(landed, space.colonies[4].position), 0, 1e-6);
+  assertAlmostEquals(distance(landed, space.documents[4].position), 0, 1e-6);
   assertEquals(placeQuery(space, [1, 2, 3]), null);
 });
 
 Deno.test('one, two, or identical documents still draw', () => {
   const one = layoutSpace([vector(1)]);
-  assertEquals(one.colonies[0].position, [0, 0, 1]);
-  assertEquals(one.threads, []);
+  assertEquals(one.documents[0].position, [0, 0, 1]);
+  assertEquals(
+    one.clusters.map((c) => c.members),
+    [[0]],
+  );
+  assertEquals(spaceGeometry(one).segments.length, 0, 'a cluster of one is a dot, with no spoke');
   const two = layoutSpace([vector(1), vector(2)]);
-  assertAlmostEquals(distance(two.colonies[0].position, two.colonies[1].position), 2, 1e-6);
-  assertEquals(two.threads.length, 1);
+  assertAlmostEquals(distance(two.documents[0].position, two.documents[1].position), 2, 1e-6);
+  assertEquals(two.clusters.length, two.links.length + 1);
   const same = layoutSpace([vector(3), vector(3), vector(3)]);
-  for (const colony of same.colonies) assertEquals(colony.position, [0, 0, 1]);
-  assertEquals(layoutSpace([]).colonies, []);
+  for (const document of same.documents) assertEquals(document.position, [0, 0, 1]);
+  assertEquals(same.clusters.length, 1);
+  assertEquals(layoutSpace([]).documents, []);
 });
 
-Deno.test('a vector of another width is placed facing, and left out of the threads', () => {
+Deno.test('a vector of another width is placed facing, alone, and left out of the links', () => {
   const space = layoutSpace([vector(1), vector(2), [0.1, 0.2], vector(4)]);
-  assertEquals(space.colonies[2].position, [0, 0, 1]);
-  assert(space.threads.every((t) => t.a !== 2 && t.b !== 2));
+  assertEquals(space.documents[2].position, [0, 0, 1]);
+  assertEquals(space.clusters[space.documents[2].cluster].members, [2]);
+  assert(space.links.every((t) => t.a !== 2 && t.b !== 2));
 });
 
 Deno.test('laid out in slices, the space is the same as all at once', async () => {
@@ -133,19 +141,25 @@ Deno.test('laid out in slices, the space is the same as all at once', async () =
   );
 });
 
-Deno.test('the geometry packs whole segments and spores, every number finite, every colony real', () => {
-  const vectors = Array.from({ length: 9 }, (_, i) => vector(i + 100, 128));
+Deno.test('the geometry packs whole segments and dots, every number finite, every slot real', () => {
+  const vectors = groups();
   const space = layoutSpace(vectors);
   const drawn = spaceGeometry(space);
+  const slots = space.documents.length + space.clusters.length;
   assertEquals(drawn.segments.length % SEGMENT_FLOATS, 0);
-  assertEquals(drawn.spores.length % SPORE_FLOATS, 0);
-  assert(drawn.segments.every(Number.isFinite) && drawn.spores.every(Number.isFinite));
+  assertEquals(drawn.dots.length % DOT_FLOATS, 0);
+  assert(drawn.segments.every(Number.isFinite) && drawn.dots.every(Number.isFinite));
   for (let at = 0; at < drawn.segments.length; at += SEGMENT_FLOATS)
-    for (const colony of [drawn.segments[at + 11], drawn.segments[at + 12]])
-      assert(colony >= 0 && colony < 9);
+    for (const slot of [drawn.segments[at + 11], drawn.segments[at + 12]])
+      assert(slot >= 0 && slot < space.documents.length);
+  const dotSlots = new Set<number>();
+  for (let at = 0; at < drawn.dots.length; at += DOT_FLOATS) dotSlots.add(drawn.dots[at + 8]);
+  assertEquals(dotSlots.size, space.documents.length + 3, 'a dot per document and per hub of many');
+  for (const slot of dotSlots) assert(slot >= 0 && slot < slots);
+  assert(dotSlots.has(hubSlot(space, 0)));
   const landed = placeQuery(space, vectors[2]);
   assert(landed);
   const query = queryGeometry(space, landed, [{ index: 2, closeness: 1 }]);
-  assertEquals(query.segments[11], QUERY_COLONY);
+  assertEquals(query.segments[11], QUERY_SLOT);
   assertEquals(query.segments[12], 2);
 });

@@ -290,7 +290,7 @@ function IndexSpace({
   const landed = useMemo(() => (space && query ? placeQuery(space, query) : null), [space, query]);
   const close = useMemo(() => (landed ? closenessOf(matches) : []), [landed, matches]);
   if (!space) return <div style={SPACE_ROOM} />;
-  const label = t('@theorem.embedding.space_label', { count: space.colonies.length });
+  const label = t('@theorem.embedding.space_label', { count: space.documents.length });
   return (
     <Suspense fallback={<div style={SPACE_ROOM} />}>
       <EmbeddingSpaceView

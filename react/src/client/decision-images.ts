@@ -123,10 +123,11 @@ export function boxSource(
   return images[named ?? names[0] ?? ''];
 }
 
-type Box = { top: number; bottom: number; left: number; right: number };
+/** A box answer's edges, each a share of the image from its top or left. */
+export type DecisionBox = { top: number; bottom: number; left: number; right: number };
 
 /** The box in an image's pixels, and an outline that stays visible at any size. */
-export function boxRect(box: Box, width: number, height: number) {
+export function boxRect(box: DecisionBox, width: number, height: number) {
   return {
     x: box.left * width,
     y: box.top * height,
@@ -140,7 +141,7 @@ export function boxRect(box: Box, width: number, height: number) {
 export type BoxMarks = { outline: string; shade: string };
 
 /** The whole image with the box outlined and the rest shaded, as a PNG `src`. */
-export async function markedBox(src: string, box: Box, marks: BoxMarks): Promise<string> {
+export async function markedBox(src: string, box: DecisionBox, marks: BoxMarks): Promise<string> {
   const image = new Image();
   image.src = src;
   await image.decode();
@@ -163,7 +164,7 @@ export async function markedBox(src: string, box: Box, marks: BoxMarks): Promise
 }
 
 /** The part of an image a box takes, as the frame's size and the image's place inside it, in percent. */
-export function cropOf(box: Box) {
+export function cropOf(box: DecisionBox) {
   const width = box.right - box.left;
   const height = box.bottom - box.top;
   return {

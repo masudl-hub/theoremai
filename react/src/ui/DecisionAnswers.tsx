@@ -18,6 +18,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   boxSource,
   cropOf,
+  type DecisionBox,
   type DecisionImages,
   imageSrc,
   markedBox,
@@ -276,7 +277,7 @@ function BoxCrop({
   caption,
 }: {
   source: DecisionAsset;
-  box: Extract<DecisionAnswer, { type: 'box' }>['box'];
+  box: DecisionBox;
   caption: string;
 }) {
   const t = useLabels();

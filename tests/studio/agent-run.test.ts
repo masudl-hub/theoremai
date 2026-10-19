@@ -146,9 +146,14 @@ Deno.test('a turn that fails sends its traces ahead of the failure, where the pa
       runtime: {
         mode: 'byok',
         provider: (): TurnModel => ({
-          // biome-ignore lint/correctness/useYield: the model fails before it says anything.
+          // The model fails before it says anything.
           async *complete() {
-            throw new Error('The model is down.');
+            yield* {
+              [Symbol.asyncIterator]: () => ({
+                next: (): Promise<IteratorResult<never>> =>
+                  Promise.reject(new Error('The model is down.')),
+              }),
+            };
           },
         }),
       },

@@ -1,4 +1,3 @@
-import { Grid } from '@astryxdesign/core/Grid';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
@@ -16,6 +15,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { boxSource, cropOf, type DecisionImages, imageSrc } from '../client/decision-images.ts';
 import type { DecisionInterface, DecisionQuestionView } from '../client/decision-transport.ts';
 import { Arrive, Stream } from './arrive.tsx';
+import { CardWall } from './CardWall.tsx';
 import { resultMeta } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { ChartCard, TRACE_RADIUS, traceFill } from './trace-patterns.tsx';
@@ -456,7 +456,7 @@ export function TheoremDecisionAnswers({
       isStale={isStale}
       tokens={(count) => t('@theorem.decision.tokens', { count })}
     >
-      <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
+      <CardWall minWidth={260}>
         {iface.questions.map((question) => (
           <Arrive key={question.id}>
             <AnswerCard
@@ -467,7 +467,7 @@ export function TheoremDecisionAnswers({
             />
           </Arrive>
         ))}
-      </Grid>
+      </CardWall>
     </ResultStack>
   );
 }

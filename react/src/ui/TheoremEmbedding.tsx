@@ -51,6 +51,18 @@ function sameInputs(a: readonly EmbeddingInput[], b: readonly EmbeddingInput[]):
  * The frame's second child. A call, not a component: the frame counts its
  * children to choose a layout, and nothing indexed yet has to count as none.
  */
+/** Where the documents stand for the last query: none embedded, embedded, changed since, or embedded by another model. */
+function indexStateOf(
+  indexed: { inputs: readonly EmbeddingInput[]; model: string } | null,
+  queried: { model: string } | null,
+  inputs: readonly EmbeddingInput[],
+): IndexState {
+  if (!indexed) return 'none';
+  // why: A query from another model than the index's is in another space; no score between them means anything.
+  if (queried && queried.model !== indexed.model) return 'model';
+  return sameInputs(indexed.inputs, inputs) ? 'fresh' : 'stale';
+}
+
 function embeddingResponse(columns: boolean, label: string, results: ReactNode | null): ReactNode {
   if (results === null) return null;
   return columns ? <ResponseColumn label={label}>{results}</ResponseColumn> : results;
@@ -76,16 +88,8 @@ function EmbeddingBody({
   const [indexed, setIndexed] = useState<readonly EmbeddingDocument[]>([]);
   const inspector = useTraceInspector(iface, transport.traces, trace);
 
-  // why: A query from another model than the index's is in another space; no score between them means anything.
-  const remodelled =
-    search.result !== null && index.result !== null && search.result.model !== index.result.model;
-  const state: IndexState = remodelled
-    ? 'model'
-    : !index.result
-      ? 'none'
-      : sameInputs(index.result.inputs, documents.inputs)
-        ? 'fresh'
-        : 'stale';
+  const state = indexStateOf(index.result, search.result, documents.inputs);
+  const remodelled = state === 'model';
   const runIndex = () => {
     if (documents.jsonInvalid || documents.issue || documents.inputs.length === 0) return;
     setIndexed(documents.documents);

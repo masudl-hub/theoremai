@@ -524,6 +524,12 @@ export const THEOREM_UI_CATALOG = {
     description: 'A file attached as an image that is neither.',
     params: ['file'],
   },
+  '@theorem.decision.edit_question': {
+    defaultMessage: 'Edit {question}',
+    description:
+      'The button on an answer that opens its question where it is set up. The page shows it only when it can.',
+    params: ['question'],
+  },
   '@theorem.decision.box_in': {
     defaultMessage: 'The box, cut from the image',
     description: 'The alt text of the part of the image a box answer covers.',

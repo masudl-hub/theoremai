@@ -279,6 +279,8 @@ A profile whose model takes images (`images: true`, see the TypeSafe options in 
 
 A box answer is drawn as the part of the image it covers, with its edges beside it as shares of the image. The image is the one the question's `image` gives, a reference or a state field. Without one, it is the one at the field the instructions first name in backticks, such as `chart` in "Where on `chart` would the green apple in `photo` sit?". Without that, it is the first image the state names, or else the first held.
 
+Pass `onQuestion` to open a question where it is set up, such as in an editor. Each answer then has a button that calls it with the question's id.
+
 For your own UI, use `useTheoremDecision`. Its `decide(state, assets)` takes the images by reference.
 
 ### Embedding

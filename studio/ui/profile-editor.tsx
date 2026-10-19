@@ -155,6 +155,7 @@ import {
   type RefObject,
   type SetStateAction,
   useContext,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -263,6 +264,7 @@ import {
   LocalConnection,
   NodeIssues,
   ProjectAsks,
+  QuestionLink,
   RowOrigins,
   RunsOn,
   SaidOrigin,
@@ -6808,6 +6810,13 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
     ) : (
       rows
     );
+  const { asked, shown } = useContext(QuestionLink);
+  const askedKey = decision.questions.find((question) => question.id === asked)?.key;
+  useEffect(() => {
+    if (asked === undefined) return;
+    shown?.();
+    if (askedKey) show(askedKey);
+  }, [asked, askedKey, shown, show]);
   const page = openQuestionPage(open, decision, setQuestions, () => {
     show(null);
   });

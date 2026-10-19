@@ -1,6 +1,6 @@
 import type { TraceFeed } from '@theoremjs/react/client';
 import { TheoremDecision } from '@theoremjs/react/ui';
-import { useMemo } from 'react';
+import { useContext, useMemo } from 'react';
 import { createBrowserStudioDecisionTransport, type StudioBrowserRuntime } from '../browser.ts';
 import {
   createStudioDecisionTransport,
@@ -11,6 +11,7 @@ import {
   EXAMPLE_SPAN_DECISION_STATE,
   type StudioRunPayload,
 } from '../mod.ts';
+import { QuestionLink } from './inspector-context.ts';
 import { noting } from './lib/studio-activity.ts';
 
 /** What a decision's form starts with: an example its model can be asked about, and the pictures the example names. */
@@ -62,6 +63,7 @@ export function useStudioTransport<T extends object>(
 
 /** The same decision runner in the builder preview and the standalone run tab. */
 export function StudioDecision(props: StudioConsoleProps) {
+  const { open } = useContext(QuestionLink);
   const transport = useStudioTransport(
     props,
     createStudioDecisionTransport,
@@ -75,6 +77,7 @@ export function StudioDecision(props: StudioConsoleProps) {
       flush={props.flush}
       columns={props.columns}
       className={props.className}
+      onQuestion={open}
     />
   );
 }

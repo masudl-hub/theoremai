@@ -1,8 +1,11 @@
 import { Grid } from '@astryxdesign/core/Grid';
 import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
+import { IconPencil } from '@tabler/icons-react';
 import type {
   DecisionAnswer,
   DecisionAsset,
@@ -26,6 +29,8 @@ export type TheoremDecisionAnswersProps = {
   isStale?: boolean;
   /** The images and state the answers were asked about, which box answers are cut from. Without an image, a box is drawn in a plain frame. */
   asked?: { images: DecisionImages; state: DecisionJson };
+  /** Opens a question where it is set up. Each answer then has a button that calls it with the question's id. */
+  onQuestion?: (id: string) => void;
 };
 
 const EASE = 'var(--duration-medium) var(--ease-standard)';
@@ -71,9 +76,11 @@ export function Share({ value, isLead }: { value: number; isLead: boolean }) {
 
 function ChoiceAnswer({
   title,
+  aside,
   answer,
 }: {
   title: string;
+  aside?: ReactNode;
   answer: Extract<DecisionAnswer, { type: 'choice' }>;
 }) {
   const t = useLabels();
@@ -82,6 +89,7 @@ function ChoiceAnswer({
   return (
     <ChartCard
       title={title}
+      aside={aside}
       value={answer.choice}
       note={t('@theorem.decision.confidence', { percent: n.percent.format(answer.confidence) })}
     >
@@ -120,10 +128,12 @@ function levelName(label: string): string {
 /** Each level's probability as a column, with a mark where the score falls between them. */
 function ScoreAnswer({
   title,
+  aside,
   answer,
   labels,
 }: {
   title: string;
+  aside?: ReactNode;
   answer: Extract<DecisionAnswer, { type: 'score' }>;
   labels: string[];
 }) {
@@ -134,6 +144,7 @@ function ScoreAnswer({
   return (
     <ChartCard
       title={title}
+      aside={aside}
       value={
         labels[nearest] === undefined ? n.decimal.format(answer.score) : levelName(labels[nearest])
       }
@@ -213,13 +224,15 @@ function ScoreAnswer({
 
 function NumberAnswer({
   title,
+  aside,
   answer,
 }: {
   title: string;
+  aside?: ReactNode;
   answer: Extract<DecisionAnswer, { type: 'noul' }>;
 }) {
   const n = useNumbers();
-  return <ChartCard title={title} value={n.decimal.format(answer.noul)} />;
+  return <ChartCard title={title} aside={aside} value={n.decimal.format(answer.noul)} />;
 }
 
 const BOX_FRAME_HEIGHT = 72;
@@ -285,11 +298,13 @@ function BoxCrop({
 /** The box cut from the image its question names, or drawn in a frame that stands for the whole image. */
 function BoxAnswer({
   title,
+  aside,
   answer,
   field,
   asked,
 }: {
   title: string;
+  aside?: ReactNode;
   answer: Extract<DecisionAnswer, { type: 'box' }>;
   field?: string;
   asked?: TheoremDecisionAnswersProps['asked'];
@@ -307,6 +322,7 @@ function BoxAnswer({
   return (
     <ChartCard
       title={title}
+      aside={aside}
       value={edges}
       note={t('@theorem.decision.confidence', { percent: n.percent.format(answer.confidence) })}
     >
@@ -345,19 +361,37 @@ function AnswerCard({
   question,
   answer,
   asked,
+  onQuestion,
 }: {
   question: DecisionQuestionView;
   answer: DecisionAnswer | undefined;
   asked?: TheoremDecisionAnswersProps['asked'];
+  onQuestion?: TheoremDecisionAnswersProps['onQuestion'];
 }) {
   const t = useLabels();
   const title = `${question.id} · ${t(`@theorem.decision.type.${question.type}`)}`;
   if (!answer) return null;
-  if (answer.type === 'choice') return <ChoiceAnswer title={title} answer={answer} />;
+  const edit = t('@theorem.decision.edit_question', { question: question.id });
+  const head = {
+    title,
+    aside: onQuestion ? (
+      <IconButton
+        label={edit}
+        tooltip={edit}
+        size="sm"
+        variant="ghost"
+        icon={<Icon icon={IconPencil} size="xsm" color="secondary" />}
+        onClick={() => {
+          onQuestion(question.id);
+        }}
+      />
+    ) : undefined,
+  };
+  if (answer.type === 'choice') return <ChoiceAnswer {...head} answer={answer} />;
   if (answer.type === 'score')
-    return <ScoreAnswer title={title} answer={answer} labels={question.labels} />;
-  if (answer.type === 'noul') return <NumberAnswer title={title} answer={answer} />;
-  return <BoxAnswer title={title} answer={answer} field={question.field} asked={asked} />;
+    return <ScoreAnswer {...head} answer={answer} labels={question.labels} />;
+  if (answer.type === 'noul') return <NumberAnswer {...head} answer={answer} />;
+  return <BoxAnswer {...head} answer={answer} field={question.field} asked={asked} />;
 }
 
 /**
@@ -411,6 +445,7 @@ export function TheoremDecisionAnswers({
   elapsedMs,
   isStale,
   asked,
+  onQuestion,
 }: TheoremDecisionAnswersProps) {
   const t = useLabels();
   return (
@@ -424,7 +459,12 @@ export function TheoremDecisionAnswers({
       <Grid columns={{ minWidth: 260, repeat: 'fill' }} gap={3}>
         {iface.questions.map((question) => (
           <Arrive key={question.id}>
-            <AnswerCard question={question} answer={result.answers[question.id]} asked={asked} />
+            <AnswerCard
+              question={question}
+              answer={result.answers[question.id]}
+              asked={asked}
+              onQuestion={onQuestion}
+            />
           </Arrive>
         ))}
       </Grid>

@@ -39,6 +39,8 @@ export type TheoremDecisionProps = ConsolePageProps & {
    * can add and remove more; they travel with each decision.
    */
   defaultImages?: DecisionImages;
+  /** Opens a question where it is set up, such as an editor. Each answer then has a button for it. */
+  onQuestion?: (id: string) => void;
 };
 
 type StateCheck =
@@ -204,10 +206,12 @@ function DecisionAnswered({
   iface,
   decision,
   asked,
+  onQuestion,
 }: {
   iface: DecisionInterface;
   decision: Decision;
   asked?: TheoremDecisionAnswersProps['asked'];
+  onQuestion?: TheoremDecisionAnswersProps['onQuestion'];
 }) {
   const t = useLabels();
   const deciding = decision.status === 'deciding';
@@ -224,6 +228,7 @@ function DecisionAnswered({
           iface={iface}
           result={decision.result}
           asked={asked}
+          onQuestion={onQuestion}
           elapsedMs={decision.elapsedMs}
           isStale={deciding}
         />
@@ -259,6 +264,7 @@ function DecisionBody({
   decision,
   defaultState = '{}',
   defaultImages,
+  onQuestion,
   maxWidth = '960px',
   trace,
   flush,
@@ -307,7 +313,12 @@ function DecisionBody({
         decisionPhase(decision),
         { answers: t('@theorem.decision.answers'), deciding: t('@theorem.decision.deciding') },
         decision.startedAt,
-        <DecisionAnswered iface={iface} decision={decision} asked={asked} />,
+        <DecisionAnswered
+          iface={iface}
+          decision={decision}
+          asked={asked}
+          onQuestion={onQuestion}
+        />,
       )}
     </ConsoleFrame>
   );

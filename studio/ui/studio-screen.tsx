@@ -174,6 +174,7 @@ import {
   ListBadges,
   LocalConnection,
   ProjectAsks,
+  QuestionLink,
   RowOrigins,
   RunsOn,
   WorkspaceContext,
@@ -3106,6 +3107,23 @@ function useStudioPage(opened: StudioOpened) {
     },
     [openNode, reveal],
   );
+  const [askedQuestion, setAskedQuestion] = useState<string>();
+  const { chatWith } = workspace;
+  /** Opens the decision being run, in the editor, at the question an answer is for. */
+  const questionLink = useMemo(
+    () => ({
+      asked: askedQuestion,
+      open: (id: string) => {
+        openNode(scopedNodeId(chatWith, 'decision'));
+        setAskedQuestion(id);
+        setSheet(null);
+      },
+      shown: () => {
+        setAskedQuestion(undefined);
+      },
+    }),
+    [askedQuestion, chatWith, openNode],
+  );
   // Settings take the panel; a phone's sheet over it would hide them.
   const { settingsOpen } = view;
   useEffect(() => {
@@ -3154,6 +3172,7 @@ function useStudioPage(opened: StudioOpened) {
     editing,
     issueReveal,
     goToIssue,
+    questionLink,
     compile,
     sheet,
     setSheet,
@@ -3176,6 +3195,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
   const page = useStudioPage(opened);
   const { state, connection, view, frame, selected, editing, issueReveal, compile } = page;
   const { goToIssue, sheet, setSheet, run, copy, chatRef, title, asking, project, actingAs } = page;
+  const { questionLink } = page;
   const { store, draft } = state;
   const tree = useWorkspaceTree(state, view, selected, setSheet);
   const chatAgents = useChatAgents(state.workspace.agents);
@@ -3193,70 +3213,72 @@ function Studio({ opened }: { opened: StudioOpened }) {
             {asking.dialog}
             <SharedChange store={state.store} />
             <SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
-              <Layout
-                ref={frame.layoutCallbackRef}
-                className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
-                padding={0}
-                start={
-                  <SidePanel
-                    frame={frame}
-                    tree={tree}
-                    draft={draft}
-                    onAddAgent={addAgentFrom}
-                    setSheet={setSheet}
-                    settings={
-                      view.settingsOpen &&
-                      project && (
-                        <SettingsPane
-                          state={state}
-                          connection={connection}
-                          project={project}
-                          setConversation={run.setConversation}
-                        />
-                      )
-                    }
-                    map={
-                      view.mapOpen && (
-                        <StudioMap
-                          workspace={state.workspace}
-                          shared={state.shared}
-                          selected={view.keysOpen ? '' : selected}
-                          onOpen={view.open}
-                          onClose={closeMap}
-                        />
-                      )
-                    }
-                  >
-                    <EditorColumn
-                      heading={view.keysOpen ? 'Keys' : headingOf(tree.list, editing, title)}
-                      state={state}
-                      connection={connection}
-                      view={view}
-                      compile={compile}
-                      selected={selected}
-                      editing={editing}
+              <QuestionLink value={questionLink}>
+                <Layout
+                  ref={frame.layoutCallbackRef}
+                  className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
+                  padding={0}
+                  start={
+                    <SidePanel
                       frame={frame}
-                      issueReveal={issueReveal}
-                      goToIssue={goToIssue}
+                      tree={tree}
+                      draft={draft}
+                      onAddAgent={addAgentFrom}
                       setSheet={setSheet}
+                      settings={
+                        view.settingsOpen &&
+                        project && (
+                          <SettingsPane
+                            state={state}
+                            connection={connection}
+                            project={project}
+                            setConversation={run.setConversation}
+                          />
+                        )
+                      }
+                      map={
+                        view.mapOpen && (
+                          <StudioMap
+                            workspace={state.workspace}
+                            shared={state.shared}
+                            selected={view.keysOpen ? '' : selected}
+                            onOpen={view.open}
+                            onClose={closeMap}
+                          />
+                        )
+                      }
+                    >
+                      <EditorColumn
+                        heading={view.keysOpen ? 'Keys' : headingOf(tree.list, editing, title)}
+                        state={state}
+                        connection={connection}
+                        view={view}
+                        compile={compile}
+                        selected={selected}
+                        editing={editing}
+                        frame={frame}
+                        issueReveal={issueReveal}
+                        goToIssue={goToIssue}
+                        setSheet={setSheet}
+                      />
+                    </SidePanel>
+                  }
+                  content={
+                    <PreviewPane
+                      store={store}
+                      chatAgents={chatAgents}
+                      chatWith={state.workspace.chatWith}
+                      compile={compile}
+                      run={run}
+                      connection={connection}
+                      chatRef={chatRef}
+                      copy={copy}
+                      setSheet={setSheet}
+                      onIssue={goToIssue}
                     />
-                  </SidePanel>
-                }
-                content={
-                  <PreviewPane
-                    store={store}
-                    chatAgents={chatAgents}
-                    chatWith={state.workspace.chatWith}
-                    compile={compile}
-                    run={run}
-                    connection={connection}
-                    chatRef={chatRef}
-                    copy={copy}
-                    setSheet={setSheet}
-                    onIssue={goToIssue}
-                  />
-                }
-              />
+                  }
+                />
+              </QuestionLink>
             </SaveScope>
           </ProjectAsks>
         </ConfirmWrite>

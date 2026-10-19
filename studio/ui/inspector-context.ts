@@ -82,6 +82,16 @@ export function useRowOrigin(
  */
 export const LeavePage = createContext<() => () => void>(() => () => undefined);
 
+/**
+ * The preview's way to a decision question's page. `open` takes a question's id; `asked` is that id
+ * until the decision editor shows its page and calls `shown`. Outside the builder none is set.
+ */
+export const QuestionLink = createContext<{
+  asked?: string;
+  open?: (id: string) => void;
+  shown?: () => void;
+}>({});
+
 /** Marks a row that has an issue, so the issue pill can scroll to it. */
 export const ISSUE_ROW_ATTRIBUTE = 'data-issue';
 

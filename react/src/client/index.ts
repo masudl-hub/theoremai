@@ -10,6 +10,7 @@ export {
   type DecisionQuestionView,
   type DecisionReply,
   type DecisionTransport,
+  decisionAssets,
   decisionInterface,
   failedDecisionTraces,
   failedTraces,

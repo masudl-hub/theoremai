@@ -79,6 +79,7 @@ Every export is optional. The studio reads only these:
 | `provider` | The keys, network, and limits every model call runs on (`ProviderHostOptions` from `@theoremjs/agents/kernel`). Without it, a run's model call fails for want of a key. |
 | `people`, `host` | Who a run's tools act for (below). |
 | `questions` | What each decision profile asks, by the profile's id: `{ [profileId]: { [questionId]: DecisionQuestion } }`. |
+| `images` | The pictures each decision profile sends with every decision, by the profile's id: `{ [profileId]: { [reference]: DecisionAsset } }`, where a reference is the name its questions write, such as `'<ghs02>'`. |
 
 ### Keys a run uses
 
@@ -204,7 +205,7 @@ To call `onProbePassed` after the reply on a Worker, pass `ctx.waitUntil` as the
 
 Use this when visitors without a key should still run drafts: a public playground on your free-tier keys. The drafts then run on your server, so you decide what they may use.
 
-You describe the keys once, as a `LentKeys`. It says which models the keys run and which built-in tools each model may use. It also says how large a decision may be, including how many images it may carry (`decision.images`) and how heavy each may be (`decision.imageBytes`), and what runs on the keys keep to. Give the same `LentKeys` to the screen and to the handler:
+You describe the keys once, as a `LentKeys`. It says which models the keys run and which built-in tools each model may use. It also says how large a decision may be, including how many images it may carry (`decision.images`) and how heavy each may be (`decision.imageBytes`). A decision's own pictures and the ones dropped into its state count together, and what runs on the keys keep to. Give the same `LentKeys` to the screen and to the handler:
 
 ```ts
 import type { LentKeys } from '@theoremjs/studio';
@@ -273,7 +274,7 @@ Use these when you build on the studio's draft yourself: compile it, export it a
 | Export | Purpose |
 | --- | --- |
 | `StudioDraft`, `createBlankDraft()`, `createExampleDraft()` | Editable profile draft; blank, or the travel concierge |
-| `createDecisionExampleDraft()`, `DECISION_EXAMPLE_STATE`, `DECISION_EXAMPLE_ASSETS` | The decision example: Jev 1.14 asked about a pantry shelf, with box, Number and Choice questions. Its four pictures ship with it, and the run tab starts with them attached. Each is written as its reference, such as `<ginger>`, in the state and in the questions. The shelf and ginger photos are CC0 and the flag is public domain, all from Wikimedia Commons. The colour chart was drawn for the example |
+| `createDecisionExampleDraft()`, `DECISION_EXAMPLE_STATE`, `DECISION_EXAMPLE_ASSETS` | The decision example: Jev 1.14 asked about a pantry shelf, with box, Number and Choice questions. Its four pictures ship with it. The ginger and the flag are the decision's own, sent with every decision. The run tab starts with the shelf and the colour chart in its state. Each is written as its reference, such as `<ginger>`, in the state or in the questions. The shelf and ginger photos are CC0 and the flag is public domain, all from Wikimedia Commons. The colour chart was drawn for the example |
 | `createLiveExampleDraft()`, `createNarratorExampleDraft()`, `createConsoleExampleDraft()`, `createArchitectWorkspace()` | The other examples: the concierge as a live agent, a speech narrator, a host tool console, and a code architect that calls the narrator through an agent tool |
 | `setProfileType()`, `includeFacet()`, `excludeFacet()`, `newModelBinding()`, `newToolSpec()` | Draft edits that keep it consistent with `PROFILE_GRAPH` |
 | `studioTree()`, `studioNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |

@@ -30,6 +30,7 @@ import {
 import {
   type ConversationView,
   type DecisionTransport,
+  decisionAssets,
   type TheoremConversationRequest,
   type TheoremHostCallRequest,
   type TheoremInvokeRequest,
@@ -572,7 +573,13 @@ export async function runStudioDecision(
   const { traces, sink } = collectTraces(profile.observability);
   try {
     const result = await scope.runDecision(
-      { profile: profile.id, state, questions: payload.questions ?? {}, assets, signal },
+      {
+        profile: profile.id,
+        state,
+        questions: payload.questions ?? {},
+        assets: decisionAssets(payload.images, assets),
+        signal,
+      },
       { ...options, ...(sink ? { sink } : {}) },
     );
     return { result, traces };

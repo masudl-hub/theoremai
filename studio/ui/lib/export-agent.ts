@@ -82,6 +82,12 @@ interface Entry {
 }
 
 /** The route file: `factory` from the server entry, built from the agent's module with `options`. */
+/** What a route imports from the agent's module: its profile, and a decision's questions and pictures. */
+function moduleNames(agent: CompiledStudio): string[] {
+  if (agent.profile.type !== 'decision') return ['profile'];
+  return ['profile', 'questions', ...(agent.images ? ['images'] : [])];
+}
+
 function serverFile(
   agent: CompiledStudio,
   exportName: string,
@@ -95,7 +101,7 @@ function serverFile(
     code: `${[
       `import { ${factory} } from '@theoremjs/react/server';`,
       "import './theorem';",
-      `import { ${agent.profile.type === 'decision' ? 'profile, questions' : 'profile'} } from '${module}';`,
+      `import { ${moduleNames(agent).join(', ')} } from '${module}';`,
       '',
       `/** ${mount} */`,
       `export const ${exportName} = ${factory}({`,
@@ -192,7 +198,7 @@ function decisionEntry(workspace: CompiledWorkspace, agent: CompiledStudio): Ent
       'decision',
       'createTheoremDecisionHandler',
       `Mount at ${DECISION_ENDPOINT} and ${DECISION_ENDPOINT}/decide. The questions stay here; the browser sends only the state.`,
-      ['profile', 'questions', `vault: ${vaultSource(workspace)}`],
+      [...moduleNames(agent), `vault: ${vaultSource(workspace)}`],
     ),
     ui: browserFile(
       'AgentDecision.tsx',

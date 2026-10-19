@@ -270,6 +270,7 @@ export function createBrowserStudioDecisionTransport(
         decisionInterface(
           defineProfile(payload.profile) as DecisionProfile,
           payload.questions ?? {},
+          payload.images,
         ),
       ),
     decide: async (state, signal, assets) => {

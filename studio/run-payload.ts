@@ -1,4 +1,4 @@
-import type { DecisionQuestion, ProfileDefinition } from '@theoremjs/agents';
+import type { DecisionAsset, DecisionQuestion, ProfileDefinition } from '@theoremjs/agents';
 import { z } from 'zod';
 import type { StudioConnectionMode } from './policy.ts';
 import type { StudioProvider } from './providers.ts';
@@ -49,6 +49,8 @@ export type StudioRunPayload = {
   structured?: StructuredRegistration;
   /** A decision profile's questions, by id. */
   questions?: Record<string, DecisionQuestion>;
+  /** The pictures every decision sends, by the reference its questions write. */
+  images?: Record<string, DecisionAsset>;
   /** The providers its models name, each with its adapter. Left out, they are the studio's own. */
   providers?: readonly StudioProvider[];
   /** The agents this one names, each after the agents it names; registered before it. */

@@ -17,8 +17,8 @@ import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defaultKernelScope, type ProviderHostOptions } from '@theoremjs/agents';
 import type { StudioActingAs, StudioPeople } from '../people.ts';
-import { editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
-import { createStudioHandler, type ProjectQuestions } from './handler.ts';
+import { editedImages, editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
+import { createStudioHandler, type ProjectImages, type ProjectQuestions } from './handler.ts';
 
 type SetupModule = {
   default?: () => unknown | Promise<unknown>;
@@ -29,6 +29,8 @@ type SetupModule = {
   provider?: ProviderHostOptions;
   /** What each decision profile asks, by the profile's id. */
   questions?: ProjectQuestions;
+  /** The pictures each decision profile sends, by the profile's id. */
+  images?: ProjectImages;
 };
 
 /** What `serve.ts` hands each load on its input. The key never touches disk. */
@@ -44,10 +46,11 @@ if (import.meta.main) {
   const setup: SetupModule = await import(pathToFileURL(resolve(setupPath)).href);
   await setup.default?.();
   const load: ProjectLoad = await new Response(Deno.stdin.readable).json();
-  let questions = setup.questions;
+  let { questions, images } = setup;
   if (load.edits) {
     await registerEdits(defaultKernelScope, load.edits);
     questions = editedQuestions(load.edits, questions);
+    images = editedImages(load.edits, images);
   }
 
   const handler = createStudioHandler({
@@ -58,6 +61,7 @@ if (import.meta.main) {
     ...(setup.people !== undefined ? { people: setup.people } : {}),
     ...(setup.provider ? { provider: setup.provider } : {}),
     ...(questions ? { questions } : {}),
+    ...(images ? { images } : {}),
     upgrade: (request) => Deno.upgradeWebSocket(request),
     conversationKey: load.conversationKey,
   });

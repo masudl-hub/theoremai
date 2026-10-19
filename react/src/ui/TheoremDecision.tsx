@@ -172,7 +172,11 @@ function DecisionRequest({
             let nextImages = images;
             let nextState = named;
             for (const [file, image] of dropped) {
-              const { key, reference } = imageField(file.name, nextImages, Object.keys(nextState));
+              const { key, reference } = imageField(
+                file.name,
+                { ...iface.images, ...nextImages },
+                Object.keys(nextState),
+              );
               nextImages = { ...nextImages, [reference]: image };
               nextState = { ...nextState, [key]: reference };
             }

@@ -15,6 +15,7 @@ import { DECISION_EXAMPLE_IMAGES } from './decision-example-images.ts';
 import {
   createBlankDraft,
   type DecisionDraft,
+  type DecisionImageDraft,
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
@@ -75,8 +76,19 @@ export const DECISION_EXAMPLE_STATE = JSON.stringify(
   2,
 );
 
-/** The pictures the decision example starts with, by the references its state and questions write. */
-export const DECISION_EXAMPLE_ASSETS = DECISION_EXAMPLE_IMAGES;
+const { '<pantry_shelf>': shelf, '<apple_ripeness>': chart, ...fixed } = DECISION_EXAMPLE_IMAGES;
+
+/** The pictures the decision example's state starts with, by the references it writes: the shelf and the chart. */
+export const DECISION_EXAMPLE_ASSETS = { '<pantry_shelf>': shelf, '<apple_ripeness>': chart };
+
+/** The example's own pictures, sent with every decision: the ginger and the flag its questions name. */
+function exampleImages(): DecisionImageDraft[] {
+  return Object.entries(fixed).map(([reference, image]) => ({
+    key: draftKey('image'),
+    name: reference.slice(1, -1),
+    ...image,
+  }));
+}
 
 type ExampleQuestion = DecisionDraft['questions'][number];
 
@@ -133,6 +145,7 @@ export function createDecisionExampleDraft(): StudioDraft {
           ['shop', 'Nothing yet. Someone goes to the shop.'],
         ]),
       ],
+      images: exampleImages(),
     },
   };
 }

@@ -17,7 +17,7 @@ import type { ToolRegistration } from '../registrations.ts';
 import { defineDraft, withCompiledPatterns } from '../runtime-scope.ts';
 import { type JsonSchema, zodFromJsonSchema } from '../tool-schema.ts';
 import { registerCustomTool } from '../tools.ts';
-import type { ProjectQuestions } from './handler.ts';
+import type { ProjectImages, ProjectQuestions } from './handler.ts';
 import type { NewSubjects } from './save-new.ts';
 import type { SaveSubject } from './save-plan.ts';
 
@@ -43,6 +43,15 @@ export function editedQuestions(
     if (agent.questions && !asked[agent.agentId]) asked[agent.agentId] = agent.questions;
   }
   return asked;
+}
+
+/** The pictures each decision sends in the edited load, as `editedQuestions` reads its questions. */
+export function editedImages(edits: ProjectEdits, named: ProjectImages = {}): ProjectImages {
+  const sent: ProjectImages = { ...named };
+  for (const agent of edits.added.agents) {
+    if (agent.images && !sent[agent.agentId]) sent[agent.agentId] = agent.images;
+  }
+  return sent;
 }
 
 /** One setting that differs: where it is, and its value now. No value when it was taken away. */

@@ -288,7 +288,11 @@ export function studioSource(compiled: CompiledStudio): string {
     [
       ...(customTools.length ? [`import { z } from 'zod';`] : []),
       ...(defined.compiles ? [COMPILE_IMPORT] : []),
-      `import {\n${[...(compiled.questions ? ['type DecisionQuestion'] : []), ...imports]
+      `import {\n${[
+        ...(compiled.images ? ['type DecisionAsset'] : []),
+        ...(compiled.questions ? ['type DecisionQuestion'] : []),
+        ...imports,
+      ]
         .map((name) => `  ${name},`)
         .join('\n')}\n} from '@theoremjs/agents';\n`,
     ].join('\n'),
@@ -306,8 +310,16 @@ export function studioSource(compiled: CompiledStudio): string {
           )} satisfies Record<string, DecisionQuestion>;\n`,
         ]
       : []),
+    ...(compiled.images ? [imagesSource(compiled.images, 'const')] : []),
   ];
   return blocks.join('\n');
+}
+
+function imagesSource(images: Record<string, unknown>, declare: string): string {
+  return `/** The pictures every decision sends, by the reference its questions write. */\n${declare} images = ${literal(
+    images,
+    0,
+  )} satisfies Record<string, DecisionAsset>;\n`;
 }
 
 /** A file of an exported workspace: its path from the folder it lands in, and its text. */
@@ -363,8 +375,12 @@ export function agentModule(
   from = AGENTS_PACKAGE,
   checks?: ProjectOrigins['profiles'],
 ): string {
-  const { profile, structured, questions } = compiled;
-  const imports = [...(questions ? ['type DecisionQuestion'] : []), 'defineProfile'];
+  const { profile, structured, questions, images } = compiled;
+  const imports = [
+    ...(images ? ['type DecisionAsset'] : []),
+    ...(questions ? ['type DecisionQuestion'] : []),
+    'defineProfile',
+  ];
   const defined = profileSource(
     withoutStudioFills(checks ? withItemChecks(profile, checks) : profile),
   );
@@ -389,6 +405,7 @@ export function agentModule(
           )} satisfies Record<string, DecisionQuestion>;\n`,
         ]
       : []),
+    ...(images ? [imagesSource(images, 'export const')] : []),
   ];
   return blocks.join('\n');
 }

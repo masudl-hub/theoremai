@@ -36,6 +36,8 @@ Deno.test('a dropped file becomes a field and a reference that no image or field
     reference: '<plant_2>',
   });
   assertEquals(imageField('plant.jpg', {}, ['plant']), { key: 'plant_2', reference: '<plant_2>' });
+  // The host's images are taken too: a page image under one of their names is refused.
+  assertEquals(imageField('ghs02.png', { '<ghs02>': shelf }, []).reference, '<ghs02_2>');
 });
 
 Deno.test('a decision sends only the held images its state still names', () => {

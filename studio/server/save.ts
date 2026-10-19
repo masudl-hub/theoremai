@@ -47,6 +47,8 @@ interface Compiled {
   profiles: Map<string, CompiledStudio['profile']>;
   /** What each decision profile is asked, by profile id. */
   asked: Map<string, CompiledStudio['questions']>;
+  /** The pictures each decision profile sends, by profile id. */
+  pictured: Map<string, CompiledStudio['images']>;
   tools: Map<string, ToolRegistration>;
   providers: Map<string, ReturnType<typeof providerSettings>>;
 }
@@ -73,10 +75,11 @@ function compiled(workspace: StudioWorkspace): Compiled | string[] {
     result.agents.map((agent) => [agent.agentId, withoutStudioFills(agent.profile)]),
   );
   const asked = new Map(result.agents.map((agent) => [agent.agentId, agent.questions]));
+  const pictured = new Map(result.agents.map((agent) => [agent.agentId, agent.images]));
   const providers = new Map(
     workspace.providers.map((provider) => [provider.id, providerSettings(provider)]),
   );
-  return { agents: result.agents, profiles, asked, tools, providers };
+  return { agents: result.agents, profiles, asked, pictured, tools, providers };
 }
 
 /** The names of the project's profiles and tools, from the workspace it opened as. */
@@ -236,10 +239,11 @@ export function projectDiffers(loaded: StudioWorkspace, tested: StudioWorkspace)
   const differs: string[] = [];
   const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
   for (const id of new Set([...now.profiles.keys(), ...wanted.profiles.keys()])) {
-    // A decision is its profile and what it is asked: the files must hold both as tested.
+    // A decision is its profile, what it is asked, and the pictures it sends: the files must hold all three as tested.
     const held =
       same(now.profiles.get(id), wanted.profiles.get(id)) &&
-      same(now.asked.get(id), wanted.asked.get(id));
+      same(now.asked.get(id), wanted.asked.get(id)) &&
+      same(now.pictured.get(id), wanted.pictured.get(id));
     if (!held) differs.push(id);
   }
   // A file holds a tool's schema as the page does, or as the kernel reads the page's: a tool the

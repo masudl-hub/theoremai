@@ -10,6 +10,7 @@ import {
   draftFacets,
   newCriteria,
   newDecisionQuestion,
+  readStudioSource,
   type StudioDraft,
   type StudioIssue,
   setProfileType,
@@ -68,7 +69,8 @@ function imageSize(data: string): [number, number] {
 Deno.test('the decision example writes every picture it ships, each in TypeSafe image limits', () => {
   const draft = createDecisionExampleDraft();
   const written = [DECISION_EXAMPLE_STATE, ...draft.decision.questions.map((q) => q.instructions)];
-  for (const [reference, image] of Object.entries(DECISION_EXAMPLE_ASSETS)) {
+  const fixed = draft.decision.images.map((image) => [`<${image.name}>`, image] as const);
+  for (const [reference, image] of [...Object.entries(DECISION_EXAMPLE_ASSETS), ...fixed]) {
     // TypeSafe refuses a request with an image nothing refers to.
     assert(
       written.some((text) => text.includes(reference)),
@@ -299,4 +301,68 @@ Deno.test('a Box question compiles to instructions alone, and keeps no criteria'
     type: 'box',
     instructions: 'Where is the cup in the first image?',
   });
+});
+
+function withImages(
+  draft: StudioDraft,
+  edit: (images: StudioDraft['decision']['images']) => StudioDraft['decision']['images'],
+): StudioDraft {
+  return { ...draft, decision: { ...draft.decision, images: edit(draft.decision.images) } };
+}
+
+Deno.test('a decision sends its own pictures, and a question names only those', () => {
+  const draft = createDecisionExampleDraft();
+  const result = compileStudio(draft, ON_OWN_KEYS);
+  if (!result.ok) throw new Error(JSON.stringify(result.issues));
+  assertEquals(Object.keys(result.images ?? {}), ['<ginger>', '<union_jack>']);
+  assertEquals(
+    issues(withImages(draft, () => [])).map(({ field, index, message }) => [field, index, message]),
+    [
+      ['questions', 0, 'No image is named <ginger>.'],
+      ['questions', 5, 'No image is named <union_jack>.'],
+    ],
+  );
+  const [ginger, flag] = draft.decision.images;
+  assertEquals(
+    issues(withImages(draft, () => [ginger, { ...flag, name: 'ginger' }])).map(
+      ({ field, index }) => [field, index],
+    ),
+    [
+      ['images', 1],
+      ['questions', 5],
+    ],
+  );
+  assertEquals(
+    issues(withImages(draft, () => [ginger, flag, { ...flag, name: 'Union Jack' }])).map(
+      ({ field, index }) => [field, index],
+    ),
+    [['images', 2]],
+  );
+});
+
+Deno.test('lent keys cap how many pictures a decision sends, and what each weighs', () => {
+  const draft = createDecisionExampleDraft();
+  const keys: LentKeys = {
+    ...TEST_KEYS,
+    decision: { ...TEST_KEYS.decision, images: 1, imageBytes: 10 },
+  };
+  assertEquals(
+    issues(draft, { mode: 'demo', keys }).map(({ field, index }) => [field, index]),
+    [
+      ['images', undefined],
+      ['images', 0],
+      ['images', 1],
+    ],
+  );
+});
+
+Deno.test('studioSource writes the pictures beside the questions, and reads them back by name', () => {
+  const draft = createDecisionExampleDraft();
+  const result = compileStudio(draft, ON_OWN_KEYS);
+  if (!result.ok) throw new Error(JSON.stringify(result.issues));
+  const source = studioSource(result);
+  assertStringIncludes(source, 'satisfies Record<string, DecisionAsset>;');
+  const read = readStudioSource(source, draft);
+  if (!read.ok) throw new Error(JSON.stringify(read.errors));
+  assertEquals(read.draft.decision.images, draft.decision.images);
 });

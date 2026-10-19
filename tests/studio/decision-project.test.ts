@@ -168,7 +168,7 @@ Deno.test('a decision made in the studio loads from its files as what was tested
   const compiled = compileWorkspace(tested, ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(compiled.issues.map((issue) => issue.message).join(' '));
   const [made] = compiled.agents;
-  // What Save writes: the profile registered, and its questions under its id in the setup's export.
+  // What Save writes: the profile registered, and its questions and pictures under its id in the setup's exports.
   registerProfile(made.profile);
   const saved = (asks: Record<string, DecisionQuestion>) =>
     createStudioHandler({
@@ -177,6 +177,7 @@ Deno.test('a decision made in the studio loads from its files as what was tested
       pageOrigins: [],
       listenHost: HOST,
       questions: { [made.agentId]: asks },
+      ...(made.images ? { images: { [made.agentId]: made.images } } : {}),
     })(new Request(BASE, { headers: { host: HOST } })).then(
       (response) => response.json() as Promise<StudioDescription>,
     );

@@ -30,6 +30,7 @@ import {
 import { canonical } from './canonical.ts';
 import {
   createBlankDraft,
+  type DecisionImageDraft,
   type DecisionQuestionDraft,
   defaultModelBinding,
   defaultToolSpec,
@@ -207,6 +208,7 @@ interface ParsedModule {
   profile?: Record<string, unknown>;
   provider?: { definition: string; spec: Record<string, unknown> };
   questions?: Record<string, unknown>;
+  images?: Record<string, unknown>;
   spans: StudioSourceSpan[];
 }
 
@@ -552,6 +554,9 @@ function readConst(src: Src, parsed: ParsedModule): void {
   } else if (name === 'questions') {
     if (!isRecord(value)) src.fail('questions has to be an object.');
     parsed.questions = value;
+  } else if (name === 'images') {
+    if (!isRecord(value)) src.fail('images has to be an object.');
+    parsed.images = value;
   }
 }
 
@@ -1251,14 +1256,33 @@ function liveOf(live: Record<string, unknown>): StudioDraft['live'] {
 function decisionOf(
   decision: Record<string, unknown>,
   parsed: ParsedModule,
-  current: DecisionQuestionDraft[],
+  current: StudioDraft['decision'],
 ): StudioDraft['decision'] {
   const maxState = whole(record(parsed.profile?.inputs)?.maxStateBytes);
   return {
     contract: text(decision.contract),
     maxStateBytes: maxState,
-    questions: parsed.questions ? questionsOf(parsed.questions, current) : [],
+    questions: parsed.questions ? questionsOf(parsed.questions, current.questions) : [],
+    images: parsed.images ? decisionImagesOf(parsed.images, current.images) : [],
   };
+}
+
+/** The module's pictures, each keeping the key of the one it replaces by name. */
+function decisionImagesOf(
+  spec: Record<string, unknown>,
+  current: DecisionImageDraft[],
+): DecisionImageDraft[] {
+  const byName = new Map(current.map((image) => [image.name, image]));
+  return Object.entries(spec).map(([reference, value]) => {
+    const name = reference.replace(/^<|>$/g, '');
+    const image = isRecord(value) ? value : {};
+    return {
+      key: byName.get(name)?.key ?? draftKey('image'),
+      name,
+      mimeType: text(image.mimeType),
+      data: text(image.data),
+    };
+  });
 }
 
 function profileTypeOf(profile: Record<string, unknown>): StudioProfileType | '' {
@@ -1340,7 +1364,7 @@ function draftFrom(
     live: section(profile.live, liveOf, current.live),
     decision: section(
       profile.decision,
-      (spec) => decisionOf(spec, parsed, current.decision.questions),
+      (spec) => decisionOf(spec, parsed, current.decision),
       current.decision,
     ),
     labels: {},

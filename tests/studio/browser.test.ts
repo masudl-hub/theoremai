@@ -562,9 +562,9 @@ Deno.test('the decision example sends its pictures from the browser and returns 
   assertEquals(reply.result.answers.Ginger, { type: 'box', box, confidence: 0.9 });
   assertEquals(seen[0].headers.get('TypeSafe-Danger-Zone-Images'), 'true');
   assertEquals(Object.keys(seen[0].body.assets as object), [
-    '<pantry_shelf>',
     '<ginger>',
     '<union_jack>',
+    '<pantry_shelf>',
     '<apple_ripeness>',
   ]);
 });

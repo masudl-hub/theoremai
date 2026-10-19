@@ -23,6 +23,7 @@ import {
   type ConversationLine,
   createTraceFeed,
   type DecisionTransport,
+  decisionAssets,
   decisionInterface,
   type EmbeddingTransport,
   embeddingInterface,
@@ -247,15 +248,21 @@ export function createStudioDecisionTransport(
   return {
     describe: () =>
       Promise.resolve(
-        decisionInterface(defineProfile(payload.profile) as DecisionProfile, questions),
+        decisionInterface(
+          defineProfile(payload.profile) as DecisionProfile,
+          questions,
+          payload.images,
+        ),
       ),
-    decide: (state, signal, assets) =>
-      postDecision(
+    decide: (state, signal, page) => {
+      const assets = decisionAssets(payload.images, page);
+      return postDecision(
         '/api/studio/decide',
         { profile: payload.profile, questions, state, ...(assets ? { assets } : {}) },
         signal,
         options,
-      ),
+      );
+    },
     traces,
   };
 }

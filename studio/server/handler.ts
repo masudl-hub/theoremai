@@ -14,6 +14,7 @@
  */
 
 import {
+  type DecisionAsset,
   type DecisionQuestion,
   defineProfile,
   getStructured,
@@ -137,6 +138,8 @@ export type StudioHandlerOptions = {
   provider?: ProviderHostOptions;
   /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
   questions?: ProjectQuestions;
+  /** The pictures each decision profile sends, by the profile's id: the images the application passes when it decides. */
+  images?: ProjectImages;
   /** How the server takes a socket, which a voice call needs. Without it a live profile is not run. */
   upgrade?: StudioUpgrade;
   /**
@@ -148,6 +151,9 @@ export type StudioHandlerOptions = {
 
 /** A project's decision questions: for each decision profile's id, its questions by their ids. */
 export type ProjectQuestions = Record<string, Record<string, DecisionQuestion>>;
+
+/** A project's decision pictures: for each decision profile's id, its images by reference. */
+export type ProjectImages = Record<string, Record<string, DecisionAsset>>;
 
 type Serve = (request: Request) => Promise<Response>;
 
@@ -241,11 +247,13 @@ function readProfile(
   profile: Profile,
   tools: readonly ToolRegistration[],
   questions: Record<string, DecisionQuestion> | undefined,
+  images: Record<string, DecisionAsset> | undefined,
 ): ProfileRead {
   try {
     const structured = replySchema(profile);
     const source = studioSource({
       ...(questions ? { questions } : {}),
+      ...(images ? { images } : {}),
       agentId: profile.id,
       profile: printableProfile(profile) as Parameters<typeof studioSource>[0]['profile'],
       customTools: [...tools],
@@ -346,7 +354,11 @@ function unlisted(workspace: StudioWorkspace, registered: ToolSpecDraft[]): Tool
 }
 
 /** The registered profiles and tools, as the workspace the studio opens. */
-function describeStudio(project: string, questions: ProjectQuestions): StudioDescription {
+function describeStudio(
+  project: string,
+  questions: ProjectQuestions,
+  images: ProjectImages,
+): StudioDescription {
   const tools = registeredTools();
   const problems: StudioProblem[] = [];
   const modelProblems: StudioModelProblem[] = [];
@@ -360,7 +372,7 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
       problems.push({ profile: profile.id, message: fault });
       continue;
     }
-    const read = readProfile(profile, tools, asked);
+    const read = readProfile(profile, tools, asked, images[profile.id]);
     if (!read.ok) {
       problems.push({ profile: profile.id, message: read.message });
       continue;
@@ -637,6 +649,7 @@ function profileHandlers(
       createTheoremDecisionHandler({
         profile: tracedToPage(profile),
         questions,
+        images: options.images?.[profile.id],
         vault,
         fetch,
         clientEvents: STUDIO_READER,
@@ -721,7 +734,11 @@ export function createStudioHandler(
   const base = STUDIO_BASE;
   const corsFor = (request: Request) => corsHeaders(request, options.pageOrigins);
   // The page reads the tools as the files set them, then they are made to ask.
-  const description = describeStudio(options.project, options.questions ?? {});
+  const description = describeStudio(
+    options.project,
+    options.questions ?? {},
+    options.images ?? {},
+  );
   description.asks = askBeforeWrites();
   const peopleProblem = options.people === undefined ? undefined : peopleFault(options.people);
   // People the page cannot be offered are not offered: every run acts as no one, and the page says why.

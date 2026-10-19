@@ -369,12 +369,22 @@ export interface DecisionQuestionDraft {
   criteria: DecisionCriterionDraft[];
 }
 
+/** A picture every decision sends, which the questions write as its name in angle brackets. */
+export interface DecisionImageDraft {
+  key: string;
+  /** The reference without its brackets: `ghs02` is written `<ghs02>`. */
+  name: string;
+  mimeType: string;
+  data: string;
+}
+
 /** A decision profile and the questions it asks. The state they are asked about is typed where it runs, not saved. */
 export interface DecisionDraft {
   contract: string;
   /** `null` is the studio's most. */
   maxStateBytes: number | null;
   questions: DecisionQuestionDraft[];
+  images: DecisionImageDraft[];
 }
 
 /** Wording the author replaced, by labels key; a key left out keeps the kernel's line. */
@@ -413,7 +423,7 @@ export interface StudioDraft {
 }
 
 export function draftKey(
-  prefix: 'agent' | 'model' | 'tool' | 'question' | 'criterion' | 'reference',
+  prefix: 'agent' | 'model' | 'tool' | 'question' | 'criterion' | 'reference' | 'image',
 ): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -568,6 +578,7 @@ export function exampleDecisionDraft(): DecisionDraft {
         ]),
       },
     ],
+    images: [],
   };
 }
 

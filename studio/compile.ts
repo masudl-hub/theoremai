@@ -1,4 +1,5 @@
 import {
+  type DecisionAsset,
   type DecisionEntry,
   type DecisionQuestion,
   defineProfile,
@@ -157,6 +158,8 @@ export interface CompiledStudio {
   structured?: StructuredRegistration;
   /** A decision's questions, by id. */
   questions?: Record<string, DecisionQuestion>;
+  /** The pictures every decision sends, by the reference its questions write. */
+  images?: Record<string, DecisionAsset>;
   /** The providers its models can name, each with its adapter. */
   providers: readonly StudioProvider[];
 }
@@ -1776,6 +1779,38 @@ function compileQuestions(
   return questions;
 }
 
+const IMAGE_NAME = /^[a-z0-9_]+$/;
+const IMAGE_MIME_TYPES: readonly string[] = ['image/png', 'image/jpeg'];
+
+/** The draft's pictures by reference, and every reference a question writes checked against them. */
+function compileDecisionImages(
+  decision: DecisionDraft,
+  report: Report,
+): Record<string, DecisionAsset> {
+  const images: Record<string, DecisionAsset> = Object.create(null);
+  decision.images.forEach((image, index) => {
+    const fail = (message: string) => report('decision', message, 'images', index);
+    const name = image.name.trim();
+    const reference = `<${name}>`;
+    if (!IMAGE_NAME.test(name)) fail('Name an image with lowercase letters, digits, and _.');
+    else if (Object.hasOwn(images, reference)) fail(`Image ${reference} is used twice.`);
+    else if (!IMAGE_MIME_TYPES.includes(image.mimeType) || !image.data)
+      fail(`${reference} is not a PNG or JPEG.`);
+    else
+      images[reference] = {
+        mimeType: image.mimeType as DecisionAsset['mimeType'],
+        data: image.data,
+      };
+  });
+  decision.questions.forEach((question, index) => {
+    for (const [reference] of question.instructions.matchAll(/<[a-z0-9_]+>/g)) {
+      if (!Object.hasOwn(images, reference))
+        report('decision', `No image is named ${reference}.`, 'questions', index);
+    }
+  });
+  return images;
+}
+
 function compileProfileOptions(
   draft: StudioDraft,
   facets: Set<string>,
@@ -1860,6 +1895,19 @@ function checkLentDecision(
   if (decision.questions.length > limits.questions) {
     report('decision', `These keys ask at most ${limits.questions} questions.`, 'questions');
   }
+  if (decision.images.length > limits.images) {
+    report('decision', `These keys send at most ${limits.images} images.`, 'images');
+  }
+  decision.images.forEach((image, index) => {
+    if (Math.floor((image.data.length * 3) / 4) > limits.imageBytes) {
+      report(
+        'decision',
+        `Each image is limited to ${limits.imageBytes} bytes on these keys.`,
+        'images',
+        index,
+      );
+    }
+  });
   decision.questions.forEach((question, index) => {
     const fail = (message: string) => report('decision', message, 'questions', index);
     if (over(question.id, limits.nameChars)) {
@@ -1912,6 +1960,7 @@ function compileDecision(
   }
   checkWhole(report, 'decision', 'maxStateBytes', 'Max state', decision.maxStateBytes, 1);
   const questions = compileQuestions(decision, report);
+  const images = compileDecisionImages(decision, report);
   if (on.mode === 'demo') checkLentDecision(draft, questions, on.keys, report);
   const profile: DecisionProfileDefinition = {
     type: 'decision',
@@ -1939,7 +1988,12 @@ function compileDecision(
     decision: { contract },
     ...compileProfileOptions(draft, facets, report),
   };
-  return { profile, customTools: [], questions };
+  return {
+    profile,
+    customTools: [],
+    questions,
+    ...(Object.keys(images).length ? { images: { ...images } } : {}),
+  };
 }
 
 /** A host: its custom tools, called directly, and the guardrails, trace, and labels a host keeps. */

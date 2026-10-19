@@ -1,3 +1,8 @@
+export { type StudioAsks, type WriteAsk, writeAsk, writeAskLine } from './asks.ts';
+export {
+  KNOWN_GEMINI_EMBEDDING_MODELS,
+  KNOWN_OPENROUTER_EMBEDDING_MODELS,
+} from './browser-connection.ts';
 export {
   type CompiledStudio,
   compileStudio,
@@ -8,11 +13,20 @@ export {
   type StudioProfileDefinition,
   type StudioTurnProfileDefinition,
 } from './compile.ts';
-export { unheldProblem } from './held-credentials.ts';
 export {
-  KNOWN_GEMINI_EMBEDDING_MODELS,
-  KNOWN_OPENROUTER_EMBEDDING_MODELS,
-} from './browser-connection.ts';
+  type CompiledWorkspace,
+  compileWorkspace,
+  type WorkspaceCompileResult,
+  workspaceRunAgent,
+} from './compile-workspace.ts';
+export {
+  DEMO_ALLOWED_HOSTS,
+  DEMO_CONCIERGE_SYSTEM,
+  DEMO_HTTP_SAMPLE_INPUT,
+  demoHttpSampleInput,
+  demoInputsSpec,
+  demoToolSpecs,
+} from './concierge-demo.ts';
 export {
   agentToolTarget,
   COMPACTION_DRAFT_DEFAULTS,
@@ -37,10 +51,12 @@ export {
   type IdentityDraft,
   type ImageDraft,
   type ImageReferenceDraft,
-  includableFacets,
-  includeFacet,
   INLINE_LABELS,
   type InputsDraft,
+  type ItemRuleOnFail,
+  includableFacets,
+  includeFacet,
+  type LabelsDraft,
   type LiveDraft,
   type ModelBindingDraft,
   type ModelsDraft,
@@ -51,25 +67,23 @@ export {
   newPattern,
   newToolSpec,
   type ObservabilityDraft,
-  type ItemRuleOnFail,
   type OutputsDraft,
   type OwnDetectorDraft,
   type PatternDraft,
   type PatternSourceDraft,
+  plantsCanary,
+  removeModelBinding,
+  type SpeechDraft,
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
   type StudioProfileType,
   type StudioTurnProfileType,
-  plantsCanary,
-  removeModelBinding,
   setProfileType,
-  type SpeechDraft,
-  takesContinueInstruction,
-  type ToolsDraft,
   type ToolSpecDraft,
+  type ToolsDraft,
   type TurnBehaviourDraft,
+  takesContinueInstruction,
   updateModelBinding,
-  type LabelsDraft,
 } from './draft.ts';
 export {
   addArchitectExample,
@@ -82,233 +96,6 @@ export {
   createNarratorExampleDraft,
   createSpanExampleDraft,
 } from './example.ts';
-export { type AcceptSection, acceptSections, expandAccept, nextAccept } from './media-accept.ts';
-export {
-  type StudioConnectionMode,
-  isGoogleRoute,
-  isOpenRouterRoute,
-  firstServed,
-  isProviderBuiltinId,
-  modelBindingViolation,
-  startingBinding,
-  STUDIO_TRACE_DESTINATION,
-  studioRunsProvider,
-} from './policy.ts';
-export {
-  type LentBinding,
-  type LentDecisionLimits,
-  type LentHolds,
-  type LentKeys,
-  type LentModel,
-  lentCompression,
-  type ModelBindingViolation,
-  type ModelProfileType,
-  type ModelPicks,
-  type ModelStart,
-  ON_OWN_KEYS,
-  type StudioRunsOn,
-} from './lent-keys.ts';
-export {
-  type ConnectionField,
-  connectionFields,
-  definitionFactory,
-  definitionOf,
-  definitionOfFactory,
-  kernelDefinition,
-  kernelDefinitions,
-  modelSlots,
-  LOCAL_PROVIDER_ID,
-  localProviderAddress,
-  onStudioLocal,
-  type ModelRoute,
-  modelRoute,
-  optionAt,
-  type ProtocolOptionField,
-  protocolOptionFields,
-  type ProviderProblem,
-  providerProblems,
-  registerStudioProvider,
-  servedProtocols,
-  servesProfileType,
-  STUDIO_PROVIDERS,
-  type StudioProvider,
-  takesKey,
-  withOption,
-} from './providers.ts';
-export {
-  bindingSlots,
-  defaultEffortRequired,
-  defaultModelRequired,
-  inputLimitsRequired,
-  keySlotUnset,
-} from './requirements.ts';
-export {
-  type AgentKeyOf,
-  type StudioSourceError,
-  type StudioSourceRead,
-  type StudioSourceSpan,
-  type ProviderSourceRead,
-  readProviderSource,
-  readStudioSource,
-} from './read-source.ts';
-export {
-  agentModulePath,
-  importSpecifier,
-  type ProjectCode,
-  providerSource,
-  studioSource,
-  type SourceFile,
-  workspaceSource,
-} from './source.ts';
-export {
-  createStudioTraceRouter,
-  STUDIO_RUN_METADATA_KEY,
-  type StudioTraceLine,
-  type StudioTraceRoute,
-  type StudioTraceRouter,
-} from './traces.ts';
-export {
-  DEFAULT_TOOL_INPUT_SCHEMA,
-  DEFAULT_TOOL_OUTPUT_SCHEMA,
-  parseJsonSchema,
-  sampleFromJsonSchema,
-  zodFromJsonSchema,
-} from './tool-schema.ts';
-export {
-  modelBindingNodeId,
-  providerIdOf,
-  providerNodeId,
-  type StudioNodeRef,
-  studioNodeRef,
-  studioTree,
-  type StudioTreeNode,
-  toolSpecKeyOf,
-  toolSpecNodeId,
-} from './tree.ts';
-export {
-  compileWorkspace,
-  type CompiledWorkspace,
-  type WorkspaceCompileResult,
-  workspaceRunAgent,
-} from './compile-workspace.ts';
-export type { StudioDependency } from './runtime-scope.ts';
-export {
-  addAgent,
-  addProvider,
-  type AgentDraft,
-  agentDraft,
-  agentNodeId,
-  type AgentToolsDraft,
-  createBlankWorkspace,
-  atStart,
-  duplicateAgent,
-  editedSince,
-  filesPrint,
-  rebased,
-  libraryDraft,
-  startedHere,
-  STUDIO_WORKSPACE_VERSION,
-  type StudioWorkspace,
-  removeAgent,
-  removeLibraryTool,
-  reopened,
-  resetAgent,
-  resetAll,
-  resetLibraryTool,
-  providersAtStart,
-  modelSharers,
-  providerUse,
-  newProvider,
-  removeProvider,
-  renameProvider,
-  resetProvider,
-  scopedNodeId,
-  setToolAllowed,
-  withAgentDraft,
-  withLibraryDraft,
-  withProvider,
-  workspaceFromDraft,
-  type WorkspaceNodeRef,
-  workspaceNodeRef,
-  type WorkspaceStarts,
-  type WorkspaceTree,
-  workspaceTree,
-  type FileConflict,
-  type FilesMerge,
-  type FileUpdate,
-  mergedWithFiles,
-  type SettingPath,
-  withFilesChosen,
-} from './workspace.ts';
-export {
-  type SharedCarry,
-  type SharedReach,
-  type ToolReach,
-  type SharedSites,
-  type SharedSnapshot,
-  type ToolSnapshot,
-  type Ask,
-  type AskPlace,
-  askParts,
-  reachesOthers,
-  sharedAsk,
-  shortPlace,
-  toolReach,
-  sharedSnapshot,
-  toolSnapshot,
-  withSharedCarry,
-  withToolCarry,
-} from './shared-carry.ts';
-export { type DiffLine, lineDiff } from './line-diff.ts';
-export {
-  type SharedEntry,
-  sharedAt,
-  sharedEntries,
-  sharedNodeId,
-  sharedOpens,
-} from './shared-settings.ts';
-export {
-  mapFamily,
-  mapFound,
-  type MapGroup,
-  type MapLayout,
-  mapLayout,
-  type MapLine,
-  type MapLink,
-  mapLinkEnds,
-  mapNoteLines,
-  type MapLinkKind,
-  mapLinkWords,
-  mapNeighbours,
-  type MapNode,
-  type MapNodeKind,
-  type MapPlace,
-  type MapRow,
-  type MapSizes,
-  type MapView,
-  type WorkspaceMap,
-  workspaceMap,
-} from './map.ts';
-export { type StudioAsks, type WriteAsk, writeAsk, writeAskLine } from './asks.ts';
-export {
-  type NodeOrigins,
-  nodeOrigins,
-  openOutcome,
-  originLabel,
-  originShortLabel,
-  originPlace,
-  originWay,
-  rowOrigin,
-} from './origins.ts';
-
-export {
-  DEMO_ALLOWED_HOSTS,
-  DEMO_CONCIERGE_SYSTEM,
-  DEMO_HTTP_SAMPLE_INPUT,
-  demoHttpSampleInput,
-  demoInputsSpec,
-  demoToolSpecs,
-} from './concierge-demo.ts';
 export type {
   GuardrailProbe,
   GuardrailProbeAnswer,
@@ -328,13 +115,105 @@ export {
   runGuardrailProbe,
   runGuardrailProbes,
 } from './guardrail-probe.ts';
-export { PROBE_BATTERY, type ProbeBatteryCase } from './probe-battery.ts';
-export { studioNetworkNote, studioTaintNote } from './runtime-scope.ts';
-export { sectionNote } from './section-notes.ts';
-export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
-export type { StudioInputsSpec, StudioToolSeed, StudioToolSpecSeed } from './types.ts';
+export { unheldProblem } from './held-credentials.ts';
+export {
+  type LentBinding,
+  type LentDecisionLimits,
+  type LentHolds,
+  type LentKeys,
+  type LentModel,
+  lentCompression,
+  type ModelBindingViolation,
+  type ModelPicks,
+  type ModelProfileType,
+  type ModelStart,
+  ON_OWN_KEYS,
+  type StudioRunsOn,
+} from './lent-keys.ts';
+export { type DiffLine, lineDiff } from './line-diff.ts';
 export type { StudioLiveDraftMessage } from './live-connection.ts';
 export { studioLiveConnection, studioPageTools } from './live-connection.ts';
+export {
+  type MapGroup,
+  type MapLayout,
+  type MapLine,
+  type MapLink,
+  type MapLinkKind,
+  type MapNode,
+  type MapNodeKind,
+  type MapPlace,
+  type MapRow,
+  type MapSizes,
+  type MapView,
+  mapFamily,
+  mapFound,
+  mapLayout,
+  mapLinkEnds,
+  mapLinkWords,
+  mapNeighbours,
+  mapNoteLines,
+  type WorkspaceMap,
+  workspaceMap,
+} from './map.ts';
+export { type AcceptSection, acceptSections, expandAccept, nextAccept } from './media-accept.ts';
+export {
+  type NodeOrigins,
+  nodeOrigins,
+  openOutcome,
+  originLabel,
+  originPlace,
+  originShortLabel,
+  originWay,
+  rowOrigin,
+} from './origins.ts';
+export {
+  firstServed,
+  isGoogleRoute,
+  isOpenRouterRoute,
+  isProviderBuiltinId,
+  modelBindingViolation,
+  STUDIO_TRACE_DESTINATION,
+  type StudioConnectionMode,
+  startingBinding,
+  studioRunsProvider,
+} from './policy.ts';
+export { PROBE_BATTERY, type ProbeBatteryCase } from './probe-battery.ts';
+export {
+  type ConnectionField,
+  connectionFields,
+  definitionFactory,
+  definitionOf,
+  definitionOfFactory,
+  kernelDefinition,
+  kernelDefinitions,
+  LOCAL_PROVIDER_ID,
+  localProviderAddress,
+  type ModelRoute,
+  modelRoute,
+  modelSlots,
+  onStudioLocal,
+  optionAt,
+  type ProtocolOptionField,
+  type ProviderProblem,
+  protocolOptionFields,
+  providerProblems,
+  registerStudioProvider,
+  STUDIO_PROVIDERS,
+  type StudioProvider,
+  servedProtocols,
+  servesProfileType,
+  takesKey,
+  withOption,
+} from './providers.ts';
+export {
+  type AgentKeyOf,
+  type ProviderSourceRead,
+  readProviderSource,
+  readStudioSource,
+  type StudioSourceError,
+  type StudioSourceRead,
+  type StudioSourceSpan,
+} from './read-source.ts';
 export type {
   AgentToolRegistration,
   FunctionToolRegistration,
@@ -344,10 +223,18 @@ export type {
   ToolRegistration,
 } from './registrations.ts';
 export {
+  bindingSlots,
+  defaultEffortRequired,
+  defaultModelRequired,
+  inputLimitsRequired,
+  keySlotUnset,
+} from './requirements.ts';
+export {
   clearStudioRunPayload,
   createStudioRunId,
   keptStudioRunIds,
   loadStudioRunPayload,
+  readStudioRunIdFromUrl,
   STUDIO_RUN_INDEX_KEY,
   STUDIO_RUN_PAYLOAD_CAP,
   STUDIO_RUN_PAYLOAD_KEY,
@@ -355,19 +242,131 @@ export {
   type StudioRunIndex,
   type StudioRunIndexEntry,
   type StudioRunPayload,
-  studioRunPayloadKey,
-  readStudioRunIdFromUrl,
   saveStudioRunPayload,
+  studioRunPayloadKey,
   upsertStudioRunIndex,
 } from './run-payload.ts';
-export { registerStudioTools, type StudioToolHandler, type StudioToolHandlers } from './tools.ts';
-export type { StudioSteerLine, StudioTransportOptions } from './transport.ts';
-export { createStudioEmbeddingTransport } from './transport.ts';
+export type { StudioDependency } from './runtime-scope.ts';
+export { studioNetworkNote, studioTaintNote } from './runtime-scope.ts';
+export { sectionNote } from './section-notes.ts';
 export {
-  createStudioDecisionTransport,
-  createStudioHostTransport,
+  type Ask,
+  type AskPlace,
+  askParts,
+  reachesOthers,
+  type SharedCarry,
+  type SharedReach,
+  type SharedSites,
+  type SharedSnapshot,
+  sharedAsk,
+  sharedSnapshot,
+  shortPlace,
+  type ToolReach,
+  type ToolSnapshot,
+  toolReach,
+  toolSnapshot,
+  withSharedCarry,
+  withToolCarry,
+} from './shared-carry.ts';
+export {
+  type SharedEntry,
+  sharedAt,
+  sharedEntries,
+  sharedNodeId,
+  sharedOpens,
+} from './shared-settings.ts';
+export {
+  agentModulePath,
+  importSpecifier,
+  type ProjectCode,
+  providerSource,
+  type SourceFile,
+  studioSource,
+  workspaceSource,
+} from './source.ts';
+export { sampleToolInput, stubOutputFromSchema } from './stub.ts';
+export {
+  DEFAULT_TOOL_INPUT_SCHEMA,
+  DEFAULT_TOOL_OUTPUT_SCHEMA,
+  parseJsonSchema,
+  sampleFromJsonSchema,
+  zodFromJsonSchema,
+} from './tool-schema.ts';
+export { registerStudioTools, type StudioToolHandler, type StudioToolHandlers } from './tools.ts';
+export {
+  createStudioTraceRouter,
+  STUDIO_RUN_METADATA_KEY,
+  type StudioTraceLine,
+  type StudioTraceRoute,
+  type StudioTraceRouter,
+} from './traces.ts';
+export type { StudioSteerLine, StudioTransportOptions } from './transport.ts';
+export {
   clearStaleStudioRuns,
+  createStudioDecisionTransport,
+  createStudioEmbeddingTransport,
+  createStudioHostTransport,
   createStudioTransport,
   studioInterface,
   studioRunDefines,
 } from './transport.ts';
+export {
+  modelBindingNodeId,
+  providerIdOf,
+  providerNodeId,
+  type StudioNodeRef,
+  type StudioTreeNode,
+  studioNodeRef,
+  studioTree,
+  toolSpecKeyOf,
+  toolSpecNodeId,
+} from './tree.ts';
+export type { StudioInputsSpec, StudioToolSeed, StudioToolSpecSeed } from './types.ts';
+export {
+  type AgentDraft,
+  type AgentToolsDraft,
+  addAgent,
+  addProvider,
+  agentDraft,
+  agentNodeId,
+  atStart,
+  createBlankWorkspace,
+  duplicateAgent,
+  editedSince,
+  type FileConflict,
+  type FilesMerge,
+  type FileUpdate,
+  filesPrint,
+  libraryDraft,
+  mergedWithFiles,
+  modelSharers,
+  newProvider,
+  providersAtStart,
+  providerUse,
+  rebased,
+  removeAgent,
+  removeLibraryTool,
+  removeProvider,
+  renameProvider,
+  reopened,
+  resetAgent,
+  resetAll,
+  resetLibraryTool,
+  resetProvider,
+  type SettingPath,
+  STUDIO_WORKSPACE_VERSION,
+  type StudioWorkspace,
+  scopedNodeId,
+  setToolAllowed,
+  startedHere,
+  type WorkspaceNodeRef,
+  type WorkspaceStarts,
+  type WorkspaceTree,
+  withAgentDraft,
+  withFilesChosen,
+  withLibraryDraft,
+  withProvider,
+  workspaceFromDraft,
+  workspaceNodeRef,
+  workspaceTree,
+} from './workspace.ts';

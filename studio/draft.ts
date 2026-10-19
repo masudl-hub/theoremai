@@ -14,17 +14,16 @@ import {
   type BlockedReplyOnBlock,
   BOUNDARIES,
   type Boundary,
+  DETECTORS,
   type DestinationGate,
   type DetectAction,
   type Detector,
-  DETECTORS,
   detects,
   PATTERN_DETECTORS,
   recordOf,
   type TaintGate,
   type UrlDetector,
 } from '@theoremjs/agents/guardrails';
-import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
 import {
   CONTINUE_INSTRUCTION_TYPES,
   type JsonObject,
@@ -32,6 +31,7 @@ import {
   type ProfileItemRule,
   profileTypesForField,
 } from '@theoremjs/agents/kernel';
+import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
 import {
   type CompactionMeter,
   type CompactionTiming,
@@ -56,7 +56,12 @@ import {
 } from '@theoremjs/agents/schema';
 import type { ModelPicks, ModelProfileType, ModelStart } from './lent-keys.ts';
 import { isGoogleRoute, STUDIO_TRACE_DESTINATION, startingBinding } from './policy.ts';
-import { modelRoute, servesProfileType, STUDIO_PROVIDERS, type StudioProvider } from './providers.ts';
+import {
+  modelRoute,
+  STUDIO_PROVIDERS,
+  type StudioProvider,
+  servesProfileType,
+} from './providers.ts';
 import { keySlotUnset } from './requirements.ts';
 import { DEFAULT_TOOL_INPUT_SCHEMA, DEFAULT_TOOL_OUTPUT_SCHEMA } from './tool-schema.ts';
 import type { StudioToolSpecSeed } from './types.ts';
@@ -585,7 +590,7 @@ export const EXAMPLE_SPAN_DECISION_STATE = JSON.stringify(
 /** Documents an embedding preview starts with, one per paragraph: two about the same thing, and one that isn't. */
 export const EXAMPLE_EMBEDDING_TEXT = [
   'To clear your desktop, select the screenshots and move them to the Trash. Empty the Trash to delete them for good.',
-  'Screen captures save to the desktop by default. You can change where they go in the Screenshot app\'s Options menu.',
+  "Screen captures save to the desktop by default. You can change where they go in the Screenshot app's Options menu.",
   'Lisbon has mild, wet winters and warm, dry summers. Expect highs near 28 °C in August.',
 ].join('\n\n');
 
@@ -858,13 +863,13 @@ export function setProfileType(
   if (type === 'host') {
     return { ...draft, identity: { ...draft.identity, profileType: type } };
   }
-  const kept = draft.modelBindings.filter(
-    (binding) => {
-      const route = modelRoute(draft.providers, type, binding);
-      const provider = draft.providers.find((each) => each.id === binding.provider);
-      return servesProfileType(provider, type, binding.protocol) && !listedForOthers(keys, type, route);
-    },
-  );
+  const kept = draft.modelBindings.filter((binding) => {
+    const route = modelRoute(draft.providers, type, binding);
+    const provider = draft.providers.find((each) => each.id === binding.provider);
+    return (
+      servesProfileType(provider, type, binding.protocol) && !listedForOthers(keys, type, route)
+    );
+  });
   const retyped: StudioDraft = {
     ...draft,
     identity: { ...draft.identity, profileType: type },
@@ -893,7 +898,13 @@ export function setProfileType(
 /** The voice a new Gemini speech agent starts with; Google's own examples read in it. */
 const GOOGLE_STARTING_VOICE = 'Kore';
 
-const MODEL_PROFILE_TYPES: readonly ModelProfileType[] = ['text', 'image', 'speech', 'live', 'decision'];
+const MODEL_PROFILE_TYPES: readonly ModelProfileType[] = [
+  'text',
+  'image',
+  'speech',
+  'live',
+  'decision',
+];
 
 /** Whether `keys` list the model for some other type, and not for `type`. */
 function listedForOthers(

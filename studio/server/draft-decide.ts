@@ -25,11 +25,17 @@ export function decisionRequestSchema(limits: LentDecisionLimits) {
   const slot = z.string().regex(KEY_SLOT_NAME);
   const labelled = z
     .record(name, entry)
-    .refine((record) => Object.keys(record).length > 0 && Object.keys(record).length <= limits.criteria);
+    .refine(
+      (record) => Object.keys(record).length > 0 && Object.keys(record).length <= limits.criteria,
+    );
   const instructions = z.string().trim().min(1).max(limits.instructionsChars);
   const question = z.discriminatedUnion('type', [
     z.object({ type: z.literal('choice'), instructions, criteria: labelled }),
-    z.object({ type: z.literal('score'), instructions, criteria: z.array(entry).min(2).max(limits.criteria) }),
+    z.object({
+      type: z.literal('score'),
+      instructions,
+      criteria: z.array(entry).min(2).max(limits.criteria),
+    }),
     z.object({ type: z.literal('noul'), instructions, criteria: labelled.optional() }),
   ]);
   return z.object({
@@ -61,7 +67,10 @@ export function decisionRequestSchema(limits: LentDecisionLimits) {
     }),
     questions: z
       .record(name, question)
-      .refine((record) => Object.keys(record).length > 0 && Object.keys(record).length <= limits.questions),
+      .refine(
+        (record) =>
+          Object.keys(record).length > 0 && Object.keys(record).length <= limits.questions,
+      ),
     state: z.unknown(),
   });
 }
@@ -74,7 +83,10 @@ export type DraftDecideOptions = {
 };
 
 /** Answers one decision on the lent keys, with the records it wrote; a failed one is traced too. */
-export async function draftDecide(request: Request, options: DraftDecideOptions): Promise<Response> {
+export async function draftDecide(
+  request: Request,
+  options: DraftDecideOptions,
+): Promise<Response> {
   let labels: DecisionProfileDefinition['labels'];
   try {
     const body = await readBody(request, decisionRequestSchema(options.runtime.keys.decision));
@@ -82,8 +94,12 @@ export async function draftDecide(request: Request, options: DraftDecideOptions)
     labels = profile.labels;
     const selected = lentRoute('decision', profile);
     const { keys } = options.runtime;
-    const refused = keys.violation(selected)?.message ?? keys.stateViolation(selected, body.state) ??
-      Object.values(body.questions).map((question) => keys.questionViolation(selected, question)).find(Boolean);
+    const refused =
+      keys.violation(selected)?.message ??
+      keys.stateViolation(selected, body.state) ??
+      Object.values(body.questions)
+        .map((question) => keys.questionViolation(selected, question))
+        .find(Boolean);
     if (refused) throw new TheoremError('request', `studio decide: ${refused}`);
     validateDecisionRequest(
       { profile: profile.id, state: body.state, questions: body.questions, signal: request.signal },

@@ -5,31 +5,32 @@
  * `createTheoremHandler`).
  */
 
-import { z } from 'zod';
 import {
   type DecisionProfile,
-  type EmbeddingProfile,
   defineProfile,
+  type EmbeddingProfile,
   type Profile,
   TheoremError,
-  traceRecordSchema,
   TURN_EVENT_SCHEMAS,
   type TurnEvent,
+  traceRecordSchema,
 } from '@theoremjs/agents';
+import { interfaceFromProfile, type ProfileInterface } from '@theoremjs/agents/interface';
+import { createToolRegistry, type Equals } from '@theoremjs/agents/kernel';
 import {
   CHAT_LINES,
   type ChatLineSink,
   type ConversationLine,
   createTraceFeed,
-  decisionInterface,
-  embeddingInterface,
   type DecisionTransport,
+  decisionInterface,
   type EmbeddingTransport,
+  embeddingInterface,
   fetchConversation,
   fetchRewound,
-  hostInterface,
   type HostTransport,
   type HttpOptions,
+  hostInterface,
   type MalformedEvent,
   postDecision,
   postEmbedding,
@@ -41,15 +42,14 @@ import {
   type UnsupportedEvent,
   type WireLines,
 } from '@theoremjs/react/client';
-import { interfaceFromProfile, type ProfileInterface } from '@theoremjs/agents/interface';
-import { createToolRegistry, type Equals } from '@theoremjs/agents/kernel';
+import { z } from 'zod';
+import { uncompiled } from './compile.ts';
 import {
   clearStudioRunPayload,
   keptStudioRunIds,
   loadStudioRunPayload,
   type StudioRunPayload,
 } from './run-payload.ts';
-import { uncompiled } from './compile.ts';
 import { registerStudioTools } from './tools.ts';
 import type { StudioTraceLine } from './traces.ts';
 
@@ -212,7 +212,11 @@ export function createStudioTransport(
         { ...options, signal },
       ),
     conversation: (request, signal) =>
-      fetchConversation('/api/studio/conversation', { ...compiled, ...request }, { ...options, signal }),
+      fetchConversation(
+        '/api/studio/conversation',
+        { ...compiled, ...request },
+        { ...options, signal },
+      ),
     rewind: (request, signal) =>
       fetchRewound('/api/studio/rewind', { ...compiled, ...request }, { ...options, signal }),
     async steer({ turnId, id, inject }) {
@@ -242,7 +246,9 @@ export function createStudioDecisionTransport(
   const traces = options.traces ?? createTraceFeed();
   return {
     describe: () =>
-      Promise.resolve(decisionInterface(defineProfile(payload.profile) as DecisionProfile, questions)),
+      Promise.resolve(
+        decisionInterface(defineProfile(payload.profile) as DecisionProfile, questions),
+      ),
     decide: (state, signal) =>
       postDecision(
         '/api/studio/decide',

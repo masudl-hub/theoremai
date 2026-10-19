@@ -1,20 +1,17 @@
-import { browserExecution } from './browser-execution.ts';
-import {
-  type DecisionProfile,
-  defineProfile,
-  TheoremError,
-} from '@theoremjs/agents';
+import { type DecisionProfile, defineProfile, TheoremError } from '@theoremjs/agents';
+import { clientError, forClient } from '@theoremjs/agents/host';
+import type { RunDecisionOptions } from '@theoremjs/agents/kernel';
 import {
   type ChatLineSink,
   createTraceFeed,
+  type DecisionTransport,
   decisionInterface,
+  type EmbeddingTransport,
   embeddingInterface,
   failedTraces,
-  type EmbeddingTransport,
-  type DecisionTransport,
+  type HostTransport,
   hostError,
   hostInterface,
-  type HostTransport,
   isTheoremStreamError,
   type TheoremTransport,
   type TraceFeed,
@@ -26,11 +23,9 @@ import {
   type ReplyLine,
   steerUnitOf,
 } from '@theoremjs/react/server';
-import { clientError, forClient } from '@theoremjs/agents/host';
-import type { RunDecisionOptions } from '@theoremjs/agents/kernel';
+import { browserExecution } from './browser-execution.ts';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
-import type { StudioRuntimeBase } from './runtime-scope.ts';
 import {
   rewindStudio,
   runStudioDecision,
@@ -42,11 +37,12 @@ import {
   studioConversation,
   withFailedTraces,
 } from './runtime.ts';
+import type { StudioRuntimeBase } from './runtime-scope.ts';
 import type { StudioTraceLine } from './traces.ts';
 import {
-  type StudioSteerLine,
   hostCallLines,
   routeStudioLines,
+  type StudioSteerLine,
   studioInterface,
 } from './transport.ts';
 
@@ -89,9 +85,11 @@ async function deliver(
 }
 
 function localPageResult(local: ReturnType<typeof browserExecution> | undefined) {
-  return local ? async (result: import('@theoremjs/react/client').PageDispatchResult) => {
-    await local.pageResult(result);
-  } : undefined;
+  return local
+    ? async (result: import('@theoremjs/react/client').PageDispatchResult) => {
+        await local.pageResult(result);
+      }
+    : undefined;
 }
 
 function withBrowserExecution(runtime: StudioBrowserRuntime) {
@@ -188,12 +186,9 @@ export function createBrowserStudioTransport(
         payload,
         route(onEvent),
       ),
-    conversation: (request) =>
-      answered(() => studioConversation(compiled, conversations, request)),
+    conversation: (request) => answered(() => studioConversation(compiled, conversations, request)),
     rewind: (request, signal) =>
-      answered(() =>
-        rewindStudio(compiled, conversations, request, runSignal(runtime, signal)),
-      ),
+      answered(() => rewindStudio(compiled, conversations, request, runSignal(runtime, signal))),
     async steer(request) {
       const inbox = inboxes.get(request.turnId);
       if (!inbox || !(await steer.enqueue(inbox, steerUnitOf(request)))) {
@@ -279,7 +274,12 @@ export function createBrowserStudioDecisionTransport(
       ),
     decide: async (state, signal) => {
       try {
-        return await runStudioDecision(payload, state, runtime.decision ?? {}, runSignal(runtime, signal));
+        return await runStudioDecision(
+          payload,
+          state,
+          runtime.decision ?? {},
+          runSignal(runtime, signal),
+        );
       } catch (err) {
         // The failure keeps the trace the kernel left.
         throw withFailedTraces(failed(err, payload), failedTraces(err));

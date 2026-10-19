@@ -9,6 +9,24 @@ import {
   z,
 } from '@theoremjs/agents';
 import {
+  gatedToolsFromEvents,
+  interfaceFromProfile,
+  promotedToolIdsFromEvents,
+  type TranscriptBlock,
+  toolSnapshotFromEvents,
+} from '@theoremjs/agents/interface';
+import {
+  answerGatedCall,
+  type EmbeddingRequest,
+  type EmbeddingResult,
+  type GateAnswerRequest,
+  type GateReference,
+  type HeldGatedCall,
+  memoryCredentialSource,
+  type RegisteredTool,
+  type RunDecisionOptions,
+} from '@theoremjs/agents/kernel';
+import {
   type ConversationView,
   type DecisionTransport,
   type TheoremConversationRequest,
@@ -25,48 +43,30 @@ import {
   checkRequest,
   conversationView,
   messageReply,
-  openConversation,
   type OpenedConversation,
+  openConversation,
   postedMessage,
-  readerConversationHost,
   type ReplyLine,
   type ReplyRunner,
+  readerConversationHost,
   rewindConversation,
+  type SteerInbox,
   startConversation,
   statelessRefusal,
-  type SteerInbox,
   steerStage,
   type TheoremConversationStore,
   waitingCalls,
 } from '@theoremjs/react/server';
-import {
-  gatedToolsFromEvents,
-  interfaceFromProfile,
-  promotedToolIdsFromEvents,
-  toolSnapshotFromEvents,
-  type TranscriptBlock,
-} from '@theoremjs/agents/interface';
-import {
-  answerGatedCall,
-  type GateAnswerRequest,
-  type GateReference,
-  type HeldGatedCall,
-  memoryCredentialSource,
-  type RegisteredTool,
-  type RunDecisionOptions,
-  type EmbeddingRequest,
-  type EmbeddingResult,
-} from '@theoremjs/agents/kernel';
 import { STUDIO_TRACE_DESTINATION } from './policy.ts';
 import { studioReader } from './reader.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import {
   agentCallHook,
+  runtimeProvider,
   type StudioDependency,
   type StudioRuntime,
   studioScope,
-  runtimeProvider,
 } from './runtime-scope.ts';
 import { createStudioTraceRouter, type StudioTraceLine } from './traces.ts';
 import type { StudioSteerLine } from './transport.ts';
@@ -543,7 +543,9 @@ export async function* streamStudioCall(args: {
 export { type StudioDependency, type StudioRuntime, studioScope } from './runtime-scope.ts';
 
 /** The records a preview writes, and the sink that keeps them when its profile records traces. */
-function collectTraces(observability: Parameters<typeof resolveObservabilityPolicy>[0] | undefined) {
+function collectTraces(
+  observability: Parameters<typeof resolveObservabilityPolicy>[0] | undefined,
+) {
   const traces: TraceRecord[] = [];
   if (!observability || !resolveObservabilityPolicy(observability).record) return { traces };
   const sink = {

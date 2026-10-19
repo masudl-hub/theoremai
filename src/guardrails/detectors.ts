@@ -21,7 +21,7 @@ import {
   matchersOf,
   patternsProblem,
 } from './host-patterns.ts';
-import { SENSITIVE_GROUPS } from './sensitive.ts';
+import { SENSITIVE_GROUPS } from './sensitive-groups.ts';
 
 /**
  * What the kernel finds in text: the four families of sensitive data, prompt-injection phrasing,

@@ -178,13 +178,14 @@ export {
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './sanitize.ts';
+export { sensitiveSpans } from './sensitive.ts';
 export type {
   SensitiveGroup,
   SensitiveGroups,
   SensitiveSelection,
   SensitiveSwitches,
-} from './sensitive.ts';
-export { SENSITIVE_GROUPS, sensitiveSpans } from './sensitive.ts';
+} from './sensitive-groups.ts';
+export { SENSITIVE_GROUPS } from './sensitive-groups.ts';
 export type { ScanText } from './serialize.ts';
 export { scanTextOf, textForScan } from './serialize.ts';
 export type { Directive, DirectiveSignal } from './tool-directives.ts';

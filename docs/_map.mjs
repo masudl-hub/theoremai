@@ -392,6 +392,7 @@ const graph = {
         {
           paths: [
             'src/guardrails/sensitive.ts',
+            'src/guardrails/sensitive-groups.ts',
             'src/guardrails/credential-scan.ts',
             'src/guardrails/credential-rules.ts',
           ],

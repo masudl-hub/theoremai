@@ -1,5 +1,5 @@
 import { redactDetectors } from '../guardrails/detect-at.ts';
-import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
+import { SENSITIVE_GROUPS } from '../guardrails/sensitive-groups.ts';
 
 /** What stands in for a credential's value wherever one is shown. */
 export const MASK = '••••';

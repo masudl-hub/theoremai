@@ -4,7 +4,7 @@ import { redactDetectors } from '../../src/guardrails/detect-at.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { hitFromSpan } from '../../src/guardrails/hits.ts';
 import { sanitizeProjectId, sanitizeTurnRequest } from '../../src/guardrails/sanitize.ts';
-import { SENSITIVE_GROUPS } from '../../src/guardrails/sensitive.ts';
+import { SENSITIVE_GROUPS } from '../../src/guardrails/sensitive-groups.ts';
 import { getProfile, registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { sanitizeCsvText } from '../../src/kernel/registry/attachments.ts';

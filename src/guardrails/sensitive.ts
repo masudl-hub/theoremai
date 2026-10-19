@@ -1,6 +1,7 @@
 import { blobAt, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
 import { CREDENTIAL_RULES, GLOBAL_ALLOWLIST } from './credential-rules.ts';
 import { type CredentialRule, credentialHit, credentialSpans } from './credential-scan.ts';
+import type { SensitiveGroup, SensitiveGroups, SensitiveSelection } from './sensitive-groups.ts';
 
 const SSN = /\b\d{3}-\d{2}-\d{4}\b/g;
 const SSN_CONTEXTUAL = /(?:SSN|social\s*security(?:\s*number)?)[:\s]+\d(?:[-\s]*\d){8}/gi;
@@ -74,24 +75,6 @@ const OWN_CREDENTIAL_RULES: readonly CredentialRule[] = [
 const CREDENTIALS: readonly CredentialRule[] = [...CREDENTIAL_RULES, ...OWN_CREDENTIAL_RULES];
 
 const CARD_CANDIDATE = /\b(?:\d[\s.-]*?){13,19}\b/g;
-
-/**
- * The families of sensitive data, each switched on its own: a profile can
- * redact credentials and card numbers but leave network addresses alone.
- */
-const SENSITIVE_GROUPS = ['ids', 'financial', 'network', 'credentials'] as const;
-
-/** A group of sensitive-value checks: ids, financial, network, or credentials. */
-type SensitiveGroup = (typeof SENSITIVE_GROUPS)[number];
-
-/** Per group, whether it runs. A group left out keeps its default. */
-type SensitiveSwitches = Partial<Record<SensitiveGroup, boolean>>;
-
-/** `true` runs every group, `false` none; an object switches the groups it names. */
-type SensitiveSelection = boolean | SensitiveSwitches;
-
-/** Every group's switch, defaults applied. */
-type SensitiveGroups = Readonly<Record<SensitiveGroup, boolean>>;
 
 /** The patterns each group matches. Card numbers are financial too, found by `cardSpans`; credentials by `credentialSpans`. */
 const GROUP_PATTERNS: Readonly<Record<Exclude<SensitiveGroup, 'credentials'>, readonly RegExp[]>> =
@@ -292,11 +275,5 @@ function sensitiveSpans(text: string, selection: SensitiveSelection = true): Red
   ];
 }
 
-export type {
-  SensitiveGroup,
-  SensitiveGroups,
-  SensitivePattern,
-  SensitiveSelection,
-  SensitiveSwitches,
-};
-export { CARD_CANDIDATE, cardHit, SENSITIVE_GROUPS, SENSITIVE_PATTERNS, sensitiveSpans };
+export type { SensitivePattern };
+export { CARD_CANDIDATE, cardHit, SENSITIVE_PATTERNS, sensitiveSpans };

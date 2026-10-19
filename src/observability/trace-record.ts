@@ -3,7 +3,7 @@
 
 import { type StoredSides, storedHostSpans, storedSpans } from '../guardrails/detect-at.ts';
 import type { Detector, ResolvedDetect } from '../guardrails/detectors.ts';
-import { SENSITIVE_GROUPS } from '../guardrails/sensitive.ts';
+import { SENSITIVE_GROUPS } from '../guardrails/sensitive-groups.ts';
 import { sha256, sha256Base64 } from '../kernel/engine/hash.ts';
 import { removeCanaries, tapeUpstream } from '../providers/shared/upstream-tape.ts';
 import { applySpans } from './spans.ts';

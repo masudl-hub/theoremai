@@ -267,16 +267,17 @@ import { TheoremDecision } from '@theoremjs/react/ui';
 ```
 
 - `questions` maps each question id to its definition.
+- `images` is optional. It holds pictures every decision sends, by the reference the questions write, such as `<ghs02>` in "Which item matches <ghs02>?". The page sees them and refuses its own image under one of their names.
 - `vault` holds the keys of the profile, by slot.
 - `metadata` is optional. It adds data, such as the signed-in user, to the trace record of each decision.
 
-Under the state, `TheoremDecision` shows the shortcut that asks for a decision, ⌘↵. When the profile sets `maxStateBytes` in its `inputs`, it shows the size of the state against that limit instead. Each text box is as tall as the lines of its text, within a limit.
+When the profile sets `maxStateBytes` in its `inputs`, `TheoremDecision` shows the size of the state against that limit under it. Each text box is as tall as the lines of its text, within a limit.
 
 In one column, the state sits in the middle of the page until you ask for a decision. It then eases up to the top, and the answers appear under it. With `columns`, the state moves to the left instead and the answers fill the right.
 
 A profile whose model takes images (`images: true`, see the TypeSafe options in `docs/contracts/providers.md`) shows a drop area under the state when a question is a box. Each PNG or JPEG dropped there becomes a state field named after the file. The field holds the image's reference, its name in angle brackets: `pantry shelf.jpg` becomes `{ "pantry_shelf": "<pantry_shelf>" }`. The field shows the image and can replace it. A question names the field in backticks, such as "Which jar in `pantry_shelf` is open?". TypeSafe reads a reference anywhere it appears as text. The brackets keep a reference from matching an ordinary word. A decision sends only the images its state still names, as `assets`, and the kernel refuses any that are not PNG or JPEG bytes before a request leaves. Pass `defaultImages`, with a `defaultState` that names them, to start with some.
 
-A box answer is drawn as the part of the image it covers, with its edges beside it as shares of the image. The image is the one at the field its question first names in backticks, such as `chart` in "Where on `chart` would the green apple in `photo` sit?". Without one, it is the first image the state names, or else the first attached.
+A box answer is drawn as the part of the image it covers, with its edges beside it as shares of the image. The image is the one at the field its question first names in backticks, such as `chart` in "Where on `chart` would the green apple in `photo` sit?". Without one, it is the first image the state names, or else the first held.
 
 For your own UI, use `useTheoremDecision`. Its `decide(state, assets)` takes the images by reference.
 

@@ -302,3 +302,42 @@ Deno.test('POST refuses a posted image that is not PNG or JPEG bytes, before any
   assertEquals(response.ok, false);
   assertEquals(model.calls.length, 0);
 });
+Deno.test("the host's images go with every decision, and a page image may not take their names", async () => {
+  const mock = jev();
+  const ghs02 = { mimeType: 'image/png', data: 'AAAA' } as const;
+  const shelf = { mimeType: 'image/png', data: 'BBBB' } as const;
+  const handler = createTheoremDecisionHandler({
+    profile: {
+      ...profile(),
+      models: {
+        jev: {
+          protocol: 'systemOne',
+          provider: 'typesafe',
+          apiId: 'jev-latest',
+          timeoutMs: 1000,
+          options: { images: true },
+        },
+      },
+    },
+    questions,
+    images: { '<ghs02>': ghs02 },
+    vault: { slot_a: 'k' },
+    fetch: mock.fetch,
+  });
+  const described = await (await handler(new Request(BASE))).json();
+  assertEquals(described.interface.images, { '<ghs02>': ghs02 });
+  const post = (assets: unknown) =>
+    handler(
+      new Request(`${BASE}/decide`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ state: { photo: '<shelf>' }, assets }),
+      }),
+    );
+  assertEquals((await post({ '<shelf>': shelf })).status, 200);
+  assertEquals(Object.keys((mock.calls[0] as { assets: object }).assets), ['<ghs02>', '<shelf>']);
+  const clash = await post({ '<ghs02>': shelf });
+  assertEquals(clash.status, 400);
+  assertEquals((await clash.json()).errorKind, 'request');
+  assertEquals(mock.calls.length, 1);
+});

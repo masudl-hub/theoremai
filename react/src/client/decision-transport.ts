@@ -14,6 +14,7 @@ import {
   type DecisionQuestion,
   type DecisionResult,
   resolveObservabilityPolicy,
+  TheoremError,
   type TraceRecord,
   traceRecordSchema,
   z,
@@ -39,6 +40,8 @@ export type DecisionInterface = {
   contract: string;
   maxStateBytes?: number;
   questions: DecisionQuestionView[];
+  /** The host's own images, by the reference its questions write, sent with every decision. */
+  images?: Record<string, DecisionAsset>;
   observability?: { record: boolean };
 };
 
@@ -64,10 +67,11 @@ function namedField(entry: DecisionEntry): string | undefined {
   return undefined;
 }
 
-/** The page's view of a decision profile and the questions its host asks. */
+/** The page's view of a decision profile, the questions its host asks, and the host's own images. */
 export function decisionInterface(
   profile: Pick<DecisionProfile, 'identity' | 'decision' | 'inputs' | 'observability'>,
   questions: Record<string, DecisionQuestion>,
+  images?: Record<string, DecisionAsset>,
 ): DecisionInterface {
   return {
     type: 'decision',
@@ -87,10 +91,30 @@ export function decisionInterface(
             : [],
       ...(question.type === 'box' ? withField(namedField(question.instructions)) : {}),
     })),
+    ...(images && Object.keys(images).length > 0 ? { images } : {}),
     ...(profile.observability
       ? { observability: { record: resolveObservabilityPolicy(profile.observability).record } }
       : {}),
   };
+}
+
+/**
+ * The images a decision sends: the host's own and the page's. A page image may not take a name
+ * the host's use, so the questions always read the host's picture.
+ */
+export function decisionAssets(
+  host: Record<string, DecisionAsset> | undefined,
+  page: Record<string, DecisionAsset> | undefined,
+): Record<string, DecisionAsset> | undefined {
+  const clash = Object.keys(page ?? {}).find((name) => host && Object.hasOwn(host, name));
+  if (clash !== undefined)
+    // labels-exempt: internal diagnostic; the user reads error.request
+    throw new TheoremError(
+      'request',
+      `the image ${clash} is the host's, so the page's needs another name`,
+    );
+  const all = { ...host, ...page };
+  return Object.keys(all).length > 0 ? all : undefined;
 }
 
 /** A decision's reply: the answers, and the trace records a host that delivers them sent back. */
@@ -217,6 +241,12 @@ const describedSchema = z.object({
         field: z.string().optional(),
       }),
     ),
+    images: z
+      .record(
+        z.string(),
+        z.object({ mimeType: z.enum(['image/png', 'image/jpeg']), data: z.string() }),
+      )
+      .optional(),
     observability: z.object({ record: z.boolean() }).optional(),
   }),
 });

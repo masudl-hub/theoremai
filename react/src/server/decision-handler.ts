@@ -11,6 +11,7 @@
  */
 
 import {
+  type DecisionAsset,
   type DecisionProfile,
   type DecisionQuestion,
   defineProfile,
@@ -22,7 +23,7 @@ import {
 } from '@theoremjs/agents';
 import type { ClientTurnOptions } from '@theoremjs/agents/host';
 import type { DecisionProfileDefinition } from '@theoremjs/agents/kernel';
-import { decisionInterface } from '../client/decision-transport.ts';
+import { decisionAssets, decisionInterface } from '../client/decision-transport.ts';
 import { readBody } from './handler.ts';
 import { singleActionHandler } from './single-action.ts';
 
@@ -31,6 +32,11 @@ export type TheoremDecisionHandlerOptions = {
   profile: DecisionProfile | DecisionProfileDefinition;
   /** The questions every decision asks, by id. */
   questions: Record<string, DecisionQuestion>;
+  /**
+   * Images every decision sends, by the reference its questions write, such as `<ghs02>`. The page
+   * sees them, to draw a box on one; a page image with one of their names is refused.
+   */
+  images?: Record<string, DecisionAsset>;
   /** The host's keys by slot; the profile's key slot reads from it. */
   vault?: KeyVault;
   fetch?: typeof globalThis.fetch;
@@ -66,7 +72,7 @@ export function createTheoremDecisionHandler(
   return singleActionHandler(
     {
       action: 'decide',
-      iface: decisionInterface(profile, options.questions),
+      iface: decisionInterface(profile, options.questions, options.images),
       labels: profile.labels,
       clientEvents: options.clientEvents,
       onError: options.onError,
@@ -79,7 +85,7 @@ export function createTheoremDecisionHandler(
           // why: The kernel checks the state is non-null JSON within the profile's size.
           state: body.state as never,
           // why: The kernel checks each image's type and bytes before any request leaves.
-          assets: body.assets as never,
+          assets: decisionAssets(options.images, body.assets as never),
           questions: options.questions,
           signal: request.signal,
           metadata: options.metadata?.(request),

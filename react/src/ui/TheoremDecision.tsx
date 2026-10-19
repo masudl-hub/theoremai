@@ -274,7 +274,7 @@ function DecisionBody({
   const decide = () => {
     if (!check.ok) return;
     const sent = namedImages(images, check.state);
-    setAsked({ images: sent, state: check.state });
+    setAsked({ images: { ...iface.images, ...sent }, state: check.state });
     void decision.decide(check.state, Object.keys(sent).length > 0 ? sent : undefined);
   };
 

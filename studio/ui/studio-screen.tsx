@@ -217,7 +217,7 @@ import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
 import { subscribeToFiles } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
 import { runToolProbe } from './lib/tool-probe.ts';
-import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import { agentTypeIcon, PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { zipFiles } from './lib/zip.ts';
 import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
 import { ProviderEditor } from './provider-editor.tsx';
@@ -242,10 +242,11 @@ import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
 import { ActingAsButton, StudioSettings } from './studio-settings.tsx';
 
-/** A node's icon; Identity shows the profile type's once one is picked. */
+/** A node's icon; Identity and Decision show the agent's, once its type is picked. */
 function nodeIcon(draft: StudioDraft, ref: StudioNodeRef) {
   const type = draft.identity.profileType;
-  if (ref.facet === 'identity' && type) return PROFILE_TYPE_ICON[type];
+  if ((ref.facet === 'identity' && type) || ref.facet === 'decision')
+    return agentTypeIcon(draft, draft.providers);
   if (ref.facet === 'modelBinding') {
     const binding = draft.modelBindings.find((each) => each.key === ref.key);
     return (binding && modelFamilyMark(binding.apiId)) ?? FACET_ICON.modelBinding;
@@ -460,11 +461,7 @@ function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
           id: `${id}:${agent.key}`,
           label: agent.identity.agentId || 'New agent',
           startContent: (
-            <Icon
-              icon={PROFILE_TYPE_ICON[agent.identity.profileType || 'text']}
-              size="sm"
-              color="secondary"
-            />
+            <Icon icon={agentTypeIcon(agent, workspace.providers)} size="sm" color="secondary" />
           ),
           onClick: () => {
             onSelect(agentNodeId(agent.key, modelBindingNodeId(binding.key)));

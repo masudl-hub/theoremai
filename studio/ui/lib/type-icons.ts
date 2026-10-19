@@ -22,7 +22,8 @@ import {
   IconWorld,
 } from '@tabler/icons-react';
 import type { CustomToolType } from '@theoremjs/agents';
-import type { DecisionQuestionType, StudioProfileType } from '../../mod.ts';
+import type { DecisionQuestionType, StudioDraft, StudioProfileType } from '../../mod.ts';
+import { IconTypeSafe } from '../brand-icons.tsx';
 import { IconMcp } from '../mcp-icon.tsx';
 
 /** Each profile type's icon: the Type control's segments and the tree's Identity row. */
@@ -35,6 +36,20 @@ export const PROFILE_TYPE_ICON = {
   embedding: IconChartScatter3d,
   host: IconServer,
 } satisfies Record<StudioProfileType, IconType>;
+
+/** An agent's icon: TypeSafe's mark for a decision whose model is on TypeSafe, else its type's. */
+export function agentTypeIcon(
+  agent: Pick<StudioDraft, 'identity' | 'modelBindings'>,
+  providers: StudioDraft['providers'],
+): IconType {
+  const type = agent.identity.profileType || 'text';
+  const onTypeSafe = agent.modelBindings.some((binding) =>
+    providers.some(
+      (provider) => provider.id === binding.provider && provider.definition === 'typesafe',
+    ),
+  );
+  return type === 'decision' && onTypeSafe ? IconTypeSafe : PROFILE_TYPE_ICON[type];
+}
 
 /** The icon for a profile type, or none when the type is not one of those. */
 export function profileTypeIcon(type: string | undefined): IconType | undefined {

@@ -15,7 +15,12 @@ export interface OpenRouterEmbeddingOptions {
 }
 
 const options: z.ZodType<OpenRouterEmbeddingOptions> = z.strictObject({
-  encodingFormat: z.enum(['float', 'base64']).optional(),
+  encodingFormat: z
+    .enum(['float', 'base64'])
+    .optional()
+    .describe(
+      'How OpenRouter sends each vector back: as a list of numbers (`float`) or packed into a base64 string (`base64`, smaller on the wire). Theorem decodes both to the same numbers. Absent: `float`.',
+    ),
 });
 
 // why: OpenRouter's embeddings reference takes images only and caps neither inputs nor images per input; a text-only model refuses an image itself.

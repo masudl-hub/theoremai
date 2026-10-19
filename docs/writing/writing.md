@@ -68,13 +68,24 @@ Theorem's own words to users are polite. Read `src/guardrails/labels.ts`: "Sorry
 
 - Steps stay imperative: "Mount the handler." An imperative step is clear, not rude. Add "please" only where you ask the reader for something outside the task, such as a bug report.
 - Say what the reader gains or loses, not what they should have done. Offer a way forward after every limit: "The package does not include the font. To use it, ..."
-- Never blame the reader, the user or another team. Describe the state, then the fix.
+- Never blame the reader, the user, or another team. Describe the state, then the fix.
 - No sarcasm, no jokes, no exclamation marks.
 - Quote user-facing wording from the labels. Do not rewrite it.
 
 ## Terms: keep a glossary as you write
 
 Before you write, list the 5 to 10 nouns the doc rests on. Give each one name and one definition. Check the finished doc for a second name for any of them. Search the repo's own labels or contract first: the code's word is the doc's word.
+
+## Field descriptions
+
+A description of a setting (a `PROFILE_FIELDS` entry or a protocol option) is read on hover, by someone deciding what to set. It has one or two sentences, in this order:
+
+1. What the setting changes, in the user's terms. Do not repeat the name.
+2. What the choice costs or gains, or when to change it.
+3. What leaving it out does: "Absent: …".
+4. A limit or a link to another setting, only if it can make the call fail.
+
+Do not write "settings", "options", "checked by", or "described by" as the content. Take values and limits from the provider's own docs and say which provider. Every option a protocol's schema holds has a description; `tests/studio/option-descriptions.test.ts` fails if one has none.
 
 ## Jargon
 
@@ -85,4 +96,6 @@ Gloss ML and security terms in one clause on first use: "out-of-distribution (OO
 - Headings name the task or the thing: "Save and restore a chat", not "Persistence considerations".
 - Open each section with its use case (see `docs/writing/README.md` step 2), then the minimum that works, then options.
 - Put the shortest working example before any option table.
-- Use tables for names, options, defaults and limits. Use numbered lists for steps. Use prose for reasons.
+- Use tables for names, options, defaults, and limits. Use numbered lists for steps. Use prose for reasons.
+
+Use the Oxford comma before the final “and” or “or” in a list of three or more items.

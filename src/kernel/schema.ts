@@ -56,7 +56,7 @@ export const PROFILE_ID_MAX_CHARS = 64;
 export const PROFILE_HANDLE_MAX_CHARS = 32;
 /** A vault slot's name, chosen by the host. The profile names slots; the host fills them with keys. */
 export type KeySlot = string;
-/** Letters, digits, `-` and `_`, up to 32 characters, starting with a letter or digit. */
+/** Letters, digits, `-`, and `_`, up to 32 characters, starting with a letter or digit. */
 export const KEY_SLOT_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
 /** True when the value is a legal key slot name. */
 export function isKeySlotName(value: unknown): value is KeySlot {
@@ -338,7 +338,7 @@ export const VOICE_ACCEPT_MIMES: readonly string[] = ['audio/*', ...mimesOf('aud
 function unionType(values: readonly string[]): string {
   return values.map((value) => `'${value}'`).join(' | ');
 }
-/** What the catalog records about one profile field: its type, description, options and when it applies. */
+/** What the catalog records about one profile field: its type, description, options, and when it applies. */
 export type FieldMeta = {
   type: string;
   doc: string;
@@ -437,7 +437,7 @@ function allowFields(path: string, detector: Detector): [string, FieldMeta][] {
       {
         ...field(
           'boolean',
-          'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user and history gave.',
+          'Whether a URL a tool returned counts as given. Off keeps only what the system prompt, the user, and history gave.',
         ),
         unset: 'On',
       },
@@ -569,9 +569,9 @@ function patternFields(path: string): [string, FieldMeta][] {
 /** The settings a detector's full form takes, as a sentence lists them. */
 function settingsOf(detector: Detector): string {
   const { allow, patterns } = DETECTOR_META[detector];
-  if (allow && patterns) return 'action, at, allow, theorem, patterns and hint';
-  if (allow) return 'action, at and allow';
-  return patterns ? 'action, at, theorem, patterns and hint' : 'action and at';
+  if (allow && patterns) return 'action, at, allow, theorem, patterns, and hint';
+  if (allow) return 'action, at, and allow';
+  return patterns ? 'action, at, theorem, patterns, and hint' : 'action and at';
 }
 /** The `guardrails.detect` rows: one for the setting, one per detector, and one per detector and boundary. */
 function detectFields(): Record<string, FieldMeta> {
@@ -582,7 +582,7 @@ function detectFields(): Record<string, FieldMeta> {
       'guardrails.detect',
       action(
         'DetectAction | { [detector]: DetectorRule }',
-        'The action on a match, for each detector.',
+        'What a guardrail does when a detector matches. One action covers every detector; an object sets each detector (or one of your own) apart. Absent: each detector keeps its default action.',
       ),
     ],
   ];
@@ -600,7 +600,10 @@ function detectFields(): Record<string, FieldMeta> {
     rows.push([
       `${path}.action`,
       {
-        ...action('DetectAction', DETECTOR_META[detector].doc),
+        ...action(
+          'DetectAction',
+          'What a match of this detector does at every boundary it reads, unless `at` names that boundary.',
+        ),
         unset: 'Each boundary keeps its default',
       },
     ]);
@@ -643,18 +646,18 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'profile.type': field(
     "'text' | 'image' | 'speech' | 'live' | 'decision' | 'embedding' | 'host'",
-    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision, embedding or host.',
+    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision, embedding, or host.',
     PROFILE_TYPES,
     {
       text: 'A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way.',
-      image: 'Makes pictures from a prompt, in the shape, size and format the image block sets.',
+      image: 'Makes pictures from a prompt, in the shape, size, and format the image block sets.',
       speech:
         'Gives your app a voice. Each turn reads text aloud in the voice the speech block names.',
       live: 'For talking in real time. One continuous voice and video session, rather than separate turns.',
       decision:
-        'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score or a number.',
+        'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score, or a number.',
       embedding: 'For when your app needs vectors from text or provider-supported media.',
-      host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP and in-app function tools under the same permissions and traces as any agent, guarded by detect and network.',
+      host: 'A governed passthrough to your tool registry, with no model. It calls MCP, HTTP, and in-app function tools under the same permissions and traces as any agent, guarded by detect and network.',
     },
   ),
   identity: field(
@@ -663,7 +666,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'identity.handle': field(
     'string',
-    "The agent's display name for hosts and users (the model never sees it), at most 32 characters, and the systemByRole entry a turn gets when it names no known role.",
+    'The name hosts and users see for this agent, at most 32 characters; the model never sees it. It is also the role a turn gets when it names none, so identity.systemByRole may hold an entry under it.',
   ),
   'identity.system': field(
     'string | Array<string | { private: string }>',
@@ -679,19 +682,28 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   models: field(
     'Record<ModelId, ModelBinding | DecisionModelBinding>',
-    'The models this profile can use, each under a name you choose.',
+    'The trained AI systems that turn input into results. Each entry binds a local name to an upstream model and its call settings.',
   ),
   'models.*': field(
     'ModelBinding | DecisionModelBinding',
     'One model: how to reach it and the settings sent with it.',
   ),
   'models.*.protocol': field('string', 'The API shape this model is spoken to in.'),
-  'models.*.provider': field('string', 'The registered provider that serves this model.'),
-  'models.*.keySlot': field('KeySlot', "Overrides the provider's primary key slot."),
-  'models.*.fallbackKeySlot': field('KeySlot', "Overrides the provider's fallback key slot."),
+  'models.*.provider': field(
+    'string',
+    'The service that runs the model or routes requests to one, such as Gemini or OpenRouter. Its registration supplies the endpoint and authentication.',
+  ),
+  'models.*.keySlot': field(
+    'KeySlot',
+    "The key slot this model's calls are signed with, instead of the provider's. Use it to bill one model to a different key. Absent: the provider's primary slot.",
+  ),
+  'models.*.fallbackKeySlot': field(
+    'KeySlot',
+    "The key slot tried once after a rate limit on the primary slot, instead of the provider's fallback. Must differ from the primary slot. Absent: the provider's fallback slot, if it has one.",
+  ),
   'models.*.options': field(
     'JsonObject',
-    "The protocol's own settings, checked and described by its options schema.",
+    "Settings only this model's protocol has, such as a task type or vector size. Each is checked when the profile loads. Any left out keep the provider's default.",
   ),
   providerContinuation: field(
     'ProviderContinuationPolicy',
@@ -702,7 +714,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Who holds the conversation a checkpoint continues: the host passes history back, the provider keeps it and the checkpoint travels alone, or the profile is stateless and every request stands alone.',
     ['host', 'stateless', 'provider'],
   ),
-  'models.*.apiId': field('string', "The model's name at the provider."),
+  'models.*.apiId': field(
+    'string',
+    "The model's id as the provider lists it, such as gemini-2.5-flash; sent on every call. The name this model has in the profile is its key in models.",
+  ),
   'models.*.timeoutMs': field(
     'number',
     'How long a decision waits for its provider, in milliseconds. Omit for no timeout.',
@@ -839,7 +854,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'inputs.attachments': field('{ accept: string[] }', 'Lets turns send files.'),
   'inputs.attachments.accept': field(
     'string[]',
-    'The file types a turn may send, where type/* matches a whole family; image profiles take only images, video and PDF.',
+    'The file types a turn may send, where type/* matches a whole family; image profiles take only images, video, and PDF.',
     ATTACHMENT_ACCEPT_MIMES,
     "Types the kernel knows; a listed type it doesn't know is refused when a turn sends it.",
   ),
@@ -903,7 +918,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'StructuredSchemaId | StructuredBySlot | null',
     'The registered JSON schema the reply must follow, which can vary by slot; register it before the profile.',
   ),
-  image: field('ProfileImageSpec', 'Settings for the images this profile makes.'),
+  image: field(
+    'ProfileImageSpec',
+    'How the images this profile generates are shaped and made: size, format, quality and references. Each setting is sent only where the provider has it; one it lacks is refused or ignored, as that setting says.',
+  ),
   'image.aspectRatio': field('string', 'The shape of generated images, such as 16:9.'),
   'image.resolution': field('string', 'How detailed generated images are, such as 1K, 2K or 4K.'),
   'image.mimeType': field(
@@ -912,11 +930,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'image.quality': field(
     'string',
-    'How much effort the model spends on each image: auto, low, medium or high. A provider that has no such setting refuses it.',
+    'How much effort the model spends on each image: auto, low, medium, or high. A provider that has no such setting refuses it.',
   ),
   'image.background': field(
     'string',
-    'The background of generated images: auto, transparent or opaque. A provider that has no such setting refuses it.',
+    'The background of generated images: auto, transparent, or opaque. A provider that has no such setting refuses it.',
   ),
   'image.n': field(
     'number',
@@ -938,7 +956,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'boolean',
     'Whether the model may write text alongside its images; with some providers this also sends the system instruction and history.',
   ),
-  speech: field('ProfileSpeechSpec', 'Settings for the audio this profile speaks.'),
+  speech: field(
+    'ProfileSpeechSpec',
+    "How the profile's speech sounds and is delivered: voice, style, speed and audio format. A turn may replace voice, style and speed for that turn.",
+  ),
   'speech.voice': field(
     'string',
     "The voice the speech is read in, by the provider's own name for it; a turn's speech.voice replaces it.",
@@ -953,14 +974,17 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'speech.format': field(
     unionType(SPEECH_AUDIO_FORMATS),
-    'The audio format asked of the provider.',
+    "The audio encoding each turn's speech comes back in, and so what the host plays or stores.",
     SPEECH_AUDIO_FORMATS,
     {
       pcm: 'Uncompressed audio, delivered as WAV.',
       mp3: 'Compressed audio; a provider that cannot make it refuses the turn.',
     },
   ),
-  live: field('ProfileLiveSpec', 'Settings for the realtime voice and video session.'),
+  live: field(
+    'ProfileLiveSpec',
+    'How a realtime voice and video session runs: what it accepts from the user, the voice it answers in, when it hears the user start and stop, and how it resumes and trims its context.',
+  ),
   'live.ingress': field('LiveIngressSpec', 'Which channels the session accepts from the user.'),
   'live.ingress.audio': field('boolean', 'Whether the session accepts microphone audio.'),
   'live.ingress.video': field('boolean', 'Whether the session accepts camera frames.'),
@@ -1141,14 +1165,17 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'turnBehaviour.atStepLimit': field(
     "'stop' | 'answer'",
-    'What the last model call allowed by maxSteps may do.',
+    'What happens when a turn reaches maxSteps while the model still wants tools: the turn stops with no answer, or the last call is made without tools so it answers.',
     STEP_LIMIT_MODES,
     {
       stop: 'It may still call tools; if it does, they run and the turn stops as step_limit with no answer.',
       answer: 'It is sent without tools, so it writes the answer from what the turn has gathered.',
     },
   ),
-  guardrails: field('ProfileGuardrailsSpec', "Protections for this profile's turns."),
+  guardrails: field(
+    'ProfileGuardrailsSpec',
+    'Theorem checks what enters or leaves an agent’s context and generation against built-in or custom rules at each configured boundary.',
+  ),
   'guardrails.quota': field(
     'QuotaGuardrailSpec',
     'A daily turn limit. Your server enforces it with takeSlot.',
@@ -1158,10 +1185,13 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Turns each client IP may run on this profile per UTC day, one at a time; counts live in the process, and a loopback caller is not counted.',
   ),
   ...detectFields(),
-  'guardrails.blockedReply': field('BlockedReplySpec', 'What follows a blocked reply.'),
+  'guardrails.blockedReply': field(
+    'BlockedReplySpec',
+    'How a reply a guardrail blocked is handled: the model rewrites it, or the user gets a refusal, and how many rewrites it gets.',
+  ),
   'guardrails.blockedReply.onBlock': field(
     unionType(BLOCKED_REPLY_ON_BLOCK),
-    'What follows a blocked reply.',
+    'Whether the model gets to rewrite a reply a guardrail blocked, or the user gets a refusal in its place.',
     BLOCKED_REPLY_ON_BLOCK,
     {
       retry:
@@ -1196,7 +1226,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'guardrails.taint.remoteDestination': field(
     unionType(DESTINATION_GATES),
-    "What happens to a tool call, read-only ones too, that sends to an email address, a link's host or a bank account number (IBAN) that only the running text of a remote tool's result named. One the user, the system prompt or a local tool gave passes, and so does one that is a whole field of the result.",
+    "What happens to a tool call, read-only ones too, that sends to an email address, a link's host or a bank account number (IBAN) that only the running text of a remote tool's result named. One the user, the system prompt, or a local tool gave passes, and so does one that is a whole field of the result.",
     DESTINATION_GATES,
     {
       off: 'The call runs; it is only logged.',
@@ -1214,7 +1244,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   labels: field(
     'LabelOverrides',
-    "This profile's own wording for error lines, notices and notes to the model, by labels key.",
+    "This profile's own wording for error lines, notices, and notes to the model, by labels key.",
   ),
   'labels.*': field(
     'string',
@@ -1264,11 +1294,11 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'observability.scrub.sensitive': field(
     'ScrubSwitch',
-    "Removes what the data detectors (IDs, Financial, Network, Credentials) and your own detectors find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours or both for the trace alone.",
+    "Removes what the data detectors (IDs, Financial, Network, Credentials) and your own detectors find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours, or both for the trace alone.",
   ),
   'observability.scrub.injection': field(
     'ScrubSwitch',
-    "Removes what Injection and Tool instructions find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours or both for the trace alone.",
+    "Removes what Injection and Tool instructions find from stored traces. On, it cleans with the patterns each reads the turn with; { theorem, host } picks Theorem's patterns, yours, or both for the trace alone.",
   ),
   'observability.scrub.canary': field(
     'ScrubSwitch',
@@ -1397,7 +1427,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   'registerTool.mcpToolName': field('string', "The tool's name on the MCP server."),
   'registerTool.profile': field(
     'ProfileId',
-    'The profile this agent tool runs: text, image or speech. Register it first. Nothing it calls may stop on a gate.',
+    'The profile this agent tool runs: text, image, or speech. Register it first. Nothing it calls may stop on a gate.',
   ),
   'registerTool.answeredBy': {
     ...field(

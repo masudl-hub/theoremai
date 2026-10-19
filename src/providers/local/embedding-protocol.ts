@@ -10,8 +10,20 @@ export interface OllamaEmbeddingOptions {
 }
 
 const options: z.ZodType<OllamaEmbeddingOptions> = z.strictObject({
-  truncate: z.boolean().optional(),
-  dimensions: z.number().int().positive().optional(),
+  truncate: z
+    .boolean()
+    .optional()
+    .describe(
+      'What happens to an input longer than the model reads. On, it is cut to fit; off, the call fails. Absent: Ollama cuts it.',
+    ),
+  dimensions: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'How many numbers each vector holds, for models that can shorten theirs. Absent: the length the model returns.',
+    ),
 });
 
 function strings(input: EmbeddingCall['input']): string[] {

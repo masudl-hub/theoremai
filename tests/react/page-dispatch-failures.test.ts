@@ -35,7 +35,8 @@ Deno.test('expired and cancelled grants cannot reopen browser execution', async 
     const { store, claim, execution } = await authority();
     const controller = new AbortController();
     const broker = createMemoryPageToolBroker(1);
-    const page = sessionPageDispatch(store, 'owner', broker, 20);
+    // why: A short window the grant reliably outlives under a loaded suite; the abort case never waits on it.
+    const page = sessionPageDispatch(store, 'owner', broker, abort ? 120_000 : 500);
     const grant = await page.execution.dispatch(claim, controller.signal);
     if (abort) controller.abort();
     assertEquals(await grant.result, { timedOut: true });
@@ -115,7 +116,7 @@ Deno.test('an uncooperative broker cannot extend the dispatch result deadline', 
       reserve: () => ({ result: new Promise(() => {}), cancel() {} }),
       deliver: () => Promise.resolve(),
     },
-    10,
+    500,
   );
   const grant = await page.execution.dispatch(claim);
   assertEquals(await grant.result, { timedOut: true });

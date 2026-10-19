@@ -1045,12 +1045,17 @@ interface Compile {
 
 /** The last workspace that compiled; it holds while the current one has issues. */
 function useLastGood(compile: Compile) {
-	const good = compile.result.ok
-		? { workspace: compile.workspace, compiled: compile.result }
-		: null;
-	const [lastGood, setLastGood] = useState(good);
-	if (good && good.compiled !== lastGood?.compiled) setLastGood(good);
-	return good ?? lastGood;
+	const [lastGood, setLastGood] = useState(() =>
+		compile.result.ok ? { workspace: compile.workspace, compiled: compile.result } : null,
+	);
+	// invariant: one object per good compile, so the payload, and the transport made from it, last
+	// until the agent changes; a new one aborts whatever the preview is running.
+	if (compile.result.ok && compile.result !== lastGood?.compiled) {
+		const good = { workspace: compile.workspace, compiled: compile.result };
+		setLastGood(good);
+		return good;
+	}
+	return lastGood;
 }
 
 /** The views of the editor column, in the order its one button lists them; the map opens beside either. */

@@ -310,12 +310,18 @@ type SideProps = Pick<
 > & {
   /** Where this side's profile answers: the files' own, or the load of the edits. */
   endpoint: string;
+  /**
+   * Which load of the edits the endpoint serves. A new load is a new transport, so the run reads
+   * it again in place and keeps what it showed.
+   */
+  load?: string;
 };
 
 /** One profile on one endpoint, as its type runs: a chat, a decision, an embedding, a tool console, or a call. */
 function SideRun({
   payload,
   endpoint,
+  load,
   traces,
   note,
   trace,
@@ -327,34 +333,38 @@ function SideRun({
   context,
 }: SideProps) {
   const { type } = payload.profile;
+  // One per load, so each transport below is made again when the edits load again.
+  const at = useMemo(() => ({ endpoint, load }), [endpoint, load]);
   const pageTools = useMemo(() => studioPageTools(payload), [payload]);
   const chats = isChat(payload);
   const { actingAs } = useActingAs();
   const chat = useMemo(
     () =>
-      chats ? noting(tracedTransport(createHttpTransport, endpoint, traces, actingAs), note) : null,
-    [chats, endpoint, traces, actingAs, note],
+      chats
+        ? noting(tracedTransport(createHttpTransport, at.endpoint, traces, actingAs), note)
+        : null,
+    [chats, at, traces, actingAs, note],
   );
   const host = useMemo(
     () =>
       type === 'host'
-        ? noting(tracedTransport(createHostTransport, endpoint, traces, actingAs), note)
+        ? noting(tracedTransport(createHostTransport, at.endpoint, traces, actingAs), note)
         : null,
-    [type, endpoint, traces, actingAs, note],
+    [type, at, traces, actingAs, note],
   );
   const decision = useMemo(
     () =>
       type === 'decision'
-        ? noting({ ...createDecisionTransport({ endpoint }), traces }, note)
+        ? noting({ ...createDecisionTransport({ endpoint: at.endpoint }), traces }, note)
         : null,
-    [type, endpoint, traces, note],
+    [type, at, traces, note],
   );
   const embedding = useMemo(
     () =>
       type === 'embedding'
-        ? noting({ ...createEmbeddingTransport({ endpoint }), traces }, note)
+        ? noting({ ...createEmbeddingTransport({ endpoint: at.endpoint }), traces }, note)
         : null,
-    [type, endpoint, traces, note],
+    [type, at, traces, note],
   );
   if (chat)
     return (
@@ -467,10 +477,9 @@ function ProjectSides({
           }
         >
           {stamp !== undefined && !refused && (
-            // A new load of the edits is a new run.
             <SideRun
               {...shared}
-              key={stamp}
+              load={stamp}
               payload={payload}
               endpoint={editedProfileEndpoint(project, payload.agentId)}
               traces={editedTraces}

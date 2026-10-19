@@ -467,7 +467,6 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
     isShared: isEditing && inFiles,
     conversations,
     onChange,
-    stamp,
     transports,
     refused: answer && !answer.ok && !pending ? answer : undefined,
     isReady: !pending && transports.edited !== null,
@@ -554,7 +553,7 @@ export function ProjectChat(props: ProjectChatProps) {
                 {transports.edited && (
                   <TheoremChat
                     {...common}
-                    key={view.stamp}
+                    // A new load is a new transport: the chat reads it in place and keeps its transcript.
                     transport={transports.edited}
                     conversation={
                       view.conversations.current.edited ?? view.conversations.current.saved

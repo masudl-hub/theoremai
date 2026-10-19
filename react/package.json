@@ -1,6 +1,11 @@
 {
   "name": "@theoremjs/react",
   "type": "module",
+  "sideEffects": [
+    "**/*.css",
+    "./src/live.ts",
+    "./src/ui/index.ts"
+  ],
   "description": "React bindings for Theorem: headless hooks + transport, an Astryx chat UI, and a Web-standard server handler.",
   "scripts": {
     "typecheck": "tsc -p .",

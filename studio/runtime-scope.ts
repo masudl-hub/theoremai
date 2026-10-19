@@ -36,11 +36,11 @@ export interface StudioProviderOptions extends ProviderHostOptions {
 }
 
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
-import { lentCompression, type StudioRunsOn } from './lent-keys.ts';
+import { lentCompression, runtimeNetwork, type StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
 import { localProviderAddress, registerStudioProvider, STUDIO_PROVIDERS } from './providers.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
-import { registerStudioTools, type StudioToolHandlers } from './tools.ts';
+import { registerDefined, type StudioToolHandlers } from './tools.ts';
 
 /** What a run holds besides what it runs on. */
 export interface StudioRuntimeBase {
@@ -177,43 +177,6 @@ export function agentCallHook(scope: KernelScope, runtime: StudioRuntime): Agent
     if (refused) return refused;
     return { provider: runtimeProvider(runtime, scope, scope.profiles.get(call.profile)) };
   };
-}
-
-/** Where a run's tools may reach, from what the studio runs it on. */
-type RuntimeNetwork = 'public' | 'asWritten' | 'none';
-
-/** The parts of a runtime that decide its network. */
-export type NetworkRuntime = StudioRunsOn &
-  Pick<StudioRuntimeBase, 'remoteTools'> & { providers?: { local?: unknown } };
-
-/**
- * Lent keys that hold runs to public hosts drop the draft's network rules. A local model with
- * remote tools off reaches no host. Otherwise the rules run as written.
- */
-function runtimeNetwork(runtime: NetworkRuntime): RuntimeNetwork {
-  if (runtime.mode === 'demo') return runtime.keys.holds.publicHostsOnly ? 'public' : 'asWritten';
-  return (runtime.mode === 'local' || runtime.providers?.local) && !runtime.remoteTools
-    ? 'none'
-    : 'asWritten';
-}
-
-const NETWORK_NOTES: Record<RuntimeNetwork, string | undefined> = {
-  public: "This page's keys reach public hosts only.",
-  asWritten: undefined,
-  none: 'Remote tools off: no host reached.',
-};
-
-/** What the studio does with the Network section on `runtime`; nothing when it runs as written. */
-export function studioNetworkNote(runtime: NetworkRuntime): string | undefined {
-  return NETWORK_NOTES[runtimeNetwork(runtime)];
-}
-
-/** What lent keys refuse after a remote read; nothing when the profile's own setting runs. */
-export function studioTaintNote(on: StudioRunsOn): string | undefined {
-  const gate = on.mode === 'demo' ? on.keys.holds.afterRemoteRead : 'off';
-  if (gate === 'off') return undefined;
-  const refused = gate === 'write' ? 'writes' : 'destructive calls';
-  return `This page's keys refuse ${refused} after a remote read. Stricter settings hold.`;
 }
 
 /** The stricter of two gates. */
@@ -412,22 +375,6 @@ async function registerDraft(
   return asDraft(() =>
     registerDefined(scope, defined, customTools, structured, runtime.toolHandlers),
   );
-}
-
-/** Registers a draft's tools and schema, then its profile, into `scope`. */
-export function registerDefined(
-  scope: KernelScope,
-  profile: Profile,
-  customTools: readonly ToolRegistration[],
-  structured: StructuredRegistration | undefined,
-  handlers?: StudioToolHandlers,
-): Profile {
-  registerStudioTools(scope.tools, customTools, handlers);
-  if (structured && profile.type !== 'live') {
-    scope.schemas.register(structured.id, structured.spec);
-  }
-  scope.profiles.register(profile);
-  return profile;
 }
 
 /** An agent the run's agent names, registered before it: one its agent tools run, or its summariser. */

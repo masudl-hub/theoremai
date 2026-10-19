@@ -3,6 +3,7 @@ import { build, emptyDir } from '@deno/dnt';
 const outDir = './npm';
 const rootManifest: {
   version: string;
+  sideEffects: false;
   engines: Record<string, string>;
   devDependencies: Record<string, string>;
 } = JSON.parse(await Deno.readTextFile('./package.json'));
@@ -63,7 +64,7 @@ await build({
       'openrouter',
       'gemini',
     ],
-    sideEffects: false,
+    sideEffects: rootManifest.sideEffects,
     // dnt type-checks against these; the `node:` built-ins need Node's types.
     devDependencies: {
       '@types/node': rootManifest.devDependencies['@types/node'],

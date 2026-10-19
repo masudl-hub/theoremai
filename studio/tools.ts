@@ -3,9 +3,10 @@
  * name, else a stub shaped by their output schema.
  */
 
+import type { KernelRegistry, Profile } from '@theoremjs/agents';
 import type { ToolRegistry } from '@theoremjs/agents/kernel';
 import { GOOGLE_BUILTIN_TOOLS } from '@theoremjs/agents/presets/google';
-import type { ToolRegistration } from './registrations.ts';
+import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { zodFromJsonSchema } from './tool-schema.ts';
 
@@ -97,4 +98,20 @@ export function registerStudioTools(
 ): void {
   tools.registerMany(GOOGLE_BUILTIN_TOOLS);
   for (const tool of customTools) registerCustomTool(tools, tool, handlers);
+}
+
+/** Registers a draft's tools and schema, then its profile, into `registry`. */
+export function registerDefined(
+  registry: KernelRegistry,
+  profile: Profile,
+  customTools: readonly ToolRegistration[],
+  structured: StructuredRegistration | undefined,
+  handlers?: StudioToolHandlers,
+): Profile {
+  registerStudioTools(registry.tools, customTools, handlers);
+  if (structured && profile.type !== 'live') {
+    registry.schemas.register(structured.id, structured.spec);
+  }
+  registry.profiles.register(profile);
+  return profile;
 }

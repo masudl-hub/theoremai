@@ -1,15 +1,11 @@
 import { type LabelOverrides, type LiveSession, TheoremError } from '@theoremjs/agents';
 import { clientError } from '@theoremjs/agents/host';
 import type { LiveConnection, LiveSocket } from '@theoremjs/react/client';
-import { liveSessionOpen, parseLiveOpenMessage } from '@theoremjs/react/server';
 import { browserExecution } from './browser-execution.ts';
-import type { StudioBrowserRuntime } from './browser-transport.ts';
+import { browserEngine, type StudioBrowserRuntime } from './browser-transport.ts';
 import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
-import { attachStudioLiveSession } from './live-session-bridge.ts';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
-import { studioTraces } from './runtime.ts';
-import { studioScope } from './runtime-scope.ts';
 import type { StudioTraceRoute } from './traces.ts';
 
 /** The Live UI's existing relay protocol, carried in memory instead of over a site socket. */
@@ -63,9 +59,11 @@ class BrowserLiveSocket implements LiveSocket {
     if (this.readyState === 3) return;
     this.readyState = 1;
     this.emit('onopen', new Event('open'));
-    const traces = studioTraces.route((record) => this.receive({ type: 'trace', record }));
+    let traces: StudioTraceRoute | undefined;
     try {
-      const { scope, profile } = await studioScope(
+      const run = await browserEngine();
+      traces = run.studioTraces.route((record) => this.receive({ type: 'trace', record }));
+      const { scope, profile } = await run.studioScope(
         payload.profile,
         payload.customTools,
         payload.structured,
@@ -82,8 +80,8 @@ class BrowserLiveSocket implements LiveSocket {
       const session = await scope.runSession(
         {
           ...(await (local
-            ? (await local.boundary).prepareLiveOpen(parseLiveOpenMessage(first))
-            : Promise.resolve(liveSessionOpen(parseLiveOpenMessage(first))))),
+            ? (await local.boundary).prepareLiveOpen(run.parseLiveOpenMessage(first))
+            : Promise.resolve(run.liveSessionOpen(run.parseLiveOpenMessage(first))))),
           profile: profile.id,
           metadata: traces.metadata,
           signal: runtime.signal,
@@ -104,6 +102,7 @@ class BrowserLiveSocket implements LiveSocket {
         return;
       }
       await this.attach(
+        run.attachStudioLiveSession,
         session,
         profile.id,
         traces,
@@ -122,12 +121,13 @@ class BrowserLiveSocket implements LiveSocket {
           : {},
       );
     } catch (err) {
-      traces.close();
+      traces?.close();
       this.receive({ type: 'error', ...clientError(err, payload.profile.labels, STUDIO_READER) });
       this.close();
     }
   }
   private async attach(
+    attachStudioLiveSession: typeof import('./live-session-bridge.ts').attachStudioLiveSession,
     session: LiveSession,
     profileId: string,
     traces: StudioTraceRoute,

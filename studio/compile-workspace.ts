@@ -4,7 +4,7 @@
  * summarises for it. Issues land on the node of the agent or tool at fault.
  */
 
-import { createKernelScope, defineProfile, TheoremError, z } from '@theoremjs/agents';
+import { createKernelRegistry, defineProfile, TheoremError, z } from '@theoremjs/agents';
 import {
   type AgentIdOf,
   type AgentToolInputOf,
@@ -16,7 +16,8 @@ import {
 } from './compile.ts';
 import type { StudioRunsOn } from './lent-keys.ts';
 import { kernelDefinition, providerProblems, registerStudioProvider } from './providers.ts';
-import { registerDefined, type StudioDependency } from './runtime-scope.ts';
+import type { StudioDependency } from './runtime-scope.ts';
+import { registerDefined } from './tools.ts';
 import { modelBindingNodeId, providerNodeId, toolSpecNodeId } from './tree.ts';
 import {
   type AgentDraft,
@@ -224,14 +225,14 @@ function compileAgents(
 
 /**
  * The kernel's own rules across the workspace, such as an agent tool's agent that can stop on a
- * gate: the first provider or agent a scope refuses, as an issue on it. The scope holds the
+ * gate: the first provider or agent the kernel's registry refuses, as an issue on it. The registry holds the
  * workspace's providers as they are now, so an agent is checked against what it would run on.
  */
 function kernelIssue(
   workspace: StudioWorkspace,
   compiled: readonly { key: string; agent: CompiledStudio }[],
 ): StudioIssue | undefined {
-  const scope = createKernelScope();
+  const registry = createKernelRegistry();
   // why: a project's own definition is the project's; the server checks its agents when it opens.
   const own = new Set<string>();
   for (const provider of workspace.providers) {
@@ -240,7 +241,7 @@ function kernelIssue(
       continue;
     }
     try {
-      registerStudioProvider(scope.providers, provider);
+      registerStudioProvider(registry.providers, provider);
     } catch (err) {
       const message =
         err instanceof z.ZodError
@@ -261,7 +262,7 @@ function kernelIssue(
       continue;
     try {
       registerDefined(
-        scope,
+        registry,
         defineProfile(uncompiled(agent.profile)),
         agent.customTools,
         agent.structured,

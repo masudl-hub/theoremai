@@ -8,6 +8,7 @@
     "url": "https://github.com/masudl-hub/theoremai"
   },
   "type": "module",
+  "sideEffects": false,
   "engines": {
     "node": ">=20"
   },

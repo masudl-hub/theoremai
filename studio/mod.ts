@@ -135,6 +135,8 @@ export {
   type ModelStart,
   ON_OWN_KEYS,
   type StudioRunsOn,
+  studioNetworkNote,
+  studioTaintNote,
 } from './lent-keys.ts';
 export { type DiffLine, lineDiff } from './line-diff.ts';
 export type { StudioLiveDraftMessage } from './live-connection.ts';
@@ -253,7 +255,6 @@ export {
   upsertStudioRunIndex,
 } from './run-payload.ts';
 export type { StudioDependency } from './runtime-scope.ts';
-export { studioNetworkNote, studioTaintNote } from './runtime-scope.ts';
 export { sectionNote } from './section-notes.ts';
 export {
   type Ask,

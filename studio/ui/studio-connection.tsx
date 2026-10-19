@@ -24,9 +24,9 @@ import {
   type ProviderModel,
   STUDIO_KEY_SLOT_CAP,
   type StudioBrowserConnection,
-  type StudioBrowserRuntime,
   studioVault,
-} from '../browser.ts';
+} from '../browser-connection.ts';
+import type { StudioBrowserRuntime } from '../browser-transport.ts';
 import {
   type LentKeys,
   type ModelRoute,

@@ -110,3 +110,42 @@ export function lentCompression(
 
 /** The builder's own keys. */
 export const ON_OWN_KEYS: StudioRunsOn = { mode: 'byok' };
+
+/** Where a run's tools may reach, from what the studio runs it on. */
+export type RuntimeNetwork = 'public' | 'asWritten' | 'none';
+
+/** The parts of a runtime that decide its network. */
+export type NetworkRuntime = StudioRunsOn & {
+  remoteTools?: boolean;
+  providers?: { local?: unknown };
+};
+
+/**
+ * Lent keys that hold runs to public hosts drop the draft's network rules. A local model with
+ * remote tools off reaches no host. Otherwise the rules run as written.
+ */
+export function runtimeNetwork(runtime: NetworkRuntime): RuntimeNetwork {
+  if (runtime.mode === 'demo') return runtime.keys.holds.publicHostsOnly ? 'public' : 'asWritten';
+  return (runtime.mode === 'local' || runtime.providers?.local) && !runtime.remoteTools
+    ? 'none'
+    : 'asWritten';
+}
+
+const NETWORK_NOTES: Record<RuntimeNetwork, string | undefined> = {
+  public: "This page's keys reach public hosts only.",
+  asWritten: undefined,
+  none: 'Remote tools off: no host reached.',
+};
+
+/** What the studio does with the Network section on `runtime`; nothing when it runs as written. */
+export function studioNetworkNote(runtime: NetworkRuntime): string | undefined {
+  return NETWORK_NOTES[runtimeNetwork(runtime)];
+}
+
+/** What lent keys refuse after a remote read; nothing when the profile's own setting runs. */
+export function studioTaintNote(on: StudioRunsOn): string | undefined {
+  const gate = on.mode === 'demo' ? on.keys.holds.afterRemoteRead : 'off';
+  if (gate === 'off') return undefined;
+  const refused = gate === 'write' ? 'writes' : 'destructive calls';
+  return `This page's keys refuse ${refused} after a remote read. Stricter settings hold.`;
+}

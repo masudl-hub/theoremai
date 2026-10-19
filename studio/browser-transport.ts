@@ -16,27 +16,12 @@ import {
   type TheoremTransport,
   type TraceFeed,
   type TurnEventSink,
+  withFailedTraces,
 } from '@theoremjs/react/client';
-import {
-  createMemorySteerInbox,
-  createSealedConversationStore,
-  type ReplyLine,
-  steerUnitOf,
-} from '@theoremjs/react/server';
+import type { ReplyLine } from '@theoremjs/react/server';
 import { browserExecution } from './browser-execution.ts';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
-import {
-  rewindStudio,
-  runStudioDecision,
-  runStudioEmbedding,
-  streamStudioCall,
-  streamStudioHostInvoke,
-  streamStudioInvoke,
-  streamStudioTurn,
-  studioConversation,
-  withFailedTraces,
-} from './runtime.ts';
 import type { StudioRuntimeBase } from './runtime-scope.ts';
 import type { StudioTraceLine } from './traces.ts';
 import {
@@ -45,6 +30,22 @@ import {
   type StudioSteerLine,
   studioInterface,
 } from './transport.ts';
+
+let engine: Promise<typeof import('./browser-engine.ts')> | undefined;
+/**
+ * The engine a run in the page runs on, loaded once. A connection asks for it as it is made, so
+ * the first run waits on nothing; a studio that never runs in the page never downloads it.
+ */
+export const browserEngine = (): Promise<typeof import('./browser-engine.ts')> =>
+  (engine ??= import('./browser-engine.ts'));
+
+/** The lines `open` streams once `ready` settles: a run's lines wait for the engine it runs on. */
+async function* after<S, T>(
+  ready: Promise<S>,
+  open: (ready: S) => AsyncIterable<T>,
+): AsyncIterable<T> {
+  yield* open(await ready);
+}
 
 /** A run in the page: on the builder's own keys or machine, never on lent keys. */
 export interface StudioBrowserRuntime extends StudioRuntimeBase {
@@ -130,12 +131,21 @@ export function createBrowserStudioTransport(
   runtime = prepared.runtime;
   const local = prepared.local;
   const traces = options.traces ?? createTraceFeed();
-  const steer = createMemorySteerInbox();
+  // The engine starts loading as the transport is made, when the builder connects.
+  const session = browserEngine().then((run) => ({
+    run,
+    steer: run.createMemorySteerInbox(),
+    conversations: {
+      sessionId: PAGE_SESSION,
+      store: run.createSealedConversationStore({
+        keys: { 1: options.conversationKey },
+        keyVersion: 1,
+      }),
+    },
+  }));
+  // why: a failed load surfaces on the run that awaits it, not as an unhandled rejection.
+  session.catch(() => {});
   const inboxes = new Map<string, string>();
-  const conversations = {
-    sessionId: PAGE_SESSION,
-    store: createSealedConversationStore({ keys: { 1: options.conversationKey }, keyVersion: 1 }),
-  };
   const compiled = {
     profile: payload.profile,
     customTools: payload.customTools,
@@ -159,13 +169,15 @@ export function createBrowserStudioTransport(
     async turn(request, onEvent, signal) {
       try {
         await deliver(
-          streamStudioTurn({
-            ...compiled,
-            request,
-            conversations,
-            signal: runSignal(runtime, signal),
-            steer,
-          }),
+          after(session, ({ run, conversations, steer }) =>
+            run.streamStudioTurn({
+              ...compiled,
+              request,
+              conversations,
+              signal: runSignal(runtime, signal),
+              steer,
+            }),
+          ),
           payload,
           route(onEvent, (inbox) => {
             if (request.turnId) inboxes.set(request.turnId, inbox);
@@ -177,21 +189,31 @@ export function createBrowserStudioTransport(
     },
     invoke: (answer, onEvent, signal) =>
       deliver(
-        streamStudioInvoke({
-          ...compiled,
-          answer,
-          conversations,
-          signal: runSignal(runtime, signal),
-        }),
+        after(session, ({ run, conversations }) =>
+          run.streamStudioInvoke({
+            ...compiled,
+            answer,
+            conversations,
+            signal: runSignal(runtime, signal),
+          }),
+        ),
         payload,
         route(onEvent),
       ),
-    conversation: (request) => answered(() => studioConversation(compiled, conversations, request)),
+    conversation: (request) =>
+      answered(async () => {
+        const { run, conversations } = await session;
+        return run.studioConversation(compiled, conversations, request);
+      }),
     rewind: (request, signal) =>
-      answered(() => rewindStudio(compiled, conversations, request, runSignal(runtime, signal))),
+      answered(async () => {
+        const { run, conversations } = await session;
+        return run.rewindStudio(compiled, conversations, request, runSignal(runtime, signal));
+      }),
     async steer(request) {
       const inbox = inboxes.get(request.turnId);
-      if (!inbox || !(await steer.enqueue(inbox, steerUnitOf(request)))) {
+      const { run, steer } = await session;
+      if (!inbox || !(await steer.enqueue(inbox, run.steerUnitOf(request)))) {
         throw new TheoremError('request', 'The turn has ended', {
           copy: { key: 'session.turn_ended' },
         }); // labels-exempt: internal diagnostic
@@ -233,23 +255,27 @@ export function createBrowserStudioHostTransport(
       ),
     call: (call, onEvent, signal) =>
       deliver(
-        streamStudioCall({
-          ...compiled,
-          call,
-          sessionPermissions,
-          signal: runSignal(runtime, signal),
-        }),
+        after(browserEngine(), (run) =>
+          run.streamStudioCall({
+            ...compiled,
+            call,
+            sessionPermissions,
+            signal: runSignal(runtime, signal),
+          }),
+        ),
         payload,
         route(onEvent),
       ),
     invoke(answer, onEvent, signal) {
       sessionPermissions = answer.replay?.sessionPermissions ?? sessionPermissions;
       return deliver(
-        streamStudioHostInvoke({
-          ...compiled,
-          answer,
-          signal: runSignal(runtime, signal),
-        }),
+        after(browserEngine(), (run) =>
+          run.streamStudioHostInvoke({
+            ...compiled,
+            answer,
+            signal: runSignal(runtime, signal),
+          }),
+        ),
         payload,
         route(onEvent),
       );
@@ -275,7 +301,8 @@ export function createBrowserStudioDecisionTransport(
       ),
     decide: async (state, signal, assets) => {
       try {
-        return await runStudioDecision(
+        const run = await browserEngine();
+        return await run.runStudioDecision(
           payload,
           state,
           runtime.decision ?? {},
@@ -309,7 +336,8 @@ export function createBrowserStudioEmbeddingTransport(
       ),
     embed: async (input, embed, signal) => {
       try {
-        const response = await runStudioEmbedding(
+        const run = await browserEngine();
+        const response = await run.runStudioEmbedding(
           payload,
           {
             input,

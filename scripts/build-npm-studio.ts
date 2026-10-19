@@ -23,6 +23,7 @@ const launchers = [
 type StudioManifest = {
   name: string;
   type: string;
+  sideEffects: string[];
   exports: Record<string, string>;
   dependencies: Record<string, string>;
   peerDependencies: Record<string, string>;
@@ -74,6 +75,16 @@ for await (const file of walkFiles(`${outDir}/ui`)) {
   else if (file.endsWith('.js')) sideEffects.push(`./${file.slice(outDir.length + 1)}`);
 }
 
+// The manifest declares which modules have side effects, so a bundler that
+// reads the source (a linked checkout) drops what goes unused exactly as it
+// does from the published package; the build checks the declaration is whole.
+const declared = manifest.sideEffects.map(builtSideEffect).sort();
+if (JSON.stringify(declared) !== JSON.stringify(sideEffects.sort())) {
+  throw new Error(
+    `studio/package.json sideEffects must name every module that imports a stylesheet: it declares ${JSON.stringify(declared)}, the build finds ${JSON.stringify(sideEffects)}`,
+  );
+}
+
 const pkg = {
   name: manifest.name,
   version,
@@ -89,7 +100,7 @@ const pkg = {
   },
   // npm publish drops a bin path that starts with "./".
   bin: { 'theorem-studio': 'start.mjs' },
-  sideEffects: sideEffects.sort(),
+  sideEffects: declared,
   exports: Object.fromEntries(
     Object.entries(manifest.exports).flatMap(([entry, source]) => builtExports(entry, source)),
   ),
@@ -146,6 +157,11 @@ async function copyAssets(from: string, to: string) {
       await Deno.copyFile(source, target);
     }
   }
+}
+
+/** A declared source path as the module it builds to; globs stay as they are. */
+function builtSideEffect(path: string): string {
+  return path.replace(/^\.\//, './').replace(/\.tsx?$/, '.js');
 }
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {

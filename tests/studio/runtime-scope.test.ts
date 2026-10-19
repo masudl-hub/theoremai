@@ -17,14 +17,10 @@ import {
   createLiveExampleDraft,
   lentCompression,
   setProfileType,
-} from '../../studio/mod.ts';
-import {
-  runtimeProvider,
-  type StudioRuntime,
   studioNetworkNote,
-  studioScope,
   studioTaintNote,
-} from '../../studio/runtime-scope.ts';
+} from '../../studio/mod.ts';
+import { runtimeProvider, type StudioRuntime, studioScope } from '../../studio/runtime-scope.ts';
 import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function afterRemoteRead(guardrails: object | undefined): unknown {

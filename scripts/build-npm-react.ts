@@ -16,6 +16,7 @@ type ReactManifest = {
   name: string;
   description: string;
   type: string;
+  sideEffects: string[];
   exports: Record<string, string>;
   dependencies: Record<string, string>;
   peerDependencies: Record<string, string>;
@@ -69,6 +70,16 @@ for await (const file of walkFiles(outDir)) {
   }
 }
 
+// The manifest declares which modules have side effects, so a bundler that
+// reads the source (a linked checkout) drops what goes unused exactly as it
+// does from the published package; the build checks the declaration is whole.
+const declared = manifest.sideEffects.map(builtSideEffect).sort();
+if (JSON.stringify(declared) !== JSON.stringify(sideEffects.sort())) {
+  throw new Error(
+    `react/package.json sideEffects must name every module that imports a stylesheet: it declares ${JSON.stringify(declared)}, the build finds ${JSON.stringify(sideEffects)}`,
+  );
+}
+
 const pkg = {
   name: manifest.name,
   version,
@@ -81,7 +92,7 @@ const pkg = {
     url: 'git+https://github.com/masudl-hub/theoremai.git',
     directory: 'react',
   },
-  sideEffects: sideEffects.sort(),
+  sideEffects: declared,
   exports: Object.fromEntries(
     Object.entries(manifest.exports).map(([name, path]) => [name, builtExport(path)]),
   ),
@@ -98,6 +109,11 @@ function builtExport(path: string): string | { types: string; default: string } 
   const module = built.match(/^(.*)\.tsx?$/);
   if (!module) return built;
   return { types: `${module[1]}.d.ts`, default: `${module[1]}.js` };
+}
+
+/** A declared source path as the module it builds to; globs stay as they are. */
+function builtSideEffect(path: string): string {
+  return path.replace(/^\.\/src\//, './').replace(/\.tsx?$/, '.js');
 }
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {

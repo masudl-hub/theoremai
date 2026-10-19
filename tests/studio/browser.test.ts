@@ -502,7 +502,7 @@ Deno.test('a decision on the builder own keys says why it failed and keeps its t
     '../../studio/mod.ts'
   );
   const { failedDecisionTraces } = await import('../../studio/runtime.ts');
-  const compiled = compile(createDecisionExampleDraft(), ON_OWN_KEYS);
+  const compiled = compile(await createDecisionExampleDraft(), ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
   const transport = createBrowserStudioDecisionTransport(compiled, { mode: 'byok', decision: {} });
   const failure = await assertRejects(() => transport.decide({ action: 'delete' }));
@@ -515,12 +515,12 @@ Deno.test('a decision on the builder own keys says why it failed and keeps its t
 Deno.test('the decision example sends its pictures from the browser and returns boxes', async () => {
   const { createBrowserStudioDecisionTransport } = await import('../../studio/browser.ts');
   const {
-    DECISION_EXAMPLE_ASSETS,
+    decisionExampleAssets,
     DECISION_EXAMPLE_STATE,
     compileStudio: compile,
     createDecisionExampleDraft,
   } = await import('../../studio/mod.ts');
-  const compiled = compile(createDecisionExampleDraft(), ON_OWN_KEYS);
+  const compiled = compile(await createDecisionExampleDraft(), ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
   assert(compiled.profile.type === 'decision');
   const slot = compiled.profile.models.decision.keySlot;
@@ -557,7 +557,7 @@ Deno.test('the decision example sends its pictures from the browser and returns 
     },
   });
   const reply = await transport.decide(JSON.parse(DECISION_EXAMPLE_STATE), undefined, {
-    ...DECISION_EXAMPLE_ASSETS,
+    ...(await decisionExampleAssets()),
   });
   assertEquals(reply.result.answers.Ginger, { type: 'box', box, confidence: 0.9 });
   assertEquals(seen[0].headers.get('TypeSafe-Danger-Zone-Images'), 'true');

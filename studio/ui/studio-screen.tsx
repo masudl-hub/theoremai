@@ -600,13 +600,15 @@ interface ExampleEntry {
 /** What an Add agent item does to the workspace. */
 type AddAgent = (workspace: StudioWorkspace) => StudioWorkspace;
 
+/** Makes the draft first, since an example may load its pictures, then adds it to whichever workspace is current. */
 const addsDraft =
-  (draft: () => StudioDraft): AddAgent =>
-  (workspace) =>
-    addAgent(workspace, draft());
+  (draft: () => StudioDraft | Promise<StudioDraft>) => async (): Promise<AddAgent> => {
+    const made = await draft();
+    return (workspace) => addAgent(workspace, made);
+  };
 
 /** The examples, in the order the menu lists them. The architect brings its narrator. */
-const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: AddAgent })[] = [
+const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: () => Promise<AddAgent> })[] = [
   {
     id: 'concierge',
     ...STUDIO_EXAMPLES.concierge,
@@ -623,7 +625,7 @@ const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: AddAgent })[] = [
     id: 'architect',
     ...STUDIO_EXAMPLES.architect,
     icon: PROFILE_TYPE_ICON.text,
-    add: addArchitectExample,
+    add: () => Promise.resolve(addArchitectExample),
   },
   {
     id: 'narrator',
@@ -682,7 +684,7 @@ function AddAgentMenu({ onAddAgent }: { onAddAgent: (add: AddAgent) => void }) {
           description: oneLine('One empty agent to build from.'),
           icon: <Icon icon={IconFile} size="sm" />,
           onClick: () => {
-            onAddAgent(addsDraft(createBlankDraft));
+            void addsDraft(createBlankDraft)().then(onAddAgent);
           },
         },
         ...EXAMPLE_AGENTS.map((example) => ({
@@ -691,7 +693,7 @@ function AddAgentMenu({ onAddAgent }: { onAddAgent: (add: AddAgent) => void }) {
           description: oneLine(example.description),
           icon: <Icon icon={example.icon} size="sm" />,
           onClick: () => {
-            onAddAgent(example.add);
+            void example.add().then(onAddAgent);
           },
         })),
       ]}

@@ -61,7 +61,7 @@ import {
   useSavedHidden,
 } from './studio-compare.tsx';
 import { ChooseConflictsContext } from './studio-conflicts.tsx';
-import { decisionSeed, StudioDecision } from './studio-decision.tsx';
+import { StudioDecision, useDecisionSeed } from './studio-decision.tsx';
 import { embeddingSeed, StudioEmbedding } from './studio-embedding.tsx';
 import { clearRemoves, useProjectSave } from './studio-save.tsx';
 
@@ -367,6 +367,7 @@ function SideRun({
         : null,
     [type, at, traces, note],
   );
+  const seed = useDecisionSeed(payload);
   if (chat)
     return (
       <TheoremChat
@@ -385,7 +386,7 @@ function SideRun({
     return (
       <TheoremDecision
         transport={decision}
-        {...decisionSeed(payload)}
+        {...seed}
         trace={trace}
         flush={flush}
         columns={columns}

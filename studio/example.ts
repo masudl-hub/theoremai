@@ -11,7 +11,6 @@ import {
   demoInputsSpec,
   demoToolSpecs,
 } from './concierge-demo.ts';
-import { DECISION_EXAMPLE_IMAGES } from './decision-example-images.ts';
 import {
   createBlankDraft,
   type DecisionDraft,
@@ -75,13 +74,19 @@ export const DECISION_EXAMPLE_STATE = JSON.stringify(
   2,
 );
 
-const { '<pantry_shelf>': shelf, ...fixed } = DECISION_EXAMPLE_IMAGES;
+/** The example's pictures, which load only when the example is made: they are most of its weight. */
+const exampleImages = async () =>
+  (await import('./decision-example-images.ts')).DECISION_EXAMPLE_IMAGES;
 
 /** The picture the decision example's state starts with, by the reference it writes: the shelf. */
-export const DECISION_EXAMPLE_ASSETS = { '<pantry_shelf>': shelf };
+export async function decisionExampleAssets() {
+  const { '<pantry_shelf>': shelf } = await exampleImages();
+  return { '<pantry_shelf>': shelf };
+}
 
 /** The example's own pictures, sent with every decision: the ginger, the colour chart and the flag its questions name. */
-function exampleImages(): DecisionImageDraft[] {
+async function decisionImages(): Promise<DecisionImageDraft[]> {
+  const { '<pantry_shelf>': _shelf, ...fixed } = await exampleImages();
   return Object.entries(fixed).map(([reference, image]) => ({
     key: draftKey('image'),
     name: reference.slice(1, -1),
@@ -112,7 +117,8 @@ function exampleQuestion(
  * when its type is set to decision, with every section that type brings, and the pictures ship with
  * it, so it runs as it opens.
  */
-export function createDecisionExampleDraft(): StudioDraft {
+export async function createDecisionExampleDraft(): Promise<StudioDraft> {
+  const images = await decisionImages();
   const blank = createBlankDraft();
   const had = new Set(includableFacets(blank));
   const decision = setProfileType(blank, 'decision', EXAMPLE_PICKS);
@@ -147,7 +153,7 @@ export function createDecisionExampleDraft(): StudioDraft {
           ['shop', 'Nothing yet. Someone goes to the shop.'],
         ]),
       ],
-      images: exampleImages(),
+      images,
     },
   };
 }

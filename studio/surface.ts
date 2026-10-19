@@ -301,7 +301,7 @@ const EXAMPLE_DRAFTS = {
   narrator: createNarratorExampleDraft,
   console: createConsoleExampleDraft,
   decision: createDecisionExampleDraft,
-} satisfies Record<string, () => StudioDraft>;
+} satisfies Record<string, () => StudioDraft | Promise<StudioDraft>>;
 
 const exampleInput = z.enum(Object.keys(EXAMPLE_DRAFTS) as [keyof typeof EXAMPLE_DRAFTS]);
 
@@ -382,10 +382,10 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         type: typeInput.describe('The agent type'),
         example: exampleInput.optional().describe('Start from a worked example'),
       }),
-      run: ({ type, example }) => {
+      run: async ({ type, example }) => {
         const blank = createBlankDraft();
         const next = example
-          ? EXAMPLE_DRAFTS[example]()
+          ? await EXAMPLE_DRAFTS[example]()
           : withNewSections(blank, setProfileType(blank, type, lent()));
         host.replaceDraft(next, 'th30 started a new agent.');
         return { node: 'identity' };

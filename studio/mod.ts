@@ -98,8 +98,8 @@ export {
   createNarratorExampleDraft,
   createSpanExampleDraft,
   DECISION_EXAMPLE_AGENT_ID,
-  DECISION_EXAMPLE_ASSETS,
   DECISION_EXAMPLE_STATE,
+  decisionExampleAssets,
 } from './example.ts';
 export { EXAMPLE_EMBEDDING_FILES } from './example-embedding-files.ts';
 export type {

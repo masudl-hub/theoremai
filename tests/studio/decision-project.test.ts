@@ -164,7 +164,7 @@ Deno.test('questions a setup file wrote wrongly are named, not run', () => {
 });
 
 Deno.test('a decision made in the studio loads from its files as what was tested', async () => {
-  const tested = workspaceFromDraft(createDecisionExampleDraft());
+  const tested = workspaceFromDraft(await createDecisionExampleDraft());
   const compiled = compileWorkspace(tested, ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(compiled.issues.map((issue) => issue.message).join(' '));
   const [made] = compiled.agents;

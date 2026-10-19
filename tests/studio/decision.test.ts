@@ -5,8 +5,8 @@ import {
   createDecisionExampleDraft,
   createExampleDraft,
   createSpanExampleDraft,
-  DECISION_EXAMPLE_ASSETS,
   DECISION_EXAMPLE_STATE,
+  decisionExampleAssets,
   draftFacets,
   newCriteria,
   newDecisionImage,
@@ -34,8 +34,8 @@ function issues(draft: StudioDraft, on: StudioRunsOn = ON_OWN_KEYS): StudioIssue
   return result.issues;
 }
 
-Deno.test('the decision example asks Jev 1.14 about the pantry, with images on', () => {
-  const result = compileStudio(createDecisionExampleDraft(), ON_OWN_KEYS);
+Deno.test('the decision example asks Jev 1.14 about the pantry, with images on', async () => {
+  const result = compileStudio(await createDecisionExampleDraft(), ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   const { profile, questions } = result;
   assert(profile.type === 'decision');
@@ -67,11 +67,11 @@ function imageSize(data: string): [number, number] {
   return [view.getUint16(at + 7), view.getUint16(at + 5)];
 }
 
-Deno.test('the decision example writes every picture it ships, each in TypeSafe image limits', () => {
-  const draft = createDecisionExampleDraft();
+Deno.test('the decision example writes every picture it ships, each in TypeSafe image limits', async () => {
+  const draft = await createDecisionExampleDraft();
   const written = [DECISION_EXAMPLE_STATE, ...draft.decision.questions.map((q) => q.instructions)];
   const fixed = draft.decision.images.map((image) => [`<${image.name}>`, image] as const);
-  for (const [reference, image] of [...Object.entries(DECISION_EXAMPLE_ASSETS), ...fixed]) {
+  for (const [reference, image] of [...Object.entries(await decisionExampleAssets()), ...fixed]) {
     // TypeSafe refuses a request with an image nothing refers to.
     assert(
       written.some((text) => text.includes(reference)),
@@ -83,11 +83,11 @@ Deno.test('the decision example writes every picture it ships, each in TypeSafe 
   }
 });
 
-Deno.test('on keys that take no images, a Box question is an issue on that question', () => {
+Deno.test('on keys that take no images, a Box question is an issue on that question', async () => {
   const keys: LentKeys = { ...TEST_KEYS, decision: { ...TEST_KEYS.decision, images: 0 } };
-  const found = issues(createDecisionExampleDraft(), { mode: 'demo', keys });
+  const found = issues(await createDecisionExampleDraft(), { mode: 'demo', keys });
   assert(found.some((issue) => issue.message.includes('take no images')));
-  assert(compileStudio(createDecisionExampleDraft(), ON_TEST_KEYS).ok);
+  assert(compileStudio(await createDecisionExampleDraft(), ON_TEST_KEYS).ok);
 });
 
 Deno.test('the Span example compiles to the free model with Number questions', () => {
@@ -108,8 +108,8 @@ Deno.test('the Span example compiles to the free model with Number questions', (
   assertEquals(result.customTools, []);
 });
 
-Deno.test('on lent keys a decision is held to their text and timeout limits, and on its own keys it is not', () => {
-  const jev = createDecisionExampleDraft();
+Deno.test('on lent keys a decision is held to their text and timeout limits, and on its own keys it is not', async () => {
+  const jev = await createDecisionExampleDraft();
   const limits = TEST_KEYS.decision;
   for (const change of [
     { ...jev, modelBindings: [{ ...jev.modelBindings[0], timeoutMs: limits.timeoutMs + 1 }] },
@@ -216,8 +216,8 @@ Deno.test('a question without instructions or enough criteria is an issue on tha
   assert(found.every((issue) => issue.nodeId === 'decision' && issue.field === 'questions'));
 });
 
-Deno.test('lent keys cap questions, criteria, state, and the model', () => {
-  const draft = createDecisionExampleDraft();
+Deno.test('lent keys cap questions, criteria, state, and the model', async () => {
+  const draft = await createDecisionExampleDraft();
   const limits = TEST_KEYS.decision;
   const many = withQuestions(draft, (qs) =>
     Array.from({ length: limits.questions + 1 }, (_, n) => ({
@@ -260,13 +260,13 @@ Deno.test('lent keys cap questions, criteria, state, and the model', () => {
   );
 });
 
-Deno.test('a question the lent keys refuse is an issue on that question', () => {
+Deno.test('a question the lent keys refuse is an issue on that question', async () => {
   const keys: LentKeys = {
     ...TEST_KEYS,
     questionViolation: (_, question) =>
       question.type === 'choice' ? 'No choices on these keys.' : null,
   };
-  const found = issues(createDecisionExampleDraft(), { mode: 'demo', keys });
+  const found = issues(await createDecisionExampleDraft(), { mode: 'demo', keys });
   assertEquals(
     found.map(({ field, index, message }) => [field, index, message]),
     [['questions', 6, 'No choices on these keys.']],
@@ -285,8 +285,8 @@ Deno.test('studioSource writes the questions beside the profile', () => {
   assertStringIncludes(source, "contract: 'guardrails.tool_call.v1'");
 });
 
-Deno.test('a Box question compiles to instructions alone, and keeps no criteria', () => {
-  const jev = createDecisionExampleDraft();
+Deno.test('a Box question compiles to instructions alone, and keeps no criteria', async () => {
+  const jev = await createDecisionExampleDraft();
   const box = {
     ...newDecisionQuestion(jev, 'box'),
     id: 'cup',
@@ -311,8 +311,8 @@ function withImages(
   return { ...draft, decision: { ...draft.decision, images: edit(draft.decision.images) } };
 }
 
-Deno.test('a decision sends its own pictures, and a question names only those', () => {
-  const draft = createDecisionExampleDraft();
+Deno.test('a decision sends its own pictures, and a question names only those', async () => {
+  const draft = await createDecisionExampleDraft();
   const result = compileStudio(draft, ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   assertEquals(Object.keys(result.images ?? {}), ['<ginger>', '<union_jack>', '<apple_ripeness>']);
@@ -342,8 +342,8 @@ Deno.test('a decision sends its own pictures, and a question names only those', 
   );
 });
 
-Deno.test('lent keys cap how many pictures a decision sends, and what each weighs', () => {
-  const draft = createDecisionExampleDraft();
+Deno.test('lent keys cap how many pictures a decision sends, and what each weighs', async () => {
+  const draft = await createDecisionExampleDraft();
   const keys: LentKeys = {
     ...TEST_KEYS,
     decision: { ...TEST_KEYS.decision, images: 1, imageBytes: 10 },
@@ -359,8 +359,8 @@ Deno.test('lent keys cap how many pictures a decision sends, and what each weigh
   );
 });
 
-Deno.test('studioSource writes the pictures beside the questions, and reads them back by name', () => {
-  const draft = createDecisionExampleDraft();
+Deno.test('studioSource writes the pictures beside the questions, and reads them back by name', async () => {
+  const draft = await createDecisionExampleDraft();
   const result = compileStudio(draft, ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   const source = studioSource(result);
@@ -370,16 +370,16 @@ Deno.test('studioSource writes the pictures beside the questions, and reads them
   assertEquals(read.draft.decision.images, draft.decision.images);
 });
 
-Deno.test('an added picture is named after its file, and numbered after a name the draft has', () => {
-  const draft = createDecisionExampleDraft();
+Deno.test('an added picture is named after its file, and numbered after a name the draft has', async () => {
+  const draft = await createDecisionExampleDraft();
   const png = { mimeType: 'image/png', data: 'AAAA' };
   assertEquals(newDecisionImage(draft, 'GHS 02.png', png).name, 'ghs_02');
   assertEquals(newDecisionImage(draft, 'ginger.jpg', png).name, 'ginger_2');
   assertEquals(newDecisionImage(draft, '.png', png).name, 'image');
 });
 
-Deno.test("a box's image is one of the decision's own, and goes to source and back", () => {
-  const draft = createDecisionExampleDraft();
+Deno.test("a box's image is one of the decision's own, and goes to source and back", async () => {
+  const draft = await createDecisionExampleDraft();
   const result = compileStudio(draft, ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   const chart = 'Where the green apple lands on the chart';

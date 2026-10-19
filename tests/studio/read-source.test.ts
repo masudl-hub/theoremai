@@ -63,8 +63,8 @@ Deno.test('a list label reads back from the file as a line each', () => {
   );
 });
 
-Deno.test('the decision example file reads back into the same file', () => {
-  roundTrip(createDecisionExampleDraft());
+Deno.test('the decision example file reads back into the same file', async () => {
+  roundTrip(await createDecisionExampleDraft());
 });
 
 Deno.test('both taint settings in the file come back into the draft', () => {

@@ -3,8 +3,9 @@
  * three directions its vectors differ most along. Documents join their most
  * alike until all are linked (a maximum-similarity spanning tree); a link
  * weaker than this index's typical link is a border, and the groups it
- * leaves are clusters. Positions are a projection and only approximate; the
- * links and clusters are the vectors' own cosine similarity.
+ * leaves are clusters. Inside a cluster, each document is also linked to its
+ * nearest neighbours. Positions are a projection and only approximate; every
+ * link and cluster is the vectors' own cosine similarity.
  *
  * @module
  */
@@ -26,13 +27,11 @@ export type SpaceDocument = {
 export type SpaceCluster = {
   /** Its documents' indexes, in order. */
   readonly members: readonly number[];
-  /** Where its members' mean vector lands, through the same projection. */
-  readonly hub: SpacePoint;
-  /** Where on the palette it sits, from 0 to 1, read from where its hub is. */
+  /** Its hue, from 0 to 1 around the colour wheel: where its members' mean vector lands, as an angle around the space's two widest directions, so neighbouring clusters share a family. */
   readonly tone: number;
 };
 
-/** A link of the spanning tree between two clusters: its two most alike documents. */
+/** Two documents drawn joined, because their vectors say they are alike. */
 export type SpaceLink = {
   readonly a: number;
   readonly b: number;
@@ -50,8 +49,10 @@ export type SpaceBasis = {
 export type EmbeddingSpace = {
   readonly documents: readonly SpaceDocument[];
   readonly clusters: readonly SpaceCluster[];
-  /** The tree's links that cross from one cluster to another. */
+  /** The spanning tree's links, and inside each cluster each document's nearest neighbours; each pair once. */
   readonly links: readonly SpaceLink[];
+  /** The weakest similarity a link inside a cluster has; the links between clusters are weaker. */
+  readonly border: number;
   readonly basis: SpaceBasis;
   /** How wide the vectors are. */
   readonly dimensions: number;
@@ -61,6 +62,8 @@ export type EmbeddingSpace = {
 const ROUNDS = 200;
 /** Where a point lands when the projection says nothing about it. */
 const FACING: SpacePoint = [0, 0, 1];
+/** How many of its nearest neighbours in its cluster each document is linked to. */
+const NEIGHBOURS = 3;
 
 function dot(a: ArrayLike<number>, b: ArrayLike<number>, length: number): number {
   let sum = 0;
@@ -292,6 +295,33 @@ function groupsOf(n: number, links: readonly SpaceLink[], border: number): numbe
   return [...groups.values()];
 }
 
+/** Each document's nearest neighbours in its own group, by cosine, as links. */
+function* neighboursOf(
+  cosine: Float64Array,
+  n: number,
+  groups: readonly number[][],
+): Generator<void, SpaceLink[]> {
+  const links: SpaceLink[] = [];
+  for (const group of groups)
+    for (const i of group) {
+      const nearest = group
+        .filter((j) => j !== i)
+        .sort((x, y) => cosine[i * n + y] - cosine[i * n + x] || x - y)
+        .slice(0, NEIGHBOURS);
+      for (const j of nearest)
+        links.push({ a: Math.min(i, j), b: Math.max(i, j), similarity: cosine[i * n + j] });
+      yield;
+    }
+  return links;
+}
+
+/** Links with each pair once, in order. */
+function distinct(links: readonly SpaceLink[]): SpaceLink[] {
+  const seen = new Map<string, SpaceLink>();
+  for (const link of links) seen.set(`${link.a}:${link.b}`, link);
+  return [...seen.values()].sort((x, y) => x.a - y.a || x.b - y.b);
+}
+
 /** The mean of some rows. */
 function meanOfRows(rows: Float64Array, members: readonly number[], dimensions: number): number[] {
   const mean = new Array<number>(dimensions).fill(0);
@@ -300,11 +330,9 @@ function meanOfRows(rows: Float64Array, members: readonly number[], dimensions: 
   return mean.map((v) => v / Math.max(members.length, 1));
 }
 
-/** A position's place on the palette: along the space's widest direction, turned a little by the next. */
+/** A position's hue: its angle around the space's two widest directions, from 0 to 1. */
 function toneOf(position: SpacePoint): number {
-  const along = (position[0] + 1) / 2;
-  const turn = 0.08 * position[1];
-  return Math.min(1, Math.max(0, along + turn));
+  return (Math.atan2(position[1], position[0]) / (2 * Math.PI) + 1) % 1;
 }
 
 /**
@@ -325,16 +353,16 @@ function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, 
     axisOf(rows, mean, vector),
   );
   const basis = { mean, axes };
-  const tree = yield* spanningTree(cosineOf(gram, n), n);
+  const cosine = cosineOf(gram, n);
+  const tree = yield* spanningTree(cosine, n);
   const border = borderOf(tree);
   const groups = groupsOf(n, tree, border);
-  const clusters: SpaceCluster[] = groups.map((group) => {
-    const hub = project(basis, meanOfRows(rows, group, dimensions));
-    return { members: group.map((i) => original[i]), hub, tone: toneOf(hub) };
-  });
+  const clusters: SpaceCluster[] = groups.map((group) => ({
+    members: group.map((i) => original[i]),
+    tone: toneOf(project(basis, meanOfRows(rows, group, dimensions))),
+  }));
   for (const [i, vector] of vectors.entries())
-    if (vector.length !== dimensions)
-      clusters.push({ members: [i], hub: FACING, tone: toneOf(FACING) });
+    if (vector.length !== dimensions) clusters.push({ members: [i], tone: toneOf(FACING) });
   const clusterOf = new Map(clusters.flatMap((c, k) => c.members.map((i) => [i, k] as const)));
   const documents = vectors.map(
     (vector, index): SpaceDocument => ({
@@ -344,10 +372,12 @@ function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, 
       cluster: clusterOf.get(index) ?? 0,
     }),
   );
-  const links = tree
-    .filter((link) => link.similarity < border)
-    .map((link) => ({ ...link, a: original[link.a], b: original[link.b] }));
-  return { documents, clusters, links, basis, dimensions };
+  const links = distinct([...tree, ...(yield* neighboursOf(cosine, n, groups))]).map((link) => ({
+    ...link,
+    a: original[link.a],
+    b: original[link.b],
+  }));
+  return { documents, clusters, links, border, basis, dimensions };
 }
 
 /** The space for a set of document vectors, all at once. */

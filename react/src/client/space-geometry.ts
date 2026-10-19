@@ -1,50 +1,60 @@
 /**
  * What the embedding space draws, as flat arrays a GPU takes as they are:
- * each cluster's hub with a spoke to every member, each document's dot, the
- * spanning tree's links between clusters, and a query's dot with a spoke to
- * each match. Every line is a relationship in the vectors; nothing is drawn
- * for show.
+ * each document's dot, a line for each link between two documents, heavier
+ * the more alike they are, and a query's ring with a line to each match.
+ * Every line joins two real points and stands for their cosine similarity;
+ * nothing is drawn for show.
  *
  * @module
  */
 
 import type { EmbeddingSpace, SpacePoint } from './embedding-space.ts';
 
-/** Floats per line segment: from (3), to (3), colour (3), alpha, width in CSS pixels, the two slots it reads its state from, and where it sits along its line (0 at the start, 1 at the end). */
-export const SEGMENT_FLOATS = 14;
-/** Floats per dot: position (3), colour (3), alpha, radius in CSS pixels, its slot, and where it sits along the line that reaches it. */
-export const DOT_FLOATS = 10;
+/**
+ * Floats per line segment: from (3), to (3), colour (3), alpha, width in CSS
+ * pixels, the two slots it reads its state from, where it sits along its line
+ * (0 at the start, 1 at the end), and the gap in CSS pixels it leaves before
+ * its start and after its end, where a dot sits.
+ */
+export const SEGMENT_FLOATS = 16;
+/** Floats per dot: position (3), colour (3), alpha, radius and ring width in CSS pixels (0 for a solid dot), its slot, and where it sits along the line that reaches it. */
+export const DOT_FLOATS = 11;
 /** Stands for the query where a slot would go. */
 export const QUERY_SLOT = -1;
 
-/** A cluster's slot: after every document's. */
-export function hubSlot(space: EmbeddingSpace, cluster: number): number {
-  return space.documents.length + cluster;
+/** Every cluster's colour has this lightness and chroma, so none reads dirtier or louder than another. */
+const LIGHTNESS = 0.8;
+const CHROMA = 0.13;
+const QUERY_COLOUR: readonly [number, number, number] = [0.97, 0.98, 1.0];
+
+function gamma(linear: number): number {
+  return linear <= 0.0031308 ? 12.92 * linear : 1.055 * linear ** (1 / 2.4) - 0.055;
 }
 
-/** The space's palette, cool to warm: deep teal, cyan, chartreuse, amber, coral. */
-const PALETTE: readonly (readonly [number, number, number])[] = [
-  '#12b5a8',
-  '#3fd8f2',
-  '#c6f23a',
-  '#ffb43b',
-  '#ff6f5e',
-].map(
-  (hex) =>
-    [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16) / 255) as [
-      number,
-      number,
-      number,
-    ],
-);
-const QUERY_COLOUR: readonly [number, number, number] = [0.94, 0.96, 1.0];
+/** An OKLCH colour as sRGB from 0 to 1, or `null` when the screen cannot show it. */
+function oklch(l: number, c: number, hue: number): [number, number, number] | null {
+  const a = c * Math.cos(hue);
+  const b = c * Math.sin(hue);
+  const l_ = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m_ = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s_ = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const rgb = [
+    4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+    -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+    -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_,
+  ];
+  if (rgb.some((v) => v < -1e-4 || v > 1 + 1e-4)) return null;
+  return rgb.map((v) => gamma(Math.min(1, Math.max(0, v)))) as [number, number, number];
+}
 
-function paletteAt(tone: number): readonly [number, number, number] {
-  const at = Math.min(1, Math.max(0, tone)) * (PALETTE.length - 1);
-  const low = Math.min(Math.floor(at), PALETTE.length - 2);
-  const mix = at - low;
-  const [a, b] = [PALETTE[low], PALETTE[low + 1]];
-  return [a[0] + (b[0] - a[0]) * mix, a[1] + (b[1] - a[1]) * mix, a[2] + (b[2] - a[2]) * mix];
+/** A cluster's colour from its tone, a hue from 0 to 1, at the palette's one lightness; chroma gives way only where the screen runs out. */
+function colourOf(tone: number): readonly [number, number, number] {
+  const hue = tone * 2 * Math.PI;
+  for (let c = CHROMA; c > 0; c -= 0.005) {
+    const colour = oklch(LIGHTNESS, c, hue);
+    if (colour) return colour;
+  }
+  return oklch(LIGHTNESS, 0, hue) ?? [0.8, 0.8, 0.8];
 }
 
 function mixed(a: readonly number[], b: readonly number[], u: number): number[] {
@@ -73,41 +83,52 @@ type Line = {
   from: SpacePoint;
   to: SpacePoint;
   colour: (u: number) => readonly number[];
-  alpha: number;
-  width: number;
+  /** Alpha and width along the line, from 0 at its start to 1 at its end. */
+  alpha: (u: number) => number;
+  width: (u: number) => number;
   slots: readonly [number, number];
+  /** CSS pixels left clear at each end, for the dots there. */
+  gaps: readonly [number, number];
+};
+
+type Dot = {
+  at: SpacePoint;
+  colour: readonly number[];
+  alpha: number;
+  radius: number;
+  /** The ring's width, or 0 for a solid dot. */
+  ring: number;
+  slot: number;
+  along: number;
 };
 
 class Strokes {
   readonly segments: number[] = [];
   readonly dots: number[] = [];
 
-  line({ from, to, colour, alpha, width, slots }: Line) {
+  line({ from, to, colour, alpha, width, slots, gaps }: Line) {
     const points = arc(from, to);
-    for (let i = 1; i < points.length; i += 1) {
-      const u = i / (points.length - 1);
+    const last = points.length - 1;
+    for (let i = 1; i <= last; i += 1) {
+      const u = i / last;
+      const mid = (i - 0.5) / last;
       this.segments.push(
         ...points[i - 1],
         ...points[i],
-        ...colour(u),
-        alpha,
-        width,
+        ...colour(mid),
+        alpha(mid),
+        width(mid),
         slots[0],
         slots[1],
         u,
+        i === 1 ? gaps[0] : 0,
+        i === last ? gaps[1] : 0,
       );
     }
   }
 
-  dot(
-    at: SpacePoint,
-    colour: readonly number[],
-    alpha: number,
-    radius: number,
-    slot: number,
-    along: number,
-  ) {
-    this.dots.push(...at, ...colour, alpha, radius, slot, along);
+  dot({ at, colour, alpha, radius, ring, slot, along }: Dot) {
+    this.dots.push(...at, ...colour, alpha, radius, ring, slot, along);
   }
 
   done(): SpaceGeometry {
@@ -118,53 +139,62 @@ class Strokes {
 /** Line segments and dots, packed as {@link SEGMENT_FLOATS} and {@link DOT_FLOATS} describe. */
 export type SpaceGeometry = { segments: Float32Array; dots: Float32Array };
 
-/** Everything a space draws before any query: the links between clusters, each cluster's spokes and hub, and every document. */
+/** A document's dot, and the query's ring with its centre, in CSS pixels. */
+const DOCUMENT_RADIUS = 2.2;
+const QUERY_RADIUS = 6;
+const QUERY_RING = 1.5;
+const QUERY_CORE = 2.4;
+/** The clear space between a line's end and the dot it reaches. */
+const GAP = 1.75;
+
+/** Straight from one value at a line's start to another at its end. */
+function taper(start: number, end: number): (u: number) => number {
+  return (u) => start + (end - start) * u;
+}
+
+/** How alike a link's two documents are against the others in the space: 0 at the border between clusters, 1 when identical. */
+function strengthOf(space: EmbeddingSpace, similarity: number): number {
+  if (!Number.isFinite(space.border) || space.border >= 1) return 1;
+  return Math.min(Math.max((similarity - space.border) / (1 - space.border), 0), 1);
+}
+
+/** Everything a space draws before any query: a line for each link, then every document's dot. */
 export function spaceGeometry(space: EmbeddingSpace): SpaceGeometry {
   const strokes = new Strokes();
-  const toneOf = (index: number) => space.clusters[space.documents[index].cluster].tone;
+  const colourOfDocument = (index: number) =>
+    colourOf(space.clusters[space.documents[index].cluster].tone);
   for (const link of space.links) {
-    const [a, b] = [paletteAt(toneOf(link.a)), paletteAt(toneOf(link.b))];
+    const [a, b] = [colourOfDocument(link.a), colourOfDocument(link.b)];
+    const within = space.documents[link.a].cluster === space.documents[link.b].cluster;
+    // invariant: a link between clusters is weaker than every link inside one, and draws so.
+    const strength = within ? strengthOf(space, link.similarity) : 0;
     strokes.line({
       from: space.documents[link.a].position,
       to: space.documents[link.b].position,
       colour: (u) => mixed(a, b, u),
-      alpha: 0.28,
-      width: 1,
+      alpha: () => (within ? 0.35 + 0.5 * strength : 0.2),
+      width: () => (within ? 0.7 + 0.9 * strength : 0.6),
       slots: [link.a, link.b],
+      gaps: [DOCUMENT_RADIUS + GAP, DOCUMENT_RADIUS + GAP],
     });
   }
-  for (const [k, cluster] of space.clusters.entries()) {
-    const colour = paletteAt(cluster.tone);
-    if (cluster.members.length < 2) continue;
-    for (const member of cluster.members)
-      strokes.line({
-        from: cluster.hub,
-        to: space.documents[member].position,
-        colour: () => colour,
-        alpha: 0.6,
-        width: 1,
-        slots: [member, member],
-      });
-    strokes.dot(cluster.hub, colour, 0.9, 2.4, hubSlot(space, k), 0);
-  }
-  for (const document of space.documents) {
-    const solo = space.clusters[document.cluster].members.length < 2;
-    strokes.dot(
-      document.position,
-      paletteAt(space.clusters[document.cluster].tone),
-      1,
-      1.8,
-      document.index,
-      solo ? 0 : 1,
-    );
-  }
+  for (const document of space.documents)
+    strokes.dot({
+      at: document.position,
+      colour: colourOfDocument(document.index),
+      alpha: 1,
+      radius: DOCUMENT_RADIUS,
+      ring: 0,
+      slot: document.index,
+      along: 0,
+    });
   return strokes.done();
 }
 
 /** A match as the query draws it: which document, and how close against the other matches, from 0 to 1. */
 export type QueryMatch = { index: number; closeness: number };
 
-/** A query's dot where it landed, and a spoke from it to each match, strongest to the closest. */
+/** A query's ring where it landed, and a line from it to each match, strongest to the closest. */
 export function queryGeometry(
   space: EmbeddingSpace,
   at: SpacePoint,
@@ -174,16 +204,20 @@ export function queryGeometry(
   for (const match of matches) {
     const document = space.documents[match.index];
     if (!document) continue;
-    const tone = paletteAt(space.clusters[document.cluster].tone);
+    const colour = colourOf(space.clusters[document.cluster].tone);
+    const strength = 0.4 + 0.6 * match.closeness;
     strokes.line({
       from: at,
       to: document.position,
-      colour: (u) => mixed(QUERY_COLOUR, tone, u),
-      alpha: 0.45 + 0.45 * match.closeness,
-      width: 1,
+      colour: (u) => mixed(QUERY_COLOUR, colour, u),
+      alpha: taper(0.95 * strength, 0.6 * strength),
+      width: taper(1.25 + 0.5 * match.closeness, 0.75),
       slots: [QUERY_SLOT, match.index],
+      gaps: [QUERY_RADIUS + GAP, DOCUMENT_RADIUS + GAP],
     });
   }
-  strokes.dot(at, QUERY_COLOUR, 1, 3, QUERY_SLOT, 0);
+  const query = { at, colour: QUERY_COLOUR, alpha: 1, slot: QUERY_SLOT, along: 0 };
+  strokes.dot({ ...query, radius: QUERY_RADIUS, ring: QUERY_RING });
+  strokes.dot({ ...query, radius: QUERY_CORE, ring: 0 });
   return strokes.done();
 }

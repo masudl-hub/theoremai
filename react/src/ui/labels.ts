@@ -700,7 +700,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.embedding.space_label': {
     defaultMessage:
-      '{count, plural, one {# document} other {# documents}} drawn on a sphere: alike documents gather in clusters, each a hub with a line to every member, and lines join the clusters.',
+      '{count, plural, one {# document} other {# documents}} drawn on a sphere: a line joins documents whose meaning is alike, heavier the more alike they are, and alike documents gather in one colour.',
     description: 'What the space shows, for screen readers.',
     params: ['count'],
   },

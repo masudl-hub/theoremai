@@ -1,8 +1,10 @@
 /**
- * Draws the embedding space with WebGL2 and nothing else: anti-aliased
- * one-pixel lines and round dots, light that adds where they overlap and
- * nowhere else, laid over the card with premultiplied alpha so the card
- * shows through. No React here: the component owns one renderer and feeds it.
+ * Draws the embedding space with WebGL2 and nothing else: anti-aliased lines,
+ * solid dots and the query's ring, laid over the card with premultiplied
+ * alpha so the card shows through. Dots cover whatever lies behind them, and
+ * every line stops just short of the dot it reaches; the far side of the
+ * sphere draws smaller and fainter. No React here: the component owns one
+ * renderer and feeds it.
  *
  * @module
  */
@@ -10,7 +12,6 @@
 import type { EmbeddingSpace, SpacePoint } from '../client/embedding-space.ts';
 import {
   DOT_FLOATS,
-  hubSlot,
   type QueryMatch,
   queryGeometry,
   SEGMENT_FLOATS,
@@ -26,7 +27,7 @@ export type SpaceFocus = {
 };
 
 export type SpaceRenderer = {
-  /** Shows a new index: its clusters grow in from their hubs. */
+  /** Shows a new index: its clusters grow in, one after another. */
   setSpace(space: EmbeddingSpace): void;
   setFocus(focus: SpaceFocus): void;
   /** The document nearest a point in CSS pixels from the canvas's corner, if one is close and facing. */
@@ -42,10 +43,10 @@ const STATE_ROW = 1024;
 const FOV = (30 * Math.PI) / 180;
 /** The camera's distance from the sphere's centre. */
 const DISTANCE = 4.6;
-/** Seconds a cluster's spokes take to reach its members, and the most a cluster waits to start. */
+/** Seconds a cluster's lines take to draw, and the most a cluster waits to start. */
 const GROW_S = 0.9;
 const GROW_STAGGER_S = 0.6;
-/** Seconds a query's spokes take to reach its matches. */
+/** Seconds a query's lines take to reach its matches. */
 const REVEAL_S = 0.7;
 /** Seconds the sphere takes to turn a query to face the viewer. */
 const TURN_S = 1.2;
@@ -55,6 +56,11 @@ const SPIN = 0.05;
 const PICK_PX = 18;
 /** How bright a document reads when a query leaves it out. */
 const DIMMED = 0.2;
+/** How fast a flung sphere slows, per second, and the speed in radians per second below which it stops. */
+const COAST_DECAY = 4;
+const COAST_STOP = 0.01;
+/** Milliseconds a drag may pause before release and still fling the sphere. */
+const FLING_MS = 80;
 
 const PREAMBLE = '#version 300 es\nprecision highp float;\nprecision highp int;\n';
 
@@ -65,9 +71,14 @@ vec4 stateOf(float i) {
   int k = int(i + 0.5);
   return texelFetch(states, ivec2(k % ${STATE_ROW}, k / ${STATE_ROW}), 0);
 }
+float facing(vec3 p) {
+  return smoothstep(-0.55, 0.45, p.z / max(length(p), 1e-4));
+}
 float facingFade(vec3 p) {
-  float facing = p.z / max(length(p), 1e-4);
-  return mix(0.25, 1.0, smoothstep(-0.55, 0.45, facing));
+  return mix(0.25, 1.0, facing(p));
+}
+float facingSize(vec3 p) {
+  return mix(0.65, 1.0, facing(p));
 }
 `;
 
@@ -80,6 +91,7 @@ layout(location = 4) in float alpha;
 layout(location = 5) in float width;
 layout(location = 6) in vec2 slots;
 layout(location = 7) in float along;
+layout(location = 8) in vec2 gaps;
 uniform mat4 projection;
 uniform mat3 turn;
 uniform vec2 viewport;
@@ -90,6 +102,8 @@ out vec3 vColour;
 out float vAlpha;
 out float vAcross;
 out float vHalf;
+out float vAlong;
+out vec3 vEnds;
 void main() {
   vec4 sa = stateOf(slots.x);
   vec4 sb = stateOf(slots.y);
@@ -104,15 +118,23 @@ void main() {
   float len = length(d);
   vec2 dir = len > 1e-4 ? d / len : vec2(1.0, 0.0);
   vec2 normal = vec2(-dir.y, dir.x);
+  vec3 p = corner.x < 0.5 ? pa : pb;
   vec4 c = corner.x < 0.5 ? ca : cb;
-  float half_ = 0.5 * max(width * ratio * (1.0 + 0.8 * hover), 1.0);
+  float half_ = 0.5 * max(width * ratio * facingSize(p) * (1.0 + 0.8 * hover), 0.6);
   float reach = half_ + 1.0;
   c.xy += normal * corner.y * reach * 2.0 / viewport * c.w;
   gl_Position = c;
   vAcross = corner.y * reach;
   vHalf = half_;
+  vAlong = corner.x * len;
+  // invariant: each end's gap grows with its dot, as the dot grows when hovered.
+  vEnds = vec3(
+    len,
+    gaps.x * ratio * facingSize(pa) * (1.0 + 0.6 * sa.b),
+    gaps.y * ratio * facingSize(pb) * (1.0 + 0.6 * sb.b)
+  );
   vColour = colour;
-  vAlpha = alpha * shown * min(sa.r, sb.r) * (1.0 + hover) * facingFade(corner.x < 0.5 ? pa : pb);
+  vAlpha = min(alpha * shown * min(sa.r, sb.r) * (1.0 + hover), 1.0) * facingFade(p);
 }`;
 
 const SEGMENT_FRAGMENT = `${PREAMBLE}
@@ -120,9 +142,13 @@ in vec3 vColour;
 in float vAlpha;
 in float vAcross;
 in float vHalf;
+in float vAlong;
+in vec3 vEnds;
 out vec4 outColour;
 void main() {
-  float a = vAlpha * clamp(vHalf + 0.5 - abs(vAcross), 0.0, 1.0);
+  float clear = clamp(vAlong - vEnds.y + 0.5, 0.0, 1.0) * clamp(vEnds.x - vAlong - vEnds.z + 0.5, 0.0, 1.0);
+  float a = vAlpha * clear * clamp(vHalf + 0.5 - abs(vAcross), 0.0, 1.0);
+  if (a < 0.002) discard;
   outColour = vec4(vColour * a, a);
 }`;
 
@@ -132,8 +158,9 @@ layout(location = 1) in vec3 position;
 layout(location = 2) in vec3 colour;
 layout(location = 3) in float alpha;
 layout(location = 4) in float radius;
-layout(location = 5) in float slot;
-layout(location = 6) in float along;
+layout(location = 5) in float ring;
+layout(location = 6) in float slot;
+layout(location = 7) in float along;
 uniform mat4 projection;
 uniform mat3 turn;
 uniform vec2 viewport;
@@ -144,12 +171,15 @@ out vec3 vColour;
 out float vAlpha;
 out vec2 vAt;
 out float vRadius;
+out float vRing;
 void main() {
   vec4 s = stateOf(slot);
   float shown = step(along, s.g + 1e-4) * step(along, reveal + 1e-4);
   vec3 p = turn * position;
   vec4 c = projection * vec4(p, 1.0);
-  float r = radius * ratio * (1.0 + 0.6 * s.b);
+  float size = ratio * facingSize(p);
+  float r = radius * size * (1.0 + 0.6 * s.b);
+  vRing = ring * size;
   float reach = r + 1.0;
   c.xy += corner * reach * 2.0 / viewport * c.w;
   gl_Position = c;
@@ -164,38 +194,16 @@ in vec3 vColour;
 in float vAlpha;
 in vec2 vAt;
 in float vRadius;
+in float vRing;
 out vec4 outColour;
 void main() {
-  float a = vAlpha * clamp(vRadius + 0.5 - length(vAt), 0.0, 1.0);
+  float d = length(vAt);
+  float inside = vRing > 0.0 ? clamp(d - (vRadius - vRing) + 0.5, 0.0, 1.0) : 1.0;
+  float a = vAlpha * inside * clamp(vRadius + 0.5 - d, 0.0, 1.0);
+  // invariant: only what a dot covers writes depth, so the lines behind it and nothing else are hidden.
+  if (a < 0.002) discard;
   outColour = vec4(vColour * a, a);
 }`;
-
-const SCREEN_VERTEX = `${PREAMBLE}
-layout(location = 0) in vec2 corner;
-out vec2 vUv;
-void main() {
-  vUv = corner * 0.5 + 0.5;
-  gl_Position = vec4(corner, 0.0, 1.0);
-}`;
-
-/** The added light, compressed so dense overlaps brighten without losing their hue, then premultiplied over the card. */
-const COMPOSITE_FRAGMENT = `${PREAMBLE}
-in vec2 vUv;
-uniform sampler2D scene;
-out vec4 outColour;
-void main() {
-  vec3 light = texture(scene, vUv).rgb;
-  vec3 colour = 1.0 - exp(-light * 1.6);
-  float a = clamp(max(colour.r, max(colour.g, colour.b)), 0.0, 1.0);
-  outColour = vec4(colour, a);
-}`;
-
-type Target = {
-  framebuffer: WebGLFramebuffer;
-  texture: WebGLTexture;
-  width: number;
-  height: number;
-};
 
 /** Why the space could not be drawn here. */
 class SpaceUnavailable extends Error {}
@@ -323,16 +331,14 @@ export function createSpaceRenderer(
     alpha: true,
     premultipliedAlpha: true,
     antialias: true,
-    depth: false,
+    depth: true,
     stencil: false,
   });
   if (!context) throw new SpaceUnavailable('webgl2');
   const gl: WebGL2RenderingContext = context;
-  const floatTargets = gl.getExtension('EXT_color_buffer_float') !== null;
 
   const segmentProgram = compile(gl, SEGMENT_VERTEX, SEGMENT_FRAGMENT);
   const dotProgram = compile(gl, DOT_VERTEX, DOT_FRAGMENT);
-  const compositeProgram = compile(gl, SCREEN_VERTEX, COMPOSITE_FRAGMENT);
   // why: WebGL names this call useProgram; one wrapper keeps the React hook rule from reading it as a hook.
   const activate = gl.useProgram.bind(gl);
   const uniforms = new Map<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
@@ -352,12 +358,6 @@ export function createSpaceRenderer(
   const square = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, square);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-  const screen = gl.createVertexArray();
-  gl.bindVertexArray(screen);
-  gl.bindBuffer(gl.ARRAY_BUFFER, square);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-  gl.bindVertexArray(null);
 
   /** A vertex array for instances of one kind: the shared corners, then each instance's floats by width. */
   function layer(corners: WebGLBuffer, floats: number, widths: readonly number[]): Layer {
@@ -378,8 +378,8 @@ export function createSpaceRenderer(
     gl.bindVertexArray(null);
     return { vao, buffer, count: 0 };
   }
-  const SEGMENT_WIDTHS = [3, 3, 3, 1, 1, 2, 1];
-  const DOT_WIDTHS = [3, 3, 1, 1, 1, 1];
+  const SEGMENT_WIDTHS = [3, 3, 3, 1, 1, 2, 1, 2];
+  const DOT_WIDTHS = [3, 3, 1, 1, 1, 1, 1];
   const layers = {
     segments: layer(strip, SEGMENT_FLOATS, SEGMENT_WIDTHS),
     dots: layer(square, DOT_FLOATS, DOT_WIDTHS),
@@ -410,30 +410,6 @@ export function createSpaceRenderer(
   }
   let stateShape = stateSize(1);
 
-  function target(width: number, height: number): Target {
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    if (floatTargets)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, width, height, 0, gl.RGBA, gl.HALF_FLOAT, null);
-    else
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    const framebuffer = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return { framebuffer, texture, width, height };
-  }
-  function dropTarget(t: Target | null) {
-    if (!t) return;
-    gl.deleteFramebuffer(t.framebuffer);
-    gl.deleteTexture(t.texture);
-  }
-  let scene: Target | null = null;
-
   let space: EmbeddingSpace | null = null;
   let bornAt: number[] = [];
   let bright = new Float32Array(0);
@@ -448,6 +424,9 @@ export function createSpaceRenderer(
   let turning: { from: Quat; to: Quat } | null = null;
   let turnAt = 0;
   let dragging = false;
+  /** How fast the sphere turns about its y and x axes, in radians per second, from the last drag; it coasts on this after release. */
+  let coast: [number, number] = [0, 0];
+  let draggedAt = 0;
   let last = performance.now();
   let frame = 0;
   let visible = true;
@@ -471,7 +450,7 @@ export function createSpaceRenderer(
     turnAt = performance.now();
   }
 
-  /** Every slot's brightness for the focus: a query's matches full, the rest dimmed; a hub as bright as its brightest member. */
+  /** Every document's brightness for the focus: a query's matches full, the rest dimmed. */
   function retarget() {
     if (!space) return;
     const closeness = new Map(focus.matches.map((m) => [m.index, m.closeness]));
@@ -479,20 +458,25 @@ export function createSpaceRenderer(
       const close = closeness.get(document.index);
       brightTarget[document.index] = !focus.query || close !== undefined ? 1 : DIMMED;
     }
-    for (const [k, cluster] of space.clusters.entries())
-      brightTarget[hubSlot(space, k)] = Math.max(...cluster.members.map((m) => brightTarget[m]));
   }
 
-  function resize(): boolean {
+  function resize() {
     const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
     const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
     const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
-    if (scene && canvas.width === width && canvas.height === height) return false;
+    if (canvas.width === width && canvas.height === height) return;
     canvas.width = width;
     canvas.height = height;
-    dropTarget(scene);
-    scene = target(width, height);
-    return true;
+  }
+
+  function turnBy(aboutY: number, aboutX: number) {
+    turn = quatNormalise(
+      quatMultiply(quatMultiply(quatAxis([0, 1, 0], aboutY), quatAxis([1, 0, 0], aboutX)), turn),
+    );
+  }
+
+  function coasting(): boolean {
+    return Math.hypot(...coast) > COAST_STOP;
   }
 
   function easeSlots(ease: number) {
@@ -511,8 +495,12 @@ export function createSpaceRenderer(
 
   function turnSphere(now: number, dt: number) {
     if (turning) faceQuery(now, turning);
-    else if (!still && !dragging && !focus.query)
-      turn = quatNormalise(quatMultiply(quatAxis([0, 1, 0], SPIN * dt), turn));
+    else if (dragging) return;
+    else if (coasting()) {
+      turnBy(coast[0] * dt, coast[1] * dt);
+      const decay = Math.exp(-COAST_DECAY * dt);
+      coast = [coast[0] * decay, coast[1] * decay];
+    } else if (!still && !focus.query) turnBy(SPIN * dt, 0);
   }
 
   function step(now: number) {
@@ -525,7 +513,7 @@ export function createSpaceRenderer(
 
   /** Whether the sphere turns, or a cluster or the query is still growing in. */
   function animating(now: number): boolean {
-    if (dragging || turning) return true;
+    if (dragging || turning || coasting()) return true;
     if (still) return false;
     if (!focus.query) return true;
     return now - queryAt < REVEAL_S * 1000 || bornAt.some((at) => now < at + GROW_S * 1000);
@@ -568,71 +556,56 @@ export function createSpaceRenderer(
     );
   }
 
-  function drawLayers(
-    segments: Layer,
-    dots: Layer,
+  function draw(
+    program: WebGLProgram,
+    part: Layer,
     reveal: number,
-    projection: Float32Array,
-    turnMatrix: Float32Array,
-    ratio: number,
+    view: { projection: Float32Array; turn: Float32Array; ratio: number },
   ) {
-    for (const [program, part] of [
-      [segmentProgram, segments],
-      [dotProgram, dots],
-    ] as const) {
-      if (part.count === 0) continue;
-      activate(program);
-      gl.uniformMatrix4fv(uniform(program, 'projection'), false, projection);
-      gl.uniformMatrix3fv(uniform(program, 'turn'), false, turnMatrix);
-      gl.uniform2f(uniform(program, 'viewport'), canvas.width, canvas.height);
-      gl.uniform1f(uniform(program, 'ratio'), ratio);
-      gl.uniform1f(uniform(program, 'reveal'), reveal);
-      gl.uniform1i(uniform(program, 'states'), 0);
-      gl.bindVertexArray(part.vao);
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, part.count);
-    }
+    if (part.count === 0) return;
+    activate(program);
+    gl.uniformMatrix4fv(uniform(program, 'projection'), false, view.projection);
+    gl.uniformMatrix3fv(uniform(program, 'turn'), false, view.turn);
+    gl.uniform2f(uniform(program, 'viewport'), canvas.width, canvas.height);
+    gl.uniform1f(uniform(program, 'ratio'), view.ratio);
+    gl.uniform1f(uniform(program, 'reveal'), reveal);
+    gl.uniform1i(uniform(program, 'states'), 0);
+    gl.bindVertexArray(part.vao);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, part.count);
   }
 
   function render(now: number) {
     resize();
-    if (!scene) return;
     step(now);
     writeStates(now);
-    const projection = projectionMatrix(canvas.width / canvas.height);
-    const turnMatrix = quatMatrix(turn);
-    const ratio = canvas.width / Math.max(canvas.clientWidth, 1);
+    const view = {
+      projection: projectionMatrix(canvas.width / canvas.height),
+      turn: quatMatrix(turn),
+      ratio: canvas.width / Math.max(canvas.clientWidth, 1),
+    };
+    const shown = still ? 1 : Math.min((now - queryAt) / (REVEAL_S * 1000), 1);
+    const reveal = shown >= 1 ? 2 : shown;
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, scene.framebuffer);
-    gl.viewport(0, 0, scene.width, scene.height);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, stateTexture);
-    drawLayers(layers.segments, layers.dots, 2, projection, turnMatrix, ratio);
-    const reveal = still ? 1 : Math.min((now - queryAt) / (REVEAL_S * 1000), 1);
-    drawLayers(
-      layers.querySegments,
-      layers.queryDots,
-      reveal >= 1 ? 2 : reveal,
-      projection,
-      turnMatrix,
-      ratio,
-    );
-    gl.disable(gl.BLEND);
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    activate(compositeProgram);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, scene.texture);
-    gl.uniform1i(uniform(compositeProgram, 'scene'), 1);
-    gl.bindVertexArray(screen);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.clearDepth(1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
     gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, stateTexture);
+    // invariant: dots first, writing depth; then lines, tested against it, so a dot covers the lines behind it.
+    gl.depthMask(true);
+    draw(dotProgram, layers.dots, 2, view);
+    draw(dotProgram, layers.queryDots, reveal, view);
+    gl.depthMask(false);
+    draw(segmentProgram, layers.segments, 2, view);
+    draw(segmentProgram, layers.querySegments, reveal, view);
+    gl.depthMask(true);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
   }
 
   function loop(now: number) {
@@ -677,15 +650,12 @@ export function createSpaceRenderer(
     setSpace(next) {
       space = next;
       const now = performance.now();
-      const count = next.documents.length + next.clusters.length;
+      const count = next.documents.length;
       stateShape = stateSize(count);
-      // invariant: a cluster, its hub and its members grow together; clusters start in turn.
+      // invariant: a cluster's documents grow together; clusters start in turn.
       const startOf = (k: number) =>
         now + (GROW_STAGGER_S * 1000 * k) / Math.max(next.clusters.length, 1);
-      bornAt = [
-        ...next.documents.map((d) => startOf(d.cluster)),
-        ...next.clusters.map((_, k) => startOf(k)),
-      ];
+      bornAt = next.documents.map((d) => startOf(d.cluster));
       bright = new Float32Array(count).fill(1);
       hover = new Float32Array(count);
       brightTarget = new Float32Array(count).fill(1);
@@ -729,19 +699,20 @@ export function createSpaceRenderer(
       return best;
     },
     drag(dx, dy) {
+      const now = performance.now();
+      const dt = Math.max((now - draggedAt) / 1000, 1 / 120);
       dragging = true;
       turning = null;
+      draggedAt = now;
       const speed = 3 / Math.max(Math.min(canvas.clientWidth, canvas.clientHeight), 1);
-      turn = quatNormalise(
-        quatMultiply(
-          quatMultiply(quatAxis([0, 1, 0], dx * speed), quatAxis([1, 0, 0], dy * speed)),
-          turn,
-        ),
-      );
+      turnBy(dx * speed, dy * speed);
+      // why: half this move and half the run before it, so one jittery event does not decide the fling.
+      coast = [0.5 * coast[0] + (0.5 * dx * speed) / dt, 0.5 * coast[1] + (0.5 * dy * speed) / dt];
       wake();
     },
     release() {
       dragging = false;
+      if (still || performance.now() - draggedAt > FLING_MS) coast = [0, 0];
       wake();
     },
     destroy() {
@@ -750,16 +721,13 @@ export function createSpaceRenderer(
       watcher.disconnect();
       sizer.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
-      dropTarget(scene);
       for (const l of Object.values(layers)) {
         gl.deleteVertexArray(l.vao);
         gl.deleteBuffer(l.buffer);
       }
-      for (const program of [segmentProgram, dotProgram, compositeProgram])
-        gl.deleteProgram(program);
+      for (const program of [segmentProgram, dotProgram]) gl.deleteProgram(program);
       gl.deleteBuffer(strip);
       gl.deleteBuffer(square);
-      gl.deleteVertexArray(screen);
       gl.deleteTexture(stateTexture);
     },
   };

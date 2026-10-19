@@ -120,7 +120,9 @@ void main() {
   vec2 normal = vec2(-dir.y, dir.x);
   vec3 p = corner.x < 0.5 ? pa : pb;
   vec4 c = corner.x < 0.5 ? ca : cb;
-  float half_ = 0.5 * max(width * ratio * facingSize(p) * (1.0 + 0.8 * hover), 0.6);
+  // why: a line thinner than a device pixel is drawn one pixel wide and fainter, so it stays smooth.
+  float full = width * ratio * facingSize(p) * (1.0 + 0.8 * hover);
+  float half_ = 0.5 * max(full, 1.0);
   float reach = half_ + 1.0;
   c.xy += normal * corner.y * reach * 2.0 / viewport * c.w;
   gl_Position = c;
@@ -134,7 +136,7 @@ void main() {
     gaps.y * ratio * facingSize(pb) * (1.0 + 0.6 * sb.b)
   );
   vColour = colour;
-  vAlpha = min(alpha * shown * min(sa.r, sb.r) * (1.0 + hover), 1.0) * facingFade(p);
+  vAlpha = min(alpha * shown * min(sa.r, sb.r) * (1.0 + hover), 1.0) * facingFade(p) * min(full, 1.0);
 }`;
 
 const SEGMENT_FRAGMENT = `${PREAMBLE}

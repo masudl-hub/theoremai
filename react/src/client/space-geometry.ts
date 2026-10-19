@@ -24,9 +24,18 @@ export const DOT_FLOATS = 11;
 export const QUERY_SLOT = -1;
 
 /** Every cluster's colour has this lightness and chroma, so none reads dirtier or louder than another. */
-const LIGHTNESS = 0.8;
-const CHROMA = 0.13;
+const LIGHTNESS = 0.72;
+const CHROMA = 0.085;
 const QUERY_COLOUR: readonly [number, number, number] = [0.97, 0.98, 1.0];
+/** Every line is white; only its weight says how alike its two ends are. */
+const LINE_COLOUR: readonly [number, number, number] = [1, 1, 1];
+/** A line's width in CSS pixels and its opacity, at the threshold and at identical. */
+const LINE_WIDTH = [0.4, 0.9] as const;
+const LINE_ALPHA = [0.18, 0.6] as const;
+
+function weighted([at, to]: readonly [number, number], strength: number): number {
+  return at + (to - at) * strength;
+}
 
 function gamma(linear: number): number {
   return linear <= 0.0031308 ? 12.92 * linear : 1.055 * linear ** (1 / 2.4) - 0.055;
@@ -83,7 +92,6 @@ function arc(a: SpacePoint, b: SpacePoint): number[][] {
 type Line = {
   from: SpacePoint;
   to: SpacePoint;
-  colour: (u: number) => readonly number[];
   alpha: number;
   width: number;
   slots: readonly [number, number];
@@ -106,16 +114,15 @@ class Strokes {
   readonly segments: number[] = [];
   readonly dots: number[] = [];
 
-  line({ from, to, colour, alpha, width, slots, gaps }: Line) {
+  line({ from, to, alpha, width, slots, gaps }: Line) {
     const points = arc(from, to);
     const last = points.length - 1;
     for (let i = 1; i <= last; i += 1) {
       const u = i / last;
-      const mid = (i - 0.5) / last;
       this.segments.push(
         ...points[i - 1],
         ...points[i],
-        ...colour(mid),
+        ...LINE_COLOUR,
         alpha,
         width,
         slots[0],
@@ -140,7 +147,7 @@ class Strokes {
 export type SpaceGeometry = { segments: Float32Array; dots: Float32Array };
 
 /** A document's dot, and the query's ring with its centre, in CSS pixels. */
-const DOCUMENT_RADIUS = 2.2;
+const DOCUMENT_RADIUS = 2.6;
 const QUERY_RADIUS = 6;
 const QUERY_RING = 1.5;
 const QUERY_CORE = 2.4;
@@ -159,15 +166,12 @@ export function spaceGeometry(space: EmbeddingSpace): SpaceGeometry {
   const colourOfDocument = (index: number) =>
     colourOf(space.clusters[space.documents[index].cluster].tone);
   for (const link of space.links) {
-    // invariant: a link's two documents are in one cluster, so it takes their colour.
-    const colour = colourOfDocument(link.a);
     const strength = strengthOf(space, link.similarity);
     strokes.line({
       from: space.documents[link.a].position,
       to: space.documents[link.b].position,
-      colour: () => colour,
-      alpha: 0.35 + 0.5 * strength,
-      width: 0.7 + 0.9 * strength,
+      alpha: weighted(LINE_ALPHA, strength),
+      width: weighted(LINE_WIDTH, strength),
       slots: [link.a, link.b],
       gaps: [DOCUMENT_RADIUS + GAP, DOCUMENT_RADIUS + GAP],
     });
@@ -202,13 +206,11 @@ export function queryGeometry(
   for (const match of matches) {
     const document = space.documents[match.index];
     if (!document) continue;
-    const colour = colourOf(space.clusters[document.cluster].tone);
     strokes.line({
       from: at,
       to: document.position,
-      colour: (u) => mixed(QUERY_COLOUR, colour, u),
-      alpha: 0.35 + 0.5 * match.closeness,
-      width: 0.7 + 0.9 * match.closeness,
+      alpha: weighted(LINE_ALPHA, match.closeness),
+      width: weighted(LINE_WIDTH, match.closeness),
       slots: [QUERY_SLOT, match.index],
       gaps: [QUERY_RADIUS + GAP, DOCUMENT_RADIUS + GAP],
     });

@@ -150,9 +150,11 @@ import {
 import {
   type ContextType,
   type Dispatch,
+  lazy,
   type ReactNode,
   type RefObject,
   type SetStateAction,
+  Suspense,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -237,7 +239,6 @@ import {
 } from '../mod.ts';
 import { AddProviderButton } from './add-provider.tsx';
 import { IconGoogle, IconOpenAi, IconOpenRouter, IconTypeSafe } from './brand-icons.tsx';
-import { DetectorTester } from './guardrail-tester.tsx';
 import {
   type Choice,
   ChoiceRow,
@@ -293,6 +294,11 @@ import {
 } from './lib/type-icons.ts';
 import { slotDescription, useProviderModels } from './studio-connection.tsx';
 import { IconTheorem } from './theorem-mark.tsx';
+
+// The tester and its probes load when a detector's page first shows it.
+const DetectorTester = lazy(() =>
+  import('./guardrail-tester.tsx').then((tester) => ({ default: tester.DetectorTester })),
+);
 
 export type SetDraft = Dispatch<SetStateAction<StudioDraft>>;
 
@@ -4201,7 +4207,9 @@ function DetectorPage({
           />
         </InspectorSection>
       )}
-      <DetectorTester only={detector} />
+      <Suspense fallback={null}>
+        <DetectorTester only={detector} />
+      </Suspense>
     </>
   );
 }
@@ -4297,7 +4305,9 @@ function OwnDetectorPage({
           }}
         />
       </InspectorSection>
-      <DetectorTester only={detector.key} />
+      <Suspense fallback={null}>
+        <DetectorTester only={detector.key} />
+      </Suspense>
     </>
   );
 }

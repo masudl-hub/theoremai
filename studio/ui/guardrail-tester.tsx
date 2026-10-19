@@ -35,7 +35,7 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import { PaneLayout, PanePanel, PaneState, Prose, TraceGuardrailsView } from '@theoremjs/react/ui';
-import { createContext, type ReactNode, useContext, useState } from 'react';
+import { type ReactNode, useContext, useState } from 'react';
 import {
   type GuardrailProbeAnswer,
   PROBE_BATTERY,
@@ -50,6 +50,7 @@ import {
   sectionNote,
 } from '../mod.ts';
 import { InspectorSection } from './inspector.tsx';
+import { ProbedAgent } from './inspector-context.ts';
 import { screenEndpoint } from './lib/project-address.ts';
 
 const BOUNDARY_ICONS: Record<ProbeBoundary, typeof IconUser> = {
@@ -635,12 +636,6 @@ export function GuardrailTester({
     />
   );
 }
-
-/**
- * The agent the editor has open, as it compiles now: what a detector's page sends its sample to.
- * Null while the draft has issues.
- */
-export const ProbedAgent = createContext<StudioRunPayload | null>(null);
 
 /** A sample sent, the draft it was sent to and what came back. */
 type Tried = Outcome & { payload: StudioRunPayload; text: string };

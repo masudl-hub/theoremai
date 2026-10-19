@@ -145,15 +145,16 @@ import {
 import type { StudioActingAs } from '../people.ts';
 import type { OpenAnswer, SettingOrigin } from '../server/save-wire.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
-import { GuardrailTester, ProbedAgent } from './guardrail-tester.tsx';
 import './studio.css';
 import {
   type CSSProperties,
   type Dispatch,
+  lazy,
   memo,
   type ReactNode,
   type RefObject,
   type SetStateAction,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -163,6 +164,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { flushSync } from 'react-dom';
+import { ActingAsButton } from './acting-as-button.tsx';
 import { AddProviderButton } from './add-provider.tsx';
 import { modelFamilyMark } from './brand-icons.tsx';
 import { StudioCode } from './code/studio-code.tsx';
@@ -173,6 +175,7 @@ import {
   LeavePage,
   ListBadges,
   LocalConnection,
+  ProbedAgent,
   ProjectAsks,
   QuestionLink,
   RowOrigins,
@@ -218,6 +221,7 @@ import { subscribeToFiles } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
 import { runToolProbe } from './lib/tool-probe.ts';
 import { agentTypeIcon, PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import { warmWhenIdle } from './lib/when-idle.ts';
 import { zipFiles } from './lib/zip.ts';
 import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
 import { ProviderEditor } from './provider-editor.tsx';
@@ -240,7 +244,16 @@ import { StudioMap } from './studio-map.tsx';
 import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
-import { ActingAsButton, StudioSettings } from './studio-settings.tsx';
+
+// The tester and Settings load when they first open, or once the page is idle.
+const testerPanel = () => import('./guardrail-tester.tsx');
+const settingsPanel = () => import('./studio-settings.tsx');
+const GuardrailTester = lazy(() =>
+  testerPanel().then((tester) => ({ default: tester.GuardrailTester })),
+);
+const StudioSettings = lazy(() =>
+  settingsPanel().then((settings) => ({ default: settings.StudioSettings })),
+);
 
 /** A node's icon; Identity and Decision show the agent's, once its type is picked. */
 function nodeIcon(draft: StudioDraft, ref: StudioNodeRef) {
@@ -2540,6 +2553,9 @@ function KeySlots({
 function useStudioSettings() {
   const { hasSettings } = useStudioHost();
   useEffect(() => (hasSettings ? settingsScreen() : undefined), [hasSettings]);
+  useEffect(() => {
+    if (hasSettings) warmWhenIdle(settingsPanel);
+  }, [hasSettings]);
   const door = useSettingsDoor();
   return hasSettings === true && door.open;
 }
@@ -2591,14 +2607,16 @@ function SettingsPane({
     toast({ body: "Cleared this tab's chats." });
   }, [setConversation, toast]);
   return (
-    <StudioSettings
-      project={project}
-      version={kernelVersion}
-      watch={state.watchFiles}
-      shared={shared}
-      actions={{ clearChats, discard: reset.inProject ? reset.all : undefined }}
-      keys={<KeySlots connection={connection} state={state} />}
-    />
+    <Suspense fallback={null}>
+      <StudioSettings
+        project={project}
+        version={kernelVersion}
+        watch={state.watchFiles}
+        shared={shared}
+        actions={{ clearChats, discard: reset.inProject ? reset.all : undefined }}
+        keys={<KeySlots connection={connection} state={state} />}
+      />
+    </Suspense>
   );
 }
 
@@ -2934,7 +2952,11 @@ function PreviewBody({
       view={
         testing && payload ? (
           <RaisedPane>
-            {(isWide) => <GuardrailTester payload={payload} isWide={isWide} />}
+            {(isWide) => (
+              <Suspense fallback={null}>
+                <GuardrailTester payload={payload} isWide={isWide} />
+              </Suspense>
+            )}
           </RaisedPane>
         ) : null
       }
@@ -3754,6 +3776,9 @@ function EditorColumnBody({
 
 /** The studio, opened on `opened`, with what the page showing it provides. */
 export function StudioScreen({ opened, host }: { opened: StudioOpened; host: StudioHost }) {
+  useEffect(() => {
+    warmWhenIdle(testerPanel);
+  }, []);
   return (
     <StudioHostContext.Provider value={host}>
       <Studio opened={opened} />

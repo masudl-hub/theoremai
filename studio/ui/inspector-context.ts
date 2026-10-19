@@ -7,6 +7,7 @@ import {
   type StudioAsks,
   type StudioIssue,
   type StudioProvider,
+  type StudioRunPayload,
   type StudioRunsOn,
   type WriteAsk,
 } from '../mod.ts';
@@ -144,3 +145,9 @@ export const WorkspaceContext = createContext<{
     apiId: string,
   ) => { models: string[]; agents: string[] };
 } | null>(null);
+
+/**
+ * The agent the editor has open, as it compiles now: what a detector's page sends its sample to.
+ * Null while the draft has issues.
+ */
+export const ProbedAgent = createContext<StudioRunPayload | null>(null);

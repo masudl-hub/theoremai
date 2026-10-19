@@ -1,4 +1,4 @@
-import { TheoremEmbedding } from '@theoremjs/react/ui';
+import { TheoremEmbedding, type TheoremEmbeddingProps } from '@theoremjs/react/ui';
 import { createBrowserStudioEmbeddingTransport } from '../browser.ts';
 import {
   createStudioEmbeddingTransport,
@@ -7,7 +7,11 @@ import {
   EXAMPLE_EMBEDDING_TEXT,
   type StudioRunPayload,
 } from '../mod.ts';
-import { type StudioConsoleProps, useStudioTransport } from './studio-decision.tsx';
+import {
+  type ConsoleViewProps,
+  type StudioConsoleProps,
+  useStudioTransport,
+} from './lib/studio-console.ts';
 
 /** Whether a profile that accepts `accept` takes `mimeType`, by name or by its `type/*` family. */
 function accepts(accept: readonly string[], mimeType: string): boolean {
@@ -17,7 +21,7 @@ function accepts(accept: readonly string[], mimeType: string): boolean {
 }
 
 /** The documents and query an embedding starts with: the example, less what the profile does not take. */
-export function embeddingSeed(profile: StudioRunPayload['profile']) {
+function embeddingSeed(profile: StudioRunPayload['profile']) {
   if (profile.type !== 'embedding')
     return { defaultText: EXAMPLE_EMBEDDING_TEXT, defaultQuery: EXAMPLE_EMBEDDING_QUERY };
   const { text, attachments } = profile.inputs;
@@ -38,14 +42,26 @@ export function StudioEmbedding(props: StudioConsoleProps) {
     createStudioEmbeddingTransport,
     createBrowserStudioEmbeddingTransport,
   );
+  return <EmbeddingView {...props} transport={transport} />;
+}
+
+/** An embedding on `transport`, seeded with the example its profile takes. */
+export function EmbeddingView({
+  payload,
+  transport,
+  trace,
+  flush,
+  columns,
+  className,
+}: ConsoleViewProps & Pick<TheoremEmbeddingProps, 'transport'>) {
   return (
     <TheoremEmbedding
       transport={transport}
-      {...embeddingSeed(props.payload.profile)}
-      trace={props.trace}
-      flush={props.flush}
-      columns={props.columns}
-      className={props.className}
+      {...embeddingSeed(payload.profile)}
+      trace={trace}
+      flush={flush}
+      columns={columns}
+      className={className}
     />
   );
 }

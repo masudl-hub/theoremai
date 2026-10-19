@@ -11,31 +11,26 @@ import {
   createTraceFeed,
   type TraceFeed,
 } from '@theoremjs/react/client';
-import { LiveRunner } from '@theoremjs/react/live';
+import { PaneLoading, PaneState, TheoremChat, useLabels } from '@theoremjs/react/ui';
 import {
-  PaneState,
-  TheoremChat,
-  TheoremDecision,
-  TheoremEmbedding,
-  TheoremHost,
-} from '@theoremjs/react/ui';
-import { type ComponentProps, useContext, useMemo, useRef, useState } from 'react';
-import {
-  browserStudioLiveConnection,
-  createBrowserStudioHostTransport,
-  createBrowserStudioTransport,
-  type StudioBrowserRuntime,
-} from '../browser.ts';
+  type ComponentProps,
+  lazy,
+  Suspense,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createBrowserStudioTransport, type StudioBrowserRuntime } from '../browser.ts';
 import {
   compileWorkspace,
-  createStudioHostTransport,
   createStudioTransport,
   ON_OWN_KEYS,
   type StudioConnectionMode,
   type StudioRunPayload,
   type StudioWorkspace,
   studioInterface,
-  studioLiveConnection,
   studioPageTools,
   workspaceRunAgent,
 } from '../mod.ts';
@@ -50,6 +45,7 @@ import {
   projectProfileEndpoint,
   useProject,
 } from './lib/studio-project.ts';
+import { warmWhenIdle } from './lib/when-idle.ts';
 import {
   EditedSide,
   ProjectChat,
@@ -61,9 +57,29 @@ import {
   useSavedHidden,
 } from './studio-compare.tsx';
 import { ChooseConflictsContext } from './studio-conflicts.tsx';
-import { StudioDecision, useDecisionSeed } from './studio-decision.tsx';
-import { embeddingSeed, StudioEmbedding } from './studio-embedding.tsx';
 import { clearRemoves, useProjectSave } from './studio-save.tsx';
+
+// Each type that is not a chat loads when an agent of it first runs, or once the page is idle.
+const decisionRun = () => import('./studio-decision.tsx');
+const embeddingRun = () => import('./studio-embedding.tsx');
+const hostRun = () => import('./studio-host-console.tsx');
+const liveRun = () => import('./studio-live.tsx');
+const StudioDecision = lazy(() => decisionRun().then((run) => ({ default: run.StudioDecision })));
+const DecisionView = lazy(() => decisionRun().then((run) => ({ default: run.DecisionView })));
+const StudioEmbedding = lazy(() =>
+  embeddingRun().then((run) => ({ default: run.StudioEmbedding })),
+);
+const EmbeddingView = lazy(() => embeddingRun().then((run) => ({ default: run.EmbeddingView })));
+const StudioHostConsole = lazy(() => hostRun().then((run) => ({ default: run.StudioHostConsole })));
+const HostView = lazy(() => hostRun().then((run) => ({ default: run.HostView })));
+const StudioLive = lazy(() => liveRun().then((run) => ({ default: run.StudioLive })));
+const ProjectLive = lazy(() => liveRun().then((run) => ({ default: run.ProjectLive })));
+
+/** While a type's runner loads: blank, then the chat's own loading pane if it takes a while. */
+function RunLoading() {
+  const t = useLabels();
+  return <PaneLoading label={t('@theorem.chat.loading')} />;
+}
 
 export interface StudioRunnerProps {
   payload: StudioRunPayload;
@@ -128,6 +144,55 @@ export function StudioRunner({
   activity.current = onActivity;
   const [note] = useState(() => () => activity.current?.());
   const project = useProject();
+  useEffect(() => {
+    warmWhenIdle(decisionRun, embeddingRun, hostRun, liveRun);
+  }, []);
+  return (
+    <Suspense fallback={<RunLoading />}>
+      <Run
+        payload={payload}
+        mode={mode}
+        runtime={runtime}
+        trace={trace}
+        className={className}
+        flush={flush}
+        columns={columns}
+        conversation={conversation}
+        conversationView={conversationView}
+        initialText={initialText}
+        onConversationChange={onConversationChange}
+        chatRef={chatRef}
+        slots={slots}
+        context={context}
+        tested={tested}
+        project={project}
+        traces={traces}
+        note={note}
+      />
+    </Suspense>
+  );
+}
+
+function Run({
+  payload,
+  mode,
+  runtime,
+  trace,
+  className,
+  flush,
+  columns,
+  conversation,
+  conversationView,
+  initialText,
+  onConversationChange,
+  chatRef,
+  slots,
+  context,
+  tested,
+  project,
+  traces,
+  note,
+}: RunProps & { mode: StudioConnectionMode; project: ProjectSession | null }) {
   if (project)
     return (
       <ProjectRun
@@ -168,15 +233,15 @@ export function StudioRunner({
     );
   if (payload.profile.type === 'host')
     return (
-      <HostRun
+      <StudioHostConsole
         payload={payload}
         runtime={runtime}
         traces={traces}
         trace={trace}
         className={className}
+        onActivity={note}
         flush={flush}
         columns={columns}
-        note={note}
       />
     );
   if (payload.profile.type === 'embedding')
@@ -367,7 +432,6 @@ function SideRun({
         : null,
     [type, at, traces, note],
   );
-  const seed = useDecisionSeed(payload);
   if (chat)
     return (
       <TheoremChat
@@ -382,43 +446,12 @@ function SideRun({
         context={context}
       />
     );
-  if (decision)
-    return (
-      <TheoremDecision
-        transport={decision}
-        {...seed}
-        trace={trace}
-        flush={flush}
-        columns={columns}
-        className={className}
-      />
-    );
-  if (embedding)
-    return (
-      <TheoremEmbedding
-        transport={embedding}
-        {...embeddingSeed(payload.profile)}
-        trace={trace}
-        flush={flush}
-        columns={columns}
-        className={className}
-      />
-    );
-  if (host)
-    return (
-      <TheoremHost
-        detectCodeLanguage
-        labels={STUDIO_LABELS}
-        transport={host}
-        pageTools={pageTools}
-        trace={trace}
-        flush={flush}
-        columns={columns}
-        className={className}
-      />
-    );
+  const view = { payload, trace, flush, columns, className };
+  if (decision) return <DecisionView {...view} transport={decision} />;
+  if (embedding) return <EmbeddingView {...view} transport={embedding} />;
+  if (host) return <HostView {...view} transport={host} />;
   return (
-    <ProjectCall
+    <ProjectLive
       payload={payload}
       endpoint={endpoint}
       note={note}
@@ -529,59 +562,6 @@ function ProjectRun({
     return <SideRun {...run} endpoint={projectProfileEndpoint(project, payload.agentId)} />;
   return <ProjectSides {...run} project={project} saved={saved} edits={edits} />;
 }
-/** A project's live profile: the call runs in the project, through the studio's local server. */
-function ProjectCall({
-  payload,
-  endpoint,
-  note,
-  trace,
-  slots,
-  context,
-}: Pick<RunProps, 'payload' | 'note' | 'trace' | 'slots' | 'context'> & { endpoint: string }) {
-  const iface = useMemo(() => studioInterface(payload), [payload]);
-  /** The studio's page answers each page tool with the tool's stub. */
-  const pageTools = useMemo(() => studioPageTools(payload), [payload]);
-  if (iface.type !== 'live') return null;
-  return (
-    <LiveRunner
-      labels={STUDIO_LABELS}
-      iface={iface}
-      connection={() => {
-        note();
-        return { createSocket: () => new WebSocket(endpoint.replace(/^http/, 'ws')) };
-      }}
-      trace={trace}
-      slots={slots}
-      context={context}
-      pageTools={pageTools}
-    />
-  );
-}
-function HostRun({ payload, runtime, traces, trace, className, flush, columns, note }: RunProps) {
-  const pageTools = useMemo(() => studioPageTools(payload), [payload]);
-  const transport = useMemo(
-    () =>
-      noting(
-        runtime
-          ? createBrowserStudioHostTransport(payload, runtime, { traces })
-          : createStudioHostTransport(payload, { traces }),
-        note,
-      ),
-    [payload, runtime, traces, note],
-  );
-  return (
-    <TheoremHost
-      detectCodeLanguage
-      labels={STUDIO_LABELS}
-      transport={transport}
-      pageTools={pageTools}
-      trace={trace}
-      flush={flush}
-      columns={columns}
-      className={className}
-    />
-  );
-}
 function TurnRun({
   payload,
   runtime,
@@ -614,19 +594,13 @@ function TurnRun({
     [payload, runtime, traces, note],
   );
   return iface.type === 'live' ? (
-    <LiveRunner
-      labels={STUDIO_LABELS}
-      iface={iface}
-      connection={() => {
-        note();
-        return runtime
-          ? browserStudioLiveConnection(payload, runtime)
-          : studioLiveConnection(payload);
-      }}
+    <StudioLive
+      payload={payload}
+      runtime={runtime}
+      note={note}
       trace={trace}
       slots={slots}
       context={context}
-      pageTools={pageTools}
     />
   ) : (
     <TheoremChat

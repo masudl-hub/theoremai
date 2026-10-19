@@ -31,7 +31,7 @@ import { keyedByContent } from './row-keys.ts';
 import { ChartBody, ChartCard } from './trace-patterns.tsx';
 
 const EmbeddingSpaceView = lazy(() =>
-  import('./EmbeddingSpace.tsx').then((module) => ({ default: module.EmbeddingSpaceView })),
+  import('./embedding-space-view.ts').then((module) => ({ default: module.EmbeddingSpaceView })),
 );
 
 /** Matches the card lists, best first; the space highlights the same ones. */

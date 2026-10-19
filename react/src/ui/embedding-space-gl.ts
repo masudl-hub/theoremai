@@ -1,6 +1,6 @@
 /**
  * Draws the embedding space with WebGL2 and nothing else: anti-aliased lines,
- * solid dots and the query's ring, laid over the card with premultiplied
+ * solid dots and the query's white dot, laid over the card with premultiplied
  * alpha so the card shows through. Dots cover whatever lies behind them, and
  * every line stops just short of the dot it reaches; the far side of the
  * ball draws smaller and fainter. No React here: the component owns one
@@ -164,9 +164,8 @@ layout(location = 1) in vec3 position;
 layout(location = 2) in vec3 colour;
 layout(location = 3) in float alpha;
 layout(location = 4) in float radius;
-layout(location = 5) in float ring;
-layout(location = 6) in float slot;
-layout(location = 7) in float along;
+layout(location = 5) in float slot;
+layout(location = 6) in float along;
 uniform mat4 projection;
 uniform mat3 turn;
 uniform vec2 viewport;
@@ -177,7 +176,6 @@ out vec3 vColour;
 out float vAlpha;
 out vec2 vAt;
 out float vRadius;
-out float vRing;
 void main() {
   vec4 s = stateOf(slot);
   float shown = step(along, s.g + 1e-4) * step(along, reveal + 1e-4);
@@ -185,7 +183,6 @@ void main() {
   vec4 c = projection * vec4(p, 1.0);
   float size = ratio * facingSize(p);
   float r = radius * size * (1.0 + 0.6 * s.b);
-  vRing = ring * size;
   float reach = r + 1.0;
   c.xy += corner * reach * 2.0 / viewport * c.w;
   gl_Position = c;
@@ -200,12 +197,10 @@ in vec3 vColour;
 in float vAlpha;
 in vec2 vAt;
 in float vRadius;
-in float vRing;
 out vec4 outColour;
 void main() {
   float d = length(vAt);
-  float inside = vRing > 0.0 ? clamp(d - (vRadius - vRing) + 0.5, 0.0, 1.0) : 1.0;
-  float a = vAlpha * inside * clamp(vRadius + 0.5 - d, 0.0, 1.0);
+  float a = vAlpha * clamp(vRadius + 0.5 - d, 0.0, 1.0);
   // invariant: only what a dot covers writes depth, so the lines behind it and nothing else are hidden.
   if (a < 0.002) discard;
   outColour = vec4(vColour * a, a);
@@ -385,7 +380,7 @@ export function createSpaceRenderer(
     return { vao, buffer, count: 0 };
   }
   const SEGMENT_WIDTHS = [3, 3, 3, 1, 1, 2, 1, 2];
-  const DOT_WIDTHS = [3, 3, 1, 1, 1, 1, 1];
+  const DOT_WIDTHS = [3, 3, 1, 1, 1, 1];
   const layers = {
     segments: layer(strip, SEGMENT_FLOATS, SEGMENT_WIDTHS),
     dots: layer(square, DOT_FLOATS, DOT_WIDTHS),

@@ -197,7 +197,7 @@ Deno.test('the geometry packs whole segments and dots, every number finite, ever
   assertEquals(circles % 3, 0, 'three whole circles on the rim');
   assert(circles > 0);
   const dotSlots = new Set<number>();
-  for (let at = 0; at < drawn.dots.length; at += DOT_FLOATS) dotSlots.add(drawn.dots[at + 9]);
+  for (let at = 0; at < drawn.dots.length; at += DOT_FLOATS) dotSlots.add(drawn.dots[at + 8]);
   assertEquals(dotSlots.size, space.documents.length, 'a dot per document');
   for (const slot of dotSlots) assert(slot >= 0 && slot < space.documents.length);
   const landed = placeQuery(space, vectors[2]);

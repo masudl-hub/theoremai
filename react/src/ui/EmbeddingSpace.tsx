@@ -141,9 +141,9 @@ function SpaceCanvas({
  * three directions the vectors differ most along, with a circle round the rim
  * in each plane two of them span. Each document is joined to its nearest
  * neighbour by cosine similarity when that pair stands out from the index's
- * typical pair; documents the lines connect share a colour, and a query's ring
- * has a line to each match that stands out the same way. Drag to turn it; point
- * at a dot to name its document.
+ * typical pair; documents the lines connect share a colour, and a query's
+ * white dot has a line to each match that stands out the same way. Drag to turn
+ * it; point at a dot to name its document.
  */
 export function EmbeddingSpaceView(props: EmbeddingSpaceViewProps) {
   // why: a lost GPU context does not come back on the same canvas; a new one asks again.

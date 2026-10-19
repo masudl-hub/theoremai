@@ -1,8 +1,8 @@
 /**
  * What the embedding space draws, as flat arrays a GPU takes as they are:
  * the axes' three circles, each document's dot, a line for each link, heavier
- * the further its cosine similarity passes the threshold, and a query's ring
- * with a line to each match that passes its own.
+ * the further its cosine similarity passes the threshold, and a query's white
+ * dot with a line to each match that passes its own.
  * Every other line joins two real points and stands for their cosine
  * similarity; nothing is drawn for show.
  *
@@ -18,8 +18,8 @@ import type { EmbeddingSpace, SpacePoint } from './embedding-space.ts';
  * its start and after its end, where a dot sits.
  */
 export const SEGMENT_FLOATS = 16;
-/** Floats per dot: position (3), colour (3), alpha, radius and ring width in CSS pixels (0 for a solid dot), its slot, and where it sits along the line that reaches it. */
-export const DOT_FLOATS = 11;
+/** Floats per dot: position (3), colour (3), alpha, radius in CSS pixels, its slot, and where it sits along the line that reaches it. */
+export const DOT_FLOATS = 10;
 /** Stands for the query where a slot would go. */
 export const QUERY_SLOT = -1;
 /** Stands for the axes' circles, which no document's state reaches. */
@@ -100,8 +100,6 @@ type Dot = {
   colour: readonly number[];
   alpha: number;
   radius: number;
-  /** The ring's width, or 0 for a solid dot. */
-  ring: number;
   slot: number;
   along: number;
 };
@@ -141,8 +139,8 @@ class Strokes {
     this.segments.push(...from, ...to, ...colour, alpha, width, FRAME_SLOT, FRAME_SLOT, 0, 0, 0);
   }
 
-  dot({ at, colour, alpha, radius, ring, slot, along }: Dot) {
-    this.dots.push(...at, ...colour, alpha, radius, ring, slot, along);
+  dot({ at, colour, alpha, radius, slot, along }: Dot) {
+    this.dots.push(...at, ...colour, alpha, radius, slot, along);
   }
 
   done(): SpaceGeometry {
@@ -153,11 +151,9 @@ class Strokes {
 /** Line segments and dots, packed as {@link SEGMENT_FLOATS} and {@link DOT_FLOATS} describe. */
 export type SpaceGeometry = { segments: Float32Array; dots: Float32Array };
 
-/** A document's dot, and the query's ring with its centre, in CSS pixels. */
+/** A document's dot, and the query's, a little larger, in CSS pixels. */
 const DOCUMENT_RADIUS = 2.6;
-const QUERY_RADIUS = 6;
-const QUERY_RING = 1.5;
-const QUERY_CORE = 2.4;
+const QUERY_RADIUS = 3.6;
 /** The clear space between a line's end and the dot it reaches. */
 const GAP = 1.75;
 
@@ -216,7 +212,6 @@ export function spaceGeometry(space: EmbeddingSpace): SpaceGeometry {
       colour: colourOfDocument(document.index),
       alpha: 1,
       radius: DOCUMENT_RADIUS,
-      ring: 0,
       slot: document.index,
       along: 0,
     });
@@ -230,7 +225,7 @@ export type QueryMatch = {
   closeness: number;
 };
 
-/** A query's ring where it landed, and a line from it to each match, weighted as a link is. */
+/** A query's white dot where it landed, and a line from it to each match, weighted as a link is. */
 export function queryGeometry(
   space: EmbeddingSpace,
   at: SpacePoint,
@@ -251,8 +246,13 @@ export function queryGeometry(
       gaps: [QUERY_RADIUS + GAP, DOCUMENT_RADIUS + GAP],
     });
   }
-  const query = { at, colour: QUERY_COLOUR, alpha: 1, slot: QUERY_SLOT, along: 0 };
-  strokes.dot({ ...query, radius: QUERY_RADIUS, ring: QUERY_RING });
-  strokes.dot({ ...query, radius: QUERY_CORE, ring: 0 });
+  strokes.dot({
+    at,
+    colour: QUERY_COLOUR,
+    alpha: 1,
+    radius: QUERY_RADIUS,
+    slot: QUERY_SLOT,
+    along: 0,
+  });
   return strokes.done();
 }

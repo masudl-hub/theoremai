@@ -50,9 +50,22 @@ function mentions(value: DecisionJson, name: string): boolean {
   return false;
 }
 
-/** The images some state field holds whole, by reference: the fields that show them. */
-export function inStateFields(images: DecisionImages, state: DecisionJson): Set<string> {
-  return new Set(Object.keys(images).filter((name) => mentions(state, name)));
+/** The held images the state still names, the only ones a decision sends. */
+export function namedImages(images: DecisionImages, state: DecisionJson): DecisionImages {
+  return Object.fromEntries(Object.entries(images).filter(([name]) => mentions(state, name)));
+}
+
+/**
+ * The field a dropped file becomes: its reference, unused by any image or field, and the field
+ * named after it, such as `plant` holding `<plant>`.
+ */
+export function imageField(
+  file: string,
+  images: DecisionImages,
+  fields: readonly string[],
+): { key: string; reference: string } {
+  const reference = imageName(file, [...Object.keys(images), ...fields.map((key) => `<${key}>`)]);
+  return { key: reference.slice(1, -1), reference };
 }
 
 function at(state: DecisionJson, path: string): DecisionJson | undefined {

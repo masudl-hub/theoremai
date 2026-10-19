@@ -1,5 +1,12 @@
 import { assertAlmostEquals, assertEquals } from '@std/assert';
-import { boxSource, cropOf, imageName, readImage } from '../../react/src/client/decision-images.ts';
+import {
+  boxSource,
+  cropOf,
+  imageField,
+  imageName,
+  namedImages,
+  readImage,
+} from '../../react/src/client/decision-images.ts';
 import { decisionInterface } from '../../react/src/client/decision-transport.ts';
 
 const shelf = { mimeType: 'image/png', data: 'AAAA' } as const;
@@ -20,6 +27,23 @@ Deno.test('boxSource is the image at the field the question names, else the firs
   assertEquals(boxSource(images, { fruit: ['x', '<lemon>'] }, 'missing'), lemon);
   assertEquals(boxSource(images, { note: 'no pictures here' }), shelf);
   assertEquals(boxSource({}, { a: '<shelf>' }), undefined);
+});
+
+Deno.test('a dropped file becomes a field and a reference that no image or field has yet', () => {
+  assertEquals(imageField('Plant.jpg', {}, []), { key: 'plant', reference: '<plant>' });
+  assertEquals(imageField('plant.jpg', { '<plant>': shelf }, []), {
+    key: 'plant_2',
+    reference: '<plant_2>',
+  });
+  assertEquals(imageField('plant.jpg', {}, ['plant']), { key: 'plant_2', reference: '<plant_2>' });
+});
+
+Deno.test('a decision sends only the held images its state still names', () => {
+  const images = { '<shelf>': shelf, '<lemon>': lemon };
+  assertEquals(namedImages(images, { photo: '<shelf>', note: 'a <lemon> here' }), {
+    '<shelf>': shelf,
+  });
+  assertEquals(namedImages(images, { list: ['<lemon>'] }), { '<lemon>': lemon });
 });
 
 Deno.test('cropOf scales and offsets the image so the box fills the frame', () => {

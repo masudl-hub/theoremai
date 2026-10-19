@@ -1,5 +1,6 @@
 import { Button } from '@astryxdesign/core/Button';
 import { FieldLabel } from '@astryxdesign/core/Field';
+import { FileInput } from '@astryxdesign/core/FileInput';
 import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { NumberInput } from '@astryxdesign/core/NumberInput';
@@ -14,9 +15,10 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { IconPlus, IconX } from '@tabler/icons-react';
 import type { DecisionJson } from '@theoremjs/agents';
 import { createContext, useContext, useId, useState } from 'react';
-import { type DecisionImages, imageSrc } from '../client/decision-images.ts';
+import { type DecisionImages, IMAGE_ACCEPT, imageSrc } from '../client/decision-images.ts';
 import { humanize, isPlain } from '../client/shaped-data.ts';
 import { blankLike, isWordList, tableColumns } from '../client/state-fields.ts';
+import { useImageReader } from './DecisionImages.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { useKeyedRows } from './row-keys.ts';
 
@@ -32,50 +34,62 @@ export function textRows(text: string, min: number, max: number): number {
   return Math.min(Math.max(text.split('\n').length, min), max);
 }
 
-/** The images the state can refer to by name; a field whose whole text is one shows it. */
-export const StateImages = createContext<DecisionImages>({});
+/** The images the state names, and how to change them; a field whose whole text names one shows it. */
+export const StateImages = createContext<{
+  images: DecisionImages;
+  onImages: (next: DecisionImages) => void;
+}>({ images: {}, onImages: () => {} });
 
-/** A field that holds an image's reference: the image, beside the reference it can be changed to. */
+/** A field that holds an image: the image, and a file input that replaces it. */
 function ImageField({
   value,
-  onChange,
   label,
   isLabelHidden,
-  images,
-}: Edit<string> & { label: string; isLabelHidden?: boolean; images: DecisionImages }) {
-  const row = (
+}: {
+  value: string;
+  label: string;
+  isLabelHidden?: boolean;
+}) {
+  const t = useLabels();
+  const { images, onImages } = useContext(StateImages);
+  const { read, status } = useImageReader();
+  return (
     <HStack gap={2} vAlign="center">
       <Thumbnail
         src={Object.hasOwn(images, value) ? imageSrc(images[value]) : undefined}
-        alt={value}
+        alt={label}
         label={value}
       />
       <StackItem size="fill">
-        <TextInput label={label} isLabelHidden size="sm" value={value} onChange={onChange} />
+        <FileInput
+          label={label}
+          isLabelHidden={isLabelHidden}
+          accept={IMAGE_ACCEPT}
+          value={null}
+          placeholder={t('@theorem.decision.replace_image')}
+          status={status}
+          statusVariant="detached"
+          onChange={(files) => {
+            void read(files).then(([first]) => {
+              if (first) onImages({ ...images, [value]: first[1] });
+            });
+          }}
+        />
       </StackItem>
     </HStack>
   );
-  return isLabelHidden ? row : <Labelled label={label}>{row}</Labelled>;
 }
 
 /** A string, number, true/false, or null, as its input. */
 function PlainField({ value, onChange, label, isLabelHidden }: FieldProps) {
-  const images = useContext(StateImages);
+  const { images } = useContext(StateImages);
   // why: Decided once, so the field doesn't swap inputs (and lose focus) as the text grows or changes.
   const [isLong] = useState(
     () => typeof value === 'string' && (value.length > LONG_TEXT || value.includes('\n')),
   );
   const [isImage] = useState(() => typeof value === 'string' && Object.hasOwn(images, value));
   if (isImage && typeof value === 'string')
-    return (
-      <ImageField
-        value={value}
-        onChange={onChange}
-        label={label}
-        isLabelHidden={isLabelHidden}
-        images={images}
-      />
-    );
+    return <ImageField value={value} label={label} isLabelHidden={isLabelHidden} />;
   if (typeof value === 'boolean') return <Switch label={label} value={value} onChange={onChange} />;
   if (typeof value === 'number') {
     return (

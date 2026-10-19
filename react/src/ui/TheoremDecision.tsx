@@ -1,7 +1,7 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import type { DecisionJson } from '@theoremjs/agents';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
-import { type DecisionImages, inStateFields } from '../client/decision-images.ts';
+import { type DecisionImages, imageField, namedImages } from '../client/decision-images.ts';
 import {
   createDecisionTransport,
   type DecisionInterface,
@@ -19,7 +19,7 @@ import {
   useBytes,
 } from './ConsoleFrame.tsx';
 import { TheoremDecisionAnswers, type TheoremDecisionAnswersProps } from './DecisionAnswers.tsx';
-import { ImagesField } from './DecisionImages.tsx';
+import { ImageDrop } from './DecisionImages.tsx';
 import type { LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
@@ -138,6 +138,8 @@ function DecisionRequest({
   const withImages =
     iface.questions.some((question) => question.type === 'box') || Object.keys(images).length > 0;
   const fields = shown === 'fields' ? check.state : undefined;
+  const named =
+    fields !== null && typeof fields === 'object' && !Array.isArray(fields) ? fields : undefined;
   return (
     <RequestCard
       title={t('@theorem.decision.state')}
@@ -147,7 +149,7 @@ function DecisionRequest({
       onRun={onRun}
     >
       {fields !== undefined ? (
-        <StateImages value={images}>
+        <StateImages value={{ images, onImages }}>
           <StateFields
             label={t('@theorem.decision.state')}
             value={fields}
@@ -164,11 +166,19 @@ function DecisionRequest({
           onChange={setText}
         />
       )}
-      {withImages ? (
-        <ImagesField
-          images={images}
-          inFields={fields === undefined ? new Set() : inStateFields(images, fields)}
-          onChange={onImages}
+      {withImages && named ? (
+        <ImageDrop
+          onImages={(dropped) => {
+            let nextImages = images;
+            let nextState = named;
+            for (const [file, image] of dropped) {
+              const { key, reference } = imageField(file.name, nextImages, Object.keys(nextState));
+              nextImages = { ...nextImages, [reference]: image };
+              nextState = { ...nextState, [key]: reference };
+            }
+            onImages(nextImages);
+            setText(JSON.stringify(nextState, null, 2));
+          }}
         />
       ) : null}
       <RunBar
@@ -263,8 +273,9 @@ function DecisionBody({
 
   const decide = () => {
     if (!check.ok) return;
-    setAsked({ images, state: check.state });
-    void decision.decide(check.state, Object.keys(images).length > 0 ? images : undefined);
+    const sent = namedImages(images, check.state);
+    setAsked({ images: sent, state: check.state });
+    void decision.decide(check.state, Object.keys(sent).length > 0 ? sent : undefined);
   };
 
   return (

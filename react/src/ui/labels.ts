@@ -506,24 +506,18 @@ export const THEOREM_UI_CATALOG = {
       'Where a box sits in its image, each edge as a share of the image from its top-left corner.',
     params: ['left', 'top', 'right', 'bottom'],
   },
-  '@theorem.decision.images': {
-    defaultMessage: 'Images',
+  '@theorem.decision.add_image': {
+    defaultMessage: 'Add an image',
     description:
-      'The images a decision reads that no state field shows: the state or a question refers to each by name.',
+      'The drop area under the state: each image dropped or chosen becomes a state field.',
   },
-  '@theorem.decision.attach': {
-    defaultMessage: 'Attach image',
-    description: 'Adds a PNG or JPEG the state or a question can refer to by name.',
+  '@theorem.decision.add_image_hint': {
+    defaultMessage: 'Drop a PNG or JPEG, or choose one. It becomes a field the questions can name.',
+    description: 'What the drop area under the state says it does.',
   },
-  '@theorem.decision.remove_image': {
-    defaultMessage: 'Remove {name}',
-    description: 'Removes an attached image.',
-    params: ['name'],
-  },
-  '@theorem.decision.image_hint': {
-    defaultMessage: 'Refer to an image by its name, such as {name}, in the state or in a question.',
-    description: 'Under the attached images: how the state or a question points at one.',
-    params: ['name'],
+  '@theorem.decision.replace_image': {
+    defaultMessage: 'Replace',
+    description: "An image field's file input, which swaps in another PNG or JPEG.",
   },
   '@theorem.decision.image_bad': {
     defaultMessage: '{file} is not a PNG or JPEG.',

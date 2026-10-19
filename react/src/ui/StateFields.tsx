@@ -3,6 +3,7 @@ import { FieldLabel } from '@astryxdesign/core/Field';
 import { FileInput } from '@astryxdesign/core/FileInput';
 import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
+import { Lightbox } from '@astryxdesign/core/Lightbox';
 import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
@@ -53,13 +54,24 @@ function ImageField({
   const t = useLabels();
   const { images, onImages } = useContext(StateImages);
   const { read, status } = useImageReader();
+  const [isOpen, setOpen] = useState(false);
+  const src = Object.hasOwn(images, value) ? imageSrc(images[value]) : undefined;
   return (
     <HStack gap={2} vAlign="center">
       <Thumbnail
-        src={Object.hasOwn(images, value) ? imageSrc(images[value]) : undefined}
+        src={src}
         alt={label}
         label={value}
+        onClick={src ? () => setOpen(true) : undefined}
       />
+      {src ? (
+        <Lightbox
+          isOpen={isOpen}
+          onOpenChange={setOpen}
+          media={{ src, alt: label, caption: value }}
+          hasZoom
+        />
+      ) : null}
       <StackItem size="fill">
         <FileInput
           label={label}

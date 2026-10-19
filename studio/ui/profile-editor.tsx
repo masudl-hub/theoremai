@@ -57,7 +57,6 @@ import {
   IconFlame,
   IconFlask,
   IconGauge,
-  IconGitBranch,
   IconHandOff,
   IconHandStop,
   IconHeadset,
@@ -237,7 +236,7 @@ import {
   writeAsk,
 } from '../mod.ts';
 import { AddProviderButton } from './add-provider.tsx';
-import { IconGoogle, IconOpenAi, IconOpenRouter } from './brand-icons.tsx';
+import { IconGoogle, IconOpenAi, IconOpenRouter, IconTypeSafe } from './brand-icons.tsx';
 import { DetectorTester } from './guardrail-tester.tsx';
 import {
   type Choice,
@@ -339,7 +338,7 @@ const DEFINITION_ICON: Record<string, Segment<string>['icon']> = {
   gemini: IconGoogle,
   openrouter: IconOpenRouter,
   local: IconOpenAi,
-  typesafe: IconGitBranch,
+  typesafe: IconTypeSafe,
 };
 
 const LEVEL_SEGMENT = {

@@ -10,7 +10,6 @@
 
 import type { EmbeddingSpace, SpacePoint } from '../client/embedding-space.ts';
 import {
-  QUERY_COLONY,
   type QueryMatch,
   queryGeometry,
   SEGMENT_FLOATS,
@@ -225,7 +224,7 @@ type Target = {
 };
 
 /** Why the space could not be drawn here. */
-export class SpaceUnavailable extends Error {}
+class SpaceUnavailable extends Error {}
 
 function compile(gl: WebGL2RenderingContext, vertex: string, fragment: string): WebGLProgram {
   const program = gl.createProgram();
@@ -473,8 +472,8 @@ export function createSpaceRenderer(
   let turn: Quat = quatNormalise(
     quatMultiply(quatAxis([1, 0, 0], 0.35), quatAxis([0, 1, 0], -0.5)),
   );
-  let turnFrom: Quat | null = null;
-  let turnTo: Quat | null = null;
+  /** Where the sphere turns from and to while it turns to face the query. */
+  let turning: { from: Quat; to: Quat } | null = null;
   let turnAt = 0;
   let dragging = false;
   let last = performance.now();
@@ -485,16 +484,18 @@ export function createSpaceRenderer(
   function aimAt(point: SpacePoint) {
     const turned = turnPoint(quatMatrix(turn), point);
     const length = Math.hypot(...turned) || 1;
-    turnFrom = turn;
-    turnTo = quatNormalise(
-      quatMultiply(
-        quatBetween(
-          turned.map((v) => v / length),
-          [0, 0, 1],
+    turning = {
+      from: turn,
+      to: quatNormalise(
+        quatMultiply(
+          quatBetween(
+            turned.map((v) => v / length),
+            [0, 0, 1],
+          ),
+          turn,
         ),
-        turn,
       ),
-    );
+    };
     turnAt = performance.now();
   }
 
@@ -523,36 +524,54 @@ export function createSpaceRenderer(
     return true;
   }
 
-  function step(now: number) {
-    const dt = Math.min((now - last) / 1000, 0.1);
-    last = now;
-    const ease = 1 - Math.exp(-dt * 7);
+  function easeColonies(ease: number) {
     const want = focus.hovered;
     for (let i = 0; i < bright.length; i += 1) {
       bright[i] += (brightTarget[i] - bright[i]) * ease;
       hover[i] += ((want === i ? 1 : 0) - hover[i]) * ease;
     }
-    if (turnFrom && turnTo) {
-      const t = still ? 1 : Math.min((now - turnAt) / (TURN_S * 1000), 1);
-      turn = quatSlerp(turnFrom, turnTo, easeInOut(t));
-      if (t >= 1) turnFrom = turnTo = null;
-    } else if (!still && !dragging && !focus.query) {
-      turn = quatNormalise(quatMultiply(quatAxis([0, 1, 0], SPIN * dt), turn));
-    }
   }
 
-  /** Whether anything is still moving; a settled sphere draws again only on change. */
-  function settled(now: number): boolean {
-    const spinning = !still && !focus.query;
-    if (spinning || dragging || turnFrom) return false;
-    if (!still && bornAt.some((at) => now < at + GROW_S * 1000)) return false;
-    if (!still && now - queryAt < REVEAL_S * 1000) return false;
+  function faceQuery(now: number, { from, to }: { from: Quat; to: Quat }) {
+    const t = still ? 1 : Math.min((now - turnAt) / (TURN_S * 1000), 1);
+    turn = quatSlerp(from, to, easeInOut(t));
+    if (t >= 1) turning = null;
+  }
+
+  function turnSphere(now: number, dt: number) {
+    if (turning) faceQuery(now, turning);
+    else if (!still && !dragging && !focus.query)
+      turn = quatNormalise(quatMultiply(quatAxis([0, 1, 0], SPIN * dt), turn));
+  }
+
+  function step(now: number) {
+    const dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    easeColonies(1 - Math.exp(-dt * 7));
+    turnSphere(now, dt);
+  }
+
+  /** Whether the sphere turns, or a colony or the query is still growing in. */
+  function animating(now: number): boolean {
+    if (dragging || turning) return true;
+    if (still) return false;
+    if (!focus.query) return true;
+    return now - queryAt < REVEAL_S * 1000 || bornAt.some((at) => now < at + GROW_S * 1000);
+  }
+
+  /** Whether every colony's brightness and hover have reached where they are going. */
+  function eased(): boolean {
     for (let i = 0; i < bright.length; i += 1) {
       const hovering = focus.hovered === i ? 1 : 0;
       if (Math.abs(brightTarget[i] - bright[i]) > 0.005 || Math.abs(hovering - hover[i]) > 0.005)
         return false;
     }
     return true;
+  }
+
+  /** Whether anything is still moving; a settled sphere draws again only on change. */
+  function settled(now: number): boolean {
+    return !animating(now) && eased();
   }
 
   function writeStates(now: number) {
@@ -767,7 +786,7 @@ export function createSpaceRenderer(
     },
     drag(dx, dy) {
       dragging = true;
-      turnFrom = turnTo = null;
+      turning = null;
       const speed = 3 / Math.max(Math.min(canvas.clientWidth, canvas.clientHeight), 1);
       turn = quatNormalise(
         quatMultiply(
@@ -807,5 +826,3 @@ export function createSpaceRenderer(
     },
   };
 }
-
-export { QUERY_COLONY };

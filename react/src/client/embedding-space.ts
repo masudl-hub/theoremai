@@ -50,7 +50,7 @@ export type SpaceThread = {
 };
 
 /** The three directions the space is drawn along, kept so a query lands consistently. */
-type SpaceBasis = {
+export type SpaceBasis = {
   readonly mean: Float64Array;
   /** Each a unit direction in the vectors' own space; fewer than three when the documents span fewer. */
   readonly axes: readonly Float64Array[];
@@ -140,6 +140,61 @@ function centred(gram: Float64Array, n: number): Float64Array {
   return out;
 }
 
+/** One power-iteration round: `matrix · vector`, normalised, with its length and how far it moved. */
+function powerRound(
+  matrix: Float64Array,
+  n: number,
+  vector: Float64Array,
+): { next: Float64Array; length: number; moved: number } {
+  const next = new Float64Array(n);
+  let length = 0;
+  for (let i = 0; i < n; i += 1) {
+    let sum = 0;
+    for (let j = 0; j < n; j += 1) sum += matrix[i * n + j] * vector[j];
+    next[i] = sum;
+    length += sum * sum;
+  }
+  length = Math.sqrt(length);
+  if (length < 1e-12) return { next: vector, length: 0, moved: 0 };
+  let moved = 0;
+  for (let i = 0; i < n; i += 1) {
+    next[i] /= length;
+    moved = Math.max(moved, Math.abs(next[i] - vector[i]));
+  }
+  return { next, length, moved };
+}
+
+/** Flips a vector so its largest entry is positive. */
+function signed(vector: Float64Array): Float64Array {
+  let lead = 0;
+  for (let i = 1; i < vector.length; i += 1)
+    if (Math.abs(vector[i]) > Math.abs(vector[lead])) lead = i;
+  return vector[lead] < 0 ? vector.map((v) => -v) : vector;
+}
+
+/** The largest eigenvector left in a matrix, by power iteration. */
+function* largestEigen(
+  matrix: Float64Array,
+  n: number,
+  k: number,
+): Generator<void, { vector: Float64Array; value: number }> {
+  // invariant: a fixed start, so the same documents always draw the same space.
+  let vector: Float64Array = Float64Array.from(
+    { length: n },
+    (_, i) => 1 + ((i * 7919 + k * 104729) % 97) / 97,
+  );
+  let value = 0;
+  for (let round = 0; round < ROUNDS; round += 1) {
+    const step = powerRound(matrix, n, vector);
+    if (step.length === 0) break;
+    value = step.length;
+    vector = step.next;
+    if (step.moved < 1e-12) break;
+    yield;
+  }
+  return { vector: signed(vector), value };
+}
+
 /** The largest eigenvectors of a symmetric matrix, by power iteration with deflation, each signed so its largest entry is positive. */
 function* topEigen(
   matrix: Float64Array,
@@ -150,37 +205,8 @@ function* topEigen(
   const found: { vector: Float64Array; value: number }[] = [];
   const scale = Math.max(...Array.from({ length: n }, (_, i) => Math.abs(work[i * n + i])), 0);
   for (let k = 0; k < Math.min(count, n); k += 1) {
-    // invariant: a fixed start, so the same documents always draw the same space.
-    let vector = Float64Array.from(
-      { length: n },
-      (_, i) => 1 + ((i * 7919 + k * 104729) % 97) / 97,
-    );
-    let value = 0;
-    for (let round = 0; round < ROUNDS; round += 1) {
-      const next = new Float64Array(n);
-      let length = 0;
-      for (let i = 0; i < n; i += 1) {
-        let sum = 0;
-        for (let j = 0; j < n; j += 1) sum += work[i * n + j] * vector[j];
-        next[i] = sum;
-        length += sum * sum;
-      }
-      length = Math.sqrt(length);
-      if (length < 1e-12) break;
-      let moved = 0;
-      for (let i = 0; i < n; i += 1) {
-        next[i] /= length;
-        moved = Math.max(moved, Math.abs(next[i] - vector[i]));
-      }
-      value = length;
-      vector = next;
-      if (moved < 1e-12) break;
-      yield;
-    }
+    const { vector, value } = yield* largestEigen(work, n, k);
     if (value <= scale * 1e-9) break;
-    let lead = 0;
-    for (let i = 1; i < n; i += 1) if (Math.abs(vector[i]) > Math.abs(vector[lead])) lead = i;
-    if (vector[lead] < 0) for (let i = 0; i < n; i += 1) vector[i] = -vector[i];
     found.push({ vector, value });
     for (let i = 0; i < n; i += 1)
       for (let j = 0; j < n; j += 1) work[i * n + j] -= value * vector[i] * vector[j];

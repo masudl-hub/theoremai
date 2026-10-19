@@ -250,14 +250,107 @@ function closenessOf(matches: readonly EmbeddingMatch[]): QueryMatch[] {
   }));
 }
 
-/** The index: its progress while it runs, then the documents as a space or a list, or why it failed. */
-export function IndexCard({
-  run,
-  documents,
+/** The index while it runs: how many documents are done. */
+function IndexingCard({ progress }: { progress: IndexProgress }) {
+  const t = useLabels();
+  return (
+    <ChartCard
+      title={t('@theorem.embedding.indexing')}
+      value={t('@theorem.embedding.progress', { done: progress.done, total: progress.total })}
+    >
+      <ProgressBar
+        label={t('@theorem.embedding.indexing')}
+        isLabelHidden
+        value={progress.done}
+        max={Math.max(progress.total, 1)}
+      />
+    </ChartCard>
+  );
+}
+
+const SPACE_ROOM = { width: '100%', aspectRatio: '1 / 1', maxHeight: SPACE_PX } as const;
+
+/** The space, with the last query landed among its matches; an empty box of the same size until it is laid out. */
+function IndexSpace({
+  space,
   query,
   matches,
+  name,
   pointing,
+  onUnavailable,
 }: {
+  space: EmbeddingSpace | null;
+  query: readonly number[] | null;
+  matches: readonly EmbeddingMatch[];
+  name(index: number): string;
+  pointing: Pointing;
+  onUnavailable(): void;
+}) {
+  const t = useLabels();
+  const landed = useMemo(() => (space && query ? placeQuery(space, query) : null), [space, query]);
+  const close = useMemo(() => (landed ? closenessOf(matches) : []), [landed, matches]);
+  if (!space) return <div style={SPACE_ROOM} />;
+  const label = t('@theorem.embedding.space_label', { count: space.colonies.length });
+  return (
+    <Suspense fallback={<div style={SPACE_ROOM} />}>
+      <EmbeddingSpaceView
+        space={space}
+        query={landed}
+        matches={close}
+        hovered={pointing.hovered}
+        onHover={pointing.onHover}
+        nameOf={name}
+        label={landed ? `${label} ${t('@theorem.embedding.space_query')}` : label}
+        onUnavailable={onUnavailable}
+      />
+    </Suspense>
+  );
+}
+
+type IndexView = 'space' | 'list';
+
+/** The switch between the space and the list. */
+function ViewSwitch({ view, onChange }: { view: IndexView; onChange(view: IndexView): void }) {
+  const t = useLabels();
+  return (
+    <SegmentedControl
+      label={t('@theorem.embedding.view')}
+      size="sm"
+      value={view}
+      onChange={(next) => onChange(next === 'list' ? 'list' : 'space')}
+    >
+      <SegmentedControlItem value="space" label={t('@theorem.embedding.space')} />
+      <SegmentedControlItem value="list" label={t('@theorem.embedding.list')} />
+    </SegmentedControl>
+  );
+}
+
+/** The vectors listed, saying first when the space could not be drawn. */
+function IndexList({
+  vectors,
+  name,
+  pointing,
+  isDrawable,
+}: {
+  vectors: readonly (readonly number[])[];
+  name(index: number): string;
+  pointing: Pointing;
+  isDrawable: boolean;
+}) {
+  const t = useLabels();
+  return (
+    <VStack gap={2}>
+      {isDrawable ? null : (
+        <Text type="supporting" color="secondary">
+          {t('@theorem.embedding.space_off')}
+        </Text>
+      )}
+      <VectorList vectors={vectors} name={name} pointing={pointing} />
+    </VStack>
+  );
+}
+
+export type IndexCardProps = {
   run: IndexRun;
   /** The documents as they were indexed. */
   documents: readonly EmbeddingDocument[];
@@ -266,33 +359,22 @@ export function IndexCard({
   /** The documents ranked by the query, best first. */
   matches: readonly EmbeddingMatch[];
   pointing: Pointing;
-}) {
+};
+
+/** The finished index, as a space or a list. */
+function IndexedCard({
+  run,
+  result,
+  documents,
+  query,
+  matches,
+  pointing,
+}: IndexCardProps & { result: EmbeddingIndex }) {
   const t = useLabels();
-  const { progress, result } = run;
-  const [view, setView] = useState<'space' | 'list'>('space');
+  const [view, setView] = useState<IndexView>('space');
   const [isDrawable, setDrawable] = useState(true);
-  const vectors = useMemo(() => result?.vectors ?? [], [result]);
-  const space = useSpace(vectors);
-  const landed = useMemo(() => (space && query ? placeQuery(space, query) : null), [space, query]);
-  const close = useMemo(() => (landed ? closenessOf(matches) : []), [landed, matches]);
-  const name = useDocumentName(result?.inputs ?? [], documents);
-  if (progress && (!result || run.status === 'indexing'))
-    return (
-      <ChartCard
-        title={t('@theorem.embedding.indexing')}
-        value={t('@theorem.embedding.progress', { done: progress.done, total: progress.total })}
-      >
-        <ProgressBar
-          label={t('@theorem.embedding.indexing')}
-          isLabelHidden
-          value={progress.done}
-          max={Math.max(progress.total, 1)}
-        />
-      </ChartCard>
-    );
-  if (!result) return <Failure failure={run.failure} />;
-  const shows = isDrawable ? view : 'list';
-  const room = { width: '100%', aspectRatio: '1 / 1', maxHeight: SPACE_PX };
+  const space = useSpace(result.vectors);
+  const name = useDocumentName(result.inputs, documents);
   return (
     <VStack gap={4}>
       <Failure failure={run.failure} />
@@ -309,56 +391,37 @@ export function IndexCard({
             dimensions: result.vectors[0]?.length ?? 0,
             requests: result.requests,
           })}
-          aside={
-            isDrawable ? (
-              <SegmentedControl
-                label={t('@theorem.embedding.view')}
-                size="sm"
-                value={view}
-                onChange={(next) => setView(next === 'list' ? 'list' : 'space')}
-              >
-                <SegmentedControlItem value="space" label={t('@theorem.embedding.space')} />
-                <SegmentedControlItem value="list" label={t('@theorem.embedding.list')} />
-              </SegmentedControl>
-            ) : null
-          }
+          aside={isDrawable ? <ViewSwitch view={view} onChange={setView} /> : null}
         >
-          {shows === 'space' ? (
-            space ? (
-              <Suspense fallback={<div style={room} />}>
-                <EmbeddingSpaceView
-                  space={space}
-                  query={landed}
-                  matches={close}
-                  hovered={pointing.hovered}
-                  onHover={pointing.onHover}
-                  nameOf={name}
-                  label={[
-                    t('@theorem.embedding.space_label', { count: result.vectors.length }),
-                    landed ? t('@theorem.embedding.space_query') : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  onUnavailable={() => setDrawable(false)}
-                />
-              </Suspense>
-            ) : (
-              <div style={room} />
-            )
+          {isDrawable && view === 'space' ? (
+            <IndexSpace
+              space={space}
+              query={query}
+              matches={matches}
+              name={name}
+              pointing={pointing}
+              onUnavailable={() => setDrawable(false)}
+            />
           ) : (
-            <VStack gap={2}>
-              {isDrawable ? null : (
-                <Text type="supporting" color="secondary">
-                  {t('@theorem.embedding.space_off')}
-                </Text>
-              )}
-              <VectorList vectors={result.vectors} name={name} pointing={pointing} />
-            </VStack>
+            <IndexList
+              vectors={result.vectors}
+              name={name}
+              pointing={pointing}
+              isDrawable={isDrawable}
+            />
           )}
         </ChartCard>
       </ResultStack>
     </VStack>
   );
+}
+
+/** The index: its progress while it runs, then the documents as a space or a list, or why it failed. */
+export function IndexCard(props: IndexCardProps) {
+  const { progress, result, status, failure } = props.run;
+  if (progress && (!result || status === 'indexing')) return <IndexingCard progress={progress} />;
+  if (!result) return <Failure failure={failure} />;
+  return <IndexedCard {...props} result={result} />;
 }
 
 /**

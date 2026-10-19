@@ -43,7 +43,7 @@ const PALETTE: readonly (readonly [number, number, number])[] = [
 const QUERY_COLOUR: readonly [number, number, number] = [0.93, 0.97, 1.0];
 
 /** A colour on the palette, from 0 (teal) to 1 (coral). */
-export function paletteAt(tone: number): readonly [number, number, number] {
+function paletteAt(tone: number): readonly [number, number, number] {
   const at = Math.min(1, Math.max(0, tone)) * (PALETTE.length - 1);
   const low = Math.min(Math.floor(at), PALETTE.length - 2);
   const mix = at - low;

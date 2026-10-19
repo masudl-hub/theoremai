@@ -55,6 +55,7 @@ import {
   RaisedPane,
   type TheoremChatHandle,
   useDisclosureMotion,
+  useLabels,
 } from '@theoremjs/react/ui';
 import { canonical } from '../canonical.ts';
 import {
@@ -2759,7 +2760,8 @@ function PreviewHeader({
   setSheet: (sheet: Sheet) => void;
 }) {
   const testLabel = testing.open ? 'Close guardrail test' : 'Test guardrails';
-  const traceLabel = trace.open ? 'Close trace' : 'Open trace';
+  const t = useLabels();
+  const traceLabel = t(trace.open ? '@theorem.panel.trace.hide' : '@theorem.panel.trace.show');
   const { compiled } = compile;
   return (
     <Section variant="transparent" paddingInline={3} paddingBlock={0}>
@@ -2802,12 +2804,8 @@ function PreviewHeader({
             {compile.traced && !testing.open ? (
               <IconButton
                 label={traceLabel}
-                variant="ghost"
-                tooltip={
-                  trace.open
-                    ? 'Close the trace of this agent’s turns'
-                    : 'Show the trace of this agent’s turns'
-                }
+                variant={trace.open ? 'secondary' : 'ghost'}
+                tooltip={traceLabel}
                 icon={<Icon icon={IconActivity} size="sm" />}
                 aria-pressed={trace.open}
                 onClick={trace.toggle}
@@ -2817,6 +2815,52 @@ function PreviewHeader({
         </StackItem>
       </HStack>
     </Section>
+  );
+}
+
+/**
+ * Why the agent to chat with does not run: the errors in its config, or the workspace's when its
+ * own has none, each a way to where it is set. Nothing while a config that compiles settles.
+ */
+function ConfigIssues({
+  compile,
+  chatWith,
+  onIssue,
+}: {
+  compile: WorkspaceCompile;
+  chatWith: string;
+  onIssue: (node: string) => void;
+}) {
+  const { compiled } = compile;
+  if (compiled.ok) return null;
+  const root = agentNodeId(chatWith);
+  const own = compiled.issues.filter(
+    (issue) => issue.nodeId === root || issue.nodeId.startsWith(`${root}/`),
+  );
+  const shown = own.length > 0 ? own : compiled.issues;
+  const errors = shown.length === 1 ? 'an error' : `${String(shown.length)} errors`;
+  return (
+    <PaneFailure title={`The agent config has ${errors}`} description="Fix it to run the agent.">
+      <VStack gap={2}>
+        {shown.map((issue) => (
+          <Banner
+            key={`${issue.nodeId}:${issue.field ?? ''}:${issue.message}`}
+            status="error"
+            title={issue.message}
+            endContent={
+              <Button
+                label="Go to it"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onIssue(issue.nodeId);
+                }}
+              />
+            }
+          />
+        ))}
+      </VStack>
+    </PaneFailure>
   );
 }
 
@@ -2833,6 +2877,7 @@ function PreviewBody({
   profileId,
   traceOpen,
   testing,
+  onIssue,
 }: {
   compile: WorkspaceCompile;
   run: ConversationRun;
@@ -2843,6 +2888,7 @@ function PreviewBody({
   profileId: string | undefined;
   traceOpen: boolean;
   testing: boolean;
+  onIssue: (node: string) => void;
 }) {
   const { payload, traced, tested } = compile;
   /** Why the project's server does not run this profile: its files say, not the editor. */
@@ -2858,14 +2904,7 @@ function PreviewBody({
       />
     );
   }
-  if (!payload) {
-    return (
-      <PaneFailure
-        title="No agent yet"
-        description={`${compile.blocked ?? ''} to run the agent.`}
-      />
-    );
-  }
+  if (!payload) return <ConfigIssues compile={compile} chatWith={chatWith} onIssue={onIssue} />;
   return (
     <InPlace
       view={
@@ -2915,6 +2954,7 @@ const PreviewPane = memo(function PreviewPane({
   chatRef,
   copy,
   setSheet,
+  onIssue,
 }: {
   store: StudioStore;
   chatAgents: ChatAgent[];
@@ -2925,6 +2965,8 @@ const PreviewPane = memo(function PreviewPane({
   chatRef: RefObject<TheoremChatHandle | null>;
   copy: (text: string, what: string) => void;
   setSheet: (sheet: Sheet) => void;
+  /** Opens the node an issue is on, in the editor. */
+  onIssue: (node: string) => void;
 }) {
   const [traceOpen, setTraceOpen] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -2963,6 +3005,7 @@ const PreviewPane = memo(function PreviewPane({
             profileId={chatAgents.find((agent) => agent.value === chatWith)?.label}
             traceOpen={traceOpen}
             testing={testing}
+            onIssue={onIssue}
           />
         </StackItem>
       </VStack>
@@ -2997,6 +3040,17 @@ function useStudioPage(opened: StudioOpened) {
   const compile = useWorkspaceCompile(workspace, focus, connection);
   /** On a phone, the tree or the preview, each over the editor; neither shows beside it there. */
   const [sheet, setSheet] = useState<Sheet>(null);
+  const { open: openNode } = view;
+  const { reveal } = issueReveal;
+  /** Opens the node an issue is on and shows it there, from the editor's count or the preview. */
+  const goToIssue = useCallback(
+    (node: string) => {
+      openNode(node);
+      reveal({ node });
+      setSheet(null);
+    },
+    [openNode, reveal],
+  );
   // Settings take the panel; a phone's sheet over it would hide them.
   const { settingsOpen } = view;
   useEffect(() => {
@@ -3044,6 +3098,7 @@ function useStudioPage(opened: StudioOpened) {
     selected,
     editing,
     issueReveal,
+    goToIssue,
     compile,
     sheet,
     setSheet,
@@ -3065,7 +3120,7 @@ function useStudioPage(opened: StudioOpened) {
 function Studio({ opened }: { opened: StudioOpened }) {
   const page = useStudioPage(opened);
   const { state, connection, view, frame, selected, editing, issueReveal, compile } = page;
-  const { sheet, setSheet, run, copy, chatRef, title, asking, project, actingAs } = page;
+  const { goToIssue, sheet, setSheet, run, copy, chatRef, title, asking, project, actingAs } = page;
   const { store, draft } = state;
   const tree = useWorkspaceTree(state, view, selected, setSheet);
   const chatAgents = useChatAgents(state.workspace.agents);
@@ -3127,6 +3182,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
                       editing={editing}
                       frame={frame}
                       issueReveal={issueReveal}
+                      goToIssue={goToIssue}
                       setSheet={setSheet}
                     />
                   </SidePanel>
@@ -3142,6 +3198,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
                     chatRef={chatRef}
                     copy={copy}
                     setSheet={setSheet}
+                    onIssue={goToIssue}
                   />
                 }
               />
@@ -3395,6 +3452,7 @@ function EditorColumn({
   editing,
   frame,
   issueReveal,
+  goToIssue,
   setSheet,
 }: {
   heading: string | undefined;
@@ -3406,9 +3464,10 @@ function EditorColumn({
   editing: string;
   frame: ReturnType<typeof useStudioFrame>;
   issueReveal: ReturnType<typeof useIssueReveal>;
+  goToIssue: (node: string) => void;
   setSheet: (sheet: Sheet) => void;
 }) {
-  const { editorRef, reveal, revealed } = issueReveal;
+  const { editorRef, revealed } = issueReveal;
   // Keys stands over the open node, so it doesn't say what sets it.
   const over = view.keysOpen;
   const shared = over ? undefined : sharedAt(state.shared, selected);
@@ -3429,10 +3488,7 @@ function EditorColumn({
         compile={compile}
         selected={selected}
         view={view}
-        onIssue={(node) => {
-          view.open(node);
-          reveal({ node });
-        }}
+        onIssue={goToIssue}
         reset={reset}
         project={
           project && (

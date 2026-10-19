@@ -129,3 +129,38 @@ Deno.test('the runtime can refuse an agent call before it runs', async () => {
     ['refused_by_host', 'Spent.'],
   );
 });
+
+Deno.test('a turn that fails sends its traces ahead of the failure, where the page still reads them', async () => {
+  const lines: { type: string }[] = [];
+  let failure: unknown;
+  try {
+    for await (const line of streamStudioTurn({
+      ...conciergeRun(),
+      request: { input: { text: 'Hello' } },
+      conversations: {
+        sessionId: 'agent-run',
+        store: createSealedConversationStore({ keys: { 1: newConversationKey() }, keyVersion: 1 }),
+      },
+      signal: new AbortController().signal,
+      steer: createMemorySteerInbox(),
+      runtime: {
+        mode: 'byok',
+        provider: (): TurnModel => ({
+          // biome-ignore lint/correctness/useYield: the model fails before it says anything.
+          async *complete() {
+            throw new Error('The model is down.');
+          },
+        }),
+      },
+    })) {
+      lines.push(line);
+    }
+  } catch (err) {
+    failure = err;
+  }
+  assert(failure instanceof Error, 'the turn fails');
+  assert(
+    lines.some((line) => line.type === 'trace'),
+    `the failed turn left a trace: ${JSON.stringify(lines.map((line) => line.type))}`,
+  );
+});

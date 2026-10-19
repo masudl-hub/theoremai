@@ -128,6 +128,20 @@ Deno.test('a library tool keeps the agent that was open', () => {
   store.select(agentNodeId(blank.key));
   store.select(`toolSpec:${tool.key}`);
   assertEquals(store.getFocus(), blank.key);
+  assertEquals(store.getWorkspace().chatWith, blank.key);
+});
+
+Deno.test('opening an agent in the tree is the agent the preview talks to', () => {
+  const workspace = twoAgents();
+  const [concierge, blank] = workspace.agents;
+  assert(concierge && blank);
+  const store = createStudioStore({ workspace, revision: 0 });
+  assertEquals(store.getWorkspace().chatWith, concierge.key);
+  store.select(agentNodeId(blank.key, 'models'));
+  assertEquals(store.getWorkspace().chatWith, blank.key);
+  assertEquals(store.getRevision(), 0, 'it is not an edit');
+  store.select(agentNodeId(concierge.key));
+  assertEquals(store.getWorkspace().chatWith, concierge.key);
 });
 
 Deno.test('each agent keeps a conversation of its own', () => {

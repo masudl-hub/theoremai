@@ -350,11 +350,19 @@ function updateFocusedDraft(
   return draftOf(state);
 }
 
-/** Opens a node: not an edit, so the revision stays. An agent's node focuses that agent. */
+/**
+ * Opens a node: not an edit, so the revision stays. An agent's node focuses that agent, and the
+ * preview talks to it.
+ */
 function selectNode(state: StoreState, id: string): void {
   if (id === state.workspace.selected) return;
-  const workspace = { ...state.workspace, selected: id };
-  state.focus = agentOf(workspace, id) ?? state.focus;
+  const agent = agentOf(state.workspace, id);
+  const workspace = {
+    ...state.workspace,
+    selected: id,
+    chatWith: agent ?? state.workspace.chatWith,
+  };
+  state.focus = agent ?? state.focus;
   state.agreed.clear();
   moveWorkspace(state, workspace);
 }
@@ -409,7 +417,7 @@ export function createStudioStore(
       next: StudioDraft | ((current: StudioDraft) => StudioDraft),
       by: DraftAuthor = 'visitor',
     ): StudioDraft => updateFocusedDraft(state, next, by),
-    /** Opens a node: not an edit, so the revision stays. An agent's node focuses that agent. */
+    /** Opens a node, as `selectNode` does: an agent's node is the one the preview talks to. */
     select: (id: string) => {
       selectNode(state, id);
     },

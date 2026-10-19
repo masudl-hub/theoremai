@@ -534,6 +534,14 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'The box, cut from the image',
     description: 'The alt text of the part of the image a box answer covers.',
   },
+  '@theorem.decision.open_box': {
+    defaultMessage: 'See the box in the whole image',
+    description: 'The cut-out box on an answer, which opens the whole image with the box outlined.',
+  },
+  '@theorem.decision.box_marked': {
+    defaultMessage: 'The whole image, the box outlined and the rest shaded',
+    description: 'The alt text of the whole image a box answer opens.',
+  },
   '@theorem.decision.tokens': {
     defaultMessage: '{count, plural, one {# token} other {# tokens}}',
     description: 'Input tokens the decision used, in the line under the answers.',

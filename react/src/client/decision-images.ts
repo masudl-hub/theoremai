@@ -123,8 +123,47 @@ export function boxSource(
   return images[named ?? names[0] ?? ''];
 }
 
+type Box = { top: number; bottom: number; left: number; right: number };
+
+/** The box in an image's pixels, and an outline that stays visible at any size. */
+export function boxRect(box: Box, width: number, height: number) {
+  return {
+    x: box.left * width,
+    y: box.top * height,
+    width: (box.right - box.left) * width,
+    height: (box.bottom - box.top) * height,
+    line: Math.max(2, Math.round(Math.min(width, height) / 200)),
+  };
+}
+
+/** The colours a marked image is drawn in: the box's outline, and the shade over the rest. */
+export type BoxMarks = { outline: string; shade: string };
+
+/** The whole image with the box outlined and the rest shaded, as a PNG `src`. */
+export async function markedBox(src: string, box: Box, marks: BoxMarks): Promise<string> {
+  const image = new Image();
+  image.src = src;
+  await image.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext('2d');
+  if (!context) return src;
+  const rect = boxRect(box, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0);
+  context.fillStyle = marks.shade;
+  context.beginPath();
+  context.rect(0, 0, canvas.width, canvas.height);
+  context.rect(rect.x, rect.y, rect.width, rect.height);
+  context.fill('evenodd');
+  context.strokeStyle = marks.outline;
+  context.lineWidth = rect.line;
+  context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+  return canvas.toDataURL('image/png');
+}
+
 /** The part of an image a box takes, as the frame's size and the image's place inside it, in percent. */
-export function cropOf(box: { top: number; bottom: number; left: number; right: number }) {
+export function cropOf(box: Box) {
   const width = box.right - box.left;
   const height = box.bottom - box.top;
   return {

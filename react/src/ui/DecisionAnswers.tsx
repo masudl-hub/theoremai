@@ -1,8 +1,11 @@
+import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { useLocale } from '@astryxdesign/core/i18n';
+import { Lightbox } from '@astryxdesign/core/Lightbox';
 import { Text } from '@astryxdesign/core/Text';
+import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconPencil } from '@tabler/icons-react';
 import type {
@@ -12,7 +15,13 @@ import type {
   DecisionResult,
 } from '@theoremjs/agents';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { boxSource, cropOf, type DecisionImages, imageSrc } from '../client/decision-images.ts';
+import {
+  boxSource,
+  cropOf,
+  type DecisionImages,
+  imageSrc,
+  markedBox,
+} from '../client/decision-images.ts';
 import type { DecisionInterface, DecisionQuestionView } from '../client/decision-transport.ts';
 import { Arrive, Stream } from './arrive.tsx';
 import { CardWall } from './CardWall.tsx';
@@ -251,47 +260,85 @@ function useImageSize(src: string): { width: number; height: number } | null {
   return size;
 }
 
-/** The part of the image the box covers, cut out at its own proportions. */
+/** A theme colour as the page draws it, for a canvas that cannot read the theme's tokens. */
+function themeColor(element: HTMLElement, token: string): string {
+  const shown = element.style.color;
+  element.style.color = `var(${token})`;
+  const color = getComputedStyle(element).color;
+  element.style.color = shown;
+  return color;
+}
+
+/** The part of the image the box covers, cut out at its own proportions. It opens the whole image with the box outlined. */
 function BoxCrop({
   source,
   box,
+  caption,
 }: {
   source: DecisionAsset;
   box: Extract<DecisionAnswer, { type: 'box' }>['box'];
+  caption: string;
 }) {
   const t = useLabels();
   const src = imageSrc(source);
   const size = useImageSize(src);
+  const [marked, setMarked] = useState<string | null>(null);
   if (!size) return null;
   const crop = cropOf(box);
   const ratio = (size.width * (box.right - box.left)) / (size.height * (box.bottom - box.top));
+  const open = t('@theorem.decision.open_box');
   return (
-    <div
-      role="img"
-      aria-label={t('@theorem.decision.box_in')}
-      style={{
-        position: 'relative',
-        overflow: 'hidden',
-        aspectRatio: String(ratio),
-        height: CROP_HEIGHT,
-        maxWidth: '100%',
-        borderRadius: TRACE_RADIUS,
-        border: '1px solid var(--color-border)',
-      }}
-    >
-      <img
-        src={src}
-        alt=""
-        style={{
-          position: 'absolute',
-          width: `${String(crop.width)}%`,
-          height: `${String(crop.height)}%`,
-          left: `${String(crop.left)}%`,
-          top: `${String(crop.top)}%`,
-          maxWidth: 'none',
+    <>
+      <Tooltip content={open}>
+        <ClickableCard
+          label={open}
+          padding={0}
+          width="fit-content"
+          maxWidth="100%"
+          onClick={(event) => {
+            const marks = {
+              outline: themeColor(event.currentTarget, '--color-accent'),
+              shade: themeColor(event.currentTarget, '--color-overlay'),
+            };
+            void markedBox(src, box, marks).then(setMarked);
+          }}
+        >
+          <div
+            role="img"
+            aria-label={t('@theorem.decision.box_in')}
+            style={{
+              position: 'relative',
+              overflow: 'hidden',
+              aspectRatio: String(ratio),
+              height: CROP_HEIGHT,
+              maxWidth: '100%',
+              borderRadius: TRACE_RADIUS,
+            }}
+          >
+            <img
+              src={src}
+              alt=""
+              style={{
+                position: 'absolute',
+                width: `${String(crop.width)}%`,
+                height: `${String(crop.height)}%`,
+                left: `${String(crop.left)}%`,
+                top: `${String(crop.top)}%`,
+                maxWidth: 'none',
+              }}
+            />
+          </div>
+        </ClickableCard>
+      </Tooltip>
+      <Lightbox
+        isOpen={marked !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setMarked(null);
         }}
+        media={{ src: marked ?? src, alt: t('@theorem.decision.box_marked'), caption }}
+        hasZoom
       />
-    </div>
+    </>
   );
 }
 
@@ -327,7 +374,7 @@ function BoxAnswer({
       note={t('@theorem.decision.confidence', { percent: n.percent.format(answer.confidence) })}
     >
       {source ? (
-        <BoxCrop source={source} box={answer.box} />
+        <BoxCrop source={source} box={answer.box} caption={`${title}: ${edges}`} />
       ) : (
         <div
           aria-hidden

@@ -1,5 +1,6 @@
 import { assertAlmostEquals, assertEquals } from '@std/assert';
 import {
+  boxRect,
   boxSource,
   cropOf,
   droppedImages,
@@ -110,4 +111,15 @@ Deno.test('dropped files become fields, numbered past the page, the host and the
 Deno.test('only a state of named fields takes dropped images', () => {
   assertEquals(stateFields({ a: 1 }), { a: 1 });
   for (const state of [null, [1], 'text', undefined]) assertEquals(stateFields(state), undefined);
+});
+
+Deno.test("boxRect puts the box in the image's pixels, with an outline that stays visible", () => {
+  assertEquals(boxRect({ top: 0.25, bottom: 0.75, left: 0.5, right: 1 }, 800, 400), {
+    x: 400,
+    y: 100,
+    width: 400,
+    height: 200,
+    line: 2,
+  });
+  assertEquals(boxRect({ top: 0, bottom: 1, left: 0, right: 1 }, 2000, 1600).line, 8);
 });

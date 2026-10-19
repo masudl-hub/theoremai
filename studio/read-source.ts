@@ -15,9 +15,9 @@ import {
 import {
   BOUNDARIES,
   type Boundary,
+  DETECTORS,
   type DetectAction,
   type Detector,
-  DETECTORS,
   recordOf,
 } from '@theoremjs/agents/guardrails';
 import { type JsonObject, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
@@ -27,23 +27,23 @@ import {
   fieldMeta,
   type ProfileType,
 } from '@theoremjs/agents/schema';
+import { canonical } from './canonical.ts';
 import {
   createBlankDraft,
+  type DecisionQuestionDraft,
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
-  INLINE_LABELS,
-  STUDIO_PROFILE_TYPES,
-  type DecisionQuestionDraft,
   type GuardrailsDraft,
   type ImageReferenceDraft,
+  INLINE_LABELS,
   type ModelBindingDraft,
   type PatternDraft,
+  STUDIO_PROFILE_TYPES,
   type StudioDraft,
   type StudioProfileType,
   type ToolSpecDraft,
 } from './draft.ts';
-import { canonical } from './canonical.ts';
 import {
   definitionFactory,
   definitionOfFactory,
@@ -83,7 +83,6 @@ export type ProviderSourceRead =
 
 /** `agentId` is the id an agent tool or a compactor names; the workspace knows its key. */
 export type AgentKeyOf = (agentId: string) => string | undefined;
-
 
 class ReadFail extends Error {
   constructor(
@@ -296,11 +295,7 @@ function skipImport(src: Src): void {
   if (src.peek() === ';') src.bump();
 }
 
-function parseObject(
-  src: Src,
-  path: string,
-  spans: StudioSourceSpan[],
-): Record<string, unknown> {
+function parseObject(src: Src, path: string, spans: StudioSourceSpan[]): Record<string, unknown> {
   src.expect('{');
   const out: Record<string, unknown> = {};
   while (!src.eat('}')) {
@@ -311,7 +306,11 @@ function parseObject(
     else key = src.expectIdent();
     // JavaScript sets an object's prototype from `__proto__`, and TypeScript refuses a key set twice.
     if (key === '__proto__') {
-      throw new ReadFail("'__proto__' sets what an object inherits, not a setting.", at.line, at.column);
+      throw new ReadFail(
+        "'__proto__' sets what an object inherits, not a setting.",
+        at.line,
+        at.column,
+      );
     }
     if (Object.hasOwn(out, key)) throw new ReadFail(`'${key}' is set twice.`, at.line, at.column);
     const next = path ? `${path}.${key}` : key;
@@ -380,15 +379,10 @@ function objectArg(args: unknown[], src: Src, message: string): Record<string, u
   return value;
 }
 
-function registerToolCall(
-  args: unknown[],
-  src: Src,
-  spans: readonly StudioSourceSpan[],
-): unknown {
+function registerToolCall(args: unknown[], src: Src, spans: readonly StudioSourceSpan[]): unknown {
   const tool = objectArg(args, src, 'registerTool() needs the tool object.');
   const type = tool.type;
-  const known =
-    typeof type === 'string' && (STUDIO_TOOL_TYPES as readonly string[]).includes(type);
+  const known = typeof type === 'string' && (STUDIO_TOOL_TYPES as readonly string[]).includes(type);
   if (type !== undefined && !known) {
     const at = spans.findLast((span) => span.path === 'type') ?? src.pos();
     throw new ReadFail(STUDIO_TOOL_TYPE_MESSAGE, at.line, at.column);
@@ -403,10 +397,13 @@ function namedCall(
   spans: readonly StudioSourceSpan[],
 ): unknown {
   if (src.of === 'provider') {
-    if (callee !== 'registerProvider') return src.fail(`'${callee}' isn't part of a provider's code.`);
+    if (callee !== 'registerProvider')
+      return src.fail(`'${callee}' isn't part of a provider's code.`);
     const [definition, spec = {}] = args;
-    if (typeof definition !== 'string') src.fail('registerProvider() needs the definition it registers from.');
-    if (!isRecord(spec) || args.length > 2) src.fail('registerProvider() takes the definition and its settings.');
+    if (typeof definition !== 'string')
+      src.fail('registerProvider() needs the definition it registers from.');
+    if (!isRecord(spec) || args.length > 2)
+      src.fail('registerProvider() takes the definition and its settings.');
     return { kind: 'provider', definition, spec };
   }
   if (callee === 'compileDetect') {
@@ -508,15 +505,14 @@ function parseValue(src: Src, path: string, spans: StudioSourceSpan[]): unknown 
   const value = parseExpr(src, path, spans);
   if (!(value instanceof Name)) return value;
   if (value.name === 'undefined') return undefined;
-  throw new ReadFail(`'${value.name}' is set somewhere else. Write its value here.`, at.line, at.column);
+  throw new ReadFail(
+    `'${value.name}' is set somewhere else. Write its value here.`,
+    at.line,
+    at.column,
+  );
 }
 
-function parsePostfix(
-  value: unknown,
-  src: Src,
-  path: string,
-  spans: StudioSourceSpan[],
-): unknown {
+function parsePostfix(value: unknown, src: Src, path: string, spans: StudioSourceSpan[]): unknown {
   let current = value;
   for (;;) {
     if (src.eat('.')) {
@@ -840,7 +836,9 @@ function bindingOf(
     compactAt: typeof compaction?.compactAt === 'number' ? compaction.compactAt : undefined,
     compactKeep: whole(compaction?.previousExchanges),
     compactMeter: text(compaction?.meter) as ModelBindingDraft['compactMeter'],
-    compactWith: compactWith ? compactorKey(compactWith, agentKeyOf, `models.${modelId}.compaction.profile`, spans) : '',
+    compactWith: compactWith
+      ? compactorKey(compactWith, agentKeyOf, `models.${modelId}.compaction.profile`, spans)
+      : '',
   };
 }
 
@@ -856,7 +854,10 @@ function compactorKey(
   spans: readonly StudioSourceSpan[],
 ): string {
   if (!agentKeyOf) return '';
-  return agentKeyOf(id) ?? failAt(spans, path, `'${id}' is not an agent here, so it can't write this model's summaries.`);
+  return (
+    agentKeyOf(id) ??
+    failAt(spans, path, `'${id}' is not an agent here, so it can't write this model's summaries.`)
+  );
 }
 
 /** The canned reply a function tool returns, when the file wrote its own. */
@@ -974,7 +975,11 @@ function referencesOf(value: unknown): ImageReferenceDraft[] {
     if (!isRecord(reference)) continue;
     if (typeof reference.uri === 'string') {
       const name = text(reference.name);
-      references.push({ key: draftKey('reference'), uri: reference.uri, ...(name ? { name } : {}) });
+      references.push({
+        key: draftKey('reference'),
+        uri: reference.uri,
+        ...(name ? { name } : {}),
+      });
     } else if (typeof reference.data === 'string') {
       references.push({
         key: draftKey('reference'),
@@ -1113,9 +1118,14 @@ function inputsOf(inputs: Record<string, unknown>): StudioDraft['inputs'] {
   };
 }
 
-function itemRulesOf(items: Record<string, unknown> | undefined): StudioDraft['outputs']['itemRules'] {
+function itemRulesOf(
+  items: Record<string, unknown> | undefined,
+): StudioDraft['outputs']['itemRules'] {
   return Object.fromEntries(
-    Object.entries(items ?? {}).map(([list, rule]) => [list, record(rule)?.onFail === 'fix' ? 'fix' : 'drop']),
+    Object.entries(items ?? {}).map(([list, rule]) => [
+      list,
+      record(rule)?.onFail === 'fix' ? 'fix' : 'drop',
+    ]),
   );
 }
 
@@ -1142,8 +1152,12 @@ function outputsOf(
 function turnOf(turn: Record<string, unknown>): StudioDraft['turnBehaviour'] {
   const resumption = record(turn.resumption);
   // A list left out is the kernel's own, not none.
-  const allowContinue = Array.isArray(resumption?.allowContinue) ? resumption.allowContinue : [...DEFAULT_ALLOW_CONTINUE];
-  const autoContinue = Array.isArray(resumption?.autoContinue) ? resumption.autoContinue : [...DEFAULT_AUTO_CONTINUE];
+  const allowContinue = Array.isArray(resumption?.allowContinue)
+    ? resumption.allowContinue
+    : [...DEFAULT_ALLOW_CONTINUE];
+  const autoContinue = Array.isArray(resumption?.autoContinue)
+    ? resumption.autoContinue
+    : [...DEFAULT_AUTO_CONTINUE];
   return {
     resumeEnabled: allowContinue.length > 0 || autoContinue.length > 0,
     allowContinue: allowContinue as StudioDraft['turnBehaviour']['allowContinue'],
@@ -1158,7 +1172,8 @@ function turnOf(turn: Record<string, unknown>): StudioDraft['turnBehaviour'] {
 function observabilityOf(spec: Record<string, unknown>): StudioDraft['observability'] {
   const blank = createBlankDraft().observability;
   // A project's profile names its own store. It stays the one traces go to when they are on.
-  const destination = typeof spec.writeTo === 'string' && spec.writeTo ? spec.writeTo : blank.destination;
+  const destination =
+    typeof spec.writeTo === 'string' && spec.writeTo ? spec.writeTo : blank.destination;
   return {
     ...blank,
     writeTo: spec.writeTo === false ? false : destination,
@@ -1258,19 +1273,30 @@ function profileTypeOf(profile: Record<string, unknown>): StudioProfileType | ''
 const LISTED_SETTINGS = ['turnBehaviour.atStepLimit', 'outputs.validation.items.*.onFail'] as const;
 
 /** Refuses, where it is written, a listed setting set to a value the kernel's table does not list. */
-function refuseUnlisted(profile: Record<string, unknown>, spans: readonly StudioSourceSpan[]): void {
+function refuseUnlisted(
+  profile: Record<string, unknown>,
+  spans: readonly StudioSourceSpan[],
+): void {
   for (const setting of LISTED_SETTINGS) {
     const options = fieldMeta(setting)?.options ?? [];
     for (const [path, value] of valuesAt(profile, setting.split('.'), [])) {
       if (value !== undefined && !options.includes(value as string)) {
-        failAt(spans, path, `${JSON.stringify(value)} is not one of ${options.map((option) => `'${option}'`).join(', ')}.`);
+        failAt(
+          spans,
+          path,
+          `${JSON.stringify(value)} is not one of ${options.map((option) => `'${option}'`).join(', ')}.`,
+        );
       }
     }
   }
 }
 
 /** Each value at `keys` in `value`, `*` standing for every key, with its path as written. */
-function valuesAt(value: unknown, keys: readonly string[], at: readonly string[]): [string, unknown][] {
+function valuesAt(
+  value: unknown,
+  keys: readonly string[],
+  at: readonly string[],
+): [string, unknown][] {
   const [key, ...rest] = keys;
   if (key === undefined) return [[at.join('.'), value]];
   if (!isRecord(value)) return [];
@@ -1369,20 +1395,27 @@ function providerFrom(
 ): StudioProvider {
   const { spec } = written;
   for (const key of Object.keys(spec)) {
-    if (!PROVIDER_SETTINGS.has(key)) failAt(spans, key, `'${key}' isn't a provider setting the studio holds.`);
+    if (!PROVIDER_SETTINGS.has(key))
+      failAt(spans, key, `'${key}' isn't a provider setting the studio holds.`);
   }
   if (spec.id !== current.id) {
     failAt(spans, 'id', `The id stays '${current.id}': models and code name the provider by it.`);
   }
   const definition = definitionOfFactory(written.definition);
   if (!definition) {
-    const named = kernelDefinitions().flatMap((id) => definitionFactory(id) ?? []).join(', ');
+    const named = kernelDefinitions()
+      .flatMap((id) => definitionFactory(id) ?? [])
+      .join(', ');
     failAt(spans, '', `'${written.definition}' isn't one of the kernel's providers: ${named}.`);
   }
   const held = spec.connection === undefined ? {} : connectionFrom(spec.connection, spans);
   // An empty connection is what the code has to say for one that opened with none.
   const empty = Object.keys(held).length === 0 && current.connection === undefined;
-  const provider: StudioProvider = { id: current.id, definition, ...(empty ? {} : { connection: held }) };
+  const provider: StudioProvider = {
+    id: current.id,
+    definition,
+    ...(empty ? {} : { connection: held }),
+  };
   for (const slot of ['keySlot', 'fallbackKeySlot'] as const) {
     const value = spec[slot];
     if (value === undefined) continue;
@@ -1393,7 +1426,10 @@ function providerFrom(
 }
 
 /** A provider's connection: text settings, by name. */
-function connectionFrom(connection: unknown, spans: readonly StudioSourceSpan[]): Record<string, string> {
+function connectionFrom(
+  connection: unknown,
+  spans: readonly StudioSourceSpan[],
+): Record<string, string> {
   const wrong = 'connection holds text settings here.';
   const held: Record<string, string> = {};
   if (!isRecord(connection)) failAt(spans, 'connection', wrong);
@@ -1409,10 +1445,17 @@ export function readProviderSource(source: string, current: StudioProvider): Pro
   try {
     const parsed = parseModule(source, 'provider');
     if (!parsed.provider) throw new ReadFail('This code needs registerProvider().', 1, 1);
-    return { ok: true, provider: providerFrom(parsed.provider, current, parsed.spans), spans: parsed.spans };
+    return {
+      ok: true,
+      provider: providerFrom(parsed.provider, current, parsed.spans),
+      spans: parsed.spans,
+    };
   } catch (error) {
     if (error instanceof ReadFail) {
-      return { ok: false, errors: [{ message: error.message, line: error.line, column: error.column }] };
+      return {
+        ok: false,
+        errors: [{ message: error.message, line: error.line, column: error.column }],
+      };
     }
     throw error;
   }

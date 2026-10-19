@@ -12,21 +12,9 @@ const graph = {
     'docs/contracts/guardrails.md': 110,
     'docs/contracts/studio.md': 50,
   },
-  production_roots: [
-    'mod.ts',
-    'package.json',
-    'src/',
-    'scripts/docs-truth/',
-  ],
+  production_roots: ['mod.ts', 'package.json', 'src/', 'scripts/docs-truth/'],
   validation_roots: ['tests/', 'scripts/docs-truth/'],
-  ignore: [
-    'npm/',
-    'node_modules/',
-    'coverage/',
-    'cov_profile/',
-    'tmp/',
-    '.fallow/',
-  ],
+  ignore: ['npm/', 'node_modules/', 'coverage/', 'cov_profile/', 'tmp/', '.fallow/'],
   entries: {
     package: {
       export: '.',
@@ -50,11 +38,7 @@ const graph = {
         },
       ],
       validates: ['tests/kernel/theorem.test.ts', 'scripts/docs-truth/graph.test.mjs'],
-      required_sections: [
-        'Architecture',
-        'Public Entrypoints',
-        'Package Boundary',
-      ],
+      required_sections: ['Architecture', 'Public Entrypoints', 'Package Boundary'],
     },
 
     'react-package': {
@@ -95,37 +79,44 @@ const graph = {
       watches: [
         {
           path: 'studio/runtime.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
+          reason:
+            'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'studio/runtime-scope.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
+          reason:
+            'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'studio/browser-execution.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
+          reason:
+            'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'studio/browser-transport.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
+          reason:
+            'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'studio/live-session-bridge.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
+          reason:
+            'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'scripts/build-npm-studio.ts',
-          reason: 'The contract states what the studio package ships and what stays out of the kernel',
+          reason:
+            'The contract states what the studio package ships and what stays out of the kernel',
           sections: ['Package boundary'],
         },
         {
           path: 'scripts/verify-publish-bundle.ts',
-          reason: 'The contract states what the studio package ships and what stays out of the kernel',
+          reason:
+            'The contract states what the studio package ships and what stays out of the kernel',
           sections: ['Package boundary'],
         },
       ],
@@ -144,7 +135,14 @@ const graph = {
         },
       ],
       validates: ['scripts/docs-truth/graph.test.mjs'],
-      required_sections: ['Export', 'Ownership', 'Rules', 'Package vs repo documentation', 'Production roots', 'CI and hooks'],
+      required_sections: [
+        'Export',
+        'Ownership',
+        'Rules',
+        'Package vs repo documentation',
+        'Production roots',
+        'CI and hooks',
+      ],
       section_triggers: [
         {
           paths: [
@@ -209,10 +207,7 @@ const graph = {
           sections: ['Facts and policy'],
         },
         {
-          paths: [
-            'src/kernel/engine/compaction.ts',
-            'src/kernel/engine/token-estimate.ts',
-          ],
+          paths: ['src/kernel/engine/compaction.ts', 'src/kernel/engine/token-estimate.ts'],
           sections: ['Compaction'],
         },
         {
@@ -228,7 +223,11 @@ const graph = {
           sections: ['Turn lifecycle'],
         },
         {
-          paths: ['src/kernel/registry/profiles.ts', 'src/kernel/registry/resolve.ts', 'src/kernel/schema.ts'],
+          paths: [
+            'src/kernel/registry/profiles.ts',
+            'src/kernel/registry/resolve.ts',
+            'src/kernel/schema.ts',
+          ],
           sections: ['Profiles'],
         },
         {
@@ -251,7 +250,12 @@ const graph = {
         {
           path: 'src/kernel/protocols/**',
           reason: 'Protocols, providers, and bindings are defined and run by the kernel',
-          sections: ['Registered providers', 'Model bindings', 'Protocol contract', 'Saved provider state'],
+          sections: [
+            'Registered providers',
+            'Model bindings',
+            'Protocol contract',
+            'Saved provider state',
+          ],
         },
       ],
       validates: [
@@ -377,8 +381,14 @@ const graph = {
           paths: ['src/guardrails/tool-result.ts'],
           sections: ['Tool boundary', 'Guardrail events'],
         },
-        { paths: ['src/guardrails/sanitize.ts', 'src/guardrails/injection.ts'], sections: ['Sanitization'] },
-        { paths: ['src/guardrails/injection.ts'], sections: ['Injection categories (non-exhaustive)'] },
+        {
+          paths: ['src/guardrails/sanitize.ts', 'src/guardrails/injection.ts'],
+          sections: ['Sanitization'],
+        },
+        {
+          paths: ['src/guardrails/injection.ts'],
+          sections: ['Injection categories (non-exhaustive)'],
+        },
         {
           paths: [
             'src/guardrails/sensitive.ts',
@@ -405,7 +415,10 @@ const graph = {
       export: './guardrails/compile',
       doc: 'docs/contracts/guardrails.md',
       owns: ['src/guardrails/compile-egress.ts', 'src/guardrails/egress-compiler.ts'],
-      validates: ['tests/guardrails/host-pattern-holds.test.ts', 'tests/guardrails/egress-stream.test.ts'],
+      validates: [
+        'tests/guardrails/host-pattern-holds.test.ts',
+        'tests/guardrails/egress-stream.test.ts',
+      ],
       required_sections: ['Export', 'Whose patterns', 'Exported API'],
       section_triggers: [
         {
@@ -424,17 +437,13 @@ const graph = {
         'tests/cli/fuzz-guardrails.test.ts',
         'tests/cli/fuzz-canary.test.ts',
       ],
-      required_sections: [
-        'Export',
-        'Adversarial testing',
-        'Exported API',
-      ],
+      required_sections: ['Export', 'Adversarial testing', 'Exported API'],
       section_triggers: [
         { paths: ['src/guardrails/testing.ts'], sections: ['Adversarial testing'] },
       ],
     },
 
-	observability: {
+    observability: {
       export: './observability',
       doc: 'docs/contracts/observability.md',
       owns: ['src/observability/'],
@@ -456,10 +465,16 @@ const graph = {
         'Exported API',
       ],
       section_triggers: [
-        { paths: ['src/observability/types.ts', 'src/observability/policy.ts'], sections: ['Profile observability'] },
+        {
+          paths: ['src/observability/types.ts', 'src/observability/policy.ts'],
+          sections: ['Profile observability'],
+        },
         { paths: ['src/observability/destinations.ts'], sections: ['Trace destinations'] },
         { paths: ['src/observability/trace.ts'], sections: ['Trace sinks'] },
-        { paths: ['src/observability/trace-record.ts'], sections: ['Trace records', 'Sensitive storage'] },
+        {
+          paths: ['src/observability/trace-record.ts'],
+          sections: ['Trace records', 'Sensitive storage'],
+        },
         { paths: ['src/observability/trace-span.ts'], sections: ['Trace records'] },
         { paths: ['src/observability/otlp.ts'], sections: ['OTLP export'] },
       ],
@@ -496,7 +511,7 @@ const graph = {
       ],
     },
 
-	host: {
+    host: {
       export: './host',
       doc: 'docs/contracts/host.md',
       owns: ['src/host/'],
@@ -521,18 +536,12 @@ const graph = {
       ],
     },
 
-	cli: {
+    cli: {
       export: './cli',
       doc: 'docs/contracts/cli.md',
       owns: ['src/cli/'],
       validates: ['tests/cli/'],
-      required_sections: [
-        'Export',
-        'Ownership',
-        'Commands',
-        'Matrix and fixtures',
-        'Exported API',
-      ],
+      required_sections: ['Export', 'Ownership', 'Commands', 'Matrix and fixtures', 'Exported API'],
       section_triggers: [
         { paths: ['src/cli/commands/'], sections: ['Commands'] },
         { paths: ['src/cli/event-log.ts'], sections: ['Commands'] },
@@ -584,13 +593,7 @@ const graph = {
         },
       ],
       validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: [
-        'Export',
-        'Ownership',
-        'Builtins',
-        'Vocabularies',
-        'Exported API',
-      ],
+      required_sections: ['Export', 'Ownership', 'Builtins', 'Vocabularies', 'Exported API'],
     },
 
     'presets-google-speech-voices': {
@@ -650,7 +653,10 @@ const graph = {
         'Exported API',
       ],
       section_triggers: [
-        { paths: ['src/evals/types.ts', 'src/evals/attachments.ts'], sections: ['Suites and cases'] },
+        {
+          paths: ['src/evals/types.ts', 'src/evals/attachments.ts'],
+          sections: ['Suites and cases'],
+        },
         { paths: ['src/evals/trial.ts'], sections: ['Trials'] },
         { paths: ['src/evals/graders/'], sections: ['Graders'] },
         {

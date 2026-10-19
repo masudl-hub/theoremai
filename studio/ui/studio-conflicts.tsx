@@ -24,33 +24,33 @@ const SIDE_NAME = { studio: 'Studio edit', source: 'Source code' } as const;
 
 /** A conflict's setting as the Save review names one: whose it is, then the path to it. */
 function settingName(conflict: FileConflict): string {
-	const path = conflict.path
-		.map((part) => (typeof part === 'number' ? `#${String(part + 1)}` : part))
-		.join('.')
-		.replaceAll('.#', ' #');
-	return path ? `${conflict.name} · ${path}` : conflict.name;
+  const path = conflict.path
+    .map((part) => (typeof part === 'number' ? `#${String(part + 1)}` : part))
+    .join('.')
+    .replaceAll('.#', ' #');
+  return path ? `${conflict.name} · ${path}` : conflict.name;
 }
 
 /** One side's value as text. A whole agent or tool is said, not printed. */
 function valueText(conflict: FileConflict, side: Side): string {
-	const [value, other] =
-		side === 'studio' ? [conflict.mine, conflict.theirs] : [conflict.theirs, conflict.mine];
-	// A whole agent or tool, or one row of a list, is there or taken out.
-	const isWhole = conflict.path.length === 0;
-	if (isWhole || typeof conflict.path.at(-1) === 'number') {
-		if (value === undefined) return '(removed)';
-		if (isWhole && other === undefined)
-			return side === 'studio' ? '(kept, with studio edits)' : '(kept, and changed)';
-	}
-	if (value === undefined || value === null || value === '') return '(not set)';
-	if (typeof value === 'string') return value;
-	// A row's key is the studio's own name for it, and says nothing to the builder.
-	return JSON.stringify(value, (field, inner: unknown) => (field === 'key' ? undefined : inner), 2);
+  const [value, other] =
+    side === 'studio' ? [conflict.mine, conflict.theirs] : [conflict.theirs, conflict.mine];
+  // A whole agent or tool, or one row of a list, is there or taken out.
+  const isWhole = conflict.path.length === 0;
+  if (isWhole || typeof conflict.path.at(-1) === 'number') {
+    if (value === undefined) return '(removed)';
+    if (isWhole && other === undefined)
+      return side === 'studio' ? '(kept, with studio edits)' : '(kept, and changed)';
+  }
+  if (value === undefined || value === null || value === '') return '(not set)';
+  if (typeof value === 'string') return value;
+  // A row's key is the studio's own name for it, and says nothing to the builder.
+  return JSON.stringify(value, (field, inner: unknown) => (field === 'key' ? undefined : inner), 2);
 }
 
 /** One conflict's setting, the same however the list around it changes. */
 function conflictId(conflict: FileConflict): string {
-	return `${conflict.kind}:${conflict.key}:${conflict.path.join('.')}`;
+  return `${conflict.kind}:${conflict.key}:${conflict.path.join('.')}`;
 }
 
 /**
@@ -60,125 +60,129 @@ function conflictId(conflict: FileConflict): string {
  * choice still to make.
  */
 export function FileConflicts({
-	conflicts,
-	files,
-	onApply,
-	onClose,
+  conflicts,
+  files,
+  onApply,
+  onClose,
 }: {
-	conflicts: readonly FileConflict[];
-	/** The files that changed, as the builder reads them: a name, or how many. */
-	files: string;
-	/** Called with the conflicts to take from the source code, by their place in `conflicts`. */
-	onApply: (theirs: number[]) => void;
-	onClose: () => void;
+  conflicts: readonly FileConflict[];
+  /** The files that changed, as the builder reads them: a name, or how many. */
+  files: string;
+  /** Called with the conflicts to take from the source code, by their place in `conflicts`. */
+  onApply: (theirs: number[]) => void;
+  onClose: () => void;
 }) {
-	// Picks go by setting, not by place: the files can change while this is open, and the list with them.
-	const [picks, setPicks] = useState<Record<string, Side>>({});
-	const all = (side: Side) => {
-		setPicks(Object.fromEntries(conflicts.map((conflict) => [conflictId(conflict), side])));
-	};
-	const one = conflicts.length === 1;
-	// With no one file to name, the side's own name says it.
-	const sourceName =
-		files === 'source code' ? SIDE_NAME.source : `${SIDE_NAME.source} (${files})`;
-	const count = one ? '1 setting' : `${String(conflicts.length)} settings`;
-	return (
-		<Dialog
-			isOpen
-			width={DIALOG_WIDTH}
-			maxHeight="80vh"
-			onOpenChange={(isOpen) => {
-				if (!isOpen) onClose();
-			}}
-		>
-			<Layout
-				header={
-					<DialogHeader
-						title="Studio edits conflict with source code"
-						subtitle={`${count} changed both in the studio and in ${files}. Choose which value each keeps.`}
-					/>
-				}
-				content={
-					<LayoutContent isScrollable={false} padding={0}>
-						<ScrollableArea label="Conflicts" height="100%" paddingInline={4}>
-							<VStack gap={5}>
-								{conflicts.map((conflict) => {
-									const id = conflictId(conflict);
-									const pick = picks[id] ?? 'studio';
-									const name = settingName(conflict);
-									return (
-										<VStack key={id} gap={2}>
-											<HStack gap={3} vAlign="center" justify="between">
-												<StackItem size="fill">
-													<Text weight="semibold">{name}</Text>
-												</StackItem>
-												<ToggleButtonGroup
-													label={`Which value ${name} keeps`}
-													size="sm"
-													value={pick}
-													onChange={(next) => {
-														// Pressing the kept one again leaves it kept: one always stands.
-														if (next === 'studio' || next === 'source')
-															setPicks((held) => ({ ...held, [id]: next }));
-													}}
-												>
-													<ToggleButton value="source" label="Keep source code" />
-													<ToggleButton value="studio" label="Keep studio edit" />
-												</ToggleButtonGroup>
-											</HStack>
-											<DiffBlock
-												lines={lineDiff(valueText(conflict, 'source'), valueText(conflict, 'studio'))}
-												sides={{
-													removed: sourceName,
-													added: SIDE_NAME.studio,
-												}}
-												kept={pick === 'studio' ? '+' : '-'}
-												isWrapped
-												maxHeight={DIFF_MAX_HEIGHT}
-											/>
-										</VStack>
-									);
-								})}
-							</VStack>
-						</ScrollableArea>
-					</LayoutContent>
-				}
-				footer={
-					<LayoutFooter>
-						<HStack gap={2} justify="between">
-							<HStack gap={2}>
-								{!one && (
-									<>
-										<Button
-											label="Keep all source code"
-											variant="ghost"
-											onClick={() => {
-												all('source');
-											}}
-										/>
-										<Button
-											label="Keep all studio edits"
-											variant="ghost"
-											onClick={() => {
-												all('studio');
-											}}
-										/>
-									</>
-								)}
-							</HStack>
-							<Button
-								label={one ? 'Resolve conflict' : `Resolve ${String(conflicts.length)} conflicts`}
-								variant="primary"
-								onClick={() => {
-									onApply(
-										conflicts.flatMap((conflict, index) => (picks[conflictId(conflict)] === 'source' ? [index] : [])),
-									);
-								}}
-							/>
-						</HStack>
-					</LayoutFooter>
-				}
-			/>
-		</Dialog>
-	);
+  // Picks go by setting, not by place: the files can change while this is open, and the list with them.
+  const [picks, setPicks] = useState<Record<string, Side>>({});
+  const all = (side: Side) => {
+    setPicks(Object.fromEntries(conflicts.map((conflict) => [conflictId(conflict), side])));
+  };
+  const one = conflicts.length === 1;
+  // With no one file to name, the side's own name says it.
+  const sourceName = files === 'source code' ? SIDE_NAME.source : `${SIDE_NAME.source} (${files})`;
+  const count = one ? '1 setting' : `${String(conflicts.length)} settings`;
+  return (
+    <Dialog
+      isOpen
+      width={DIALOG_WIDTH}
+      maxHeight="80vh"
+      onOpenChange={(isOpen) => {
+        if (!isOpen) onClose();
+      }}
+    >
+      <Layout
+        header={
+          <DialogHeader
+            title="Studio edits conflict with source code"
+            subtitle={`${count} changed both in the studio and in ${files}. Choose which value each keeps.`}
+          />
+        }
+        content={
+          <LayoutContent isScrollable={false} padding={0}>
+            <ScrollableArea label="Conflicts" height="100%" paddingInline={4}>
+              <VStack gap={5}>
+                {conflicts.map((conflict) => {
+                  const id = conflictId(conflict);
+                  const pick = picks[id] ?? 'studio';
+                  const name = settingName(conflict);
+                  return (
+                    <VStack key={id} gap={2}>
+                      <HStack gap={3} vAlign="center" justify="between">
+                        <StackItem size="fill">
+                          <Text weight="semibold">{name}</Text>
+                        </StackItem>
+                        <ToggleButtonGroup
+                          label={`Which value ${name} keeps`}
+                          size="sm"
+                          value={pick}
+                          onChange={(next) => {
+                            // Pressing the kept one again leaves it kept: one always stands.
+                            if (next === 'studio' || next === 'source')
+                              setPicks((held) => ({ ...held, [id]: next }));
+                          }}
+                        >
+                          <ToggleButton value="source" label="Keep source code" />
+                          <ToggleButton value="studio" label="Keep studio edit" />
+                        </ToggleButtonGroup>
+                      </HStack>
+                      <DiffBlock
+                        lines={lineDiff(
+                          valueText(conflict, 'source'),
+                          valueText(conflict, 'studio'),
+                        )}
+                        sides={{
+                          removed: sourceName,
+                          added: SIDE_NAME.studio,
+                        }}
+                        kept={pick === 'studio' ? '+' : '-'}
+                        isWrapped
+                        maxHeight={DIFF_MAX_HEIGHT}
+                      />
+                    </VStack>
+                  );
+                })}
+              </VStack>
+            </ScrollableArea>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <HStack gap={2} justify="between">
+              <HStack gap={2}>
+                {!one && (
+                  <>
+                    <Button
+                      label="Keep all source code"
+                      variant="ghost"
+                      onClick={() => {
+                        all('source');
+                      }}
+                    />
+                    <Button
+                      label="Keep all studio edits"
+                      variant="ghost"
+                      onClick={() => {
+                        all('studio');
+                      }}
+                    />
+                  </>
+                )}
+              </HStack>
+              <Button
+                label={one ? 'Resolve conflict' : `Resolve ${String(conflicts.length)} conflicts`}
+                variant="primary"
+                onClick={() => {
+                  onApply(
+                    conflicts.flatMap((conflict, index) =>
+                      picks[conflictId(conflict)] === 'source' ? [index] : [],
+                    ),
+                  );
+                }}
+              />
+            </HStack>
+          </LayoutFooter>
+        }
+      />
+    </Dialog>
+  );
 }

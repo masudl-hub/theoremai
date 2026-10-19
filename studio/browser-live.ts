@@ -1,16 +1,16 @@
-import { browserExecution } from './browser-execution.ts';
-import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
 import { type LabelOverrides, type LiveSession, TheoremError } from '@theoremjs/agents';
 import { clientError } from '@theoremjs/agents/host';
 import type { LiveConnection, LiveSocket } from '@theoremjs/react/client';
 import { liveSessionOpen, parseLiveOpenMessage } from '@theoremjs/react/server';
-import { STUDIO_READER } from './reader.ts';
-import type { StudioTraceRoute } from './traces.ts';
+import { browserExecution } from './browser-execution.ts';
 import type { StudioBrowserRuntime } from './browser-transport.ts';
+import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
 import { attachStudioLiveSession } from './live-session-bridge.ts';
+import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import { studioTraces } from './runtime.ts';
 import { studioScope } from './runtime-scope.ts';
+import type { StudioTraceRoute } from './traces.ts';
 
 /** The Live UI's existing relay protocol, carried in memory instead of over a site socket. */
 class BrowserLiveSocket implements LiveSocket {
@@ -25,7 +25,11 @@ class BrowserLiveSocket implements LiveSocket {
   private queued: Array<string | ArrayBuffer | ArrayBufferView | Blob> = [];
   private listening = false;
 
-  constructor(payload: StudioRunPayload, runtime: StudioBrowserRuntime, local?: ReturnType<typeof browserExecution>) {
+  constructor(
+    payload: StudioRunPayload,
+    runtime: StudioBrowserRuntime,
+    local?: ReturnType<typeof browserExecution>,
+  ) {
     // Install the UI's handlers before the first ready/error message.
     queueMicrotask(() => {
       void this.open(payload, runtime, local);
@@ -77,12 +81,21 @@ class BrowserLiveSocket implements LiveSocket {
       }
       const session = await scope.runSession(
         {
-          ...await (local ? (await local.boundary).prepareLiveOpen(parseLiveOpenMessage(first)) : Promise.resolve(liveSessionOpen(parseLiveOpenMessage(first)))),
+          ...(await (local
+            ? (await local.boundary).prepareLiveOpen(parseLiveOpenMessage(first))
+            : Promise.resolve(liveSessionOpen(parseLiveOpenMessage(first))))),
           profile: profile.id,
           metadata: traces.metadata,
           signal: runtime.signal,
         },
-        { execution: runtime.execution ?? local?.execution, pageExecution: runtime.pageExecution ?? local?.pageExecution, vault: runtime.providers.vault, fetch: runtime.providers.fetch, wait: runtime.providers.wait, openWebSocket: runtime.providers.openWebSocket },
+        {
+          execution: runtime.execution ?? local?.execution,
+          pageExecution: runtime.pageExecution ?? local?.pageExecution,
+          vault: runtime.providers.vault,
+          fetch: runtime.providers.fetch,
+          wait: runtime.providers.wait,
+          openWebSocket: runtime.providers.openWebSocket,
+        },
       );
       this.closeSession = () => session.close('client disconnected');
       if (this.readyState !== 1) {
@@ -90,40 +103,59 @@ class BrowserLiveSocket implements LiveSocket {
         traces.close();
         return;
       }
-      await this.attach(session, profile.id, traces, profile.labels, local ? { pageResult: local.pageResult,
-        beforeEvent: async (event) => {
-          if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
-            await (await local.boundary).recordCheckpoint(event.providerState);
-        } } : {});
+      await this.attach(
+        session,
+        profile.id,
+        traces,
+        profile.labels,
+        local
+          ? {
+              pageResult: local.pageResult,
+              beforeEvent: async (event) => {
+                if (
+                  (event.type === 'done' || event.type === 'provider_checkpoint') &&
+                  event.providerState
+                )
+                  await (await local.boundary).recordCheckpoint(event.providerState);
+              },
+            }
+          : {},
+      );
     } catch (err) {
       traces.close();
       this.receive({ type: 'error', ...clientError(err, payload.profile.labels, STUDIO_READER) });
       this.close();
     }
   }
-  private async attach(session: LiveSession, profileId: string, traces: StudioTraceRoute, labels?: LabelOverrides, options: StudioLiveBridgeOptions = {}): Promise<void> {
-      const socket = {
-        send: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
-          if (typeof data === 'string') this.receive(JSON.parse(data));
-        },
-        close: () => this.close(),
-        addEventListener: this.outbound.addEventListener.bind(this.outbound),
-      };
-      const ended = attachStudioLiveSession(
-        socket,
-        session,
-        profileId,
-        crypto.randomUUID(),
-        traces,
-        labels,
-        { ...options, clientEvents: STUDIO_READER },
-      );
-      this.closeSession = undefined;
-      this.listening = true;
-      for (const data of this.queued.splice(0)) {
-        this.outbound.dispatchEvent(new MessageEvent('message', { data }));
-      }
-      await ended;
+  private async attach(
+    session: LiveSession,
+    profileId: string,
+    traces: StudioTraceRoute,
+    labels?: LabelOverrides,
+    options: StudioLiveBridgeOptions = {},
+  ): Promise<void> {
+    const socket = {
+      send: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => {
+        if (typeof data === 'string') this.receive(JSON.parse(data));
+      },
+      close: () => this.close(),
+      addEventListener: this.outbound.addEventListener.bind(this.outbound),
+    };
+    const ended = attachStudioLiveSession(
+      socket,
+      session,
+      profileId,
+      crypto.randomUUID(),
+      traces,
+      labels,
+      { ...options, clientEvents: STUDIO_READER },
+    );
+    this.closeSession = undefined;
+    this.listening = true;
+    for (const data of this.queued.splice(0)) {
+      this.outbound.dispatchEvent(new MessageEvent('message', { data }));
+    }
+    await ended;
   }
   private receive(message: unknown): void {
     if (this.readyState === 1) {

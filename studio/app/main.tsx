@@ -48,25 +48,27 @@ const reading = createReading();
 
 /** An agent opened in a tab of its own, or the studio on the project. */
 async function page(): Promise<ReactNode> {
-	if (!onBase) {
-		const opened = openStudioRun(location.href, { project: true });
-		if (opened) return <StudioRunScreen opened={opened} />;
-		// The agent this tab ran is gone: back to the studio.
-		location.replace('/studio/');
-		return null;
-	}
-	try {
-		const opened = await onceAnswering(() => openStudioProject(reading.say)).finally(reading.finish);
-		return <StudioScreen opened={opened} host={HOST} />;
-	} catch {
-		// This page and the server start and stop together, so the command has stopped or is stopping.
-		return (
-			<StudioNoProject
-				title="The studio has stopped"
-				description="Run the studio command in your project again, then reload."
-			/>
-		);
-	}
+  if (!onBase) {
+    const opened = openStudioRun(location.href, { project: true });
+    if (opened) return <StudioRunScreen opened={opened} />;
+    // The agent this tab ran is gone: back to the studio.
+    location.replace('/studio/');
+    return null;
+  }
+  try {
+    const opened = await onceAnswering(() => openStudioProject(reading.say)).finally(
+      reading.finish,
+    );
+    return <StudioScreen opened={opened} host={HOST} />;
+  } catch {
+    // This page and the server start and stop together, so the command has stopped or is stopping.
+    return (
+      <StudioNoProject
+        title="The studio has stopped"
+        description="Run the studio command in your project again, then reload."
+      />
+    );
+  }
 }
 
 /** The page opens while the mark draws on the shell. */
@@ -75,41 +77,41 @@ const opening = page();
 /** Settles once the page is in the shell, so the mark gives way to a page that is already there. */
 let pageIsIn = () => {};
 const shown = new Promise<void>((resolve) => {
-	pageIsIn = resolve;
+  pageIsIn = resolve;
 });
 
 function Opened() {
-	const here = use(opening);
-	useEffect(pageIsIn, []);
-	return here;
+  const here = use(opening);
+  useEffect(pageIsIn, []);
+  return here;
 }
 
 const root = document.getElementById('root');
 if (root) {
-	createRoot(root).render(
-		<StrictMode>
-			<Theme theme={theoremStudioTheme} mode="dark">
-				<LayerProvider toast={TOASTS}>
-					<AppShell
-						variant={onBase ? 'wash' : 'elevated'}
-						sideNav={
-							<StudioRail
-								theme={theoremStudioTheme}
-								pathname={location.pathname}
-								packages={PACKAGES}
-								site={THEOREM_SITE}
-								footerIcons={onBase ? <SettingsRailButton /> : undefined}
-							/>
-						}
-					>
-						<BootMark shape={frameShape} ready={shown} reading={onBase ? reading : undefined} />
-						<Suspense>
-							<Opened />
-						</Suspense>
-						<ShellBounds />
-					</AppShell>
-				</LayerProvider>
-			</Theme>
-		</StrictMode>,
-	);
+  createRoot(root).render(
+    <StrictMode>
+      <Theme theme={theoremStudioTheme} mode="dark">
+        <LayerProvider toast={TOASTS}>
+          <AppShell
+            variant={onBase ? 'wash' : 'elevated'}
+            sideNav={
+              <StudioRail
+                theme={theoremStudioTheme}
+                pathname={location.pathname}
+                packages={PACKAGES}
+                site={THEOREM_SITE}
+                footerIcons={onBase ? <SettingsRailButton /> : undefined}
+              />
+            }
+          >
+            <BootMark shape={frameShape} ready={shown} reading={onBase ? reading : undefined} />
+            <Suspense>
+              <Opened />
+            </Suspense>
+            <ShellBounds />
+          </AppShell>
+        </LayerProvider>
+      </Theme>
+    </StrictMode>,
+  );
 }

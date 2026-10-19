@@ -11,12 +11,12 @@
  * @module
  */
 
-import ts from 'typescript';
 import { MASK, unmaskUrl } from '@theoremjs/agents/surface';
-import { AGENTS_PACKAGE, type SourceStyle, valueSource } from '../source.ts';
-import { keySource } from '../tool-schema.ts';
+import ts from 'typescript';
 import { canonical } from '../canonical.ts';
 import { definitionFactory } from '../providers.ts';
+import { AGENTS_PACKAGE, type SourceStyle, valueSource } from '../source.ts';
+import { keySource } from '../tool-schema.ts';
 import {
   declares,
   definedAs,
@@ -32,10 +32,10 @@ import {
   type ProjectSource,
   propertyName,
   providerNamed,
+  type ShapeEntry,
+  type SourceTarget,
   type SubjectKind,
   shapeOf,
-  type SourceTarget,
-  type ShapeEntry,
   sourceOf,
   specifierTo,
   unwrapped,
@@ -50,10 +50,10 @@ import {
   type SchemaSide,
   unread,
   type ZodCall,
-  zodName,
   type ZodObject,
-  zodObject,
   type ZodRead,
+  zodName,
+  zodObject,
   zodSource,
 } from './zod-edit.ts';
 
@@ -102,9 +102,11 @@ export function plain(expression: ts.Expression): unknown {
   if (ts.isStringLiteralLike(node)) return node.text;
   if (ts.isNumericLiteral(node)) return Number(node.text);
   if (
-    ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.MinusToken &&
+    ts.isPrefixUnaryExpression(node) &&
+    node.operator === ts.SyntaxKind.MinusToken &&
     ts.isNumericLiteral(node.operand)
-  ) return -Number(node.operand.text);
+  )
+    return -Number(node.operand.text);
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
   if (node.kind === ts.SyntaxKind.NullKeyword) return null;
@@ -125,12 +127,18 @@ export function plain(expression: ts.Expression): unknown {
   }
   // Lines joined: how the studio's own printer writes text of several lines.
   if (
-    ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
-    node.expression.name.text === 'join' && node.arguments.length === 1
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === 'join' &&
+    node.arguments.length === 1
   ) {
     const lines = plain(node.expression.expression);
     const between = plain(node.arguments[0] as ts.Expression);
-    if (Array.isArray(lines) && typeof between === 'string' && lines.every((line) => typeof line === 'string')) {
+    if (
+      Array.isArray(lines) &&
+      typeof between === 'string' &&
+      lines.every((line) => typeof line === 'string')
+    ) {
       return lines.join(between);
     }
   }
@@ -158,10 +166,14 @@ export function indentUnit(source: ts.SourceFile): string {
 /** Text of one line, in the quotes the file already uses at this spot. */
 /** Quotes as the text being replaced does. With no text there, as the file's first import does. */
 function quoteLike(existing: ts.Expression | undefined, source: ts.SourceFile) {
-  const first = existing && ts.isArrayLiteralExpression(existing) ? existing.elements.find(ts.isStringLiteral) : existing;
-  const like = first && ts.isStringLiteral(first)
-    ? first
-    : source.statements.find(ts.isImportDeclaration)?.moduleSpecifier;
+  const first =
+    existing && ts.isArrayLiteralExpression(existing)
+      ? existing.elements.find(ts.isStringLiteral)
+      : existing;
+  const like =
+    first && ts.isStringLiteral(first)
+      ? first
+      : source.statements.find(ts.isImportDeclaration)?.moduleSpecifier;
   const double = like?.getText(source).startsWith('"');
   return (text: string): string => {
     const body = JSON.stringify(text);
@@ -192,7 +204,9 @@ function written(value: unknown, style: SourceStyle): string {
 /** An object's fields written out, one to a line, for an object that held none. */
 function objectSource(entries: ReadonlyArray<[string, unknown]>, style: SourceStyle): string {
   const inner = { ...style, base: style.base + style.unit };
-  const lines = entries.map(([key, value]) => `${inner.base}${keySource(key, style.quote)}: ${written(value, inner)},`);
+  const lines = entries.map(
+    ([key, value]) => `${inner.base}${keySource(key, style.quote)}: ${written(value, inner)},`,
+  );
   return `{\n${lines.join('\n')}\n${style.base}}`;
 }
 
@@ -227,7 +241,8 @@ function settle(shared: readonly SharedChange[], plan: SavePlan) {
     const [first] = group;
     if (!first) continue;
     const made = new Set(group.map((each) => each.by));
-    const agreed = first.everyone.every((user) => made.has(user)) &&
+    const agreed =
+      first.everyone.every((user) => made.has(user)) &&
       group.every((each) => editsText(each.edits) === editsText(first.edits));
     for (const each of group) plan.changes.push(...(agreed ? each.changes : each.refused));
     if (!agreed) continue;
@@ -315,7 +330,10 @@ function partsOf(read: ZodRead): Pick<ZodSite, 'part' | 'members'> {
   const [first] = base.call.arguments;
   const part = first && !ts.isSpreadElement(first) ? located(base, first) : undefined;
   const list = part && base.name === 'union' ? unwrapped(part.node) : undefined;
-  const members = list && ts.isArrayLiteralExpression(list) && !list.elements.some(ts.isSpreadElement) ? list.elements : undefined;
+  const members =
+    list && ts.isArrayLiteralExpression(list) && !list.elements.some(ts.isSpreadElement)
+      ? list.elements
+      : undefined;
   return { part, members };
 }
 
@@ -328,14 +346,26 @@ function objectCall(more: unknown, side: SchemaSide): string | undefined {
 
 /** The parts of a schema that are changed where they are written. A change to any other writes it again whole. */
 function inPlace(z: ZodSite, before: Json, after: Json, kind: string | undefined): Set<string> {
-  const { part, members, read: { base } } = z;
+  const {
+    part,
+    members,
+    read: { base },
+  } = z;
   const reads = new Set(['description']);
   if (z.object) reads.add('properties').add('required');
   if (kind) reads.add('additionalProperties');
-  if (part && base.name === 'enum' && Array.isArray(before.enum) && Array.isArray(after.enum)) reads.add('enum');
-  if (part && base.name === 'array' && isRecord(before.items) && isRecord(after.items)) reads.add('items');
+  if (part && base.name === 'enum' && Array.isArray(before.enum) && Array.isArray(after.enum))
+    reads.add('enum');
+  if (part && base.name === 'array' && isRecord(before.items) && isRecord(after.items))
+    reads.add('items');
   const [olds, news] = [before.anyOf, after.anyOf];
-  if (members && Array.isArray(olds) && Array.isArray(news) && olds.length === news.length && members.length === news.length) {
+  if (
+    members &&
+    Array.isArray(olds) &&
+    Array.isArray(news) &&
+    olds.length === news.length &&
+    members.length === news.length
+  ) {
     reads.add('anyOf');
   }
   return reads;
@@ -346,7 +376,13 @@ class Planner {
   /** The subject's own call. Other profiles share it when a function makes the call for each. */
   private readonly root: Frame;
   /** What the subject alone writes: its own call, the arguments a function is called with for it. */
-  private readonly own: Frame = { everyone: [], sharedWith: [], edits: [], changes: [], refused: [] };
+  private readonly own: Frame = {
+    everyone: [],
+    sharedWith: [],
+    edits: [],
+    changes: [],
+    refused: [],
+  };
   /** Each shared value the plan writes in, by where it is written. */
   private readonly frames = new Map<ts.Node, Frame>();
   private frame: Frame;
@@ -359,7 +395,14 @@ class Planner {
   ) {
     const everyone = [subject.of, ...peers].map((name) => subjectId(subject.kind, name));
     this.root = peers.length
-      ? { holder: target.options, everyone, sharedWith: [...peers], edits: [], changes: [], refused: [] }
+      ? {
+          holder: target.options,
+          everyone,
+          sharedWith: [...peers],
+          edits: [],
+          changes: [],
+          refused: [],
+        }
       : this.own;
     this.frame = this.root;
   }
@@ -385,9 +428,9 @@ class Planner {
       status,
       ...(at
         ? {
-          file: at.source.fileName,
-          line: at.source.getLineAndCharacterOfPosition(at.node.getStart(at.source)).line + 1,
-        }
+            file: at.source.fileName,
+            line: at.source.getLineAndCharacterOfPosition(at.node.getStart(at.source)).line + 1,
+          }
         : {}),
       ...(name ? { name } : {}),
       // What is written in a value other code reads says so.
@@ -417,11 +460,13 @@ class Planner {
       return undefined;
     }
     const users = usersOf(this.project, holder);
-    const everyone = [...users.profiles].map((id) => subjectId('profile', id))
+    const everyone = [...users.profiles]
+      .map((id) => subjectId('profile', id))
       .concat([...users.tools].map((tool) => subjectId('tool', tool)))
       .concat([...users.providers].map((provider) => subjectId('provider', provider)));
     const { kind, of } = this.subject;
-    const sharedWith = [...users.profiles].filter((id) => kind !== 'profile' || id !== of)
+    const sharedWith = [...users.profiles]
+      .filter((id) => kind !== 'profile' || id !== of)
       .concat([...users.tools].filter((tool) => kind !== 'tool' || tool !== of))
       .concat([...users.providers].filter((provider) => kind !== 'provider' || provider !== of));
     const refused = this.change('constant', path, origin, holder.name, {
@@ -493,15 +538,22 @@ class Planner {
     if (root.holder && (root.changes.length || root.edits.length)) {
       // A function makes this call for others too: what Save would write here, it writes for each.
       const name = holderOf({ node: options, source })?.name;
-      const refused = root.changes.map((change): SaveChange =>
-        change.status === 'written'
-          ? { ...change, status: 'constant', ...(name ? { name } : {}), sharedWith: root.sharedWith }
-          : change
+      const refused = root.changes.map(
+        (change): SaveChange =>
+          change.status === 'written'
+            ? {
+                ...change,
+                status: 'constant',
+                ...(name ? { name } : {}),
+                sharedWith: root.sharedWith,
+              }
+            : change,
       );
       this.shared.push({ ...root, holder: root.holder, by, refused });
     }
     for (const frame of this.frames.values()) {
-      if (frame.holder && (frame.changes.length || frame.edits.length)) this.shared.push({ ...frame, holder: frame.holder, by });
+      if (frame.holder && (frame.changes.length || frame.edits.length))
+        this.shared.push({ ...frame, holder: frame.holder, by });
     }
   }
 
@@ -516,9 +568,14 @@ class Planner {
       return;
     }
     if (
-      ts.isArrayLiteralExpression(node) && Array.isArray(before) && Array.isArray(after) &&
-      before.length === after.length && node.elements.length === after.length &&
-      !node.elements.some((element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element))
+      ts.isArrayLiteralExpression(node) &&
+      Array.isArray(before) &&
+      Array.isArray(after) &&
+      before.length === after.length &&
+      node.elements.length === after.length &&
+      !node.elements.some(
+        (element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element),
+      )
     ) {
       node.elements.forEach((element, index) => {
         this.walk({ ...at, node: element }, before[index], after[index], [...path, String(index)]);
@@ -550,12 +607,21 @@ class Planner {
     const { source, node } = at;
     const start = node.getStart(source);
     // A list's own quotes are for the list that replaces it.
-    const style = this.style(source, start, Array.isArray(after) || !ts.isArrayLiteralExpression(node) ? node : undefined);
+    const style = this.style(
+      source,
+      start,
+      Array.isArray(after) || !ts.isArrayLiteralExpression(node) ? node : undefined,
+    );
     // A list of plain values on one line stays on one line.
-    const inline = ts.isArrayLiteralExpression(node) && Array.isArray(after) && after.length > 0 &&
+    const inline =
+      ts.isArrayLiteralExpression(node) &&
+      Array.isArray(after) &&
+      after.length > 0 &&
       after.every((item) => item === null || typeof item !== 'object') &&
       !node.getText(source).includes('\n');
-    const text = inline ? `[${after.map((item) => valueSource(item, style)).join(', ')}]` : valueSource(after, style);
+    const text = inline
+      ? `[${after.map((item) => valueSource(item, style)).join(', ')}]`
+      : valueSource(after, style);
     this.edit(source, start, node.end, text);
     this.note('written', path, { source, node });
   }
@@ -571,10 +637,17 @@ class Planner {
     const removed: ts.ObjectLiteralElementLike[] = [];
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
       if (same(before[key], after[key])) continue;
-      const change: KeyChange = { key, before: before[key], after: after[key], here: [...path, key] };
-      const schema = this.subject.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[key] : undefined;
+      const change: KeyChange = {
+        key,
+        before: before[key],
+        after: after[key],
+        here: [...path, key],
+      };
+      const schema =
+        this.subject.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[key] : undefined;
       const entry = shape.entries.get(key);
-      if (this.subject.kind === 'provider' && path.length === 0 && key === 'definition') this.redefine(change);
+      if (this.subject.kind === 'provider' && path.length === 0 && key === 'definition')
+        this.redefine(change);
       else if (schema) this.toolSchema(shape, at, schema, change);
       else if (!entry) {
         if (this.isAdded(shape, at, change)) inserts.push([key, change.after]);
@@ -587,12 +660,18 @@ class Planner {
   }
 
   /** A tool's schema is Zod in its file: each part that changed is changed there. */
-  private toolSchema(shape: ObjectShape, at: Located, schema: { key: string; side: SchemaSide }, change: KeyChange) {
+  private toolSchema(
+    shape: ObjectShape,
+    at: Located,
+    schema: { key: string; side: SchemaSide },
+    change: KeyChange,
+  ) {
     const { before, after, here } = change;
     const { open } = shape;
     const held = shape.entries.get(schema.key);
     if (!held) this.note('code', here, at);
-    else if (!held.value || (open && !open.after.has(schema.key))) this.note('code', here, this.placeIn(shape, at, schema.key));
+    else if (!held.value || (open && !open.after.has(schema.key)))
+      this.note('code', here, this.placeIn(shape, at, schema.key));
     else this.zod(held.value, before, after, here, schema.side);
   }
 
@@ -606,16 +685,23 @@ class Planner {
   }
 
   /** A key the object holds, changed where it is written. Gives the property when it is to be taken out. */
-  private held(shape: ObjectShape, at: Located, entry: ShapeEntry, change: KeyChange): ts.ObjectLiteralElementLike | undefined {
+  private held(
+    shape: ObjectShape,
+    at: Located,
+    entry: ShapeEntry,
+    change: KeyChange,
+  ): ts.ObjectLiteralElementLike | undefined {
     const { key, before, after, here } = change;
     const { open, own } = shape;
     const { property, value } = entry;
     const place = this.placeIn(shape, at, key);
     if (key === 'protocol' && value && ts.isIdentifier(unwrapped(value.node))) {
       this.swapKernelName(value, before, after, here, place);
-    } else if (entry.receiver && !(open && !open.after.has(key))) this.reprovide(entry.receiver, value, change);
+    } else if (entry.receiver && !(open && !open.after.has(key)))
+      this.reprovide(entry.receiver, value, change);
     else if (!value || (open && !open.after.has(key))) this.note('code', here, place);
-    else if (property && ts.isShorthandPropertyAssignment(property)) this.named(value, key, before, after, here);
+    else if (property && ts.isShorthandPropertyAssignment(property))
+      this.named(value, key, before, after, here);
     else if (after === undefined) {
       // A key another object spreads in is not this one's to take out.
       if (!property || !own || property.parent !== own.node) this.note('code', here, place);
@@ -633,12 +719,17 @@ class Planner {
    * own id is never written. A provider the project gives no name, or one this file cannot reach, is
    * code's to change.
    */
-  private reprovide(receiver: Located, id: Located | undefined, { before, after, here }: KeyChange) {
+  private reprovide(
+    receiver: Located,
+    id: Located | undefined,
+    { before, after, here }: KeyChange,
+  ) {
     const node = unwrapped(receiver.node);
     const place = { source: receiver.source, node };
     const to = typeof after === 'string' ? providerNamed(this.project, after) : undefined;
     if (!id || !ts.isIdentifier(node) || !to) return this.note('code', here, place);
-    if (!same(plain(unwrapped(followed(this.project, id).node)), before)) return this.note('changed', here, place);
+    if (!same(plain(unwrapped(followed(this.project, id).node)), before))
+      return this.note('changed', here, place);
     const name = this.brought(receiver.source, to);
     if (!name) return this.note('code', here, place);
     this.edit(receiver.source, node.getStart(receiver.source), node.end, name);
@@ -654,8 +745,12 @@ class Planner {
     const definition = ts.isCallExpression(call) ? call.arguments[0] : undefined;
     const { source } = this.target;
     if (!definition) return this.note('code', here, { source, node: this.target.options });
-    const name = (value: unknown) => (typeof value === 'string' ? definitionFactory(value) : undefined);
-    this.swapKernelName({ node: definition, source }, name(before), name(after), here, { source, node: definition });
+    const name = (value: unknown) =>
+      typeof value === 'string' ? definitionFactory(value) : undefined;
+    this.swapKernelName({ node: definition, source }, name(before), name(after), here, {
+      source,
+      node: definition,
+    });
   }
 
   /**
@@ -664,10 +759,19 @@ class Planner {
    * name is imported beside the old, in place of it when nothing else in the file reads the old one.
    * A name the file does not import from the kernel is code's to change.
    */
-  private swapKernelName(at: Located, before: unknown, after: unknown, here: string[], place: Place) {
+  private swapKernelName(
+    at: Located,
+    before: unknown,
+    after: unknown,
+    here: string[],
+    place: Place,
+  ) {
     const node = unwrapped(at.node);
-    const [from, to] = [before, after].map((value) => (typeof value === 'string' ? value : undefined));
-    if (!from || !to || !ts.isIdentifier(node) || at.env?.bound.has(node.text)) return this.note('code', here, place);
+    const [from, to] = [before, after].map((value) =>
+      typeof value === 'string' ? value : undefined,
+    );
+    if (!from || !to || !ts.isIdentifier(node) || at.env?.bound.has(node.text))
+      return this.note('code', here, place);
     const { source } = at;
     const imported = namedImports(source);
     const old = imported.find((element) => element.name.text === node.text);
@@ -692,23 +796,33 @@ class Planner {
   /** The name `source` reads the provider `to` by, importing it when the file does not yet. Undefined when it cannot. */
   private brought(source: ts.SourceFile, to: NamedProvider): string | undefined {
     if (to.source === source) return to.name;
-    const imports = source.statements.filter((statement): statement is ts.ImportDeclaration =>
-      ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier) &&
-      !statement.importClause?.isTypeOnly &&
-      sourceOf(this.project, source, (statement.moduleSpecifier as ts.StringLiteralLike).text) === to.source
+    const imports = source.statements.filter(
+      (statement): statement is ts.ImportDeclaration =>
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteralLike(statement.moduleSpecifier) &&
+        !statement.importClause?.isTypeOnly &&
+        sourceOf(this.project, source, (statement.moduleSpecifier as ts.StringLiteralLike).text) ===
+          to.source,
     );
     const named = imports.flatMap((statement) => {
       const bindings = statement.importClause?.namedBindings;
       return bindings && ts.isNamedImports(bindings) ? [bindings] : [];
     });
-    const held = named.flatMap((bindings) => [...bindings.elements])
-      .find((element) => !element.isTypeOnly && (element.propertyName ?? element.name).text === to.name);
+    const held = named
+      .flatMap((bindings) => [...bindings.elements])
+      .find(
+        (element) => !element.isTypeOnly && (element.propertyName ?? element.name).text === to.name,
+      );
     if (held) return held.name.text;
     if (!to.exported || declares(source, to.name)) return undefined;
     const last = named[0]?.elements.at(-1);
     if (last) this.edit(source, last.end, last.end, `, ${to.name}`);
     else {
-      const specifier = specifierTo(source.fileName, to.source.fileName, importExtension(this.project, '.ts'));
+      const specifier = specifierTo(
+        source.fileName,
+        to.source.fileName,
+        importExtension(this.project, '.ts'),
+      );
       const line = `import { ${to.name} } from ${quoteLike(undefined, source)(specifier)};`;
       const after = source.statements.findLast((statement) => ts.isImportDeclaration(statement));
       if (after) this.edit(source, after.end, after.end, `\n${line}`);
@@ -728,7 +842,12 @@ class Planner {
       // Every property goes and others come: the object is written whole, as an empty one is.
       for (const [key] of inserts) this.note('written', [...path, key], own);
       const start = own.node.getStart(own.source);
-      this.edit(own.source, start, own.node.end, valueSource(Object.fromEntries(inserts), this.style(own.source, start)));
+      this.edit(
+        own.source,
+        start,
+        own.node.end,
+        valueSource(Object.fromEntries(inserts), this.style(own.source, start)),
+      );
       return;
     }
     if (this.emptied(own.node, own.source, removed, inserts)) return;
@@ -773,11 +892,19 @@ class Planner {
       this.note('code', path, { source: stopped.source, node: stopped.call });
       return;
     }
-    const z: ZodSite = { site, where, read, ...partsOf(read), object: zodObject(this.project, read) };
+    const z: ZodSite = {
+      site,
+      where,
+      read,
+      ...partsOf(read),
+      object: zodObject(this.project, read),
+    };
     const change: ZodChange = { before, after, path, side, left };
     const kind = z.object ? objectCall(after.additionalProperties, side) : undefined;
     const reads = inPlace(z, before, after, kind);
-    const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => !same(before[key], after[key]));
+    const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+      (key) => !same(before[key], after[key]),
+    );
     if (changed.some((key) => !reads.has(key))) {
       this.rewritten(site, after, left.now, path, side);
       return;
@@ -797,7 +924,9 @@ class Planner {
   /** What is added to the schema goes after it, where it is used. */
   private zodAdded(z: ZodSite, change: ZodChange) {
     const { site, where } = z;
-    const adds = [this.described(z, change), this.leftOut(z, change.left)].filter((each) => each !== undefined);
+    const adds = [this.described(z, change), this.leftOut(z, change.left)].filter(
+      (each) => each !== undefined,
+    );
     const added = adds.map((each) => each.text).join('');
     // One edit holds all that is added; each setting it adds is its own change.
     adds.forEach(({ path: here }, index) => {
@@ -879,18 +1008,28 @@ class Planner {
       const here = [...path, 'enum'];
       this.within(located(read.base), here, () => this.walk(part, before.enum, after.enum, here));
     }
-    if (part && reads.has('items')) this.zod(part, before.items, after.items, [...path, 'items'], side);
+    if (part && reads.has('items'))
+      this.zod(part, before.items, after.items, [...path, 'items'], side);
     const [olds, news] = [before.anyOf, after.anyOf];
     if (members && reads.has('anyOf') && Array.isArray(olds) && Array.isArray(news)) {
       members.forEach((member, index) => {
-        this.zod(located(read.base, member), olds[index], news[index], [...path, 'anyOf', String(index)], side);
+        this.zod(
+          located(read.base, member),
+          olds[index],
+          news[index],
+          [...path, 'anyOf', String(index)],
+          side,
+        );
       });
     }
   }
 
   /** An object schema's fields: each one changed, added, or taken away. */
   private zodFields(object: ZodObject, { before, after, path, side }: ZodChange) {
-    const [fields, held] = [isRecord(before.properties) ? before.properties : {}, isRecord(after.properties) ? after.properties : {}];
+    const [fields, held] = [
+      isRecord(before.properties) ? before.properties : {},
+      isRecord(after.properties) ? after.properties : {},
+    ];
     const [needed, needs] = [names(before.required), names(after.required)];
     const own: Located = { node: object.own.node, source: object.own.source };
     const inserts: Array<[string, unknown]> = [];
@@ -898,10 +1037,15 @@ class Planner {
     for (const key of new Set([...Object.keys(fields), ...Object.keys(held)])) {
       const here = [...path, 'properties', key];
       const entry = object.entries.get(key);
-      const optional = { was: !needed.includes(key), now: !needs.includes(key), path: [...path, 'required', key] };
+      const optional = {
+        was: !needed.includes(key),
+        now: !needs.includes(key),
+        path: [...path, 'required', key],
+      };
       if (key in fields && key in held) {
         if (entry?.value) this.zod(entry.value, fields[key], held[key], here, side, optional);
-        else if (!same(fields[key], held[key]) || optional.was !== optional.now) this.note('code', here, own);
+        else if (!same(fields[key], held[key]) || optional.was !== optional.now)
+          this.note('code', here, own);
       } else if (key in held) {
         const field = this.fieldAdded(object, held[key], optional.now, side, here);
         if (field) inserts.push([key, field]);
@@ -910,24 +1054,38 @@ class Planner {
         if (gone) removed.push(gone);
       }
     }
-    if (inserts.length || removed.length) this.refield(object, inserts, removed, [...path, 'properties']);
+    if (inserts.length || removed.length)
+      this.refield(object, inserts, removed, [...path, 'properties']);
   }
 
   /** A field to add, as the Zod that writes it. */
-  private fieldAdded(object: ZodObject, schema: unknown, optional: boolean, side: SchemaSide, here: string[]): ZodField | undefined {
+  private fieldAdded(
+    object: ZodObject,
+    schema: unknown,
+    optional: boolean,
+    side: SchemaSide,
+    here: string[],
+  ): ZodField | undefined {
     const name = zodName(object.own.source);
     // The field is written as Zod once here, to know that it can be.
     if (!name || zodSource(schema, optional, side, name) === undefined) {
       this.note('code', here, object.own);
       return undefined;
     }
-    return new ZodField((style: SourceStyle) => zodSource(schema, optional, side, name, style) ?? '');
+    return new ZodField(
+      (style: SourceStyle) => zodSource(schema, optional, side, name, style) ?? '',
+    );
   }
 
   /** A field taken away. Gives its property when the object's own literal writes it. */
-  private fieldTaken(object: ZodObject, entry: ShapeEntry | undefined, here: string[]): ts.ObjectLiteralElementLike | undefined {
+  private fieldTaken(
+    object: ZodObject,
+    entry: ShapeEntry | undefined,
+    here: string[],
+  ): ts.ObjectLiteralElementLike | undefined {
     const property = entry?.property;
-    if (!entry || !property || !ts.isObjectLiteralExpression(property.parent)) this.note('code', here, object.own);
+    if (!entry || !property || !ts.isObjectLiteralExpression(property.parent))
+      this.note('code', here, object.own);
     else if (property.parent === object.own.node) return property;
     else {
       this.within({ node: property.parent, source: entry.source }, here, () => {
@@ -939,12 +1097,20 @@ class Planner {
   }
 
   /** Takes fields out of an object schema's own literal and adds others to it. */
-  private refield(object: ZodObject, inserts: Array<[string, unknown]>, removed: ts.ObjectLiteralElementLike[], inFields: string[]) {
+  private refield(
+    object: ZodObject,
+    inserts: Array<[string, unknown]>,
+    removed: ts.ObjectLiteralElementLike[],
+    inFields: string[],
+  ) {
     const { node, source } = object.own;
     const own: Located = { node, source };
     this.within(own, inFields, () => {
       for (const property of removed) {
-        this.note('written', [...inFields, propertyName(property) ?? ''], { source, node: property });
+        this.note('written', [...inFields, propertyName(property) ?? ''], {
+          source,
+          node: property,
+        });
       }
       if (inserts.length && removed.length === node.properties.length) {
         // Every field goes and others come: the object is written whole.
@@ -960,13 +1126,20 @@ class Planner {
   }
 
   /** A schema written again whole, from its JSON Schema, where it stands. */
-  private rewritten(site: Located, after: Json, optional: boolean, path: string[], side: SchemaSide) {
+  private rewritten(
+    site: Located,
+    after: Json,
+    optional: boolean,
+    path: string[],
+    side: SchemaSide,
+  ) {
     const where: Place = { source: site.source, node: site.node };
     const name = zodName(site.source);
     const start = site.node.getStart(site.source);
-    const text = name && isWrittenOut(this.project, site)
-      ? zodSource(after, optional, side, name, this.style(site.source, start))
-      : undefined;
+    const text =
+      name && isWrittenOut(this.project, site)
+        ? zodSource(after, optional, side, name, this.style(site.source, start))
+        : undefined;
     if (text === undefined) {
       this.note('code', path, where);
       return;
@@ -1008,7 +1181,12 @@ class Planner {
   }
 
   /** Adds properties after the last one the object has. */
-  private insert(node: ts.ObjectLiteralExpression, source: ts.SourceFile, entries: Array<[string, unknown]>, path: string[]) {
+  private insert(
+    node: ts.ObjectLiteralExpression,
+    source: ts.SourceFile,
+    entries: Array<[string, unknown]>,
+    path: string[],
+  ) {
     for (const [key] of entries) this.note('written', [...path, key], { source, node });
     const last = node.properties.at(-1);
     const start = node.getStart(source);
@@ -1024,14 +1202,18 @@ class Planner {
       // On lines of their own, before the closing brace, so a comment after the last one stays with it.
       const base = indentAt(source, last.getStart(source));
       const style = { ...this.style(source, start), base };
-      const lines = entries.map(([key, value]) => `${base}${keySource(key, style.quote)}: ${written(value, style)},\n`);
+      const lines = entries.map(
+        ([key, value]) => `${base}${keySource(key, style.quote)}: ${written(value, style)},\n`,
+      );
       if (!trailing) this.edit(source, last.end, last.end, ',');
       const at = source.getPositionOfLineAndCharacter(braceLine, 0);
       this.edit(source, at, at, lines.join(''));
       return;
     }
     const style = this.style(source, start);
-    const fields = entries.map(([key, value]) => `${keySource(key, style.quote)}: ${written(value, style)}`).join(', ');
+    const fields = entries
+      .map(([key, value]) => `${keySource(key, style.quote)}: ${written(value, style)}`)
+      .join(', ');
     if (trailing) this.edit(source, node.properties.end, node.properties.end, ` ${fields},`);
     else this.edit(source, last.end, last.end, `, ${fields}`);
   }
@@ -1053,14 +1235,19 @@ export function planSave(project: ProjectSource, subjects: readonly SaveSubject[
     }
     if (targets.length > 1) {
       // Written twice: the studio cannot tell which one runs.
-      const line = target.source.getLineAndCharacterOfPosition(target.options.getStart(target.source)).line + 1;
+      const line =
+        target.source.getLineAndCharacterOfPosition(target.options.getStart(target.source)).line +
+        1;
       plan.changes.push({ ...whole, status: 'code', file: target.file, line });
       continue;
     }
     // The others a function makes this same call for.
-    const peers = [...defined].filter(([name, held]) =>
-      name !== subject.of && held.some((other) => other.options === target.options)
-    ).map(([name]) => name);
+    const peers = [...defined]
+      .filter(
+        ([name, held]) =>
+          name !== subject.of && held.some((other) => other.options === target.options),
+      )
+      .map(([name]) => name);
     const planner = new Planner(project, subject, target, peers);
     planner.plan();
     plan.changes.push(...planner.changes);
@@ -1076,7 +1263,8 @@ export function planSave(project: ProjectSource, subjects: readonly SaveSubject[
 
 /** `text` with the edits made. Throws when two edits touch the same characters. */
 export function applyEdits(text: string, edits: readonly SourceEdit[]): string {
-  const ordered = edits.map((edit, index) => ({ edit, index }))
+  const ordered = edits
+    .map((edit, index) => ({ edit, index }))
     .sort((a, b) => a.edit.start - b.edit.start || a.index - b.index);
   let out = '';
   let cursor = 0;
@@ -1123,28 +1311,36 @@ export function diffHunks(text: string, edits: readonly SourceEdit[]): DiffHunk[
   return groups.flatMap((group) => {
     const from = starts[group.first] ?? 0;
     const to = (starts[group.last] ?? 0) + (lines[group.last]?.length ?? 0);
-    const local = group.edits.map((edit) => ({ ...edit, start: edit.start - from, end: edit.end - from }));
+    const local = group.edits.map((edit) => ({
+      ...edit,
+      start: edit.start - from,
+      end: edit.end - from,
+    }));
     const was = lines.slice(group.first, group.last + 1);
     const now = applyEdits(text.slice(from, to), local).split('\n');
     let head = 0;
     while (head < was.length && head < now.length && was[head] === now[head]) head++;
     let tail = 0;
     while (
-      tail < was.length - head && tail < now.length - head &&
+      tail < was.length - head &&
+      tail < now.length - head &&
       was[was.length - 1 - tail] === now[now.length - 1 - tail]
-    ) tail++;
+    )
+      tail++;
     const removed = was.slice(head, was.length - tail);
     const added = now.slice(head, now.length - tail);
     if (!removed.length && !added.length) return [];
     const at = group.first + head;
     const after = at + removed.length;
-    return [{
-      line: at + 1,
-      lead: lines.slice(Math.max(0, at - CONTEXT_LINES), at),
-      removed,
-      added,
-      trail: lines.slice(after, after + CONTEXT_LINES),
-    }];
+    return [
+      {
+        line: at + 1,
+        lead: lines.slice(Math.max(0, at - CONTEXT_LINES), at),
+        removed,
+        added,
+        trail: lines.slice(after, after + CONTEXT_LINES),
+      },
+    ];
   });
 }
 
@@ -1155,7 +1351,9 @@ function namedImports(source: ts.SourceFile): ts.ImportSpecifier[] {
     const from = statement.moduleSpecifier;
     if (!ts.isStringLiteralLike(from) || from.text !== AGENTS_PACKAGE) return [];
     const bindings = statement.importClause?.namedBindings;
-    return bindings && ts.isNamedImports(bindings) ? bindings.elements.filter((element) => !element.isTypeOnly) : [];
+    return bindings && ts.isNamedImports(bindings)
+      ? bindings.elements.filter((element) => !element.isTypeOnly)
+      : [];
   });
 }
 

@@ -30,9 +30,7 @@ export function studioLiveConnection(payload: StudioRunPayload): {
  * The studio's page: for each tool the page answers (`answeredBy: 'page'`), a function that
  * answers with the tool's stub. A host's page does the real thing here.
  */
-export function studioPageTools(
-  payload: Pick<StudioRunPayload, 'customTools'>,
-): PageTools {
+export function studioPageTools(payload: Pick<StudioRunPayload, 'customTools'>): PageTools {
   const pageTools: PageTools = {};
   for (const tool of payload.customTools) {
     if (tool.type !== 'function' || tool.answeredBy !== 'page') continue;

@@ -12,7 +12,10 @@ type Json = Record<string, unknown>;
 
 const URLS = ['endpoint', 'serverUrl'];
 /** What a held URL is told as in a refusal: a mask in a URL has no name of its own to give. */
-const URL_LABELS: Record<string, string> = { endpoint: 'its endpoint URL', serverUrl: 'its server URL' };
+const URL_LABELS: Record<string, string> = {
+  endpoint: 'its endpoint URL',
+  serverUrl: 'its server URL',
+};
 
 const isRecord = (value: unknown): value is Json =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -35,7 +38,7 @@ export function withoutCredentials<T extends object>(tool: T): T {
 export function shownConnection(connection: unknown): Record<string, string> | undefined {
   if (!isRecord(connection)) return undefined;
   const shown = Object.entries(connection).flatMap(([key, value]) =>
-    typeof value === 'string' ? [[key, maskUrl(value)]] : []
+    typeof value === 'string' ? [[key, maskUrl(value)]] : [],
   );
   return shown.length > 0 ? Object.fromEntries(shown) : undefined;
 }
@@ -44,8 +47,13 @@ export function shownConnection(connection: unknown): Record<string, string> | u
  * Why a provider cannot run or be saved, when what it connects with shows a mask. A provider's
  * credential is its key slot's, so a mask here stands for nothing the project holds.
  */
-export function unheldConnection(id: string, connection: Record<string, string> | undefined): string | undefined {
-  const names = Object.entries(connection ?? {}).flatMap(([name, value]) => (value.includes(MASK) ? [name] : []));
+export function unheldConnection(
+  id: string,
+  connection: Record<string, string> | undefined,
+): string | undefined {
+  const names = Object.entries(connection ?? {}).flatMap(([name, value]) =>
+    value.includes(MASK) ? [name] : [],
+  );
   return names.length
     ? `${id}: the studio has no value for ${names.join(', ')}. A provider's key comes from its key slot. Write the address without one.` // labels-exempt: builder diagnostic
     : undefined;
@@ -57,7 +65,10 @@ export function heldSetting(key: string, shown: unknown, held: unknown): unknown
     return typeof held === 'string' ? unmaskUrl(shown, held) : shown;
   }
   if (key === 'headers' && isRecord(shown)) {
-    return unmaskHeaders(shown as Record<string, string>, isRecord(held) ? (held as Record<string, string>) : undefined);
+    return unmaskHeaders(
+      shown as Record<string, string>,
+      isRecord(held) ? (held as Record<string, string>) : undefined,
+    );
   }
   return shown;
 }

@@ -36,7 +36,7 @@ export function expandAccept(
   sections: readonly AcceptSection[],
 ): string[] {
   const covered = sections.flatMap(({ wildcard, mimes }) =>
-    wildcard && accept.includes(wildcard) ? mimes : []
+    wildcard && accept.includes(wildcard) ? mimes : [],
   );
   return [...new Set([...accept, ...covered])];
 }
@@ -65,7 +65,7 @@ export function nextAccept(
     else next.push(...picked);
   }
   const known = new Set(
-    sections.flatMap(({ wildcard, mimes }) => wildcard ? [wildcard, ...mimes] : mimes),
+    sections.flatMap(({ wildcard, mimes }) => (wildcard ? [wildcard, ...mimes] : mimes)),
   );
   return [...next, ...selected.filter((mime) => !known.has(mime))];
 }

@@ -17,29 +17,29 @@ export const PROJECT_PLACEHOLDER = '__THEOREM_STUDIO_PROJECT__';
  * takes no IPv6 address in a policy, so this machine is named by `localhost` and `127.0.0.1`.
  */
 const LOCAL = ['127.0.0.1', 'localhost'].flatMap((host) =>
-	['http', 'https', 'ws'].map((scheme) => `${scheme}://${host}:*`),
+  ['http', 'https', 'ws'].map((scheme) => `${scheme}://${host}:*`),
 );
 const CONTENT_POLICY = [
-	"default-src 'none'",
-	"script-src 'self'",
-	"worker-src 'self'",
-	"style-src 'self' 'unsafe-inline'",
-	"font-src 'self'",
-	"img-src 'self' data: blob: https: http:",
-	"media-src 'self' data: blob: https: http:",
-	`connect-src 'self' ${LOCAL.join(' ')} https://generativelanguage.googleapis.com https://openrouter.ai`,
-	"frame-src 'none'",
-	"object-src 'none'",
-	"base-uri 'none'",
-	"form-action 'none'",
-	"frame-ancestors 'none'",
+  "default-src 'none'",
+  "script-src 'self'",
+  "worker-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+  "img-src 'self' data: blob: https: http:",
+  "media-src 'self' data: blob: https: http:",
+  `connect-src 'self' ${LOCAL.join(' ')} https://generativelanguage.googleapis.com https://openrouter.ai`,
+  "frame-src 'none'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
 ].join('; ');
 
 /** The headers on everything the page's server hands out. */
 export const PAGE_HEADERS = {
-	'Content-Security-Policy': CONTENT_POLICY,
-	'X-Content-Type-Options': 'nosniff',
-	'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': CONTENT_POLICY,
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
 };
 
 /** Where the page is served: a run tab's address is the one the screen opens. */

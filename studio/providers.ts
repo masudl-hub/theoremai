@@ -6,7 +6,7 @@
  * @module
  */
 
-import { z } from 'zod';
+import { labelText } from '@theoremjs/agents/guardrails';
 import {
   createProviderRegistry,
   type JsonObject,
@@ -19,13 +19,13 @@ import {
   type ProviderRegistry,
   type RegisteredProvider,
 } from '@theoremjs/agents/kernel';
-import { labelText } from '@theoremjs/agents/guardrails';
 import {
   geminiProvider,
   localProvider,
   openRouterProvider,
   typesafeProvider,
 } from '@theoremjs/agents/providers';
+import { z } from 'zod';
 
 /** One provider the workspace's models can name. */
 export interface StudioProvider {
@@ -111,7 +111,9 @@ function registrationOf(provider: StudioProvider) {
     id: provider.id,
     ...(provider.connection === undefined ? {} : { connection: provider.connection }),
     ...(provider.keySlot === undefined ? {} : { keySlot: provider.keySlot }),
-    ...(provider.fallbackKeySlot === undefined ? {} : { fallbackKeySlot: provider.fallbackKeySlot }),
+    ...(provider.fallbackKeySlot === undefined
+      ? {}
+      : { fallbackKeySlot: provider.fallbackKeySlot }),
   };
 }
 
@@ -202,14 +204,20 @@ export function providerProblems(provider: StudioProvider): ProviderProblem[] {
   for (const field of ['keySlot', 'fallbackKeySlot'] as const) {
     const slot = provider[field];
     if (slot !== undefined && !keySlotSchema.safeParse(slot).success) {
-      problems.push({ field, message: 'A key slot is 1 to 32 letters, digits, hyphens, or underscores.' });
+      problems.push({
+        field,
+        message: 'A key slot is 1 to 32 letters, digits, hyphens, or underscores.',
+      });
     }
   }
   if (provider.keySlot && provider.keySlot === provider.fallbackKeySlot) {
     problems.push({ field: 'fallbackKeySlot', message: labelText('provider.fallback_slot') });
   }
   if ((provider.keySlot || provider.fallbackKeySlot) && definition && !definition.key) {
-    problems.push({ field: 'keySlot', message: labelText('protocol.no_key', { provider: provider.id }) });
+    problems.push({
+      field: 'keySlot',
+      message: labelText('protocol.no_key', { provider: provider.id }),
+    });
   }
   return problems;
 }
@@ -233,7 +241,10 @@ export function modelSlots(
  * The protocols `provider` serves, with an endpoint for agents of `type` when it is named.
  * Undefined for a project's own definition: the studio then judges nothing about its models.
  */
-export function servedProtocols(provider: StudioProvider, type?: ModelProfileType): Protocol[] | undefined {
+export function servedProtocols(
+  provider: StudioProvider,
+  type?: ModelProfileType,
+): Protocol[] | undefined {
   const definition = kernelDefinition(provider.definition);
   if (!definition) return undefined;
   let registered: RegisteredProvider;
@@ -335,7 +346,10 @@ export function protocolOptionFields(
   protocol: Protocol,
   model?: { apiId: string; options: JsonObject },
 ): ProtocolOptionField[] {
-  const schema = z.toJSONSchema(protocol.options, { io: 'input', unrepresentable: 'any' }) as OptionSchema;
+  const schema = z.toJSONSchema(protocol.options, {
+    io: 'input',
+    unrepresentable: 'any',
+  }) as OptionSchema;
   const fields = fieldsOf(schema, '', true);
   const refused = model ? (protocol.refusedOptions?.(model.apiId.trim()) ?? []) : [];
   return fields.filter((field) => {
@@ -348,7 +362,8 @@ function fieldsOf(node: OptionSchema, prefix: string, held: boolean): ProtocolOp
   return Object.entries(node.properties ?? {}).flatMap(([name, property]) => {
     const path = prefix ? `${prefix}.${name}` : name;
     const required = held && (node.required?.includes(name) ?? false);
-    if (property.type === 'object' && property.properties) return fieldsOf(property, path, required);
+    if (property.type === 'object' && property.properties)
+      return fieldsOf(property, path, required);
     const base = {
       path,
       label: optionLabel(name),
@@ -361,26 +376,39 @@ function fieldsOf(node: OptionSchema, prefix: string, held: boolean): ProtocolOp
     );
     const literalChoices = literals?.map((choice) => choice.const);
     if (property.enum?.every((value) => typeof value === 'string')) {
-      return [{ ...base, kind: 'choice' as const, choices: property.enum.map((value) => ({ value: value as string })) }];
-    }
-    if (literalChoices && literalChoices.length === property.anyOf?.length && literalChoices.length > 0) {
-      const numeric = literalChoices.every((value) => typeof value === 'number');
-      if (numeric || literalChoices.every((value) => typeof value === 'string')) {
-        return [{
+      return [
+        {
           ...base,
           kind: 'choice' as const,
-          choices: (literals ?? []).map((choice) => ({
-            value: String(choice.const),
-            ...(choice.title ? { label: choice.title } : {}),
-            ...(choice.description ? { description: choice.description } : {}),
-          })),
-          ...(numeric ? { choiceType: 'number' as const } : {}),
-        }];
+          choices: property.enum.map((value) => ({ value: value as string })),
+        },
+      ];
+    }
+    if (
+      literalChoices &&
+      literalChoices.length === property.anyOf?.length &&
+      literalChoices.length > 0
+    ) {
+      const numeric = literalChoices.every((value) => typeof value === 'number');
+      if (numeric || literalChoices.every((value) => typeof value === 'string')) {
+        return [
+          {
+            ...base,
+            kind: 'choice' as const,
+            choices: (literals ?? []).map((choice) => ({
+              value: String(choice.const),
+              ...(choice.title ? { label: choice.title } : {}),
+              ...(choice.description ? { description: choice.description } : {}),
+            })),
+            ...(numeric ? { choiceType: 'number' as const } : {}),
+          },
+        ];
       }
     }
     if (property.type === 'boolean') return [{ ...base, kind: 'boolean' as const }];
     if (property.type === 'string') return [{ ...base, kind: 'text' as const }];
-    if (property.type === 'number' || property.type === 'integer') return [{ ...base, kind: 'number' as const }];
+    if (property.type === 'number' || property.type === 'integer')
+      return [{ ...base, kind: 'number' as const }];
     return [];
   });
 }
@@ -393,19 +421,35 @@ function optionLabel(name: string): string {
 
 /** The value at `path` in `options`. */
 export function optionAt(options: JsonObject, path: string): JsonValue | undefined {
-  return path.split('.').reduce<JsonValue | undefined>(
-    (held, key) => (held && typeof held === 'object' && !Array.isArray(held) ? held[key] : undefined),
-    options,
-  );
+  return path
+    .split('.')
+    .reduce<JsonValue | undefined>(
+      (held, key) =>
+        held && typeof held === 'object' && !Array.isArray(held) ? held[key] : undefined,
+      options,
+    );
 }
 
 /** `options` with `value` at `path`, or with it left out when `undefined`; an object left empty goes too. */
-export function withOption(options: JsonObject, path: string, value: JsonValue | undefined): JsonObject {
+export function withOption(
+  options: JsonObject,
+  path: string,
+  value: JsonValue | undefined,
+): JsonObject {
   const [key = '', ...rest] = path.split('.');
   const { [key]: was, ...others } = options;
   const next = rest.length
-    ? withOption(was && typeof was === 'object' && !Array.isArray(was) ? was : {}, rest.join('.'), value)
+    ? withOption(
+        was && typeof was === 'object' && !Array.isArray(was) ? was : {},
+        rest.join('.'),
+        value,
+      )
     : value;
-  const empty = next === undefined || (typeof next === 'object' && next !== null && !Array.isArray(next) && !Object.keys(next).length);
+  const empty =
+    next === undefined ||
+    (typeof next === 'object' &&
+      next !== null &&
+      !Array.isArray(next) &&
+      !Object.keys(next).length);
   return empty ? others : { ...others, [key]: next };
 }

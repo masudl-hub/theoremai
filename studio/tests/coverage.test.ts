@@ -1,5 +1,5 @@
-import { assert, assertEquals } from '@std/assert';
 import { readdirSync, readFileSync } from 'node:fs';
+import { assert, assertEquals } from '@std/assert';
 import { PROFILE_FIELDS } from '../../mod.ts';
 
 /**

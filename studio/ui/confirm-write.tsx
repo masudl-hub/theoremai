@@ -16,81 +16,81 @@ const DIALOG_WIDTH = 520;
  * not to ask about goes ahead.
  */
 export function useConfirmWrite(): {
-	confirm: (ask: WriteAsk) => Promise<boolean>;
-	dialog: ReactNode;
+  confirm: (ask: WriteAsk) => Promise<boolean>;
+  dialog: ReactNode;
 } {
-	const [open, setOpen] = useState<{ ask: WriteAsk; answer: (run: boolean) => void }>();
-	const confirm = useCallback(
-		(ask: WriteAsk) =>
-			new Promise<boolean>((resolve) => {
-				if (!writeAsks(ask.access)) {
-					resolve(true);
-					return;
-				}
-				setOpen((current) => {
-					if (current) {
-						resolve(false);
-						return current;
-					}
-					return { ask, answer: resolve };
-				});
-			}),
-		[],
-	);
-	const answer = (run: boolean) => {
-		open?.answer(run);
-		setOpen(undefined);
-	};
-	const dialog = (
-		<Dialog
-			isOpen={open !== undefined}
-			purpose="form"
-			width={DIALOG_WIDTH}
-			maxHeight="80vh"
-			onOpenChange={(isOpen) => {
-				if (!isOpen) answer(false);
-			}}
-		>
-			{open && (
-				<Layout
-					header={
-						<DialogHeader title={`Run ${open.ask.tool}?`} subtitle={writeAskLine(open.ask)} />
-					}
-					content={
-						<LayoutContent>
-							<CodeBlock
-								code={open.ask.input}
-								language="json"
-								title="Input"
-								size="sm"
-								isWrapped
-								maxHeight={320}
-							/>
-						</LayoutContent>
-					}
-					footer={
-						<LayoutFooter>
-							<HStack gap={2} justify="end">
-								<Button
-									label="Cancel"
-									variant="ghost"
-									onClick={() => {
-										answer(false);
-									}}
-								/>
-								<Button
-									label="Run"
-									variant={open.ask.access === 'destructive' ? 'destructive' : 'primary'}
-									onClick={() => {
-										answer(true);
-									}}
-								/>
-							</HStack>
-						</LayoutFooter>
-					}
-				/>
-			)}
-		</Dialog>
-	);
-	return { confirm, dialog };
+  const [open, setOpen] = useState<{ ask: WriteAsk; answer: (run: boolean) => void }>();
+  const confirm = useCallback(
+    (ask: WriteAsk) =>
+      new Promise<boolean>((resolve) => {
+        if (!writeAsks(ask.access)) {
+          resolve(true);
+          return;
+        }
+        setOpen((current) => {
+          if (current) {
+            resolve(false);
+            return current;
+          }
+          return { ask, answer: resolve };
+        });
+      }),
+    [],
+  );
+  const answer = (run: boolean) => {
+    open?.answer(run);
+    setOpen(undefined);
+  };
+  const dialog = (
+    <Dialog
+      isOpen={open !== undefined}
+      purpose="form"
+      width={DIALOG_WIDTH}
+      maxHeight="80vh"
+      onOpenChange={(isOpen) => {
+        if (!isOpen) answer(false);
+      }}
+    >
+      {open && (
+        <Layout
+          header={
+            <DialogHeader title={`Run ${open.ask.tool}?`} subtitle={writeAskLine(open.ask)} />
+          }
+          content={
+            <LayoutContent>
+              <CodeBlock
+                code={open.ask.input}
+                language="json"
+                title="Input"
+                size="sm"
+                isWrapped
+                maxHeight={320}
+              />
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} justify="end">
+                <Button
+                  label="Cancel"
+                  variant="ghost"
+                  onClick={() => {
+                    answer(false);
+                  }}
+                />
+                <Button
+                  label="Run"
+                  variant={open.ask.access === 'destructive' ? 'destructive' : 'primary'}
+                  onClick={() => {
+                    answer(true);
+                  }}
+                />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      )}
+    </Dialog>
+  );
+  return { confirm, dialog };
 }

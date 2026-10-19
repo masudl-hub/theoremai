@@ -7,8 +7,11 @@ export const PROJECT_META = 'theorem-studio-project';
 export const FIRST_PROJECT_ENDPOINT = 'http://127.0.0.1:4983/api/studio';
 
 export function projectEndpoint(): string {
-	if (typeof document === 'undefined') return FIRST_PROJECT_ENDPOINT;
-	return document.querySelector<HTMLMetaElement>(`meta[name="${PROJECT_META}"]`)?.content ?? FIRST_PROJECT_ENDPOINT;
+  if (typeof document === 'undefined') return FIRST_PROJECT_ENDPOINT;
+  return (
+    document.querySelector<HTMLMetaElement>(`meta[name="${PROJECT_META}"]`)?.content ??
+    FIRST_PROJECT_ENDPOINT
+  );
 }
 
 /**
@@ -17,6 +20,9 @@ export function projectEndpoint(): string {
  * them itself, under `/api/studio`.
  */
 export function screenEndpoint(): string {
-	if (typeof document === 'undefined') return '/api/studio';
-	return document.querySelector<HTMLMetaElement>(`meta[name="${PROJECT_META}"]`)?.content ?? '/api/studio';
+  if (typeof document === 'undefined') return '/api/studio';
+  return (
+    document.querySelector<HTMLMetaElement>(`meta[name="${PROJECT_META}"]`)?.content ??
+    '/api/studio'
+  );
 }

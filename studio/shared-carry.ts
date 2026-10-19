@@ -7,8 +7,8 @@
  */
 
 import { agentToolInputSchema, compileStudio } from './compile.ts';
-import { ON_OWN_KEYS } from './lent-keys.ts';
 import { draftKey, type ModelBindingDraft, type ToolSpecDraft } from './draft.ts';
+import { ON_OWN_KEYS } from './lent-keys.ts';
 import type { SettingSite, SourcePlace } from './server/save-wire.ts';
 import { type AgentDraft, agentDraft, type StudioWorkspace } from './workspace.ts';
 
@@ -90,7 +90,8 @@ function compiledOf(workspace: StudioWorkspace, key: string): Compiled | undefin
   COMPILED.set(workspace, known);
   if (known.has(key)) return known.get(key);
   const draft = agentDraft(workspace, key);
-  const idOf = (other: string) => workspace.agents.find((agent) => agent.key === other)?.identity.agentId.trim();
+  const idOf = (other: string) =>
+    workspace.agents.find((agent) => agent.key === other)?.identity.agentId.trim();
   const inputOf = (other: string) => {
     const called = agentDraft(workspace, other);
     return called && agentToolInputSchema(called);
@@ -104,7 +105,10 @@ function compiledOf(workspace: StudioWorkspace, key: string): Compiled | undefin
  * Each agent of `workspace` as it compiles now. One that does not compile keeps what `before`
  * holds for it, so a change made while it did not is still read once it does.
  */
-export function sharedSnapshot(workspace: StudioWorkspace, before?: SharedSnapshot): SharedSnapshot {
+export function sharedSnapshot(
+  workspace: StudioWorkspace,
+  before?: SharedSnapshot,
+): SharedSnapshot {
   const snapshot: SharedSnapshot = new Map();
   for (const draft of workspace.agents) {
     const profile = profileOf(workspace, draft.key);
@@ -118,11 +122,14 @@ export function sharedSnapshot(workspace: StudioWorkspace, before?: SharedSnapsh
 function changedPaths(before: unknown, after: unknown, path: Path = []): Path[] {
   if (same(before, after)) return [];
   if (isRecord(before) && isRecord(after)) {
-    return [...new Set([...Object.keys(before), ...Object.keys(after)])]
-      .flatMap((key) => changedPaths(before[key], after[key], [...path, key]));
+    return [...new Set([...Object.keys(before), ...Object.keys(after)])].flatMap((key) =>
+      changedPaths(before[key], after[key], [...path, key]),
+    );
   }
   if (Array.isArray(before) && Array.isArray(after) && before.length === after.length) {
-    return before.flatMap((each, index) => changedPaths(each, after[index], [...path, String(index)]));
+    return before.flatMap((each, index) =>
+      changedPaths(each, after[index], [...path, String(index)]),
+    );
   }
   return [path];
 }
@@ -130,7 +137,8 @@ function changedPaths(before: unknown, after: unknown, path: Path = []): Path[] 
 function valueAt(value: unknown, path: Path): unknown {
   let held = value;
   for (const key of path) {
-    held = isRecord(held) || Array.isArray(held) ? (held as Record<string, unknown>)[key] : undefined;
+    held =
+      isRecord(held) || Array.isArray(held) ? (held as Record<string, unknown>)[key] : undefined;
   }
   return held;
 }
@@ -180,18 +188,28 @@ function withOwed(agent: AgentDraft, owed: Owed, was: AgentDraft, now: AgentDraf
   if (model === undefined || fromModel === undefined) {
     const next = { ...agent } as Record<string, unknown>;
     for (const field of Object.keys(now) as (keyof AgentDraft)[]) {
-      if (field !== 'key' && field !== 'modelBindings') next[field] = carried(was[field], now[field], agent[field]);
+      if (field !== 'key' && field !== 'modelBindings')
+        next[field] = carried(was[field], now[field], agent[field]);
     }
     return next as unknown as AgentDraft;
   }
-  const [old, held, mine] = [bindingOf(was, fromModel), bindingOf(now, fromModel), bindingOf(agent, model)];
+  const [old, held, mine] = [
+    bindingOf(was, fromModel),
+    bindingOf(now, fromModel),
+    bindingOf(agent, model),
+  ];
   let modelBindings = agent.modelBindings;
   if (old && held && mine) {
-    const next = { ...carried(old, held, mine) as ModelBindingDraft, key: mine.key, modelId: mine.modelId };
+    const next = {
+      ...(carried(old, held, mine) as ModelBindingDraft),
+      key: mine.key,
+      modelId: mine.modelId,
+    };
     modelBindings = modelBindings.map((binding) => (binding === mine ? next : binding));
   } else if (!old && held && !mine) {
     modelBindings = [...modelBindings, { ...held, key: draftKey('model'), modelId: model }];
-  } else if (old && !held && mine) modelBindings = modelBindings.filter((binding) => binding !== mine);
+  } else if (old && !held && mine)
+    modelBindings = modelBindings.filter((binding) => binding !== mine);
   return modelBindings === agent.modelBindings ? agent : { ...agent, modelBindings };
 }
 
@@ -221,20 +239,36 @@ interface SharedEdit {
 }
 
 /** Each place `other` holds the value `edit` changed and does not hold the change yet. */
-function owedOn<D extends { key: string }>(among: CarryAmong<D>, other: D, edit: SharedEdit): Owed[] {
+function owedOn<D extends { key: string }>(
+  among: CarryAmong<D>,
+  other: D,
+  edit: SharedEdit,
+): Owed[] {
   const sites = among.sitesOf(other.key);
   const held = among.now.get(other.key);
-  return sites
-    .filter((place) => place.site === edit.site.site)
-    .map((place) => [...place.path, ...edit.rest])
-    // What the other sets apart inside the shared value is its own.
-    .filter((target) => writerOf(sites, target)?.site === edit.site.site)
-    .filter((target) => held === undefined || !same(valueAt(held, target), edit.value))
-    .map((path) => ({ key: other.key, path, from: edit.from, fromPath: edit.fromPath, value: edit.value, site: edit.site }));
+  return (
+    sites
+      .filter((place) => place.site === edit.site.site)
+      .map((place) => [...place.path, ...edit.rest])
+      // What the other sets apart inside the shared value is its own.
+      .filter((target) => writerOf(sites, target)?.site === edit.site.site)
+      .filter((target) => held === undefined || !same(valueAt(held, target), edit.value))
+      .map((path) => ({
+        key: other.key,
+        path,
+        from: edit.from,
+        fromPath: edit.fromPath,
+        value: edit.value,
+        site: edit.site,
+      }))
+  );
 }
 
 /** Each change one of them made since it last compiled, with the place in the files that writes it. */
-function editsOf<D extends { key: string }>(among: CarryAmong<D>, draft: D): Array<{ path: Path; site?: SettingSite; value: unknown }> {
+function editsOf<D extends { key: string }>(
+  among: CarryAmong<D>,
+  draft: D,
+): Array<{ path: Path; site?: SettingSite; value: unknown }> {
   const [before, after] = [among.goodOf(draft.key)?.value, among.now.get(draft.key)];
   if (before === undefined || after === undefined) return [];
   const sites = among.sitesOf(draft.key);
@@ -255,7 +289,13 @@ function owedAmong<D extends { key: string }>(among: CarryAmong<D>) {
     for (const { path, site, value } of editsOf(among, draft)) {
       if (site?.readBy) read.push({ site, from: draft.key });
       if (!site?.shared) continue;
-      const edit = { site, rest: path.slice(site.path.length), value, from: draft.key, fromPath: path };
+      const edit = {
+        site,
+        rest: path.slice(site.path.length),
+        value,
+        from: draft.key,
+        fromPath: path,
+      };
       for (const mine of among.made.flatMap((other) => owedOn(among, other, edit))) {
         const id = text([mine.key, mine.path]);
         const known = owed.get(id);
@@ -270,8 +310,10 @@ function owedAmong<D extends { key: string }>(among: CarryAmong<D>) {
 
 /** Whether what one compiles to now holds each change it is owed, and nothing else new. */
 function holdsOwed(before: unknown, held: unknown, mine: readonly Owed[]): boolean {
-  return same(changedPaths(before, held).map(text).sort(), mine.map((each) => text(each.path)).sort()) &&
-    mine.every((each) => same(valueAt(held, each.path), each.value));
+  return (
+    same(changedPaths(before, held).map(text).sort(), mine.map((each) => text(each.path)).sort()) &&
+    mine.every((each) => same(valueAt(held, each.path), each.value))
+  );
 }
 
 /** What a carry did: the drafts with what was carried, what each of those compiles to, and the ones left. */
@@ -299,7 +341,11 @@ function carriedAmong<D extends { key: string }>(among: CarryAmong<D>): Carried<
   const edited = new Map(among.made.map((draft) => [draft.key, draft]));
   const drafts = new Map(edited);
   for (const each of all) {
-    const [old, held, draft] = [among.goodOf(each.from)?.draft, edited.get(each.from), drafts.get(each.key)];
+    const [old, held, draft] = [
+      among.goodOf(each.from)?.draft,
+      edited.get(each.from),
+      drafts.get(each.key),
+    ];
     // One that does not compile cannot show that it holds the value: it is left.
     const able = old && held && draft && among.now.get(each.key) !== undefined;
     const next = able ? among.withOwed(draft, each, old, held) : undefined;
@@ -311,10 +357,18 @@ function carriedAmong<D extends { key: string }>(among: CarryAmong<D>): Carried<
     const before = among.now.get(key);
     const held = left.has(key) || drafts.get(key) === edited.get(key) ? undefined : compiled(key);
     const mine = all.filter((each) => each.key === key);
-    if (before !== undefined && held !== undefined && holdsOwed(before, held, mine)) kept.set(key, held);
+    if (before !== undefined && held !== undefined && holdsOwed(before, held, mine))
+      kept.set(key, held);
     else left.add(key);
   }
-  return { drafts: among.made.map((draft) => (kept.has(draft.key) ? drafts.get(draft.key) ?? draft : draft)), kept, left, place };
+  return {
+    drafts: among.made.map((draft) =>
+      kept.has(draft.key) ? (drafts.get(draft.key) ?? draft) : draft,
+    ),
+    kept,
+    left,
+    place,
+  };
 }
 
 /**
@@ -322,7 +376,11 @@ function carriedAmong<D extends { key: string }>(among: CarryAmong<D>): Carried<
  * A change is carried only when the agent then compiles to that value there and to nothing else
  * new: otherwise the agent is left as it is, and Save names it.
  */
-export function withSharedCarry(good: SharedSnapshot, made: StudioWorkspace, sites: SharedSites): SharedCarry {
+export function withSharedCarry(
+  good: SharedSnapshot,
+  made: StudioWorkspace,
+  sites: SharedSites,
+): SharedCarry {
   const { drafts, kept, left, place } = carriedAmong<AgentDraft>({
     made: made.agents,
     goodOf: (key) => {
@@ -339,7 +397,8 @@ export function withSharedCarry(good: SharedSnapshot, made: StudioWorkspace, sit
   });
   const snapshot = sharedSnapshot(made, good);
   for (const agent of drafts) {
-    if (kept.has(agent.key)) snapshot.set(agent.key, { draft: agent, profile: kept.get(agent.key) });
+    if (kept.has(agent.key))
+      snapshot.set(agent.key, { draft: agent, profile: kept.get(agent.key) });
   }
   const others = (keys: Iterable<string>) => [...keys].filter((key) => key !== place?.from);
   return {
@@ -350,10 +409,14 @@ export function withSharedCarry(good: SharedSnapshot, made: StudioWorkspace, sit
 }
 
 /** What a reach says of the places a change is written: each one, where the first is, and the code that reads them. */
-function placeOf(sites: readonly SettingSite[]): Pick<SharedReach, 'sites' | 'name' | 'file' | 'line' | 'readBy'> {
+function placeOf(
+  sites: readonly SettingSite[],
+): Pick<SharedReach, 'sites' | 'name' | 'file' | 'line' | 'readBy'> {
   const [first] = sites;
   const lines = new Map(
-    sites.flatMap((site) => site.readBy ?? []).map((each) => [`${each.file}:${String(each.line)}`, each]),
+    sites
+      .flatMap((site) => site.readBy ?? [])
+      .map((each) => [`${each.file}:${String(each.line)}`, each]),
   );
   return {
     sites: [...new Set(sites.map((site) => site.site))],
@@ -395,13 +458,17 @@ export function toolSnapshot(workspace: StudioWorkspace, before?: ToolSnapshot):
 }
 
 /** A tool's schema as the draft holds it, by the key the tool is registered with. */
-const SCHEMA_FIELDS: Record<string, 'inputJson' | 'outputJson'> = { inputSchema: 'inputJson', outputSchema: 'outputJson' };
+const SCHEMA_FIELDS: Record<string, 'inputJson' | 'outputJson'> = {
+  inputSchema: 'inputJson',
+  outputSchema: 'outputJson',
+};
 
 /** `value` with `to` at `path`. Nothing at the path takes the key away. */
 function putAt(value: unknown, path: Path, to: unknown): unknown {
   const [key, ...rest] = path;
   if (key === undefined) return to;
-  if (Array.isArray(value)) return value.map((each, index) => (String(index) === key ? putAt(each, rest, to) : each));
+  if (Array.isArray(value))
+    return value.map((each, index) => (String(index) === key ? putAt(each, rest, to) : each));
   const next: Record<string, unknown> = { ...(isRecord(value) ? value : {}) };
   const inner = putAt(next[key], rest, to);
   if (inner === undefined) delete next[key];
@@ -410,19 +477,28 @@ function putAt(value: unknown, path: Path, to: unknown): unknown {
 }
 
 /** `tool` with what `owed` names changed as the edited tool changed it. Undefined when its schema does not read. */
-function toolWithOwed(tool: ToolSpecDraft, owed: Owed, was: ToolSpecDraft, now: ToolSpecDraft): ToolSpecDraft | undefined {
+function toolWithOwed(
+  tool: ToolSpecDraft,
+  owed: Owed,
+  was: ToolSpecDraft,
+  now: ToolSpecDraft,
+): ToolSpecDraft | undefined {
   const [head, ...rest] = owed.path;
   const schema = SCHEMA_FIELDS[head ?? ''];
   if (schema) {
     try {
-      return { ...tool, [schema]: JSON.stringify(putAt(JSON.parse(tool[schema]), rest, owed.value), null, 2) };
+      return {
+        ...tool,
+        [schema]: JSON.stringify(putAt(JSON.parse(tool[schema]), rest, owed.value), null, 2),
+      };
     } catch {
       return undefined;
     }
   }
   const next = { ...tool } as Record<string, unknown>;
   for (const field of Object.keys(now) as (keyof ToolSpecDraft)[]) {
-    if (field === 'key' || field === 'toolName' || field === 'inputJson' || field === 'outputJson') continue;
+    if (field === 'key' || field === 'toolName' || field === 'inputJson' || field === 'outputJson')
+      continue;
     next[field] = carried(was[field], now[field], tool[field]);
   }
   return next as unknown as ToolSpecDraft;
@@ -473,11 +549,17 @@ const NAMED = 4;
 function listed(ids: readonly string[]): string {
   const rest = ids.length - NAMED;
   const shown = rest > 0 ? [...ids.slice(0, NAMED), `${String(rest)} more`] : ids;
-  return shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1) ?? ''}` : shown[0] ?? '';
+  return shown.length > 1
+    ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1) ?? ''}`
+    : (shown[0] ?? '');
 }
 
 /** What a change from `before` to `made`, made in the agent `from`, does to tools other agents allow. */
-export function toolReach(before: StudioWorkspace, made: StudioWorkspace, from: string): ToolReach | undefined {
+export function toolReach(
+  before: StudioWorkspace,
+  made: StudioWorkspace,
+  from: string,
+): ToolReach | undefined {
   const now = new Map(made.toolSpecs.map((tool) => [tool.key, tool]));
   const changed = before.toolSpecs.filter((tool) => !same(now.get(tool.key), tool));
   const keys = new Set(changed.map((tool) => tool.key));
@@ -486,9 +568,14 @@ export function toolReach(before: StudioWorkspace, made: StudioWorkspace, from: 
     .map((agent) => agent.key);
   if (!agents.length) return undefined;
   const used = changed.filter((tool) =>
-    before.agents.some((agent) => agent.key !== from && agent.tools.allow.includes(tool.key))
+    before.agents.some((agent) => agent.key !== from && agent.tools.allow.includes(tool.key)),
   );
-  return { tools: used.map((tool) => tool.key), names: used.map((tool) => tool.toolName), from, agents };
+  return {
+    tools: used.map((tool) => tool.key),
+    names: used.map((tool) => tool.toolName),
+    from,
+    agents,
+  };
 }
 
 /** A line of a file the question names. */
@@ -532,12 +619,14 @@ export function askParts(ask: Ask): Array<string | AskPlace> {
 
 /** The ids of agents, by key, as the builder knows them. */
 const idsOf = (workspace: StudioWorkspace, keys: readonly string[]) =>
-  keys.map((key) => workspace.agents.find((agent) => agent.key === key)?.identity.agentId.trim())
+  keys
+    .map((key) => workspace.agents.find((agent) => agent.key === key)?.identity.agentId.trim())
     .filter((id): id is string => Boolean(id));
 
 /** The names of tools, by key. */
 const toolNames = (workspace: StudioWorkspace, keys: readonly string[]) =>
-  keys.map((key) => workspace.toolSpecs.find((tool) => tool.key === key)?.toolName.trim())
+  keys
+    .map((key) => workspace.toolSpecs.find((tool) => tool.key === key)?.toolName.trim())
     .filter((name): name is string => Boolean(name));
 
 /** The question for a tool of the library that other agents allow too. */
@@ -545,7 +634,8 @@ function libraryAsk(reach: ToolReach, workspace: StudioWorkspace): Ask {
   const [ids, one] = [idsOf(workspace, reach.agents), reach.names.length === 1];
   return {
     title: `Change it for ${String(ids.length)} other ${ids.length === 1 ? 'profile' : 'profiles'}?`,
-    line: `${listed(reach.names)} ${one ? 'is one tool' : 'are tools'} in the library. ` +
+    line:
+      `${listed(reach.names)} ${one ? 'is one tool' : 'are tools'} in the library. ` +
       `${listed(ids)} ${ids.length === 1 ? 'uses' : 'use'} ${one ? 'it' : 'them'} too, ` +
       `and will change with ${one ? 'it' : 'them'}.`,
     places: [],
@@ -564,7 +654,9 @@ export function sharedAsk(reach: SharedReach | ToolReach, workspace: StudioWorks
   const place = `${reach.name ? `${reach.name} · ` : ''}${reach.file}:${String(reach.line)}`;
   // The other code that reads it, by line when the studio can name one.
   const lines = reach.readBy?.map((each) => `${each.file}:${String(each.line)}`) ?? [];
-  const code = reach.readBy ? ` Other code in your project reads it too${lines.length ? ` (${listed(lines)})` : ''}.` : '';
+  const code = reach.readBy
+    ? ` Other code in your project reads it too${lines.length ? ` (${listed(lines)})` : ''}.`
+    : '';
   if (!ids.length && !left.length) {
     if (reach.readBy) {
       return {
@@ -597,5 +689,7 @@ export function sharedAsk(reach: SharedReach | ToolReach, workspace: StudioWorks
 
 /** Whether agreeing to a change makes it on others too: other agents, other tools. */
 export function reachesOthers(reach: SharedReach | ToolReach): boolean {
-  return reach.agents.length > 0 || ('amongTools' in reach && (reach.amongTools?.made.length ?? 0) > 0);
+  return (
+    reach.agents.length > 0 || ('amongTools' in reach && (reach.amongTools?.made.length ?? 0) > 0)
+  );
 }

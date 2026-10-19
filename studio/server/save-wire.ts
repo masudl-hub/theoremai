@@ -242,7 +242,16 @@ export type EditedAnswer = ({ ok: true; stamp: string } | SaveRefusal) & { saved
  */
 export interface SaveRefusal {
   ok: false;
-  reason: 'issues' | 'stale' | 'unwritable' | 'write' | 'check' | 'load' | 'differs' | 'nothing' | 'unanswered';
+  reason:
+    | 'issues'
+    | 'stale'
+    | 'unwritable'
+    | 'write'
+    | 'check'
+    | 'load'
+    | 'differs'
+    | 'nothing'
+    | 'unanswered';
   detail: string[];
   /** Files a write taken back left as they are now: they changed while Save checked them. */
   kept?: string[];

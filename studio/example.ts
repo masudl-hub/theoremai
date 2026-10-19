@@ -1,3 +1,5 @@
+import { embeddingModelLimits } from '@theoremjs/agents';
+import { DETECTOR_BOUNDARIES, DETECTORS } from '@theoremjs/agents/guardrails';
 import {
   DEMO_ALLOWED_HOSTS,
   DEMO_ARCHITECT_SYSTEM,
@@ -9,24 +11,28 @@ import {
   demoInputsSpec,
   demoToolSpecs,
 } from './concierge-demo.ts';
-import { DETECTOR_BOUNDARIES, DETECTORS } from '@theoremjs/agents/guardrails';
 import {
   createBlankDraft,
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
   freeName,
-  includableFacets,
   type GuardrailsDraft,
+  includableFacets,
   includeFacet,
   type StudioDraft,
   setProfileType,
   type ToolSpecDraft,
 } from './draft.ts';
-import { addAgent, agentNodeId, markAgentStart, type StudioWorkspace, workspaceFromDraft } from './workspace.ts';
 import type { ModelPicks } from './lent-keys.ts';
 import { firstServed } from './policy.ts';
-import { embeddingModelLimits } from '@theoremjs/agents';
+import {
+  addAgent,
+  agentNodeId,
+  markAgentStart,
+  type StudioWorkspace,
+  workspaceFromDraft,
+} from './workspace.ts';
 
 /**
  * Where each example's models start: Google's Flash models and TypeSafe's Jev, which free keys
@@ -76,23 +82,35 @@ export function createSpanExampleDraft(): StudioDraft {
   return {
     ...draft,
     identity: { ...draft.identity, agentId: 'guardrails.tool_call.span', handle: 'span' },
-    modelBindings: [{
-      ...draft.modelBindings[0],
-      ...firstServed('openrouter', 'decision'),
-      apiId: 'respan/span-01-lite:free',
-    }],
+    modelBindings: [
+      {
+        ...draft.modelBindings[0],
+        ...firstServed('openrouter', 'decision'),
+        apiId: 'respan/span-01-lite:free',
+      },
+    ],
     decision: {
       ...draft.decision,
-      questions: [{
-        key: draftKey('question'),
-        id: 'verdict',
-        type: 'noul',
-        instructions: 'Is this tool call unsafe or beyond what the user asked for?',
-        criteria: [
-          { key: draftKey('criterion'), label: 'true', text: 'The call is unsafe or beyond the user request.' },
-          { key: draftKey('criterion'), label: 'false', text: 'The call is safe and within the user request.' },
-        ],
-      }],
+      questions: [
+        {
+          key: draftKey('question'),
+          id: 'verdict',
+          type: 'noul',
+          instructions: 'Is this tool call unsafe or beyond what the user asked for?',
+          criteria: [
+            {
+              key: draftKey('criterion'),
+              label: 'true',
+              text: 'The call is unsafe or beyond the user request.',
+            },
+            {
+              key: draftKey('criterion'),
+              label: 'false',
+              text: 'The call is safe and within the user request.',
+            },
+          ],
+        },
+      ],
     },
   };
 }
@@ -119,13 +137,15 @@ export function createGeminiEmbeddingExampleDraft(): StudioDraft {
       key: 'gemini',
     },
     modelBindings: binding
-      ? [{
-          ...binding,
-          provider: 'gemini',
-          protocol: GEMINI_EMBEDDING.protocol,
-          apiId: GEMINI_EMBEDDING.apiId,
-          options: { outputDimensionality: 768 },
-        }]
+      ? [
+          {
+            ...binding,
+            provider: 'gemini',
+            protocol: GEMINI_EMBEDDING.protocol,
+            apiId: GEMINI_EMBEDDING.apiId,
+            options: { outputDimensionality: 768 },
+          },
+        ]
       : [],
     inputs: {
       ...draft.inputs,
@@ -238,7 +258,10 @@ function exampleTextDraft(
 export function createExampleDraft(): StudioDraft {
   return exampleTextDraft(
     { agentId: 'travel.concierge', handle: 'concierge', system: DEMO_CONCIERGE_SYSTEM },
-    { tools: { t2Loader: 'discover_tools', parallel: false }, toolSpecs: exampleTools(DEMO_CONCIERGE_TOOLS) },
+    {
+      tools: { t2Loader: 'discover_tools', parallel: false },
+      toolSpecs: exampleTools(DEMO_CONCIERGE_TOOLS),
+    },
   );
 }
 
@@ -261,7 +284,10 @@ export function createNarratorExampleDraft(): StudioDraft {
   return {
     ...draft,
     identity: { ...draft.identity, agentId: 'studio.narrator', handle: 'narrator' },
-    speech: { ...draft.speech, style: 'Warm and unhurried, like a podcast host talking to one listener.' },
+    speech: {
+      ...draft.speech,
+      style: 'Warm and unhurried, like a podcast host talking to one listener.',
+    },
   };
 }
 

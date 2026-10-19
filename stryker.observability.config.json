@@ -4,9 +4,7 @@
   "commandRunner": {
     "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/observability"
   },
-  "mutate": [
-    "src/observability/**/*.ts"
-  ],
+  "mutate": ["src/observability/**/*.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -19,10 +17,7 @@
     ".fallow",
     ".stryker-tmp-observability"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/observability-incremental.json",

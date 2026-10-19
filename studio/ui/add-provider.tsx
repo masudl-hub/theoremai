@@ -11,38 +11,38 @@ import { kernelDefinitions, newProvider, type StudioProvider } from '../mod.ts';
  * whose `definitions` are those that serve what picks.
  */
 export function AddProviderButton({
-	taken,
-	onAdd,
-	definitions = kernelDefinitions(),
-	isCompact = false,
+  taken,
+  onAdd,
+  definitions = kernelDefinitions(),
+  isCompact = false,
 }: {
-	taken: readonly string[];
-	onAdd: (provider: StudioProvider) => void;
-	definitions?: readonly string[];
-	isCompact?: boolean;
+  taken: readonly string[];
+  onAdd: (provider: StudioProvider) => void;
+  definitions?: readonly string[];
+  isCompact?: boolean;
 }) {
-	const add = () => {
-		const [definition] = definitions;
-		if (definition) onAdd(newProvider(taken, definition));
-	};
-	return isCompact ? (
-		<IconButton
-			label="New provider"
-			variant="ghost"
-			size="sm"
-			icon={<Icon icon={IconPlus} size="sm" />}
-			tooltip="New provider"
-			onClick={add}
-		/>
-	) : (
-		<Button
-			label="Add provider"
-			variant="ghost"
-			size="sm"
-			width="100%"
-			icon={<Icon icon={IconPlus} size="sm" />}
-			style={{ height: 'calc(var(--size-element-sm) - 4px)' }}
-			onClick={add}
-		/>
-	);
+  const add = () => {
+    const [definition] = definitions;
+    if (definition) onAdd(newProvider(taken, definition));
+  };
+  return isCompact ? (
+    <IconButton
+      label="New provider"
+      variant="ghost"
+      size="sm"
+      icon={<Icon icon={IconPlus} size="sm" />}
+      tooltip="New provider"
+      onClick={add}
+    />
+  ) : (
+    <Button
+      label="Add provider"
+      variant="ghost"
+      size="sm"
+      width="100%"
+      icon={<Icon icon={IconPlus} size="sm" />}
+      style={{ height: 'calc(var(--size-element-sm) - 4px)' }}
+      onClick={add}
+    />
+  );
 }

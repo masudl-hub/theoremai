@@ -34,6 +34,7 @@ import { z } from 'zod';
 export interface StudioProviderOptions extends ProviderHostOptions {
   local?: { baseUrl: string; fetch?: typeof fetch };
 }
+
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
 import { lentCompression, type StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
@@ -56,7 +57,9 @@ export interface StudioRuntimeBase {
   /** Handlers the host runs for function tools, by name. A tool with none answers with its stub. */
   toolHandlers?: StudioToolHandlers;
   /** Before each agent tool call runs its agent: return `refuse` to stop it. */
-  onAgentCall?: (call: AgentCall) => { refuse: string } | void | Promise<{ refuse: string } | void>;
+  onAgentCall?: (
+    call: AgentCall,
+  ) => { refuse: string } | undefined | Promise<{ refuse: string } | undefined>;
 }
 
 /** A run, and what it runs on: a run on lent keys carries the keys it is held to. */
@@ -66,7 +69,11 @@ export type StudioRuntime = StudioRuntimeBase & StudioRunsOn;
 function protocolEvent(event: ModelEvent): ProtocolEvent {
   if (event.type === 'tool') return { type: 'tool_call', call: event.tool } as ProtocolEvent;
   if (event.type === 'done') {
-    return { type: 'done', stop: event.stop, ...(event.interrupted ? { interrupted: true } : {}) } as ProtocolEvent;
+    return {
+      type: 'done',
+      stop: event.stop,
+      ...(event.interrupted ? { interrupted: true } : {}),
+    } as ProtocolEvent;
   }
   return event as ProtocolEvent;
 }
@@ -83,7 +90,10 @@ function scriptedProvider(id: string, protocolId: string, model: TurnModel): Pro
       async *complete(request) {
         let done = false;
         // why: a scripted model writes whatever built-ins the binding names.
-        for await (const event of model.complete({ ...request, builtInTools: context.builtInTools } as unknown as ModelRequest)) {
+        for await (const event of model.complete({
+          ...request,
+          builtInTools: context.builtInTools,
+        } as unknown as ModelRequest)) {
           if (event.type === 'done') done = true;
           yield protocolEvent(event);
         }
@@ -120,7 +130,17 @@ export function runtimeProvider(
     scope.providers.replace(scriptedProvider(id, protocol, scripted));
     scope.profiles.register({
       ...profile,
-      models: { ...profile.models, [selected]: { ...binding, protocol, provider: id, options: {}, keySlot: undefined, fallbackKeySlot: undefined } },
+      models: {
+        ...profile.models,
+        [selected]: {
+          ...binding,
+          protocol,
+          provider: id,
+          options: {},
+          keySlot: undefined,
+          fallbackKeySlot: undefined,
+        },
+      },
     } as Profile);
   }
   const options = runtime.providers ?? {};
@@ -305,9 +325,9 @@ export function withPatterns<D extends ProfileDefinition>(
 async function refuseSlowSchemaPatterns(tools: readonly ToolRegistration[]): Promise<void> {
   const found = tools.flatMap((tool) =>
     (['input', 'output'] as const).flatMap((side) =>
-      schemaPatterns((tool as { inputSchema?: unknown; outputSchema?: unknown })[`${side}Schema`]).map(
-        (source) => ({ tool: tool.name, side, source }),
-      ),
+      schemaPatterns(
+        (tool as { inputSchema?: unknown; outputSchema?: unknown })[`${side}Schema`],
+      ).map((source) => ({ tool: tool.name, side, source })),
     ),
   );
   if (!found.length) return;
@@ -316,7 +336,10 @@ async function refuseSlowSchemaPatterns(tools: readonly ToolRegistration[]): Pro
     const slow = slowPatternProblem(source);
     if (slow) {
       // labels-exempt: builder diagnostic
-      throw new TheoremError('request', `${tool}: the pattern /${source}/ in its ${side} schema ${slow}`);
+      throw new TheoremError(
+        'request',
+        `${tool}: the pattern /${source}/ in its ${side} schema ${slow}`,
+      );
     }
   }
 }
@@ -327,7 +350,9 @@ function schemaPatterns(value: unknown): string[] {
   if (!value || typeof value !== 'object') return [];
   return Object.entries(value).flatMap(([key, inner]) => [
     ...(key === 'pattern' && typeof inner === 'string' ? [inner] : []),
-    ...(key === 'patternProperties' && inner && typeof inner === 'object' ? Object.keys(inner) : []),
+    ...(key === 'patternProperties' && inner && typeof inner === 'object'
+      ? Object.keys(inner)
+      : []),
     ...schemaPatterns(inner),
   ]);
 }
@@ -384,7 +409,9 @@ async function registerDraft(
     }
   }
   // why: Registering checks each binding's options and the tools and schemas it names, all the sender's.
-  return asDraft(() => registerDefined(scope, defined, customTools, structured, runtime.toolHandlers));
+  return asDraft(() =>
+    registerDefined(scope, defined, customTools, structured, runtime.toolHandlers),
+  );
 }
 
 /** Registers a draft's tools and schema, then its profile, into `scope`. */

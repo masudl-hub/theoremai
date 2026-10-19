@@ -12,8 +12,10 @@ export function eachLine(
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let partial = '';
-  const sender = (controller: TransformStreamDefaultController<Uint8Array>): SendLine => (line) =>
-    controller.enqueue(encoder.encode(`${line}\n`));
+  const sender =
+    (controller: TransformStreamDefaultController<Uint8Array>): SendLine =>
+    (line) =>
+      controller.enqueue(encoder.encode(`${line}\n`));
   return new TransformStream({
     transform(chunk, controller) {
       const lines = (partial + decoder.decode(chunk, { stream: true })).split('\n');

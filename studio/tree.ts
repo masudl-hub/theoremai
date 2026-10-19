@@ -49,17 +49,16 @@ function facetLabel(id: ProfileGraphFacetId): string {
 }
 
 /** `undefined` when the id names nothing. */
-export function studioNodeRef(
-  draft: StudioDraft,
-  id: string,
-): StudioNodeRef | undefined {
+export function studioNodeRef(draft: StudioDraft, id: string): StudioNodeRef | undefined {
   const [facet, key] = id.split(':', 2);
   if (facet === 'modelBinding' && key !== undefined) {
     return draft.modelBindings.some((binding) => binding.key === key) ? { facet, key } : undefined;
   }
   const tool = toolSpecKeyOf(id);
   if (tool !== undefined) {
-    return draft.toolSpecs.some((spec) => spec.key === tool) ? { facet: 'toolSpec', key: tool } : undefined;
+    return draft.toolSpecs.some((spec) => spec.key === tool)
+      ? { facet: 'toolSpec', key: tool }
+      : undefined;
   }
   const facets = draftFacets(draft) as string[];
   if (key !== undefined || !facets.includes(id)) return undefined;

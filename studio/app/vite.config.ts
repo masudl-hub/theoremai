@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
+import { PAGE_BASE, PAGE_HEADERS } from '../page.mjs';
 import { BOOT_PAINT, BOOT_PAINT_NOSCRIPT } from '../ui/boot-paint.ts';
 import { PROJECT_META } from '../ui/lib/project-address.ts';
-import { PAGE_BASE, PAGE_HEADERS } from '../page.mjs';
 import { studioVite } from '../vite.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -14,7 +14,11 @@ const bootPaint: Plugin = {
   name: 'theorem-studio-boot-paint',
   transformIndexHtml: () => [
     { tag: 'style', children: BOOT_PAINT, injectTo: 'head' },
-    { tag: 'noscript', children: [{ tag: 'style', children: BOOT_PAINT_NOSCRIPT }], injectTo: 'head' },
+    {
+      tag: 'noscript',
+      children: [{ tag: 'style', children: BOOT_PAINT_NOSCRIPT }],
+      injectTo: 'head',
+    },
   ],
 };
 
@@ -25,7 +29,10 @@ const bootPaint: Plugin = {
 const project = process.env.THEOREM_STUDIO_PROJECT;
 const projectAddress: Plugin = {
   name: 'theorem-studio-project-address',
-  transformIndexHtml: () => (project ? [{ tag: 'meta', attrs: { name: PROJECT_META, content: project }, injectTo: 'head' }] : []),
+  transformIndexHtml: () =>
+    project
+      ? [{ tag: 'meta', attrs: { name: PROJECT_META, content: project }, injectTo: 'head' }]
+      : [],
 };
 
 /**

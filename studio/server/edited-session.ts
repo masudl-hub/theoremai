@@ -9,8 +9,8 @@
 
 import type { StudioWorkspace } from '../workspace.ts';
 import type { ProjectEdits } from './edits.ts';
-import { message, refusal, stampOf } from './save-session.ts';
 import { projectDiffers, projectNames, saveSubjects, withoutRemoved } from './save.ts';
+import { message, refusal, stampOf } from './save-session.ts';
 import type { EditedAnswer } from './save-wire.ts';
 
 /** What the edited load needs from the machine. `Loaded` is one load of the project. */
@@ -61,7 +61,10 @@ export function createEditedSession<Loaded>(host: EditedHost<Loaded>): EditedSes
   };
 
   type Opened = { ok: true; stamp: string } | ReturnType<typeof refusal>;
-  const start = async (workspace: StudioWorkspace, names: ReturnType<typeof projectNames>): Promise<Opened> => {
+  const start = async (
+    workspace: StudioWorkspace,
+    names: ReturnType<typeof projectNames>,
+  ): Promise<Opened> => {
     let subjects: ReturnType<typeof saveSubjects>;
     try {
       subjects = saveSubjects(workspace, names);

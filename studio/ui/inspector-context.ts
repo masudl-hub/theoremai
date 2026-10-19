@@ -1,16 +1,16 @@
 import type { InputStatus } from '@astryxdesign/core/Field';
+import { createContext, useContext } from 'react';
 import {
-	type NodeOrigins,
-	rowOrigin,
-	ON_OWN_KEYS,
-	type StudioAsks,
-	type StudioIssue,
-	type StudioProvider,
-	type StudioRunsOn,
-	type WriteAsk,
+  type NodeOrigins,
+  ON_OWN_KEYS,
+  rowOrigin,
+  type StudioAsks,
+  type StudioIssue,
+  type StudioProvider,
+  type StudioRunsOn,
+  type WriteAsk,
 } from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
-import { createContext, useContext } from 'react';
 
 // Kept out of inspector.tsx: a hot reload re-runs that module and would orphan these contexts.
 
@@ -22,14 +22,14 @@ export const NodeIssues = createContext<readonly StudioIssue[]>([]);
  * entry at `index`. Several issues on one field show as one message.
  */
 export function useFieldStatus(): (field?: string, index?: number) => InputStatus | undefined {
-	const issues = useContext(NodeIssues);
-	return (field, index) => {
-		if (field === undefined) return undefined;
-		const messages = issues
-			.filter((issue) => issue.field === field && issue.index === index)
-			.map((issue) => issue.message);
-		return messages.length ? { type: 'error', message: messages.join(' ') } : undefined;
-	};
+  const issues = useContext(NodeIssues);
+  return (field, index) => {
+    if (field === undefined) return undefined;
+    const messages = issues
+      .filter((issue) => issue.field === field && issue.index === index)
+      .map((issue) => issue.message);
+    return messages.length ? { type: 'error', message: messages.join(' ') } : undefined;
+  };
 }
 
 /**
@@ -37,8 +37,8 @@ export function useFieldStatus(): (field?: string, index?: number) => InputStatu
  * builder's editor. `null` when no project is open, or the files do not hold the node.
  */
 export const RowOrigins = createContext<{
-	scope: NodeOrigins;
-	open: (origin: SettingOrigin) => void;
+  scope: NodeOrigins;
+  open: (origin: SettingOrigin) => void;
 } | null>(null);
 
 /**
@@ -46,7 +46,7 @@ export const RowOrigins = createContext<{
  * no page mounts the question, the run is refused.
  */
 export const ConfirmWrite = createContext<(ask: WriteAsk) => Promise<boolean>>(() =>
-	Promise.resolve(false),
+  Promise.resolve(false),
 );
 
 /** The project's tools that write: the ones the studio makes ask, and the ones it cannot. */
@@ -60,20 +60,20 @@ export const SaidOrigin = createContext<SettingOrigin | undefined>(undefined);
  * shows its value and does not change it. `said` when the editor already says so over the row:
  * once for the whole node, or on the section the row is in.
  */
-export function useRowOrigin(path: string | undefined):
-	| { origin: SettingOrigin; said: boolean; open: () => void }
-	| undefined {
-	const held = useContext(RowOrigins);
-	const above = useContext(SaidOrigin);
-	const origin = held && path !== undefined ? rowOrigin(held.scope, path) : undefined;
-	if (!held || !origin) return undefined;
-	return {
-		origin,
-		said: origin === held.scope.section || origin === held.scope.partly || origin === above,
-		open: () => {
-			held.open(origin);
-		},
-	};
+export function useRowOrigin(
+  path: string | undefined,
+): { origin: SettingOrigin; said: boolean; open: () => void } | undefined {
+  const held = useContext(RowOrigins);
+  const above = useContext(SaidOrigin);
+  const origin = held && path !== undefined ? rowOrigin(held.scope, path) : undefined;
+  if (!held || !origin) return undefined;
+  return {
+    origin,
+    said: origin === held.scope.section || origin === held.scope.partly || origin === above,
+    open: () => {
+      held.open(origin);
+    },
+  };
 }
 
 /**
@@ -96,22 +96,22 @@ export const RunsOn = createContext<StudioRunsOn>(ON_OWN_KEYS);
 
 import type { StudioConnectionState } from './studio-connection.tsx';
 export const LocalConnection = createContext<Pick<
-	StudioConnectionState,
-	| 'localModels'
-	| 'local'
-	| 'setLocal'
-	| 'remoteTools'
-	| 'setRemoteTools'
-	| 'runtime'
-	| 'slots'
-	| 'vault'
+  StudioConnectionState,
+  | 'localModels'
+  | 'local'
+  | 'setLocal'
+  | 'remoteTools'
+  | 'setRemoteTools'
+  | 'runtime'
+  | 'slots'
+  | 'vault'
 > | null>(null);
 
 /** One agent of the workspace, as another agent's pickers name it. */
 export interface WorkspaceAgent {
-	key: string;
-	agentId: string;
-	type: string;
+  key: string;
+  agentId: string;
+  type: string;
 }
 
 /**
@@ -120,13 +120,17 @@ export interface WorkspaceAgent {
  * shows a single draft.
  */
 export const WorkspaceContext = createContext<{
-	agents: readonly WorkspaceAgent[];
-	self: string;
-	allowed: readonly string[];
-	setAllowed: (toolKey: string, allowed: boolean) => void;
-	addProvider: ((provider: StudioProvider) => void) | undefined;
-	/** Puts a changed provider in the workspace; left out where the providers are not the builder's. */
-	updateProvider: ((provider: StudioProvider) => void) | undefined;
-	/** Who else calls `apiId` on the provider `id` besides the open agent's model `bindingKey` (`modelSharers`). */
-	sharing: (bindingKey: string, id: string, apiId: string) => { models: string[]; agents: string[] };
+  agents: readonly WorkspaceAgent[];
+  self: string;
+  allowed: readonly string[];
+  setAllowed: (toolKey: string, allowed: boolean) => void;
+  addProvider: ((provider: StudioProvider) => void) | undefined;
+  /** Puts a changed provider in the workspace; left out where the providers are not the builder's. */
+  updateProvider: ((provider: StudioProvider) => void) | undefined;
+  /** Who else calls `apiId` on the provider `id` besides the open agent's model `bindingKey` (`modelSharers`). */
+  sharing: (
+    bindingKey: string,
+    id: string,
+    apiId: string,
+  ) => { models: string[]; agents: string[] };
 } | null>(null);

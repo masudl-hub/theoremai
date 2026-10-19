@@ -14,11 +14,18 @@ export function lentRoute(
   type: ModelProfileType,
   profile: { models: Record<string, { protocol: string; provider: string; apiId: string }> },
 ): LentBinding {
-  return { ...modelRoute(STUDIO_PROVIDERS, type, Object.values(profile.models)[0]), builtInTools: [] };
+  return {
+    ...modelRoute(STUDIO_PROVIDERS, type, Object.values(profile.models)[0]),
+    builtInTools: [],
+  };
 }
 
 /** The vault the host lends `profile`, refused as `auth` when it holds no key. */
-export function lentVault(runtime: LentRuntime, profile: Profile, route: string): NonNullable<ProviderHostOptions['vault']> {
+export function lentVault(
+  runtime: LentRuntime,
+  profile: Profile,
+  route: string,
+): NonNullable<ProviderHostOptions['vault']> {
   const vault = runtime.hostOptions?.(profile).vault ?? {};
   if (!Object.values(vault).some(Boolean)) {
     throw new TheoremError('auth', `studio ${route}: provider key is missing`); // labels-exempt: internal diagnostic

@@ -16,7 +16,7 @@ import {
 } from './compile.ts';
 import type { StudioRunsOn } from './lent-keys.ts';
 import { kernelDefinition, providerProblems, registerStudioProvider } from './providers.ts';
-import { type StudioDependency, registerDefined } from './runtime-scope.ts';
+import { registerDefined, type StudioDependency } from './runtime-scope.ts';
 import { modelBindingNodeId, providerNodeId, toolSpecNodeId } from './tree.ts';
 import {
   type AgentDraft,
@@ -57,13 +57,15 @@ function references(workspace: StudioWorkspace): Reference[] {
     }),
     ...agent.modelBindings.flatMap((binding): Reference[] =>
       binding.compactTiming && binding.compactWith
-        ? [{
-          from: agent,
-          to: binding.compactWith,
-          nodeId: agentNodeId(agent.key, modelBindingNodeId(binding.key)),
-          field: 'compactWith',
-        }]
-        : []
+        ? [
+            {
+              from: agent,
+              to: binding.compactWith,
+              nodeId: agentNodeId(agent.key, modelBindingNodeId(binding.key)),
+              field: 'compactWith',
+            },
+          ]
+        : [],
     ),
   ]);
 }
@@ -240,14 +242,23 @@ function kernelIssue(
     try {
       registerStudioProvider(scope.providers, provider);
     } catch (err) {
-      const message = err instanceof z.ZodError ? err.issues[0]?.message : err instanceof TheoremError ? err.message : undefined;
+      const message =
+        err instanceof z.ZodError
+          ? err.issues[0]?.message
+          : err instanceof TheoremError
+            ? err.message
+            : undefined;
       if (message === undefined) throw err;
       return { nodeId: providerNodeId(provider.id), message };
     }
   }
   for (const { key, agent } of compiled) {
     const { profile } = agent;
-    if (profile.type !== 'host' && Object.values(profile.models).some((binding) => own.has(binding.provider))) continue;
+    if (
+      profile.type !== 'host' &&
+      Object.values(profile.models).some((binding) => own.has(binding.provider))
+    )
+      continue;
     try {
       registerDefined(
         scope,
@@ -291,7 +302,12 @@ export function compileWorkspace(
   // Each reference that closes a circle is an issue on the field that holds it.
   for (const ref of refs) {
     const path = chain(named, ref.to, ref.from.key);
-    if (path) report({ nodeId: ref.nodeId, field: ref.field, message: circleMessage(ref, path, agentIdOf) });
+    if (path)
+      report({
+        nodeId: ref.nodeId,
+        field: ref.field,
+        message: circleMessage(ref, path, agentIdOf),
+      });
   }
 
   const compiled = compileAgents(workspace, [...ordered, ...looped], on, agentIdOf, report);
@@ -336,7 +352,7 @@ function namedAgents(agent: CompiledStudio): string[] {
   const tools = agent.customTools.flatMap((tool) => (tool.type === 'agent' ? [tool.profile] : []));
   const models = 'models' in agent.profile ? Object.values(agent.profile.models) : [];
   const compactors = models.flatMap((binding) =>
-    binding.compaction?.profile ? [binding.compaction.profile] : []
+    binding.compaction?.profile ? [binding.compaction.profile] : [],
   );
   return [...tools, ...compactors];
 }

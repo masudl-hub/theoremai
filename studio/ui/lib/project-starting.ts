@@ -8,13 +8,13 @@ const STARTING_MS = 10_000;
 const EVERY_MS = 200;
 
 export interface Clock {
-	now(): number;
-	wait(ms: number): Promise<void>;
+  now(): number;
+  wait(ms: number): Promise<void>;
 }
 
 const CLOCK: Clock = {
-	now: () => performance.now(),
-	wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  now: () => performance.now(),
+  wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
 /** A fetch that reached nothing throws a TypeError; a server that answered badly throws something else. */
@@ -25,13 +25,13 @@ const nothingAnswered = (error: unknown) => error instanceof TypeError;
  * a server answers badly, or when none has answered by the time one would have started.
  */
 export async function onceAnswering<T>(open: () => Promise<T>, clock: Clock = CLOCK): Promise<T> {
-	const until = clock.now() + STARTING_MS;
-	for (;;) {
-		try {
-			return await open();
-		} catch (error) {
-			if (!nothingAnswered(error) || clock.now() >= until) throw error;
-			await clock.wait(EVERY_MS);
-		}
-	}
+  const until = clock.now() + STARTING_MS;
+  for (;;) {
+    try {
+      return await open();
+    } catch (error) {
+      if (!nothingAnswered(error) || clock.now() >= until) throw error;
+      await clock.wait(EVERY_MS);
+    }
+  }
 }

@@ -16,8 +16,8 @@
 import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { defaultKernelScope, type ProviderHostOptions } from '@theoremjs/agents';
-import { editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
 import type { StudioActingAs, StudioPeople } from '../people.ts';
+import { editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
 import { createStudioHandler, type ProjectQuestions } from './handler.ts';
 
 type SetupModule = {

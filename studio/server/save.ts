@@ -8,20 +8,20 @@
  * @module
  */
 
-import { z } from 'zod';
 import { jsonSchemaFromZod } from '@theoremjs/agents/kernel';
-import { compileWorkspace } from '../compile-workspace.ts';
-import { ON_OWN_KEYS } from '../lent-keys.ts';
+import { z } from 'zod';
+import { canonical } from '../canonical.ts';
 import type { CompiledStudio } from '../compile.ts';
+import { compileWorkspace } from '../compile-workspace.ts';
 import { unheldConnection, unheldProblem } from '../held-credentials.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
 import { withoutStudioFills } from '../policy.ts';
 import type { StudioProvider } from '../providers.ts';
-import type { NewSubjects } from './save-new.ts';
-import type { Removed } from './save-remove.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import type { StudioWorkspace } from '../workspace.ts';
-import { canonical } from '../canonical.ts';
+import type { NewSubjects } from './save-new.ts';
 import type { SaveSubject } from './save-plan.ts';
+import type { Removed } from './save-remove.ts';
 import type { SaveChange } from './save-wire.ts';
 
 /** What the project registers: the ids of its profiles and providers, and the names of its tools. */
@@ -32,7 +32,13 @@ export interface ProjectNames {
 }
 
 export type SaveSubjects =
-  | { ok: true; subjects: SaveSubject[]; added: NewSubjects; removed: Removed; changes: SaveChange[] }
+  | {
+      ok: true;
+      subjects: SaveSubject[];
+      added: NewSubjects;
+      removed: Removed;
+      changes: SaveChange[];
+    }
   | { ok: false; issues: string[] };
 
 interface Compiled {
@@ -60,11 +66,16 @@ function compiled(workspace: StudioWorkspace): Compiled | string[] {
   const result = compileWorkspace(workspace, ON_OWN_KEYS);
   if (!result.ok) return result.issues.map((issue) => issue.message);
   const tools = new Map<string, ToolRegistration>();
-  for (const agent of result.agents) for (const tool of agent.customTools) tools.set(tool.name, tool);
+  for (const agent of result.agents)
+    for (const tool of agent.customTools) tools.set(tool.name, tool);
   // A file holds the profile without the studio's own fill-ins, so Save never writes them.
-  const profiles = new Map(result.agents.map((agent) => [agent.agentId, withoutStudioFills(agent.profile)]));
+  const profiles = new Map(
+    result.agents.map((agent) => [agent.agentId, withoutStudioFills(agent.profile)]),
+  );
   const asked = new Map(result.agents.map((agent) => [agent.agentId, agent.questions]));
-  const providers = new Map(workspace.providers.map((provider) => [provider.id, providerSettings(provider)]));
+  const providers = new Map(
+    workspace.providers.map((provider) => [provider.id, providerSettings(provider)]),
+  );
   return { agents: result.agents, profiles, asked, tools, providers };
 }
 
@@ -80,9 +91,15 @@ export function projectNames(opened: StudioWorkspace): ProjectNames {
 /** The workspace as the project opened it: each agent, tool, and provider the project has, at its start. */
 function atStart(workspace: StudioWorkspace, names: ProjectNames): StudioWorkspace {
   const { starts } = workspace;
-  const agents = Object.values(starts.agents).filter((agent) => names.profiles.includes(agent.identity.agentId));
-  const toolSpecs = Object.values(starts.tools).filter((tool) => names.tools.includes(tool.toolName));
-  const providers = Object.values(starts.providers).filter((provider) => names.providers.includes(provider.id));
+  const agents = Object.values(starts.agents).filter((agent) =>
+    names.profiles.includes(agent.identity.agentId),
+  );
+  const toolSpecs = Object.values(starts.tools).filter((tool) =>
+    names.tools.includes(tool.toolName),
+  );
+  const providers = Object.values(starts.providers).filter((provider) =>
+    names.providers.includes(provider.id),
+  );
   return { ...workspace, agents, toolSpecs, providers };
 }
 
@@ -101,7 +118,11 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
 
   const subjects: SaveSubject[] = [];
   const changes: SaveChange[] = [];
-  const added = { profiles: [] as string[], tools: [] as ToolRegistration[], providers: [] as StudioProvider[] };
+  const added = {
+    profiles: [] as string[],
+    tools: [] as ToolRegistration[],
+    providers: [] as StudioProvider[],
+  };
   const seen = { profile: new Set<string>(), tool: new Set<string>() };
   const add = (
     kind: 'profile' | 'tool',
@@ -119,9 +140,10 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
       return;
     }
     seen[kind].add(started);
-    const [was, is] = kind === 'profile'
-      ? [before.profiles.get(started), after.profiles.get(now)]
-      : [before.tools.get(started), after.tools.get(now)];
+    const [was, is] =
+      kind === 'profile'
+        ? [before.profiles.get(started), after.profiles.get(now)]
+        : [before.tools.get(started), after.tools.get(now)];
     // A tool no profile allows on one side is not compiled there, so an edit to it has nothing to compare.
     if (was === undefined || is === undefined) {
       if (edited) changes.push({ kind, of: started, setting: '', status: 'unfound' });
@@ -155,16 +177,24 @@ export function saveSubjects(workspace: StudioWorkspace, names: ProjectNames): S
   // A mask the page sends that it was not given has no value to run or to save with.
   const unheld = [
     ...workspace.providers.map((provider) => unheldConnection(provider.id, provider.connection)),
-    ...subjects.filter((subject) => subject.kind === 'tool').map((subject) =>
-      unheldProblem(subject.of, subject.after as ToolRegistration, subject.before as ToolRegistration)
-    ),
+    ...subjects
+      .filter((subject) => subject.kind === 'tool')
+      .map((subject) =>
+        unheldProblem(
+          subject.of,
+          subject.after as ToolRegistration,
+          subject.before as ToolRegistration,
+        ),
+      ),
     ...added.tools.map((tool) => unheldProblem(tool.name, tool)),
   ].filter((problem) => problem !== undefined);
   if (unheld.length) return { ok: false, issues: unheld };
   const removed = {
     profiles: names.profiles.filter((id) => !seen.profile.has(id)),
     tools: names.tools.filter((name) => !seen.tool.has(name)),
-    providers: names.providers.filter((id) => !workspace.providers.some((provider) => provider.id === id)),
+    providers: names.providers.filter(
+      (id) => !workspace.providers.some((provider) => provider.id === id),
+    ),
   };
   return { ok: true, subjects, added: { agents: after.agents, ...added }, removed, changes };
 }
@@ -207,7 +237,9 @@ export function projectDiffers(loaded: StudioWorkspace, tested: StudioWorkspace)
   const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
   for (const id of new Set([...now.profiles.keys(), ...wanted.profiles.keys()])) {
     // A decision is its profile and what it is asked: the files must hold both as tested.
-    const held = same(now.profiles.get(id), wanted.profiles.get(id)) && same(now.asked.get(id), wanted.asked.get(id));
+    const held =
+      same(now.profiles.get(id), wanted.profiles.get(id)) &&
+      same(now.asked.get(id), wanted.asked.get(id));
     if (!held) differs.push(id);
   }
   // A file holds a tool's schema as the page does, or as the kernel reads the page's: a tool the

@@ -4,13 +4,13 @@
  * by URL (see `../mic-capture.ts`), so it imports nothing and ships as is.
  */
 registerProcessor(
-	'mic-capture-processor',
-	class MicCaptureProcessor extends AudioWorkletProcessor {
-		process(inputs) {
-			const channel = inputs[0][0];
-			const copy = new Float32Array(channel);
-			this.port.postMessage(copy, [copy.buffer]);
-			return true;
-		}
-	},
+  'mic-capture-processor',
+  class MicCaptureProcessor extends AudioWorkletProcessor {
+    process(inputs) {
+      const channel = inputs[0][0];
+      const copy = new Float32Array(channel);
+      this.port.postMessage(copy, [copy.buffer]);
+      return true;
+    }
+  },
 );

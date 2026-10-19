@@ -13,12 +13,16 @@ const STEPS: ReadStep[] = [
   { found: 'tool', name: 'remove_plant', file: 'backend/theorem/tools/plants.ts' },
 ];
 
-const by = (map: ReturnType<typeof readMap>) => Object.fromEntries(map.nodes.map((node) => [node.id, node]));
+const by = (map: ReturnType<typeof readMap>) =>
+  Object.fromEntries(map.nodes.map((node) => [node.id, node]));
 
 Deno.test('the setup file is on the left, folders branch from it, and what is found is on the right', () => {
   const map = readMap(STEPS, 12);
   const nodes = by(map);
-  assertEquals([nodes.entry?.label, nodes.entry?.col, nodes.entry?.own], ['studio.setup.ts', 0, [0]]);
+  assertEquals(
+    [nodes.entry?.label, nodes.entry?.col, nodes.entry?.own],
+    ['studio.setup.ts', 0, [0]],
+  );
   // A folder that only holds one other is named by the whole path.
   assertEquals(nodes['folder:backend/theorem/profiles']?.label, 'profiles');
   assertEquals(nodes['folder:backend/theorem']?.label, 'theorem');
@@ -36,12 +40,20 @@ Deno.test('with few rows the folders are told apart less, and what is found is c
   const nodes = by(map);
   assertEquals(nodes['folder:backend/theorem']?.own, [1, 2, 3]);
   assertEquals(nodes['folder:backend/theorem/tools'], undefined);
-  assertEquals(map.nodes.filter((node) => node.kind === 'more').map((node) => node.label), ['3 agents and tools']);
+  assertEquals(
+    map.nodes.filter((node) => node.kind === 'more').map((node) => node.label),
+    ['3 agents and tools'],
+  );
   assertEquals(map.rows, 2);
 });
 
 Deno.test('folders past the rows are folded into the last one kept', () => {
-  const steps: ReadStep[] = [{ file: 'setup.ts' }, { file: 'a/x.ts' }, { file: 'b/x.ts' }, { file: 'c/x.ts' }];
+  const steps: ReadStep[] = [
+    { file: 'setup.ts' },
+    { file: 'a/x.ts' },
+    { file: 'b/x.ts' },
+    { file: 'c/x.ts' },
+  ];
   const nodes = by(readMap(steps, 2));
   assertEquals(nodes['folder:b']?.label, 'b and 1 more');
   assertEquals(nodes['folder:b']?.own, [2, 3]);
@@ -50,14 +62,22 @@ Deno.test('folders past the rows are folded into the last one kept', () => {
 
 Deno.test('a project of one file is that file', () => {
   const map = readMap([{ file: 'setup.ts' }], 8);
-  assertEquals(map.nodes.map((node) => [node.id, node.row]), [['entry', 0]]);
+  assertEquals(
+    map.nodes.map((node) => [node.id, node.row]),
+    [['entry', 0]],
+  );
 });
 
 Deno.test('an agent and a tool keep the type their file writes, and one without has none', () => {
   const typed: ReadStep[] = [
     { file: 'studio.setup.ts' },
     { file: 'backend/tools/places.ts', from: 'studio.setup.ts' },
-    { found: 'profile', name: 'bonsai.pagereader', file: 'backend/tools/places.ts', type: 'decision' },
+    {
+      found: 'profile',
+      name: 'bonsai.pagereader',
+      file: 'backend/tools/places.ts',
+      type: 'decision',
+    },
     { found: 'tool', name: 'search_places', file: 'backend/tools/places.ts', type: 'http' },
     { found: 'tool', name: 'remove_plant', file: 'backend/tools/places.ts' },
   ];

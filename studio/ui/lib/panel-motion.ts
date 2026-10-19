@@ -17,13 +17,13 @@ const INCOMING = '.studio-map-pane, .studio-settings-tree, .studio-settings-body
 
 /** A phone's panel already takes the frame, and reduced motion moves nothing. */
 export function panelCanMove(): boolean {
-	return globalThis.matchMedia('(min-width: 768px)').matches && !prefersReducedMotion();
+  return globalThis.matchMedia('(min-width: 768px)').matches && !prefersReducedMotion();
 }
 
 /** A tab in the background runs no animation, so each one is also given its time and no longer. */
 function ended(animations: Animation[], ms: number): Promise<unknown> {
-	const all = Promise.all(animations.map((each) => each.finished.catch(() => undefined)));
-	return Promise.race([all, sleep(ms + 200)]);
+  const all = Promise.all(animations.map((each) => each.finished.catch(() => undefined)));
+  return Promise.race([all, sleep(ms + 200)]);
 }
 
 /**
@@ -32,57 +32,57 @@ function ended(animations: Animation[], ms: number): Promise<unknown> {
  * panel to move, the swap happens at once.
  */
 export async function movePanel(widens: boolean, swap: () => void): Promise<void> {
-	const frame = document.querySelector<HTMLElement>('.studio-frame');
-	const surface = frame?.querySelector<HTMLElement>('[data-shell-frame]');
-	if (!frame || !surface || !panelCanMove()) {
-		swap();
-		return;
-	}
-	const parts = () => [...frame.querySelectorAll<HTMLElement>(PARTS)];
-	const hidden = parts().map((part) =>
-		part.animate({ opacity: [1, 0] }, { duration: HOLD_MS, easing: 'ease', fill: 'forwards' }),
-	);
-	await ended(hidden, HOLD_MS);
+  const frame = document.querySelector<HTMLElement>('.studio-frame');
+  const surface = frame?.querySelector<HTMLElement>('[data-shell-frame]');
+  if (!frame || !surface || !panelCanMove()) {
+    swap();
+    return;
+  }
+  const parts = () => [...frame.querySelectorAll<HTMLElement>(PARTS)];
+  const hidden = parts().map((part) =>
+    part.animate({ opacity: [1, 0] }, { duration: HOLD_MS, easing: 'ease', fill: 'forwards' }),
+  );
+  await ended(hidden, HOLD_MS);
 
-	// The panel is drawn at its full width, cut back to the width it rests at: only the cut moves.
-	// The corners are the raised surface's own, which the frame wraps.
-	const drawn = surface.firstElementChild ?? surface;
-	const round = getComputedStyle(drawn).borderTopRightRadius || '0px';
-	const cut = (width: number) => `inset(0 calc(100% - ${String(width)}px) 0 0 round ${round})`;
-	const whole = `inset(0 0 0 0 round ${round})`;
-	if (widens) {
-		const narrow = surface.offsetWidth;
-		surface.dataset.rests = String(narrow);
-		const move = surface.animate(
-			{ clipPath: [cut(narrow), whole] },
-			{ duration: MOVE_MS, easing: EASE, fill: 'both' },
-		);
-		swap();
-		const incoming = frame.querySelectorAll<HTMLElement>(INCOMING);
-		const fades = [...incoming].map((each) =>
-			each.animate({ opacity: [0, 1] }, { duration: MOVE_MS, easing: EASE, fill: 'both' }),
-		);
-		await ended([move, ...fades], MOVE_MS);
-		move.cancel();
-		for (const each of fades) each.cancel();
-	} else {
-		const narrow = Number(surface.dataset.rests);
-		delete surface.dataset.rests;
-		if (narrow > 0) {
-			const move = surface.animate(
-				{ clipPath: [whole, cut(narrow)] },
-				{ duration: MOVE_MS, easing: EASE, fill: 'both' },
-			);
-			await ended([move], MOVE_MS);
-			swap();
-			move.cancel();
-		} else {
-			swap();
-		}
-	}
+  // The panel is drawn at its full width, cut back to the width it rests at: only the cut moves.
+  // The corners are the raised surface's own, which the frame wraps.
+  const drawn = surface.firstElementChild ?? surface;
+  const round = getComputedStyle(drawn).borderTopRightRadius || '0px';
+  const cut = (width: number) => `inset(0 calc(100% - ${String(width)}px) 0 0 round ${round})`;
+  const whole = `inset(0 0 0 0 round ${round})`;
+  if (widens) {
+    const narrow = surface.offsetWidth;
+    surface.dataset.rests = String(narrow);
+    const move = surface.animate(
+      { clipPath: [cut(narrow), whole] },
+      { duration: MOVE_MS, easing: EASE, fill: 'both' },
+    );
+    swap();
+    const incoming = frame.querySelectorAll<HTMLElement>(INCOMING);
+    const fades = [...incoming].map((each) =>
+      each.animate({ opacity: [0, 1] }, { duration: MOVE_MS, easing: EASE, fill: 'both' }),
+    );
+    await ended([move, ...fades], MOVE_MS);
+    move.cancel();
+    for (const each of fades) each.cancel();
+  } else {
+    const narrow = Number(surface.dataset.rests);
+    delete surface.dataset.rests;
+    if (narrow > 0) {
+      const move = surface.animate(
+        { clipPath: [whole, cut(narrow)] },
+        { duration: MOVE_MS, easing: EASE, fill: 'both' },
+      );
+      await ended([move], MOVE_MS);
+      swap();
+      move.cancel();
+    } else {
+      swap();
+    }
+  }
 
-	for (const part of parts()) {
-		part.animate({ opacity: [0, 1] }, { duration: FADE_MS, easing: EASE });
-	}
-	for (const each of hidden) each.cancel();
+  for (const part of parts()) {
+    part.animate({ opacity: [0, 1] }, { duration: FADE_MS, easing: EASE });
+  }
+  for (const each of hidden) each.cancel();
 }

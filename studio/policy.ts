@@ -4,16 +4,27 @@
  */
 
 import { GOOGLE_BUILTIN_TOOLS } from '@theoremjs/agents/presets/google';
-import { geminiInteractions, geminiLive, openRouter, openRouterImages } from '@theoremjs/agents/providers';
+import {
+  geminiInteractions,
+  geminiLive,
+  openRouter,
+  openRouterImages,
+} from '@theoremjs/agents/providers';
 import type { ModelBindingDraft } from './draft.ts';
-import type { LentBinding, ModelBindingViolation, ModelProfileType, ModelStart, StudioRunsOn } from './lent-keys.ts';
+import type {
+  LentBinding,
+  ModelBindingViolation,
+  ModelProfileType,
+  ModelStart,
+  StudioRunsOn,
+} from './lent-keys.ts';
 import {
   LOCAL_PROVIDER_ID,
   type ModelRoute,
   STUDIO_PROVIDERS,
+  type StudioProvider,
   servedProtocols,
   servesProfileType,
-  type StudioProvider,
 } from './providers.ts';
 
 export type StudioConnectionMode = StudioRunsOn['mode'];
@@ -49,7 +60,9 @@ function withoutFill(
   if (key === undefined || !Object.hasOwn(value, key)) return value;
   const inner = value[key];
   if (!rest.length) {
-    return inner === fill ? Object.fromEntries(Object.entries(value).filter(([at]) => at !== key)) : value;
+    return inner === fill
+      ? Object.fromEntries(Object.entries(value).filter(([at]) => at !== key))
+      : value;
   }
   if (typeof inner !== 'object' || inner === null || Array.isArray(inner)) return value;
   const kept = withoutFill(inner as Record<string, unknown>, rest, fill);
@@ -87,7 +100,9 @@ export function studioRunsProvider(
   provider: StudioProvider | undefined,
   on: StudioRunsOn,
 ): boolean {
-  return on.mode === 'demo' ? on.keys.runs(type, provider?.definition) : servesProfileType(provider, type);
+  return on.mode === 'demo'
+    ? on.keys.runs(type, provider?.definition)
+    : servesProfileType(provider, type);
 }
 
 /** The model id a new binding of `type` takes. */
@@ -108,12 +123,18 @@ export function startingBinding(
   type: ModelProfileType,
   start?: ModelStart,
 ): Pick<ModelBindingDraft, 'modelId' | 'protocol' | 'provider' | 'apiId'> {
-  const begun = start?.(type) ?? { ...firstServed(type === 'decision' ? 'typesafe' : 'gemini', type), apiId: '' };
+  const begun = start?.(type) ?? {
+    ...firstServed(type === 'decision' ? 'typesafe' : 'gemini', type),
+    apiId: '',
+  };
   return { modelId: MODEL_IDS[type], ...begun };
 }
 
 /** The studio provider `id`, on the first protocol it serves agents of `type` on. */
-export function firstServed(id: string, type: ModelProfileType): { protocol: string; provider: string } {
+export function firstServed(
+  id: string,
+  type: ModelProfileType,
+): { protocol: string; provider: string } {
   const provider = STUDIO_PROVIDERS.find((each) => each.id === id);
   const protocol = provider && servedProtocols(provider, type)?.[0];
   if (!protocol) throw new Error(`The studio provider '${id}' serves no ${type} agents.`); // labels-exempt: developer contract error
@@ -121,7 +142,10 @@ export function firstServed(id: string, type: ModelProfileType): { protocol: str
 }
 
 /** `null` when `binding` can run on `on`: a local run on local models, a lent run on what the keys allow. */
-export function modelBindingViolation(binding: LentBinding, on: StudioRunsOn): ModelBindingViolation | null {
+export function modelBindingViolation(
+  binding: LentBinding,
+  on: StudioRunsOn,
+): ModelBindingViolation | null {
   if (on.mode === 'demo') return on.keys.violation(binding);
   if (on.mode === 'local' && binding.provider !== LOCAL_PROVIDER_ID) {
     return {

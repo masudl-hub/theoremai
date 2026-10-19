@@ -179,7 +179,8 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       activityPast: 'Currently {current_weather.temperature}°C',
       request: 'check the weather',
       toolType: 'http',
-      description: 'Fetch current weather and a 7-day forecast (highs, lows, chance of rain) for coordinates via Open-Meteo.',
+      description:
+        'Fetch current weather and a 7-day forecast (highs, lows, chance of rain) for coordinates via Open-Meteo.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',
@@ -542,8 +543,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       activityPast: 'Found {results.0.title|nothing on Microsoft Learn}',
       request: 'search Microsoft Learn for {query}',
       toolType: 'mcp',
-      description:
-        'Search official Microsoft and Azure documentation on Microsoft Learn.',
+      description: 'Search official Microsoft and Azure documentation on Microsoft Learn.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',
@@ -627,8 +627,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       activityPast: 'Listed {content.result.length} AWS regions',
       request: 'list AWS regions',
       toolType: 'mcp',
-      description:
-        'List every AWS region, with its code and name.',
+      description: 'List every AWS region, with its code and name.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',

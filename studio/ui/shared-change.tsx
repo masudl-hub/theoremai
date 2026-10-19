@@ -16,52 +16,52 @@ const DIALOG_WIDTH = 520;
  * Cancel, and no profile has the change.
  */
 export function SharedChange({ store }: { store: StudioStore }) {
-	const reach = useSyncExternalStore(store.subscribe, store.getPending, store.getPending);
-	const [quiet, setQuiet] = useState(false);
-	const ask = reach && sharedAsk(reach, store.getWorkspace());
-	return (
-		<Dialog
-			isOpen={reach !== undefined}
-			purpose="form"
-			width={DIALOG_WIDTH}
-			onOpenChange={(isOpen) => {
-				if (!isOpen) store.cancelShared();
-			}}
-		>
-			{ask && (
-				<Layout
-					header={<DialogHeader title={ask.title} subtitle={askLine(ask)} />}
-					content={
-						<LayoutContent>
-							<CheckboxInput
-								label="Don't ask again this session"
-								value={quiet}
-								onChange={setQuiet}
-							/>
-						</LayoutContent>
-					}
-					footer={
-						<LayoutFooter>
-							<HStack gap={2} justify="end">
-								<Button
-									label="Cancel"
-									variant="ghost"
-									onClick={() => {
-										store.cancelShared();
-									}}
-								/>
-								<Button
-									label={reachesOthers(reach) ? 'Change for all' : 'Change'}
-									variant="primary"
-									onClick={() => {
-										store.confirmShared(quiet);
-									}}
-								/>
-							</HStack>
-						</LayoutFooter>
-					}
-				/>
-			)}
-		</Dialog>
-	);
+  const reach = useSyncExternalStore(store.subscribe, store.getPending, store.getPending);
+  const [quiet, setQuiet] = useState(false);
+  const ask = reach && sharedAsk(reach, store.getWorkspace());
+  return (
+    <Dialog
+      isOpen={reach !== undefined}
+      purpose="form"
+      width={DIALOG_WIDTH}
+      onOpenChange={(isOpen) => {
+        if (!isOpen) store.cancelShared();
+      }}
+    >
+      {ask && (
+        <Layout
+          header={<DialogHeader title={ask.title} subtitle={askLine(ask)} />}
+          content={
+            <LayoutContent>
+              <CheckboxInput
+                label="Don't ask again this session"
+                value={quiet}
+                onChange={setQuiet}
+              />
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} justify="end">
+                <Button
+                  label="Cancel"
+                  variant="ghost"
+                  onClick={() => {
+                    store.cancelShared();
+                  }}
+                />
+                <Button
+                  label={reachesOthers(reach) ? 'Change for all' : 'Change'}
+                  variant="primary"
+                  onClick={() => {
+                    store.confirmShared(quiet);
+                  }}
+                />
+              </HStack>
+            </LayoutFooter>
+          }
+        />
+      )}
+    </Dialog>
+  );
 }

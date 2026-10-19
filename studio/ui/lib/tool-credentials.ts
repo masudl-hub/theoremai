@@ -6,18 +6,18 @@ const credentials = new Map<string, string>();
 const listeners = new Set<() => void>();
 
 export function toolCredential(key: string): string {
-	return credentials.get(key) ?? '';
+  return credentials.get(key) ?? '';
 }
 
 export function setToolCredential(key: string, value: string): void {
-	if (value) credentials.set(key, value);
-	else credentials.delete(key);
-	for (const listener of listeners) listener();
+  if (value) credentials.set(key, value);
+  else credentials.delete(key);
+  for (const listener of listeners) listener();
 }
 
 export function subscribeToolCredentials(listener: () => void): () => void {
-	listeners.add(listener);
-	return () => {
-		listeners.delete(listener);
-	};
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }

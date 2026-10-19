@@ -1,5 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import { createSurfaceRuntime } from '../../src/surface/mod.ts';
+import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
   addAgent,
   createBlankDraft,
@@ -11,8 +13,6 @@ import {
 } from '../mod.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { createStudioStore } from '../ui/lib/studio-store.ts';
-import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
-import { ON_OWN_KEYS } from '../lent-keys.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
@@ -137,12 +137,16 @@ Deno.test("th30's change to a tool another agent allows is not made until the pe
   const [tool] = store.getDraft().toolSpecs;
   assert(tool);
   const set = () =>
-    runtime.answer('act', {
-      at: `studio/toolSpec:${tool.key}`,
-      action: 'set',
-      input: { changes: { description: 'By th30.' } },
-      basedOn: store.getRevision(),
-    }, 'c1') as Promise<Answer>;
+    runtime.answer(
+      'act',
+      {
+        at: `studio/toolSpec:${tool.key}`,
+        action: 'set',
+        input: { changes: { description: 'By th30.' } },
+        basedOn: store.getRevision(),
+      },
+      'c1',
+    ) as Promise<Answer>;
   const held = await set();
   assertEquals(JSON.stringify(held).includes('The person is being asked.'), true);
   assertEquals(store.getDraft().toolSpecs[0]?.description, tool.description);

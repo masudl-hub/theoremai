@@ -5,6 +5,7 @@
  * its allowed tools back, and `withAgentDraft`, which takes them out again.
  */
 
+import { canonical } from './canonical.ts';
 import {
   createBlankDraft,
   draftKey,
@@ -13,15 +14,14 @@ import {
   type ToolSpecDraft,
   type ToolsDraft,
 } from './draft.ts';
-import { canonical } from './canonical.ts';
 import type { StudioProvider } from './providers.ts';
 import {
   providerIdOf,
   providerNodeId,
   type StudioNodeRef,
+  type StudioTreeNode,
   studioNodeRef,
   studioTree,
-  type StudioTreeNode,
   toolSpecKeyOf,
   toolSpecNodeId,
   toolSpecNodes,
@@ -71,7 +71,9 @@ const AGENT_PREFIX = 'agent:';
 
 /** An agent's node id: its root, or a facet or binding under it (`identity` is the root). */
 export function agentNodeId(agentKey: string, inner = 'identity'): string {
-  return inner === 'identity' ? `${AGENT_PREFIX}${agentKey}` : `${AGENT_PREFIX}${agentKey}/${inner}`;
+  return inner === 'identity'
+    ? `${AGENT_PREFIX}${agentKey}`
+    : `${AGENT_PREFIX}${agentKey}/${inner}`;
 }
 
 /** The inverse of `agentNodeId`; `undefined` for an id that isn't an agent's. */
@@ -114,8 +116,16 @@ export function workspaceNodeRef(
 }
 
 /** `agent` as a single draft whose tools are the ones it allows from `library`, in library order. */
-function draftOf(agent: AgentDraft, library: ToolSpecDraft[], providers: StudioProvider[]): StudioDraft {
-  const { key: _key, tools: { allow, ...tools }, ...rest } = agent;
+function draftOf(
+  agent: AgentDraft,
+  library: ToolSpecDraft[],
+  providers: StudioProvider[],
+): StudioDraft {
+  const {
+    key: _key,
+    tools: { allow, ...tools },
+    ...rest
+  } = agent;
   const held = new Map(library.map((tool) => [tool.key, tool]));
   // In the order the agent allows them: that is the order its model is offered them in.
   return { ...rest, providers, tools, toolSpecs: allow.flatMap((key) => held.get(key) ?? []) };
@@ -165,14 +175,20 @@ function remembered(workspace: StudioWorkspace): StudioWorkspace {
     workspace.agents.map((agent) => [agent.key, workspace.starts.agents[agent.key] ?? agent]),
   );
   const held = new Map(workspace.toolSpecs.map((tool) => [tool.key, tool]));
-  const reachable = new Set([...held.keys(), ...Object.values(agents).flatMap((agent) => agent.tools.allow)]);
+  const reachable = new Set([
+    ...held.keys(),
+    ...Object.values(agents).flatMap((agent) => agent.tools.allow),
+  ]);
   const tools: Record<string, ToolSpecDraft> = {};
   for (const key of reachable) {
     const start = workspace.starts.tools[key] ?? held.get(key);
     if (start) tools[key] = start;
   }
   const providers = Object.fromEntries(
-    workspace.providers.map((provider) => [provider.id, workspace.starts.providers[provider.id] ?? provider]),
+    workspace.providers.map((provider) => [
+      provider.id,
+      workspace.starts.providers[provider.id] ?? provider,
+    ]),
   );
   for (const id of Object.values(agents).flatMap(providersOf)) {
     const start = workspace.starts.providers[id];
@@ -182,13 +198,17 @@ function remembered(workspace: StudioWorkspace): StudioWorkspace {
 }
 
 /** The providers an agent's models run on. */
-const providersOf = (agent: AgentDraft): string[] => agent.modelBindings.map((binding) => binding.provider);
+const providersOf = (agent: AgentDraft): string[] =>
+  agent.modelBindings.map((binding) => binding.provider);
 
 /**
  * `providers` with each one `agents` started on that is no longer held, as it started. A model
  * has no provider to fall to, so an agent put back to its start brings its providers with it.
  */
-function withStartProviders(workspace: StudioWorkspace, agents: readonly AgentDraft[]): StudioProvider[] {
+function withStartProviders(
+  workspace: StudioWorkspace,
+  agents: readonly AgentDraft[],
+): StudioProvider[] {
   const held = new Set(workspace.providers.map(byId));
   const back = [...new Set(agents.flatMap(providersOf))].flatMap((id) => {
     const start = workspace.starts.providers[id];
@@ -220,7 +240,9 @@ export function withAgentDraft(
   registered?: readonly ToolSpecDraft[],
 ): StudioWorkspace {
   if (!workspace.agents.some((agent) => agent.key === key)) return workspace;
-  const defined = registered ? mergeLibrary(workspace.toolSpecs, [...registered]) : workspace.toolSpecs;
+  const defined = registered
+    ? mergeLibrary(workspace.toolSpecs, [...registered])
+    : workspace.toolSpecs;
   return remembered({
     ...workspace,
     toolSpecs: mergeLibrary(defined, draft.toolSpecs),
@@ -282,8 +304,8 @@ export function withLibraryDraft(
       each.key === key
         ? { ...rest, key, tools: { ...tools, allow: [...keep(each.tools.allow), ...added] } }
         : each.tools.allow.every((toolKey) => kept.has(toolKey))
-        ? each
-        : { ...each, tools: { ...each.tools, allow: keep(each.tools.allow) } }
+          ? each
+          : { ...each, tools: { ...each.tools, allow: keep(each.tools.allow) } },
     ),
   });
 }
@@ -349,10 +371,11 @@ export function removeAgent(workspace: StudioWorkspace, key: string): StudioWork
       ...agent,
       tools: { ...agent.tools, allow: agent.tools.allow.filter((toolKey) => !ranIt.has(toolKey)) },
       modelBindings: agent.modelBindings.map((binding) =>
-        binding.compactWith === key ? { ...binding, compactWith: undefined } : binding
+        binding.compactWith === key ? { ...binding, compactWith: undefined } : binding,
       ),
     }));
-  const gone = parseAgentNodeId(workspace.selected)?.key === key ||
+  const gone =
+    parseAgentNodeId(workspace.selected)?.key === key ||
     [...ranIt].some((toolKey) => workspace.selected === toolSpecNodeId(toolKey));
   return remembered({
     ...workspace,
@@ -373,7 +396,9 @@ export function setToolAllowed(
   const agent = workspace.agents.find((candidate) => candidate.key === agentKey);
   if (!agent || !workspace.toolSpecs.some((tool) => tool.key === toolKey)) return workspace;
   if (agent.tools.allow.includes(toolKey) === allowed) return workspace;
-  const allow = allowed ? [...agent.tools.allow, toolKey] : agent.tools.allow.filter((key) => key !== toolKey);
+  const allow = allowed
+    ? [...agent.tools.allow, toolKey]
+    : agent.tools.allow.filter((key) => key !== toolKey);
   return {
     ...workspace,
     agents: mapAgent(workspace, agentKey, () => ({ ...agent, tools: { ...agent.tools, allow } })),
@@ -385,16 +410,20 @@ export function removeLibraryTool(workspace: StudioWorkspace, toolKey: string): 
   if (!workspace.toolSpecs.some((tool) => tool.key === toolKey)) return workspace;
   const agents = workspace.agents.map((agent) =>
     agent.tools.allow.includes(toolKey)
-      ? { ...agent, tools: { ...agent.tools, allow: agent.tools.allow.filter((key) => key !== toolKey) } }
-      : agent
+      ? {
+          ...agent,
+          tools: { ...agent.tools, allow: agent.tools.allow.filter((key) => key !== toolKey) },
+        }
+      : agent,
   );
   return remembered({
     ...workspace,
     agents,
     toolSpecs: workspace.toolSpecs.filter((tool) => tool.key !== toolKey),
-    selected: workspace.selected === toolSpecNodeId(toolKey)
-      ? agentNodeId(workspace.agents[0]?.key ?? '')
-      : workspace.selected,
+    selected:
+      workspace.selected === toolSpecNodeId(toolKey)
+        ? agentNodeId(workspace.agents[0]?.key ?? '')
+        : workspace.selected,
   });
 }
 
@@ -407,10 +436,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /** Whether every agent, tool, and provider is as it started, and no tool was added or removed. */
 export function atStart(workspace: StudioWorkspace): boolean {
   const { agents, tools, providers } = workspace.starts;
-  return workspace.agents.every((agent) => same(agent, agents[agent.key])) &&
+  return (
+    workspace.agents.every((agent) => same(agent, agents[agent.key])) &&
     workspace.toolSpecs.every((tool) => same(tool, tools[tool.key])) &&
     workspace.providers.every((provider) => same(provider, providers[provider.id])) &&
-    Object.keys(tools).length === workspace.toolSpecs.length;
+    Object.keys(tools).length === workspace.toolSpecs.length
+  );
 }
 
 /** Makes what the workspace holds now its start: after a Save, the project's files hold it. */
@@ -435,7 +466,9 @@ function fitted(start: AgentDraft, agentId: string, held: Has, here: Has): Agent
     identity: { ...start.identity, agentId },
     tools: { ...start.tools, allow: start.tools.allow.filter((toolKey) => held.has(toolKey)) },
     modelBindings: start.modelBindings.map((binding) =>
-      binding.compactWith && !here.has(binding.compactWith) ? { ...binding, compactWith: undefined } : binding
+      binding.compactWith && !here.has(binding.compactWith)
+        ? { ...binding, compactWith: undefined }
+        : binding,
     ),
   };
 }
@@ -465,11 +498,18 @@ export function resetAgent(workspace: StudioWorkspace, key: string): StudioWorks
   const toolSpecs = back.length ? [...workspace.toolSpecs, ...back] : workspace.toolSpecs;
   const held = new Set(toolSpecs.map((tool) => tool.key));
   const id = start.identity.agentId;
-  const others = workspace.agents.filter((agent) => agent.key !== key).map((agent) => agent.identity.agentId);
+  const others = workspace.agents
+    .filter((agent) => agent.key !== key)
+    .map((agent) => agent.identity.agentId);
   const agent = fitted(start, id && freeName(id, others, (n) => `${id}_${n}`), held, here);
   if (back.length === 0 && same(agent, now)) return workspace;
   const providers = withStartProviders(workspace, [start]);
-  const next = { ...workspace, agents: mapAgent(workspace, key, () => agent), toolSpecs, providers };
+  const next = {
+    ...workspace,
+    agents: mapAgent(workspace, key, () => agent),
+    toolSpecs,
+    providers,
+  };
   return workspaceNodeRef(next, next.selected) ? next : { ...next, selected: agentNodeId(key) };
 }
 
@@ -481,7 +521,9 @@ export function resetAgent(workspace: StudioWorkspace, key: string): StudioWorks
 export function resetAll(workspace: StudioWorkspace): StudioWorkspace {
   const { starts } = workspace;
   const here = new Set(workspace.agents.map((agent) => agent.key));
-  const library = new Map(workspace.toolSpecs.map((tool) => [tool.key, starts.tools[tool.key] ?? tool]));
+  const library = new Map(
+    workspace.toolSpecs.map((tool) => [tool.key, starts.tools[tool.key] ?? tool]),
+  );
   for (const agent of workspace.agents) {
     for (const toolKey of starts.agents[agent.key]?.tools.allow ?? []) {
       const tool = starts.tools[toolKey];
@@ -506,13 +548,21 @@ export function resetAll(workspace: StudioWorkspace): StudioWorkspace {
     ids.push(agentId);
     return fitted(start, agentId, library, here);
   });
-  const providers = withStartProviders(workspace, agents).map((provider) => starts.providers[provider.id] ?? provider);
-  if (same(agents, workspace.agents) && same(toolSpecs, workspace.toolSpecs) && same(providers, workspace.providers)) {
+  const providers = withStartProviders(workspace, agents).map(
+    (provider) => starts.providers[provider.id] ?? provider,
+  );
+  if (
+    same(agents, workspace.agents) &&
+    same(toolSpecs, workspace.toolSpecs) &&
+    same(providers, workspace.providers)
+  ) {
     return workspace;
   }
   const next = { ...workspace, agents, toolSpecs, providers };
   const first = agents[0];
-  return workspaceNodeRef(next, next.selected) || !first ? next : { ...next, selected: agentNodeId(first.key) };
+  return workspaceNodeRef(next, next.selected) || !first
+    ? next
+    : { ...next, selected: agentNodeId(first.key) };
 }
 
 /**
@@ -521,8 +571,12 @@ export function resetAll(workspace: StudioWorkspace): StudioWorkspace {
  * settings agents share carry on. One the builder removed comes back under a new key.
  */
 export function reopened(files: StudioWorkspace, before: StudioWorkspace): StudioWorkspace {
-  const agents = new Map(Object.values(before.starts.agents).map((agent) => [agent.identity.agentId, agent.key]));
-  const tools = new Map(Object.values(before.starts.tools).map((tool) => [tool.toolName, tool.key]));
+  const agents = new Map(
+    Object.values(before.starts.agents).map((agent) => [agent.identity.agentId, agent.key]),
+  );
+  const tools = new Map(
+    Object.values(before.starts.tools).map((tool) => [tool.toolName, tool.key]),
+  );
   let text = JSON.stringify(files);
   const rekey = (from: string, to: string | undefined) => {
     if (to !== undefined && to !== from) text = text.split(from).join(to);
@@ -533,7 +587,9 @@ export function reopened(files: StudioWorkspace, before: StudioWorkspace): Studi
   return {
     ...next,
     selected: workspaceNodeRef(next, before.selected) ? before.selected : next.selected,
-    chatWith: next.agents.some((agent) => agent.key === before.chatWith) ? before.chatWith : next.chatWith,
+    chatWith: next.agents.some((agent) => agent.key === before.chatWith)
+      ? before.chatWith
+      : next.chatWith,
   };
 }
 
@@ -555,12 +611,13 @@ export function rebased(edits: StudioWorkspace, files: StudioWorkspace): StudioW
     const file = new Map(inFiles.map((each) => [keyOf(each), each]));
     // What stands in the studio, or stood there and was removed, is not the files' to add.
     const known = new Set([...held.map(keyOf), ...Object.keys(starts)]);
-    const kept = held.map((each) => (same(each, starts[keyOf(each)]) ? file.get(keyOf(each)) ?? each : each));
+    const kept = held.map((each) =>
+      same(each, starts[keyOf(each)]) ? (file.get(keyOf(each)) ?? each) : each,
+    );
     // One the files do not hold was added here, and starts where it did.
-    const added = kept.filter((each) => !(keyOf(each) in fileStarts)).map((each) => [
-      keyOf(each),
-      starts[keyOf(each)] ?? each,
-    ]);
+    const added = kept
+      .filter((each) => !(keyOf(each) in fileStarts))
+      .map((each) => [keyOf(each), starts[keyOf(each)] ?? each]);
     return {
       held: [...kept, ...inFiles.filter((each) => !known.has(keyOf(each)))],
       starts: { ...Object.fromEntries(added), ...fileStarts } as Record<string, T>,
@@ -568,7 +625,13 @@ export function rebased(edits: StudioWorkspace, files: StudioWorkspace): StudioW
   };
   const agents = laid(byKey, edits.agents, edits.starts.agents, now.agents, now.starts.agents);
   const tools = laid(byKey, edits.toolSpecs, edits.starts.tools, now.toolSpecs, now.starts.tools);
-  const providers = laid(byId, edits.providers, edits.starts.providers, now.providers, now.starts.providers);
+  const providers = laid(
+    byId,
+    edits.providers,
+    edits.starts.providers,
+    now.providers,
+    now.starts.providers,
+  );
   return {
     ...edits,
     agents: agents.held,
@@ -586,7 +649,10 @@ export function rebased(edits: StudioWorkspace, files: StudioWorkspace): StudioW
 export function filesPrint(workspace: StudioWorkspace): string {
   const names = new Map<string, string>();
   const collect = (value: unknown): void => {
-    if (Array.isArray(value)) return value.forEach(collect);
+    if (Array.isArray(value)) {
+      for (const each of value) collect(each);
+      return;
+    }
     if (typeof value !== 'object' || value === null) return;
     for (const [field, inner] of Object.entries(value)) {
       if (field !== 'key' || typeof inner !== 'string') collect(inner);
@@ -601,7 +667,11 @@ export function filesPrint(workspace: StudioWorkspace): string {
       Object.entries(value).map(([field, inner]) => [names.get(field) ?? field, named(inner)]),
     );
   };
-  const held = { agents: workspace.agents, toolSpecs: workspace.toolSpecs, providers: workspace.providers };
+  const held = {
+    agents: workspace.agents,
+    toolSpecs: workspace.toolSpecs,
+    providers: workspace.providers,
+  };
   collect(held);
   const text = JSON.stringify(named(held));
   // Two 32-bit FNV-1a passes: enough to tell one reading of the files from another.
@@ -657,10 +727,13 @@ const DRAFT_KEY = /^(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}$
 /** A value as text with each key named by where it first stands, so two opens of one thing read the same. */
 function keyless(value: unknown): string {
   const names = new Map<string, string>();
-  return JSON.stringify(value).replace(/\b(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}\b/g, (key) => {
-    if (!names.has(key)) names.set(key, `#${names.size}`);
-    return names.get(key) ?? key;
-  });
+  return JSON.stringify(value).replace(
+    /\b(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}\b/g,
+    (key) => {
+      if (!names.has(key)) names.set(key, `#${names.size}`);
+      return names.get(key) ?? key;
+    },
+  );
 }
 
 /**
@@ -682,7 +755,8 @@ function paired(start: readonly unknown[], file: readonly unknown[]): [unknown, 
     }
   }
   const left = file.filter((_, index) => !taken.has(index));
-  unmatched.slice(0, left.length).forEach((each, index) => pairs.push([each, left[index]]));
+  for (const [index, each] of unmatched.slice(0, left.length).entries())
+    pairs.push([each, left[index]]);
   return pairs;
 }
 
@@ -701,7 +775,7 @@ function renamedAsHeld(now: StudioWorkspace, edits: StudioWorkspace): StudioWork
   ) => {
     const file = new Set(inFiles.map((each) => each.key));
     const here = new Set(held.map((each) => each.key));
-    const gone = held.flatMap((each) => (file.has(each.key) ? [] : starts[each.key] ?? []));
+    const gone = held.flatMap((each) => (file.has(each.key) ? [] : (starts[each.key] ?? [])));
     const fresh = inFiles.filter((each) => !here.has(each.key) && !starts[each.key]);
     const [was, is] = [gone[0], fresh[0]];
     if (gone.length !== 1 || fresh.length !== 1 || !was || !is) return;
@@ -733,9 +807,13 @@ function alignedToStarts(now: StudioWorkspace, starts: WorkspaceStarts): StudioW
           const other = file[field];
           if (field !== 'key') walk(inner, other);
           else if (
-            typeof inner === 'string' && typeof other === 'string' && inner !== other &&
-            DRAFT_KEY.test(inner) && DRAFT_KEY.test(other)
-          ) renames.set(other, inner);
+            typeof inner === 'string' &&
+            typeof other === 'string' &&
+            inner !== other &&
+            DRAFT_KEY.test(inner) &&
+            DRAFT_KEY.test(other)
+          )
+            renames.set(other, inner);
         }
       }
     };
@@ -748,7 +826,9 @@ function alignedToStarts(now: StudioWorkspace, starts: WorkspaceStarts): StudioW
 }
 
 const isNames = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((each) => typeof each === 'string') && new Set(value).size === value.length;
+  Array.isArray(value) &&
+  value.every((each) => typeof each === 'string') &&
+  new Set(value).size === value.length;
 
 type Row = Record<string, unknown> & { key: string };
 
@@ -768,14 +848,21 @@ function mergedValue(
   mine: unknown,
   theirs: unknown,
   path: SettingPath,
-  tell: { updated(path: SettingPath): void; conflict(path: SettingPath, mine: unknown, theirs: unknown): void },
+  tell: {
+    updated(path: SettingPath): void;
+    conflict(path: SettingPath, mine: unknown, theirs: unknown): void;
+  },
 ): unknown {
   if (same(base, theirs) || same(mine, theirs)) return mine;
   if (isRecord(base) && isRecord(mine) && isRecord(theirs)) {
     // In the files' order, so a setting the files added sits where they hold it and what comes of
     // the merge is the same as its start when the builder changed nothing.
     const next: Record<string, unknown> = {};
-    for (const field of new Set([...Object.keys(theirs), ...Object.keys(mine), ...Object.keys(base)])) {
+    for (const field of new Set([
+      ...Object.keys(theirs),
+      ...Object.keys(mine),
+      ...Object.keys(base),
+    ])) {
       const value = mergedValue(base[field], mine[field], theirs[field], [...path, field], tell);
       if (value !== undefined) next[field] = value;
     }
@@ -828,14 +915,16 @@ function mergedValue(
 function sound(workspace: StudioWorkspace): StudioWorkspace {
   const agentKeys = new Set(workspace.agents.map((agent) => agent.key));
   // An agent tool whose agent is gone has nothing to run.
-  const toolSpecs = workspace.toolSpecs.filter((tool) =>
-    tool.toolType !== 'agent' || agentKeys.has(tool.agentKey ?? '')
+  const toolSpecs = workspace.toolSpecs.filter(
+    (tool) => tool.toolType !== 'agent' || agentKeys.has(tool.agentKey ?? ''),
   );
   const library = new Set(toolSpecs.map((tool) => tool.key));
   const agents = workspace.agents.map((agent): AgentDraft => {
     const allow = agent.tools.allow.filter((toolKey) => library.has(toolKey));
     const modelBindings = agent.modelBindings.map((binding) =>
-      binding.compactWith && !agentKeys.has(binding.compactWith) ? { ...binding, compactWith: undefined } : binding
+      binding.compactWith && !agentKeys.has(binding.compactWith)
+        ? { ...binding, compactWith: undefined }
+        : binding,
     );
     const next = { ...agent, tools: { ...agent.tools, allow }, modelBindings };
     return same(next, agent) ? agent : next;
@@ -844,7 +933,8 @@ function sound(workspace: StudioWorkspace): StudioWorkspace {
   const first = agents[0];
   return {
     ...next,
-    selected: workspaceNodeRef(next, next.selected) || !first ? next.selected : agentNodeId(first.key),
+    selected:
+      workspaceNodeRef(next, next.selected) || !first ? next.selected : agentNodeId(first.key),
     chatWith: agentKeys.has(next.chatWith) || !first ? next.chatWith : first.key,
   };
 }
@@ -859,7 +949,11 @@ function sound(workspace: StudioWorkspace): StudioWorkspace {
  * one the builder added, and names the agents the builder removed, which keep no start. Without
  * it nothing the studio holds is taken away, and an agent the builder removed comes back.
  */
-export function mergedWithFiles(edits: StudioWorkspace, files: StudioWorkspace, before?: StudioWorkspace): FilesMerge {
+export function mergedWithFiles(
+  edits: StudioWorkspace,
+  files: StudioWorkspace,
+  before?: StudioWorkspace,
+): FilesMerge {
   const now = alignedToStarts(renamedAsHeld(reopened(files, edits), edits), edits.starts);
   const updated: FileUpdate[] = [];
   const conflicts: FileConflict[] = [];
@@ -898,7 +992,8 @@ export function mergedWithFiles(edits: StudioWorkspace, files: StudioWorkspace, 
         kept.push(
           mergedValue(base, mine, theirs, [], {
             updated: (path) => updated.push({ ...of, path }),
-            conflict: (path, yours, files) => conflicts.push({ ...of, path, mine: yours, theirs: files }),
+            conflict: (path, yours, files) =>
+              conflicts.push({ ...of, path, mine: yours, theirs: files }),
           }) as T,
         );
       }
@@ -906,7 +1001,9 @@ export function mergedWithFiles(edits: StudioWorkspace, files: StudioWorkspace, 
     // Whether the builder removed what the files hold, and whether the files changed it since.
     const removedHere = (theirs: T): 'unchanged' | 'changed' | undefined => {
       // A start outlives its removal for a tool an agent started with; the last reading names the rest.
-      const was = starts[keyOf(theirs)] ?? read?.find((each) => nameOf(each) === nameOf(theirs) && !names.has(nameOf(each)));
+      const was =
+        starts[keyOf(theirs)] ??
+        read?.find((each) => nameOf(each) === nameOf(theirs) && !names.has(nameOf(each)));
       if (!was) return undefined;
       // What it points at may have a new key: an agent tool's agent, removed with it.
       return keyless(was) === keyless(theirs) ? 'unchanged' : 'changed';
@@ -978,7 +1075,8 @@ function putAt(value: unknown, path: SettingPath, to: unknown): unknown {
   if (field === undefined) return to;
   if (Array.isArray(value)) {
     // A row past the end comes back after the rows there.
-    if (typeof field === 'number' && field >= value.length) return to === undefined ? value : [...value, to];
+    if (typeof field === 'number' && field >= value.length)
+      return to === undefined ? value : [...value, to];
     return value.map((each, index) => {
       if (index !== field) return each;
       return rest.length === 0 && to === undefined ? GONE : putAt(each, rest, to);
@@ -1009,7 +1107,9 @@ export function withFilesChosen(merge: FilesMerge, theirs: readonly number[]): S
     conflict: FileConflict,
   ) => {
     if (conflict.path.length > 0) {
-      return held.map((each) => (keyOf(each) === conflict.key ? putAt(each, conflict.path, conflict.theirs) as T : each));
+      return held.map((each) =>
+        keyOf(each) === conflict.key ? (putAt(each, conflict.path, conflict.theirs) as T) : each,
+      );
     }
     // The whole agent, tool, or provider: the files took it away, or hold one the builder removed.
     if (conflict.theirs === undefined) {
@@ -1023,21 +1123,28 @@ export function withFilesChosen(merge: FilesMerge, theirs: readonly number[]): S
     const conflict = merge.conflicts[index];
     if (!conflict) continue;
     if (conflict.kind === 'tool') toolSpecs = settle(byKey, toolSpecs, starts.tools, conflict);
-    else if (conflict.kind === 'provider') providers = settle(byId, providers, starts.providers, conflict);
+    else if (conflict.kind === 'provider')
+      providers = settle(byId, providers, starts.providers, conflict);
     else {
       agents = settle(byKey, agents, starts.agents, conflict);
       if (conflict.path.length > 0 || conflict.theirs === undefined) continue;
       // An agent that comes back brings the tools that run it, for the agents the files let use them.
       const held = new Set(toolSpecs.map((tool) => tool.key));
-      const runIt = merge.files.toolSpecs.filter((tool) =>
-        tool.toolType === 'agent' && tool.agentKey === conflict.key && !held.has(tool.key)
+      const runIt = merge.files.toolSpecs.filter(
+        (tool) =>
+          tool.toolType === 'agent' && tool.agentKey === conflict.key && !held.has(tool.key),
       );
       for (const tool of runIt) starts.tools[tool.key] = tool;
       toolSpecs = [...toolSpecs, ...runIt];
       agents = agents.map((agent) => {
-        const allowed = merge.files.agents.find((each) => each.key === agent.key)?.tools.allow ?? [];
-        const more = runIt.map((tool) => tool.key).filter((key) => allowed.includes(key) && !agent.tools.allow.includes(key));
-        return more.length ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, ...more] } } : agent;
+        const allowed =
+          merge.files.agents.find((each) => each.key === agent.key)?.tools.allow ?? [];
+        const more = runIt
+          .map((tool) => tool.key)
+          .filter((key) => allowed.includes(key) && !agent.tools.allow.includes(key));
+        return more.length
+          ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, ...more] } }
+          : agent;
       });
     }
   }
@@ -1053,23 +1160,45 @@ export function resetLibraryTool(workspace: StudioWorkspace, toolKey: string): S
   const start = workspace.starts.tools[toolKey];
   const now = workspace.toolSpecs.find((tool) => tool.key === toolKey);
   if (!start || !now) return workspace;
-  const others = workspace.toolSpecs.filter((tool) => tool.key !== toolKey).map((tool) => tool.toolName);
-  const tool = { ...start, toolName: freeName(start.toolName, others, (n) => `${start.toolName}_${n}`) };
+  const others = workspace.toolSpecs
+    .filter((tool) => tool.key !== toolKey)
+    .map((tool) => tool.toolName);
+  const tool = {
+    ...start,
+    toolName: freeName(start.toolName, others, (n) => `${start.toolName}_${n}`),
+  };
   if (same(tool, now)) return workspace;
-  return { ...workspace, toolSpecs: workspace.toolSpecs.map((each) => (each.key === toolKey ? tool : each)) };
+  return {
+    ...workspace,
+    toolSpecs: workspace.toolSpecs.map((each) => (each.key === toolKey ? tool : each)),
+  };
 }
 
 /** The workspace with one provider as `provider` holds it, by its id. Every agent's models read it. */
-export function withProvider(workspace: StudioWorkspace, provider: StudioProvider): StudioWorkspace {
+export function withProvider(
+  workspace: StudioWorkspace,
+  provider: StudioProvider,
+): StudioWorkspace {
   const now = workspace.providers.find((each) => each.id === provider.id);
   if (!now || same(now, provider)) return workspace;
-  return { ...workspace, providers: workspace.providers.map((each) => (each.id === provider.id ? provider : each)) };
+  return {
+    ...workspace,
+    providers: workspace.providers.map((each) => (each.id === provider.id ? provider : each)),
+  };
 }
 
 /** How many models run on the provider `id`, and across how many agents. */
-export function providerUse(workspace: StudioWorkspace, id: string): { models: number; agents: number } {
-  const counts = workspace.agents.map((agent) => providersOf(agent).filter((held) => held === id).length);
-  return { models: counts.reduce((sum, count) => sum + count, 0), agents: counts.filter((count) => count > 0).length };
+export function providerUse(
+  workspace: StudioWorkspace,
+  id: string,
+): { models: number; agents: number } {
+  const counts = workspace.agents.map(
+    (agent) => providersOf(agent).filter((held) => held === id).length,
+  );
+  return {
+    models: counts.reduce((sum, count) => sum + count, 0),
+    agents: counts.filter((count) => count > 0).length,
+  };
 }
 
 /**
@@ -1083,10 +1212,13 @@ export function modelSharers(
   id: string,
   apiId: string,
 ): { models: string[]; agents: string[] } {
-  const calls = (binding: { provider: string; apiId: string }) => binding.provider === id && binding.apiId.trim() === apiId.trim();
+  const calls = (binding: { provider: string; apiId: string }) =>
+    binding.provider === id && binding.apiId.trim() === apiId.trim();
   const own = workspace.agents.find((agent) => agent.key === agentKey)?.modelBindings ?? [];
   return {
-    models: own.filter((binding) => binding.key !== bindingKey && calls(binding)).map((binding) => binding.modelId.trim() || 'new'),
+    models: own
+      .filter((binding) => binding.key !== bindingKey && calls(binding))
+      .map((binding) => binding.modelId.trim() || 'new'),
     agents: workspace.agents
       .filter((agent) => agent.key !== agentKey && agent.modelBindings.some(calls))
       .map((agent) => agent.identity.agentId.trim() || 'New agent'),
@@ -1118,9 +1250,10 @@ export function removeProvider(workspace: StudioWorkspace, id: string): StudioWo
   return remembered({
     ...workspace,
     providers: workspace.providers.filter((each) => each.id !== id),
-    selected: workspace.selected === providerNodeId(id)
-      ? agentNodeId(workspace.agents[0]?.key ?? '')
-      : workspace.selected,
+    selected:
+      workspace.selected === providerNodeId(id)
+        ? agentNodeId(workspace.agents[0]?.key ?? '')
+        : workspace.selected,
   });
 }
 
@@ -1128,7 +1261,11 @@ export function removeProvider(workspace: StudioWorkspace, id: string): StudioWo
  * Renames the provider `from` to `to`, and every model that runs on it with it. A blank or taken
  * `to` changes nothing. Only a provider the files do not hold yet is renamed: code names the others.
  */
-export function renameProvider(workspace: StudioWorkspace, from: string, to: string): StudioWorkspace {
+export function renameProvider(
+  workspace: StudioWorkspace,
+  from: string,
+  to: string,
+): StudioWorkspace {
   const id = to.trim();
   const held = workspace.providers.some((each) => each.id === from);
   if (!held || !id || workspace.providers.some((each) => each.id === id)) return workspace;
@@ -1140,13 +1277,18 @@ export function renameProvider(workspace: StudioWorkspace, from: string, to: str
     agents: workspace.agents.map((agent) =>
       agent.modelBindings.some(moved)
         ? {
-          ...agent,
-          modelBindings: agent.modelBindings.map((binding) => (moved(binding) ? { ...binding, provider: id } : binding)),
-        }
-        : agent
+            ...agent,
+            modelBindings: agent.modelBindings.map((binding) =>
+              moved(binding) ? { ...binding, provider: id } : binding,
+            ),
+          }
+        : agent,
     ),
     selected: workspace.selected === providerNodeId(from) ? providerNodeId(id) : workspace.selected,
-    starts: { ...workspace.starts, providers: start ? { ...starts, [id]: { ...start, id } } : starts },
+    starts: {
+      ...workspace.starts,
+      providers: start ? { ...starts, [id]: { ...start, id } } : starts,
+    },
   };
 }
 

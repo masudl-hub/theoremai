@@ -21,10 +21,7 @@
     "cov_profile",
     ".fallow"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/guardrails-incremental.json",
@@ -37,8 +34,6 @@
   "concurrency": 1,
   "ignoreStatic": false,
   "mutator": {
-    "excludedMutations": [
-      "StringLiteral"
-    ]
+    "excludedMutations": ["StringLiteral"]
   }
 }

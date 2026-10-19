@@ -1,48 +1,48 @@
 /* The loader's map of a project being read. It fills the loader's panel. */
 .read-map {
-	position: absolute;
-	inset: 0;
-	overflow: hidden;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
 }
 
 .read-map-lines {
-	position: absolute;
-	inset: 0 auto auto 0;
-	pointer-events: none;
+  position: absolute;
+  inset: 0 auto auto 0;
+  pointer-events: none;
 }
 
 /* The line draws in from the node it leaves. */
 .read-map-line {
-	stroke-dasharray: 1;
-	stroke-dashoffset: 1;
-	animation: read-map-line-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) forwards;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: read-map-line-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) forwards;
 }
 
 .read-map-dot {
-	fill: var(--color-text-secondary);
-	animation: read-map-in var(--duration-fast, 120ms) var(--ease-standard, ease-out) both;
+  fill: var(--color-text-secondary);
+  animation: read-map-in var(--duration-fast, 120ms) var(--ease-standard, ease-out) both;
 }
 
 .read-map-node {
-	animation: read-map-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) both;
+  animation: read-map-in var(--duration-medium, 240ms) var(--ease-standard, ease-out) both;
 }
 
 .read-map-foot {
-	position: absolute;
-	inset: auto var(--spacing-4) var(--spacing-4) var(--spacing-4);
-	display: flex;
-	gap: 16px;
-	justify-content: space-between;
+  position: absolute;
+  inset: auto var(--spacing-4) var(--spacing-4) var(--spacing-4);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
 }
 
 @keyframes read-map-line-in {
-	to {
-		stroke-dashoffset: 0;
-	}
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 @keyframes read-map-in {
-	from {
-		opacity: 0;
-	}
+  from {
+    opacity: 0;
+  }
 }

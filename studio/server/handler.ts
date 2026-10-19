@@ -25,8 +25,8 @@ import {
   type RegisteredProvider,
   registerTool,
 } from '@theoremjs/agents';
-import { createProviderRegistry } from '@theoremjs/agents/kernel';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
+import { createProviderRegistry } from '@theoremjs/agents/kernel';
 import {
   createSealedConversationStore,
   createTheoremDecisionHandler,
@@ -35,19 +35,12 @@ import {
   createTheoremHostHandler,
   type TheoremConversationStore,
 } from '@theoremjs/react/server';
+import { differingSettings } from '../agreement.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
-import { kernelDefinition, registerStudioProvider, type StudioProvider } from '../providers.ts';
+import { compileWorkspace } from '../compile-workspace.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
-import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
-import { differingSettings } from '../agreement.ts';
-import { compileWorkspace } from '../compile-workspace.ts';
 import { ON_OWN_KEYS } from '../lent-keys.ts';
-import { readStudioSource } from '../read-source.ts';
-import { withPatterns } from '../runtime-scope.ts';
-import { STUDIO_READER } from '../reader.ts';
-import type { ToolRegistration } from '../registrations.ts';
-import { studioSource } from '../source.ts';
 import {
   ACTING_AS_HEADER,
   actingAsSession,
@@ -55,17 +48,23 @@ import {
   peopleOffer,
   readActingAs,
   readPerson,
-  type StudioActingAs,
   readPlace,
+  type StudioActingAs,
   type StudioPeople,
   type StudioPeopleOffer,
 } from '../people.ts';
+import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
+import { kernelDefinition, registerStudioProvider, type StudioProvider } from '../providers.ts';
+import { readStudioSource } from '../read-source.ts';
+import { STUDIO_READER } from '../reader.ts';
+import type { ToolRegistration } from '../registrations.ts';
+import { withPatterns } from '../runtime-scope.ts';
+import { studioSource } from '../source.ts';
 import { createStudioDraftHandler, STUDIO_BASE } from './draft-handler.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
 
 export { STUDIO_BASE } from './draft-handler.ts';
-import { tracedToPage, withJsonTraces, withRunTraces } from './run-traces.ts';
-import type { ProjectOrigins, ProviderPlace, SharedSetting, Unregistered } from './save-wire.ts';
+
 import {
   addAgent,
   agentNodeId,
@@ -73,6 +72,8 @@ import {
   type StudioWorkspace,
   workspaceFromDraft,
 } from '../workspace.ts';
+import { tracedToPage, withJsonTraces, withRunTraces } from './run-traces.ts';
+import type { ProjectOrigins, ProviderPlace, SharedSetting, Unregistered } from './save-wire.ts';
 
 /** A profile the page could not show or run, and why. */
 export type StudioProblem = { profile: string; message: string };
@@ -152,16 +153,18 @@ type Serve = (request: Request) => Promise<Response>;
 
 /** The registered tools as the studio's printer takes them: their fields and JSON schemas. */
 function registeredTools(): ToolRegistration[] {
-  return listTools()
-    // A provider's built-in tool is a model's setting, not a tool the project registers.
-    .filter((tool) => tool.type !== 'builtin')
-    .map((tool) => {
-      const fields: Record<string, unknown> = { ...tool };
-      for (const own of ['handler', 'input', 'output']) delete fields[own];
-      // What the file writes as code (a hook before the call, its sources) is left to the file.
-      // A credential in its URL or headers stays in this load: the page gets a mask.
-      return withoutCredentials(plainSetting(fields) as ToolRegistration);
-    });
+  return (
+    listTools()
+      // A provider's built-in tool is a model's setting, not a tool the project registers.
+      .filter((tool) => tool.type !== 'builtin')
+      .map((tool) => {
+        const fields: Record<string, unknown> = { ...tool };
+        for (const own of ['handler', 'input', 'output']) delete fields[own];
+        // What the file writes as code (a hook before the call, its sources) is left to the file.
+        // A credential in its URL or headers stays in this load: the page gets a mask.
+        return withoutCredentials(plainSetting(fields) as ToolRegistration);
+      })
+  );
 }
 
 type ProfileRead =
@@ -220,7 +223,9 @@ function onKernelDefinition(provider: RegisteredProvider): boolean {
  */
 function registeredProviders(): StudioProvider[] {
   return listProviders().map((provider) => {
-    const connection = onKernelDefinition(provider) ? shownConnection(provider.connection) : undefined;
+    const connection = onKernelDefinition(provider)
+      ? shownConnection(provider.connection)
+      : undefined;
     return {
       id: provider.id,
       definition: provider.definition.id,
@@ -248,7 +253,8 @@ function readProfile(
       ...(structured ? { structured } : {}),
     });
     const read = readStudioSource(source, createBlankDraft());
-    if (!read.ok) return { ok: false, message: read.errors.map((error) => error.message).join(' ') };
+    if (!read.ok)
+      return { ok: false, message: read.errors.map((error) => error.message).join(' ') };
     return { ok: true, draft: read.draft, registered: read.registered };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
@@ -260,9 +266,13 @@ function readProfile(
  * for it, beside the registered profile. A workspace that does not compile holds something the
  * kernel took and the studio does not: that is said whole, in the studio's own words.
  */
-function disagreements(workspace: StudioWorkspace): { differences: StudioDifference[]; unheld: string[] } {
+function disagreements(workspace: StudioWorkspace): {
+  differences: StudioDifference[];
+  unheld: string[];
+} {
   const compiled = compileWorkspace(workspace, ON_OWN_KEYS);
-  if (!compiled.ok) return { differences: [], unheld: compiled.issues.map((issue) => issue.message) };
+  if (!compiled.ok)
+    return { differences: [], unheld: compiled.issues.map((issue) => issue.message) };
   const registered = new Map(listProfiles().map((profile) => [profile.id as string, profile]));
   const differences = compiled.agents.flatMap((agent): StudioDifference[] => {
     const profile = registered.get(agent.agentId);
@@ -292,7 +302,8 @@ function providerDifferences(workspace: StudioWorkspace): StudioDifference[] {
     const held = registered.get(provider.id);
     if (!held) return [];
     const kernel = kernelDefinition(provider.definition);
-    const definition = kernel ?? (held.definition.id === provider.definition ? held.definition : undefined);
+    const definition =
+      kernel ?? (held.definition.id === provider.definition ? held.definition : undefined);
     if (!definition) return [{ kind: 'provider', of: provider.id, settings: ['definition'] }];
     let shown: RegisteredProvider;
     try {
@@ -308,7 +319,10 @@ function providerDifferences(workspace: StudioWorkspace): StudioDifference[] {
       // The kernel took a connection the studio cannot register again: all of it is shown differently.
       return [{ kind: 'provider', of: provider.id, settings: ['connection'] }];
     }
-    const settings = differingSettings(read(held, kernel !== undefined), read(shown, kernel !== undefined));
+    const settings = differingSettings(
+      read(held, kernel !== undefined),
+      read(shown, kernel !== undefined),
+    );
     return settings.length ? [{ kind: 'provider', of: provider.id, settings }] : [];
   });
 }
@@ -316,10 +330,13 @@ function providerDifferences(workspace: StudioWorkspace): StudioDifference[] {
 /** The agent that writes each model's summaries, by the model's name, where a profile names one. */
 function compactors(profile: Profile): Record<string, string> {
   const models = 'models' in profile && isRecord(profile.models) ? profile.models : {};
-  return Object.fromEntries(Object.entries(models).flatMap(([name, model]) => {
-    const writer = isRecord(model) && isRecord(model.compaction) ? model.compaction.profile : undefined;
-    return typeof writer === 'string' ? [[name, writer] as const] : [];
-  }));
+  return Object.fromEntries(
+    Object.entries(models).flatMap(([name, model]) => {
+      const writer =
+        isRecord(model) && isRecord(model.compaction) ? model.compaction.profile : undefined;
+      return typeof writer === 'string' ? [[name, writer] as const] : [];
+    }),
+  );
 }
 
 /** The tools of `registered` the workspace does not hold yet, by name. */
@@ -356,7 +373,9 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
   const extra = unlisted(opened, library);
   const first = opened.agents[0];
   // A tool that runs an agent names it by id. Each profile is read alone, so the agent is found once all are.
-  const runs = new Map(tools.flatMap((tool) => (tool.type === 'agent' ? [[tool.name, tool.profile] as const] : [])));
+  const runs = new Map(
+    tools.flatMap((tool) => (tool.type === 'agent' ? [[tool.name, tool.profile] as const] : [])),
+  );
   const linked = (tool: ToolSpecDraft): ToolSpecDraft => {
     const id = tool.toolType === 'agent' && !tool.agentKey ? runs.get(tool.toolName) : undefined;
     const agentKey = id && opened.agents.find((agent) => agent.identity.agentId === id)?.key;
@@ -364,7 +383,9 @@ function describeStudio(project: string, questions: ProjectQuestions): StudioDes
   };
   const toolSpecs = [...opened.toolSpecs, ...extra].map(linked);
   // A model's summaries are written by an agent it names by id, found the same way.
-  const writers = new Map(listProfiles().map((profile) => [profile.id as string, compactors(profile)]));
+  const writers = new Map(
+    listProfiles().map((profile) => [profile.id as string, compactors(profile)]),
+  );
   const agents = opened.agents.map((agent) => {
     const named = writers.get(agent.identity.agentId);
     const modelBindings = agent.modelBindings.map((binding) => {
@@ -501,9 +522,11 @@ async function freshPerson(
   }
 }
 
-
 /** The page's own origin, echoed: a request from any other was refused before this. */
-export function corsHeaders(request: Request, pageOrigins: readonly string[]): Record<string, string> {
+export function corsHeaders(
+  request: Request,
+  pageOrigins: readonly string[],
+): Record<string, string> {
   return {
     'access-control-allow-origin': request.headers.get('origin') ?? pageOrigins[0] ?? '',
     'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}`,
@@ -522,18 +545,27 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 /** What each kind of question needs of its criteria, and what is wrong when it lacks it. */
 const CRITERIA = new Map<unknown, { fits: (criteria: unknown) => boolean; fault: string }>([
-  ['choice', {
-    fits: (criteria) => isRecord(criteria) && Object.keys(criteria).length > 0,
-    fault: 'needs criteria: an object of the labels it picks from',
-  }],
-  ['score', {
-    fits: (criteria) => Array.isArray(criteria) && criteria.length > 0,
-    fault: 'needs criteria: a list, lowest score first',
-  }],
-  ['noul', {
-    fits: (criteria) => criteria === undefined || isRecord(criteria),
-    fault: 'has criteria that are not an object',
-  }],
+  [
+    'choice',
+    {
+      fits: (criteria) => isRecord(criteria) && Object.keys(criteria).length > 0,
+      fault: 'needs criteria: an object of the labels it picks from',
+    },
+  ],
+  [
+    'score',
+    {
+      fits: (criteria) => Array.isArray(criteria) && criteria.length > 0,
+      fault: 'needs criteria: a list, lowest score first',
+    },
+  ],
+  [
+    'noul',
+    {
+      fits: (criteria) => criteria === undefined || isRecord(criteria),
+      fault: 'has criteria that are not an object',
+    },
+  ],
 ]);
 
 /** What is wrong with one question as the setup wrote it, or nothing. */
@@ -559,10 +591,14 @@ export function questionsFault(profileId: string, questions: unknown): string | 
 }
 
 /** Why a live profile is not run: a voice call needs a socket, and the server was given no way to take one. */
-const NO_SOCKET = 'A live profile runs over a socket, and this server was not given a way to take one (`upgrade`).';
+const NO_SOCKET =
+  'A live profile runs over a socket, and this server was not given a way to take one (`upgrade`).';
 
 /** Each registered profile's own handler, by id; a profile that cannot be served is a problem. */
-function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[]): Map<string, Serve> {
+function profileHandlers(
+  options: StudioHandlerOptions,
+  problems: StudioProblem[],
+): Map<string, Serve> {
   const served = new Map<string, Serve>();
   // `run` refused a pick it cannot read before any handler is reached, so here it reads.
   const actingAs = (request: Request) => {
@@ -591,7 +627,13 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
     const { vault, fetch } = options.provider ?? {};
     // The page shows a decision's trace, so the profile is served writing its records to the reply.
     return withJsonTraces(
-      createTheoremDecisionHandler({ profile: tracedToPage(profile), questions, vault, fetch, clientEvents: STUDIO_READER }),
+      createTheoremDecisionHandler({
+        profile: tracedToPage(profile),
+        questions,
+        vault,
+        fetch,
+        clientEvents: STUDIO_READER,
+      }),
     );
   };
   for (const profile of listProfiles()) {
@@ -603,7 +645,10 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
       }
       if (profile.type === 'live') {
         if (options.upgrade) {
-          served.set(profile.id, createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade));
+          served.set(
+            profile.id,
+            createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade),
+          );
         } else problems.push({ profile: profile.id, message: NO_SOCKET });
         continue;
       }
@@ -649,7 +694,10 @@ function profileHandlers(options: StudioHandlerOptions, problems: StudioProblem[
 }
 
 /** `answer` with the page's CORS headers on it. */
-async function withCors(answer: Promise<Response>, cors: Record<string, string>): Promise<Response> {
+async function withCors(
+  answer: Promise<Response>,
+  cors: Record<string, string>,
+): Promise<Response> {
   const response = await answer;
   const headers = new Headers(response.headers);
   for (const [key, value] of Object.entries(cors)) headers.set(key, value);
@@ -701,8 +749,10 @@ export function createStudioHandler(
     const path = new URL(request.url).pathname;
     if (path === base && request.method === 'GET') return json(200, description, cors);
     if (path.startsWith(prefix)) return run(request, path);
-    if (path === peoplePath && request.method === 'GET') return existingPeople(people, request, cors);
-    if (path === `${peoplePath}/fresh` && request.method === 'POST') return freshPerson(people, request, cors);
+    if (path === peoplePath && request.method === 'GET')
+      return existingPeople(people, request, cors);
+    if (path === `${peoplePath}/fresh` && request.method === 'POST')
+      return freshPerson(people, request, cors);
     return withCors(draft(request), cors);
   };
   return (request) => Promise.resolve(answer(request));

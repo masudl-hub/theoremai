@@ -8,13 +8,13 @@
  * @module
  */
 import {
-  type TurnModel,
   type Profile,
   type ProfileDefinition,
   TheoremError,
   type TraceRecord,
   type TurnEvent,
   type TurnInput,
+  type TurnModel,
 } from '@theoremjs/agents';
 import {
   actionAt,
@@ -28,9 +28,14 @@ import {
   TOOL_RULES,
 } from '@theoremjs/agents/guardrails';
 import { keySlotsOf, type ModelEvent, type ModelRequest } from '@theoremjs/agents/kernel';
-import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { firstServed } from './policy.ts';
-import { runtimeProvider, agentCallHook, type StudioDependency, writtenScope } from './runtime-scope.ts';
+import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
+import {
+  agentCallHook,
+  runtimeProvider,
+  type StudioDependency,
+  writtenScope,
+} from './runtime-scope.ts';
 
 /** Where a probe's text enters the turn. */
 export const PROBE_BOUNDARIES = [
@@ -234,7 +239,9 @@ type HostProfile = Extract<ProfileDefinition, { type: 'host' }>;
 type LiveProfile = Extract<ProfileDefinition, { type: 'live' }>;
 
 /** A probe's trace goes to its result alone: its scope has none of the draft's destinations. */
-function unobserved<P extends ToolProfile | SpeechProfile | HostProfile | LiveProfile>(profile: P): P {
+function unobserved<P extends ToolProfile | SpeechProfile | HostProfile | LiveProfile>(
+  profile: P,
+): P {
   const { observability: _observability, ...rest } = profile;
   return rest as P;
 }
@@ -416,7 +423,6 @@ function hostCall({ boundary, text }: GuardrailProbe): { name: string; input: un
   }
 }
 
-
 type SocketHandler<E> = ((event: E) => void) | null;
 
 /** A scripted Gemini Live socket: it completes setup, and keeps what the session sent. */
@@ -470,7 +476,9 @@ const LIVE_SESSION_BOUNDARIES: ReadonlySet<ProbeBoundary> = new Set([
 const LIVE_IDLE_MS = 1500;
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined;
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 /** The strings under `text` in a list of wire parts. */
@@ -493,7 +501,8 @@ function userTurnTexts(turns: unknown): string[] {
 
 /** The text of a frame the session sent, by the part of the wire it rides in. */
 function frameTexts(frame: Record<string, unknown>, boundary: ProbeBoundary): string[] {
-  if (boundary === 'system') return partTexts(record(record(frame.setup)?.systemInstruction)?.parts);
+  if (boundary === 'system')
+    return partTexts(record(record(frame.setup)?.systemInstruction)?.parts);
   if (boundary === 'history') return userTurnTexts(record(frame.clientContent)?.turns);
   const text = record(frame.realtimeInput)?.text;
   return typeof text === 'string' ? [text] : [];
@@ -518,7 +527,9 @@ async function runLiveSession(
   const socket = new ProbeSocket();
   const binding = profile.models[profile.defaultModel];
   const named = keySlotsOf(scope.providers.require(binding.provider, binding.apiId), binding);
-  const slots = [named.keySlot, named.fallbackKeySlot].filter((slot): slot is string => slot !== undefined);
+  const slots = [named.keySlot, named.fallbackKeySlot].filter(
+    (slot): slot is string => slot !== undefined,
+  );
   if (boundary === 'history' || boundary === 'system') {
     // why: A session that refuses what it is seeded with throws before it reports anything, so a
     // blocked probe reads the request first to show what was found. Otherwise the session reports it.
@@ -541,11 +552,11 @@ async function runLiveSession(
       ...(boundary === 'system' ? { system: text } : {}),
       ...(boundary === 'history'
         ? {
-          history: [
-            { role: 'user', content: text },
-            { role: 'assistant', content: 'ok' },
-          ],
-        }
+            history: [
+              { role: 'user', content: text },
+              { role: 'assistant', content: 'ok' },
+            ],
+          }
         : {}),
       ...(signal ? { signal } : {}),
     },
@@ -573,18 +584,20 @@ async function runLiveSession(
   })();
   try {
     await session.sendText(boundary === 'user' ? text : 'Run the probe.');
-    {
-      if (boundary === 'reply') {
-        socket.deliver({
-          serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: 'AAAA' } }] } },
-        });
-        for (const chunk of chunks(text)) {
-          socket.deliver({ serverContent: { outputTranscription: { text: chunk } } });
-        }
+    if (boundary === 'reply') {
+      socket.deliver({
+        serverContent: {
+          modelTurn: {
+            parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: 'AAAA' } }],
+          },
+        },
+      });
+      for (const chunk of chunks(text)) {
+        socket.deliver({ serverContent: { outputTranscription: { text: chunk } } });
       }
-      socket.deliver({ serverContent: { generationComplete: true } });
-      socket.deliver({ serverContent: { turnComplete: true } });
     }
+    socket.deliver({ serverContent: { generationComplete: true } });
+    socket.deliver({ serverContent: { turnComplete: true } });
     while (!finished && Date.now() - last < LIVE_IDLE_MS && !signal?.aborted) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
@@ -855,7 +868,16 @@ export async function runGuardrailProbe(args: {
     }
     for await (const event of viaSession
       ? []
-      : probeStream({ scope, profile, type: asked.type, probe, signal: args.signal, onAgentCall, provider, sink })) {
+      : probeStream({
+          scope,
+          profile,
+          type: asked.type,
+          probe,
+          signal: args.signal,
+          onAgentCall,
+          provider,
+          sink,
+        })) {
       events.push(event);
     }
   } catch (error) {
@@ -867,7 +889,9 @@ export async function runGuardrailProbe(args: {
   const guardrails = events.flatMap((event) =>
     event.type === 'guardrail' ? [event.guardrail] : [],
   );
-  const text = socket ? passedLive(probe.boundary, events, socket) : passed(probe.boundary, events, seen);
+  const text = socket
+    ? passedLive(probe.boundary, events, socket)
+    : passed(probe.boundary, events, seen);
   const taint = taintOf(guardrails);
   return {
     status: probeStatus(guardrails, refused !== undefined),

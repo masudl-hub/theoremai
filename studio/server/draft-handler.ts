@@ -26,12 +26,12 @@ import {
   readBody,
   type SteerInbox,
   steerUnitOf,
+  type TheoremSessionBoundary,
+  type TheoremSessionStore,
   theoremConversationRequestSchema,
   theoremHostCallRequestSchema,
   theoremInvokeRequestSchema,
   theoremRewindRequestSchema,
-  type TheoremSessionBoundary,
-  type TheoremSessionStore,
   theoremSteerRequestSchema,
   theoremTurnRequestSchema,
 } from '@theoremjs/react/server';
@@ -134,7 +134,13 @@ const draftOutline = z.looseObject({
   customTools: z.array(record).optional(),
   structured: structuredOutline.optional(),
   dependencies: z
-    .array(z.looseObject({ profile: record, customTools: z.array(record), structured: structuredOutline.optional() }))
+    .array(
+      z.looseObject({
+        profile: record,
+        customTools: z.array(record),
+        structured: structuredOutline.optional(),
+      }),
+    )
     .optional(),
 });
 
@@ -153,7 +159,9 @@ const notFound = () => Response.json({}, { status: 404 });
 export const STUDIO_BASE = '/api/studio';
 
 /** Serves the studio screen's requests. */
-export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}): StudioDraftHandler {
+export function createStudioDraftHandler(
+  options: StudioDraftHandlerOptions = {},
+): StudioDraftHandler {
   const { lent, spend } = options;
   const resolveHost = options.resolveHost ?? lent?.resolveHost;
   const sessionStore = options.sessionStore ?? createMemorySessionStore();
@@ -182,7 +190,11 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
     });
 
   /** The run's runtime: the lent keys, on this session's tool execution. */
-  const runtimeOf = (lent: LentRuntime, boundary: TheoremSessionBoundary, request: Request): StudioRuntime => ({
+  const runtimeOf = (
+    lent: LentRuntime,
+    boundary: TheoremSessionBoundary,
+    request: Request,
+  ): StudioRuntime => ({
     ...lent,
     execution: boundary.toolExecution,
     pageExecution: boundary.pageExecution,
@@ -190,7 +202,12 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
   });
 
   /** A draft as a run takes it. */
-  const draftRun = (lent: LentRuntime, draft: DraftBody, boundary: TheoremSessionBoundary, request: Request) => ({
+  const draftRun = (
+    lent: LentRuntime,
+    draft: DraftBody,
+    boundary: TheoremSessionBoundary,
+    request: Request,
+  ) => ({
     profile: draft.profile,
     customTools: draft.customTools ?? [],
     structured: draft.structured,
@@ -206,7 +223,11 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
     let draft: DraftBody | undefined;
     try {
       draft = (await readBody(request, draftOutline)) as DraftBody;
-      const boundary = await createTheoremSessionBoundary({ request, sessionStore, pageToolBroker });
+      const boundary = await createTheoremSessionBoundary({
+        request,
+        sessionStore,
+        pageToolBroker,
+      });
       const response = await handle(draft, boundary);
       if (boundary.setCookie) response.headers.append('set-cookie', boundary.setCookie);
       return response;
@@ -216,10 +237,15 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
   };
 
   /** A run's events, streamed, with each checkpoint the run reaches kept in the session. */
-  const stream = (boundary: TheoremSessionBoundary, draft: DraftBody, events: AsyncIterable<{ type: string }>) =>
-    ndjsonEventStream(recorded(boundary, events), draft.profile.labels);
+  const stream = (
+    boundary: TheoremSessionBoundary,
+    draft: DraftBody,
+    events: AsyncIterable<{ type: string }>,
+  ) => ndjsonEventStream(recorded(boundary, events), draft.profile.labels);
 
-  const lentRoutes = (lent: LentRuntime): Record<string, (request: Request) => Promise<Response>> => ({
+  const lentRoutes = (
+    lent: LentRuntime,
+  ): Record<string, (request: Request) => Promise<Response>> => ({
     turn: (request) =>
       draftRequest(request, (draft, boundary) =>
         stream(
@@ -232,7 +258,8 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
             signal: request.signal,
             steer,
           }),
-        )),
+        ),
+      ),
     invoke: (request) =>
       draftRequest(request, (draft, boundary) => {
         const answer = checkRequest(theoremInvokeRequestSchema, draft, 'request body');
@@ -242,7 +269,12 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
           draft,
           draft.profile.type === 'host'
             ? streamStudioHostInvoke({ ...run, answer, signal: request.signal })
-            : streamStudioInvoke({ ...run, answer, conversations: conversationsOf(boundary), signal: request.signal }),
+            : streamStudioInvoke({
+                ...run,
+                answer,
+                conversations: conversationsOf(boundary),
+                signal: request.signal,
+              }),
         );
       }),
     conversation: (request) =>
@@ -253,7 +285,8 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
             conversationsOf(boundary),
             checkRequest(theoremConversationRequestSchema, draft, 'request body'),
           ),
-        )),
+        ),
+      ),
     rewind: (request) =>
       draftRequest(request, async (draft, boundary) =>
         Response.json(
@@ -263,11 +296,16 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
             checkRequest(theoremRewindRequestSchema, draft, 'request body'),
             request.signal,
           ),
-        )),
+        ),
+      ),
     call: (request) =>
       draftRequest(request, async (draft, boundary) => {
         const call = checkRequest(theoremHostCallRequestSchema, draft, 'request body');
-        const sessionPermissions = checkRequest(pagePermissions, draft.sessionPermissions, 'session permissions');
+        const sessionPermissions = checkRequest(
+          pagePermissions,
+          draft.sessionPermissions,
+          'session permissions',
+        );
         // Counted only once the request is one a host would run.
         await spend?.('call', request);
         const { structured: _structured, ...run } = draftRun(lent, draft, boundary, request);
@@ -280,10 +318,16 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
     'turn/steer': async (request) => {
       try {
         // The inbox the server opened for the turn is the turn id the browser steers.
-        const asked = checkRequest(theoremSteerRequestSchema, await readBody(request, z.unknown()), 'request body');
+        const asked = checkRequest(
+          theoremSteerRequestSchema,
+          await readBody(request, z.unknown()),
+          'request body',
+        );
         if (!(await steer.enqueue(asked.turnId, steerUnitOf(asked)))) {
           // labels-exempt: internal diagnostic; the user reads session.turn_ended
-          throw new TheoremError('request', 'steer: no open run has this inbox', { copy: { key: 'session.turn_ended' } });
+          throw new TheoremError('request', 'steer: no open run has this inbox', {
+            copy: { key: 'session.turn_ended' },
+          });
         }
         return Response.json({ ok: true });
       } catch (err) {
@@ -292,7 +336,11 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
     },
     'page-result': async (request) => {
       try {
-        const boundary = await createTheoremSessionBoundary({ request, sessionStore, pageToolBroker });
+        const boundary = await createTheoremSessionBoundary({
+          request,
+          sessionStore,
+          pageToolBroker,
+        });
         await boundary.answerPageResult(await readBody(request, pageToolResultSchema));
         const response = Response.json({ accepted: true });
         if (boundary.setCookie) response.headers.append('set-cookie', boundary.setCookie);
@@ -302,7 +350,10 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
       }
     },
     decide: (request) =>
-      draftDecide(request, { runtime: lent, spend: async (asked) => await spend?.('decision', asked) }),
+      draftDecide(request, {
+        runtime: lent,
+        spend: async (asked) => await spend?.('decision', asked),
+      }),
     'embedding/embed': (request) => draftEmbedding(request, lent),
   });
 
@@ -312,7 +363,8 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
     const routes: Record<string, (request: Request) => Promise<Response>> = {
       probe: (asked) => draftProbe(asked, options.onProbePassed, defer ?? (() => {})),
       'test-key': testKey,
-      'test-connection': (asked) => testConnection(asked, { resolveHost, draftNetwork: options.draftNetwork }),
+      'test-connection': (asked) =>
+        testConnection(asked, { resolveHost, draftNetwork: options.draftNetwork }),
       ...(lent ? lentRoutes(lent) : {}),
     };
     if (!Object.hasOwn(routes, route)) return Promise.resolve(notFound());
@@ -324,8 +376,13 @@ export function createStudioDraftHandler(options: StudioDraftHandlerOptions = {}
     if (!lent) return Promise.resolve(notFound());
     return draftRequest(request, async (draft, boundary) =>
       Response.json(
-        await startStudioConversation(draftRun(lent, draft, boundary, request), conversationsOf(boundary), blocks),
-      ));
+        await startStudioConversation(
+          draftRun(lent, draft, boundary, request),
+          conversationsOf(boundary),
+          blocks,
+        ),
+      ),
+    );
   };
   return handler;
 }
@@ -337,8 +394,9 @@ async function* recorded<T extends { type: string }>(
 ): AsyncGenerator<T> {
   for await (const event of events) {
     if (event.type === 'done' || event.type === 'provider_checkpoint') {
-      const state = (event as { providerState?: Parameters<TheoremSessionBoundary['recordCheckpoint']>[0] })
-        .providerState;
+      const state = (
+        event as { providerState?: Parameters<TheoremSessionBoundary['recordCheckpoint']>[0] }
+      ).providerState;
       if (state) await boundary.recordCheckpoint(state);
     }
     yield event;

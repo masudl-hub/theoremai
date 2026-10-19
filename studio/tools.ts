@@ -72,7 +72,8 @@ export function registerCustomTool(
     tools.register({ ...shared, type: 'function', answeredBy: 'page' });
     return;
   }
-  const handler = tool.stubResponse || !Object.hasOwn(handlers, tool.name) ? undefined : handlers[tool.name];
+  const handler =
+    tool.stubResponse || !Object.hasOwn(handlers, tool.name) ? undefined : handlers[tool.name];
   const stub = tool.stubResponse ?? stubOutputFromSchema(tool.outputSchema);
   tools.register({
     ...shared,

@@ -4,10 +4,7 @@
   "commandRunner": {
     "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/react"
   },
-  "mutate": [
-    "react/src/**/*.ts",
-    "react/src/**/*.tsx"
-  ],
+  "mutate": ["react/src/**/*.ts", "react/src/**/*.tsx"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -20,10 +17,7 @@
     ".fallow",
     ".stryker-tmp-react"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/react-incremental.json",

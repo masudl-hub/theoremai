@@ -12,8 +12,8 @@ import {
   isRead,
   type ProjectSource,
   propertyName,
-  type SourceTarget,
   questionsExport,
+  type SourceTarget,
   sourceOf,
   unwrapped,
 } from './project-source.ts';
@@ -33,7 +33,12 @@ export interface RemovalPlan extends SavePlan {
 }
 
 /** The calls that register what a profile's or a provider's module holds. */
-const REGISTERS = new Set(['registerProfile', 'registerStructured', 'registerProvider', 'registerTool']);
+const REGISTERS = new Set([
+  'registerProfile',
+  'registerStructured',
+  'registerProvider',
+  'registerTool',
+]);
 
 /** Something a file writes that can be taken out whole. */
 type Part = ts.Statement | ts.ObjectLiteralElementLike | ts.ImportSpecifier;
@@ -49,10 +54,13 @@ interface Named {
 function wrapped(node: ts.Node): ts.Node {
   let at = node;
   while (
-    ts.isParenthesizedExpression(at.parent) || ts.isAsExpression(at.parent) ||
-    ts.isSatisfiesExpression(at.parent) || ts.isNonNullExpression(at.parent) ||
+    ts.isParenthesizedExpression(at.parent) ||
+    ts.isAsExpression(at.parent) ||
+    ts.isSatisfiesExpression(at.parent) ||
+    ts.isNonNullExpression(at.parent) ||
     ts.isAwaitExpression(at.parent)
-  ) at = at.parent;
+  )
+    at = at.parent;
   return at;
 }
 
@@ -99,7 +107,8 @@ function readsIn(source: ts.SourceFile, name: string, declaration?: ts.Node): ts
   const reads: ts.Identifier[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isImportDeclaration(node)) return;
-    if (ts.isIdentifier(node) && node.text === name && node.parent !== declaration && isRead(node)) reads.push(node);
+    if (ts.isIdentifier(node) && node.text === name && node.parent !== declaration && isRead(node))
+      reads.push(node);
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -123,24 +132,53 @@ function* importsOf(
 }
 
 /** How one import of a definition's file reads the definition, when it brings it in. */
-function importReader(source: ts.SourceFile, statement: ts.ImportDeclaration, named: Named): Reader | undefined {
+function importReader(
+  source: ts.SourceFile,
+  statement: ts.ImportDeclaration,
+  named: Named,
+): Reader | undefined {
   const bindings = statement.importClause?.namedBindings;
   if (!bindings) return undefined;
   if (ts.isNamespaceImport(bindings)) {
     const all = readsIn(source, bindings.name.text);
     const own = (read: ts.Identifier) =>
-      ts.isPropertyAccessExpression(read.parent) && read.parent.expression === read && read.parent.name.text === named.name;
-    return { source, reads: all.filter(own), others: all.filter((read) => !own(read)), imported: statement, passesOn: false };
+      ts.isPropertyAccessExpression(read.parent) &&
+      read.parent.expression === read &&
+      read.parent.name.text === named.name;
+    return {
+      source,
+      reads: all.filter(own),
+      others: all.filter((read) => !own(read)),
+      imported: statement,
+      passesOn: false,
+    };
   }
-  const element = bindings.elements.find((each) => (each.propertyName ?? each.name).text === named.name);
-  return element && { source, reads: readsIn(source, element.name.text), others: [], imported: element, passesOn: false };
+  const element = bindings.elements.find(
+    (each) => (each.propertyName ?? each.name).text === named.name,
+  );
+  return (
+    element && {
+      source,
+      reads: readsIn(source, element.name.text),
+      others: [],
+      imported: element,
+      passesOn: false,
+    }
+  );
 }
 
 /** Every file of the project that reads `named`, by its own name or through an import of its file. */
 function readersOf(project: ProjectSource, named: Named): Reader[] {
-  const declaration = ts.isVariableStatement(named.statement) ? named.statement.declarationList.declarations[0] : named.statement;
+  const declaration = ts.isVariableStatement(named.statement)
+    ? named.statement.declarationList.declarations[0]
+    : named.statement;
   const readers: Reader[] = [
-    { source: named.source, reads: readsIn(named.source, named.name, declaration), others: [], passesOn: false },
+    {
+      source: named.source,
+      reads: readsIn(named.source, named.name, declaration),
+      others: [],
+      passesOn: false,
+    },
   ];
   for (const { source, statement } of importsOf(project, named.source)) {
     const reader = ts.isImportDeclaration(statement)
@@ -164,7 +202,12 @@ class Removal {
     return source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
   }
 
-  private note(kind: SaveChange['kind'], of: string, status: SaveChange['status'], at?: { node: ts.Node; source: ts.SourceFile }) {
+  private note(
+    kind: SaveChange['kind'],
+    of: string,
+    status: SaveChange['status'],
+    at?: { node: ts.Node; source: ts.SourceFile },
+  ) {
     this.changes.push({
       kind,
       of,
@@ -179,19 +222,23 @@ class Removal {
    * that registers it, a statement that calls it when it is a function, or its entry in the
    * setup's `questions`.
    */
-  private useOf(read: ts.Identifier, source: ts.SourceFile, callable = false): Part | undefined {
+  private partOf(read: ts.Identifier, source: ts.SourceFile, callable = false): Part | undefined {
     let value: ts.Node = read;
     // `module.profile` and `module.structured.id` are reads of what the module holds.
-    while (ts.isPropertyAccessExpression(value.parent) && value.parent.expression === value) value = value.parent;
+    while (ts.isPropertyAccessExpression(value.parent) && value.parent.expression === value)
+      value = value.parent;
     value = wrapped(value);
     const { parent } = value;
     if (ts.isCallExpression(parent)) {
-      const registers = parent.arguments.includes(value as ts.Expression) && REGISTERS.has(calleeName(parent) ?? '');
+      const registers =
+        parent.arguments.includes(value as ts.Expression) &&
+        REGISTERS.has(calleeName(parent) ?? '');
       const called = callable && parent.expression === value;
       return registers || called ? statementOf(parent) : undefined;
     }
     const questions = questionsExport(source)?.initializer;
-    const entry = ts.isShorthandPropertyAssignment(parent) ||
+    const entry =
+      ts.isShorthandPropertyAssignment(parent) ||
       (ts.isPropertyAssignment(parent) && parent.initializer === value);
     return entry && questions && parent.parent === unwrapped(questions) ? parent : undefined;
   }
@@ -203,8 +250,12 @@ class Removal {
   private named(named: Named): boolean {
     const readers = readersOf(this.project, named);
     const callable = ts.isFunctionDeclaration(named.statement);
-    const uses = readers.map((reader) => reader.reads.map((read) => this.useOf(read, reader.source, callable)));
-    const registering = uses.flat().filter((use) => use !== undefined && ts.isExpressionStatement(use));
+    const uses = readers.map((reader) =>
+      reader.reads.map((read) => this.partOf(read, reader.source, callable)),
+    );
+    const registering = uses
+      .flat()
+      .filter((use) => use !== undefined && ts.isExpressionStatement(use));
     if (!registering.length) return false;
     // A module that defines one profile holds what goes with it: its reply's shape, its questions.
     const alone = !callable && this.definedIn(named.source) === 1;
@@ -212,7 +263,9 @@ class Removal {
     readers.forEach((reader, index) => {
       const held = uses[index] ?? [];
       for (const use of held) if (use) this.cut.set(use, reader.source);
-      const beside = reader.others.map((read) => (alone ? this.useOf(read, reader.source) : undefined));
+      const beside = reader.others.map((read) =>
+        alone ? this.partOf(read, reader.source) : undefined,
+      );
       const whole = !reader.passesOn && [...held, ...beside].every((use) => use !== undefined);
       if (whole) for (const use of beside) if (use) this.cut.set(use, reader.source);
       if (whole && reader.imported) this.unimport(reader.imported, reader.source);
@@ -225,7 +278,8 @@ class Removal {
   /** How many profiles a file defines. */
   private definedIn(source: ts.SourceFile): number {
     let count = 0;
-    for (const targets of this.project.profiles.values()) count += targets.filter((target) => target.source === source).length;
+    for (const targets of this.project.profiles.values())
+      count += targets.filter((target) => target.source === source).length;
     return count;
   }
 
@@ -239,7 +293,8 @@ class Removal {
     const names = imported.parent;
     const statement = names.parent.parent;
     if (!ts.isImportDeclaration(statement)) return;
-    const alone = !statement.importClause?.name && names.elements.every((element) => this.cut.has(element));
+    const alone =
+      !statement.importClause?.name && names.elements.every((element) => this.cut.has(element));
     if (alone) this.cut.set(statement, source);
   }
 
@@ -263,7 +318,9 @@ class Removal {
     const defined = wrapped(target.options).parent;
     const outer = wrapped(defined).parent;
     // Registered where it is written: with its `define` call inside the call, or without it.
-    const registers = [defined, outer].find((call) => ts.isCallExpression(call) && calleeName(call) === register);
+    const registers = [defined, outer].find(
+      (call) => ts.isCallExpression(call) && calleeName(call) === register,
+    );
     const inline = registers && statementOf(registers);
     const named = inline ? undefined : declared(defined, target.source);
     if (inline) this.cut.set(inline, target.source);
@@ -279,7 +336,12 @@ class Removal {
 
   provider(id: string) {
     // Registered under a name, it goes with each statement that reads the name.
-    this.registration('provider', id, this.project.providers, (target) => wrapped(target.options).parent);
+    this.registration(
+      'provider',
+      id,
+      this.project.providers,
+      (target) => wrapped(target.options).parent,
+    );
   }
 
   /** A removed decision's entry in the setup's `questions`, under its id. */
@@ -339,27 +401,35 @@ class Removal {
    */
   private isGone(source: ts.SourceFile): boolean {
     if (source.fileName === this.project.entry || !this.homes.has(source)) return false;
-    for (const { statement } of importsOf(this.project, source)) if (!this.cut.has(statement)) return false;
+    for (const { statement } of importsOf(this.project, source))
+      if (!this.cut.has(statement)) return false;
     const own = source.statements.filter((statement) => !ts.isImportDeclaration(statement));
     const left = own.filter((statement) => !this.cut.has(statement));
-    return own.length > left.length &&
+    return (
+      own.length > left.length &&
       left.every((statement) => {
         const names = declaredNames(statement);
         if (!names) return false;
         if (!isExported(statement)) return true;
         return names.every((name) => this.readOnlyByCut({ name, source, statement }));
-      });
+      })
+    );
   }
 
   /** Whether the setup reads `named`, and only in what is cut. */
   private readOnlyByCut(named: Named): boolean {
     const readers = readersOf(this.project, named);
     const reads = readers.flatMap((reader) => reader.reads);
-    return !readers.some((reader) => reader.passesOn) && reads.length > 0 && reads.every((read) => this.isCut(read));
+    return (
+      !readers.some((reader) => reader.passesOn) &&
+      reads.length > 0 &&
+      reads.every((read) => this.isCut(read))
+    );
   }
 
   private isCut(node: ts.Node): boolean {
-    for (let at: ts.Node | undefined = node; at; at = at.parent) if (this.cut.has(at as Part)) return true;
+    for (let at: ts.Node | undefined = node; at; at = at.parent)
+      if (this.cut.has(at as Part)) return true;
     return false;
   }
 
@@ -369,7 +439,8 @@ class Removal {
       const own = home.statements.filter((statement) => !ts.isImportDeclaration(statement));
       if (!own.length || !own.every((statement) => this.cut.has(statement))) continue;
       for (const { source, statement } of importsOf(this.project, home)) {
-        if (ts.isImportDeclaration(statement) && !statement.importClause) this.cut.set(statement, source);
+        if (ts.isImportDeclaration(statement) && !statement.importClause)
+          this.cut.set(statement, source);
       }
     }
   }
@@ -383,7 +454,9 @@ class Removal {
       parts.set(source, [...(parts.get(source) ?? []), part]);
     }
     const edits = [...parts].flatMap(([source, held]) =>
-      cutsOf(held, source).map(({ start, end }): SourceEdit => ({ file: source.fileName, start, end, text: '' }))
+      cutsOf(held, source).map(
+        ({ start, end }): SourceEdit => ({ file: source.fileName, start, end, text: '' }),
+      ),
     );
     return { changes: this.changes, edits, gone: gone.map((source) => source.fileName) };
   }
@@ -392,17 +465,28 @@ class Removal {
 /** The names a top-level declaration declares, or undefined for a statement that is not one. */
 function declaredNames(statement: ts.Statement): string[] | undefined {
   if (ts.isVariableStatement(statement)) {
-    const names = statement.declarationList.declarations.map((each) => ts.isIdentifier(each.name) ? each.name.text : undefined);
+    const names = statement.declarationList.declarations.map((each) =>
+      ts.isIdentifier(each.name) ? each.name.text : undefined,
+    );
     return names.every((name) => name !== undefined) ? names : undefined;
   }
-  const declares = ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) ||
-    ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement);
+  const declares =
+    ts.isFunctionDeclaration(statement) ||
+    ts.isClassDeclaration(statement) ||
+    ts.isInterfaceDeclaration(statement) ||
+    ts.isTypeAliasDeclaration(statement) ||
+    ts.isEnumDeclaration(statement);
   return declares && statement.name ? [statement.name.text] : undefined;
 }
 
 function isExported(statement: ts.Statement): boolean {
-  return ts.canHaveModifiers(statement) &&
-    (ts.getModifiers(statement)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false);
+  return (
+    ts.canHaveModifiers(statement) &&
+    (ts
+      .getModifiers(statement)
+      ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ??
+      false)
+  );
 }
 
 const BLANK = /^[ \t]*$/;
@@ -434,7 +518,8 @@ function ownLines(part: Part, source: ts.SourceFile): Cut | undefined {
   const lineStart = text.lastIndexOf('\n', start - 1) + 1;
   const next = text.indexOf('\n', end);
   const lineEnd = next === -1 ? text.length : next;
-  if (!BLANK.test(text.slice(lineStart, start)) || !BLANK.test(text.slice(end, lineEnd))) return undefined;
+  if (!BLANK.test(text.slice(lineStart, start)) || !BLANK.test(text.slice(end, lineEnd)))
+    return undefined;
   return { start: lineStart, end: next === -1 ? text.length : next + 1, lines: true };
 }
 
@@ -461,7 +546,9 @@ function inList(list: readonly Part[], first: number, last: number, source: ts.S
 /** One blank line stays between what was above a cut and what was below it, not two. */
 function closed(cut: Cut, text: string): Cut {
   if (!cut.lines) return cut;
-  const above = cut.start === 0 || BLANK.test(text.slice(text.lastIndexOf('\n', cut.start - 2) + 1, cut.start - 1));
+  const above =
+    cut.start === 0 ||
+    BLANK.test(text.slice(text.lastIndexOf('\n', cut.start - 2) + 1, cut.start - 1));
   const next = text.indexOf('\n', cut.end);
   const below = next !== -1 && BLANK.test(text.slice(cut.end, next));
   return above && below ? { ...cut, end: next + 1 } : cut;

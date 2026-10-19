@@ -4,10 +4,7 @@
   "commandRunner": {
     "command": "deno test --ignore=tests/kernel/zero-permission-import.test.ts --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/kernel"
   },
-  "mutate": [
-    "src/kernel/*.ts",
-    "src/kernel/util/**/*.ts"
-  ],
+  "mutate": ["src/kernel/*.ts", "src/kernel/util/**/*.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -20,10 +17,7 @@
     ".fallow",
     ".stryker-tmp-kernel-core"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/kernel-core-incremental.json",

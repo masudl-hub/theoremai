@@ -65,13 +65,21 @@ export const STUDIO_KEY_SLOT_CAP = 32;
 const localModelList = z.object({ data: z.array(z.object({ id: z.string().min(1) })) });
 
 /** The same localhost origin and transport used for inference; never a site proxy. */
-export async function listLocalStudioModels(local: StudioBrowserConnection['local'], signal?: AbortSignal): Promise<string[]> {
+export async function listLocalStudioModels(
+  local: StudioBrowserConnection['local'],
+  signal?: AbortSignal,
+): Promise<string[]> {
   const config = localStudioConfig(local);
   if (!config?.fetch) throw new TheoremError('config', 'Enter a local endpoint.'); // labels-exempt: builder diagnostic
-  const response = await config.fetch(`${config.baseUrl}/v1/models`, { signal, headers: { Accept: 'application/json' } });
-  if (!response.ok) throw new TheoremError('network', `Local model list returned HTTP ${response.status}.`); // labels-exempt: builder diagnostic
+  const response = await config.fetch(`${config.baseUrl}/v1/models`, {
+    signal,
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok)
+    throw new TheoremError('network', `Local model list returned HTTP ${response.status}.`); // labels-exempt: builder diagnostic
   const parsed = localModelList.safeParse(await response.json());
-  if (!parsed.success) throw new TheoremError('request', 'The endpoint returned an invalid model list.'); // labels-exempt: builder diagnostic
+  if (!parsed.success)
+    throw new TheoremError('request', 'The endpoint returned an invalid model list.'); // labels-exempt: builder diagnostic
   return [...new Set(parsed.data.data.map((model) => model.id))];
 }
 
@@ -98,7 +106,10 @@ export const KNOWN_GEMINI_EMBEDDING_MODELS: readonly ProviderModel[] = [
 export const KNOWN_OPENROUTER_EMBEDDING_MODELS: readonly ProviderModel[] = [
   { id: 'liquid/lfm-2.5-embedding-350m:free', label: 'Liquid LFM 2.5 Embedding 350M (free)' },
   { id: 'nvidia/nemotron-3-embed-1b:free', label: 'NVIDIA Nemotron 3 Embed 1B (free)' },
-  { id: 'nvidia/llama-nemotron-embed-vl-1b-v2:free', label: 'NVIDIA Llama Nemotron Embed VL 1B v2 (free)' },
+  {
+    id: 'nvidia/llama-nemotron-embed-vl-1b-v2:free',
+    label: 'NVIDIA Llama Nemotron Embed VL 1B v2 (free)',
+  },
 ];
 
 /**
@@ -169,7 +180,9 @@ export async function listProviderModels(
   const secret = key?.trim();
   if (profileType === 'embedding' && !secret) {
     return [
-      ...(provider === 'openrouter' ? KNOWN_OPENROUTER_EMBEDDING_MODELS : KNOWN_GEMINI_EMBEDDING_MODELS),
+      ...(provider === 'openrouter'
+        ? KNOWN_OPENROUTER_EMBEDDING_MODELS
+        : KNOWN_GEMINI_EMBEDDING_MODELS),
     ];
   }
   if (provider === 'openrouter') return await listOpenRouterModels(profileType, secret, signal);
@@ -194,7 +207,11 @@ async function listOpenRouterModels(
     const parsed = openRouterEmbeddingModelList.safeParse(
       await listedJson('OpenRouter', OPENROUTER_EMBEDDING_MODELS_URL, init),
     );
-    if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid embedding model list.'); // labels-exempt: builder diagnostic
+    if (!parsed.success)
+      throw new TheoremError(
+        'bad_response',
+        'OpenRouter returned an invalid embedding model list.',
+      ); // labels-exempt: builder diagnostic
     return parsed.data.data.map((model) => ({ id: model.id, label: model.name ?? model.id }));
   }
   const output = OPENROUTER_OUTPUT[profileType];
@@ -202,7 +219,8 @@ async function listOpenRouterModels(
   const parsed = openRouterModelList.safeParse(
     await listedJson('OpenRouter', `${OPENROUTER_MODELS_URL}?output_modalities=${output}`, init),
   );
-  if (!parsed.success) throw new TheoremError('bad_response', 'OpenRouter returned an invalid model list.'); // labels-exempt: builder diagnostic
+  if (!parsed.success)
+    throw new TheoremError('bad_response', 'OpenRouter returned an invalid model list.'); // labels-exempt: builder diagnostic
   return parsed.data.data
     .filter((model) => model.architecture?.output_modalities?.includes(output) ?? true)
     .map((model) => ({ id: model.id, label: model.name ?? model.id }));
@@ -233,7 +251,8 @@ async function listGeminiModels(
         headers: { Accept: 'application/json', 'x-goog-api-key': secret },
       }),
     );
-    if (!parsed.success) throw new TheoremError('bad_response', 'Google returned an invalid model list.'); // labels-exempt: builder diagnostic
+    if (!parsed.success)
+      throw new TheoremError('bad_response', 'Google returned an invalid model list.'); // labels-exempt: builder diagnostic
     for (const model of parsed.data.models ?? []) {
       if (!model.supportedGenerationMethods?.includes(method)) continue;
       const id = model.name.replace(/^models\//, '');
@@ -257,7 +276,10 @@ export function studioKeySlots(profile: {
       [
         profile.key,
         profile.fallbackKey,
-        ...Object.values(profile.models ?? {}).flatMap((model) => [model.keySlot, model.fallbackKeySlot]),
+        ...Object.values(profile.models ?? {}).flatMap((model) => [
+          model.keySlot,
+          model.fallbackKeySlot,
+        ]),
       ].filter((slot): slot is string => Boolean(slot)),
     ),
   ];

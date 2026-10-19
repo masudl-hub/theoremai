@@ -1,5 +1,13 @@
 import { assertEquals } from '@std/assert';
-import { pick, picker, pickerKey, setupLines, setupOf, setupsAmong, setupsNamed } from '../setups.mjs';
+import {
+  pick,
+  picker,
+  pickerKey,
+  setupLines,
+  setupOf,
+  setupsAmong,
+  setupsNamed,
+} from '../setups.mjs';
 
 const FILES = [
   'README.md',
@@ -27,8 +35,14 @@ Deno.test('a project lists its setups by name', () => {
 
 Deno.test('a word names a setup by its file or by its name', () => {
   const setups = setupsAmong(FILES, 'bonsai');
-  assertEquals(setupsNamed(setups, 'support').map((setup) => setup.file), ['backend/support.studio.setup.ts']);
-  assertEquals(setupsNamed(setups, './evals/studio.setup.ts').map((setup) => setup.name), ['evals']);
+  assertEquals(
+    setupsNamed(setups, 'support').map((setup) => setup.file),
+    ['backend/support.studio.setup.ts'],
+  );
+  assertEquals(
+    setupsNamed(setups, './evals/studio.setup.ts').map((setup) => setup.name),
+    ['evals'],
+  );
   assertEquals(setupsNamed(setups, 'nothing'), []);
 });
 

@@ -7,7 +7,7 @@
 let played = false;
 
 export function bootHasPlayed(): boolean {
-	return played;
+  return played;
 }
 
 /** Fired when the mark gives way, before the shell moves, so the cover attribute can drop. */
@@ -41,8 +41,8 @@ export const HOLD_MS = 140;
  * screen. That surface carries `data-shell-frame`; a page without one rests in the regular shape.
  */
 export function frameShape(): ShellShape {
-	const frame = document.querySelector<HTMLElement>('[data-shell-frame]');
-	return frame ? { kind: 'frame', width: frame.offsetWidth } : REGULAR_SHAPE;
+  const frame = document.querySelector<HTMLElement>('[data-shell-frame]');
+  return frame ? { kind: 'frame', width: frame.offsetWidth } : REGULAR_SHAPE;
 }
 
 /** Where the shell last came to rest, for a route change that gave no warning. */
@@ -52,32 +52,32 @@ let rest: ShellShape = OPEN_SHAPE;
 let captured: ShellShape | null = null;
 
 export function captureShape(shape: ShellShape): void {
-	captured = shape;
+  captured = shape;
 }
 
 export function hasCapturedShape(): boolean {
-	return captured !== null;
+  return captured !== null;
 }
 
 export function peekShape(): ShellShape {
-	return captured ?? rest;
+  return captured ?? rest;
 }
 
 /** The shape the shell is leaving, and the claim on it: the next route change starts afresh. */
 export function takeShape(): ShellShape {
-	const shape = captured ?? rest;
-	captured = null;
-	return shape;
+  const shape = captured ?? rest;
+  captured = null;
+  return shape;
 }
 
 export function prefersReducedMotion(): boolean {
-	return globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 export function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => {
-		globalThis.setTimeout(resolve, ms);
-	});
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
 }
 
 /** What a host lays over the shell that pins it in place, such as a side panel. */
@@ -85,34 +85,34 @@ let pinned: () => boolean = () => false;
 
 /** The host names when something of its own holds the shell still. */
 export function pinShellWhile(check: () => boolean): void {
-	pinned = check;
+  pinned = check;
 }
 
 /** Whether the shell can move. A narrow screen, reduced motion, and a host's pin cannot. */
 export function shellCanMove(): boolean {
-	return (
-		globalThis.matchMedia('(min-width: 768px)').matches &&
-		!globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches &&
-		!pinned()
-	);
+  return (
+    globalThis.matchMedia('(min-width: 768px)').matches &&
+    !globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+    !pinned()
+  );
 }
 
 /** The mark is still up, or the shell is on its way: scroll must not move the shell yet. */
 export function shellIntroOwnsPull(): boolean {
-	const root = document.documentElement;
-	return root.hasAttribute('data-boot-pending') || root.hasAttribute('data-shell-move');
+  const root = document.documentElement;
+  return root.hasAttribute('data-boot-pending') || root.hasAttribute('data-shell-move');
 }
 
 function showContent(root: HTMLElement) {
-	root.dataset.shellIn = '';
-	globalThis.setTimeout(() => {
-		delete root.dataset.shellIn;
-	}, 320);
+  root.dataset.shellIn = '';
+  globalThis.setTimeout(() => {
+    delete root.dataset.shellIn;
+  }, 320);
 }
 
 /** The page's content fades out and stays out until the shell settles. */
 export function holdShell(): void {
-	document.documentElement.dataset.shellHold = '';
+  document.documentElement.dataset.shellHold = '';
 }
 
 /**
@@ -120,13 +120,13 @@ export function holdShell(): void {
  * shell already drawn as a clip and cannot snap it to its own shape.
  */
 export function enterShell(from: ShellShape): void {
-	const root = document.documentElement;
-	const main = document.getElementById(MAIN_ID);
-	if (!main || !shellCanMove() || root.hasAttribute('data-shell-move')) return;
-	if (from.kind === 'frame') root.style.setProperty(FRAME_WIDTH, `${String(from.width)}px`);
-	root.dataset.shellClip = from.kind;
-	root.dataset.shellMove = '';
-	getComputedStyle(main).getPropertyValue('clip-path');
+  const root = document.documentElement;
+  const main = document.getElementById(MAIN_ID);
+  if (!main || !shellCanMove() || root.hasAttribute('data-shell-move')) return;
+  if (from.kind === 'frame') root.style.setProperty(FRAME_WIDTH, `${String(from.width)}px`);
+  root.dataset.shellClip = from.kind;
+  root.dataset.shellMove = '';
+  getComputedStyle(main).getPropertyValue('clip-path');
 }
 
 /** Each move claims the shell; a claim that was overtaken must not settle it. */
@@ -138,48 +138,48 @@ let claim = 0;
  * stays in its last shape until `settleShell`, so a page that is still loading can wait on it.
  */
 export function moveShell(from: ShellShape, to: ShellShape): Promise<boolean> {
-	const root = document.documentElement;
-	const main = document.getElementById(MAIN_ID);
-	const mine = ++claim;
-	if (!main || !shellCanMove()) return Promise.resolve(true);
+  const root = document.documentElement;
+  const main = document.getElementById(MAIN_ID);
+  const mine = ++claim;
+  if (!main || !shellCanMove()) return Promise.resolve(true);
 
-	const moving = root.hasAttribute('data-shell-move');
-	if (moving && root.dataset.shellClip === to.kind) return Promise.resolve(true);
-	const frame = from.kind === 'frame' ? from : to.kind === 'frame' ? to : null;
-	if (frame) root.style.setProperty(FRAME_WIDTH, `${String(frame.width)}px`);
-	if (!moving) {
-		root.dataset.shellClip = from.kind;
-		root.dataset.shellMove = '';
-	}
-	/* The first shape has to be drawn once, so the second one is a change to ease and not a start. */
-	getComputedStyle(main).getPropertyValue('clip-path');
-	root.dataset.shellClip = to.kind;
+  const moving = root.hasAttribute('data-shell-move');
+  if (moving && root.dataset.shellClip === to.kind) return Promise.resolve(true);
+  const frame = from.kind === 'frame' ? from : to.kind === 'frame' ? to : null;
+  if (frame) root.style.setProperty(FRAME_WIDTH, `${String(frame.width)}px`);
+  if (!moving) {
+    root.dataset.shellClip = from.kind;
+    root.dataset.shellMove = '';
+  }
+  /* The first shape has to be drawn once, so the second one is a change to ease and not a start. */
+  getComputedStyle(main).getPropertyValue('clip-path');
+  root.dataset.shellClip = to.kind;
 
-	return new Promise((resolve) => {
-		const done = () => {
-			main.removeEventListener('transitionend', onEnd);
-			globalThis.clearTimeout(cap);
-			resolve(claim === mine);
-		};
-		const onEnd = (event: TransitionEvent) => {
-			if (event.target === main && event.propertyName === 'clip-path') done();
-		};
-		main.addEventListener('transitionend', onEnd);
-		const cap = globalThis.setTimeout(done, MOVE_CAP_MS);
-	});
+  return new Promise((resolve) => {
+    const done = () => {
+      main.removeEventListener('transitionend', onEnd);
+      globalThis.clearTimeout(cap);
+      resolve(claim === mine);
+    };
+    const onEnd = (event: TransitionEvent) => {
+      if (event.target === main && event.propertyName === 'clip-path') done();
+    };
+    main.addEventListener('transitionend', onEnd);
+    const cap = globalThis.setTimeout(done, MOVE_CAP_MS);
+  });
 }
 
 /** The shell rests. The page's content comes in at the size it will keep. */
 export function settleShell(to: ShellShape): void {
-	const root = document.documentElement;
-	const shown = root.hasAttribute('data-shell-move') || root.hasAttribute('data-shell-hold');
-	delete root.dataset.shellMove;
-	delete root.dataset.shellClip;
-	delete root.dataset.shellHold;
-	root.style.removeProperty(FRAME_WIDTH);
-	if (shown) showContent(root);
-	rest = to;
-	globalThis.dispatchEvent(new Event(SHELL_INTRO_DONE));
+  const root = document.documentElement;
+  const shown = root.hasAttribute('data-shell-move') || root.hasAttribute('data-shell-hold');
+  delete root.dataset.shellMove;
+  delete root.dataset.shellClip;
+  delete root.dataset.shellHold;
+  root.style.removeProperty(FRAME_WIDTH);
+  if (shown) showContent(root);
+  rest = to;
+  globalThis.dispatchEvent(new Event(SHELL_INTRO_DONE));
 }
 
 /**
@@ -188,14 +188,14 @@ export function settleShell(to: ShellShape): void {
  * A shell that cannot move stays full-bleed.
  */
 export function pullShellIn(): Promise<boolean> {
-	const root = document.documentElement;
-	const main = document.getElementById(MAIN_ID);
-	if (!main || !shellCanMove()) return Promise.resolve(true);
-	root.dataset.shellClip = 'open';
-	root.dataset.shellMove = '';
-	delete root.dataset.bootPending;
-	globalThis.dispatchEvent(new Event(SHELL_REVEAL));
-	return moveShell(OPEN_SHAPE, REGULAR_SHAPE);
+  const root = document.documentElement;
+  const main = document.getElementById(MAIN_ID);
+  if (!main || !shellCanMove()) return Promise.resolve(true);
+  root.dataset.shellClip = 'open';
+  root.dataset.shellMove = '';
+  delete root.dataset.bootPending;
+  globalThis.dispatchEvent(new Event(SHELL_REVEAL));
+  return moveShell(OPEN_SHAPE, REGULAR_SHAPE);
 }
 
 /**
@@ -204,24 +204,24 @@ export function pullShellIn(): Promise<boolean> {
  * `pullShellIn` took it there. A page that rests open stays open.
  */
 export function revealShell(to: ShellShape) {
-	played = true;
-	const root = document.documentElement;
-	const main = document.getElementById(MAIN_ID);
-	const pulled = root.hasAttribute('data-shell-move');
-	const moves = Boolean(main) && (pulled || (shellCanMove() && to.kind !== 'open'));
-	if (moves && !pulled) {
-		root.dataset.shellClip = 'open';
-		root.dataset.shellMove = '';
-	}
-	delete root.dataset.bootPending;
-	globalThis.dispatchEvent(new Event(SHELL_REVEAL));
-	if (!moves) {
-		showContent(root);
-		rest = to;
-		globalThis.dispatchEvent(new Event(SHELL_INTRO_DONE));
-		return;
-	}
-	void moveShell(pulled ? REGULAR_SHAPE : OPEN_SHAPE, to).then((arrived) => {
-		if (arrived) settleShell(to);
-	});
+  played = true;
+  const root = document.documentElement;
+  const main = document.getElementById(MAIN_ID);
+  const pulled = root.hasAttribute('data-shell-move');
+  const moves = Boolean(main) && (pulled || (shellCanMove() && to.kind !== 'open'));
+  if (moves && !pulled) {
+    root.dataset.shellClip = 'open';
+    root.dataset.shellMove = '';
+  }
+  delete root.dataset.bootPending;
+  globalThis.dispatchEvent(new Event(SHELL_REVEAL));
+  if (!moves) {
+    showContent(root);
+    rest = to;
+    globalThis.dispatchEvent(new Event(SHELL_INTRO_DONE));
+    return;
+  }
+  void moveShell(pulled ? REGULAR_SHAPE : OPEN_SHAPE, to).then((arrived) => {
+    if (arrived) settleShell(to);
+  });
 }

@@ -20,7 +20,10 @@ const ANSWER_MS = 1000;
  */
 
 /** @param {number} at @returns {Pair} */
-export const pairAt = (at) => ({ server: FIRST_SERVER_PORT + 2 * at, page: FIRST_SERVER_PORT + 2 * at + 1 });
+export const pairAt = (at) => ({
+  server: FIRST_SERVER_PORT + 2 * at,
+  page: FIRST_SERVER_PORT + 2 * at + 1,
+});
 
 /** @returns {Pair[]} */
 export const pairs = () => Array.from({ length: PAIRS }, (_, at) => pairAt(at));
@@ -38,39 +41,45 @@ export const serverAddress = (pair) => `http://127.0.0.1:${String(pair.server)}`
  * @returns {{ pair: Pair, running: boolean } | undefined}
  */
 export function placeFor(setup, held) {
-	const running = held.find((one) => one.setup === setup);
-	if (running) return { pair: running.pair, running: true };
-	const free = held.find((one) => one.free);
-	return free && { pair: free.pair, running: false };
+  const running = held.find((one) => one.setup === setup);
+  if (running) return { pair: running.pair, running: true };
+  const free = held.find((one) => one.free);
+  return free && { pair: free.pair, running: false };
 }
 
 /** @param {number} port @returns {Promise<boolean>} */
 function isFree(port) {
-	return new Promise((resolve) => {
-		const probe = createServer();
-		probe.once('error', () => resolve(false));
-		probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
-	});
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once('error', () => resolve(false));
+    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
+  });
 }
 
 /** The setup the studio on a pair is open on, or nothing when no studio answers there. */
 async function runningOn(pair) {
-	try {
-		const response = await fetch(serverAddress(pair) + RUNNING_PATH, { signal: AbortSignal.timeout(ANSWER_MS) });
-		const said = response.ok ? await response.json() : undefined;
-		return typeof said?.setup === 'string' ? said.setup : undefined;
-	} catch {
-		// Nothing listens there, or what does is not a studio.
-		return undefined;
-	}
+  try {
+    const response = await fetch(serverAddress(pair) + RUNNING_PATH, {
+      signal: AbortSignal.timeout(ANSWER_MS),
+    });
+    const said = response.ok ? await response.json() : undefined;
+    return typeof said?.setup === 'string' ? said.setup : undefined;
+  } catch {
+    // Nothing listens there, or what does is not a studio.
+    return undefined;
+  }
 }
 
 /** @returns {Promise<Held[]>} */
 export function heldPairs() {
-	return Promise.all(
-		pairs().map(async (pair) => {
-			const [setup, server, page] = await Promise.all([runningOn(pair), isFree(pair.server), isFree(pair.page)]);
-			return { pair, ...(setup === undefined ? {} : { setup }), free: server && page };
-		}),
-	);
+  return Promise.all(
+    pairs().map(async (pair) => {
+      const [setup, server, page] = await Promise.all([
+        runningOn(pair),
+        isFree(pair.server),
+        isFree(pair.page),
+      ]);
+      return { pair, ...(setup === undefined ? {} : { setup }), free: server && page };
+    }),
+  );
 }

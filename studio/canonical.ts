@@ -16,7 +16,9 @@ export function canonical(value: unknown): string {
   const ordered = (item: unknown): unknown => {
     if (Array.isArray(item)) return item.map(ordered);
     if (!isRecord(item)) return item;
-    const keys = Object.keys(item).filter((key) => item[key] !== undefined).sort();
+    const keys = Object.keys(item)
+      .filter((key) => item[key] !== undefined)
+      .sort();
     return Object.fromEntries(keys.map((key) => [key, ordered(item[key])]));
   };
   return JSON.stringify(ordered(value)) ?? 'undefined';

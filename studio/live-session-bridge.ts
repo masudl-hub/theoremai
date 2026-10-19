@@ -1,14 +1,14 @@
-import { type PageToolResult, parseLiveClientMessage } from '@theoremjs/react/server';
 import type { LabelOverrides, LiveSession, TurnEvent } from '@theoremjs/agents';
 import {
   type ClientError,
-  clientError,
   type ClientTurnOptions,
+  clientError,
   forClient,
   forClientEvents,
 } from '@theoremjs/agents/host';
-import { issuedOperationId as requiredOperationId } from '@theoremjs/react/client';
 import { bytesToBase64 } from '@theoremjs/agents/kernel';
+import { issuedOperationId as requiredOperationId } from '@theoremjs/react/client';
+import { type PageToolResult, parseLiveClientMessage } from '@theoremjs/react/server';
 import type { StudioTraceRoute } from './traces.ts';
 
 export type StudioLiveSocket = Pick<WebSocket, 'send' | 'close' | 'addEventListener'>;
@@ -43,14 +43,14 @@ function callWatch(session: LiveSession, timeoutMs: number): CallWatch {
     start(callId, operationId) {
       const previous = timers.get(callId);
       if (previous) clearTimeout(previous.timer);
-      timers.set(
-        callId,
-        { operationId, timer: setTimeout(() => {
+      timers.set(callId, {
+        operationId,
+        timer: setTimeout(() => {
           timers.delete(callId);
           // The kernel never times out an ungated held call; a refusal here means it already settled.
           session.executeTool({ callId, operationId, page: { timedOut: true } }).catch(() => {});
-        }, timeoutMs) },
-      );
+        }, timeoutMs),
+      });
     },
     stop,
     stopAll() {
@@ -65,7 +65,7 @@ function pipeBrowserToSession(
   session: LiveSession,
   watch: CallWatch,
   reads: Reads,
-  pageResult?: (result: PageToolResult) => Promise<boolean | void>,
+  pageResult?: (result: PageToolResult) => Promise<boolean | undefined>,
 ): void {
   // A send the session refuses (a channel the profile turned off, a closed call) reaches the browser.
   const forward = (sent: Promise<void>): void => {
@@ -100,13 +100,28 @@ function pipeBrowserToSession(
             const { type: _type, output, grantId, unanswered, ...call } = msg;
             if (grantId) {
               if (!pageResult) throw new Error('Page dispatch result is unavailable');
-              forward(pageResult({ callId: call.callId, operationId: call.operationId, grantId,
-                page: unanswered ? { unanswered: true } : { output } }).then((settled) => {
-                  if (settled) serverWs.send(JSON.stringify({ type: 'executeToolResult', callId: call.callId, operationId: call.operationId, status: 'settled' }));
-                }));
+              forward(
+                pageResult({
+                  callId: call.callId,
+                  operationId: call.operationId,
+                  grantId,
+                  page: unanswered ? { unanswered: true } : { output },
+                }).then((settled) => {
+                  if (settled)
+                    serverWs.send(
+                      JSON.stringify({
+                        type: 'executeToolResult',
+                        callId: call.callId,
+                        operationId: call.operationId,
+                        status: 'settled',
+                      }),
+                    );
+                }),
+              );
               return;
             }
-            if (pageResult && output !== undefined) throw new Error('Page result requires a dispatch grant');
+            if (pageResult && output !== undefined)
+              throw new Error('Page result requires a dispatch grant');
             watch.stop(call.callId, call.operationId);
             void answerExecuteTool(
               serverWs,
@@ -161,15 +176,25 @@ async function pipeSessionToBrowser(
         const { tool } = event;
         if (tool.phase === 'dispatch') {
           watch.stop(tool.callId, requiredOperationId(tool));
-          serverWs.send(JSON.stringify({ type: 'executeToolResult', callId: tool.callId,
-            operationId: requiredOperationId(tool), status: 'dispatched', grantId: tool.grantId, arguments: tool.arguments }));
+          serverWs.send(
+            JSON.stringify({
+              type: 'executeToolResult',
+              callId: tool.callId,
+              operationId: requiredOperationId(tool),
+              status: 'dispatched',
+              grantId: tool.grantId,
+              arguments: tool.arguments,
+            }),
+          );
         }
         if (tool.phase === undefined) watch.start(tool.callId, requiredOperationId(tool));
         else if (tool.phase === 'complete' || tool.phase === 'error' || tool.phase === 'cancel') {
           watch.stop(tool.callId, requiredOperationId(tool));
         }
       }
-      serverWs.send(JSON.stringify({ type: 'events', events: forClientEvents([event], reads.clientEvents) }));
+      serverWs.send(
+        JSON.stringify({ type: 'events', events: forClientEvents([event], reads.clientEvents) }),
+      );
     }
   } catch (err) {
     serverWs.send(errorEnvelope(err, reads));
@@ -227,7 +252,7 @@ async function answerExecuteTool(
 }
 
 export type StudioLiveBridgeOptions = {
-  pageResult?: (result: PageToolResult) => Promise<boolean | void>;
+  pageResult?: (result: PageToolResult) => Promise<boolean | undefined>;
   /** Save trusted checkpoint ownership before the bridge exposes the event. */
   beforeEvent?: (event: TurnEvent) => void | Promise<void>;
   /** How long the browser has to run a call the model made before the bridge settles it as unanswered. */
@@ -253,5 +278,14 @@ export function attachStudioLiveSession(
   socket.addEventListener('close', () => {
     void session.close('client disconnected');
   });
-  return pipeSessionToBrowser(socket, session, profileId, sessionId, traces, watch, reads, options.beforeEvent);
+  return pipeSessionToBrowser(
+    socket,
+    session,
+    profileId,
+    sessionId,
+    traces,
+    watch,
+    reads,
+    options.beforeEvent,
+  );
 }

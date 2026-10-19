@@ -4,9 +4,7 @@
   "commandRunner": {
     "command": "deno test --ignore=tests/kernel/zero-permission-import.test.ts --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/kernel"
   },
-  "mutate": [
-    "src/kernel/auth/**/*.ts"
-  ],
+  "mutate": ["src/kernel/auth/**/*.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -18,10 +16,7 @@
     "cov_profile",
     ".fallow"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/auth-incremental.json",
@@ -34,8 +29,6 @@
   "concurrency": 4,
   "ignoreStatic": false,
   "mutator": {
-    "excludedMutations": [
-      "StringLiteral"
-    ]
+    "excludedMutations": ["StringLiteral"]
   }
 }

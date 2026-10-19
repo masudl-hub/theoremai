@@ -9,16 +9,16 @@
 
 import type { KernelScope, ProfileDefinition } from '@theoremjs/agents';
 import type { RegisteredTool } from '@theoremjs/agents/kernel';
+import { canonical } from '../canonical.ts';
 import type { CompiledStudio } from '../compile.ts';
 import { heldSetting, unheldProblem } from '../held-credentials.ts';
-import type { ToolRegistration } from '../registrations.ts';
 import { registerStudioProvider, type StudioProvider } from '../providers.ts';
-import type { ProjectQuestions } from './handler.ts';
+import type { ToolRegistration } from '../registrations.ts';
 import { defineDraft, withCompiledPatterns } from '../runtime-scope.ts';
-import { zodFromJsonSchema, type JsonSchema } from '../tool-schema.ts';
+import { type JsonSchema, zodFromJsonSchema } from '../tool-schema.ts';
 import { registerCustomTool } from '../tools.ts';
+import type { ProjectQuestions } from './handler.ts';
 import type { NewSubjects } from './save-new.ts';
-import { canonical } from '../canonical.ts';
 import type { SaveSubject } from './save-plan.ts';
 
 /** What the builder changed and added, as Save reads a workspace. */
@@ -34,7 +34,10 @@ type Json = Record<string, unknown>;
  * decision the setup does not name (one the builder added, renamed, or made a decision) the ones
  * on the page.
  */
-export function editedQuestions(edits: ProjectEdits, named: ProjectQuestions = {}): ProjectQuestions {
+export function editedQuestions(
+  edits: ProjectEdits,
+  named: ProjectQuestions = {},
+): ProjectQuestions {
   const asked: ProjectQuestions = { ...named };
   for (const agent of edits.added.agents) {
     if (agent.questions && !asked[agent.agentId]) asked[agent.agentId] = agent.questions;
@@ -52,11 +55,17 @@ const isRecord = (value: unknown): value is Json =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** The settings that differ between two compiled values. A list that differs is one setting. */
-export function changedSettings(before: unknown, after: unknown, path: readonly string[] = []): Change[] {
+export function changedSettings(
+  before: unknown,
+  after: unknown,
+  path: readonly string[] = [],
+): Change[] {
   if (canonical(before) === canonical(after)) return [];
-  if (!isRecord(before) || !isRecord(after)) return after === undefined ? [{ path }] : [{ path, value: after }];
-  return [...new Set([...Object.keys(before), ...Object.keys(after)])]
-    .flatMap((key) => changedSettings(before[key], after[key], [...path, key]));
+  if (!isRecord(before) || !isRecord(after))
+    return after === undefined ? [{ path }] : [{ path, value: after }];
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].flatMap((key) =>
+    changedSettings(before[key], after[key], [...path, key]),
+  );
 }
 
 /** `held` with one setting changed. What the path does not lead through is the same object as before. */
@@ -73,7 +82,8 @@ const withSettings = (held: unknown, changes: readonly Change[]) =>
 /** A settings group the kernel reads as a whole: one changed setting inside it replaces the group. */
 const WHOLE: readonly (readonly string[])[] = [['guardrails', 'detect']];
 
-const leads = (group: readonly string[], path: readonly string[]) => group.every((key, at) => path[at] === key);
+const leads = (group: readonly string[], path: readonly string[]) =>
+  group.every((key, at) => path[at] === key);
 const at = (held: unknown, path: readonly string[]) =>
   path.reduce<unknown>((inner, key) => (isRecord(inner) ? inner[key] : undefined), held);
 
@@ -93,7 +103,10 @@ function profileChanges(before: unknown, after: unknown): Change[] {
 /** The settings of a tool that only the studio holds: the kernel's registration has no place for them. */
 const STUDIO_ONLY = new Set(['stubResponse']);
 /** A tool's schema, and the field the kernel holds it in. */
-const SCHEMAS: Record<string, 'input' | 'output'> = { inputSchema: 'input', outputSchema: 'output' };
+const SCHEMAS: Record<string, 'input' | 'output'> = {
+  inputSchema: 'input',
+  outputSchema: 'output',
+};
 
 /** `tool`, refused when it shows a credential nothing holds a value for: a call must not carry a mask. */
 function held<T extends { name: string }>(tool: T): T {
@@ -103,7 +116,11 @@ function held<T extends { name: string }>(tool: T): T {
 }
 
 /** The project's tool with the builder's changes: its handler and everything unchanged stay its own. */
-function editedTool(registered: RegisteredTool, before: ToolRegistration, after: ToolRegistration): RegisteredTool {
+function editedTool(
+  registered: RegisteredTool,
+  before: ToolRegistration,
+  after: ToolRegistration,
+): RegisteredTool {
   const edited = { ...registered };
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
     const [was, is] = [(before as Json)[key], (after as Json)[key]];
@@ -112,7 +129,8 @@ function editedTool(registered: RegisteredTool, before: ToolRegistration, after:
     if (schema) Object.assign(edited, { [schema]: zodFromJsonSchema(is as JsonSchema) });
     else if (is === undefined) Reflect.deleteProperty(edited, key);
     // A credential the page holds masked is the project's own: the edit beside it keeps it.
-    else Object.assign(edited, { [key]: heldSetting(key, is, (registered as unknown as Json)[key]) });
+    else
+      Object.assign(edited, { [key]: heldSetting(key, is, (registered as unknown as Json)[key]) });
   }
   return held(edited);
 }
@@ -121,7 +139,11 @@ function registerNew(scope: KernelScope, tool: ToolRegistration): void {
   registerCustomTool(scope.tools, held(tool));
 }
 
-function registerTool(scope: KernelScope, tool: ToolRegistration, subject: SaveSubject | undefined): void {
+function registerTool(
+  scope: KernelScope,
+  tool: ToolRegistration,
+  subject: SaveSubject | undefined,
+): void {
   const registered = subject ? scope.tools.get(subject.of) : undefined;
   const before = subject?.before as ToolRegistration | undefined;
   // A tool that became another kind keeps nothing of the old one.
@@ -129,8 +151,13 @@ function registerTool(scope: KernelScope, tool: ToolRegistration, subject: SaveS
   else scope.tools.register(editedTool(registered, before, tool));
 }
 
-async function registerAgent(scope: KernelScope, agent: CompiledStudio, subject: SaveSubject | undefined): Promise<void> {
-  if (agent.structured && agent.profile.type !== 'live') scope.schemas.register(agent.structured.id, agent.structured.spec);
+async function registerAgent(
+  scope: KernelScope,
+  agent: CompiledStudio,
+  subject: SaveSubject | undefined,
+): Promise<void> {
+  if (agent.structured && agent.profile.type !== 'live')
+    scope.schemas.register(agent.structured.id, agent.structured.spec);
   const held = subject ? scope.profiles.find(subject.of) : undefined;
   // An agent that became another type keeps nothing of the old one: the kernel filled the old
   // type's own settings in, and the new type refuses them.
@@ -151,10 +178,18 @@ function registerProvider(scope: KernelScope, subject: SaveSubject): void {
   const [before, after] = [subject.before as Json, subject.after as Json];
   if (!registered || after.definition !== before.definition) {
     // On another definition, nothing the project connected with before carries over.
-    registerStudioProvider(scope.providers, { ...(after as unknown as StudioProvider), id: subject.of }, undefined, 'replace');
+    registerStudioProvider(
+      scope.providers,
+      { ...(after as unknown as StudioProvider), id: subject.of },
+      undefined,
+      'replace',
+    );
     return;
   }
-  const [shown, edited] = [isRecord(before.connection) ? before.connection : {}, isRecord(after.connection) ? after.connection : {}];
+  const [shown, edited] = [
+    isRecord(before.connection) ? before.connection : {},
+    isRecord(after.connection) ? after.connection : {},
+  ];
   const connection: Json = { ...(isRecord(registered.connection) ? registered.connection : {}) };
   for (const key of new Set([...Object.keys(shown), ...Object.keys(edited)])) {
     if (key in edited) connection[key] = edited[key];
@@ -164,7 +199,9 @@ function registerProvider(scope: KernelScope, subject: SaveSubject): void {
     id: subject.of,
     connection,
     ...(typeof after.keySlot === 'string' ? { keySlot: after.keySlot } : {}),
-    ...(typeof after.fallbackKeySlot === 'string' ? { fallbackKeySlot: after.fallbackKeySlot } : {}),
+    ...(typeof after.fallbackKeySlot === 'string'
+      ? { fallbackKeySlot: after.fallbackKeySlot }
+      : {}),
   });
 }
 
@@ -187,10 +224,12 @@ export async function registerEdits(scope: KernelScope, edits: ProjectEdits): Pr
     if (changed || fresh.has(held.name)) registerTool(scope, held, changed);
   };
   const agents = edits.added.agents;
-  for (const agent of agents) for (const held of agent.customTools) if (held.type !== 'agent') tool(held);
+  for (const agent of agents)
+    for (const held of agent.customTools) if (held.type !== 'agent') tool(held);
   for (const agent of agents) {
     for (const held of agent.customTools) tool(held);
     const changed = subject('profile', (after) => after.id, agent.agentId);
-    if (changed || edits.added.profiles.includes(agent.agentId)) await registerAgent(scope, agent, changed);
+    if (changed || edits.added.profiles.includes(agent.agentId))
+      await registerAgent(scope, agent, changed);
   }
 }

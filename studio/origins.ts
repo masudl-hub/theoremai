@@ -40,7 +40,10 @@ const startsWith = (path: readonly string[], prefix: readonly string[]) =>
  * A row's catalog path as the keys the files hold: each `*` the node names is filled in, and the
  * path stops before one it does not. Undefined for a row no file sets.
  */
-export function settingPath(scope: Pick<NodeOrigins, 'stars' | 'tool'>, catalogPath: string): string[] | undefined {
+export function settingPath(
+  scope: Pick<NodeOrigins, 'stars' | 'tool'>,
+  catalogPath: string,
+): string[] | undefined {
   const keys = catalogPath.replace(scope.tool ? /^registerTool\./ : /^profile\./, '').split('.');
   if (STUDIO_ONLY.has(keys[0] ?? '')) return undefined;
   const path: string[] = [];
@@ -69,15 +72,24 @@ function holds(origin: SettingOrigin, path: readonly string[]): boolean {
  * The origin that sets the value at `path`: the nearest one at or above it, or one that sets an
  * entry of the list at `path`, since a row edits its list as a whole.
  */
-export function originAt(origins: readonly SettingOrigin[], path: readonly string[]): SettingOrigin | undefined {
-  const above = origins.filter((origin) => holds(origin, path))
+export function originAt(
+  origins: readonly SettingOrigin[],
+  path: readonly string[],
+): SettingOrigin | undefined {
+  const above = origins
+    .filter((origin) => holds(origin, path))
     .sort((a, b) => b.path.length - a.path.length)[0];
   if (above) return above;
-  return origins.find((origin) => startsWith(origin.path, path) && isIndex(origin.path[path.length]));
+  return origins.find(
+    (origin) => startsWith(origin.path, path) && isIndex(origin.path[path.length]),
+  );
 }
 
 /** The origin of the row at a catalog path, when the files set it in code. */
-export function rowOrigin(scope: NodeOrigins | undefined, catalogPath: string): SettingOrigin | undefined {
+export function rowOrigin(
+  scope: NodeOrigins | undefined,
+  catalogPath: string,
+): SettingOrigin | undefined {
   const path = scope && settingPath(scope, catalogPath);
   return path && scope ? originAt(scope.origins, path) : undefined;
 }
@@ -87,7 +99,8 @@ function started(workspace: StudioWorkspace, agentKey: string) {
   const agent = workspace.starts.agents[agentKey];
   return {
     id: agent?.identity.agentId.trim(),
-    model: (key: string) => agent?.modelBindings.find((binding) => binding.key === key)?.modelId.trim(),
+    model: (key: string) =>
+      agent?.modelBindings.find((binding) => binding.key === key)?.modelId.trim(),
   };
 }
 
@@ -130,9 +143,12 @@ export function nodeOrigins(
  * key. A spread in the section itself is not one, since the rows it leaves written stay open.
  */
 function withSection(scope: NodeOrigins, path: readonly string[]): NodeOrigins {
-  const own = (origin: SettingOrigin) => origin.kind === 'spread' && origin.path.length === path.length;
+  const own = (origin: SettingOrigin) =>
+    origin.kind === 'spread' && origin.path.length === path.length;
   const above = scope.origins.filter((origin) => holds(origin, path));
-  const section = above.filter((origin) => !own(origin)).sort((a, b) => b.path.length - a.path.length)[0];
+  const section = above
+    .filter((origin) => !own(origin))
+    .sort((a, b) => b.path.length - a.path.length)[0];
   if (section) return { ...scope, section };
   const partly = above.find(own);
   return partly ? { ...scope, partly } : scope;

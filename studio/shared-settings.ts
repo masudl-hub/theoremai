@@ -31,9 +31,12 @@ export interface SharedEntry {
 /** The node of `agent` that holds the setting at `path`: its model, its section, else the agent. */
 function nodeAt(agent: AgentDraft, path: readonly string[], sections: ReadonlySet<string>): string {
   const [head, name] = path;
-  const binding = head === 'models' ? agent.modelBindings.find((each) => each.modelId === name) : undefined;
+  const binding =
+    head === 'models' ? agent.modelBindings.find((each) => each.modelId === name) : undefined;
   if (binding) return agentNodeId(agent.key, modelBindingNodeId(binding.key));
-  const facet = PROFILE_GRAPH.find((each) => each.role === 'spine' && each.profilePath === head)?.id;
+  const facet = PROFILE_GRAPH.find(
+    (each) => each.role === 'spine' && each.profilePath === head,
+  )?.id;
   const section = facet ? agentNodeId(agent.key, facet) : '';
   return sections.has(section) ? section : agentNodeId(agent.key);
 }
@@ -50,20 +53,39 @@ export function sharedEntries(
   sites?: ProjectOrigins['sites'],
   unregistered: readonly Unregistered[] = [],
 ): SharedEntry[] {
-  const sections = new Set(workspaceTree(workspace).agents.flatMap((agent) => agent.children ?? []).map((row) => row.id));
+  const sections = new Set(
+    workspaceTree(workspace)
+      .agents.flatMap((agent) => agent.children ?? [])
+      .map((row) => row.id),
+  );
   return settings.map((setting) => {
-    const users = workspace.agents.filter((agent) => setting.profiles.includes(agent.identity.agentId.trim()));
+    const users = workspace.agents.filter((agent) =>
+      setting.profiles.includes(agent.identity.agentId.trim()),
+    );
     const agents = users.map((agent) => agent.key);
     const facet = agents.length === setting.profiles.length ? facetOf(setting.key) : undefined;
-    const written = (held: Record<string, readonly { name?: string; file: string; path: string[] }[]> | undefined, id: string) =>
-      held?.[id]?.find((site) => site.name === setting.name && site.file === setting.file);
-    const places = Object.fromEntries(users.flatMap((agent) => {
-      const site = written(sites?.profiles, agent.identity.agentId.trim());
-      return site ? [[agent.key, nodeAt(agent, site.path, sections)] as const] : [];
-    }));
+    const written = (
+      held: Record<string, readonly { name?: string; file: string; path: string[] }[]> | undefined,
+      id: string,
+    ) => held?.[id]?.find((site) => site.name === setting.name && site.file === setting.file);
+    const places = Object.fromEntries(
+      users.flatMap((agent) => {
+        const site = written(sites?.profiles, agent.identity.agentId.trim());
+        return site ? [[agent.key, nodeAt(agent, site.path, sections)] as const] : [];
+      }),
+    );
     const tool = workspace.toolSpecs.find((spec) => written(sites?.tools, spec.toolName));
-    const idle = unregistered.filter(({ kind, name }) => (kind === 'profile' ? setting.profiles : setting.tools).includes(name));
-    return { setting, agents, places, idle, ...(facet ? { facet } : {}), ...(tool ? { tool: toolSpecNodeId(tool.key) } : {}) };
+    const idle = unregistered.filter(({ kind, name }) =>
+      (kind === 'profile' ? setting.profiles : setting.tools).includes(name),
+    );
+    return {
+      setting,
+      agents,
+      places,
+      idle,
+      ...(facet ? { facet } : {}),
+      ...(tool ? { tool: toolSpecNodeId(tool.key) } : {}),
+    };
   });
 }
 
@@ -74,18 +96,22 @@ export function sharedNodeId(entry: SharedEntry, agentKey: string): string {
 
 /** The node that opens a shared setting: the first agent that shows it, else the tool that does. */
 export function sharedOpens(entry: SharedEntry): string | undefined {
-  const shown = entry.agents.find((key) => entry.places[key] !== undefined) ?? (entry.facet ? entry.agents[0] : undefined);
+  const shown =
+    entry.agents.find((key) => entry.places[key] !== undefined) ??
+    (entry.facet ? entry.agents[0] : undefined);
   return shown ? sharedNodeId(entry, shown) : entry.tool;
 }
 
 /** The shared setting the open node edits, when it is one. A shared `models` is edited in each binding. */
 export function sharedAt(entries: readonly SharedEntry[], nodeId: string): SharedEntry | undefined {
-  return entries.find(({ facet, agents }) =>
-    facet !== undefined && agents.some((key) => {
-      const root = `${agentNodeId(key)}/`;
-      if (!nodeId.startsWith(root)) return false;
-      const inner = nodeId.slice(root.length);
-      return inner === facet || (facet === 'models' && inner.startsWith(modelBindingNodeId('')));
-    })
+  return entries.find(
+    ({ facet, agents }) =>
+      facet !== undefined &&
+      agents.some((key) => {
+        const root = `${agentNodeId(key)}/`;
+        if (!nodeId.startsWith(root)) return false;
+        const inner = nodeId.slice(root.length);
+        return inner === facet || (facet === 'models' && inner.startsWith(modelBindingNodeId('')));
+      }),
   );
 }

@@ -15,7 +15,9 @@ import type { ModelRoute } from './providers.ts';
 export type ModelProfileType = Exclude<StudioProfileType, 'host'>;
 
 /** Where a new model of `type` starts: its provider and API model. */
-export type ModelStart = (type: ModelProfileType) => Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>;
+export type ModelStart = (
+  type: ModelProfileType,
+) => Pick<ModelBindingDraft, 'protocol' | 'provider' | 'apiId'>;
 
 /** What switching an agent's type reads from lent keys: each type's models, and where a new one starts. */
 export type ModelPicks = Pick<LentKeys, 'models' | 'start'>;
@@ -86,10 +88,7 @@ export interface LentKeys {
  * What a studio runs on: a page's lent keys, the builder's own keys, or their own machine. Runs
  * on lent keys always carry the keys they are held to.
  */
-export type StudioRunsOn =
-  | { mode: 'demo'; keys: LentKeys }
-  | { mode: 'byok' }
-  | { mode: 'local' };
+export type StudioRunsOn = { mode: 'demo'; keys: LentKeys } | { mode: 'byok' } | { mode: 'local' };
 
 /**
  * The compression sizes a Live session runs with on lent keys: those the profile sets, and for a

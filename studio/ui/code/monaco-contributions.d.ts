@@ -34,12 +34,12 @@ declare module 'monaco-editor/editor/contrib/wordPartOperations/browser/wordPart
 declare module 'monaco-editor/features/find/register';
 
 declare module 'monaco-editor/languages/features/typescript/tsWorker' {
-	export class TypeScriptWorker {
-		constructor(ctx: unknown, createData: unknown);
-		getScriptFileNames(): string[];
-	}
+  export class TypeScriptWorker {
+    constructor(ctx: unknown, createData: unknown);
+    getScriptFileNames(): string[];
+  }
 }
 
 declare module 'monaco-editor/internal/common/initialize' {
-	export function initialize(callback: (ctx: unknown, createData: unknown) => object): void;
+  export function initialize(callback: (ctx: unknown, createData: unknown) => object): void;
 }

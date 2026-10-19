@@ -7,16 +7,25 @@
  */
 
 import { relative, resolve } from 'node:path';
+import type { ReadStep } from '../read-steps.ts';
 import type { StudioWorkspace } from '../workspace.ts';
 import { sourceOrigins } from './origins.ts';
-import type { ReadStep } from '../read-steps.ts';
-import { type ProjectSource, projectOf, providerNamed, readProjectSource, sharedSettings, walkProject, writtenType } from './project-source.ts';
-import { planNew } from './save-new.ts';
-import { planRemoved } from './save-remove.ts';
-import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
+import {
+  type ProjectSource,
+  projectOf,
+  providerNamed,
+  readProjectSource,
+  sharedSettings,
+  walkProject,
+  writtenType,
+} from './project-source.ts';
 import { type ProjectNames, projectDiffers, projectNames, saveSubjects } from './save.ts';
+import { planNew } from './save-new.ts';
+import { applyEdits, diffHunks, planSave, type SourceEdit } from './save-plan.ts';
+import { planRemoved } from './save-remove.ts';
 import type {
   ProjectOrigins,
+  ProviderPlace,
   SaveChange,
   SaveDone,
   SaveRefusal,
@@ -25,7 +34,6 @@ import type {
   SettingOrigin,
   SettingSite,
   SharedSetting,
-  ProviderPlace,
   Unregistered,
 } from './save-wire.ts';
 
@@ -100,7 +108,11 @@ type Side = 'before' | 'after';
 const other = (side: Side): Side => (side === 'before' ? 'after' : 'before');
 
 /** Why nothing was done, with what to show for it. */
-export const refusal = (reason: SaveRefusal['reason'], detail: string[] = []): SaveRefusal => ({ ok: false, reason, detail });
+export const refusal = (reason: SaveRefusal['reason'], detail: string[] = []): SaveRefusal => ({
+  ok: false,
+  reason,
+  detail,
+});
 /** What a thrown value says. */
 export const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -114,8 +126,12 @@ export async function stampOf(value: unknown): Promise<string> {
 /** Whether a body is a Save request, or one for the edited load: a workspace with its starts. */
 export function isSaveRequest(body: unknown): body is SaveRequest {
   const workspace = (body as SaveRequest | null)?.workspace;
-  return Array.isArray(workspace?.agents) && Array.isArray(workspace.toolSpecs) &&
-    typeof workspace.starts?.agents === 'object' && typeof workspace.starts.tools === 'object';
+  return (
+    Array.isArray(workspace?.agents) &&
+    Array.isArray(workspace.toolSpecs) &&
+    typeof workspace.starts?.agents === 'object' &&
+    typeof workspace.starts.tools === 'object'
+  );
 }
 
 /**
@@ -132,7 +148,9 @@ export async function answerSave<Loaded>(
   if (path === `${base}/undo`) return { status: 200, body: await session.undo() };
   if (path !== base) return undefined;
   const body: unknown = await request.json().catch(() => null);
-  return isSaveRequest(body) ? { status: 200, body: await session.save(body) } : { status: 400, body: {} };
+  return isSaveRequest(body)
+    ? { status: 200, body: await session.save(body) }
+    : { status: 400, body: {} };
 }
 
 /** Each profile and tool the files define that the project did not register, in the files' order. */
@@ -141,29 +159,42 @@ function unregisteredIn(
   names: ProjectNames,
   inRoot: (file: string) => string,
 ): Unregistered[] {
-  const idle = (kind: Unregistered['kind'], defined: ProjectSource['profiles'], registered: readonly string[]) =>
+  const idle = (
+    kind: Unregistered['kind'],
+    defined: ProjectSource['profiles'],
+    registered: readonly string[],
+  ) =>
     [...defined].flatMap(([name, [at]]): Unregistered[] => {
       if (!at || registered.includes(name)) return [];
       const { line } = at.source.getLineAndCharacterOfPosition(at.options.getStart(at.source));
       return [{ kind, name, file: inRoot(at.file), line: line + 1 }];
     });
-  return [...idle('profile', source.profiles, names.profiles), ...idle('tool', source.tools, names.tools)];
+  return [
+    ...idle('profile', source.profiles, names.profiles),
+    ...idle('tool', source.tools, names.tools),
+  ];
 }
 
 /** Where the files define each provider the project registered: one written once, in the files' order. */
-function providerPlaces(source: ProjectSource, names: ProjectNames, inRoot: (file: string) => string): ProviderPlace[] {
+function providerPlaces(
+  source: ProjectSource,
+  names: ProjectNames,
+  inRoot: (file: string) => string,
+): ProviderPlace[] {
   return [...source.providers].flatMap(([id, targets]): ProviderPlace[] => {
     const [at] = targets;
     if (!at || targets.length > 1 || !names.providers.includes(id)) return [];
     const named = providerNamed(source, id);
     const { line } = at.source.getLineAndCharacterOfPosition(at.options.getStart(at.source));
-    return [{
-      id,
-      ...(named ? { name: named.name } : {}),
-      ...(named?.exported ? { exported: true as const } : {}),
-      file: inRoot(at.file),
-      line: line + 1,
-    }];
+    return [
+      {
+        id,
+        ...(named ? { name: named.name } : {}),
+        ...(named?.exported ? { exported: true as const } : {}),
+        file: inRoot(at.file),
+        line: line + 1,
+      },
+    ];
   });
 }
 
@@ -177,12 +208,17 @@ export function pageOrigins(
   source: Pick<ProjectSource, 'profiles' | 'tools' | 'providers'>,
   inRoot: (file: string) => string,
 ): ProjectOrigins {
-  const read = (origins: Record<string, SettingOrigin[]>, registered: readonly string[], defined: Map<string, unknown>) => {
+  const read = (
+    origins: Record<string, SettingOrigin[]>,
+    registered: readonly string[],
+    defined: Map<string, unknown>,
+  ) => {
     const placed = Object.entries(origins).map(([name, held]): [string, SettingOrigin[]] => [
       name,
       held.map((origin) => (origin.file ? { ...origin, file: inRoot(origin.file) } : origin)),
     ]);
-    const unfound = registered.filter((name) => !defined.has(name))
+    const unfound = registered
+      .filter((name) => !defined.has(name))
       .map((name): [string, SettingOrigin[]] => [name, [{ path: [], kind: 'unfound' }]]);
     return Object.fromEntries([...placed, ...unfound]);
   };
@@ -190,18 +226,24 @@ export function pageOrigins(
     Object.fromEntries(
       Object.entries(sites).map(([name, held]) => [
         name,
-        held.map((site): SettingSite => ({
-          ...site,
-          file: inRoot(site.file),
-          ...(site.readBy ? { readBy: site.readBy.map((each) => ({ ...each, file: inRoot(each.file) })) } : {}),
-        })),
+        held.map(
+          (site): SettingSite => ({
+            ...site,
+            file: inRoot(site.file),
+            ...(site.readBy
+              ? { readBy: site.readBy.map((each) => ({ ...each, file: inRoot(each.file) })) }
+              : {}),
+          }),
+        ),
       ]),
     );
   return {
     profiles: read(found.profiles, names.profiles, source.profiles),
     tools: read(found.tools, names.tools, source.tools),
     providers: read(found.providers, names.providers, source.providers),
-    ...(found.sites ? { sites: { profiles: placed(found.sites.profiles), tools: placed(found.sites.tools) } } : {}),
+    ...(found.sites
+      ? { sites: { profiles: placed(found.sites.profiles), tools: placed(found.sites.tools) } }
+      : {}),
   };
 }
 
@@ -209,7 +251,10 @@ export function pageOrigins(
 const PAUSE_EVERY_MS = 12;
 
 /** Starts Save for a project that `first` loaded. */
-export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded): SaveSession<Loaded> {
+export function createSaveSession<Loaded>(
+  host: SaveHost<Loaded>,
+  first: Loaded,
+): SaveSession<Loaded> {
   const { root } = host;
   const inRoot = (file: string) => relative(root, file);
   let project = first;
@@ -218,7 +263,8 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
 
   const source = () => readProjectSource(host.setupFile, root, host.read);
   /** The text of every file the setup reads, which changes when the builder's editor writes one. */
-  const heldIn = (read: ProjectSource) => JSON.stringify([...read.files].map(([file, each]) => [file, each.text]));
+  const heldIn = (read: ProjectSource) =>
+    JSON.stringify([...read.files].map(([file, each]) => [file, each.text]));
   const held = () => heldIn(source());
   /** What the files held when the load that answers started. */
   let loadedFrom = held();
@@ -235,7 +281,9 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   };
 
   /** The review of a workspace's changes, with the files they would write. */
-  const review = async (workspace: StudioWorkspace): Promise<{ view: SaveReview; files: Files } | SaveRefusal> => {
+  const review = async (
+    workspace: StudioWorkspace,
+  ): Promise<{ view: SaveReview; files: Files } | SaveRefusal> => {
     const subjects = subjectsOf(workspace);
     if (!subjects.ok) return refusal('issues', subjects.issues);
     const source = readProjectSource(host.setupFile, root, host.read);
@@ -244,8 +292,17 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     const files: Files = new Map();
     const view: SaveReview['files'] = [];
     const taken = planRemoved(source, subjects.removed);
-    const whole = taken.gone.map((file): SourceEdit => ({ file, start: 0, end: source.files.get(file)?.text.length ?? 0, text: '' }));
-    const edits = [...plan.edits, ...added.edits, ...taken.edits].filter((edit) => !taken.gone.includes(edit.file));
+    const whole = taken.gone.map(
+      (file): SourceEdit => ({
+        file,
+        start: 0,
+        end: source.files.get(file)?.text.length ?? 0,
+        text: '',
+      }),
+    );
+    const edits = [...plan.edits, ...added.edits, ...taken.edits].filter(
+      (edit) => !taken.gone.includes(edit.file),
+    );
     for (const [file, held] of Map.groupBy([...edits, ...whole], (edit: SourceEdit) => edit.file)) {
       const opened = source.files.get(file);
       const before = opened?.text ?? '';
@@ -257,19 +314,32 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
         return refusal('unwritable', [`${inRoot(file)}: ${message(error)}`]);
       }
       files.set(file, { before, after, created: !opened, removed });
-      const marked = removed ? { removed: true as const } : opened ? {} : { created: true as const };
+      const marked = removed
+        ? { removed: true as const }
+        : opened
+          ? {}
+          : { created: true as const };
       view.push({ file: inRoot(file), hunks: diffHunks(before, held), ...marked });
     }
-    const changes = [...subjects.changes, ...plan.changes, ...added.changes, ...taken.changes].map((change: SaveChange) =>
-      change.file ? { ...change, file: inRoot(change.file) } : change
+    const changes = [...subjects.changes, ...plan.changes, ...added.changes, ...taken.changes].map(
+      (change: SaveChange) => (change.file ? { ...change, file: inRoot(change.file) } : change),
     );
     const writable = files.size > 0 && changes.every((change) => change.status === 'written');
-    return { files, view: { ok: true, changes, files: view, stamp: await stampOf([...files]), writable } };
+    return {
+      files,
+      view: { ok: true, changes, files: view, stamp: await stampOf([...files]), writable },
+    };
   };
 
   /** What a file holds on `side`: undefined where it is not there. */
   const textOn = (change: FileChange, side: Side) =>
-    side === 'before' ? (change.created ? undefined : change.before) : change.removed ? undefined : change.after;
+    side === 'before'
+      ? change.created
+        ? undefined
+        : change.before
+      : change.removed
+        ? undefined
+        : change.after;
 
   /** Writes a file as it was or as Save makes it. A file that is not there on that side is taken away, not emptied. */
   const putFile = (file: string, change: FileChange, side: Side) => {
@@ -333,7 +403,10 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   };
 
   /** Loads the project from disk and answers with it from now on. */
-  const reload = async (keep: (next: Loaded) => string[], from = held()): Promise<SaveRefusal | undefined> => {
+  const reload = async (
+    keep: (next: Loaded) => string[],
+    from = held(),
+  ): Promise<SaveRefusal | undefined> => {
     let next: Loaded;
     try {
       next = await host.load();
@@ -354,7 +427,10 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   };
 
   /** Loads the project again when `files` are not the ones the load that answers was read from. Whether it did. */
-  const refresh = async (files: ProjectSource, said?: (step: ReadStep) => void): Promise<boolean> => {
+  const refresh = async (
+    files: ProjectSource,
+    said?: (step: ReadStep) => void,
+  ): Promise<boolean> => {
     const now = heldIn(files);
     if (now === loadedFrom) unloaded = undefined;
     // Files that did not load are not tried again until they change.
@@ -382,7 +458,10 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
       step = walk.next();
     }
     const files = projectOf(step.value, host.setupFile, root);
-    for (const [found, made] of [['profile', files.profiles], ['tool', files.tools]] as const) {
+    for (const [found, made] of [
+      ['profile', files.profiles],
+      ['tool', files.tools],
+    ] as const) {
       for (const [name, targets] of made) {
         const at = targets[0];
         if (!at) continue;
@@ -399,7 +478,8 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     const loaded = await refresh(first, said);
     const files = loaded ? source() : first;
     const opened = host.opened(project);
-    const decisions = opened.agents.filter((agent) => agent.identity.profileType === 'decision')
+    const decisions = opened.agents
+      .filter((agent) => agent.identity.profileType === 'decision')
       .map((agent) => agent.identity.agentId);
     return {
       shared: sharedSettings(files).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
@@ -417,7 +497,11 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
     return reload((next) => projectDiffers(host.opened(next), tested));
   };
 
-  const write = async (files: Files, view: SaveReview, request: SaveRequest): Promise<SaveDone | SaveRefusal> => {
+  const write = async (
+    files: Files,
+    view: SaveReview,
+    request: SaveRequest,
+  ): Promise<SaveDone | SaveRefusal> => {
     if (view.stamp !== request.stamp) return refusal('stale');
     if (!view.writable) return refusal('unwritable');
     const astray = [...files.keys()].filter((file) => !host.landsInside(file));
@@ -433,14 +517,22 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
   const save = async (request: SaveRequest) => {
     const reviewed = await review(request.workspace);
     if ('reason' in reviewed) return reviewed;
-    return request.stamp === undefined ? reviewed.view : write(reviewed.files, reviewed.view, request);
+    return request.stamp === undefined
+      ? reviewed.view
+      : write(reviewed.files, reviewed.view, request);
   };
 
   const undo = async (): Promise<SaveDone | SaveRefusal> => {
     if (!lastSave) return refusal('nothing');
     const files = lastSave;
-    const moved = [...files].filter(([file, change]) => host.read(file) !== (change.removed ? undefined : change.after));
-    if (moved.length) return refusal('stale', moved.map(([file]) => inRoot(file)));
+    const moved = [...files].filter(
+      ([file, change]) => host.read(file) !== (change.removed ? undefined : change.after),
+    );
+    if (moved.length)
+      return refusal(
+        'stale',
+        moved.map(([file]) => inRoot(file)),
+      );
     const failed = put(files, 'before');
     if (failed) return failed;
     const refused = await reload(() => []);
@@ -472,9 +564,13 @@ export function createSaveSession<Loaded>(host: SaveHost<Loaded>, first: Loaded)
       inTurn(() => {
         const now = held();
         if (now === loadedFrom) return Promise.resolve([]);
-        const [was, is] = [loadedFrom, now].map((text) => new Map(JSON.parse(text) as [string, string][]));
+        const [was, is] = [loadedFrom, now].map(
+          (text) => new Map(JSON.parse(text) as [string, string][]),
+        );
         const files = [...new Set([...(was?.keys() ?? []), ...(is?.keys() ?? [])])];
-        return Promise.resolve(files.filter((file) => was?.get(file) !== is?.get(file)).map(inRoot));
+        return Promise.resolve(
+          files.filter((file) => was?.get(file) !== is?.get(file)).map(inRoot),
+        );
       }),
   };
 }

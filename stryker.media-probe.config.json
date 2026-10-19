@@ -4,9 +4,7 @@
   "commandRunner": {
     "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/kernel/media-probe.test.ts tests/kernel/media-ref.test.ts tests/kernel/media-vocabulary.test.ts"
   },
-  "mutate": [
-    "src/kernel/engine/media-probe/**/*.ts"
-  ],
+  "mutate": ["src/kernel/engine/media-probe/**/*.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -18,10 +16,7 @@
     "cov_profile",
     ".fallow"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/media-probe-incremental.json",
@@ -34,8 +29,6 @@
   "concurrency": 4,
   "ignoreStatic": false,
   "mutator": {
-    "excludedMutations": [
-      "StringLiteral"
-    ]
+    "excludedMutations": ["StringLiteral"]
   }
 }

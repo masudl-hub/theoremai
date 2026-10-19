@@ -3,11 +3,11 @@
  * key slots as secret nodes it can point at and test, and the page's own actions (a new agent,
  * a try in the preview, launch, export). The page supplies a host; the runtime does the rest.
  */
-import { fieldMeta, profileGraphFacet } from '@theoremjs/agents/schema';
+
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import { fieldMeta, profileGraphFacet } from '@theoremjs/agents/schema';
 import {
   defineAction,
-  secretCard,
   type Surface,
   type SurfaceAction,
   type SurfaceActionOutcome,
@@ -17,6 +17,7 @@ import {
   type SurfaceIssue,
   type SurfaceNode,
   type SurfaceRejection,
+  secretCard,
 } from '@theoremjs/agents/surface';
 import { z } from 'zod';
 import { compileStudio } from './compile.ts';
@@ -30,10 +31,10 @@ import {
   includeFacet,
   newModelBinding,
   newToolSpec,
+  removeModelBinding,
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
   type StudioProfileType,
-  removeModelBinding,
   setProfileType,
   updateModelBinding,
 } from './draft.ts';
@@ -48,7 +49,7 @@ import type { StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
 import { modelRoute } from './providers.ts';
 import { bindingSlots } from './requirements.ts';
-import { studioNodeRef, studioTree, type StudioTreeNode } from './tree.ts';
+import { type StudioTreeNode, studioNodeRef, studioTree } from './tree.ts';
 
 export type StudioExportFormat = 'zip' | 'copy' | 'llm';
 
@@ -184,7 +185,12 @@ function setAtPath(
   const inner = target[head];
   if (!isRecord(inner)) return { why: 'no such setting' };
   const innerBlank = blank?.[head];
-  const set = setAtPath(inner, isRecord(innerBlank) ? innerBlank : undefined, rest.join('.'), value);
+  const set = setAtPath(
+    inner,
+    isRecord(innerBlank) ? innerBlank : undefined,
+    rest.join('.'),
+    value,
+  );
   return 'why' in set ? set : { next: { ...target, [head]: set.next } };
 }
 
@@ -250,7 +256,8 @@ function describeReply(blocks: readonly TranscriptBlock[]) {
     if (block.kind === 'text') reply.push(block.text);
     else if (block.kind === 'structured') reply.push(JSON.stringify(block.value));
     else if (block.kind === 'media') media.push({ mimeType: block.mimeType });
-    else if (block.kind === 'tool') tools.push({ name: block.tool.name, state: block.tool.state?.phase });
+    else if (block.kind === 'tool')
+      tools.push({ name: block.tool.name, state: block.tool.state?.phase });
     else if (block.kind === 'error') errors.push(block.message);
   }
   return { reply: reply.join('\n'), media, tools, errors };
@@ -320,7 +327,13 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         return [{ node: `${KEY_NODE}${slot}`, field: 'value', message: `No key in ${slot}` }];
       }
       return card.problems.length
-        ? [{ node: `${KEY_NODE}${slot}`, field: 'value', message: `The key has ${card.problems.join(', ')}` }]
+        ? [
+            {
+              node: `${KEY_NODE}${slot}`,
+              field: 'value',
+              message: `The key has ${card.problems.join(', ')}`,
+            },
+          ]
         : [];
     });
 
@@ -343,12 +356,19 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
     return waits;
   };
 
-  const refuse = (field: string, why: string): SurfaceActionOutcome => ({ rejected: [{ field, why }] });
+  const refuse = (field: string, why: string): SurfaceActionOutcome => ({
+    rejected: [{ field, why }],
+  });
 
   const blocked = (): SurfaceActionOutcome | undefined => {
     const found = compileIssues();
     return found.length
-      ? { result: { ok: false, why: `${String(found.length)} issues to fix first; look at the studio` } }
+      ? {
+          result: {
+            ok: false,
+            why: `${String(found.length)} issues to fix first; look at the studio`,
+          },
+        }
       : undefined;
   };
 
@@ -364,7 +384,9 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
       }),
       run: ({ type, example }) => {
         const blank = createBlankDraft();
-        const next = example ? EXAMPLE_DRAFTS[example]() : withNewSections(blank, setProfileType(blank, type, lent()));
+        const next = example
+          ? EXAMPLE_DRAFTS[example]()
+          : withNewSections(blank, setProfileType(blank, type, lent()));
         host.replaceDraft(next, 'th30 started a new agent.');
         return { node: 'identity' };
       },
@@ -398,7 +420,8 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
       input: z.object({ section: z.string() }),
       run: ({ section }) => {
         const has = draft().included as string[];
-        if (!has.includes(section)) return refuse('section', `can remove: ${has.join(', ') || 'nothing'}`);
+        if (!has.includes(section))
+          return refuse('section', `can remove: ${has.join(', ') || 'nothing'}`);
         apply(excludeFacet(draft(), section as never));
         return {};
       },
@@ -422,7 +445,10 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         apply(
           {
             ...current,
-            models: { ...current.models, defaultModel: current.models.defaultModel || binding.modelId },
+            models: {
+              ...current.models,
+              defaultModel: current.models.defaultModel || binding.modelId,
+            },
             modelBindings: [...current.modelBindings, binding],
           },
           node,
@@ -469,7 +495,9 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         const result = await Promise.race([host.send(message), timeout]);
         clearTimeout(timer);
         if (result === 'timeout') {
-          return { result: { sent: true, note: 'Still running; the reply will show in the preview.' } };
+          return {
+            result: { sent: true, note: 'Still running; the reply will show in the preview.' },
+          };
         }
         if (!result) {
           return {
@@ -574,7 +602,10 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
         description: 'Remove this tool.',
         effect: 'write',
         run: () => {
-          const waits = apply({ ...draft(), toolSpecs: draft().toolSpecs.filter((tool) => tool.key !== key) });
+          const waits = apply({
+            ...draft(),
+            toolSpecs: draft().toolSpecs.filter((tool) => tool.key !== key),
+          });
           return waits ? refuse('at', waits) : { node: 'tools' };
         },
       });
@@ -605,8 +636,12 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
           return { rejected: [...rejected, ...held.map((field) => ({ field, why: waits }))] };
         }
         if (facet === 'modelBinding') {
-          const binding = draft().modelBindings.find((candidate) => id === `modelBinding:${candidate.key}`);
-          const violation = binding ? modelBindingViolation(routed(draft(), binding), host.getRunsOn()) : null;
+          const binding = draft().modelBindings.find(
+            (candidate) => id === `modelBinding:${candidate.key}`,
+          );
+          const violation = binding
+            ? modelBindingViolation(routed(draft(), binding), host.getRunsOn())
+            : null;
           if (violation) rejected.push({ field: violation.field, why: violation.message });
         }
         return { rejected };
@@ -695,7 +730,9 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
       })),
     subscribe: (listener) => host.subscribe(listener),
     secrets: () => ({
-      ...Object.fromEntries([...keySlots(draft()).keys()].map((slot) => [`key ${slot}`, host.key(slot)])),
+      ...Object.fromEntries(
+        [...keySlots(draft()).keys()].map((slot) => [`key ${slot}`, host.key(slot)]),
+      ),
       ...Object.fromEntries(
         draft().toolSpecs.map((tool) => [
           `credential ${tool.toolName || tool.key}`,

@@ -21,10 +21,7 @@
     ".fallow",
     ".stryker-tmp-kernel-tools"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/kernel-tools-incremental.json",

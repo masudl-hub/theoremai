@@ -7,7 +7,11 @@
  */
 import { type ProfileDefinition, z } from '@theoremjs/agents';
 import { readBody } from '@theoremjs/react/server';
-import { type GuardrailProbeAnswer, PROBE_TEXT_LIMIT, runGuardrailProbes } from '../guardrail-probe.ts';
+import {
+  type GuardrailProbeAnswer,
+  PROBE_TEXT_LIMIT,
+  runGuardrailProbes,
+} from '../guardrail-probe.ts';
 import { PROBE_BATTERY } from '../probe-battery.ts';
 import type { StructuredRegistration, ToolRegistration } from '../registrations.ts';
 import type { StudioDependency } from '../runtime-scope.ts';
@@ -18,7 +22,10 @@ export type ProbeEntry = {
   text: string;
   /** The draft's guardrails as written. */
   guardrails: unknown;
-  answers: readonly Pick<GuardrailProbeAnswer, 'boundary' | 'status' | 'taint' | 'guardrails' | 'passed'>[];
+  answers: readonly Pick<
+    GuardrailProbeAnswer,
+    'boundary' | 'status' | 'taint' | 'guardrails' | 'passed'
+  >[];
 };
 
 function part<T>() {
@@ -63,11 +70,16 @@ export async function draftProbe(
       only: body.only,
       signal: request.signal,
     });
-    const isNews = body.only === undefined && answers.some((answer) => answer.status === 'passed') &&
+    const isNews =
+      body.only === undefined &&
+      answers.some((answer) => answer.status === 'passed') &&
       !isBatteryText(body.text);
     if (onPassed && isNews) {
       defer(
-        onPassed({ text: body.text, guardrails: body.profile.guardrails, answers }, new Date()).catch((error: unknown) => {
+        onPassed(
+          { text: body.text, guardrails: body.profile.guardrails, answers },
+          new Date(),
+        ).catch((error: unknown) => {
           console.error('studio probe: onPassed failed', error);
         }),
       );

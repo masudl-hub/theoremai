@@ -1,5 +1,10 @@
+import {
+  clearStaleStudioRuns,
+  createExampleDraft,
+  type StudioDraft,
+  workspaceFromDraft,
+} from '../../mod.ts';
 import type { ReadStep } from '../../read-steps.ts';
-import { clearStaleStudioRuns, createExampleDraft, type StudioDraft, workspaceFromDraft } from '../../mod.ts';
 import type { StudioOpened } from '../studio-host.ts';
 import { openProject, type ProjectSession } from './studio-project.ts';
 import { editsAside, restoreProject, restoreStudio } from './studio-restore.ts';
@@ -9,29 +14,32 @@ import { projectKey } from './studio-session.ts';
  * What the studio opens on in this tab. Draft keys are random, so this runs in the browser. The
  * tab's kept workspace comes back unless a `seed` asks for another; then it waits behind Undo.
  */
-export function openStudio(seed?: { draft: StudioDraft; question: string | undefined }): StudioOpened {
-	clearStaleStudioRuns();
-	const kept = restoreStudio();
-	const fresh = (draft: StudioDraft) => ({
-		workspace: workspaceFromDraft(draft),
-		revision: kept.kind === 'restored' ? kept.value.revision + 1 : 0,
-	});
-	if (seed) {
-		return {
-			start: fresh(seed.draft),
-			question: seed.question,
-			displaced: kept.kind === 'restored' ? kept.value.workspace : undefined,
-			discarded: kept.kind === 'discarded',
-		};
-	}
-	if (kept.kind === 'restored')
-		return { start: kept.value, question: undefined, displaced: undefined, discarded: false };
-	return {
-		start: fresh(createExampleDraft()),
-		question: undefined,
-		displaced: undefined,
-		discarded: kept.kind === 'discarded',
-	};
+export function openStudio(seed?: {
+  draft: StudioDraft;
+  question: string | undefined;
+}): StudioOpened {
+  clearStaleStudioRuns();
+  const kept = restoreStudio();
+  const fresh = (draft: StudioDraft) => ({
+    workspace: workspaceFromDraft(draft),
+    revision: kept.kind === 'restored' ? kept.value.revision + 1 : 0,
+  });
+  if (seed) {
+    return {
+      start: fresh(seed.draft),
+      question: seed.question,
+      displaced: kept.kind === 'restored' ? kept.value.workspace : undefined,
+      discarded: kept.kind === 'discarded',
+    };
+  }
+  if (kept.kind === 'restored')
+    return { start: kept.value, question: undefined, displaced: undefined, discarded: false };
+  return {
+    start: fresh(createExampleDraft()),
+    question: undefined,
+    displaced: undefined,
+    discarded: kept.kind === 'discarded',
+  };
 }
 
 /**
@@ -42,20 +50,20 @@ export function openStudio(seed?: { draft: StudioDraft; question: string | undef
  * files. Throws when no server answers.
  */
 export async function openStudioProject(
-	said?: (step: ReadStep) => void,
+  said?: (step: ReadStep) => void,
 ): Promise<StudioOpened & { project: ProjectSession }> {
-	const { project, workspace } = await openProject(said);
-	const key = projectKey(project.name);
-	const kept = restoreProject(key, workspace, project.print);
-	return {
-		start:
-			kept.kind === 'restored'
-				? kept.value
-				: { workspace, revision: 0, project: { key, files: project.print } },
-		question: undefined,
-		// Edits set aside before a reload are still the builder's to answer for.
-		displaced: kept.kind === 'moved' ? kept.workspace : editsAside(key, workspace),
-		discarded: kept.kind === 'discarded',
-		project,
-	};
+  const { project, workspace } = await openProject(said);
+  const key = projectKey(project.name);
+  const kept = restoreProject(key, workspace, project.print);
+  return {
+    start:
+      kept.kind === 'restored'
+        ? kept.value
+        : { workspace, revision: 0, project: { key, files: project.print } },
+    question: undefined,
+    // Edits set aside before a reload are still the builder's to answer for.
+    displaced: kept.kind === 'moved' ? kept.workspace : editsAside(key, workspace),
+    discarded: kept.kind === 'discarded',
+    project,
+  };
 }

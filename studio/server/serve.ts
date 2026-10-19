@@ -22,16 +22,17 @@
  */
 
 import { dirname, relative, resolve } from 'node:path';
-import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
-import { createEditedSession } from './edited-session.ts';
-import type { ProjectEdits } from './edits.ts';
-import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
-import { PROJECT_READY, type ProjectLoad } from './project.ts';
+import { stripVTControlCharacters } from 'node:util';
 import { newConversationKey } from '../conversation-key.ts';
-import { isInside } from './project-source.ts';
-import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
 import { RUNNING_PATH } from '../ports.mjs';
 import { READ_STEPS, type ReadStep } from '../read-steps.ts';
+import { createEditedSession } from './edited-session.ts';
+import type { ProjectEdits } from './edits.ts';
+import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
+import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
+import { PROJECT_READY, type ProjectLoad } from './project.ts';
+import { isInside } from './project-source.ts';
+import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
 import { createWatchFeed, watchFiles } from './watch.ts';
 
 function flag(name: string, fallback: string): string {
@@ -39,7 +40,9 @@ function flag(name: string, fallback: string): string {
   return at >= 0 ? (Deno.args[at + 1] ?? fallback) : fallback;
 }
 
-const setupPath = Deno.args.find((arg, i) => !arg.startsWith('--') && !Deno.args[i - 1]?.startsWith('--'));
+const setupPath = Deno.args.find(
+  (arg, i) => !arg.startsWith('--') && !Deno.args[i - 1]?.startsWith('--'),
+);
 if (!setupPath) {
   console.error(
     'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code] [--no-watch]',
@@ -74,7 +77,10 @@ function freePort(): number {
 }
 
 /** Reads a stream to its end, a decoded chunk at a time. */
-async function drain(stream: ReadableStream<Uint8Array>, each: (text: string) => void): Promise<void> {
+async function drain(
+  stream: ReadableStream<Uint8Array>,
+  each: (text: string) => void,
+): Promise<void> {
   const decoder = new TextDecoder();
   for await (const chunk of stream) each(decoder.decode(chunk, { stream: true }));
 }
@@ -127,8 +133,7 @@ async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
   if (!(await listening)) {
     await Promise.all([process.status, errors]);
     // The page shows this, so the terminal's colours come out.
-    // deno-lint-ignore no-control-regex
-    throw new Error(printed.replace(/\x1b\[[0-9;]*m/g, '').trim() || 'The project did not start.');
+    throw new Error(stripVTControlCharacters(printed).trim() || 'The project did not start.');
   }
   const origin = `http://127.0.0.1:${childPort}`;
   const description: StudioDescription = await (await fetch(origin + STUDIO_BASE)).json();
@@ -153,7 +158,10 @@ async function typeChecks(): Promise<{ ok: boolean; output: string }> {
     stdin: 'null',
   }).output();
   const decoder = new TextDecoder();
-  return { ok: success, output: (decoder.decode(stderr) + decoder.decode(stdout)).trim().slice(-4000) };
+  return {
+    ok: success,
+    output: (decoder.decode(stderr) + decoder.decode(stdout)).trim().slice(-4000),
+  };
 }
 
 /** A project file's text, or undefined when it is missing or leads outside the project. */
@@ -175,7 +183,7 @@ function landsInside(path: string): boolean {
   } catch {
     // No file there yet.
   }
-  for (let folder = dirname(path);; folder = dirname(folder)) {
+  for (let folder = dirname(path); ; folder = dirname(folder)) {
     try {
       return isInside(root, Deno.realPathSync(folder));
     } catch {
@@ -222,14 +230,19 @@ const session = createSaveSession<Loaded>(
 );
 
 /** Passes a request on to a load of the project, and its answer back as it streams. */
-async function forward(request: Request, loaded = session.project(), path?: string): Promise<Response> {
+async function forward(
+  request: Request,
+  loaded = session.project(),
+  path?: string,
+): Promise<Response> {
   const url = new URL(request.url);
   if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
     return forwardSocket(request, `${loaded.origin}${path ?? url.pathname}${url.search}`);
   }
   const headers = new Headers(request.headers);
   headers.delete('host');
-  const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+  const body =
+    request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
   try {
     return await fetch(`${loaded.origin}${path ?? url.pathname}${url.search}`, {
       method: request.method,
@@ -252,7 +265,8 @@ function forwardSocket(request: Request, to: string): Response {
   project.binaryType = 'arraybuffer';
   const held: (string | ArrayBuffer)[] = [];
   const shut = (other: WebSocket) => () => {
-    if (other.readyState === WebSocket.OPEN || other.readyState === WebSocket.CONNECTING) other.close();
+    if (other.readyState === WebSocket.OPEN || other.readyState === WebSocket.CONNECTING)
+      other.close();
   };
   page.addEventListener('message', (event) => {
     if (project.readyState === WebSocket.OPEN) project.send(event.data);
@@ -291,14 +305,19 @@ async function answerEdited(request: Request): Promise<Response | undefined> {
   const loaded = edited.running();
   // No load holds the edits: the page asks for one again. A preflight is still answered, so the
   // page reads that and not a blocked request.
-  if (!loaded) return request.method === 'OPTIONS' ? new Response(null, { status: 204, headers: cors }) : json(409, {}, cors);
+  if (!loaded)
+    return request.method === 'OPTIONS'
+      ? new Response(null, { status: 204, headers: cors })
+      : json(409, {}, cors);
   return forward(request, loaded, STUDIO_BASE + pathname.slice(EDITED.length));
 }
 
 /** Starts a command on its own, without a shell. False when the machine has no such command. */
 function start(command: string, args: string[]): boolean {
   try {
-    new Deno.Command(command, { args, cwd: root, stdin: 'null', stdout: 'null', stderr: 'null' }).spawn().unref();
+    new Deno.Command(command, { args, cwd: root, stdin: 'null', stdout: 'null', stderr: 'null' })
+      .spawn()
+      .unref();
     return true;
   } catch {
     return false;
@@ -347,15 +366,23 @@ function openedSaying(request: Request): Response | undefined {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      const line = (said: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(said)}\n`));
-      described(line).then((project) => {
-        line({ opened: project });
-        controller.close();
-      }, (error) => controller.error(error));
+      const line = (said: unknown) =>
+        controller.enqueue(encoder.encode(`${JSON.stringify(said)}\n`));
+      described(line).then(
+        (project) => {
+          line({ opened: project });
+          controller.close();
+        },
+        (error) => controller.error(error),
+      );
     },
   });
   return new Response(body, {
-    headers: { 'content-type': 'application/x-ndjson', 'cache-control': 'no-store', ...corsHeaders(request, pageOrigins) },
+    headers: {
+      'content-type': 'application/x-ndjson',
+      'cache-control': 'no-store',
+      ...corsHeaders(request, pageOrigins),
+    },
   });
 }
 
@@ -385,7 +412,9 @@ function running(request: Request): Response | undefined {
 
 /** What the studio answers itself: the project as it opens, a save, or the builder's editor on a line. */
 async function answered(request: Request): Promise<Response | undefined> {
-  const answer = (await opened(request)) ?? (await answerSave(session, SAVE, request)) ??
+  const answer =
+    (await opened(request)) ??
+    (await answerSave(session, SAVE, request)) ??
     (await answerOpen(editor, OPEN, request));
   if (!answer) return undefined;
   const cors = corsHeaders(request, pageOrigins);
@@ -394,7 +423,14 @@ async function answered(request: Request): Promise<Response | undefined> {
 
 Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
-  return running(request) ?? watching(request) ?? openedSaying(request) ?? (await answered(request)) ?? (await answerEdited(request)) ?? forward(request);
+  return (
+    running(request) ??
+    watching(request) ??
+    openedSaying(request) ??
+    (await answered(request)) ??
+    (await answerEdited(request)) ??
+    forward(request)
+  );
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

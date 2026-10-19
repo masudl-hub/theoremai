@@ -22,9 +22,9 @@ import {
   type ProjectSource,
   propertyName,
   questionsExport,
-  shapeOf,
   type SourceTarget,
   type SubjectKind,
+  shapeOf,
   unwrapped,
   usersOf,
 } from './project-source.ts';
@@ -61,7 +61,6 @@ interface Written {
   readBy?: SourcePlace[];
 }
 
-
 class Reader {
   readonly found: SettingOrigin[] = [];
   /** Where each value the walk followed a name to is written, the whole target first. */
@@ -73,7 +72,12 @@ class Reader {
     private readonly target: SourceTarget,
   ) {}
 
-  private note(kind: SettingOrigin['kind'], path: string[], at: Place, more: Pick<SettingOrigin, 'text' | 'written'> = {}) {
+  private note(
+    kind: SettingOrigin['kind'],
+    path: string[],
+    at: Place,
+    more: Pick<SettingOrigin, 'text' | 'written'> = {},
+  ) {
     this.found.push({
       path,
       kind,
@@ -89,7 +93,11 @@ class Reader {
     const { options, source, env, call } = this.target;
     // A function that makes the call holds it for each profile it makes.
     const maker = call && holderOf({ node: options, source })?.name;
-    this.written.push({ path: [], at: { node: options, source }, ...(maker ? { name: maker } : {}) });
+    this.written.push({
+      path: [],
+      at: { node: options, source },
+      ...(maker ? { name: maker } : {}),
+    });
     this.walk({ node: options, source, env }, []);
   }
 
@@ -108,10 +116,14 @@ class Reader {
       this.object(shape, here, path);
       return;
     }
-    const whole = ts.isArrayLiteralExpression(node) &&
-      !node.elements.some((element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element));
+    const whole =
+      ts.isArrayLiteralExpression(node) &&
+      !node.elements.some(
+        (element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element),
+      );
     if (whole) {
-      node.elements.forEach((element, index) => this.walk({ ...at, node: element }, [...path, String(index)]));
+      for (const [index, element] of node.elements.entries())
+        this.walk({ ...at, node: element }, [...path, String(index)]);
       return;
     }
     this.named(here, path);
@@ -140,10 +152,20 @@ class Reader {
     else {
       const users = usersOf(this.project, holder);
       if (users.code && isHeldId(this.kind, path, origin)) {
-        this.note('constant', path, { node: holder.initializer.parent, source: holder.source }, { text: holder.name });
+        this.note(
+          'constant',
+          path,
+          { node: holder.initializer.parent, source: holder.source },
+          { text: holder.name },
+        );
         return;
       }
-      const readBy = users.readBy.map((read): SourcePlace => ({ file: read.source.fileName, line: lineOf(read.node, read.source) }));
+      const readBy = users.readBy.map(
+        (read): SourcePlace => ({
+          file: read.source.fileName,
+          line: lineOf(read.node, read.source),
+        }),
+      );
       this.written.push({ path, at: origin, name: holder.name, ...(users.code ? { readBy } : {}) });
       this.walk(origin, path);
     }
@@ -154,22 +176,26 @@ class Reader {
     const region = this.regionOf(at);
     // The last one of a name is the one that counts.
     for (const entry of [...shape.entries.values()].reverse()) {
-      const schema = this.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[entry.key] : undefined;
+      const schema =
+        this.kind === 'tool' && path.length === 0 ? TOOL_SCHEMAS[entry.key] : undefined;
       const here = [...path, schema ?? entry.key];
       const place = entry.property ? { node: entry.property, source: entry.source } : at;
       if (schema) {
-        if (entry.value && !(open && !open.after.has(entry.key))) this.schema(entry.value, here, place);
+        if (entry.value && !(open && !open.after.has(entry.key)))
+          this.schema(entry.value, here, place);
         else this.note('code', here, place);
       } // A spread, or a key the file computes: what the object holds past it is not written here.
       else if (open && !open.after.has(entry.key)) this.note('code', here, open);
       // A model's provider is the name its line is built on: a change rewrites the name, never the provider's id.
       else if (entry.receiver) {
         const named = entry.value && ts.isIdentifier(unwrapped(entry.receiver.node));
-        if (!named) this.note('code', here, { node: entry.receiver.node, source: entry.receiver.source });
+        if (!named)
+          this.note('code', here, { node: entry.receiver.node, source: entry.receiver.source });
       } else if (!entry.value) this.note('code', here, place);
       // A model's protocol is the kernel's name for it: Save rewrites the name.
       else if (entry.key === 'protocol' && isKernelName(entry.value)) continue;
-      else if (entry.property && ts.isShorthandPropertyAssignment(entry.property)) this.named(entry.value, here);
+      else if (entry.property && ts.isShorthandPropertyAssignment(entry.property))
+        this.named(entry.value, here);
       else if (this.regionOf(entry.value) === region) this.walk(entry.value, here);
       else this.enter(entry.value, here, place);
     }
@@ -198,19 +224,34 @@ class Reader {
       const holder = holderOf(place);
       if (!holder || holder.initializer === outer) return outer;
       const users = usersOf(this.project, holder);
-      const readBy = users.readBy.map((each): SourcePlace => ({ file: each.source.fileName, line: lineOf(each.node, each.source) }));
-      this.written.push({ path: at, at: { node, source }, name: holder.name, ...(users.code ? { readBy } : {}) });
+      const readBy = users.readBy.map(
+        (each): SourcePlace => ({
+          file: each.source.fileName,
+          line: lineOf(each.node, each.source),
+        }),
+      );
+      this.written.push({
+        path: at,
+        at: { node, source },
+        name: holder.name,
+        ...(users.code ? { readBy } : {}),
+      });
       return holder.initializer;
     };
     const { base } = read;
     const around = reach(base.call, base.source, path, within);
     const inside = (node: ts.Expression, at: string[]) => {
-      const part = readZod(this.project, { node, source: base.source, ...(base.env ? { env: base.env } : {}) });
+      const part = readZod(this.project, {
+        node,
+        source: base.source,
+        ...(base.env ? { env: base.env } : {}),
+      });
       if (part) this.zod(part, at, around);
     };
     const [first] = base.call.arguments;
     const list = first && base.name === 'union' ? unwrapped(first) : undefined;
-    if (first && base.name === 'array' && !ts.isSpreadElement(first)) inside(first, [...path, 'items']);
+    if (first && base.name === 'array' && !ts.isSpreadElement(first))
+      inside(first, [...path, 'items']);
     if (list && ts.isArrayLiteralExpression(list)) {
       list.elements.forEach((member, index) => {
         if (!ts.isSpreadElement(member)) inside(member, [...path, 'anyOf', String(index)]);
@@ -232,12 +273,21 @@ interface Read {
   written: Written[];
 }
 
-function originsOf(project: ProjectSource, kind: SubjectKind, targets: readonly SourceTarget[]): Read {
+function originsOf(
+  project: ProjectSource,
+  kind: SubjectKind,
+  targets: readonly SourceTarget[],
+): Read {
   const [target] = targets;
   if (!target) return { origins: [], written: [] };
   if (targets.length > 1) {
     // Written twice: the studio cannot tell which one runs.
-    const twice: SettingOrigin = { path: [], kind: 'twice', file: target.file, line: lineOf(target.options, target.source) };
+    const twice: SettingOrigin = {
+      path: [],
+      kind: 'twice',
+      file: target.file,
+      line: lineOf(target.options, target.source),
+    };
     return { origins: [twice], written: [] };
   }
   const reader = new Reader(project, kind, target);
@@ -251,14 +301,19 @@ function originsOf(project: ProjectSource, kind: SubjectKind, targets: readonly 
  * shows them and does not change them. No place when the setup exports them another way.
  */
 function questionsOrigin(project: ProjectSource, profileId: string): SettingOrigin {
-  const origin: SettingOrigin = { path: ['decision', 'questions'], kind: 'code', text: 'export const questions' };
+  const origin: SettingOrigin = {
+    path: ['decision', 'questions'],
+    kind: 'code',
+    text: 'export const questions',
+  };
   const source = project.files.get(project.entry);
   const held = source && questionsExport(source);
   if (!source || !held) return origin;
   const value = held.initializer && unwrapped(held.initializer);
-  const own = value && ts.isObjectLiteralExpression(value)
-    ? value.properties.findLast((property) => propertyName(property) === profileId)
-    : undefined;
+  const own =
+    value && ts.isObjectLiteralExpression(value)
+      ? value.properties.findLast((property) => propertyName(property) === profileId)
+      : undefined;
   return { ...origin, file: source.fileName, line: lineOf(own ?? held, source) };
 }
 
@@ -267,7 +322,10 @@ function questionsOrigin(project: ProjectSource, profileId: string): SettingOrig
  * define. One with none is left out. `decisions` names the decision profiles the studio
  * shows: each one's questions are set in the setup module.
  */
-export function sourceOrigins(project: ProjectSource, decisions: readonly string[] = []): ProjectOrigins {
+export function sourceOrigins(
+  project: ProjectSource,
+  decisions: readonly string[] = [],
+): ProjectOrigins {
   const places = new Map<ts.Node, { site: number; held: number }>();
   const read = (kind: SubjectKind, targets: Map<string, SourceTarget[]>) => {
     const origins: Record<string, SettingOrigin[]> = {};
@@ -285,29 +343,38 @@ export function sourceOrigins(project: ProjectSource, decisions: readonly string
   };
   const [profiles, tools] = [read('profile', project.profiles), read('tool', project.tools)];
   const providers = read('provider', project.providers);
-  for (const id of decisions) profiles.origins[id] = [...(profiles.origins[id] ?? []), questionsOrigin(project, id)];
+  for (const id of decisions)
+    profiles.origins[id] = [...(profiles.origins[id] ?? []), questionsOrigin(project, id)];
   /** The places something else reads too, and under each of them the ones a setting has to itself. */
   const sites = (written: Record<string, Written[]>) => {
     const sites: Record<string, SettingSite[]> = {};
     for (const [name, held] of Object.entries(written)) {
       const shared = held.filter(({ at }) => (places.get(at.node)?.held ?? 0) > 1);
       const reached = held.filter((each) => shared.includes(each) || each.readBy);
-      const under = (path: string[]) => reached.some((each) => each.path.every((key, index) => path[index] === key));
+      const under = (path: string[]) =>
+        reached.some((each) => each.path.every((key, index) => path[index] === key));
       const kept = held.filter((each) => under(each.path));
       if (!reached.length) continue;
-      sites[name] = kept.map(({ path, at, name: holder, readBy }): SettingSite => ({
-        path,
-        site: places.get(at.node)?.site ?? 0,
-        shared: shared.some((each) => each.at.node === at.node),
-        ...(holder ? { name: holder } : {}),
-        file: at.source.fileName,
-        line: lineOf(at.node, at.source),
-        ...(readBy ? { readBy } : {}),
-      }));
+      sites[name] = kept.map(
+        ({ path, at, name: holder, readBy }): SettingSite => ({
+          path,
+          site: places.get(at.node)?.site ?? 0,
+          shared: shared.some((each) => each.at.node === at.node),
+          ...(holder ? { name: holder } : {}),
+          file: at.source.fileName,
+          line: lineOf(at.node, at.source),
+          ...(readBy ? { readBy } : {}),
+        }),
+      );
     }
     return sites;
   };
   const held = { profiles: sites(profiles.written), tools: sites(tools.written) };
   const some = Object.keys(held.profiles).length + Object.keys(held.tools).length > 0;
-  return { profiles: profiles.origins, tools: tools.origins, providers: providers.origins, ...(some ? { sites: held } : {}) };
+  return {
+    profiles: profiles.origins,
+    tools: tools.origins,
+    providers: providers.origins,
+    ...(some ? { sites: held } : {}),
+  };
 }

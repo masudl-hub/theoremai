@@ -4,11 +4,7 @@
   "commandRunner": {
     "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/surface tests/host tests/presets"
   },
-  "mutate": [
-    "src/surface/**/*.ts",
-    "src/host/**/*.ts",
-    "src/presets/**/*.ts"
-  ],
+  "mutate": ["src/surface/**/*.ts", "src/host/**/*.ts", "src/presets/**/*.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -21,10 +17,7 @@
     ".fallow",
     ".stryker-tmp-surface-host-presets"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/surface-host-presets-incremental.json",

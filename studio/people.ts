@@ -106,7 +106,8 @@ export function readActingAs(request: Request, people: StudioPeople | undefined)
 /** Reads a pick from wherever it was kept, and checks its place is one of `places`. */
 export function readPick(value: unknown, places: readonly StudioPlace[]): ReadActingAs {
   const parsed = actingAsSchema.safeParse(value);
-  if (!parsed.success) return { ok: false, message: 'The person this run acts as could not be read.' };
+  if (!parsed.success)
+    return { ok: false, message: 'The person this run acts as could not be read.' };
   const read = readPlace(parsed.data.place, places);
   return read.ok ? { ok: true, actingAs: parsed.data } : read;
 }
@@ -116,7 +117,8 @@ export function readPlace(
   place: unknown,
   places: readonly StudioPlace[],
 ): { ok: true; place: string } | { ok: false; message: string } {
-  if (typeof place !== 'string' || place === '') return { ok: false, message: 'The setup file needs a place to look in.' };
+  if (typeof place !== 'string' || place === '')
+    return { ok: false, message: 'The setup file needs a place to look in.' };
   return places.some((offered) => offered.id === place)
     ? { ok: true, place }
     : { ok: false, message: `The setup file offers no place '${place}'.` };
@@ -129,7 +131,7 @@ export function readPlace(
 export function peopleFault(people: unknown): string | undefined {
   const parsed = peopleSchema.safeParse(people);
   if (!parsed.success) {
-    return "The people the setup file exports need places: a list of { id, label }, at least one.";
+    return 'The people the setup file exports need places: a list of { id, label }, at least one.';
   }
   const { places, existing, fresh, start } = parsed.data;
   const ids = places.map((place) => place.id);
@@ -159,6 +161,7 @@ export function peopleOffer(people: StudioPeople): StudioPeopleOffer {
 /** Reads what the application answered for a person, so the page never shows a malformed one. */
 export function readPerson(value: unknown, from: string): StudioPerson {
   const parsed = nameSchema.safeParse(value);
-  if (!parsed.success) throw new Error(`The setup file's ${from} answered a person without an id and a label.`);
+  if (!parsed.success)
+    throw new Error(`The setup file's ${from} answered a person without an id and a label.`);
   return parsed.data;
 }

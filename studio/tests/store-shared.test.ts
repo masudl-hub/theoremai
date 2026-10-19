@@ -1,18 +1,21 @@
 import { assert, assertEquals } from '@std/assert';
 import {
-  addAgent,
   type AgentDraft,
+  addAgent,
   agentNodeId,
   createExampleDraft,
-  sharedAsk,
   type SharedSites,
   type StudioWorkspace,
+  sharedAsk,
   workspaceFromDraft,
 } from '../mod.ts';
 import { createStudioStore } from '../ui/lib/studio-store.ts';
 
 const example = createExampleDraft();
-const named = (agentId: string) => ({ ...example, identity: { ...example.identity, agentId, handle: agentId } });
+const named = (agentId: string) => ({
+  ...example,
+  identity: { ...example.identity, agentId, handle: agentId },
+});
 
 const place = (path: string, site: number, shared: boolean) => ({
   path: path.split('.'),
@@ -32,27 +35,41 @@ const SITES: SharedSites = {
 /** A store on `desk`, `shop`, and `yard`, with `desk` open. Each test has its own tab. */
 function opened() {
   sessionStorage.clear();
-  const workspace = ['shop', 'yard'].reduce((held, id) => addAgent(held, named(id)), workspaceFromDraft(named('desk')));
+  const workspace = ['shop', 'yard'].reduce(
+    (held, id) => addAgent(held, named(id)),
+    workspaceFromDraft(named('desk')),
+  );
   const [desk, shop, yard] = workspace.agents;
   assert(desk && shop && yard);
-  const store = createStudioStore({ workspace: { ...workspace, selected: agentNodeId(desk.key) }, revision: 0 }, SITES);
+  const store = createStudioStore(
+    { workspace: { ...workspace, selected: agentNodeId(desk.key) }, revision: 0 },
+    SITES,
+  );
   return { store, desk, shop, yard };
 }
 
 const tokens = (workspace: StudioWorkspace, key: string, model = 'fast') =>
-  workspace.agents.find((agent) => agent.key === key)?.modelBindings.find((each) => each.modelId === model)
-    ?.maxOutputTokens;
+  workspace.agents
+    .find((agent) => agent.key === key)
+    ?.modelBindings.find((each) => each.modelId === model)?.maxOutputTokens;
 
 /** `key`'s model `model` given `maxOutputTokens`. */
-const capped = (key: string, maxOutputTokens: number, model = 'fast') => (workspace: StudioWorkspace) => ({
-  ...workspace,
-  agents: workspace.agents.map((agent): AgentDraft =>
-    agent.key !== key ? agent : {
-      ...agent,
-      modelBindings: agent.modelBindings.map((each) => (each.modelId === model ? { ...each, maxOutputTokens } : each)),
-    }
-  ),
-});
+const capped =
+  (key: string, maxOutputTokens: number, model = 'fast') =>
+  (workspace: StudioWorkspace) => ({
+    ...workspace,
+    agents: workspace.agents.map(
+      (agent): AgentDraft =>
+        agent.key !== key
+          ? agent
+          : {
+              ...agent,
+              modelBindings: agent.modelBindings.map((each) =>
+                each.modelId === model ? { ...each, maxOutputTokens } : each,
+              ),
+            },
+    ),
+  });
 
 Deno.test('a change to a shared value waits for the builder, then is made on each agent that shares it', () => {
   const { store, desk, shop, yard } = opened();
@@ -72,7 +89,10 @@ Deno.test('a change to a shared value waits for the builder, then is made on eac
   assertEquals(store.getPending(), undefined);
   assertEquals(store.getRevision(), 1);
   const after = store.getWorkspace();
-  assertEquals([desk, shop, yard].map((agent) => tokens(after, agent.key)), [4096, 4096, null]);
+  assertEquals(
+    [desk, shop, yard].map((agent) => tokens(after, agent.key)),
+    [4096, 4096, null],
+  );
 
   // The same value is not asked about again while the same node is open. Another one is.
   store.update(capped(desk.key, 2048));
@@ -81,7 +101,10 @@ Deno.test('a change to a shared value waits for the builder, then is made on eac
   const next = store.getPending();
   assertEquals(next && 'sites' in next && next.sites, [2]);
   store.cancelShared();
-  assertEquals([store.getPending(), tokens(store.getWorkspace(), desk.key, 'smart')], [undefined, null]);
+  assertEquals(
+    [store.getPending(), tokens(store.getWorkspace(), desk.key, 'smart')],
+    [undefined, null],
+  );
   // Opening another node asks again.
   store.select(agentNodeId(shop.key));
   store.update(capped(shop.key, 1024));
@@ -104,7 +127,10 @@ Deno.test('a change that reaches no other agent is made at once, and one by th30
   store.update(capped(yard.key, 4096));
   assertEquals([store.getPending(), tokens(store.getWorkspace(), yard.key)], [undefined, 4096]);
   store.update(capped(desk.key, 4096), 'th30');
-  assertEquals([store.getPending()?.agents, tokens(store.getWorkspace(), shop.key)], [[shop.key], null]);
+  assertEquals(
+    [store.getPending()?.agents, tokens(store.getWorkspace(), shop.key)],
+    [[shop.key], null],
+  );
   store.confirmShared();
   assertEquals(tokens(store.getWorkspace(), shop.key), 4096);
 });
@@ -115,16 +141,22 @@ Deno.test("th30's change to a tool other agents allow waits for the person, and 
   assert(tool);
   const described = (description: string) => (workspace: StudioWorkspace) => ({
     ...workspace,
-    toolSpecs: workspace.toolSpecs.map((each) => (each.key === tool.key ? { ...each, description } : each)),
+    toolSpecs: workspace.toolSpecs.map((each) =>
+      each.key === tool.key ? { ...each, description } : each,
+    ),
   });
-  const descriptionNow = () => store.getWorkspace().toolSpecs.find((each) => each.key === tool.key)?.description;
+  const descriptionNow = () =>
+    store.getWorkspace().toolSpecs.find((each) => each.key === tool.key)?.description;
   store.update(described('By hand.'));
   assertEquals([store.getPending(), descriptionNow()], [undefined, 'By hand.']);
 
   store.update(described('By th30.'), 'th30');
   const reach = store.getPending();
   assert(reach && 'tools' in reach);
-  assertEquals([reach.tools, reach.agents, descriptionNow()], [[tool.key], [shop.key, yard.key], 'By hand.']);
+  assertEquals(
+    [reach.tools, reach.agents, descriptionNow()],
+    [[tool.key], [shop.key, yard.key], 'By hand.'],
+  );
   assertEquals(sharedAsk(reach, store.getWorkspace()), {
     title: 'Change it for 2 other profiles?',
     line: `${tool.toolName} is one tool in the library. shop and yard use it too, and will change with it.`,
@@ -134,7 +166,10 @@ Deno.test("th30's change to a tool other agents allow waits for the person, and 
   assertEquals(descriptionNow(), 'By hand.');
   store.update(described('By th30.'), 'th30');
   store.confirmShared();
-  assertEquals([store.getPending(), descriptionNow(), desk.key === store.getFocus()], [undefined, 'By th30.', true]);
+  assertEquals(
+    [store.getPending(), descriptionNow(), desk.key === store.getFocus()],
+    [undefined, 'By th30.', true],
+  );
 
   // Removing it is a change to the others too.
   store.select(agentNodeId(shop.key));
@@ -154,5 +189,8 @@ Deno.test("what the project's files changed is taken in without a question, and 
   store.update(capped(desk.key, 8192));
   assertEquals(store.getPending()?.agents, [shop.key]);
   store.cancelShared();
-  assertEquals([tokens(store.getWorkspace(), desk.key), tokens(store.getWorkspace(), shop.key)], [4096, 4096]);
+  assertEquals(
+    [tokens(store.getWorkspace(), desk.key), tokens(store.getWorkspace(), shop.key)],
+    [4096, 4096],
+  );
 });

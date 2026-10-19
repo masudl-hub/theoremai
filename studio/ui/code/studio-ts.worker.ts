@@ -7,12 +7,12 @@ import { TypeScriptWorker } from 'monaco-editor/languages/features/typescript/ts
  * memory.
  */
 class StudioTypeScriptWorker extends TypeScriptWorker {
-	override getScriptFileNames(): string[] {
-		return super.getScriptFileNames().filter((name) => name.startsWith('file:///agent'));
-	}
+  override getScriptFileNames(): string[] {
+    return super.getScriptFileNames().filter((name) => name.startsWith('file:///agent'));
+  }
 }
 
 const scope = self as unknown as { onmessage: (event: MessageEvent) => void };
 scope.onmessage = () => {
-	initialize((ctx, createData) => new StudioTypeScriptWorker(ctx, createData));
+  initialize((ctx, createData) => new StudioTypeScriptWorker(ctx, createData));
 };

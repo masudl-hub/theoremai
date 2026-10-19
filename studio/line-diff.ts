@@ -22,7 +22,8 @@ export function lineDiff(was: string, now: string): DiffLine[] {
   const run = (i: number, j: number) => held[i * width + j] ?? 0;
   for (let i = a.length - 1; i >= 0; i -= 1) {
     for (let j = b.length - 1; j >= 0; j -= 1) {
-      held[i * width + j] = a[i] === b[j] ? run(i + 1, j + 1) + 1 : Math.max(run(i + 1, j), run(i, j + 1));
+      held[i * width + j] =
+        a[i] === b[j] ? run(i + 1, j + 1) + 1 : Math.max(run(i + 1, j), run(i, j + 1));
     }
   }
   const lines: DiffLine[] = [];

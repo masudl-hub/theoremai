@@ -4,10 +4,7 @@
   "commandRunner": {
     "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/providers tests/cassettes"
   },
-  "mutate": [
-    "src/providers/**/*.ts",
-    "!src/providers/google/interactions/stream.ts"
-  ],
+  "mutate": ["src/providers/**/*.ts", "!src/providers/google/interactions/stream.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -20,10 +17,7 @@
     ".fallow",
     ".stryker-tmp-providers"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/providers-incremental.json",

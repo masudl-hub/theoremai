@@ -24,7 +24,11 @@ export function keySlotUnset(draft: StudioDraft): boolean {
 export function bindingSlots(
   draft: StudioDraft,
   binding: ModelBindingDraft,
-): { keySlot?: string; fallbackKeySlot?: string; given: { keySlot: boolean; fallbackKeySlot: boolean } } {
+): {
+  keySlot?: string;
+  fallbackKeySlot?: string;
+  given: { keySlot: boolean; fallbackKeySlot: boolean };
+} {
   const written = {
     provider: binding.provider,
     keySlot: binding.keySlot || draft.models.key,

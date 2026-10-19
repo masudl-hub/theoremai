@@ -4,9 +4,7 @@
   "commandRunner": {
     "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/studio"
   },
-  "mutate": [
-    "studio/**/*.ts"
-  ],
+  "mutate": ["studio/**/*.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -19,10 +17,7 @@
     ".fallow",
     ".stryker-tmp-studio"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/studio-incremental.json",

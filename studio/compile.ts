@@ -6,8 +6,8 @@ import {
   type ImageProfileDefinition,
   type LabelKey,
   type LabelOverrides,
-  liveIngressChannelDefault,
   type LiveProfileDefinition,
+  liveIngressChannelDefault,
   type ProfileDefinitionBase,
   type ProfileGuardrailsSpec,
   type ProfileObservabilitySpec,
@@ -20,16 +20,16 @@ import {
   BOUNDARIES,
   type Boundary,
   DETECT_DEFAULTS,
-  type Detector,
   DETECTOR_META,
+  DETECTORS,
+  type Detector,
   type DetectorConfig,
   type DetectorRule,
-  DETECTORS,
-  detectProblem,
   type DetectSpec,
-  hintProblem,
+  detectProblem,
   type HostDetectorConfig,
   type HostPattern,
+  hintProblem,
   type NameAllow,
   patternListProblem,
   TOOL_BOUNDARIES,
@@ -47,8 +47,8 @@ import {
   jsonSchemaFromZod,
   type LiveContextCompressionSpec,
   type LiveInputsSpec,
-  mimeAllowed,
   type ModelBinding,
+  mimeAllowed,
   outOfScopeFields,
   type ProfileContextSpec,
   type ProfileDefinition,
@@ -61,15 +61,15 @@ import {
   type SystemPrompt,
   systemPromptProblem,
 } from '@theoremjs/agents/kernel';
+import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
+import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '@theoremjs/agents/presets/google';
 import {
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
 } from '@theoremjs/agents/schema';
-import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
 import { isCredentialName, MASK } from '@theoremjs/agents/surface';
-import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '@theoremjs/agents/presets/google';
 import { STUDIO_KEY_SLOT_CAP } from './browser-connection.ts';
 import type {
   DecisionDraft,
@@ -84,15 +84,14 @@ import type {
   OwnDetectorDraft,
   PatternDraft,
   PatternSourceDraft,
+  SpeechDraft,
   StudioDraft,
   StudioProfileType,
   StudioTurnProfileType,
-  SpeechDraft,
   ToolSpecDraft,
   TurnBehaviourDraft,
   UrlAllowDraft,
 } from './draft.ts';
-import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 import {
   COMPACTION_DRAFT_DEFAULTS,
   draftAllows,
@@ -105,13 +104,13 @@ import { isGoogleRoute, isProviderBuiltinId, modelBindingViolation } from './pol
 import {
   type ModelRoute,
   modelRoute,
+  type StudioProvider,
   servedProtocols,
   servesProfileType,
-  type StudioProvider,
 } from './providers.ts';
 import type {
-  StudioToolLabels,
   StructuredRegistration,
+  StudioToolLabels,
   ToolRegistration,
 } from './registrations.ts';
 import {
@@ -123,6 +122,7 @@ import {
 import { parseSystemMarkup, type SystemMarkup } from './system-markup.ts';
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
+import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
 export type StudioProfileDefinition =
   | TextProfileDefinition
@@ -238,7 +238,11 @@ function checkBindingRoute(
   } else if (!servesProfileType(provider, type)) {
     report(nodeId, `${binding.provider} doesn't serve ${type} agents.`, 'provider');
   } else if (!servesProfileType(provider, type, binding.protocol)) {
-    report(nodeId, `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`, 'protocol');
+    report(
+      nodeId,
+      `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`,
+      'protocol',
+    );
   }
   if (!route.apiId) {
     report(nodeId, 'API model is required.', 'apiId');
@@ -336,14 +340,16 @@ function checkOptions(
   report: Report,
 ): void {
   const provider = providers.find((each) => each.id === binding.provider);
-  const protocol = provider && servedProtocols(provider, type)?.find((each) => each.id === binding.protocol);
+  const protocol =
+    provider && servedProtocols(provider, type)?.find((each) => each.id === binding.protocol);
   for (const issue of protocol?.options.safeParse(binding.options).error?.issues ?? []) {
     const name = issue.code === 'unrecognized_keys' ? issue.keys[0] : issue.path[0];
     report(nodeId, issue.message, typeof name === 'string' ? `options.${name}` : 'options');
   }
   const apiId = binding.apiId.trim();
   for (const key of apiId ? (protocol?.refusedOptions?.(apiId) ?? []) : []) {
-    if (binding.options[key] !== undefined) report(nodeId, `${apiId} takes no ${key}.`, `options.${key}`);
+    if (binding.options[key] !== undefined)
+      report(nodeId, `${apiId} takes no ${key}.`, `options.${key}`);
   }
 }
 
@@ -980,7 +986,10 @@ function compileOutputs(
   }
   // why: a rule's check is the project's code; a run and Save lay this over the rule as registered.
   const items = Object.fromEntries(
-    Object.entries(outputs.itemRules).map(([list, onFail]) => [list, { onFail } as ProfileItemRule]),
+    Object.entries(outputs.itemRules).map(([list, onFail]) => [
+      list,
+      { onFail } as ProfileItemRule,
+    ]),
   );
   const validation = validationEnabled
     ? {
@@ -1045,20 +1054,45 @@ function compileLabels(
   const shown = (facet: string) => facets.has(facet) || facets.has('labels');
   const { turnBehaviour: turn, guardrails, outputs } = draft;
   if (shown('turnBehaviour') && takesContinueInstruction(draft)) {
-    entries.push(['turnBehaviour', 'continueInstruction', 'continue.instruction', turn.continueInstruction.trim()]);
+    entries.push([
+      'turnBehaviour',
+      'continueInstruction',
+      'continue.instruction',
+      turn.continueInstruction.trim(),
+    ]);
   }
   if (shown('guardrails') && allows('identity.system')) {
-    entries.push(['guardrails', 'canaryBindNote', 'canary.bind_note', guardrails.canaryBindNote.trim()]);
+    entries.push([
+      'guardrails',
+      'canaryBindNote',
+      'canary.bind_note',
+      guardrails.canaryBindNote.trim(),
+    ]);
   }
   if (shown('guardrails') && allows('guardrails.quota')) {
     entries.push(['guardrails', 'quotaMessage', 'quota.exhausted', guardrails.quotaMessage.trim()]);
   }
   if (shown('outputs') && allows('outputs.validation')) {
-    entries.push(['outputs', 'repairGuidance', 'repair.default_guidance', outputs.repairGuidance.trim()]);
+    entries.push([
+      'outputs',
+      'repairGuidance',
+      'repair.default_guidance',
+      outputs.repairGuidance.trim(),
+    ]);
   }
   if (shown('guardrails') && allows('guardrails.blockedReply')) {
-    entries.push(['guardrails', 'egressRepairGuidance', 'egress.default_repair_guidance', guardrails.egressRepairGuidance.trim()]);
-    entries.push(['guardrails', 'egressRefusal', 'egress.refusal', guardrails.egressRefusal.trim()]);
+    entries.push([
+      'guardrails',
+      'egressRepairGuidance',
+      'egress.default_repair_guidance',
+      guardrails.egressRepairGuidance.trim(),
+    ]);
+    entries.push([
+      'guardrails',
+      'egressRefusal',
+      'egress.refusal',
+      guardrails.egressRefusal.trim(),
+    ]);
   }
   if (facets.has('labels')) {
     for (const [key, template] of Object.entries(draft.labels) as [LabelKey, string][]) {
@@ -1498,11 +1532,7 @@ function compileImage(image: ImageDraft, report: Report): ProfileImageSpec {
   };
 }
 
-function compileSpeech(
-  speech: SpeechDraft,
-  draft: StudioDraft,
-  report: Report,
-): ProfileSpeechSpec {
+function compileSpeech(speech: SpeechDraft, draft: StudioDraft, report: Report): ProfileSpeechSpec {
   const { format } = speech;
   if (format) {
     const refused = draft.modelBindings.find(
@@ -1522,7 +1552,11 @@ function compileSpeech(
     isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
   );
   if (onGoogle && !speech.voice.trim()) {
-    report('speech', `Gemini needs a voice to speak; ${onGoogle.modelId} is on ${onGoogle.provider}.`, 'voice');
+    report(
+      'speech',
+      `Gemini needs a voice to speak; ${onGoogle.modelId} is on ${onGoogle.provider}.`,
+      'voice',
+    );
   }
   const { speed } = speech;
   return {
@@ -1549,11 +1583,7 @@ function compileResumed(live: LiveDraft, report: Report): ProfileLiveSpec['resum
   return { prompt, ...(live.resumedAfterMs !== null ? { afterMs: live.resumedAfterMs } : {}) };
 }
 
-function compileLive(
-  live: LiveDraft,
-  report: Report,
-  on: StudioRunsOn,
-): ProfileLiveSpec {
+function compileLive(live: LiveDraft, report: Report, on: StudioRunsOn): ProfileLiveSpec {
   if (!live.ingressAudio && !live.ingressVideo && !live.ingressText) {
     report('live', 'Turn on at least one ingress channel.');
   }
@@ -1574,7 +1604,8 @@ function compileLive(
     0,
   );
 
-  if (live.contextCompression) checkCompression(live, report, on.mode === 'demo' ? on.keys.liveInputTokens : undefined);
+  if (live.contextCompression)
+    checkCompression(live, report, on.mode === 'demo' ? on.keys.liveInputTokens : undefined);
   const resumed = compileResumed(live, report);
 
   const channels = {
@@ -1640,7 +1671,8 @@ function checkCompression(live: LiveDraft, report: Report, held: number | undefi
   }
   if (
     target !== null &&
-    ((trigger !== null && target >= trigger) || (held !== undefined && trigger === null && target >= held))
+    ((trigger !== null && target >= trigger) ||
+      (held !== undefined && trigger === null && target >= held))
   ) {
     report(
       'live',
@@ -1773,13 +1805,25 @@ function checkLentDecision(
   const { decision, identity } = draft;
   const over = (text: string, most: number) => text.trim().length > most;
   if (over(decision.contract, limits.idChars)) {
-    report('decision', `Contract is limited to ${limits.idChars} characters on these keys.`, 'contract');
+    report(
+      'decision',
+      `Contract is limited to ${limits.idChars} characters on these keys.`,
+      'contract',
+    );
   }
   if (over(identity.agentId, limits.idChars)) {
-    report('identity', `Profile id is limited to ${limits.idChars} characters on these keys.`, 'agentId');
+    report(
+      'identity',
+      `Profile id is limited to ${limits.idChars} characters on these keys.`,
+      'agentId',
+    );
   }
   if (over(identity.handle, limits.nameChars)) {
-    report('identity', `Handle is limited to ${limits.nameChars} characters on these keys.`, 'handle');
+    report(
+      'identity',
+      `Handle is limited to ${limits.nameChars} characters on these keys.`,
+      'handle',
+    );
   }
   const binding = draft.modelBindings[0];
   if (binding) {
@@ -1788,14 +1832,26 @@ function checkLentDecision(
       report(nodeId, `Timeout is limited to ${limits.timeoutMs} ms on these keys.`, 'timeoutMs');
     }
     if (over(binding.modelId, limits.nameChars)) {
-      report(nodeId, `Model id is limited to ${limits.nameChars} characters on these keys.`, 'modelId');
+      report(
+        nodeId,
+        `Model id is limited to ${limits.nameChars} characters on these keys.`,
+        'modelId',
+      );
     }
     if (over(binding.apiId, limits.idChars)) {
-      report(nodeId, `API model is limited to ${limits.idChars} characters on these keys.`, 'apiId');
+      report(
+        nodeId,
+        `API model is limited to ${limits.idChars} characters on these keys.`,
+        'apiId',
+      );
     }
   }
   if (decision.maxStateBytes !== null && decision.maxStateBytes > limits.stateBytes) {
-    report('decision', `These keys take at most ${limits.stateBytes} bytes of state.`, 'maxStateBytes');
+    report(
+      'decision',
+      `These keys take at most ${limits.stateBytes} bytes of state.`,
+      'maxStateBytes',
+    );
   }
   if (decision.questions.length > limits.questions) {
     report('decision', `These keys ask at most ${limits.questions} questions.`, 'questions');
@@ -1818,7 +1874,9 @@ function checkLentDecision(
       fail(`Option labels are limited to ${limits.nameChars} characters on these keys.`);
     }
     const compiled = questions[question.id.trim()];
-    const violation = binding && compiled &&
+    const violation =
+      binding &&
+      compiled &&
       keys.questionViolation(modelRoute(draft.providers, 'decision', binding), compiled);
     if (violation) fail(violation);
   });

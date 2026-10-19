@@ -21,50 +21,50 @@ let pageKeyHeld: string | undefined;
  * refs it opens, so both go when the tab does. A new key forgets the refs the last one sealed.
  */
 export function pageConversationKey(): string {
-	const store = session();
-	try {
-		const kept = store?.getItem(PAGE_KEY);
-		if (kept) return kept;
-	} catch {
-		// Storage refused the read: the page holds its own key.
-	}
-	if (pageKeyHeld) return pageKeyHeld;
-	const key = newConversationKey();
-	pageKeyHeld = key;
-	forgetSealedBy('page');
-	try {
-		store?.setItem(PAGE_KEY, key);
-	} catch {
-		// Over quota or blocked: the key lasts as long as the page, and so do its chats.
-	}
-	return key;
+  const store = session();
+  try {
+    const kept = store?.getItem(PAGE_KEY);
+    if (kept) return kept;
+  } catch {
+    // Storage refused the read: the page holds its own key.
+  }
+  if (pageKeyHeld) return pageKeyHeld;
+  const key = newConversationKey();
+  pageKeyHeld = key;
+  forgetSealedBy('page');
+  try {
+    store?.setItem(PAGE_KEY, key);
+  } catch {
+    // Over quota or blocked: the key lasts as long as the page, and so do its chats.
+  }
+  return key;
 }
 
 /** A kept ref, when `raw` is one. */
 function keptRef(raw: string): { sealer: ChatSealer; ref: string } | undefined {
-	try {
-		const value: unknown = JSON.parse(raw);
-		if (!isRecord(value) || typeof value.ref !== 'string') return undefined;
-		const { sealer } = value;
-		return sealer === 'page' || sealer === 'demo' ? { sealer, ref: value.ref } : undefined;
-	} catch {
-		return undefined;
-	}
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value) || typeof value.ref !== 'string') return undefined;
+    const { sealer } = value;
+    return sealer === 'page' || sealer === 'demo' ? { sealer, ref: value.ref } : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Forgets every ref `sealer` sealed: none of them opens any more. */
 function forgetSealedBy(sealer: ChatSealer): void {
-	try {
-		const store = session();
-		if (!store) return;
-		for (const key of Object.keys(store)) {
-			if (!key.startsWith(CHAT_PREFIX)) continue;
-			const raw = store.getItem(key);
-			if (raw && keptRef(raw)?.sealer === sealer) store.removeItem(key);
-		}
-	} catch {
-		// Nothing to forget.
-	}
+  try {
+    const store = session();
+    if (!store) return;
+    for (const key of Object.keys(store)) {
+      if (!key.startsWith(CHAT_PREFIX)) continue;
+      const raw = store.getItem(key);
+      if (raw && keptRef(raw)?.sealer === sealer) store.removeItem(key);
+    }
+  } catch {
+    // Nothing to forget.
+  }
 }
 
 /**
@@ -73,20 +73,20 @@ function forgetSealedBy(sealer: ChatSealer): void {
  * Never throws.
  */
 export function saveConversation(agentKey: string, sealer: ChatSealer, ref: string): void {
-	const store = session();
-	if (!store) return;
-	const key = `${CHAT_PREFIX}${agentKey}`;
-	try {
-		store.setItem(key, JSON.stringify({ sealer, ref }));
-		return;
-	} catch {
-		// Over quota: an older ref is a conversation that already moved on, so none is kept.
-	}
-	try {
-		store.removeItem(key);
-	} catch {
-		// Nothing more to do.
-	}
+  const store = session();
+  if (!store) return;
+  const key = `${CHAT_PREFIX}${agentKey}`;
+  try {
+    store.setItem(key, JSON.stringify({ sealer, ref }));
+    return;
+  } catch {
+    // Over quota: an older ref is a conversation that already moved on, so none is kept.
+  }
+  try {
+    store.removeItem(key);
+  } catch {
+    // Nothing more to do.
+  }
 }
 
 /**
@@ -94,32 +94,32 @@ export function saveConversation(agentKey: string, sealer: ChatSealer, ref: stri
  * conversation kept before refs) is forgotten, so it holds no room.
  */
 export function restoreConversation(agentKey: string, sealer: ChatSealer): string | undefined {
-	try {
-		const store = session();
-		const key = `${CHAT_PREFIX}${agentKey}`;
-		const raw = store?.getItem(key);
-		if (!raw) return undefined;
-		const kept = keptRef(raw);
-		if (!kept) store?.removeItem(key);
-		return kept?.sealer === sealer ? kept.ref : undefined;
-	} catch {
-		return undefined;
-	}
+  try {
+    const store = session();
+    const key = `${CHAT_PREFIX}${agentKey}`;
+    const raw = store?.getItem(key);
+    if (!raw) return undefined;
+    const kept = keptRef(raw);
+    if (!kept) store?.removeItem(key);
+    return kept?.sealer === sealer ? kept.ref : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Forgets one agent's conversation, or every agent's. */
 export function clearConversation(agentKey?: string): void {
-	try {
-		const store = session();
-		if (!store) return;
-		for (const key of Object.keys(store)) {
-			if (
-				agentKey === undefined ? key.startsWith(CHAT_PREFIX) : key === `${CHAT_PREFIX}${agentKey}`
-			) {
-				store.removeItem(key);
-			}
-		}
-	} catch {
-		// Nothing to clear.
-	}
+  try {
+    const store = session();
+    if (!store) return;
+    for (const key of Object.keys(store)) {
+      if (
+        agentKey === undefined ? key.startsWith(CHAT_PREFIX) : key === `${CHAT_PREFIX}${agentKey}`
+      ) {
+        store.removeItem(key);
+      }
+    }
+  } catch {
+    // Nothing to clear.
+  }
 }

@@ -8,23 +8,23 @@
  * started with `--no-watch` never opens. Answers how to stop listening.
  */
 export function subscribeToFiles(
-	endpoint: string,
-	on: { open: () => void; files: (files: string[]) => void },
+  endpoint: string,
+  on: { open: () => void; files: (files: string[]) => void },
 ): () => void {
-	if (typeof EventSource === 'undefined') return () => undefined;
-	const source = new EventSource(`${endpoint}/watch`);
-	source.onopen = on.open;
-	source.onmessage = (event: MessageEvent<string>) => {
-		try {
-			const told: unknown = JSON.parse(event.data);
-			const files =
-				typeof told === 'object' && told !== null && 'files' in told ? told.files : undefined;
-			on.files(Array.isArray(files) ? files.filter((file) => typeof file === 'string') : []);
-		} catch {
-			on.files([]);
-		}
-	};
-	return () => {
-		source.close();
-	};
+  if (typeof EventSource === 'undefined') return () => undefined;
+  const source = new EventSource(`${endpoint}/watch`);
+  source.onopen = on.open;
+  source.onmessage = (event: MessageEvent<string>) => {
+    try {
+      const told: unknown = JSON.parse(event.data);
+      const files =
+        typeof told === 'object' && told !== null && 'files' in told ? told.files : undefined;
+      on.files(Array.isArray(files) ? files.filter((file) => typeof file === 'string') : []);
+    } catch {
+      on.files([]);
+    }
+  };
+  return () => {
+    source.close();
+  };
 }

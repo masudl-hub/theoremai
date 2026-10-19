@@ -66,7 +66,10 @@ export function watchFiles(options: FileWatchOptions): { stop(): void } {
 }
 
 /** The page's subscriptions to file changes, as server-sent events. */
-export function createWatchFeed(): { tell(files: string[]): void; subscribe(headers: Record<string, string>): Response } {
+export function createWatchFeed(): {
+  tell(files: string[]): void;
+  subscribe(headers: Record<string, string>): Response;
+} {
   const encoder = new TextEncoder();
   const pages = new Set<ReadableStreamDefaultController<Uint8Array>>();
   const send = (page: ReadableStreamDefaultController<Uint8Array>, text: string) => {

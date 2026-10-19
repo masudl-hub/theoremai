@@ -102,7 +102,9 @@ function profileSource(profile: PrintedProfile): {
 }
 
 /** A profile as it is printed: its own settings, with code standing where the studio holds none. */
-type PrintedProfile = CompiledStudio['profile'] | (Record<string, unknown> & Pick<CompiledStudio['profile'], 'guardrails'>);
+type PrintedProfile =
+  | CompiledStudio['profile']
+  | (Record<string, unknown> & Pick<CompiledStudio['profile'], 'guardrails'>);
 
 /**
  * What a project's files hold that an export names where it stands, since the studio does not
@@ -119,7 +121,10 @@ export interface ProjectCode {
  * The profile with the check of each list's item rule as the project's files write it. A check is
  * code, so the studio holds none: a rule the files do not place gets a line that says what is owed.
  */
-function withItemChecks(profile: CompiledStudio['profile'], checks: ProjectOrigins['profiles']): PrintedProfile {
+function withItemChecks(
+  profile: CompiledStudio['profile'],
+  checks: ProjectOrigins['profiles'],
+): PrintedProfile {
   if (!('outputs' in profile)) return profile;
   const validation = profile.outputs?.validation;
   if (!validation?.items) return profile;
@@ -128,11 +133,15 @@ function withItemChecks(profile: CompiledStudio['profile'], checks: ProjectOrigi
     Object.entries(validation.items).map(([list, rule]) => {
       const path = ['outputs', 'validation', 'items', list, 'check'];
       const at = origins.find(
-        (origin) => origin.kind === 'code' && origin.text !== undefined && origin.path.join('\n') === path.join('\n'),
+        (origin) =>
+          origin.kind === 'code' &&
+          origin.text !== undefined &&
+          origin.path.join('\n') === path.join('\n'),
       );
-      const check = at?.text !== undefined
-        ? `${at.text} /* ${String(at.file)}:${String(at.line)} */`
-        : `undefined /* The check of each item of ${quoteSource(list)} is your own code: name it here. */`;
+      const check =
+        at?.text !== undefined
+          ? `${at.text} /* ${String(at.file)}:${String(at.line)} */`
+          : `undefined /* The check of each item of ${quoteSource(list)} is your own code: name it here. */`;
       return [list, { check: new Expr(check), onFail: rule.onFail }];
     }),
   );
@@ -182,14 +191,20 @@ function registrationCall(provider: StudioProvider, factory: string, indent = 0)
  * agent. `from` is where the module imports the kernel from. None for a definition that is the
  * project's own.
  */
-export function providerModule(provider: StudioProvider, name: string, from = AGENTS_PACKAGE): string | undefined {
+export function providerModule(
+  provider: StudioProvider,
+  name: string,
+  from = AGENTS_PACKAGE,
+): string | undefined {
   const factory = definitionFactory(provider.definition);
   if (!factory) return undefined;
   return [
     `import { ${factory}, registerProvider } from ${quoteSource(from)};\n`,
-    `/** Registers the provider \`${provider.id}\`. Call it before any agent whose models name it. */\nexport function ${name}(): void {\n${
-      registrationCall(provider, factory, 1)
-    }}\n`,
+    `/** Registers the provider \`${provider.id}\`. Call it before any agent whose models name it. */\nexport function ${name}(): void {\n${registrationCall(
+      provider,
+      factory,
+      1,
+    )}}\n`,
   ].join('\n');
 }
 
@@ -251,7 +266,9 @@ function providerRegistrations(
   }
   return {
     imports: [...imports],
-    own: [...own].map(([from, names]) => `import { ${names.join(', ')} } from ${quoteSource(from)};`),
+    own: [...own].map(
+      ([from, names]) => `import { ${names.join(', ')} } from ${quoteSource(from)};`,
+    ),
     code,
   };
 }
@@ -314,10 +331,12 @@ export function importSpecifier(path: string): string {
  * modules it writes import beside one, which the identifier would hide.
  */
 const UNNAMEABLE = new Set([
-  ...'arguments await break case catch class const continue debugger default delete do else enum eval export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof undefined var void while with yield'
-    .split(' '),
-  ...'compileDetect DecisionQuestion defineProfile defineProvider registerProfile registerProvider registerProviders registerStructured registerTool registerToolLibrary z'
-    .split(' '),
+  ...'arguments await break case catch class const continue debugger default delete do else enum eval export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof undefined var void while with yield'.split(
+    ' ',
+  ),
+  ...'compileDetect DecisionQuestion defineProfile defineProvider registerProfile registerProvider registerProviders registerStructured registerTool registerToolLibrary z'.split(
+    ' ',
+  ),
   ...kernelDefinitions().flatMap((definition) => definitionFactory(definition) ?? []),
 ]);
 
@@ -346,7 +365,9 @@ export function agentModule(
 ): string {
   const { profile, structured, questions } = compiled;
   const imports = [...(questions ? ['type DecisionQuestion'] : []), 'defineProfile'];
-  const defined = profileSource(withoutStudioFills(checks ? withItemChecks(profile, checks) : profile));
+  const defined = profileSource(
+    withoutStudioFills(checks ? withItemChecks(profile, checks) : profile),
+  );
   const blocks = [
     `import { ${imports.join(', ')} } from ${quoteSource(from)};\n${
       defined.compiles ? `${COMPILE_IMPORT}\n` : ''
@@ -382,22 +403,27 @@ export function toolModule(
   from: { agents: string; zod: string },
 ): string {
   const zod = tool.type === 'agent' ? undefined : from.zod;
-  const imports = zod === from.agents
-    ? `import { registerTool, z } from ${quoteSource(from.agents)};\n`
-    : `${zod ? `import { z } from ${quoteSource(zod)};\n` : ''}import { registerTool } from ${
-      quoteSource(from.agents)
-    };\n`;
-  const order = tool.type === 'agent'
-    ? 'Call it after the agent it runs is registered, and before any agent that allows it.'
-    : 'Call it before any agent that allows it is registered.';
+  const imports =
+    zod === from.agents
+      ? `import { registerTool, z } from ${quoteSource(from.agents)};\n`
+      : `${zod ? `import { z } from ${quoteSource(zod)};\n` : ''}import { registerTool } from ${quoteSource(
+          from.agents,
+        )};\n`;
+  const order =
+    tool.type === 'agent'
+      ? 'Call it after the agent it runs is registered, and before any agent that allows it.'
+      : 'Call it before any agent that allows it is registered.';
   // A function tool made in the studio answers with its sample until its handler is written.
   const stands = tool.type === 'function' && tool.answeredBy !== 'page';
-  const note = stands ? `${order}\n * Its handler returns the studio's sample answer: write the real one here.` : order;
+  const note = stands
+    ? `${order}\n * Its handler returns the studio's sample answer: write the real one here.`
+    : order;
   return [
     imports,
-    `/**${stands ? '\n *' : ''} Registers \`${tool.name}\`. ${note}${stands ? '\n' : ''} */\nexport function ${register}(): void {\n${
-      toolSource(tool, 1)
-    }}\n`,
+    `/**${stands ? '\n *' : ''} Registers \`${tool.name}\`. ${note}${stands ? '\n' : ''} */\nexport function ${register}(): void {\n${toolSource(
+      tool,
+      1,
+    )}}\n`,
   ].join('\n');
 }
 
@@ -427,7 +453,9 @@ export function workspaceSource(compiled: CompiledWorkspace, project?: ProjectCo
     'registerStructured',
     'registerTool',
     'registerToolLibrary',
-    ...(project?.providers ?? []).flatMap((place) => (place.name === undefined ? [] : [place.name])),
+    ...(project?.providers ?? []).flatMap((place) =>
+      place.name === undefined ? [] : [place.name],
+    ),
   ]);
   const agents = compiled.agents.map((agent) => ({
     agent,
@@ -475,7 +503,10 @@ export function workspaceSource(compiled: CompiledWorkspace, project?: ProjectCo
       ...(library.size ? [`import { registerToolLibrary } from './tools';`] : []),
       ...agents.map(({ path, name }) => `import * as ${name} from '${importSpecifier(path)}';`),
       ...(providers.own.length
-        ? ["// The project's own providers, each by its path from the project's folder.", ...providers.own]
+        ? [
+            "// The project's own providers, each by its path from the project's folder.",
+            ...providers.own,
+          ]
         : []),
       '',
     ].join('\n'),

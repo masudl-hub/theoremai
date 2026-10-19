@@ -8,8 +8,7 @@ const SECTION_NOTES = {
   'models.decision': 'A decision uses one model. Select its binding in the tree to configure it.',
   decisionModel: 'This binding answers the questions configured under Decision.',
   slots: "Each slot's picker sets what the preview sends. It is not saved in the profile.",
-  context:
-    'Preview is what the studio sends as the page. It is not saved in the profile.',
+  context: 'Preview is what the studio sends as the page. It is not saved in the profile.',
   compaction: "The studio's chat compacts only before a turn.",
   quota: 'Studio runs are not counted.',
   'detect.mixed': 'Actions differ by boundary.',
@@ -25,8 +24,10 @@ const SECTION_NOTES = {
   'tool.test.mcp': 'Asks the server which tools it has.',
   'tool.host': 'What a call runs, and what the console says it does.',
   'tool.headers': 'Headers are saved in the profile, so keep secrets under Auth.',
-  'tool.auth': 'The studio stores no credential: at a sign-in gate you type one for that call only.',
-  'decision.state': "The JSON every question is asked about. It's filled in the preview, not saved.",
+  'tool.auth':
+    'The studio stores no credential: at a sign-in gate you type one for that call only.',
+  'decision.state':
+    "The JSON every question is asked about. It's filled in the preview, not saved.",
   'decision.questions': 'Asked together in one call, answered in this order.',
   connection: 'Kept in this tab. Sent directly to the provider.',
 } as const;

@@ -2,7 +2,9 @@ import { assertEquals } from '@std/assert';
 import { PREF_DEFAULTS, type PrefStorage, readPref, writePref } from '../ui/lib/studio-prefs.ts';
 
 /** A browser's storage, as far as preferences use it. */
-function storage(held: Record<string, string> = {}): PrefStorage & { held: Record<string, string> } {
+function storage(
+  held: Record<string, string> = {},
+): PrefStorage & { held: Record<string, string> } {
   return {
     held,
     getItem: (key) => held[key] ?? null,
@@ -25,7 +27,12 @@ Deno.test('a preference the builder never set, or a browser that keeps nothing, 
   });
   for (const from of [storage(), null]) {
     assertEquals(
-      [readPref(from, 'editor'), readPref(from, 'watch'), readPref(from, 'askShared'), readPref(from, 'askWrites')],
+      [
+        readPref(from, 'editor'),
+        readPref(from, 'watch'),
+        readPref(from, 'askShared'),
+        readPref(from, 'askWrites'),
+      ],
       ['', 'on', 'always', 'always'],
     );
   }

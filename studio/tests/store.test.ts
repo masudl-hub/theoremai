@@ -168,14 +168,18 @@ Deno.test('headers that are not a JSON object yet are not kept; the headers as t
   const started = '{"Accept":"application/json","X-Api-Key":"s3cr3t"}';
   const workspace = workspaceFromDraft({
     ...example,
-    toolSpecs: example.toolSpecs.map((tool, index) => (index === 0 ? { ...tool, headersJson: started } : tool)),
+    toolSpecs: example.toolSpecs.map((tool, index) =>
+      index === 0 ? { ...tool, headersJson: started } : tool,
+    ),
   });
   const [tool] = workspace.toolSpecs;
   assert(tool);
   const typing = '{"Accept":"application/json","X-Keyboard":"s3cr3';
   const kept = keptWorkspace({
     ...workspace,
-    toolSpecs: workspace.toolSpecs.map((each) => (each.key === tool.key ? { ...each, headersJson: typing } : each)),
+    toolSpecs: workspace.toolSpecs.map((each) =>
+      each.key === tool.key ? { ...each, headersJson: typing } : each,
+    ),
   });
   const shown = '{"Accept":"application/json","X-Api-Key":"••••"}';
   assertEquals(kept.toolSpecs[0]?.headersJson, shown);

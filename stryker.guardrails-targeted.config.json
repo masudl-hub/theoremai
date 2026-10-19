@@ -4,9 +4,7 @@
   "commandRunner": {
     "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys tests/guardrails/ tests/cli/fuzz-guardrails.test.ts"
   },
-  "mutate": [
-    "src/guardrails/injection.ts"
-  ],
+  "mutate": ["src/guardrails/injection.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -18,18 +16,13 @@
     "cov_profile",
     ".fallow"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": false,
   "timeoutMS": 60000,
   "concurrency": 1,
   "ignoreStatic": false,
   "mutator": {
-    "excludedMutations": [
-      "StringLiteral"
-    ]
+    "excludedMutations": ["StringLiteral"]
   }
 }

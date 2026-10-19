@@ -16,7 +16,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Whether the studio holds `theirs` at `path` only because the project left it out: its policy fills it in. */
 function isPolicyFill(path: readonly string[], ours: unknown, theirs: unknown): boolean {
-  return ours === undefined && theirs !== undefined && STUDIO_POLICY_UNSET[path.join('.')] === theirs;
+  return (
+    ours === undefined && theirs !== undefined && STUDIO_POLICY_UNSET[path.join('.')] === theirs
+  );
 }
 
 /** `held` without the table the kernel works out from its patterns. */
@@ -31,11 +33,17 @@ function detectAsRead(detect: unknown): unknown {
   const { sources = {}, host = [], ...read } = resolveDetect(detect as DetectSpec);
   const allow = Object.entries(resolveAllow(detect as DetectSpec)).map(([detector, held]) => [
     detector,
-    { ...held, fromTools: held.fromTools ?? unsetValue(['guardrails', 'detect', detector, 'allow', 'fromTools']) },
+    {
+      ...held,
+      fromTools:
+        held.fromTools ?? unsetValue(['guardrails', 'detect', detector, 'allow', 'fromTools']),
+    },
   ]);
   return {
     ...read,
-    sources: Object.fromEntries(Object.entries(sources).map(([detector, source]) => [detector, uncompiled(source)])),
+    sources: Object.fromEntries(
+      Object.entries(sources).map(([detector, source]) => [detector, uncompiled(source)]),
+    ),
     host: Object.fromEntries(host.map(({ id, ...rule }) => [id, uncompiled(rule)])),
     allow: Object.fromEntries(allow),
   };
@@ -43,8 +51,16 @@ function detectAsRead(detect: unknown): unknown {
 
 /** A profile with its `detect` as the kernel reads it. */
 function asRead(profile: unknown): unknown {
-  if (!isRecord(profile) || !isRecord(profile.guardrails) || profile.guardrails.detect === undefined) return profile;
-  return { ...profile, guardrails: { ...profile.guardrails, detect: detectAsRead(profile.guardrails.detect) } };
+  if (
+    !isRecord(profile) ||
+    !isRecord(profile.guardrails) ||
+    profile.guardrails.detect === undefined
+  )
+    return profile;
+  return {
+    ...profile,
+    guardrails: { ...profile.guardrails, detect: detectAsRead(profile.guardrails.detect) },
+  };
 }
 
 /**
@@ -65,7 +81,8 @@ export function differingSettings(project: unknown, studio: unknown): string[] {
       found.push(path.join('.'));
       return;
     }
-    for (const key of new Set([...Object.keys(mine), ...Object.keys(yours)])) walk(mine[key], yours[key], [...path, key]);
+    for (const key of new Set([...Object.keys(mine), ...Object.keys(yours)]))
+      walk(mine[key], yours[key], [...path, key]);
   };
   walk(asRead(project), asRead(studio), []);
   return found;

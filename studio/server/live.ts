@@ -15,13 +15,13 @@ import {
   TheoremError,
   type TraceSink,
 } from '@theoremjs/agents';
+import { clientError } from '@theoremjs/agents/host';
 import {
   createMemorySessionStore,
   createTheoremSessionBoundary,
   parseLiveOpenMessage,
   type TheoremSessionBoundary,
 } from '@theoremjs/react/server';
-import { clientError } from '@theoremjs/agents/host';
 import { attachStudioLiveSession } from '../live-session-bridge.ts';
 import { STUDIO_READER } from '../reader.ts';
 import type { StudioTraceLine } from '../traces.ts';
@@ -70,12 +70,21 @@ function openMessage(socket: WebSocket) {
 }
 
 /** Runs the call until either side ends it. A failure to open reaches the page worded, with its kind. */
-async function relay(socket: WebSocket, profile: Profile, provider: ProviderHostOptions, boundary: TheoremSessionBoundary): Promise<void> {
+async function relay(
+  socket: WebSocket,
+  profile: Profile,
+  provider: ProviderHostOptions,
+  boundary: TheoremSessionBoundary,
+): Promise<void> {
   let session: LiveSession;
   try {
     // Listen before anything waits: the page sends its open message as the socket opens.
     const open = await openMessage(socket);
-    session = await runSession({ ...await boundary.prepareLiveOpen(open), profile: profile.id }, { ...provider, execution: boundary.toolExecution, pageExecution: boundary.pageExecution }, pageSink(socket, profile));
+    session = await runSession(
+      { ...(await boundary.prepareLiveOpen(open)), profile: profile.id },
+      { ...provider, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
+      pageSink(socket, profile),
+    );
   } catch (error) {
     if (socket.readyState !== WebSocket.OPEN) return;
     socket.send(
@@ -89,14 +98,22 @@ async function relay(socket: WebSocket, profile: Profile, provider: ProviderHost
     await session.close('client disconnected');
     return;
   }
-  await attachStudioLiveSession(socket, session, profile.id, crypto.randomUUID(), NO_ROUTE, profile.labels, {
-    clientEvents: STUDIO_READER,
-    pageResult: boundary.answerPageResult,
-    beforeEvent: async (event) => {
-      if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
-        await boundary.recordCheckpoint(event.providerState);
+  await attachStudioLiveSession(
+    socket,
+    session,
+    profile.id,
+    crypto.randomUUID(),
+    NO_ROUTE,
+    profile.labels,
+    {
+      clientEvents: STUDIO_READER,
+      pageResult: boundary.answerPageResult,
+      beforeEvent: async (event) => {
+        if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState)
+          await boundary.recordCheckpoint(event.providerState);
+      },
     },
-  });
+  );
 }
 
 /** Serves a live profile: a socket upgrade starts a call, and anything else is told to upgrade. */

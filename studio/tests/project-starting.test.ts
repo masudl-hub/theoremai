@@ -25,7 +25,8 @@ Deno.test('a server that answers at once is opened without waiting', async () =>
 Deno.test('a server still starting is asked again until it answers', async () => {
   const time = clock();
   let asked = 0;
-  const open = () => (++asked < 4 ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve('project'));
+  const open = () =>
+    ++asked < 4 ? Promise.reject(new TypeError('Failed to fetch')) : Promise.resolve('project');
   assertEquals(await onceAnswering(open, time), 'project');
   assertEquals(asked, 4);
 });
@@ -33,12 +34,23 @@ Deno.test('a server still starting is asked again until it answers', async () =>
 Deno.test('a server that answers badly is not asked again', async () => {
   const time = clock();
   let asked = 0;
-  await assertRejects(() => onceAnswering(() => (asked++, Promise.reject(new Error('answered 500'))), time), Error, '500');
+  await assertRejects(
+    () =>
+      onceAnswering(() => {
+        asked++;
+        return Promise.reject(new Error('answered 500'));
+      }, time),
+    Error,
+    '500',
+  );
   assertEquals(asked, 1);
 });
 
 Deno.test('the page stops asking when no server has started in time', async () => {
   const time = clock();
-  await assertRejects(() => onceAnswering(() => Promise.reject(new TypeError('Failed to fetch')), time), TypeError);
+  await assertRejects(
+    () => onceAnswering(() => Promise.reject(new TypeError('Failed to fetch')), time),
+    TypeError,
+  );
   assertEquals(time.now(), 10_000);
 });

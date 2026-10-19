@@ -1,4 +1,6 @@
 import { assertEquals } from '@std/assert';
+import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
   compileStudio,
   createExampleDraft,
@@ -6,8 +8,6 @@ import {
   setProfileType,
 } from '../mod.ts';
 import { pageInputsOf, sentPageValues } from '../ui/lib/studio-page.ts';
-import { ON_OWN_KEYS } from '../lent-keys.ts';
-import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
 
 function payloadOf(draft: ReturnType<typeof createExampleDraft>): StudioRunPayload {
   const compiled = compileStudio(draft, ON_OWN_KEYS);

@@ -1,5 +1,7 @@
 import { assert, assertEquals, assertMatch, assertNotMatch } from '@std/assert';
 import ts from 'typescript';
+import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
+import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
   addAgent,
   agentDraft,
@@ -14,11 +16,9 @@ import {
   withAgentDraft,
   workspaceFromDraft,
 } from '../mod.ts';
+import { definitionFactory } from '../providers.ts';
 import { exportFiles, exportText, llmBrief } from '../ui/lib/export-agent.ts';
 import { zipFiles } from '../ui/lib/zip.ts';
-import { ON_OWN_KEYS } from '../lent-keys.ts';
-import { definitionFactory } from '../providers.ts';
-import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
 
 /** The concierge, calling a helper through an agent tool. */
 function conciergeAndHelper(): StudioWorkspace {
@@ -106,7 +106,9 @@ Deno.test('an embedding exports an embedding route and its inputs-and-vectors co
       type: 'embedding' as const,
       identity: { handle: 'Docs embeddings' },
       inputs: { text: true },
-      models: { gemma: { protocol: 'ollamaEmbedding', provider: 'local', apiId: 'embeddinggemma' } },
+      models: {
+        gemma: { protocol: 'ollamaEmbedding', provider: 'local', apiId: 'embeddinggemma' },
+      },
     },
   };
   const only = { ...workspace, agents: [embedder] };
@@ -188,7 +190,9 @@ Deno.test('on a project, an export imports the providers its files export and na
   const workspace = compiled(conciergeAndHelper());
   const [id] = new Set(
     workspace.agents.flatMap((each) =>
-      each.profile.type === 'host' ? [] : Object.values(each.profile.models).map((model) => model.provider)
+      each.profile.type === 'host'
+        ? []
+        : Object.values(each.profile.models).map((model) => model.provider),
     ),
   );
   assert(id);
@@ -197,8 +201,9 @@ Deno.test('on a project, an export imports the providers its files export and na
   const written = `registerProvider(${factory}, {\n  id: '${id}'`;
   const place = { id, name: 'houseProvider', file: 'server/providers.ts', line: 12 };
   const setup = (project: Parameters<typeof exportFiles>[2]) => {
-    const file = exportFiles(workspace, agent(workspace, 'travel.concierge'), project)
-      .find((each) => each.path === 'theorem.ts');
+    const file = exportFiles(workspace, agent(workspace, 'travel.concierge'), project).find(
+      (each) => each.path === 'theorem.ts',
+    );
     assert(file);
     return file.code;
   };
@@ -207,7 +212,10 @@ Deno.test('on a project, an export imports the providers its files export and na
   assertMatch(imported, /registerProvider\(houseProvider\);/);
   assert(!imported.includes(written));
   const named = setup({ providers: [place], origins: {} });
-  assertMatch(named, /\/\/ Register the provider '[^']+' here, before the agents: server\/providers\.ts:12 defines it/);
+  assertMatch(
+    named,
+    /\/\/ Register the provider '[^']+' here, before the agents: server\/providers\.ts:12 defines it/,
+  );
   assertNotMatch(named, /houseProvider/);
   // A provider the builder changed has no place: the code writes it as the studio holds it.
   assert(setup({ providers: [], origins: {} }).includes(written));
@@ -237,8 +245,9 @@ Deno.test('an export writes the check of an item rule as the files write it, and
     }),
   );
   const module = (project: Parameters<typeof exportFiles>[2]) => {
-    const file = exportFiles(workspace, agent(workspace, 'travel.concierge'), project)
-      .find((each) => each.path === 'agents/travel.concierge.ts');
+    const file = exportFiles(workspace, agent(workspace, 'travel.concierge'), project).find(
+      (each) => each.path === 'agents/travel.concierge.ts',
+    );
     assert(file);
     return file.code;
   };
@@ -253,5 +262,8 @@ Deno.test('an export writes the check of an item rule as the files write it, and
     module({ providers: [], origins: { 'travel.concierge': [origin] } }),
     /check: checkStop \/\* server\/concierge\.ts:40 \*\/,\n\s+onFail: 'fix',/,
   );
-  assertMatch(module(undefined), /check: undefined \/\* The check of each item of 'stops' is your own code: name it here\. \*\//);
+  assertMatch(
+    module(undefined),
+    /check: undefined \/\* The check of each item of 'stops' is your own code: name it here\. \*\//,
+  );
 });

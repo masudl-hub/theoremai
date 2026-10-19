@@ -6,13 +6,13 @@
  * @module
  */
 
-import ts from 'typescript';
-import { z } from 'zod';
 import { slowPatternProblem } from '@theoremjs/agents/guardrails/compile';
 import { jsonSchemaFromZod } from '@theoremjs/agents/kernel';
+import ts from 'typescript';
+import { z } from 'zod';
+import { canonical } from '../canonical.ts';
 import { type SourceStyle, valueSource } from '../source.ts';
 import { keySource, quoteSource } from '../tool-schema.ts';
-import { canonical } from '../canonical.ts';
 import {
   type Env,
   followed,
@@ -54,7 +54,8 @@ function zodNames(source: ts.SourceFile): Set<string> {
   if (known) return known;
   const names = new Set<string>();
   for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier))
+      continue;
     if (!/^(npm:)?zod(@[^/]*)?(\/.*)?$/.test(statement.moduleSpecifier.text)) continue;
     const clause = statement.importClause;
     if (clause?.name) names.add(clause.name.text);
@@ -92,7 +93,11 @@ export function readZod(project: ProjectSource, at: Located): ZodRead | undefine
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const owner = unwrapped(node.expression.expression);
       const call = { name: node.expression.name.text, call: node, source, ...(env ? { env } : {}) };
-      if (ts.isIdentifier(owner) && zodNames(source).has(owner.text) && !env?.bound.has(owner.text)) {
+      if (
+        ts.isIdentifier(owner) &&
+        zodNames(source).has(owner.text) &&
+        !env?.bound.has(owner.text)
+      ) {
         return { base: call, chain, named };
       }
       chain.push(call);
@@ -159,7 +164,10 @@ export function methodCall(read: ZodRead, name: string): ZodCall | undefined {
 
 /** The text of a method call with its dot, from the end of what it is called on. */
 export function methodSpan(call: ZodCall): { start: number; end: number } {
-  return { start: (call.call.expression as ts.PropertyAccessExpression).expression.end, end: call.call.end };
+  return {
+    start: (call.call.expression as ts.PropertyAccessExpression).expression.end,
+    end: call.call.end,
+  };
 }
 
 const OBJECTS = new Set(['object', 'strictObject', 'looseObject']);
@@ -186,7 +194,10 @@ export function zodObject(project: ProjectSource, read: ZodRead): ZodObject | un
   for (const { call, source, env } of calls) {
     const [fields] = call.arguments;
     if (!fields || ts.isSpreadElement(fields) || call.arguments.length !== 1) return undefined;
-    const shape = shapeOf(project, followed(project, { node: fields, source, ...(env ? { env } : {}) }));
+    const shape = shapeOf(
+      project,
+      followed(project, { node: fields, source, ...(env ? { env } : {}) }),
+    );
     if (!shape?.own || shape.open) return undefined;
     for (const entry of shape.entries.values()) {
       entries.delete(entry.key);
@@ -253,7 +264,10 @@ export function isWrittenOut(project: ProjectSource, at: Located): boolean {
   if (read.chain.some((call) => !WRITTEN_METHODS.has(call.name))) return false;
   const { source, env } = read.base;
   const parts = partsWritten(read.base);
-  return parts !== undefined && parts.every((node) => isWrittenOut(project, { node, source, ...(env ? { env } : {}) }));
+  return (
+    parts?.every((node) => isWrittenOut(project, { node, source, ...(env ? { env } : {}) })) ??
+    false
+  );
 }
 
 /** The schemas a `z.` call holds, when it lists each one. */
@@ -267,7 +281,8 @@ function partsWritten(base: ZodCall): ts.Expression[] | undefined {
       if (!fields) return undefined;
       parts.push(...fields);
     } else if (base.name === 'union') {
-      if (!ts.isArrayLiteralExpression(node) || node.elements.some(ts.isSpreadElement)) return undefined;
+      if (!ts.isArrayLiteralExpression(node) || node.elements.some(ts.isSpreadElement))
+        return undefined;
       parts.push(...node.elements);
     } else if (base.name === 'array' || base.name === 'record') parts.push(node);
   }
@@ -279,7 +294,8 @@ function fieldsWritten(node: ts.Expression): ts.Expression[] | undefined {
   if (!ts.isObjectLiteralExpression(node)) return undefined;
   const fields: ts.Expression[] = [];
   for (const property of node.properties) {
-    if (!ts.isPropertyAssignment(property) || propertyName(property) === undefined) return undefined;
+    if (!ts.isPropertyAssignment(property) || propertyName(property) === undefined)
+      return undefined;
     fields.push(property.initializer);
   }
   return fields;
@@ -287,7 +303,8 @@ function fieldsWritten(node: ts.Expression): ts.Expression[] | undefined {
 
 type Json = Record<string, unknown>;
 
-const isRecord = (value: unknown): value is Json => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isRecord = (value: unknown): value is Json =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** A schema being written: its Zod as text, and the same Zod live, to check what it reads as. */
 interface Draft {
@@ -325,7 +342,10 @@ class Writer {
     if (!draft) return undefined;
     if (description !== undefined) {
       if (typeof description !== 'string') return undefined;
-      draft = { text: `${draft.text}.describe(${this.quote(description)})`, live: draft.live.describe(description) };
+      draft = {
+        text: `${draft.text}.describe(${this.quote(description)})`,
+        live: draft.live.describe(description),
+      };
     }
     if ('default' in schema) {
       let written: string;
@@ -341,9 +361,11 @@ class Writer {
 
   private kind(schema: Json, depth: number): Draft | undefined {
     const { type } = schema;
-    if (Object.keys(schema).length === 0) return { text: `${this.name}.unknown()`, live: z.unknown() };
+    if (Object.keys(schema).length === 0)
+      return { text: `${this.name}.unknown()`, live: z.unknown() };
     if (Array.isArray(type)) return this.kinds(schema, type, depth);
-    if (Array.isArray(schema.anyOf)) return this.only(schema, ['anyOf']) ? this.union(schema.anyOf, depth) : undefined;
+    if (Array.isArray(schema.anyOf))
+      return this.only(schema, ['anyOf']) ? this.union(schema.anyOf, depth) : undefined;
     if ('const' in schema) return this.literal(schema);
     if (Array.isArray(schema.enum)) return this.choice(schema, schema.enum);
     return this.typed(schema, depth);
@@ -353,26 +375,39 @@ class Writer {
   private kinds(schema: Json, type: readonly unknown[], depth: number): Draft | undefined {
     const kinds = type.filter((each) => each !== 'null');
     const [one] = kinds;
-    const held = kinds.length === 1 && one
-      ? this.kind({ ...schema, type: one }, depth)
-      : this.only(schema, ['type'])
-      ? this.union(kinds.map((each) => ({ type: each })), depth)
-      : undefined;
+    const held =
+      kinds.length === 1 && one
+        ? this.kind({ ...schema, type: one }, depth)
+        : this.only(schema, ['type'])
+          ? this.union(
+              kinds.map((each) => ({ type: each })),
+              depth,
+            )
+          : undefined;
     if (!held || kinds.length === type.length) return held;
     return { text: `${held.text}.nullable()`, live: held.live.nullable() };
   }
 
   private literal(schema: Json): Draft | undefined {
     const { const: value } = schema;
-    const plain = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+    const plain =
+      typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
     if (!plain || !this.only(schema, ['type', 'const'])) return undefined;
-    return { text: `${this.name}.literal(${valueSource(value, this.style)})`, live: z.literal(value) };
+    return {
+      text: `${this.name}.literal(${valueSource(value, this.style)})`,
+      live: z.literal(value),
+    };
   }
 
   private choice(schema: Json, among: readonly unknown[]): Draft | undefined {
     const values = among.filter((each): each is string => typeof each === 'string');
     const [first, ...others] = values;
-    if (first === undefined || values.length !== among.length || !this.only(schema, ['type', 'enum'])) return undefined;
+    if (
+      first === undefined ||
+      values.length !== among.length ||
+      !this.only(schema, ['type', 'enum'])
+    )
+      return undefined;
     const items = values.map((each) => this.quote(each)).join(', ');
     return { text: `${this.name}.enum([${items}])`, live: z.enum([first, ...others]) };
   }
@@ -383,8 +418,10 @@ class Writer {
     const { type } = schema;
     if (type === 'string') return this.text(schema);
     if (type === 'number' || type === 'integer') return this.number(schema);
-    if (type === 'boolean' && this.only(schema, ['type'])) return { text: `${n}.boolean()`, live: z.boolean() };
-    if (type === 'null' && this.only(schema, ['type'])) return { text: `${n}.null()`, live: z.null() };
+    if (type === 'boolean' && this.only(schema, ['type']))
+      return { text: `${n}.boolean()`, live: z.boolean() };
+    if (type === 'null' && this.only(schema, ['type']))
+      return { text: `${n}.null()`, live: z.null() };
     if (type === 'array') return this.list(schema, depth);
     if (type === 'object') return this.object(schema, depth);
     return undefined;
@@ -406,15 +443,18 @@ class Writer {
   private text(schema: Json): Draft | undefined {
     const n = this.name;
     const { minLength, maxLength, pattern, format } = schema;
-    if (!this.only(schema, ['type', 'minLength', 'maxLength', 'pattern', 'format'])) return undefined;
+    if (!this.only(schema, ['type', 'minLength', 'maxLength', 'pattern', 'format']))
+      return undefined;
     let draft: { text: string; live: z.ZodString | z.ZodEmail | z.ZodURL | z.ZodUUID };
     if (format === undefined) draft = { text: `${n}.string()`, live: z.string() };
     else if (format === 'email') draft = { text: `${n}.email()`, live: z.email() };
     else if (format === 'uri') draft = { text: `${n}.url()`, live: z.url() };
     else if (format === 'uuid') draft = { text: `${n}.uuid()`, live: z.uuid() };
     else return undefined;
-    if (typeof minLength === 'number') draft = { text: `${draft.text}.min(${String(minLength)})`, live: draft.live.min(minLength) };
-    if (typeof maxLength === 'number') draft = { text: `${draft.text}.max(${String(maxLength)})`, live: draft.live.max(maxLength) };
+    if (typeof minLength === 'number')
+      draft = { text: `${draft.text}.min(${String(minLength)})`, live: draft.live.min(minLength) };
+    if (typeof maxLength === 'number')
+      draft = { text: `${draft.text}.max(${String(maxLength)})`, live: draft.live.max(maxLength) };
     // A format brings its own pattern: the check below says whether this one is it.
     if (typeof pattern === 'string' && format === undefined) {
       // invariant: A pattern that could hang on what it reads never becomes a live check; the schema stays as it was written.
@@ -425,17 +465,34 @@ class Writer {
       } catch {
         return undefined;
       }
-      draft = { text: `${draft.text}.regex(new RegExp(${this.quote(pattern)}))`, live: draft.live.regex(held) };
+      draft = {
+        text: `${draft.text}.regex(new RegExp(${this.quote(pattern)}))`,
+        live: draft.live.regex(held),
+      };
     }
     return draft;
   }
 
   private number(schema: Json): Draft | undefined {
     const n = this.name;
-    if (!this.only(schema, ['type', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf'])) return undefined;
+    if (
+      !this.only(schema, [
+        'type',
+        'minimum',
+        'maximum',
+        'exclusiveMinimum',
+        'exclusiveMaximum',
+        'multipleOf',
+      ])
+    )
+      return undefined;
     const whole = schema.type === 'integer';
-    let draft: { text: string; live: z.ZodNumber } = whole ? { text: `${n}.int()`, live: z.int() } : { text: `${n}.number()`, live: z.number() };
-    const limits: Array<[key: string, method: 'min' | 'max' | 'gt' | 'lt' | 'multipleOf', given?: number]> = [
+    let draft: { text: string; live: z.ZodNumber } = whole
+      ? { text: `${n}.int()`, live: z.int() }
+      : { text: `${n}.number()`, live: z.number() };
+    const limits: Array<
+      [key: string, method: 'min' | 'max' | 'gt' | 'lt' | 'multipleOf', given?: number]
+    > = [
       ['minimum', 'min', whole ? -SAFE_INTEGER : undefined],
       ['maximum', 'max', whole ? SAFE_INTEGER : undefined],
       ['exclusiveMinimum', 'gt'],
@@ -446,7 +503,10 @@ class Writer {
       const value = schema[key];
       if (value === undefined || value === given) continue;
       if (typeof value !== 'number') return undefined;
-      draft = { text: `${draft.text}.${method}(${String(value)})`, live: draft.live[method](value) };
+      draft = {
+        text: `${draft.text}.${method}(${String(value)})`,
+        live: draft.live[method](value),
+      };
     }
     return draft;
   }
@@ -457,29 +517,51 @@ class Writer {
     if (!items) return undefined;
     let draft = { text: `${this.name}.array(${items.text})`, live: z.array(items.live) };
     const { minItems, maxItems } = schema;
-    if (typeof minItems === 'number') draft = { text: `${draft.text}.min(${String(minItems)})`, live: draft.live.min(minItems) };
-    if (typeof maxItems === 'number') draft = { text: `${draft.text}.max(${String(maxItems)})`, live: draft.live.max(maxItems) };
+    if (typeof minItems === 'number')
+      draft = { text: `${draft.text}.min(${String(minItems)})`, live: draft.live.min(minItems) };
+    if (typeof maxItems === 'number')
+      draft = { text: `${draft.text}.max(${String(maxItems)})`, live: draft.live.max(maxItems) };
     return draft;
   }
 
   private object(schema: Json, depth: number): Draft | undefined {
     const n = this.name;
-    if (!this.only(schema, ['type', 'properties', 'required', 'additionalProperties', 'propertyNames'])) return undefined;
+    if (
+      !this.only(schema, [
+        'type',
+        'properties',
+        'required',
+        'additionalProperties',
+        'propertyNames',
+      ])
+    )
+      return undefined;
     const { properties = {}, required = [], additionalProperties: more, propertyNames } = schema;
     if (!isRecord(properties) || !Array.isArray(required)) return undefined;
     const fields = Object.entries(properties);
     if (isRecord(more) && Object.keys(more).length > 0) {
       // Any key, each with one kind of value.
-      const values = fields.length === 0 && canonical(propertyNames ?? { type: 'string' }) === canonical({ type: 'string' })
-        ? this.schema(more, depth)
-        : undefined;
-      return values && { text: `${n}.record(${n}.string(), ${values.text})`, live: z.record(z.string(), values.live) };
+      const values =
+        fields.length === 0 &&
+        canonical(propertyNames ?? { type: 'string' }) === canonical({ type: 'string' })
+          ? this.schema(more, depth)
+          : undefined;
+      return (
+        values && {
+          text: `${n}.record(${n}.string(), ${values.text})`,
+          live: z.record(z.string(), values.live),
+        }
+      );
     }
     if (propertyNames !== undefined) return undefined;
     const open = more === true || isRecord(more);
     if (!open && more !== undefined && more !== false) return undefined;
     // The kernel reads an object a tool returns as closed, so there a plain one says so.
-    const kind = open ? 'looseObject' : more === false && this.side === 'input' ? 'strictObject' : 'object';
+    const kind = open
+      ? 'looseObject'
+      : more === false && this.side === 'input'
+        ? 'strictObject'
+        : 'object';
     const shape: Record<string, z.ZodType> = {};
     const lines: string[] = [];
     const [pad, close] = this.pads(depth);
@@ -489,7 +571,9 @@ class Writer {
       shape[key] = field.live;
       lines.push(`${pad}${keySource(key)}: ${field.text},`);
     }
-    const text = lines.length ? `${n}.${kind}({\n${lines.join('\n')}\n${close}})` : `${n}.${kind}({})`;
+    const text = lines.length
+      ? `${n}.${kind}({\n${lines.join('\n')}\n${close}})`
+      : `${n}.${kind}({})`;
     return { text, live: z[kind](shape) };
   }
 
@@ -504,7 +588,10 @@ class Writer {
 
 /** A schema as the kernel reads it once the studio has run it: Zod's reading of the JSON. */
 function asRun(schema: unknown, side: SchemaSide): unknown {
-  return jsonSchemaFromZod(z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]), side);
+  return jsonSchemaFromZod(
+    z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]),
+    side,
+  );
 }
 
 const STUDIO_STYLE: SourceStyle = { unit: '  ', base: '', template: true, quote: quoteSource };
@@ -529,7 +616,8 @@ export function zodSource(
     const left = !(Array.isArray(read.required) && read.required.includes('field'));
     if (left !== optional) return undefined;
     // The same schema, or the same once Zod has read both: `integer` gains its bounds there.
-    const held = canonical(fields.field) === canonical(schema) ||
+    const held =
+      canonical(fields.field) === canonical(schema) ||
       canonical(asRun(fields.field, side)) === canonical(asRun(schema, side));
     return held ? field.text : undefined;
   } catch {

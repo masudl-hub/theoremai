@@ -29,12 +29,17 @@ export function ndjsonEventStream(
     async start(controller) {
       try {
         for await (const event of source) {
-          const line = (event as { type?: string }).type === 'conversation' ? event : forClient(event as TurnEvent);
+          const line =
+            (event as { type?: string }).type === 'conversation'
+              ? event
+              : forClient(event as TurnEvent);
           controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`));
         }
       } catch (err) {
         controller.enqueue(
-          encoder.encode(`${JSON.stringify(forClient(withPublicLabels(toErrorEvent(err), labels)))}\n`),
+          encoder.encode(
+            `${JSON.stringify(forClient(withPublicLabels(toErrorEvent(err), labels)))}\n`,
+          ),
         );
       }
       controller.close();
@@ -55,5 +60,8 @@ export function noStoreJson(body: unknown, status = 200): Response {
  */
 export function errorJson(err: unknown, labels?: ProfileDefinition['labels']): Response {
   const traces = failedDecisionTraces(err);
-  return noStoreJson({ ...clientError(err, labels), ...(traces.length > 0 ? { traces } : {}) }, caughtStatus(err));
+  return noStoreJson(
+    { ...clientError(err, labels), ...(traces.length > 0 ? { traces } : {}) },
+    caughtStatus(err),
+  );
 }

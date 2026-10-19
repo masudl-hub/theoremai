@@ -4,6 +4,8 @@
  *
  * @module
  */
+
+export { decisionRequestSchema } from './server/draft-decide.ts';
 export {
   createStudioDraftHandler,
   type LentRuntime,
@@ -13,4 +15,3 @@ export {
   type StudioDraftHandlerOptions,
   type StudioSpend,
 } from './server/draft-handler.ts';
-export { decisionRequestSchema } from './server/draft-decide.ts';

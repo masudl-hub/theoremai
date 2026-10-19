@@ -8,18 +8,24 @@
  * @module
  */
 
-import ts from 'typescript';
 import { dirname, relative, resolve } from 'node:path';
+import ts from 'typescript';
 import type { CompiledStudio } from '../compile.ts';
 import type { StudioProvider } from '../providers.ts';
 import type { ToolRegistration } from '../registrations.ts';
-import { AGENTS_PACKAGE, agentIdentifier, agentModule, providerModule, toolModule } from '../source.ts';
+import {
+  AGENTS_PACKAGE,
+  agentIdentifier,
+  agentModule,
+  providerModule,
+  toolModule,
+} from '../source.ts';
 import { keySource } from '../tool-schema.ts';
 import {
   calleeName,
   importExtension,
-  kernelImportOf,
   isInside,
+  kernelImportOf,
   namedValue,
   type ProjectSource,
   questionsExport,
@@ -60,7 +66,9 @@ function registrations(source: ts.SourceFile): Registration[] {
   const found: Registration[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isExpressionStatement(node)) {
-      const held = ts.isAwaitExpression(node.expression) ? node.expression.expression : node.expression;
+      const held = ts.isAwaitExpression(node.expression)
+        ? node.expression.expression
+        : node.expression;
       const call = unwrapped(held);
       const name = ts.isCallExpression(call) ? calleeName(call) : undefined;
       if (ts.isCallExpression(call) && (name === 'registerProfile' || name === 'registerTool')) {
@@ -76,17 +84,27 @@ function registrations(source: ts.SourceFile): Registration[] {
 /** The file whose statements register the project's profiles: the setup, or the first file it reads that does. */
 function registeringFile(project: ProjectSource): ts.SourceFile | undefined {
   const files = [...project.files.values()];
-  return files.find((source) => registrations(source).some(({ name }) => name === 'registerProfile')) ??
-    files.find((source) => registrations(source).length > 0) ?? project.files.get(project.entry);
+  return (
+    files.find((source) => registrations(source).some(({ name }) => name === 'registerProfile')) ??
+    files.find((source) => registrations(source).length > 0) ??
+    project.files.get(project.entry)
+  );
 }
 
 /** The id of the profile a `registerProfile` statement registers, when its files write it out. */
-function registeredId(project: ProjectSource, source: ts.SourceFile, call: ts.CallExpression): string | undefined {
+function registeredId(
+  project: ProjectSource,
+  source: ts.SourceFile,
+  call: ts.CallExpression,
+): string | undefined {
   const [argument] = call.arguments;
   if (!argument) return undefined;
   const { origin } = namedValue(project, { node: argument, source });
   const defined = unwrapped(origin.node);
-  const options = ts.isCallExpression(defined) && defined.arguments[0] ? unwrapped(defined.arguments[0]) : defined;
+  const options =
+    ts.isCallExpression(defined) && defined.arguments[0]
+      ? unwrapped(defined.arguments[0])
+      : defined;
   for (const [id, targets] of project.profiles) {
     if (targets.some((target) => target.options === options)) return id;
   }
@@ -94,7 +112,10 @@ function registeredId(project: ProjectSource, source: ts.SourceFile, call: ts.Ca
 }
 
 /** Where a file imports one of the kernel's `names` from, under any name, the first of the project's files that does. */
-function importedFrom(project: ProjectSource, names: readonly string[]): { specifier: string; file: string } | undefined {
+function importedFrom(
+  project: ProjectSource,
+  names: readonly string[],
+): { specifier: string; file: string } | undefined {
   for (const [file, source] of project.files) {
     for (const name of names) {
       const found = kernelImportOf(source, name);
@@ -167,8 +188,9 @@ class Setup {
 
   /** Whether each registration is a statement of the file or of a function, where a line beside it runs once. */
   get plain(): boolean {
-    return this.found.every(({ statement: { parent } }) =>
-      ts.isSourceFile(parent) || (ts.isBlock(parent) && ts.isFunctionLike(parent.parent))
+    return this.found.every(
+      ({ statement: { parent } }) =>
+        ts.isSourceFile(parent) || (ts.isBlock(parent) && ts.isFunctionLike(parent.parent)),
     );
   }
 
@@ -201,7 +223,8 @@ class Setup {
       const unit = indentUnit(this.source);
       const entries = this.asked.map((entry) => `${unit}${entry},\n`).join('');
       const gap = text && !text.endsWith('\n') ? '\n\n' : '\n';
-      const note = '/** What each decision profile is asked, by profile id. The studio reads it. */';
+      const note =
+        '/** What each decision profile is asked, by profile id. The studio reads it. */';
       return this.insert(text.length, `${gap}${note}\nexport const questions = {\n${entries}};\n`);
     }
     const last = held.properties.at(-1);
@@ -217,8 +240,9 @@ class Setup {
 
   /** The statement that registers `profile`, when the files show which one does. */
   registers(profile: string): ts.ExpressionStatement | undefined {
-    return this.found.find(({ name, call }) =>
-      name === 'registerProfile' && registeredId(this.project, this.source, call) === profile
+    return this.found.find(
+      ({ name, call }) =>
+        name === 'registerProfile' && registeredId(this.project, this.source, call) === profile,
     )?.statement;
   }
 
@@ -246,7 +270,8 @@ class Setup {
     this.imported.set(name, local);
     const binding = local === name ? name : `${name} as ${local}`;
     for (const statement of this.source.statements) {
-      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier))
+        continue;
       const bindings = statement.importClause?.namedBindings;
       if (statement.moduleSpecifier.text !== agents || statement.importClause?.isTypeOnly) continue;
       const last = bindings && ts.isNamedImports(bindings) ? bindings.elements.at(-1) : undefined;
@@ -282,18 +307,26 @@ class Setup {
   private placeTail() {
     const end = this.found.findLast(({ name }) => name === 'registerProfile') ?? this.found.at(-1);
     if (end) return this.after(end.statement, this.tail);
-    const body = this.source.statements.find((statement): statement is ts.FunctionDeclaration =>
-      ts.isFunctionDeclaration(statement) && statement.body !== undefined &&
-      (ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Default) !== 0
+    const body = this.source.statements.find(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) &&
+        statement.body !== undefined &&
+        (ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Default) !== 0,
     )?.body;
     const within = body?.statements.at(-1);
     if (within) return this.after(within, this.tail);
     if (body) {
       const unit = indentUnit(this.source);
-      return this.insert(body.getStart(this.source) + 1, `${this.tail.map((line) => `\n${unit}${line}`).join('')}\n`);
+      return this.insert(
+        body.getStart(this.source) + 1,
+        `${this.tail.map((line) => `\n${unit}${line}`).join('')}\n`,
+      );
     }
     const { text } = this.source;
-    this.insert(text.length, `${text && !text.endsWith('\n') ? '\n' : ''}${this.tail.join('\n')}\n`);
+    this.insert(
+      text.length,
+      `${text && !text.endsWith('\n') ? '\n' : ''}${this.tail.join('\n')}\n`,
+    );
   }
 
   /** Every line placed, as edits to the setup. */
@@ -338,10 +371,16 @@ class NewPlan {
   private readonly folders: Record<SaveChange['kind'], string>;
   private readonly isNew: Set<string>;
 
-  constructor(private readonly ground: Ground, private readonly added: NewSubjects) {
+  constructor(
+    private readonly ground: Ground,
+    private readonly added: NewSubjects,
+  ) {
     const { project, source, agents } = ground;
     const folder = (targets: Map<string, { file: string }[]>) =>
-      commonFolder([...targets.values()].flat().map((target) => target.file), dirname(project.entry));
+      commonFolder(
+        [...targets.values()].flat().map((target) => target.file),
+        dirname(project.entry),
+      );
     this.taken = namesIn(source);
     this.setup = new Setup(project, source, this.taken);
     this.extension = importExtension(project, agents.specifier);
@@ -367,7 +406,8 @@ class NewPlan {
     const { entry } = this.ground.project;
     for (const id of this.added.profiles) this.refuse('profile', id, 'setup', entry);
     for (const tool of this.added.tools) this.refuse('tool', tool.name, 'setup', entry);
-    for (const provider of this.added.providers) this.refuse('provider', provider.id, 'setup', entry);
+    for (const provider of this.added.providers)
+      this.refuse('provider', provider.id, 'setup', entry);
     return this.plan;
   }
 
@@ -431,7 +471,11 @@ class NewPlan {
   }
 
   /** Where an agent tool goes when an agent the project has allows it: `first` is the earliest of those agents. */
-  private call(registration: ToolRegistration & { type: 'agent' }, first: ts.Statement, calls: Calls) {
+  private call(
+    registration: ToolRegistration & { type: 'agent' },
+    first: ts.Statement,
+    calls: Calls,
+  ) {
     const { profile } = registration;
     if (this.isNew.has(profile)) {
       // An agent the project has calls a new one: the new agent and this tool go right before it.
@@ -457,15 +501,19 @@ class NewPlan {
         continue;
       }
       const callers = this.added.agents.filter((agent) =>
-        agent.customTools.some(({ name }) => name === registration.name)
+        agent.customTools.some(({ name }) => name === registration.name),
       );
       const fresh = callers.find((agent) => this.isNew.has(agent.agentId));
-      const known = callers.filter((agent) => !this.isNew.has(agent.agentId))
+      const known = callers
+        .filter((agent) => !this.isNew.has(agent.agentId))
         .map((agent) => this.setup.registers(agent.agentId));
-      const found = known.filter((statement) => statement !== undefined).toSorted((a, b) => a.pos - b.pos);
+      const found = known
+        .filter((statement) => statement !== undefined)
+        .toSorted((a, b) => a.pos - b.pos);
       const [first] = found;
       // Only new agents allow it, and they are registered last: it goes right before the first of them.
-      if (!known.length && fresh) calls.lead.set(fresh.agentId, [...held(calls.lead, fresh.agentId), registration]);
+      if (!known.length && fresh)
+        calls.lead.set(fresh.agentId, [...held(calls.lead, fresh.agentId), registration]);
       else if (first && found.length === known.length) this.call(registration, first, calls);
       else this.nowhere(registration);
     }
@@ -475,7 +523,9 @@ class NewPlan {
   /** A new agent's file and the line that imports it. False when it cannot be written. */
   private profile(agent: CompiledStudio, name: string): boolean {
     // An item rule runs a check the builder's code holds: a file with the rule alone would not load.
-    const [list] = Object.keys(('outputs' in agent.profile && agent.profile.outputs?.validation?.items) || {});
+    const [list] = Object.keys(
+      ('outputs' in agent.profile && agent.profile.outputs?.validation?.items) || {},
+    );
     if (list !== undefined) {
       this.plan.changes.push({
         kind: 'profile',
@@ -497,7 +547,9 @@ class NewPlan {
       (file) => {
         const code = agentModule(agent, this.from(file).agents);
         // The compiled patterns come from a path of the package, which only its own name reaches.
-        return code.includes('compileDetect(') && agents.specifier !== AGENTS_PACKAGE ? undefined : code;
+        return code.includes('compileDetect(') && agents.specifier !== AGENTS_PACKAGE
+          ? undefined
+          : code;
       },
       (specifier) => `import * as ${name} from '${specifier}';`,
     );
@@ -511,9 +563,10 @@ class NewPlan {
     const before = calls.hoist.get(agent.agentId);
     const waits = held(calls.lead, agent.agentId);
     for (const registration of waits) {
-      const ran = registration.type === 'agent' && this.isNew.has(registration.profile)
-        ? this.added.agents.find((other) => other.agentId === registration.profile)
-        : undefined;
+      const ran =
+        registration.type === 'agent' && this.isNew.has(registration.profile)
+          ? this.added.agents.find((other) => other.agentId === registration.profile)
+          : undefined;
       if (ran) this.agent(ran, calls);
     }
     const name = agentIdentifier(agent.agentId, this.taken);
@@ -532,7 +585,10 @@ class NewPlan {
       lines.push(`${structured}(${name}.structured.id, ${name}.structured.spec);`);
     }
     const register = this.setup.needs('registerProfile', kernel);
-    lines.push(`${register}(${name}.profile);`, ...follows.flatMap((registration) => this.tool(registration)));
+    lines.push(
+      `${register}(${name}.profile);`,
+      ...follows.flatMap((registration) => this.tool(registration)),
+    );
     if (before) this.setup.before(before, lines);
     else for (const line of lines) this.setup.last(line);
   }
@@ -553,8 +609,13 @@ class NewPlan {
  * Plans the files and setup lines for what the studio added. `exists` says whether a path is
  * taken. A change it cannot write says why, and nothing is planned for it.
  */
-export function planNew(project: ProjectSource, added: NewSubjects, exists: (path: string) => boolean): SavePlan {
-  if (!added.profiles.length && !added.tools.length && !added.providers.length) return { changes: [], edits: [] };
+export function planNew(
+  project: ProjectSource,
+  added: NewSubjects,
+  exists: (path: string) => boolean,
+): SavePlan {
+  if (!added.profiles.length && !added.tools.length && !added.providers.length)
+    return { changes: [], edits: [] };
   const source = registeringFile(project);
   const agents = importedFrom(project, ['defineProfile', 'registerProfile', 'registerTool']);
   if (!source || !agents) {
@@ -562,7 +623,9 @@ export function planNew(project: ProjectSource, added: NewSubjects, exists: (pat
       ...added.profiles.map((of) => ({ kind: 'profile' as const, of })),
       ...added.tools.map(({ name }) => ({ kind: 'tool' as const, of: name })),
       ...added.providers.map(({ id }) => ({ kind: 'provider' as const, of: id })),
-    ].map((change): SaveChange => ({ ...change, setting: '', status: 'setup', file: project.entry }));
+    ].map(
+      (change): SaveChange => ({ ...change, setting: '', status: 'setup', file: project.entry }),
+    );
     return { changes, edits: [] };
   }
   return new NewPlan({ project, source, agents, exists }, added).build();

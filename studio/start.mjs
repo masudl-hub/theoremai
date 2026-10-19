@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process';
+import { existsSync, realpathSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 /**
  * Opens the studio on a project, with one command:
  *
@@ -26,10 +30,6 @@
  * The studio is opt-in, so this checks for its install and never installs it.
  */
 import { builtPage } from './installed.mjs';
-import { spawn } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { heldPairs, pageAddress, placeFor, serverAddress } from './ports.mjs';
 import { chooseSetup, findSetups, setupLines, setupsNamed } from './setups.mjs';
 
@@ -44,19 +44,19 @@ let noWatch = false;
 let mistaken = false;
 const args = process.argv.slice(2);
 for (let at = 0; at < args.length; at += 1) {
-	const arg = args[at];
-	if (arg === '--no-watch') noWatch = true;
-	else if (VALUED.includes(arg)) {
-		const value = args[at + 1];
-		if (!value || value.startsWith('--')) mistaken = true;
-		else given[arg] = value;
-		at += 1;
-	} else if (arg.startsWith('--') || wanted !== undefined) mistaken = true;
-	else wanted = arg;
+  const arg = args[at];
+  if (arg === '--no-watch') noWatch = true;
+  else if (VALUED.includes(arg)) {
+    const value = args[at + 1];
+    if (!value || value.startsWith('--')) mistaken = true;
+    else given[arg] = value;
+    at += 1;
+  } else if (arg.startsWith('--') || wanted !== undefined) mistaken = true;
+  else wanted = arg;
 }
 if (mistaken) {
-	console.error(USAGE);
-	process.exit(2);
+  console.error(USAGE);
+  process.exit(2);
 }
 const editor = given['--editor'];
 
@@ -66,102 +66,102 @@ const setup = await setupToOpen();
 
 /** Says why no setup opens, and stops. */
 function refuse(message) {
-	console.error(`${message}\n\n${USAGE}`);
-	process.exit(2);
+  console.error(`${message}\n\n${USAGE}`);
+  process.exit(2);
 }
 
 /** The setup this run opens: the file named, else the one found, else the one the builder picks. */
 async function setupToOpen() {
-	if (wanted !== undefined && existsSync(path.resolve(from, wanted))) return wanted;
-	const found = findSetups(from);
-	const setups = wanted === undefined ? found : setupsNamed(found, wanted);
-	if (setups.length === 1) return setups[0].file;
-	const why = whyNoSetup(found, setups);
-	if (why) refuse(why);
-	const chosen = await chooseSetup(setups, process.stdin, process.stdout);
-	if (!chosen) process.exit(130);
-	return chosen.file;
+  if (wanted !== undefined && existsSync(path.resolve(from, wanted))) return wanted;
+  const found = findSetups(from);
+  const setups = wanted === undefined ? found : setupsNamed(found, wanted);
+  if (setups.length === 1) return setups[0].file;
+  const why = whyNoSetup(found, setups);
+  if (why) refuse(why);
+  const chosen = await chooseSetup(setups, process.stdin, process.stdout);
+  if (!chosen) process.exit(130);
+  return chosen.file;
 }
 
 /** Why the builder cannot be asked which setup to open, when that is so. */
 function whyNoSetup(found, setups) {
-	if (found.length === 0) {
-		return `No setup in ${from}. A setup is a file named studio.setup.ts, or <name>.studio.setup.ts.`;
-	}
-	if (setups.length === 0) {
-		return `No setup is named ${wanted}. This project has:\n\n${setupLines(found).join('\n')}`;
-	}
-	if (!process.stdin.isTTY || !process.stdout.isTTY) {
-		return `This project has more than one setup. Name the one to open:\n\n${setupLines(setups).join('\n')}`;
-	}
-	return undefined;
+  if (found.length === 0) {
+    return `No setup in ${from}. A setup is a file named studio.setup.ts, or <name>.studio.setup.ts.`;
+  }
+  if (setups.length === 0) {
+    return `No setup is named ${wanted}. This project has:\n\n${setupLines(found).join('\n')}`;
+  }
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return `This project has more than one setup. Name the one to open:\n\n${setupLines(setups).join('\n')}`;
+  }
+  return undefined;
 }
 const place = placeFor(realpathSync(path.resolve(from, setup)), await heldPairs());
 if (!place) refuse('Too many studios are open on this machine. Stop one, then run this again.');
 const PAGE = pageAddress(place.pair);
 if (place.running) {
-	console.log(`theorem studio: already open on ${setup}: ${PAGE}/studio/`);
-	process.exit(0);
+  console.log(`theorem studio: already open on ${setup}: ${PAGE}/studio/`);
+  process.exit(0);
 }
 if (setup !== wanted) console.log(`theorem studio: opening ${setup}`);
 const ownConfig = ['deno.json', 'deno.jsonc'].map((name) => path.join(from, name)).find(existsSync);
 const projectConfig = given['--deno-config']
-	? path.resolve(from, given['--deno-config'])
-	: (ownConfig ?? path.join(here, 'deno.json'));
+  ? path.resolve(from, given['--deno-config'])
+  : (ownConfig ?? path.join(here, 'deno.json'));
 const server = spawn(
-	'deno',
-	[
-		'run',
-		'--config',
-		path.join(here, 'deno.json'),
-		'-A',
-		path.join(here, builtPage ? 'server/serve.js' : 'server/serve.ts'),
-		path.resolve(from, setup),
-		'--port',
-		String(place.pair.server),
-		'--page',
-		`${PAGE},http://localhost:${String(place.pair.page)}`,
-		'--deno-config',
-		projectConfig,
-		...(editor ? ['--editor', editor] : []),
-		...(noWatch ? ['--no-watch'] : []),
-	],
-	{ cwd: from, stdio: ['ignore', 'ignore', 'inherit'] },
+  'deno',
+  [
+    'run',
+    '--config',
+    path.join(here, 'deno.json'),
+    '-A',
+    path.join(here, builtPage ? 'server/serve.js' : 'server/serve.ts'),
+    path.resolve(from, setup),
+    '--port',
+    String(place.pair.server),
+    '--page',
+    `${PAGE},http://localhost:${String(place.pair.page)}`,
+    '--deno-config',
+    projectConfig,
+    ...(editor ? ['--editor', editor] : []),
+    ...(noWatch ? ['--no-watch'] : []),
+  ],
+  { cwd: from, stdio: ['ignore', 'ignore', 'inherit'] },
 );
 const project = `${serverAddress(place.pair)}/api/studio`;
 // An installed studio serves the page it was built with; the repo's is Vite on the sources.
 const page = builtPage
-	? spawn(
-			process.execPath,
-			[path.join(here, 'serve-page.mjs'), '--port', String(place.pair.page), '--project', project],
-			{ stdio: ['ignore', 'ignore', 'inherit'] },
-		)
-	: spawn(
-			process.execPath,
-			[
-				path.join(here, 'node_modules/vite/bin/vite.js'),
-				'--config',
-				path.join(here, 'app/vite.config.ts'),
-				'--port',
-				String(place.pair.page),
-			],
-			{
-				cwd: here,
-				stdio: ['ignore', 'ignore', 'inherit'],
-				env: { ...process.env, THEOREM_STUDIO_PROJECT: project },
-			},
-		);
+  ? spawn(
+      process.execPath,
+      [path.join(here, 'serve-page.mjs'), '--port', String(place.pair.page), '--project', project],
+      { stdio: ['ignore', 'ignore', 'inherit'] },
+    )
+  : spawn(
+      process.execPath,
+      [
+        path.join(here, 'node_modules/vite/bin/vite.js'),
+        '--config',
+        path.join(here, 'app/vite.config.ts'),
+        '--port',
+        String(place.pair.page),
+      ],
+      {
+        cwd: here,
+        stdio: ['ignore', 'ignore', 'inherit'],
+        env: { ...process.env, THEOREM_STUDIO_PROJECT: project },
+      },
+    );
 
 console.log(`theorem studio: ${PAGE}/studio/`);
 
 let stopping = false;
 /** Stops both when either ends or the command is interrupted. */
 function stop(code) {
-	if (stopping) return;
-	stopping = true;
-	server.kill();
-	page.kill();
-	process.exitCode = code;
+  if (stopping) return;
+  stopping = true;
+  server.kill();
+  page.kill();
+  process.exitCode = code;
 }
 server.on('exit', (code) => stop(code ?? 1));
 page.on('exit', (code) => stop(code ?? 1));

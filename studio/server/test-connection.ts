@@ -483,7 +483,10 @@ export async function testConnection(
     const body = rawBody as TestConnectionRequest;
     const sent = draftNetworkSchema.safeParse((rawBody as { network?: unknown }).network);
     if (!sent.success) {
-      throw new TheoremError('request', 'test connection: network is not a draft network guardrail'); // labels-exempt: internal diagnostic
+      throw new TheoremError(
+        'request',
+        'test connection: network is not a draft network guardrail',
+      ); // labels-exempt: internal diagnostic
     }
     const network = sent.data;
     const guard: ProbeGuard = {

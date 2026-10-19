@@ -67,7 +67,8 @@ export function studioAsks(
   allowed: (profile: string) => readonly string[],
 ): StudioAsks {
   const named = new Map(tools.map((tool) => [tool.name, tool]));
-  const runs = (tool: AskTool) => (tool.type === 'agent' && tool.profile ? allowed(tool.profile) : []);
+  const runs = (tool: AskTool) =>
+    tool.type === 'agent' && tool.profile ? allowed(tool.profile) : [];
   const inside = new Set(tools.flatMap(runs));
   const writes = (tool: AskTool, seen: Set<string>): boolean => {
     if (seen.has(tool.name)) return false;

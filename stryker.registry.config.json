@@ -4,9 +4,7 @@
   "commandRunner": {
     "command": "deno test --ignore=tests/kernel/zero-permission-import.test.ts --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/kernel tests/observability"
   },
-  "mutate": [
-    "src/kernel/registry/**/*.ts"
-  ],
+  "mutate": ["src/kernel/registry/**/*.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",
@@ -19,10 +17,7 @@
     ".fallow",
     ".stryker-tmp-registry"
   ],
-  "reporters": [
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["clear-text", "progress"],
   "coverageAnalysis": "off",
   "incremental": true,
   "incrementalFile": ".stryker-cache/registry-incremental.json",
@@ -35,9 +30,7 @@
   "concurrency": 4,
   "ignoreStatic": false,
   "mutator": {
-    "excludedMutations": [
-      "StringLiteral"
-    ]
+    "excludedMutations": ["StringLiteral"]
   },
   "tempDirName": ".stryker-tmp-registry",
   "jsonReporter": {

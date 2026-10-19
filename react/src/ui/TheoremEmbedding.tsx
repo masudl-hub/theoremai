@@ -15,7 +15,7 @@ import {
   useEmbeddingDocuments,
 } from './EmbeddingDocuments.tsx';
 import { EmbeddingQuery, type IndexState, useEmbeddingQuery } from './EmbeddingQuery.tsx';
-import { EmbeddingResults } from './EmbeddingResults.tsx';
+import { EmbeddingResults, IndexCard } from './EmbeddingResults.tsx';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
 import { useTraceInspector } from './TraceInspectorPanel.tsx';
@@ -85,7 +85,7 @@ function EmbeddingBody({
     setIndexed(documents.documents);
     void index.index(documents.inputs, iface.inputs);
   };
-  const started = index.status !== 'idle' || index.result !== null;
+  const searched = search.status !== 'idle' || search.result !== null;
 
   return (
     <ConsoleFrame
@@ -105,6 +105,7 @@ function EmbeddingBody({
           onRun={runIndex}
           onStop={index.cancel}
         />
+        <IndexCard run={index} />
         <EmbeddingQuery
           form={query}
           rules={iface.inputs}
@@ -119,7 +120,7 @@ function EmbeddingBody({
       {embeddingResponse(
         columns,
         t('@theorem.embedding.results'),
-        started ? <EmbeddingResults index={index} search={search} documents={indexed} /> : null,
+        searched ? <EmbeddingResults index={index} search={search} documents={indexed} /> : null,
       )}
     </ConsoleFrame>
   );

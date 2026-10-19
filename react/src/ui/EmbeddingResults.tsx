@@ -84,8 +84,8 @@ function MatchesCard({
   );
 }
 
-/** The index: its progress while it runs, then how many documents it holds and how wide. */
-function IndexCard({ run }: { run: IndexRun }) {
+/** The index: its progress while it runs, then how many documents it holds and how wide, or why it failed. */
+export function IndexCard({ run }: { run: IndexRun }) {
   const t = useLabels();
   const { progress, result } = run;
   if (progress && (!result || run.status === 'indexing'))
@@ -102,28 +102,31 @@ function IndexCard({ run }: { run: IndexRun }) {
         />
       </ChartCard>
     );
-  if (!result) return null;
+  if (!result) return <Failure failure={run.failure} />;
   return (
-    <ResultStack
-      model={result.model}
-      usage={result.usage}
-      elapsedMs={run.elapsedMs}
-      tokens={(count) => t('@theorem.embedding.tokens', { count })}
-    >
-      <ChartCard
-        title={t('@theorem.embedding.index')}
-        value={t('@theorem.embedding.indexed', { count: result.vectors.length })}
-        note={t('@theorem.embedding.indexed_note', {
-          dimensions: result.vectors[0]?.length ?? 0,
-          requests: result.requests,
-        })}
-      />
-    </ResultStack>
+    <VStack gap={4}>
+      <Failure failure={run.failure} />
+      <ResultStack
+        model={result.model}
+        usage={result.usage}
+        elapsedMs={run.elapsedMs}
+        tokens={(count) => t('@theorem.embedding.tokens', { count })}
+      >
+        <ChartCard
+          title={t('@theorem.embedding.index')}
+          value={t('@theorem.embedding.indexed', { count: result.vectors.length })}
+          note={t('@theorem.embedding.indexed_note', {
+            dimensions: result.vectors[0]?.length ?? 0,
+            requests: result.requests,
+          })}
+        />
+      </ResultStack>
+    </VStack>
   );
 }
 
 /**
- * What came back: the index, then the matches for the last query ranked in it,
+ * What the search found: the matches for the last query, ranked in the index,
  * best first. Each keeps one quiet line for the model, time, tokens,
  * and cost of its own calls.
  */
@@ -140,8 +143,6 @@ export function EmbeddingResults({
   const query = search.result?.embeddings[0]?.values;
   return (
     <VStack gap={4}>
-      <Failure failure={index.failure} />
-      <IndexCard run={index} />
       <Failure failure={search.failure} />
       {query && index.result ? (
         <ResultStack

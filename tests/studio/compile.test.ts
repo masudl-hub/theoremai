@@ -639,7 +639,7 @@ Deno.test('a pattern that does not compile is named by its place in the list', (
   if (result.ok) throw new Error('expected issues');
   const messages = result.issues.map((issue) => issue.message);
   assertStringIncludes(messages[0], 'Pattern 1: does not compile');
-  assertStringIncludes(messages[1], 'A key is a namespace, a dot and a name');
+  assertStringIncludes(messages[1], 'A key is a namespace, a dot, and a name');
 });
 Deno.test('a canary bind note without {canary} is an issue on the guardrails node', () => {
   const text = includeFacet(createExampleDraft(), 'guardrails');
@@ -1035,13 +1035,13 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
     field: 'activityPast',
     message:
       "{results.first.name} is not a field of this tool's input or output. " +
-      'Try {results.0.name}, {results.0.latitude}, {results.0.longitude} or {results.0.country_code}.',
+      'Try {results.0.name}, {results.0.latitude}, {results.0.longitude}, or {results.0.country_code}.',
   });
   assertEquals(issue('Finding {name}', 'Found {results}'), {
     field: 'activityPast',
     message:
       '{results} is a list or group; a label shows text or a number. ' +
-      'Try {results.0.name}, {results.0.latitude}, {results.0.longitude} or {results.0.country_code}.',
+      'Try {results.0.name}, {results.0.latitude}, {results.0.longitude}, or {results.0.country_code}.',
   });
   assertEquals(
     issue('Finding { }', 'Found it').message,
@@ -1054,7 +1054,7 @@ Deno.test('a tool compiles its activity labels, each placeholder checked against
   assertEquals(
     issue('Finding {name}', 'Found {output.name}').message,
     "{output.name} is not a field of this tool's output. Try {output.results.0.name}, " +
-      '{output.results.0.latitude}, {output.results.0.longitude} or {output.results.0.country_code}.',
+      '{output.results.0.latitude}, {output.results.0.longitude}, or {output.results.0.country_code}.',
   );
   assert(withLabels('Finding {{name}}', 'Found {results.length}, first {results.-1.name|none}').ok);
   assert(withLabels(`Finding ${'x'.repeat(200)}`, 'Found it').ok);
@@ -1140,7 +1140,7 @@ Deno.test('a tool request label reads only the call input', () => {
     },
   );
 });
-Deno.test('an activity label follows nullable, union and referenced schemas', () => {
+Deno.test('an activity label follows nullable, union, and referenced schemas', () => {
   const draft = createExampleDraft();
   const geocode = draft.toolSpecs.find((tool) => tool.toolName === 'geocode_city');
   assert(geocode);
@@ -1221,7 +1221,7 @@ Deno.test('an image draft pins references and output settings, and reports what 
     ],
   );
 });
-Deno.test('instructions by role, slots and limits by type compile from their JSON fields', () => {
+Deno.test('instructions by role, slots, and limits by type compile from their JSON fields', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
     ...draft,
@@ -1405,7 +1405,7 @@ Deno.test('compaction compiles as the agent compacting itself, and registers', (
   registerProfile({ ...profile, id: 'studio.compaction.self' });
   assertEquals(compiled(plain).profile.models.fast.compaction, undefined);
 });
-Deno.test('compaction reports a missing budget, a bad start and a bad keep on their fields', () => {
+Deno.test('compaction reports a missing budget, a bad start, and a bad keep on their fields', () => {
   const draft = createExampleDraft();
   const bad = compileStudio(
     updateModelBinding(draft, draft.modelBindings[0].key, {
@@ -1423,7 +1423,7 @@ Deno.test('compaction reports a missing budget, a bad start and a bad keep on th
     'compactMaxTokens',
   ]);
 });
-Deno.test('a prompt leak action, schemes, taint and trace resource compile when set', () => {
+Deno.test('a prompt leak action, schemes, taint, and trace resource compile when set', () => {
   const draft = createExampleDraft();
   const promptLeak = (detect: unknown) =>
     typeof detect === 'object' && detect !== null && 'prompt_leak' in detect

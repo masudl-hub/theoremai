@@ -9,7 +9,7 @@ import { activityLabelProblem, fillActivityLabel } from '../../src/kernel/tools/
 import { toolEventsOf } from '../fixtures/events.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
 
-Deno.test('a label takes {{x}}, a fallback, a chosen side, a list length and its last item', () => {
+Deno.test('a label takes {{x}}, a fallback, a chosen side, a list length, and its last item', () => {
   const output = { amount: 18.4, results: [{ name: 'Lyon' }, { name: 'Paris' }] };
   const values = { input: { amount: 20, ok: true }, output };
   assertEquals(fillActivityLabel('Found {{ results.0.name }}', values), 'Found Lyon');
@@ -500,7 +500,7 @@ Deno.test('neighbouring + lines that fit are joined in words', () => {
   );
   assertEquals(
     fill({ plant_identifier: 'Fern', nickname: 'Fernanda', location: 'the hall', in_bloom: true }),
-    'renaming Fern to Fernanda, moving Fern to the hall and marking Fern in bloom',
+    'renaming Fern to Fernanda, moving Fern to the hall, and marking Fern in bloom',
   );
   assertEquals(fill({ plant_identifier: 'Fern', in_bloom: false }), 'saving a plant');
 });
@@ -512,7 +512,7 @@ Deno.test('a + run split by a plain line is two runs', () => {
   assertEquals(fillActivityLabel(lines, { input: { c: 'z' } }), 'lighting it z');
 });
 
-Deno.test('a when compares what the model sent: is, is not, is null and and', () => {
+Deno.test('a when compares what the model sent: `is`, `is not`, `is null`, and `and`', () => {
   const fits = (when: string, input: unknown) =>
     fillActivityLabel([`when ${when}: yes`, 'no'], { input });
   assertEquals(fits('status is inactive', { status: 'inactive' }), 'yes');
@@ -564,7 +564,7 @@ Deno.test('a list label that cannot work is refused, with its line', () => {
   );
   assertEquals(
     problem(['when staus is inactive: archiving', 'saving']),
-    'Line 1: "staus" in the "when" is not a field of this tool\'s input. Try "plant_identifier", "nickname", "location" or "status".',
+    'Line 1: "staus" in the "when" is not a field of this tool\'s input. Try "plant_identifier", "nickname", "location", or "status".',
   );
   assertEquals(
     problem(['adding {nickname}', 'when status is inactiv: archiving', 'saving']),
@@ -587,7 +587,7 @@ Deno.test('a list label that cannot work is refused, with its line', () => {
     'Line 1: A "when" reads what the model sent; "output.saved" is only there once the call is done.',
   );
   const unreadable =
-    'Line 1: A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null" and "and".';
+    'Line 1: A line that opens with "when" needs a condition and a colon, like "when status is archived: archiving {name}". A condition uses "is", "is not", "is null", and "and".';
   assertEquals(problem(['when it rains', 'saving']), unreadable);
   assertEquals(problem(['when status equals inactive: archiving', 'saving']), unreadable);
   assertEquals(
@@ -597,7 +597,7 @@ Deno.test('a list label that cannot work is refused, with its line', () => {
   assertEquals(problem(['', 'saving']), 'Line 1: It has no wording to show.');
   assertEquals(
     problem(['adding {nicknam}', 'saving']),
-    "Line 1: {nicknam} is not a field of this tool's input. Try {plant_identifier}, {nickname}, {location} or {status}.",
+    "Line 1: {nicknam} is not a field of this tool's input. Try {plant_identifier}, {nickname}, {location}, or {status}.",
   );
 });
 

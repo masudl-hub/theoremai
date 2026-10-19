@@ -705,7 +705,8 @@ export const THEOREM_UI_CATALOG = {
     params: ['count'],
   },
   '@theorem.embedding.space_query': {
-    defaultMessage: 'The query lands among its matches, with a line to each match far more alike than its typical document.',
+    defaultMessage:
+      'The query lands among its matches, with a line to each match far more alike than its typical document.',
     description: 'What the space shows after a search, for screen readers.',
   },
   '@theorem.embedding.space_off': {

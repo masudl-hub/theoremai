@@ -137,9 +137,10 @@ function SpaceCanvas({
 }
 
 /**
- * The index drawn as a space: each document a dot, alike documents together
- * and in one colour, a line between documents whose vectors are alike, and a
- * query's ring with a line to each match. Drag to turn it; point at a dot to
+ * The index drawn as a space: each document a dot, a line only between two
+ * documents whose cosine similarity stands out from the index's typical pair,
+ * documents the lines connect in one colour, and a query's ring with a line to
+ * each match that stands out the same way. Drag to turn it; point at a dot to
  * name its document.
  */
 export function EmbeddingSpaceView(props: EmbeddingSpaceViewProps) {

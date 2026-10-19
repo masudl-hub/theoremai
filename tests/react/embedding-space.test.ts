@@ -2,6 +2,7 @@ import { assert, assertAlmostEquals, assertEquals, assertRejects } from '@std/as
 import {
   layoutSpace,
   layoutSpaceSoon,
+  outlierThreshold,
   placeQuery,
 } from '../../react/src/client/embedding-space.ts';
 import {
@@ -76,26 +77,32 @@ Deno.test('alike documents form a cluster each; strangers stand alone', () => {
   assert(distance(a.position, b.position) < distance(a.position, space.documents[5].position));
 });
 
-Deno.test('every link joins two real documents by their cosine, and the clusters by a tree', () => {
+Deno.test('a link is exactly a pair whose cosine passes the threshold, and only inside a cluster', () => {
   const vectors = groups();
   const space = layoutSpace(vectors);
   const cosine = (i: number, j: number) =>
     vectors[i].reduce((sum, v, d) => sum + v * vectors[j][d], 0) /
     (Math.hypot(...vectors[i]) * Math.hypot(...vectors[j]));
-  const across = space.links.filter(
-    (l) => space.documents[l.a].cluster !== space.documents[l.b].cluster,
-  );
-  assertEquals(across.length, space.clusters.length - 1, 'one tree joins the clusters');
-  const keys = new Set<string>();
+  const pairs = vectors.flatMap((_, i) => vectors.flatMap((_, j) => (i < j ? [cosine(i, j)] : [])));
+  assertAlmostEquals(space.threshold, outlierThreshold(pairs), 1e-12);
+  const linked = new Set(space.links.map((l) => `${l.a}:${l.b}`));
+  for (let i = 0; i < vectors.length; i += 1)
+    for (let j = i + 1; j < vectors.length; j += 1)
+      assertEquals(linked.has(`${i}:${j}`), cosine(i, j) > space.threshold, `${i}:${j}`);
   for (const link of space.links) {
-    assert(link.a < link.b && !keys.has(`${link.a}:${link.b}`), 'each pair once');
-    keys.add(`${link.a}:${link.b}`);
     assertAlmostEquals(link.similarity, cosine(link.a, link.b), 1e-9);
-    const within = !across.includes(link);
-    assert(within ? link.similarity >= space.border : link.similarity < space.border);
+    assertEquals(space.documents[link.a].cluster, space.documents[link.b].cluster);
   }
-  const nearest = space.links.filter((l) => l.a === 0 || l.b === 0);
-  assert(nearest.length >= 3, 'a document in a cluster of five meets its three nearest');
+  assertEquals(space.links.length, 3 * 10, 'every pair inside each group of five, and no other');
+});
+
+Deno.test('the threshold is the median pair plus three robust deviations, and nothing without spread', () => {
+  // Median 0.1; deviations 0, 0, 0.1, 0.1, 0.8 have median 0.1, so 0.1 + 3 × 1.4826 × 0.1.
+  assertAlmostEquals(outlierThreshold([0, 0.1, 0.1, 0.2, 0.9]), 0.1 + 3 * 1.4826 * 0.1, 1e-12);
+  assertEquals(outlierThreshold([0.4, 0.4, 0.4]), Infinity);
+  assertEquals(outlierThreshold([]), Infinity);
+  const unrelated = layoutSpace([vector(1), vector(2)]);
+  assertEquals(unrelated.links, [], 'two documents have no others to stand out against');
 });
 
 Deno.test('a query lands where its own document is', () => {
@@ -117,10 +124,9 @@ Deno.test('one, two, or identical documents still draw', () => {
   assertEquals(spaceGeometry(one).segments.length, 0, 'a document alone is a dot, with no line');
   const two = layoutSpace([vector(1), vector(2)]);
   assertAlmostEquals(distance(two.documents[0].position, two.documents[1].position), 2, 1e-6);
-  assertEquals(two.links.length, 1, 'two documents are one link');
   const same = layoutSpace([vector(3), vector(3), vector(3)]);
   for (const document of same.documents) assertEquals(document.position, [0, 0, 1]);
-  assertEquals(same.clusters.length, 1);
+  assertEquals(same.links, [], 'no pair stands out where every pair is the same');
   assertEquals(layoutSpace([]).documents, []);
 });
 

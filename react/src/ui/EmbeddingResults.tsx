@@ -13,7 +13,12 @@ import { IconCheck, IconCopy } from '@tabler/icons-react';
 import type { EmbeddingInput, EmbeddingResult } from '@theoremjs/agents';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { EmbeddingMatch } from '../client/embedding-input.ts';
-import { type EmbeddingSpace, layoutSpaceSoon, placeQuery } from '../client/embedding-space.ts';
+import {
+  type EmbeddingSpace,
+  layoutSpaceSoon,
+  outlierThreshold,
+  placeQuery,
+} from '../client/embedding-space.ts';
 import type { ClientFailure } from '../client/failure.ts';
 import type { QueryMatch } from '../client/space-geometry.ts';
 import type { EmbeddingIndex, IndexProgress } from '../hooks/use-embedding-index.ts';
@@ -238,16 +243,20 @@ function useSpace(vectors: readonly (readonly number[])[]): EmbeddingSpace | nul
   return space?.of === vectors ? space.space : null;
 }
 
-/** The matches as the space draws them: how close each is against the others shown. */
+/**
+ * The matches the space joins to the query: those shown whose similarity
+ * stands out against the query's similarity to every document, each with how
+ * far it passes that threshold, from 0 at it to 1 at identical.
+ */
 function closenessOf(matches: readonly EmbeddingMatch[]): QueryMatch[] {
-  const shown = matches.slice(0, MATCHES_SHOWN);
-  const top = shown[0]?.score ?? 0;
-  const floor = shown[shown.length - 1]?.score ?? 0;
-  const spread = top - floor;
-  return shown.map((m) => ({
-    index: m.index,
-    closeness: spread > 1e-9 ? (m.score - floor) / spread : 1,
-  }));
+  const threshold = outlierThreshold(matches.map((m) => m.score));
+  return matches
+    .slice(0, MATCHES_SHOWN)
+    .filter((m) => m.score > threshold)
+    .map((m) => ({
+      index: m.index,
+      closeness: threshold < 1 ? Math.min((m.score - threshold) / (1 - threshold), 1) : 1,
+    }));
 }
 
 /** The index while it runs: how many documents are done. */

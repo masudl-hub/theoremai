@@ -1,11 +1,12 @@
 /**
  * The index as a space: each document a point on a sphere, placed by the
- * three directions its vectors differ most along. Documents join their most
- * alike until all are linked (a maximum-similarity spanning tree); a link
- * weaker than this index's typical link is a border, and the groups it
- * leaves are clusters. Inside a cluster, each document is also linked to its
- * nearest neighbours. Positions are a projection and only approximate; every
- * link and cluster is the vectors' own cosine similarity.
+ * three directions its vectors differ most along. Two documents are linked
+ * when their cosine similarity stands out against every other pair in the
+ * index: more than {@link OUTLIER} robust deviations above the median pair.
+ * Most pairs in an index are unrelated, so the median and its deviation say
+ * what unrelated looks like for this model and these documents. A cluster is
+ * documents the links connect. Positions are a projection and only
+ * approximate; links and clusters are the vectors' own cosine similarity.
  *
  * @module
  */
@@ -23,7 +24,7 @@ export type SpaceDocument = {
   readonly cluster: number;
 };
 
-/** Documents more alike each other than the links between them. */
+/** Documents the links connect, directly or through each other. */
 export type SpaceCluster = {
   /** Its documents' indexes, in order. */
   readonly members: readonly number[];
@@ -31,7 +32,7 @@ export type SpaceCluster = {
   readonly tone: number;
 };
 
-/** Two documents drawn joined, because their vectors say they are alike. */
+/** Two documents whose cosine similarity is above the space's threshold. */
 export type SpaceLink = {
   readonly a: number;
   readonly b: number;
@@ -49,10 +50,10 @@ export type SpaceBasis = {
 export type EmbeddingSpace = {
   readonly documents: readonly SpaceDocument[];
   readonly clusters: readonly SpaceCluster[];
-  /** The spanning tree's links, and inside each cluster each document's nearest neighbours; each pair once. */
+  /** Every pair above the threshold, once each. */
   readonly links: readonly SpaceLink[];
-  /** The weakest similarity a link inside a cluster has; the links between clusters are weaker. */
-  readonly border: number;
+  /** The cosine similarity a pair must pass to be linked; `Infinity` when the index has too few pairs, or too alike, to say what unrelated looks like. */
+  readonly threshold: number;
   readonly basis: SpaceBasis;
   /** How wide the vectors are. */
   readonly dimensions: number;
@@ -62,8 +63,10 @@ export type EmbeddingSpace = {
 const ROUNDS = 200;
 /** Where a point lands when the projection says nothing about it. */
 const FACING: SpacePoint = [0, 0, 1];
-/** How many of its nearest neighbours in its cluster each document is linked to. */
-const NEIGHBOURS = 3;
+/** How many robust deviations above the median pair a pair must be to count as alike: the usual cut for an outlier. */
+const OUTLIER = 3;
+/** Scales the median absolute deviation to a standard deviation, for normally spread values. */
+const MAD_SCALE = 1.4826;
 
 function dot(a: ArrayLike<number>, b: ArrayLike<number>, length: number): number {
   let sum = 0;
@@ -239,43 +242,51 @@ function cosineOf(gram: Float64Array, n: number): Float64Array {
   return cosine;
 }
 
-/** The maximum-similarity spanning tree, by Prim's algorithm: each document joins the tree by its most alike document already in it. */
-function* spanningTree(cosine: Float64Array, n: number): Generator<void, SpaceLink[]> {
-  const joined = new Uint8Array(n);
-  const best = new Float64Array(n).fill(-Infinity);
-  const via = new Int32Array(n).fill(-1);
+/** The median of some values; it sorts them. */
+function medianOf(values: Float64Array): number {
+  values.sort();
+  const middle = values.length >> 1;
+  return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+}
+
+/**
+ * The similarity one must pass to stand out among `similarities`: their
+ * median plus {@link OUTLIER} robust deviations. `Infinity` when they have no
+ * spread, since then nothing stands out.
+ */
+export function outlierThreshold(similarities: ArrayLike<number>): number {
+  const values = Float64Array.from(similarities);
+  if (values.length === 0) return Infinity;
+  const median = medianOf(values.slice());
+  const deviation = MAD_SCALE * medianOf(values.map((v) => Math.abs(v - median)));
+  return deviation > 0 ? median + OUTLIER * deviation : Infinity;
+}
+
+/** Every pair's similarity, once each. */
+function pairsOf(cosine: Float64Array, n: number): Float64Array {
+  const pairs = new Float64Array((n * (n - 1)) / 2);
+  let at = 0;
+  for (let i = 0; i < n; i += 1) for (let j = i + 1; j < n; j += 1) pairs[at++] = cosine[i * n + j];
+  return pairs;
+}
+
+/** Every pair above the threshold, a row at a time. */
+function* linksOf(
+  cosine: Float64Array,
+  n: number,
+  threshold: number,
+): Generator<void, SpaceLink[]> {
   const links: SpaceLink[] = [];
-  let next = 0;
-  for (let step = 0; step < n; step += 1) {
-    const at = next;
-    joined[at] = 1;
-    if (via[at] >= 0)
-      links.push({ a: Math.min(at, via[at]), b: Math.max(at, via[at]), similarity: best[at] });
-    next = -1;
-    for (let j = 0; j < n; j += 1) {
-      if (joined[j]) continue;
-      if (cosine[at * n + j] > best[j]) {
-        best[j] = cosine[at * n + j];
-        via[j] = at;
-      }
-      if (next < 0 || best[j] > best[next]) next = j;
-    }
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 1; j < n; j += 1)
+      if (cosine[i * n + j] > threshold) links.push({ a: i, b: j, similarity: cosine[i * n + j] });
     yield;
   }
   return links;
 }
 
-/** The weakest a link may be and stay inside a cluster: a deviation below the tree's mean link. */
-function borderOf(links: readonly SpaceLink[]): number {
-  if (links.length === 0) return -Infinity;
-  const mean = links.reduce((sum, link) => sum + link.similarity, 0) / links.length;
-  const variance =
-    links.reduce((sum, link) => sum + (link.similarity - mean) ** 2, 0) / links.length;
-  return mean - Math.sqrt(variance);
-}
-
-/** The groups the tree's links leave once the links below the border are cut, each in document order. */
-function groupsOf(n: number, links: readonly SpaceLink[], border: number): number[][] {
+/** The groups the links connect, each in document order. */
+function groupsOf(n: number, links: readonly SpaceLink[]): number[][] {
   const root = Array.from({ length: n }, (_, i) => i);
   const find = (i: number): number => {
     while (root[i] !== i) {
@@ -284,7 +295,7 @@ function groupsOf(n: number, links: readonly SpaceLink[], border: number): numbe
     }
     return i;
   };
-  for (const link of links) if (link.similarity >= border) root[find(link.a)] = find(link.b);
+  for (const link of links) root[find(link.a)] = find(link.b);
   const groups = new Map<number, number[]>();
   for (let i = 0; i < n; i += 1) {
     const top = find(i);
@@ -293,33 +304,6 @@ function groupsOf(n: number, links: readonly SpaceLink[], border: number): numbe
     else groups.set(top, [i]);
   }
   return [...groups.values()];
-}
-
-/** Each document's nearest neighbours in its own group, by cosine, as links. */
-function* neighboursOf(
-  cosine: Float64Array,
-  n: number,
-  groups: readonly number[][],
-): Generator<void, SpaceLink[]> {
-  const links: SpaceLink[] = [];
-  for (const group of groups)
-    for (const i of group) {
-      const nearest = group
-        .filter((j) => j !== i)
-        .sort((x, y) => cosine[i * n + y] - cosine[i * n + x] || x - y)
-        .slice(0, NEIGHBOURS);
-      for (const j of nearest)
-        links.push({ a: Math.min(i, j), b: Math.max(i, j), similarity: cosine[i * n + j] });
-      yield;
-    }
-  return links;
-}
-
-/** Links with each pair once, in order. */
-function distinct(links: readonly SpaceLink[]): SpaceLink[] {
-  const seen = new Map<string, SpaceLink>();
-  for (const link of links) seen.set(`${link.a}:${link.b}`, link);
-  return [...seen.values()].sort((x, y) => x.a - y.a || x.b - y.b);
 }
 
 /** The mean of some rows. */
@@ -354,9 +338,9 @@ function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, 
   );
   const basis = { mean, axes };
   const cosine = cosineOf(gram, n);
-  const tree = yield* spanningTree(cosine, n);
-  const border = borderOf(tree);
-  const groups = groupsOf(n, tree, border);
+  const threshold = outlierThreshold(pairsOf(cosine, n));
+  const found = yield* linksOf(cosine, n, threshold);
+  const groups = groupsOf(n, found);
   const clusters: SpaceCluster[] = groups.map((group) => ({
     members: group.map((i) => original[i]),
     tone: toneOf(project(basis, meanOfRows(rows, group, dimensions))),
@@ -372,12 +356,8 @@ function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, 
       cluster: clusterOf.get(index) ?? 0,
     }),
   );
-  const links = distinct([...tree, ...(yield* neighboursOf(cosine, n, groups))]).map((link) => ({
-    ...link,
-    a: original[link.a],
-    b: original[link.b],
-  }));
-  return { documents, clusters, links, border, basis, dimensions };
+  const links = found.map((link) => ({ ...link, a: original[link.a], b: original[link.b] }));
+  return { documents, clusters, links, threshold, basis, dimensions };
 }
 
 /** The space for a set of document vectors, all at once. */

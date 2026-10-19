@@ -1,7 +1,8 @@
 /**
  * What the embedding space draws, as flat arrays a GPU takes as they are:
- * each document's dot, a line for each link between two documents, heavier
- * the more alike they are, and a query's ring with a line to each match.
+ * each document's dot, a line for each link, heavier the further its cosine
+ * similarity passes the threshold, and a query's ring with a line to each
+ * match that passes its own.
  * Every line joins two real points and stands for their cosine similarity;
  * nothing is drawn for show.
  *
@@ -83,9 +84,8 @@ type Line = {
   from: SpacePoint;
   to: SpacePoint;
   colour: (u: number) => readonly number[];
-  /** Alpha and width along the line, from 0 at its start to 1 at its end. */
-  alpha: (u: number) => number;
-  width: (u: number) => number;
+  alpha: number;
+  width: number;
   slots: readonly [number, number];
   /** CSS pixels left clear at each end, for the dots there. */
   gaps: readonly [number, number];
@@ -116,8 +116,8 @@ class Strokes {
         ...points[i - 1],
         ...points[i],
         ...colour(mid),
-        alpha(mid),
-        width(mid),
+        alpha,
+        width,
         slots[0],
         slots[1],
         u,
@@ -147,15 +147,10 @@ const QUERY_CORE = 2.4;
 /** The clear space between a line's end and the dot it reaches. */
 const GAP = 1.75;
 
-/** Straight from one value at a line's start to another at its end. */
-function taper(start: number, end: number): (u: number) => number {
-  return (u) => start + (end - start) * u;
-}
-
-/** How alike a link's two documents are against the others in the space: 0 at the border between clusters, 1 when identical. */
+/** How far a link passes the threshold, from 0 at it to 1 at identical. */
 function strengthOf(space: EmbeddingSpace, similarity: number): number {
-  if (!Number.isFinite(space.border) || space.border >= 1) return 1;
-  return Math.min(Math.max((similarity - space.border) / (1 - space.border), 0), 1);
+  if (space.threshold >= 1) return 1;
+  return Math.min(Math.max((similarity - space.threshold) / (1 - space.threshold), 0), 1);
 }
 
 /** Everything a space draws before any query: a line for each link, then every document's dot. */
@@ -164,16 +159,15 @@ export function spaceGeometry(space: EmbeddingSpace): SpaceGeometry {
   const colourOfDocument = (index: number) =>
     colourOf(space.clusters[space.documents[index].cluster].tone);
   for (const link of space.links) {
-    const [a, b] = [colourOfDocument(link.a), colourOfDocument(link.b)];
-    const within = space.documents[link.a].cluster === space.documents[link.b].cluster;
-    // invariant: a link between clusters is weaker than every link inside one, and draws so.
-    const strength = within ? strengthOf(space, link.similarity) : 0;
+    // invariant: a link's two documents are in one cluster, so it takes their colour.
+    const colour = colourOfDocument(link.a);
+    const strength = strengthOf(space, link.similarity);
     strokes.line({
       from: space.documents[link.a].position,
       to: space.documents[link.b].position,
-      colour: (u) => mixed(a, b, u),
-      alpha: () => (within ? 0.35 + 0.5 * strength : 0.2),
-      width: () => (within ? 0.7 + 0.9 * strength : 0.6),
+      colour: () => colour,
+      alpha: 0.35 + 0.5 * strength,
+      width: 0.7 + 0.9 * strength,
       slots: [link.a, link.b],
       gaps: [DOCUMENT_RADIUS + GAP, DOCUMENT_RADIUS + GAP],
     });
@@ -191,10 +185,14 @@ export function spaceGeometry(space: EmbeddingSpace): SpaceGeometry {
   return strokes.done();
 }
 
-/** A match as the query draws it: which document, and how close against the other matches, from 0 to 1. */
-export type QueryMatch = { index: number; closeness: number };
+/** A match the query is joined to. */
+export type QueryMatch = {
+  index: number;
+  /** How far its similarity passes the threshold it stood out against, from 0 at it to 1 at identical. */
+  closeness: number;
+};
 
-/** A query's ring where it landed, and a line from it to each match, strongest to the closest. */
+/** A query's ring where it landed, and a line from it to each match, weighted as a link is. */
 export function queryGeometry(
   space: EmbeddingSpace,
   at: SpacePoint,
@@ -205,13 +203,12 @@ export function queryGeometry(
     const document = space.documents[match.index];
     if (!document) continue;
     const colour = colourOf(space.clusters[document.cluster].tone);
-    const strength = 0.4 + 0.6 * match.closeness;
     strokes.line({
       from: at,
       to: document.position,
       colour: (u) => mixed(QUERY_COLOUR, colour, u),
-      alpha: taper(0.95 * strength, 0.6 * strength),
-      width: taper(1.25 + 0.5 * match.closeness, 0.75),
+      alpha: 0.35 + 0.5 * match.closeness,
+      width: 0.7 + 0.9 * match.closeness,
       slots: [QUERY_SLOT, match.index],
       gaps: [QUERY_RADIUS + GAP, DOCUMENT_RADIUS + GAP],
     });

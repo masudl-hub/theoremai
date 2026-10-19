@@ -700,12 +700,12 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.embedding.space_label': {
     defaultMessage:
-      '{count, plural, one {# document} other {# documents}} drawn on a sphere: a line joins documents whose meaning is alike, heavier the more alike they are, and alike documents gather in one colour.',
+      '{count, plural, one {# document} other {# documents}} drawn on a sphere: a line joins two documents only when they are far more alike than the typical pair in this index, heavier the more alike, and documents the lines connect share a colour.',
     description: 'What the space shows, for screen readers.',
     params: ['count'],
   },
   '@theorem.embedding.space_query': {
-    defaultMessage: 'The query lands among its matches, with a line to each.',
+    defaultMessage: 'The query lands among its matches, with a line to each match far more alike than its typical document.',
     description: 'What the space shows after a search, for screen readers.',
   },
   '@theorem.embedding.space_off': {

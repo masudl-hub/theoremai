@@ -692,7 +692,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.embedding.space': {
     defaultMessage: 'Space',
-    description: 'The index drawn as a sphere, alike documents together.',
+    description: 'The index drawn in three dimensions, alike documents together.',
   },
   '@theorem.embedding.list': {
     defaultMessage: 'List',
@@ -700,7 +700,7 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.embedding.space_label': {
     defaultMessage:
-      '{count, plural, one {# document} other {# documents}} drawn on a sphere: a line joins two documents only when they are far more alike than the typical pair in this index, heavier the more alike, and documents the lines connect share a colour.',
+      '{count, plural, one {# document} other {# documents}} drawn in three dimensions by where their vectors differ most: a line joins two documents only when they are far more alike than the typical pair in this index, heavier the more alike, and documents the lines connect share a colour.',
     description: 'What the space shows, for screen readers.',
     params: ['count'],
   },

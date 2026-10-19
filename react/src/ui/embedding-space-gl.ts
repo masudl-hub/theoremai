@@ -3,7 +3,7 @@
  * solid dots and the query's ring, laid over the card with premultiplied
  * alpha so the card shows through. Dots cover whatever lies behind them, and
  * every line stops just short of the dot it reaches; the far side of the
- * sphere draws smaller and fainter. No React here: the component owns one
+ * ball draws smaller and fainter. No React here: the component owns one
  * renderer and feeds it.
  *
  * @module
@@ -40,9 +40,10 @@ export type SpaceRenderer = {
 /** Slot states per texture row. */
 const STATE_ROW = 1024;
 /** Field of view, in radians. */
-const FOV = (30 * Math.PI) / 180;
-/** The camera's distance from the sphere's centre. */
-const DISTANCE = 4.6;
+/** Wide enough that the ball, whose farthest document is on its rim, fits with a margin at the camera's distance. */
+const FOV = (44 * Math.PI) / 180;
+/** The camera's distance from the ball's centre: close, so depth reads as perspective. */
+const DISTANCE = 3.2;
 /** Seconds a cluster's lines take to draw, and the most a cluster waits to start. */
 const GROW_S = 0.9;
 const GROW_STAGGER_S = 0.6;
@@ -54,6 +55,8 @@ const TURN_S = 1.2;
 const SPIN = 0.05;
 /** How far, in CSS pixels, the pointer reaches for a document. */
 const PICK_PX = 18;
+/** Squared CSS pixels within which two dots under the pointer are told apart by depth. */
+const PICK_TIE = 16;
 /** How bright a document reads when a query leaves it out. */
 const DIMMED = 0.2;
 /** How fast a flung sphere slows, per second, and the speed in radians per second below which it stops. */
@@ -71,14 +74,15 @@ vec4 stateOf(float i) {
   int k = int(i + 0.5);
   return texelFetch(states, ivec2(k % ${STATE_ROW}, k / ${STATE_ROW}), 0);
 }
+// How near the viewer a point sits, from 0 at the ball's back to 1 at its front.
 float facing(vec3 p) {
-  return smoothstep(-0.55, 0.45, p.z / max(length(p), 1e-4));
+  return clamp(0.5 + 0.5 * p.z, 0.0, 1.0);
 }
 float facingFade(vec3 p) {
-  return mix(0.25, 1.0, facing(p));
+  return mix(0.18, 1.0, facing(p));
 }
 float facingSize(vec3 p) {
-  return mix(0.65, 1.0, facing(p));
+  return mix(0.6, 1.1, facing(p));
 }
 `;
 
@@ -436,7 +440,9 @@ export function createSpaceRenderer(
 
   function aimAt(point: SpacePoint) {
     const turned = turnPoint(quatMatrix(turn), point);
-    const length = Math.hypot(...turned) || 1;
+    const length = Math.hypot(...turned);
+    // why: a query at the centre faces the viewer from every turn.
+    if (length < 1e-6) return;
     turning = {
       from: turn,
       to: quatNormalise(
@@ -686,15 +692,18 @@ export function createSpaceRenderer(
       const turnMatrix = quatMatrix(turn);
       let best: number | null = null;
       let bestDistance = PICK_PX * PICK_PX;
+      let bestDepth = -Infinity;
       for (const document of space.documents) {
         const p = turnPoint(turnMatrix, document.position);
-        if (p[2] < -0.1) continue;
         const w = projection[11] * p[2] + projection[15];
         const sx = ((projection[0] * p[0]) / w + 1) * 0.5 * canvas.width;
         const sy = (1 - (projection[5] * p[1]) / w) * 0.5 * canvas.height;
         const d = (sx / ratio - x) ** 2 + (sy / ratio - y) ** 2;
-        if (d < bestDistance) {
+        // why: of two dots under the pointer, within a dot's width, the nearer one is the one seen.
+        const nearer = d < bestDistance + PICK_TIE && p[2] > bestDepth;
+        if (d < bestDistance - PICK_TIE || (d < PICK_PX * PICK_PX && nearer)) {
           bestDistance = d;
+          bestDepth = p[2];
           best = document.index;
         }
       }

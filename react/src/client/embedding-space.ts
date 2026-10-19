@@ -1,6 +1,11 @@
 /**
- * The index as a space: each document a point on a sphere, placed by the
- * three directions its vectors differ most along. Two documents are linked
+ * The index as a space: each document a point in a ball, placed by the
+ * three directions its vectors differ most along, each measured in its own
+ * spread so the space is as deep as it is wide. Its direction from the
+ * centre is its direction along those three; its distance is how far it sits
+ * from the index's mean along them, as `r / (r + median)`, scaled so the
+ * farthest document is on the rim: the order of distances is kept, and no
+ * one far document squeezes the rest into the centre. Two documents are linked
  * when their cosine similarity stands out against every other pair in the
  * index: more than {@link OUTLIER} robust deviations above the median pair.
  * Most pairs in an index are unrelated, so the median and its deviation say
@@ -11,14 +16,14 @@
  * @module
  */
 
-/** A point in the space, on the unit sphere. */
+/** A point in the space, inside the unit ball. */
 export type SpacePoint = readonly [number, number, number];
 
 /** One document in the space. */
 export type SpaceDocument = {
   /** Its index among the documents. */
   readonly index: number;
-  /** Where it sits on the unit sphere. */
+  /** Where it sits in the unit ball. */
   readonly position: SpacePoint;
   /** The cluster it belongs to. */
   readonly cluster: number;
@@ -45,6 +50,12 @@ export type SpaceBasis = {
   readonly mean: Float64Array;
   /** Each a unit direction in the vectors' own space; fewer than three when the documents span fewer. */
   readonly axes: readonly Float64Array[];
+  /** Each axis's spread over the documents; a point is measured along each in its own spread, so the space is as deep as it is wide. */
+  readonly spreads: readonly number[];
+  /** The documents' median distance from the mean, so measured. */
+  readonly scale: number;
+  /** The farthest document's `r / (r + scale)`; dividing by it puts that document on the rim. */
+  readonly reach: number;
 };
 
 export type EmbeddingSpace = {
@@ -62,7 +73,7 @@ export type EmbeddingSpace = {
 /** Power-iteration rounds per axis; the Gram matrix is small, so this converges well inside it. */
 const ROUNDS = 200;
 /** Where a point lands when the projection says nothing about it. */
-const FACING: SpacePoint = [0, 0, 1];
+const CENTRE: SpacePoint = [0, 0, 0];
 /** How many robust deviations above the median pair a pair must be to count as alike: the usual cut for an outlier. */
 const OUTLIER = 3;
 /** Scales the median absolute deviation to a standard deviation, for normally spread values. */
@@ -74,11 +85,46 @@ function dot(a: ArrayLike<number>, b: ArrayLike<number>, length: number): number
   return sum;
 }
 
-function unit(point: readonly number[]): SpacePoint {
-  const length = Math.hypot(point[0] ?? 0, point[1] ?? 0, point[2] ?? 0);
-  return length < 1e-9
-    ? FACING
-    : [(point[0] ?? 0) / length, (point[1] ?? 0) / length, (point[2] ?? 0) / length];
+/** A point's offset from the mean along each axis, in that axis's own spread; 0 along an axis with none. */
+function along(
+  axes: readonly Float64Array[],
+  mean: Float64Array,
+  spreads: readonly number[],
+  vector: ArrayLike<number>,
+): number[] {
+  const offset = Array.from(vector, (v, d) => v - mean[d]);
+  return [0, 1, 2].map((k) =>
+    axes[k] && spreads[k] > 1e-12 ? dot(axes[k], offset, offset.length) / spreads[k] : 0,
+  );
+}
+
+/** Each axis's spread: the root mean square of the documents' offsets along it. */
+function spreadsOf(
+  axes: readonly Float64Array[],
+  mean: Float64Array,
+  vectors: readonly (readonly number[])[],
+): number[] {
+  return [0, 1, 2].map((k) => {
+    const axis = axes[k];
+    if (!axis || vectors.length === 0) return 0;
+    const squares = vectors.reduce((sum, v) => {
+      const at = dot(
+        axis,
+        Array.from(v, (x, d) => x - mean[d]),
+        v.length,
+      );
+      return sum + at * at;
+    }, 0);
+    return Math.sqrt(squares / vectors.length);
+  });
+}
+
+/** Coordinates in the axes, drawn into the ball: same direction, distance `r / (r + scale) / reach`. */
+function inBall(point: readonly number[], scale: number, reach: number): SpacePoint {
+  const length = Math.hypot(point[0], point[1], point[2]);
+  if (length < 1e-9 || scale <= 0 || reach <= 0) return CENTRE;
+  const radius = length / (length + scale) / reach / length;
+  return [point[0] * radius, point[1] * radius, point[2] * radius];
 }
 
 /** The documents packed row after row, so the loops over them stay on one typed array. */
@@ -321,7 +367,7 @@ function toneOf(position: SpacePoint): number {
 
 /**
  * The layout, a slice at a time. Vectors whose width differs from the first
- * are placed facing the viewer, each a cluster of its own.
+ * are placed at the centre, each a cluster of its own.
  */
 function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, EmbeddingSpace> {
   const dimensions = vectors[0]?.length ?? 0;
@@ -336,7 +382,15 @@ function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, 
   const axes = (yield* topEigen(centred(gram, n), n, 3)).map(({ vector }) =>
     axisOf(rows, mean, vector),
   );
-  const basis = { mean, axes };
+  const kept = original.map((i) => vectors[i]);
+  const spreads = spreadsOf(axes, mean, kept);
+  const coordinates = kept.map((vector) => along(axes, mean, spreads, vector));
+  const lengths = Float64Array.from(coordinates, (p) => Math.hypot(p[0], p[1], p[2]));
+  // why: when more than half sit at the mean, the farthest sets the scale, so the rest still spread out.
+  const median = n > 0 ? medianOf(lengths.slice()) : 0;
+  const scale = median > 1e-9 ? median : lengths.reduce((most, v) => Math.max(most, v), 0);
+  const reach = lengths.reduce((most, r) => Math.max(most, scale > 0 ? r / (r + scale) : 0), 0);
+  const basis = { mean, axes, spreads, scale, reach };
   const cosine = cosineOf(gram, n);
   const threshold = outlierThreshold(pairsOf(cosine, n));
   const found = yield* linksOf(cosine, n, threshold);
@@ -346,13 +400,13 @@ function* layoutSteps(vectors: readonly (readonly number[])[]): Generator<void, 
     tone: toneOf(project(basis, meanOfRows(rows, group, dimensions))),
   }));
   for (const [i, vector] of vectors.entries())
-    if (vector.length !== dimensions) clusters.push({ members: [i], tone: toneOf(FACING) });
+    if (vector.length !== dimensions) clusters.push({ members: [i], tone: toneOf(CENTRE) });
   const clusterOf = new Map(clusters.flatMap((c, k) => c.members.map((i) => [i, k] as const)));
   const documents = vectors.map(
     (vector, index): SpaceDocument => ({
       index,
       // invariant: documents and queries go through the one projection, so a query lands on its own document.
-      position: vector.length === dimensions ? project(basis, vector) : FACING,
+      position: vector.length === dimensions ? project(basis, vector) : CENTRE,
       cluster: clusterOf.get(index) ?? 0,
     }),
   );
@@ -399,7 +453,6 @@ export function placeQuery(space: EmbeddingSpace, query: readonly number[]): Spa
   return project(space.basis, query);
 }
 
-function project(basis: SpaceBasis, vector: readonly number[]): SpacePoint {
-  const offset = Array.from(vector, (v, d) => v - basis.mean[d]);
-  return unit(basis.axes.map((axis) => dot(axis, offset, offset.length)));
+function project(basis: SpaceBasis, vector: ArrayLike<number>): SpacePoint {
+  return inBall(along(basis.axes, basis.mean, basis.spreads, vector), basis.scale, basis.reach);
 }

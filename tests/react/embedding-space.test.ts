@@ -33,9 +33,26 @@ function distance(a: readonly number[], b: readonly number[]): number {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
-Deno.test('every document sits on the unit sphere, and the axes are orthonormal', () => {
-  const space = layoutSpace(Array.from({ length: 12 }, (_, i) => vector(i + 1)));
-  for (const { position } of space.documents) assertAlmostEquals(Math.hypot(...position), 1, 1e-9);
+Deno.test('a document sits at r / (r + median), scaled to the farthest, from the centre, and the axes are orthonormal', () => {
+  const vectors = Array.from({ length: 12 }, (_, i) => vector(i + 1));
+  const space = layoutSpace(vectors);
+  const { mean, axes, spreads, scale, reach } = space.basis;
+  const offsets = vectors.map((v) =>
+    axes.map((axis) => axis.reduce((sum, a, d) => sum + a * (v[d] - mean[d]), 0)),
+  );
+  for (const [k, spread] of spreads.entries())
+    assertAlmostEquals(
+      spread,
+      Math.sqrt(offsets.reduce((sum, o) => sum + o[k] ** 2, 0) / 12),
+      1e-12,
+    );
+  const lengths = offsets.map((o) => Math.hypot(...o.map((v, k) => v / spreads[k])));
+  const sorted = lengths.toSorted((a, b) => a - b);
+  assertAlmostEquals(scale, (sorted[5] + sorted[6]) / 2, 1e-12);
+  for (const [i, { position }] of space.documents.entries())
+    assertAlmostEquals(Math.hypot(...position), lengths[i] / (lengths[i] + scale) / reach, 1e-9);
+  const farthest = Math.max(...space.documents.map((d) => Math.hypot(...d.position)));
+  assertAlmostEquals(farthest, 1, 1e-9, 'the farthest document is on the rim');
   assertEquals(space.basis.axes.length, 3);
   for (const [i, a] of space.basis.axes.entries())
     for (const [j, b] of space.basis.axes.entries()) {
@@ -116,7 +133,7 @@ Deno.test('a query lands where its own document is', () => {
 
 Deno.test('one, two, or identical documents still draw', () => {
   const one = layoutSpace([vector(1)]);
-  assertEquals(one.documents[0].position, [0, 0, 1]);
+  assertEquals(one.documents[0].position, [0, 0, 0]);
   assertEquals(
     one.clusters.map((c) => c.members),
     [[0]],
@@ -125,14 +142,14 @@ Deno.test('one, two, or identical documents still draw', () => {
   const two = layoutSpace([vector(1), vector(2)]);
   assertAlmostEquals(distance(two.documents[0].position, two.documents[1].position), 2, 1e-6);
   const same = layoutSpace([vector(3), vector(3), vector(3)]);
-  for (const document of same.documents) assertEquals(document.position, [0, 0, 1]);
+  for (const document of same.documents) assertEquals(document.position, [0, 0, 0]);
   assertEquals(same.links, [], 'no pair stands out where every pair is the same');
   assertEquals(layoutSpace([]).documents, []);
 });
 
-Deno.test('a vector of another width is placed facing, alone, and left out of the links', () => {
+Deno.test('a vector of another width is placed at the centre, alone, and left out of the links', () => {
   const space = layoutSpace([vector(1), vector(2), [0.1, 0.2], vector(4)]);
-  assertEquals(space.documents[2].position, [0, 0, 1]);
+  assertEquals(space.documents[2].position, [0, 0, 0]);
   assertEquals(space.clusters[space.documents[2].cluster].members, [2]);
   assert(space.links.every((t) => t.a !== 2 && t.b !== 2));
 });

@@ -27,8 +27,7 @@ export const QUERY_SLOT = -1;
 const LIGHTNESS = 0.72;
 const CHROMA = 0.085;
 const QUERY_COLOUR: readonly [number, number, number] = [0.97, 0.98, 1.0];
-/** Every line is a faint white hairline: it hints at a connection, and the dots carry the picture. */
-const LINE_COLOUR: readonly [number, number, number] = [1, 1, 1];
+/** Every line is a faint hairline in its documents' colour: it hints at a connection, and the dots carry the picture. */
 /** A line's width in CSS pixels and its opacity, at the threshold and at identical. */
 const LINE_WIDTH = [0.3, 0.5] as const;
 const LINE_ALPHA = [0.07, 0.2] as const;
@@ -71,27 +70,19 @@ function mixed(a: readonly number[], b: readonly number[], u: number): number[] 
   return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
 }
 
-/** Radians each step of an arc may span; a short arc is one straight segment. */
-const ARC_STEP = 0.06;
+/** The longest piece a line is cut into, so depth fades along it, not only at its ends. */
+const PIECE = 0.1;
 
-/** Points along the sphere from one point to another, by the shorter great circle. */
-function arc(a: SpacePoint, b: SpacePoint): number[][] {
-  const cos = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
-  const angle = Math.acos(cos);
-  const steps = Math.max(1, Math.ceil(angle / ARC_STEP));
-  const sin = Math.sin(angle);
-  return Array.from({ length: steps + 1 }, (_, s) => {
-    const u = s / steps;
-    if (sin < 1e-6) return mixed(a, b, u);
-    const wa = Math.sin((1 - u) * angle) / sin;
-    const wb = Math.sin(u * angle) / sin;
-    return [a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb];
-  });
+/** Points along the straight line from one point to another, through the ball. */
+function pieces(a: SpacePoint, b: SpacePoint): number[][] {
+  const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) / PIECE));
+  return Array.from({ length: steps + 1 }, (_, s) => mixed(a, b, s / steps));
 }
 
 type Line = {
   from: SpacePoint;
   to: SpacePoint;
+  colour: (u: number) => readonly number[];
   alpha: number;
   width: number;
   slots: readonly [number, number];
@@ -114,15 +105,15 @@ class Strokes {
   readonly segments: number[] = [];
   readonly dots: number[] = [];
 
-  line({ from, to, alpha, width, slots, gaps }: Line) {
-    const points = arc(from, to);
+  line({ from, to, colour, alpha, width, slots, gaps }: Line) {
+    const points = pieces(from, to);
     const last = points.length - 1;
     for (let i = 1; i <= last; i += 1) {
       const u = i / last;
       this.segments.push(
         ...points[i - 1],
         ...points[i],
-        ...LINE_COLOUR,
+        ...colour((i - 0.5) / last),
         alpha,
         width,
         slots[0],
@@ -167,9 +158,12 @@ export function spaceGeometry(space: EmbeddingSpace): SpaceGeometry {
     colourOf(space.clusters[space.documents[index].cluster].tone);
   for (const link of space.links) {
     const strength = strengthOf(space, link.similarity);
+    // invariant: a link's two documents are in one cluster, so it takes their colour.
+    const colour = colourOfDocument(link.a);
     strokes.line({
       from: space.documents[link.a].position,
       to: space.documents[link.b].position,
+      colour: () => colour,
       alpha: weighted(LINE_ALPHA, strength),
       width: weighted(LINE_WIDTH, strength),
       slots: [link.a, link.b],
@@ -206,9 +200,11 @@ export function queryGeometry(
   for (const match of matches) {
     const document = space.documents[match.index];
     if (!document) continue;
+    const colour = colourOf(space.clusters[document.cluster].tone);
     strokes.line({
       from: at,
       to: document.position,
+      colour: (u) => mixed(QUERY_COLOUR, colour, u),
       alpha: weighted(LINE_ALPHA, match.closeness),
       width: weighted(LINE_WIDTH, match.closeness),
       slots: [QUERY_SLOT, match.index],

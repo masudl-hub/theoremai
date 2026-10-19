@@ -137,7 +137,8 @@ function SpaceCanvas({
 }
 
 /**
- * The index drawn as a space: each document a dot, a line only between two
+ * The index drawn as a space: each document a dot in a ball, placed by the
+ * three directions the vectors differ most along, a line only between two
  * documents whose cosine similarity stands out from the index's typical pair,
  * documents the lines connect in one colour, and a query's ring with a line to
  * each match that stands out the same way. Drag to turn it; point at a dot to

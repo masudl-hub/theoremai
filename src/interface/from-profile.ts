@@ -222,7 +222,7 @@ function interfaceFromProjected(projected: ProjectedProfile): ProfileInterface {
 
 /**
  * The interface a browser may read: {@linkcode interfaceFromProfile} without `identity.system` and
- * `systemByRole`, which stay on the server. Labels, turn behaviour, guardrails and observability are kept.
+ * `systemByRole`, which stay on the server. Labels, turn behaviour, guardrails, and observability are kept.
  */
 function clientProfileInterface(input: LiveProfile, tools: ToolRegistry): LiveProfileInterface;
 /** The client-safe interface for a profile that is not live. */

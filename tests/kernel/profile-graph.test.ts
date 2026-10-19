@@ -66,7 +66,7 @@ Deno.test('spineFacetsForProfileType includes identity, guardrails, observabilit
   }
 });
 
-Deno.test('host spine is tools, guardrails, observability and wording under the identity root', () => {
+Deno.test('host spine is tools, guardrails, observability, and wording under the identity root', () => {
   const host = spineFacetsForProfileType('host').map((f) => f.id);
   assertEquals(host, ['identity', 'tools', 'guardrails', 'observability', 'labels']);
   const toolSpec = PROFILE_GRAPH.find((f) => f.id === 'toolSpec');

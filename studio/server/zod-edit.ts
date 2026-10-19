@@ -107,7 +107,7 @@ export function readZod(project: ProjectSource, at: Located): ZodRead | undefine
   return undefined;
 }
 
-/** The methods a schema keeps its fields, its description and its kind through. */
+/** The methods a schema keeps its fields, its description, and its kind through. */
 const READ_THROUGH = new Set([
   'describe',
   'optional',

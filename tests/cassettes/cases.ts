@@ -113,9 +113,9 @@ const BENIGN: {
     'Explain the causes and consequences of the French Revolution in about 800 words.',
     'Describe how a compiler works, stage by stage, in about 700 words.',
     'Write a detailed travel guide to Kyoto, about 800 words.',
-    'Explain climate change: causes, evidence, effects and responses, about 800 words.',
+    'Explain climate change: causes, evidence, effects, and responses, about 800 words.',
     'Write a 700-word explainer on how vaccines train the immune system.',
-    'Give a detailed 800-word comparison of Python, JavaScript and Rust.',
+    'Give a detailed 800-word comparison of Python, JavaScript, and Rust.',
   ].map((text, i) => ({ id: `l${i + 1}`, text })),
   ...[
     'Give me the SHA-256 hash of the empty string.',
@@ -344,7 +344,7 @@ function registerLiveProfile(scope: KernelScope, model: CassetteModel): void {
     }),
   );
 }
-/** The case's guardrail events, error and shown text, as replay compares them. */
+/** The case's guardrail events, error, and shown text, as replay compares them. */
 export function outcomeOf(events: readonly TurnEvent[], effects: string[] = []): CaseOutcome {
   const guardrails = events.flatMap((e) =>
     e.type === 'guardrail'

@@ -18,7 +18,7 @@ import { geminiModels } from '../fixtures/models.ts';
 
 const PROFILE = 'profile_canary';
 const SYSTEM =
-  'You are the booking agent for Northwind Travel and answer questions about flights, hotels and car hire only.';
+  'You are the booking agent for Northwind Travel and answer questions about flights, hotels, and car hire only.';
 
 function canaryOf(req: ModelRequest): string {
   return /Your canary token is (\S+)\./.exec(req.system)?.[1] ?? '';

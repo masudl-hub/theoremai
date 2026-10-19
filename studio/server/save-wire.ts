@@ -92,7 +92,7 @@ export interface SourcePlace {
   line: number;
 }
 
-/** Each profile's, tool's and provider's settings that are set in code, by profile id, tool name and provider id. */
+/** Each profile's, tool's and provider's settings that are set in code, by profile id, tool name, and provider id. */
 export interface ProjectOrigins {
   profiles: Record<string, SettingOrigin[]>;
   tools: Record<string, SettingOrigin[]>;

@@ -15,7 +15,7 @@ function guardrailTurnEvent(guardrail: GuardrailEvent): TurnEventOf<'guardrail'>
   return { type: 'guardrail', guardrail };
 }
 
-/** `allow` yields nothing; `flag`, `redact` and `block` all emit so hosts and traces can count hits. */
+/** `allow` yields nothing; `flag`, `redact`, and `block` all emit so hosts and traces can count hits. */
 function guardrailFromVerdict(
   stage: GuardrailStage,
   trust: TrustLevel,

@@ -172,7 +172,7 @@ function transcript(
   ].join('\n\n');
 }
 
-/** Fills each rubric variable from a trial: the last user message, the reply, the tool activity and the conversation as text. */
+/** Fills each rubric variable from a trial: the last user message, the reply, the tool activity, and the conversation as text. */
 function trialVariables(trial: Trial): Record<(typeof TRIAL_VARIABLES)[number], string> {
   const messages = inputMessages(trial);
   const input = messages.findLast((message) => message.role === 'user')?.text ?? '';

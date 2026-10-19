@@ -11,7 +11,7 @@ import type { TranscriptBlock, UserTurnDraft } from './types.ts';
 
 export type { ToolGateAuth };
 
-/** A tool call held at a gate: the tool, its call id and arguments. */
+/** A tool call held at a gate: the tool, its call id, and arguments. */
 export type GatedToolContext = {
   operationId?: string;
   name: string;
@@ -26,7 +26,7 @@ export type GatedToolContext = {
   auth?: ToolGateAuth;
 };
 
-/** A tool call that paused the turn to ask the user: the tool, its call id and arguments. */
+/** A tool call that paused the turn to ask the user: the tool, its call id, and arguments. */
 export type AwaitingToolContext = {
   name: string;
   callId: string;
@@ -36,7 +36,7 @@ export type AwaitingToolContext = {
   options?: string[];
 };
 
-/** The state a client keeps between turns: portable history, native checkpoint and permissions. */
+/** The state a client keeps between turns: portable history, native checkpoint, and permissions. */
 export type InterfaceTurnSession = {
   history: TurnHistoryMessage[];
   providerState?: import('../kernel/checkpoint.ts').ProviderCheckpoint;

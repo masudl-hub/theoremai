@@ -20,7 +20,7 @@ import { wrapPcmAsWav } from '../../../src/providers/shared/pcm.ts';
 import { failureOf } from '../../fixtures/failure.ts';
 
 // Rows follow the shapes recorded from gemini-3.8-flash and gemini-3.1-flash-lite (23 and
-// 25/09/2026); ids, text and signatures are synthetic.
+// 25/09/2026); ids, text, and signatures are synthetic.
 
 const google = defineProvider({
   id: 'google-test',

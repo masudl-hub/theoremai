@@ -165,7 +165,7 @@ Deno.test('a sealed state is AES-GCM under HKDF of the secret with its documente
   check(JSON.parse(plain), PAYLOAD, 'payload');
 });
 
-Deno.test('a sealed secret is AES-GCM under HKDF with its labels, key version and binding', async () => {
+Deno.test('a sealed secret is AES-GCM under HKDF with its labels, key version, and binding', async () => {
   const sealed = await sealSecret({
     plaintext: 'hunter2',
     key: SECRET,

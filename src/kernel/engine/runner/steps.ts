@@ -165,7 +165,7 @@ function resendsFailedCall(profile: Profile, stop: TurnStop): boolean {
   return policy?.autoContinue !== undefined && shouldAutoContinue(stop, policy);
 }
 
-/** The events that are a model call's reply, as opposed to its thoughts, usage or failure. */
+/** The events that are a model call's reply, as opposed to its thoughts, usage, or failure. */
 const REPLY_EVENTS: ReadonlySet<TurnEvent['type']> = new Set([
   'text',
   'media',
@@ -368,7 +368,7 @@ async function* executeAutonomousStep(
  * `stream_incomplete`) on a kind the profile's own `turnBehaviour.resumption.autoContinue`
  * lists, having given no reply and no tool call, is sent again in the same turn
  * after a pause, up to `maxContinues` times a turn (once when the profile sets
- * none). The turn's history, its step count and what it has read stay as they were.
+ * none). The turn's history, its step count, and what it has read stay as they were.
  */
 async function* executeResumedStep(
   args: Omit<Parameters<typeof executeAutonomousStep>[0], 'mayResume'>,
@@ -506,7 +506,7 @@ function* applyToolSettlement(
  * run side by side; otherwise one at a time, in the order the model made them. A call
  * whose `pre_tool` answers `waitFor` starts its body once those calls settle
  * (`step-order.ts`). A call the provider handed over already failed does not run. A call
- * reads the turn's taint, destinations and visible tools as they stood when the step
+ * reads the turn's taint, destinations, and visible tools as they stood when the step
  * began: the model chose every call in the step before any of their results came back.
  *
  * Results are recorded in the order the model made the calls, each followed by its

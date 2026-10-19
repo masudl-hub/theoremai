@@ -111,7 +111,7 @@ function deliveredOf(root: TraceSpan, spans: TraceSpan[]): TrialMessage[] {
     });
 }
 
-/** Builds the `Trial` a grader reads from one trial's trace records: its root and top spans and accessors for spans, children, content, delivered output and usage. */
+/** Builds the `Trial` a grader reads from one trial's trace records: its root and top spans and accessors for spans, children, content, delivered output, and usage. */
 function buildTrial(args: {
   suite: string;
   case?: EvalCase;

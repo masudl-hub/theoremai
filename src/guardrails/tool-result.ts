@@ -108,7 +108,7 @@ function advisoryNotice(advisory: AdvisoryLevel, labels: LabelOverrides | undefi
   return labelText(key, {}, labels);
 }
 
-/** A tool result after the guard: the text the model sees, any event and the suspicious hits. */
+/** A tool result after the guard: the text the model sees, any event, and the suspicious hits. */
 export interface GuardedToolText {
   /** Absent when a match blocks: the model does not read the text. */
   text?: string;
@@ -223,7 +223,7 @@ export interface ShownToolValue {
 }
 
 /**
- * A call's output, error, artifacts and trace reach the person on the turn's events, apart from
+ * A call's output, error, artifacts, and trace reach the person on the turn's events, apart from
  * what the model read back: the host's server forwards them to the browser as they are. Each is
  * read here at `tool_shown_<kind>`, so a key a tool returned is not shown. `readBack` is
  * untouched: what the model read is settled at `tool_output_<kind>`.

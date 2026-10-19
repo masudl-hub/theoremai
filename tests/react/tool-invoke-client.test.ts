@@ -149,7 +149,7 @@ Deno.test('continueGatedToolInvocation approves with the permissions the host wi
     );
   }
 });
-Deno.test('buildTurnRequest sends the message, its scope and session permissions, never the conversation', () => {
+Deno.test('buildTurnRequest sends the message, its scope, and session permissions, never the conversation', () => {
   const iface = textInterface('react.invoke.turn', { fast });
   const body = buildTurnRequest(
     iface,
@@ -200,7 +200,7 @@ Deno.test('buildTurnRequest forwards effort only when the model allows effort se
     undefined,
   );
 });
-Deno.test('buildInvokeRequest replays the snapshot, promoted tools and selected model', () => {
+Deno.test('buildInvokeRequest replays the snapshot, promoted tools, and selected model', () => {
   const iface = textInterface(
     'react.invoke.replay',
     { fast, smart },
@@ -262,7 +262,7 @@ Deno.test('buildInvokeRequest prefers explicit permissions and omits empty repla
   assertEquals('promoted' in (body.replay ?? {}), false);
   assertEquals('model' in (body.replay ?? {}), false);
 });
-Deno.test('filesToPending keeps name, size and a fallback mime type', () => {
+Deno.test('filesToPending keeps name, size, and a fallback mime type', () => {
   assertEquals(
     filesToPending([
       new File(['abc'], 'a.png', { type: 'image/png' }),

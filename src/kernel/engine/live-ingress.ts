@@ -1,7 +1,7 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import type { LiveIngressSpec, LiveProfile, Profile } from '../types.ts';
 
-/** A channel a live session can take input on: audio, video or text. */
+/** A channel a live session can take input on: audio, video, or text. */
 export type LiveIngressChannel = keyof LiveIngressSpec;
 
 const LIVE_INGRESS_CHANNELS: LiveIngressChannel[] = ['audio', 'video', 'text'];

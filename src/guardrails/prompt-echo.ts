@@ -11,7 +11,7 @@
  * dump as a numbered or bulleted list does not hide it. Nor does encoding it:
  * the prompt is also read backwards and in rot13, and both it and the reply
  * with leetspeak decoded. Where the prompt has
- * the canary, any one word or none continues a run: a model told to hide the
+ * the canary, any one word, or none continues a run: a model told to hide the
  * canary echoes the prompt around a stand-in for it. A streamed reply holds
  * the words an echo could still grow from (`promptEchoHoldFrom`), so none of
  * an echo reaches the host.

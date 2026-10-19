@@ -73,7 +73,7 @@ export type StageCallBag = {
   gate?: ToolGate;
 };
 
-/** What a stage handler is given: the stage, the step and what has happened so far. */
+/** What a stage handler is given: the stage, the step, and what has happened so far. */
 export interface StageContext extends StageCallBag {
   stage: TurnStage;
   /** 1-based provider step (text) or utterance cycle index (live). */
@@ -559,7 +559,7 @@ export function applyStageResult(input: StageApplyInput): StageApplyOutput {
   return out;
 }
 
-/** What a `stage` event records beside the stage: the tool call, its gate and any injected messages. */
+/** What a `stage` event records beside the stage: the tool call, its gate, and any injected messages. */
 export type StageEventExtra = {
   callId?: string;
   toolName?: string;

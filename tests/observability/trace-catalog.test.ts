@@ -9,7 +9,7 @@ import type { TraceSpan } from '../../src/observability/trace-span.ts';
 import { stubSpan } from '../fixtures/trace-record.ts';
 
 const SRC = new URL('../../src/', import.meta.url);
-/** Where the kernel, host and eval runner record spans; exporters under observability/ translate, not record. */
+/** Where the kernel, host, and eval runner record spans; exporters under observability/ translate, not record. */
 const EMITTER_ROOTS = ['kernel', 'host', 'evals'];
 const ATTRIBUTE_KEY =
   /'((?:gen_ai|theorem|http|server|url|error|exception)\.[a-z0-9_.]*[a-z0-9_])'/g;

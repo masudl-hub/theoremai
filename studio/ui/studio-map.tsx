@@ -1,5 +1,5 @@
 /**
- * The map: the providers, models, shared settings, profiles and tools as tokens in columns, with a
+ * The map: the providers, models, shared settings, profiles, and tools as tokens in columns, with a
  * line from each to what it feeds. It changes nothing; a node opens what it stands for. `Expand`
  * shows each profile as a card of its sections and each tool with its description. A node can be
  * dragged to where it reads best, and the field dragged to pan it; `Tidy` puts every node back. A
@@ -63,7 +63,7 @@ import { MapToken, useTokenWidths } from './map-token.tsx';
 import { drags, fieldStart, follow, scrollOnce, usePan } from './pan.ts';
 import './studio-map.css';
 
-/** With detail a node holds its icon, its name and two lines of its note; a card's head, one; a row, a section. */
+/** With detail a node holds its icon, its name, and two lines of its note; a card's head, one; a row, a section. */
 /** A token's slot: as wide as the longest name it shows in full. */
 const TOKEN_SIZES: MapSizes = {
 	node: { width: 240, height: 24 },

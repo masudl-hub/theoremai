@@ -7,7 +7,7 @@ import { byModality, groundingCounts, modalityCounts } from '../usage.ts';
 
 /* probed 2026-09-23:
  * Interactions steps and deltas read only the shapes recorded from the wire
- * (probes 23/09/2026, gemini-3.8-flash, gemini-3.1-pro-preview, image and TTS
+ * (probes 23/09/2026, gemini-3.8-flash, gemini-3.1-pro-preview, image, and TTS
  * models, streamed and buffered):
  *
  * - `text` deltas carry `text`; `thought_summary` deltas carry
@@ -18,7 +18,7 @@ import { byModality, groundingCounts, modalityCounts } from '../usage.ts';
  *   buffered mime already states them (`audio/l16; rate=24000; channels=1`),
  *   the streamed one does not (`audio/l16`), so they are folded into the mime.
  * - `code_execution_call` carries `id` and `arguments: { language, code }`;
- *   `code_execution_result` carries `call_id`, `result` and `is_error`. Each
+ *   `code_execution_result` carries `call_id`, `result`, and `is_error`. Each
  *   arrives whole, in one delta (5 577 characters of code in one probe).
  */
 

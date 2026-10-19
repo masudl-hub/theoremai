@@ -123,7 +123,7 @@ Deno.test('live mode runs every case repeat times and passes the translator', as
       trial: report.index,
     });
   }
-  // Eight turns, their eight trial records and one run record reached the sink, all cataloged.
+  // Eight turns, their eight trial records, and one run record reached the sink, all cataloged.
   assertEquals(written.length, 17);
   assertEquals(
     written.filter((record) => record.spans[0]?.name === 'theorem.eval.trial').length,

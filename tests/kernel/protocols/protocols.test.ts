@@ -174,7 +174,7 @@ Deno.test('an extension adds options, refuses one its base has, and carries its 
   assertEquals(carriesTo('routedEcho', echo), false);
 });
 
-Deno.test('a registered provider checks its protocols, ids and connection', () => {
+Deno.test('a registered provider checks its protocols, ids, and connection', () => {
   const registry = createProviderRegistry();
   registry.register(host, { keySlot: 'main' });
   assertThrows(

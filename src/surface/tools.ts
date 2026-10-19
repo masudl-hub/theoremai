@@ -55,7 +55,7 @@ export function surfaceTools(options: SurfaceToolsOptions = {}): ToolDefinitionI
       ...base,
       name: 'look',
       description:
-        "See what is on the person's screen. With no `at`: every surface, its revision, summary, nodes and issue counts. With `at`: that node's fields (secrets only as cards: set, what it looks like, problems), what each means, its issues, its actions with their input schemas, and its children.",
+        "See what is on the person's screen. With no `at`: every surface, its revision, summary, nodes, and issue counts. With `at`: that node's fields (secrets only as cards: set, what it looks like, problems), what each means, its issues, its actions with their input schemas, and its children.",
       access: 'read-only',
       input: lookInput,
     },
@@ -63,7 +63,7 @@ export function surfaceTools(options: SurfaceToolsOptions = {}): ToolDefinitionI
       ...base,
       name: 'act',
       description:
-        "Do one of a node's actions: `set` fields, `point` the person at something, or the node's own (test, send, launch…). Comes back applied, unchanged, done, stale (the page changed: look again), refused or failed, with what was rejected and why.",
+        "Do one of a node's actions: `set` fields, `point` the person at something, or the node's own (test, send, launch…). Comes back applied, unchanged, done, stale (the page changed: look again), refused, or failed, with what was rejected and why.",
       access: 'read-write',
       input: actInput,
     },

@@ -39,7 +39,7 @@ export interface OpenRouterConnection {
   siteName?: string;
 }
 
-/** OpenRouter: many labs' models behind one key. Chat, speech, images and decisions. */
+/** OpenRouter: many labs' models behind one key. Chat, speech, images, and decisions. */
 export const openRouterProvider: Provider<OpenRouterConnection, string> = defineProvider({
   id: 'openrouter',
   name: 'OpenRouter',

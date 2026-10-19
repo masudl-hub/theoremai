@@ -585,7 +585,7 @@ function outboundAttacks(profileId: string): LiveAttack[] {
   ];
 }
 
-/** The whole attack bank for a profile: canary, inbound injection, tag, history, slot and sensitive-value attacks, jailbreaks, composites and outbound attacks. */
+/** The whole attack bank for a profile: canary, inbound injection, tag, history, slot, and sensitive-value attacks, jailbreaks, composites, and outbound attacks. */
 export function buildLiveAttacks(profileId: string): LiveAttack[] {
   return [
     ...canaryAttacks(profileId),

@@ -88,7 +88,7 @@ const IPV4_ALLOWED = [
   '223.255.255.255',
 ];
 
-Deno.test('every private, shared, reserved and multicast IPv4 range is refused edge to edge', () => {
+Deno.test('every private, shared, reserved, and multicast IPv4 range is refused edge to edge', () => {
   for (const ip of IPV4_BLOCKED) check(isPrivateOrLocalAddress(ip), true, ip);
 });
 
@@ -182,7 +182,7 @@ const IPV6_ALLOWED = [
   '[::1',
 ];
 
-Deno.test('every private, local and tunnelling IPv6 range is refused, and embedded IPv4 is judged', () => {
+Deno.test('every private, local, and tunnelling IPv6 range is refused, and embedded IPv4 is judged', () => {
   for (const ip of IPV6_BLOCKED) check(isPrivateOrLocalAddress(ip), true, ip);
 });
 

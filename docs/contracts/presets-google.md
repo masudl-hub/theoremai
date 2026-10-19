@@ -55,7 +55,7 @@ created by a streamed call is stored as its new steps plus a pointer to the one
 before, and Google refuses the fourth chained call of a tool loop with "function
 response turn comes immediately after a function call turn" (probe 01/10/2026,
 `gemini-3.1-flash-lite` and `gemini-3.5-flash-lite`: 16 of 17 streamed tool
-chains refused at that call; non-streamed chains, history mode and text-only
+chains refused at that call; non-streamed chains, history mode, and text-only
 chains all passed). A streamed profile with tools that chains will hit it;
 `false` avoids it.
 
@@ -69,7 +69,7 @@ chains all passed). A streamed profile with tools that chains will hit it;
 | A `GOOGLE_NO_EFFORT_API_IDS` model pins `efforts` | `efforts` | `gemini-3.8-live` closes 1007 "Thinking level is not supported for this model"; it takes `summaries` (04/10/2026) |
 | A `GOOGLE_THINKING_REQUIRED_API_IDS` model has no `efforts` | `efforts` | `gemini-3.8-live-extended-thinking` closes 1007 "Thinking level must be specified for this model" |
 | With `freeTier`, a model missing from `GOOGLE_FREE_TIER_GROUNDING` | `apiId` | The model has no free-tier quota |
-| With `freeTier`, `googleSearch` or `googleMaps` the model's free quota doesn't allow | `builtInTools` | Live closes 1011 "You exceeded your current quota" at setup, whatever the key's usage, so it reads as a quota failure |
+| With `freeTier`, `googleSearch`, or `googleMaps` the model's free quota doesn't allow | `builtInTools` | Live closes 1011 "You exceeded your current quota" at setup, whatever the key's usage, so it reads as a quota failure |
 
 `GOOGLE_FREE_TIER_GROUNDING` maps each free-tier model to `{ googleSearch, googleMaps }` (AI Studio, Sep 2026; no model keeps free Maps quota as of 13/10/2026); `googleFreeTierBuiltins(apiId)` lists the grounding builtins it allows. The studio's model policy reads this table. The kernel does not run the check; a host calls it on the profiles it registers.
 

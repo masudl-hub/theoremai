@@ -29,7 +29,7 @@ export interface LiveHeldOutput {
   end: number;
 }
 
-/** The gate's state for one live session: its policy and context, the progressive gate, the output held and how far reply text has been released. */
+/** The gate's state for one live session: its policy and context, the progressive gate, the output held, and how far reply text has been released. */
 export interface LiveOutboundGateSession {
   policy: ResolvedGuardrailPolicy;
   context: GuardrailContext;
@@ -227,7 +227,7 @@ function holdStreamChunk(
   if (!session.withholdVisible) applyScan(session, gate, result, into);
 }
 
-/** Passes one provider message's events through the outbound gate: reply text and audio are held until the egress checks clear them, a prompt leak or egress hit withholds, and thoughts go through the thought guard. */
+/** Passes one provider message's events through the outbound gate: reply text and audio are held until the egress checks clear them, a prompt leak, or egress hit withholds, and thoughts go through the thought guard. */
 function processLiveOutboundBatch(
   session: LiveOutboundGateSession,
   events: TurnEvent[],

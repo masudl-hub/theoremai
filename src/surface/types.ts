@@ -63,7 +63,7 @@ export interface SurfaceActionOutcome {
   node?: string;
 }
 
-/** Something the agent can do on a node: its description, effect, input schema and `run`. */
+/** Something the agent can do on a node: its description, effect, input schema, and `run`. */
 export interface SurfaceAction<Input = Record<string, unknown>> {
   description: string;
   effect: SurfaceEffect;
@@ -99,7 +99,7 @@ export interface SurfaceNode {
   actions?: Record<string, SurfaceAction<never>>;
 }
 
-/** A recorded change to a surface: its revision, author and the nodes it touched. */
+/** A recorded change to a surface: its revision, author, and the nodes it touched. */
 export interface SurfaceChange {
   revision: number;
   by: SurfaceAuthor;

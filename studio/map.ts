@@ -267,7 +267,7 @@ export function mapFound(map: WorkspaceMap, query: string): string[] {
 }
 
 /**
- * `id`'s family: the node, everything that feeds it and everything it feeds, however many links
+ * `id`'s family: the node, everything that feeds it, and everything it feeds, however many links
  * away, with the links between them. Empty when the map has no such node. Several ids give their
  * families together.
  */

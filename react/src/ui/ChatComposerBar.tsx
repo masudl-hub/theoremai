@@ -117,7 +117,7 @@ export type ChatComposerBarProps = {
   onPendingSendNow: (id: string) => void;
 };
 
-/** A Live call's text line: it is sent as typed, so there is nothing to attach, queue or stop. */
+/** A Live call's text line: it is sent as typed, so there is nothing to attach, queue, or stop. */
 export type LiveComposerBarProps = Omit<
   Pick<
     ChatComposerBarProps,

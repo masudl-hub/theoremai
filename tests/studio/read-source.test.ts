@@ -325,7 +325,7 @@ Deno.test("a provider's file reads back as the provider, and an edit to it is wh
   assertEquals(again.provider, bare);
 });
 
-Deno.test("a provider's file keeps its id, a kernel definition and only what a provider holds", () => {
+Deno.test("a provider's file keeps its id, a kernel definition, and only what a provider holds", () => {
   const house = { id: 'house', definition: 'openrouter', connection: { siteName: 'House' } };
   const source = providerSource(house);
   const errors = (text: string) => {

@@ -2,7 +2,7 @@
 // Ties a Markdown doc to the code it describes. See docs/writing/proof.md.
 //
 //   node scripts/docs-claims.mjs check <doc.md>
-//     Every inline `code span` that names a path, package or identifier must
+//     Every inline `code span` that names a path, package, or identifier must
 //     exist in the repo. Prints the ones that do not. Exit 1 if any are missing.
 //
 //   node scripts/docs-claims.mjs affected [--base REF]

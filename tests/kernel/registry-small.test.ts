@@ -34,7 +34,7 @@ function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
 
-Deno.test('only a turn-shaped profile has turn outputs; live, host and decision have none even when given some', () => {
+Deno.test('only a turn-shaped profile has turn outputs; live, host, and decision have none even when given some', () => {
   const outputs = { structured: null };
   for (const type of ['live', 'host', 'decision']) {
     check(profileTurnOutputs({ type, outputs } as never), undefined, type);
@@ -60,7 +60,7 @@ Deno.test('a builtin that is not registered, or is registered as something else,
   );
 });
 
-Deno.test('the kernel request omits vendor continuation, option and key fields', () => {
+Deno.test('the kernel request omits vendor continuation, option, and key fields', () => {
   const generation = {
     model: 'm',
     apiId: 'a',

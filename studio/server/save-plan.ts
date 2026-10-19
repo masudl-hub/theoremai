@@ -57,7 +57,7 @@ import {
   zodSource,
 } from './zod-edit.ts';
 
-/** A profile, tool or provider that changed: its values before and after, as the studio holds them. */
+/** A profile, tool, or provider that changed: its values before and after, as the studio holds them. */
 export interface SaveSubject {
   kind: SubjectKind;
   of: string;
@@ -396,7 +396,7 @@ class Planner {
     };
   }
 
-  /** What holds `at`: the subject's own call, a constant or a function, or nothing the studio follows. */
+  /** What holds `at`: the subject's own call, a constant, or a function, or nothing the studio follows. */
   private regionOf(at: Located): ts.Node | undefined {
     if (isInTarget(this.target, at)) return this.target.options;
     return isInCall(this.target, at) ? this.target.call?.node : holderOf(at)?.initializer;
@@ -458,7 +458,7 @@ class Planner {
     this.frame = outer;
   }
 
-  /** A value a name, a key or a call stands for. One the studio cannot follow is not written. */
+  /** A value a name, a key, or a call stands for. One the studio cannot follow is not written. */
   private named(at: Located, name: string, before: unknown, after: unknown, path: string[]) {
     const origin = followed(this.project, at);
     const stayed = origin.node === unwrapped(at.node) && origin.source === at.source;
@@ -888,7 +888,7 @@ class Planner {
     }
   }
 
-  /** An object schema's fields: each one changed, added or taken away. */
+  /** An object schema's fields: each one changed, added, or taken away. */
   private zodFields(object: ZodObject, { before, after, path, side }: ZodChange) {
     const [fields, held] = [isRecord(before.properties) ? before.properties : {}, isRecord(after.properties) ? after.properties : {}];
     const [needed, needs] = [names(before.required), names(after.required)];

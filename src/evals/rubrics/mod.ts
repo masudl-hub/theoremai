@@ -4,7 +4,7 @@
  * Apache License 2.0), keyed in camelCase (`tool_selection` is
  * `rubrics.toolSelection`), and `rubric()` for a host's own.
  *
- * Each keeps Phoenix's name, labels and prompt. The labels that pass follow
+ * Each keeps Phoenix's name, labels, and prompt. The labels that pass follow
  * Phoenix's direction: the top-scoring labels when higher is better, the
  * bottom-scoring when lower is (`toxicity` passes `non-toxic`), none when
  * Phoenix names no direction (`refusal` informs, never decides). A decision

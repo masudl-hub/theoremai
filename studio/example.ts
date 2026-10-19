@@ -242,7 +242,7 @@ export function createExampleDraft(): StudioDraft {
   );
 }
 
-/** The travel concierge on a call: the same tools, a live model and an instruction for speech. */
+/** The travel concierge on a call: the same tools, a live model, and an instruction for speech. */
 export function createLiveExampleDraft(): StudioDraft {
   const draft = setProfileType(createExampleDraft(), 'live', EXAMPLE_PICKS);
   return {

@@ -31,7 +31,7 @@ type Json = Record<string, unknown>;
 
 /**
  * What each decision is asked in the edited load: the questions the setup names, and for a
- * decision the setup does not name (one the builder added, renamed or made a decision) the ones
+ * decision the setup does not name (one the builder added, renamed, or made a decision) the ones
  * on the page.
  */
 export function editedQuestions(edits: ProjectEdits, named: ProjectQuestions = {}): ProjectQuestions {

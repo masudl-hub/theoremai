@@ -691,7 +691,7 @@ Deno.test('an abort stops the call before sign-in and before the handler', async
   check((second as Error)?.name, 'AbortError', 'aborted after the pre-body stages');
   check(ran, 0, 'handler never ran');
 });
-Deno.test('a failed handler tells post_tool the tool, call and input it failed on', async () => {
+Deno.test('a failed handler tells post_tool the tool, call, and input it failed on', async () => {
   registerFn('xb_post_fail', {
     input: z.object({ n: z.number() }),
     handler: () => {
@@ -886,7 +886,7 @@ Deno.test('a resumed T0 call needs no load, while any other unloaded tool is ref
     'a resumed T2 call is still unloaded',
   );
 });
-Deno.test('a remote body settles by its outcome: a result, a failure, an abort or a gate', async () => {
+Deno.test('a remote body settles by its outcome: a result, a failure, an abort, or a gate', async () => {
   registerHttp('xb_http_ok');
   const post: unknown[] = [];
   const ok = await withFetch(

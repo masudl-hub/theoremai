@@ -10,7 +10,7 @@ The interface contains tool IDs, model choices, input declarations, and client w
 It excludes tool definitions and host functions.
 The browser rejects an invalid description with `bad_response`.
 
-## Send a turn, a tool decision or a conversation read
+## Send a turn, a tool decision, or a conversation read
 
 `createTheoremHandler` validates each request before it calls the kernel.
 

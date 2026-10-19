@@ -102,7 +102,7 @@ function startTrialRecord(input: TrialRecordInput): OpenTrialRecord {
   return { traceparent: tree.root.traceparent(), finish };
 }
 
-/** What a run's record is built from: the suite, the verdicts and the trial spans. */
+/** What a run's record is built from: the suite, the verdicts, and the trial spans. */
 interface RunRecordInput {
   suite: Pick<EvalSuite, 'id' | 'trials'>;
   verdicts: readonly CaseVerdict[];

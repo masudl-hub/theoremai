@@ -105,7 +105,7 @@ export function definitionOf(providers: readonly StudioProvider[], id: string): 
   return providers.find((provider) => provider.id === id)?.definition;
 }
 
-/** What `provider` registers with: its id, connection and slots. */
+/** What `provider` registers with: its id, connection, and slots. */
 function registrationOf(provider: StudioProvider) {
   return {
     id: provider.id,
@@ -202,7 +202,7 @@ export function providerProblems(provider: StudioProvider): ProviderProblem[] {
   for (const field of ['keySlot', 'fallbackKeySlot'] as const) {
     const slot = provider[field];
     if (slot !== undefined && !keySlotSchema.safeParse(slot).success) {
-      problems.push({ field, message: 'A key slot is 1 to 32 letters, digits, hyphens or underscores.' });
+      problems.push({ field, message: 'A key slot is 1 to 32 letters, digits, hyphens, or underscores.' });
     }
   }
   if (provider.keySlot && provider.keySlot === provider.fallbackKeySlot) {
@@ -263,7 +263,7 @@ export function servesProfileType(
   return protocol === undefined ? served.length > 0 : served.some((each) => each.id === protocol);
 }
 
-/** A model as the studio's rules read it: its protocol, its provider and that provider's definition, and whether it decides. */
+/** A model as the studio's rules read it: its protocol, its provider, and that provider's definition, and whether it decides. */
 export interface ModelRoute {
   /** The profile type this model serves. */
   profileType: ModelProfileType;

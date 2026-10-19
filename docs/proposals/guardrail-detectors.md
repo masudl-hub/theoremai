@@ -11,7 +11,7 @@ until Masud agrees the whole doc.
 
 - X is a **detector**.
 - Y is a **boundary**.
-- Z is an **action**: `ignore`, `flag`, `redact` or `block`.
+- Z is an **action**: `ignore`, `flag`, `redact`, or `block`.
 
 Every guardrail that reads text is a detector in `guardrails.detect`. There is
 no second place to configure one and no second vocabulary.
@@ -28,7 +28,7 @@ Today six places configure the same kind of decision:
 | A tool result that tells the agent what to do | no setting, always on | detector `tool_instructions` |
 | Whatever a host's own check finds | `egress.enforce`, `egressPolicy({ rules })` | host patterns and host detectors (section 5) |
 
-`guardrails.canary`, `guardrails.promptEcho` and `guardrails.egress` cease to
+`guardrails.canary`, `guardrails.promptEcho`, and `guardrails.egress` cease to
 exist.
 
 Guardrails that do not read text are **limits**. They stay as they are
@@ -37,7 +37,7 @@ Guardrails that do not read text are **limits**. They stay as they are
 ## 2. Detectors
 
 A detector declares three things. Nothing else describes it, and the editor,
-validation, catalog and docs are generated from the declaration.
+validation, catalog, and docs are generated from the declaration.
 
 1. What it finds.
 2. The boundaries it applies at.
@@ -61,7 +61,7 @@ promise to remove a sentence.
 | `network` | IPv4, IPv6 addresses | every boundary | yes |
 | `credentials` | API keys, tokens, key assignments, PEM keys | every boundary | yes |
 | `injection` | prompt-injection phrasing, as written or disguised | every boundary | yes |
-| `tool_instructions` | a tool result that instructs the agent: names a callable tool, gives an order or claims authority alongside a destination, or tells it to drop its instructions | tool output, tool failure | yes |
+| `tool_instructions` | a tool result that instructs the agent: names a callable tool, gives an order, or claims authority alongside a destination, or tells it to drop its instructions | tool output, tool failure | yes |
 | `canary_leak` | the token the kernel plants in the system instruction | reply, structured reply, Live reply, thought, tool arguments | no |
 | `prompt_leak` | a run of words from the private system instruction, also reversed, in rot13 or leetspeak | reply, structured reply, Live reply, thought, tool arguments | no |
 | `marker_leak` | the kernel's fence markers | reply, structured reply, Live reply | no |
@@ -131,7 +131,7 @@ withheld as today.
 | `ignore` | Does not check the text. |
 | `flag` | Records the match in the trace. Changes nothing. |
 | `redact` | Replaces the match with a placeholder. Keeps the rest. |
-| `block` | Stops the whole message, reply or tool call. None of it gets through. |
+| `block` | Stops the whole message, reply, or tool call. None of it gets through. |
 
 When several detectors match one crossing, the strongest action wins (`block`
 over `redact` over `flag`). Every match is reported under its own detector.
@@ -156,7 +156,7 @@ What follows a block elsewhere is fixed, as today: a refused request ends the
 turn; a stopped tool call or withheld result is reported to the model as a
 failed call; a hidden thought changes nothing else.
 
-## 5. Whose patterns: Theorem's, the host's, both or none
+## 5. Whose patterns: Theorem's, the host's, both, or none
 
 Decided: per detector, a host chooses Theorem's patterns and its own, only
 Theorem's, only its own, or none. A host can also add a detector of its own.
@@ -255,7 +255,7 @@ boundary, so a matched secret is redacted there by default.
 
 A Theorem detector (decided), so no host derives it: the names of the
 profile's tools and their parameters, and tool-call JSON, in what the model
-says. Applies at reply, structured reply, Live reply and thought. Default
+says. Applies at reply, structured reply, Live reply, and thought. Default
 `flag`: an agent often names a tool honestly. It takes `allow` (names that are
 innocent) and host patterns.
 
@@ -345,7 +345,7 @@ detector that is above `ignore` at that boundary, and returns one result.
    boundary or action.
 4. **Theorem's patterns go off only when the profile says `theorem: false`,**
    and the editor and the interface view show it.
-5. **Every stop is reported** with detector, boundary and action.
+5. **Every stop is reported** with detector, boundary, and action.
 6. **The defaults are one table,** snapshot-tested. Changing a default is a
    breaking change with a release note.
 
@@ -367,7 +367,7 @@ One section, **Detect**. `Egress` and `Canary` go.
 - A detector that takes patterns has a switch for Theorem's patterns and a
   list of the host's. `ungiven_images` and `ungiven_links` have their allowed hosts.
 - One row below the groups: **Blocked reply** (retry or refuse, retries).
-- Labels, tooltips and descriptions come from the detector declarations. The
+- Labels, tooltips, and descriptions come from the detector declarations. The
   frontend holds only the icons.
 
 ## 11. Build order
@@ -387,7 +387,7 @@ Each step ends green on every gate and carries its contract-doc edits.
 3. `marker_leak`, `ungiven_images`, `ungiven_links` as detectors. `blockedReply`.
    `guardrails.egress.checks`, `onBlock`, `maxRetries` deleted.
 4. Host patterns and host detectors: compile, safety check, `detect-compile`.
-   `egress.enforce`, `holdback` and `egressPolicy` deleted.
+   `egress.enforce`, `holdback`, and `egressPolicy` deleted.
 5. `tool_instructions`, agreed with the session that owns the tool-result
    scanner. `tool_leak`. Hints on every detector, carried by a retry.
 6. Trace scrub on the registry. Docs chapters. Cassettes.
@@ -396,7 +396,7 @@ Each step ends green on every gate and carries its contract-doc edits.
 
 1. **One standard.** Everything the kernel finds in text is a detector in
    `guardrails.detect`.
-2. **Canary is a detector.** Flag, redact or block; block by default.
+2. **Canary is a detector.** Flag, redact, or block; block by default.
 3. **Defaults:** ours blocks when it leaves; the user's stays as today;
    ungiven links default to `ignore`. This replaces "no default is `block`".
 4. **What a blocked reply does is set once per profile.**

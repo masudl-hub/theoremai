@@ -106,7 +106,7 @@ function page() {
 
 type Answer = Record<string, unknown>;
 
-Deno.test('look with no at lists surfaces, nodes and issue counts', async () => {
+Deno.test('look with no at lists surfaces, nodes, and issue counts', async () => {
   const runtime = createSurfaceRuntime();
   const { surface } = page();
   runtime.mount(surface);
@@ -309,7 +309,7 @@ Deno.test('stateLine names each surface and the last calls, scrubbed', async () 
   assertEquals(runtime.stateLine(), '(state) page r1: Ada; key missing; last calls: page/key test');
 });
 
-Deno.test('secretCard tells placeholders, quotes and sameAs', () => {
+Deno.test('secretCard tells placeholders, quotes, and sameAs', () => {
   assertEquals(secretCard('<your key>').problems, ['a placeholder, not a real value']);
   assertEquals(secretCard('"abcdefghijklmnopqrstu"').problems, ['wrapped in quotes']);
   assertEquals(secretCard('', { sameAs: ['x'] }).set, false);

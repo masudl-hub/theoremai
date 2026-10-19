@@ -105,7 +105,7 @@ function asProtocolEvents(
   });
 }
 
-/** Gemini's Interactions API: text, images and speech, all at `/interactions`. */
+/** Gemini's Interactions API: text, images, and speech, all at `/interactions`. */
 export const geminiInteractions: Protocol<GeminiInteractionsOptions> = defineProtocol({
   id: 'geminiInteractions',
   name: 'Gemini Interactions',

@@ -145,7 +145,7 @@ Deno.test('traceOutcome names a tool that did not settle ok, and any failure', (
   assertEquals(failed({}, 'boom')?.label, 'boom');
 });
 
-Deno.test("traceTurns splits a turn's time into model, tools, guardrails, hooks and the rest", () => {
+Deno.test("traceTurns splits a turn's time into model, tools, guardrails, hooks, and the rest", () => {
   const root = rootOf([
     span(
       'root',
@@ -348,7 +348,7 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
       rule: 'detect.tool_instructions',
       ruleLabel: 'Tool instructions',
       ruleDoc:
-        'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+        'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
       severity: 'high',
       severityLabel: 'High',
       match: 'ignore previous',
@@ -356,7 +356,7 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
   ]);
 });
 
-Deno.test('trace actors distinguish model, client tool and host work, with failures taking priority', () => {
+Deno.test('trace actors distinguish model, client tool, and host work, with failures taking priority', () => {
   const node = rootOf([span('root', undefined, 0, 1, { 'gen_ai.operation.name': 'invoke_agent' })]);
   for (const [type, actor] of [
     ['call', 'model'],

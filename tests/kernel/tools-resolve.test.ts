@@ -352,7 +352,7 @@ Deno.test('initialBuiltins keeps builtins that are T0, or any tier for live, min
   check(initialBuiltins(tools, as<Profile>({ type: 'text' }), ['ca', 'cb']), [], 'T2 not initial');
 });
 
-Deno.test('resolveTurnTools gates custom then model builtins and derives builtins, visible, executable and wire', () => {
+Deno.test('resolveTurnTools gates custom then model builtins and derives builtins, visible, executable, and wire', () => {
   const profile = modelProfile('text', ['f0', 'f1', 'f2', 'fweb'], ['b0', 'b1', 'bweb', 'f0']);
   const state = resolveTurnTools(
     tools,

@@ -496,7 +496,7 @@ function cutsOf(parts: readonly Part[], source: ts.SourceFile): Cut[] {
   return joined.map((cut) => closed(cut, source.text));
 }
 
-/** Plans the removal of each profile, tool and provider the studio took away. */
+/** Plans the removal of each profile, tool, and provider the studio took away. */
 export function planRemoved(project: ProjectSource, removed: Removed): RemovalPlan {
   const removal = new Removal(project);
   for (const id of removed.profiles) removal.profile(id);

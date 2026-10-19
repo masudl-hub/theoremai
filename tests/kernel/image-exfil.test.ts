@@ -1,7 +1,7 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 /**
  * A reply image is a leak unless the model was given its URL this turn (or
- * Live session): by the system prompt, the user, a tool result or host
+ * Live session): by the system prompt, the user, a tool result, or host
  * history, never by its own earlier reply.
  */
 import '../fixtures/test-host.ts';

@@ -2,8 +2,8 @@
  * The studio screen's server: everything the screen asks a server for, from one handler.
  *
  * The screen authors each draft in the browser and sends it with every request, so this serves
- * no project. It always answers the guardrail probe, the key test and the tool connection test.
- * Given lent keys, it also runs drafts on them: chats, calls, decisions and embeddings. Without
+ * no project. It always answers the guardrail probe, the key test, and the tool connection test.
+ * Given lent keys, it also runs drafts on them: chats, calls, decisions, and embeddings. Without
  * them, the screen runs on the builder's own keys in the browser, and those routes answer 404.
  *
  * The host keeps its own policy: which keys it lends and how much anyone may spend on them
@@ -71,7 +71,7 @@ export type StudioDraftHandlerOptions = {
   lent?: LentRuntime;
   /**
    * Spends one of `kind` for whoever sent `request`, before it runs. Throw a `TheoremError` to refuse
-   * it: the screen reads the error's wording. Every decision, host tool call and agent tool turn on
+   * it: the screen reads the error's wording. Every decision, host tool call, and agent tool turn on
    * the lent keys passes through it. Default: nothing is counted.
    */
   spend?: (kind: StudioSpend, request: Request) => void | Promise<void>;

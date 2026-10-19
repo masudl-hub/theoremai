@@ -1,5 +1,5 @@
 /**
- * OpenInference attributes for Phoenix, whose message views, reasoning tokens and cost read only
+ * OpenInference attributes for Phoenix, whose message views, reasoning tokens, and cost read only
  * OpenInference names; they are copied beside the semconv names so `toOtlpJson` stays neutral.
  *
  * @module
@@ -176,7 +176,7 @@ function jsonValue(
 
 /**
  * Phoenix derives no kind for an operation semconv does not name, and has no price for Jev, so
- * the kind, model, tokens and cost are stated. It has no messages, so Phoenix cannot replay it.
+ * the kind, model, tokens, and cost are stated. It has no messages, so Phoenix cannot replay it.
  */
 function openInferenceDecision(record: TraceRecord, span: TraceSpan): TraceAttributes {
   const { attributes } = span;

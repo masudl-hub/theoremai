@@ -42,9 +42,9 @@ export interface LentDecisionLimits {
   criteria: number;
   instructionsChars: number;
   criterionChars: number;
-  /** Question ids, option labels, model ids and the handle. */
+  /** Question ids, option labels, model ids, and the handle. */
   nameChars: number;
-  /** The profile id, the contract and the API model. */
+  /** The profile id, the contract, and the API model. */
   idChars: number;
   stateBytes: number;
   timeoutMs: number;

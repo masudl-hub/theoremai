@@ -1658,7 +1658,7 @@ Deno.test('injectionSpans does not false-positive on double-encoded benign base6
   assertEquals(injectionSpans(`token: ${outer} end`).length, 0);
 });
 
-// One-edit misspellings: a word one insertion, deletion, substitution or swap from a typo target.
+// One-edit misspellings: a word one insertion, deletion, substitution, or swap from a typo target.
 
 const hits = (text: string) => injectionSpans(text).length > 0;
 
@@ -1792,7 +1792,7 @@ Deno.test('override frame: the gap is at most three words', () => {
   assertEquals(hits('ignore one two three four instructions'), false);
 });
 
-Deno.test('override frame: a negated order, another verb form and a noun are not an order', () => {
+Deno.test('override frame: a negated order, another verb form, and a noun are not an order', () => {
   assertEquals(hits('never ignore the safety rules'), false);
   assertEquals(hits('do not ignore these instructions'), false);
   assertEquals(hits("you can't bypass the guidelines"), false);

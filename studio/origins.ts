@@ -82,7 +82,7 @@ export function rowOrigin(scope: NodeOrigins | undefined, catalogPath: string): 
   return path && scope ? originAt(scope.origins, path) : undefined;
 }
 
-/** The id or name the project's files know a started agent, model or tool by. */
+/** The id or name the project's files know a started agent, model, or tool by. */
 function started(workspace: StudioWorkspace, agentKey: string) {
   const agent = workspace.starts.agents[agentKey];
   return {

@@ -27,7 +27,7 @@ import {
  * - Buffered (`stream: false`): the body's `steps[]` hold every step whole.
  * - Stream: `step.start` (index, step with `id` / `call_id` / `name` and an
  *   empty `signature`), then `step.delta` rows, then `step.stop` (index only).
- *   Text, thought summaries and media stream as their own deltas. A
+ *   Text, thought summaries, and media stream as their own deltas. A
  *   `function_call` starts with `arguments: {}` and streams the JSON string in
  *   `arguments_delta` rows; `code_execution_*` and builtin steps send their
  *   `arguments` / `result` / `is_error` / `signature` whole, in one delta.
@@ -43,7 +43,7 @@ import {
 
 export interface StreamFold {
   text: string;
-  /** Open `function_call`, `code_execution_*` and builtin steps by `index`. */
+  /** Open `function_call`, `code_execution_*`, and builtin steps by `index`. */
   steps: Map<number, Record<string, unknown>>;
   sawMedia: boolean;
   /** A `done` came out: the interaction reported a status. */

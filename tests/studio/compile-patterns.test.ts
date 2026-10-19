@@ -60,7 +60,7 @@ const ids = (source: Guardrails['sources'][string]) => (guardrails: Guardrails) 
   sources: { ...guardrails.sources, ids: source },
 });
 
-Deno.test("a detector reads with Theorem's patterns, the builder's, both or neither", () => {
+Deno.test("a detector reads with Theorem's patterns, the builder's, both, or neither", () => {
   const mine = [{ name: 'order', pattern: 'ORD-\\d{6}', flags: 'i' }];
   assertEquals(detectOf(ids({ theorem: true, hint: '', patterns: [] })), undefined);
   assertEquals(detectOf(ids({ theorem: true, hint: '', patterns: [ORDER] })), {
@@ -91,7 +91,7 @@ Deno.test('a pattern that cannot run is reported on its list', () => {
   assert(twice.message.includes('listed twice'), twice.message);
 });
 
-Deno.test("a builder's own detector compiles with its label, boundaries and patterns", () => {
+Deno.test("a builder's own detector compiles with its label, boundaries, and patterns", () => {
   const own = {
     ...newOwnDetector(),
     key: 'acme.codenames',

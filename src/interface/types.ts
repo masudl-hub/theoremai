@@ -102,7 +102,7 @@ export type ModelBindingView = Omit<ModelBinding, 'compaction'> & {
 /** `profile.outputs` as the interface carries it: validators are host functions. */
 export type ProfileOutputsView = Omit<ProfileOutputsSpec, 'validation'>;
 
-/** What the text, image and speech interfaces carry in place of their profile's own fields. */
+/** What the text, image, and speech interfaces carry in place of their profile's own fields. */
 export type ComposerInterfaceFields = {
   models: Record<ModelId, ModelBindingView>;
   outputs?: ProfileOutputsView;
@@ -248,7 +248,7 @@ export interface ToolCall {
   state?: ToolCallState;
   /** When it last started running (epoch ms). */
   startedAt?: number;
-  /** When it last settled: complete, failed, cancelled or gated (epoch ms). */
+  /** When it last settled: complete, failed, cancelled, or gated (epoch ms). */
   endedAt?: number;
   artifacts: unknown[];
 }
@@ -298,7 +298,7 @@ export interface EvidenceBlock extends TranscriptBlockBase {
 }
 
 /**
- * A guardrail's decision on the turn: a flag, a redaction or a block. It names the rule and where
+ * A guardrail's decision on the turn: a flag, a redaction, or a block. It names the rule and where
  * it matched (`hits[].span`), never the matched text. It comes before the text it was read from.
  * Theorem's own transcript shows nothing for it; a host reads it to show its own notice.
  */
@@ -327,7 +327,7 @@ export interface TurnDoneBlock extends TranscriptBlockBase {
   endedAt?: number;
 }
 
-/** One block of a transcript: a message, an attachment, a thought, a tool call or a notice. */
+/** One block of a transcript: a message, an attachment, a thought, a tool call, or a notice. */
 export type TranscriptBlock =
   | UserTextBlock
   | UserAttachmentBlock

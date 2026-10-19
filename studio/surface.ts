@@ -70,7 +70,7 @@ export interface StudioSurfaceHost {
    * Returns what the person is being asked when the edit waits for their answer: it is not made.
    */
   update(next: StudioDraft): string | undefined;
-  /** A whole new agent: draft, selection and conversation start over, with an Undo. */
+  /** A whole new agent: draft, selection, and conversation start over, with an Undo. */
   replaceDraft(next: StudioDraft, message: string): void;
   /** Selects a section in the editor, focusing one field when named. */
   select(nodeId: string, field?: string): void;
@@ -653,7 +653,7 @@ export function studioSurface(host: StudioSurfaceHost): Surface {
       {
         id: '',
         title: 'Studio',
-        summary: 'The agent the person is building, its sections, keys and preview.',
+        summary: 'The agent the person is building, its sections, keys, and preview.',
         fields: () => ({
           type: {
             value: draft().identity.profileType || null,

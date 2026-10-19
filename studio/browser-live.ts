@@ -70,7 +70,7 @@ class BrowserLiveSocket implements LiveSocket {
       if (!runtime.providers?.vault) {
         throw new TheoremError('auth', 'Fill the vault slot this model names.'); // labels-exempt: builder diagnostic
       }
-      // The client sends its open message as the socket opens: the call's slots, context and resume.
+      // The client sends its open message as the socket opens: the call's slots, context, and resume.
       const [first] = this.queued.splice(0, 1);
       if (typeof first !== 'string') {
         throw new TheoremError('request', 'A live call must open with its open message'); // labels-exempt: internal diagnostic

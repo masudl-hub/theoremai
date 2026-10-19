@@ -202,7 +202,7 @@ Deno.test('pinned profile wires 3.5 minimal through theorem', () => {
 });
 
 // Interactions rows below follow the shapes recorded from gemini-3.8-flash and
-// gemini-3.1-pro-preview (23/09/2026); ids, text and bytes are synthetic.
+// gemini-3.1-pro-preview (23/09/2026); ids, text, and bytes are synthetic.
 
 function row(eventType: string, fields: Record<string, unknown>): Record<string, unknown> {
   return { event_type: eventType, ...fields };

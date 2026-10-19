@@ -233,7 +233,7 @@ Deno.test('grading a judged run again leaves the judge calls inside each trace o
     live.trials.map((report) => report.traceId),
   );
   assertEquals(again.trials[0]?.results[0]?.score, { value: 1, label: 'correct' });
-  // The judged trace holds the turn, its trial span and the judge turn beneath it; only the turn is graded.
+  // The judged trace holds the turn, its trial span, and the judge turn beneath it; only the turn is graded.
   const graded = again.trials[0]?.records ?? [];
   assertEquals(
     graded.some((record) => 'judge' in ((record.metadata?.eval as object | undefined) ?? {})),
@@ -445,7 +445,7 @@ Deno.test("the rubrics are Phoenix's fourteen, each with a prompt and a question
   assertEquals(rubrics.conciseness.variables, ['input', 'output']);
 });
 
-Deno.test('rubric() takes a prompt, a question or both, and refuses a question that does not fit its labels', () => {
+Deno.test('rubric() takes a prompt, a question, or both, and refuses a question that does not fit its labels', () => {
   const labels = { on: 1, off: 0 };
   const question = {
     instructions: 'Is the output on brand?',

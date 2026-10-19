@@ -68,7 +68,7 @@ export type TheoremHostProps = {
   labels?: TheoremLabels;
   /**
    * Colour code the reply left untagged: a fence with no language is read and, when it is plainly
-   * one of JavaScript, TypeScript, Python, shell, JSON, CSS, HTML, XML, YAML or Markdown, shown as it.
+   * one of JavaScript, TypeScript, Python, shell, JSON, CSS, HTML, XML, YAML, or Markdown, shown as it.
    * A fence with a language is never changed. Off by default.
    */
   detectCodeLanguage?: boolean;

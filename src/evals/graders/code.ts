@@ -207,7 +207,7 @@ function guardrail(options: { fired: boolean; action?: 'redact' | 'flag' | 'bloc
   });
 }
 
-/** Limits a trial must stay under: cost, tokens, steps and time. */
+/** Limits a trial must stay under: cost, tokens, steps, and time. */
 interface BudgetOptions {
   maxCostUsd?: number;
   maxTokens?: number;

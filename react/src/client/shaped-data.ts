@@ -35,7 +35,7 @@ const DESCRIPTION_KEYS = [
 ];
 /** Fields that link a row to its page. */
 const LINK_KEYS = ['url', 'link', 'href'];
-/** Fields a list row shows beyond its name, line, link and tags, at its end. */
+/** Fields a list row shows beyond its name, line, link, and tags, at its end. */
 const MAX_LIST_EXTRAS = 2;
 /** A list of flat objects with at most this many fields reads as a table. */
 const MAX_TABLE_COLUMNS = 6;

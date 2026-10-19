@@ -45,7 +45,7 @@ function flag(name: string): string | undefined {
 function judgeFlag(): keyof typeof SUITES {
   const value = flag('judge') ?? 'none';
   if (value in SUITES) return value as keyof typeof SUITES;
-  console.error(`--judge takes text, jev or both, not ${value}`);
+  console.error(`--judge takes text, jev, or both, not ${value}`);
   Deno.exit(2);
 }
 

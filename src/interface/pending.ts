@@ -32,7 +32,7 @@ function createPendingId(): string {
     : `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** True when the draft holds text, an attachment or voice. */
+/** True when the draft holds text, an attachment, or voice. */
 function userDraftHasPayload(draft: UserTurnDraft): boolean {
   return Boolean(
     draft.text?.trim() ||

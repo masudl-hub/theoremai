@@ -1140,7 +1140,7 @@ function hostProbeProvider(name: string, delayMs = 0): TurnModel {
     },
   };
 }
-Deno.test('handler, preTool and t1Policy observe the same host object for a turn', async () => {
+Deno.test('handler, preTool, and t1Policy observe the same host object for a turn', async () => {
   const seen: Array<{
     hook: string;
     host: unknown;
@@ -1234,7 +1234,7 @@ Deno.test("concurrent runTurn calls never observe each other's host", async () =
     true,
   );
 });
-Deno.test('invokeTool passes its own host to handler, preTool and t1Policy', async () => {
+Deno.test('invokeTool passes its own host to handler, preTool, and t1Policy', async () => {
   const seen: Array<{
     hook: string;
     host: unknown;

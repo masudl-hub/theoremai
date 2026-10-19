@@ -145,7 +145,7 @@ Deno.test('an agent tool naming a removed agent shows on the tool', () => {
   );
 });
 
-Deno.test('an agent tool runs only a text, image or speech agent', () => {
+Deno.test('an agent tool runs only a text, image, or speech agent', () => {
   const issues = issuesOf(conciergeCallingHelper(createSpanExampleDraft()));
   assert(
     issues.some(
@@ -261,12 +261,12 @@ Deno.test("a provider's settings answer with the kernel's own rules, each at its
       [
         providerNodeId('local'),
         'keySlot',
-        'A key slot is 1 to 32 letters, digits, hyphens or underscores.',
+        'A key slot is 1 to 32 letters, digits, hyphens, or underscores.',
       ],
       [
         providerNodeId('local'),
         'fallbackKeySlot',
-        'A key slot is 1 to 32 letters, digits, hyphens or underscores.',
+        'A key slot is 1 to 32 letters, digits, hyphens, or underscores.',
       ],
       [
         providerNodeId('local'),

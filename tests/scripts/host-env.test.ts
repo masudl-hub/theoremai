@@ -25,7 +25,7 @@ async function withEnvFile(text: string, run: () => void): Promise<void> {
   }
 }
 
-Deno.test('loadHostEnv sets file keys, unquotes values and lets the shell win', async () => {
+Deno.test('loadHostEnv sets file keys, unquotes values, and lets the shell win', async () => {
   await withEnvFile(
     '# comment\n\nHOST_ENV_PLAIN=one\nHOST_ENV_QUOTED="two"\nHOST_ENV_SHELL=file\nno_equals\n',
     () => {

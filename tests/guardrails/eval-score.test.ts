@@ -123,7 +123,7 @@ function benign(count: number, fired: number, category: string): CorpusSample[] 
   );
 }
 
-Deno.test('formatScores prints each source line with recall, false positives and what fired', () => {
+Deno.test('formatScores prints each source line with recall, false positives, and what fired', () => {
   const fires = (text: string) => text.startsWith('hit') || text === 'attack-1';
   const scores = scoreAll(
     [detector({ id: 'inj', action: 'block', fires })],

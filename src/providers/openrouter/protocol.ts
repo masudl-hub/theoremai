@@ -110,7 +110,7 @@ export interface OpenRouterOptions {
   cache?: CacheSpec;
 }
 
-/** Chat Completions with OpenRouter's caching, routing, web search, citations and reasoning. */
+/** Chat Completions with OpenRouter's caching, routing, web search, citations, and reasoning. */
 export const openRouter: Protocol<OpenRouterOptions> = extendProtocol(openAi, {
   id: 'openRouter',
   name: 'OpenRouter Chat Completions',

@@ -1861,7 +1861,7 @@ Deno.test('a page tool settles with what the page sent', async () => {
   assertEquals(settled.outputRaw, { count: 3 });
   await h.close();
 });
-Deno.test('a page tool with no result, a timeout or an off-schema result fails to the model', async () => {
+Deno.test('a page tool with no result, a timeout, or an off-schema result fails to the model', async () => {
   clearProfiles();
   resetTools();
   registerBrowserTool();

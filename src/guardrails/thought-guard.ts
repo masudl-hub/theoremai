@@ -751,7 +751,7 @@ function omitsThought(detect: ResolvedDetect, detector: LeakDetector): boolean {
   return detect[detector].thought === 'redact' || detect[detector].thought === 'block';
 }
 
-/** What `guardrails.detect` omits from a thought by its marker, image and link detectors. */
+/** What `guardrails.detect` omits from a thought by its marker, image, and link detectors. */
 function thoughtOmits({
   detect,
   allow,

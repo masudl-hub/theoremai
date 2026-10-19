@@ -19,9 +19,9 @@ import type { TurnHistoryMessage } from '../kernel/turn-events.ts';
 import type { ModelRequest } from '../kernel/types.ts';
 import { textForScan } from './serialize.ts';
 
-/** The URLs a request already contains, split by who controls them: those from the system prompt, user and host history, and those from tool results. */
+/** The URLs a request already contains, split by who controls them: those from the system prompt, user, and host history, and those from tool results. */
 interface GivenUrls {
-  /** From the system prompt, the user and host history. */
+  /** From the system prompt, the user, and host history. */
   request: ReadonlySet<string>;
   /** From tool results, which whoever wrote them controls. */
   tools: ReadonlySet<string>;
@@ -942,7 +942,7 @@ function linkLeakSpans(text: string, scope: UrlScope, skipImages: boolean): Span
 
 /**
  * A start tag as the tokenizer reads it, up to the `>` that ends it. Each
- * name, value and run of space is read one way only (the lookaheads end each
+ * name, value, and run of space is read one way only (the lookaheads end each
  * where the tokenizer does), so a tag that never ends fails in linear time.
  */
 const HTML_START_TAG =

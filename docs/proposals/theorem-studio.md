@@ -54,7 +54,7 @@ logic. For a tool, Claude reads that as:
 |---|---|
 | The description the model reads | The shape of the input and the output |
 | The description of each field | The handler |
-| Read-only, read-write or destructive | A new tool |
+| Read-only, read-write, or destructive | A new tool |
 | When the tool loads, and who may call it | |
 
 Masud checked the table on 8 Oct: "the table looks right". The one change
@@ -72,7 +72,7 @@ Claude's reading of what that means:
 - For a function tool, the builder gives the name, what the tool is for, and
   whether it reads or writes. The studio writes the start of the tool in the
   project. The tool shows as "not built yet".
-- A coding agent, or an engineer, writes the input, the output and the
+- A coding agent, or an engineer, writes the input, the output, and the
   handler in the IDE. The studio sees the change and the builder tests the
   tool in the host console.
 
@@ -157,9 +157,9 @@ Open about shared settings:
 | D6 | Save always needs two checks: the profile registers, and the project type-checks. The builder turns on any other check. | 7 Oct |
 | D7 | The studio stops at the file. It never runs git. | 7 Oct |
 | D8 | Tools run for real. Each tool that writes asks the builder first. | 7 Oct |
-| D9 | Keys and the user come from the application's development setup. The studio does not hold, show or ask for a key. | 7 Oct |
+| D9 | Keys and the user come from the application's development setup. The studio does not hold, show, or ask for a key. | 7 Oct |
 | D10 | The builder chooses where run data lives: memory, a git-ignored folder in the project, or the application's trace store. | 7 Oct |
-| D11 | The screen shows prompts, replies and tool results. It never shows a key. It masks text that a guardrail matched as a credential or an ID, and names the rule. | 7 Oct |
+| D11 | The screen shows prompts, replies, and tool results. It never shows a key. It masks text that a guardrail matched as a credential or an ID, and names the rule. | 7 Oct |
 | D12 | A setting that is a function is shown, named, and opened in the builder's editor. The studio does not edit functions. | 7 Oct |
 | D13 | The application gives the studio a setup file. The file says how to build the context of a run. | 7 Oct |
 | D14 | The builder can test four ways: chat by hand, before and after side by side, pinned turns, and the project's evals. | 7 Oct |
@@ -170,16 +170,16 @@ Open about shared settings:
 | D19 | A shared setting shows the name of its constant, made readable (`STANDARD_GUARDRAILS` as "Standard guardrails"), with the real name and the file beside it. | 8 Oct |
 | D20 | A constant that one profile uses is a part of that profile. It becomes a shared setting when a second profile uses it. | 8 Oct |
 | D21 | A check that needs no model call runs by itself as the builder edits, for every profile that uses the setting. A run that needs the model waits: the studio lists the runs and the builder picks the profiles. | 8 Oct |
-| D22 | A pinned turn keeps its text: the input, the reply and the tool results. It is saved in the project's test files. The checks that need no model call read pinned turns. | 8 Oct |
-| D23 | Before a turn is pinned, the studio shows what it will save: the input, the reply and each tool result, with the replacements of D24, D25 and D29 already made and marked. The builder can change any text. Nothing is written until the builder confirms. | 8 Oct, Claude's choice; Masud said "go with what makes sense" |
+| D22 | A pinned turn keeps its text: the input, the reply, and the tool results. It is saved in the project's test files. The checks that need no model call read pinned turns. | 8 Oct |
+| D23 | Before a turn is pinned, the studio shows what it will save: the input, the reply, and each tool result, with the replacements of D24, D25, and D29 already made and marked. The builder can change any text. Nothing is written until the builder confirms. | 8 Oct, Claude's choice; Masud said "go with what makes sense" |
 | D24 | Personal text that a Theorem detector matches is replaced by a fake of the same kind: an email by another email, a card number by a published test number. One real value becomes the same fake everywhere in the turn. The builder's rules then act on the pinned turn as on the real one. | 8 Oct |
 | D25 | A real credential is never written, and the builder cannot override this. The studio writes a made-up key of the same format, and says so. | 8 Oct |
 | D26 | A pinned turn keeps each tool result in full, after the replacements. It does not copy a photo or a voice note. It records that one was there (its type and size), and the builder can attach a stand-in file. | 8 Oct |
 | D27 | A builder's own rule can carry an example value that it matches. The studio uses the example as the fake for that rule. After the replacements, the studio runs every rule on the cleaned turn and on the original, and shows each rule that acted on one and not on the other. A rule with no example leaves a labelled gap, and the pin says that it cannot test that rule. | 8 Oct |
 | D28 | A pinned turn records what was changed in it ("4 values replaced, 1 photo left out"). The record shows beside each result of that turn. A turn with a photo left out and no stand-in is used for the checks that need no model call only. The studio does not run it with the model, and says why. | 8 Oct |
-| D29 | The setup file can give the studio the known values of the user of the run: for example the name, the phone number and the address. The studio replaces each one where it appears in a turn to be pinned. | 8 Oct, Claude's lean; Masud agreed |
+| D29 | The setup file can give the studio the known values of the user of the run: for example the name, the phone number, and the address. The studio replaces each one where it appears in a turn to be pinned. | 8 Oct, Claude's lean; Masud agreed |
 | D30 | The builder is responsible for what a pin holds, and must be diligent. The studio removes what it can find. It does not find a personal detail in free text that the application never stored ("my mother's house on Elm Street"). The review of D23 says this, and the builder reads the turn before the builder confirms. | 8 Oct |
-| D31 | A run acts as no one, a fresh person, or an existing person. The setup file exports `people`: the places its data lives in, and optionally `existing(place)`, `fresh(place)` and `start`. The studio decides nothing about people or places. | 16 Oct |
+| D31 | A run acts as no one, a fresh person, or an existing person. The setup file exports `people`: the places its data lives in, and optionally `existing(place)`, `fresh(place)`, and `start`. The studio decides nothing about people or places. | 16 Oct |
 | D32 | Whether a place is production is the app's to decide. The studio offers whatever places the setup names. | 16 Oct |
 | D33 | Removing a fresh person is the app's. The studio keeps nothing `fresh` returns. | 16 Oct |
 | D34 | Which existing people to list is the app's: it can name specific people or none. Apps sign in differently. | 16 Oct |
@@ -207,7 +207,7 @@ Read from Bonsai's code on 7 Oct. This is the evidence the design must fit.
   `validation: { maxRetries: 1 }`, and compaction as plain values
   (`maxTokens`, `compactAt`, `previousExchanges`, `profile`, `timing`).
 - **Functions Bonsai sets:** `tools.t1Policy` (`bonsaiT1Policy`), and the
-  `find` of each `bonsai.*` detector. The detector's `label`, `at` and `hint`
+  `find` of each `bonsai.*` detector. The detector's `label`, `at`, and `hint`
   are plain values.
 - **`bonsaiT1Policy` reads application context:** the tool-loading strategy
   and whether the turn is proactive. A plain setting cannot replace it.
@@ -222,7 +222,7 @@ Read from Bonsai's code on 7 Oct. This is the evidence the design must fit.
 
 Read on 8 Oct from `assemble-host-turn-*.ts`, `run-theorem-turn.ts` and
 `orchestrator/profile.ts`. Bonsai does not repeat work Theorem does: the
-canary, tool visibility, tool confirmation and the compaction signal are all
+canary, tool visibility, tool confirmation, and the compaction signal are all
 left to Theorem. It builds the turn for two other reasons.
 
 **Work that belongs to the application:**
@@ -364,7 +364,7 @@ sign-in.
 
 - The studio does not sign in. Read on 8 Oct: a Bonsai tool does not read a
   login. It reads a context that `buildBonsaiToolHost` makes from a database
-  client and the id of a user. It also needs a channel, a session id and a
+  client and the id of a user. It also needs a channel, a session id, and a
   billing record. The rest is optional.
 - So Bonsai's setup file (D13) names the test users and builds that context
   for the one the builder picks. Bonsai's development server does not need
@@ -386,7 +386,7 @@ The studio makes four promises. None has a design.
 | Promise | The risk |
 |---|---|
 | A row shows the setting that runs | The source text and the resolved profile differ: defaults, variants, values a request overrides |
-| A studio run equals an application run | Bonsai builds the prompt, the catalog and the history itself. A bare profile run tests something no user gets |
+| A studio run equals an application run | Bonsai builds the prompt, the catalog, and the history itself. A bare profile run tests something no user gets |
 | What was tested is what was saved | The rewrite of the source produces a profile that differs from the scratch copy |
 | A comparison means something | A model varies from run to run. One "before" and one "after" is noise |
 
@@ -432,7 +432,7 @@ are not in the files, and a button, Review and save.
   (10 Oct, Masud). It follows a schema through constants, imports,
   `.extend()` and a helper that returns its argument.
   - Changed where it is written: a description, the values of an enum,
-    whether a field can be left out (`.optional()`), a field added or taken
+    whether a field can be left out (`.optional()`), a field added, or taken
     away, and whether an object takes other fields (`z.object`,
     `z.strictObject`, `z.looseObject`).
   - A field whose kind or limits change is written again whole, when it is
@@ -440,7 +440,7 @@ are not in the files, and a button, Review and save.
   - A schema that several tools share follows the rule for a shared constant:
     the studio makes the change on each tool, and Save writes it once.
   - Left for code, and named in the review with its `file:line`: a part that
-    uses `.transform()`, `.pick()`, `.omit()`, `.default()` or another call
+    uses `.transform()`, `.pick()`, `.omit()`, `.default()`, or another call
     the studio does not read through; a schema that is not Zod; a tool with
     no `input` or `output` key; a field added to a shared schema that one
     tool extends.
@@ -593,7 +593,7 @@ added in the studio.
   line has to sit in the right place. The review shows both.
 - A new tool's file holds its input and output as the JSON Schema the
   builder wrote, read by zod (`z.fromJSONSchema`). Hand-written zod lost
-  the schema's choices, formats, limits and notes, so the file was not what
+  the schema's choices, formats, limits, and notes, so the file was not what
   was tested. Get code prints tools the same way now.
 - A new function tool's handler returns the studio's sample answer, and the
   file says so. The real handler is the builder's to write.
@@ -851,7 +851,7 @@ A first page of its own was built and thrown away the same day. Masud:
 "studio uses the exact same playground implementation." What stands:
 
 - The studio is the website's playground at `/studio`, on the site's dev
-  server only. Same page, tree, editor and preview. Nothing is copied.
+  server only. Same page, tree, editor, and preview. Nothing is copied.
 - `studio/serve.ts` starts the local server for one project. It takes the
   project's setup module: the default export registers the tools, profiles
   and providers; an optional `host` export gives the tools their context.
@@ -863,12 +863,12 @@ A first page of its own was built and thrown away the same day. Masud:
   silently.
 - A run is the project's own code. The page names the profile by id and the
   server runs the registered one. Host profiles run in the tool console;
-  text, image and speech profiles run in the chat. Decision and live
+  text, image, and speech profiles run in the chat. Decision and live
   profiles show but do not run yet.
 - The server answers this machine only, and refuses a request from any site
   but the dev site.
 - `studio/example.ts` is a small project to open while Bonsai is untried.
-- Seen in a browser against the example: the tree, the editor and a
+- Seen in a browser against the example: the tree, the editor, and a
   read-only tool run with the project's real output.
 
 Not done:
@@ -894,12 +894,12 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
   stops working; there is no redirect.
 - A new tab opened from a project runs the project's code, not the draft's
   stand-in tools.
-- The screen is in `studio/ui/`: the editor, inspector, runner and the page
+- The screen is in `studio/ui/`: the editor, inspector, runner, and the page
   itself (`studio-screen.tsx`). The website's `/studio` route is a thin
   page that renders `StudioScreen` and passes a `StudioHost`
   (`studio-host.ts`): the kernel version, and th30's surface and report.
   `openStudio` works out what a tab opens on.
-- The code view (Monaco, its worker and type checker) is in
+- The code view (Monaco, its worker, and type checker) is in
   `studio/ui/code/`, and the zip is `studio/ui/lib/zip.ts`. A Vite build
   that shows the screen adds `studioVite` from `@theoremjs/studio/vite`.
 - The screen's CSS is `studio/ui/studio.css` and the mark's is

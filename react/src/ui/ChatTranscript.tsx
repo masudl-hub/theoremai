@@ -516,7 +516,7 @@ function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: bo
   return <ResultBlock block={block} />;
 }
 
-/** Non-streaming answer rows: errors, sources, structured output and media. */
+/** Non-streaming answer rows: errors, sources, structured output, and media. */
 function ResultBlock({ block }: { block: TranscriptBlock }) {
   switch (block.kind) {
     case 'error':

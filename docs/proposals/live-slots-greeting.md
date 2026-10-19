@@ -1,11 +1,11 @@
-# Context, slots in prompts, a greeting and page tools on the profile
+# Context, slots in prompts, a greeting, and page tools on the profile
 
 Status: built. Section 8 is the order it was built in.
 
 ## 1. The problem
 
 Things every agent on a page needs are host code today. The profile does not
-show them, so the playground cannot show, edit or test them.
+show them, so the playground cannot show, edit, or test them.
 
 | Need | Today |
 | --- | --- |
@@ -38,7 +38,7 @@ tools: [{ name: 'highlight', type: 'function', answeredBy: 'page', input: …, o
 ## 3. Slots
 
 - A slot keeps its shape: a name and its allowed values.
-- `{name}` in `identity.system`, `live.greeting` and `live.resumed.prompt` is
+- `{name}` in `identity.system`, `live.greeting`, and `live.resumed.prompt` is
   replaced with the value the turn or call chose.
 - A `{name}` that is not a declared slot stays as written: a prompt may use
   braces for other things.
@@ -127,7 +127,7 @@ createTheoremHandler({ profile, context: (request) => ({ tier: tierOf(request) }
 
 Removed, with no alias:
 
-- `sendContext` on the live session, the live client and `useLiveRunnerModel`.
+- `sendContext` on the live session, the live client, and `useLiveRunnerModel`.
 - The `context` client message with free text.
 - The `onConnected` prop and the single `pageTool` function prop (neither was
   committed).

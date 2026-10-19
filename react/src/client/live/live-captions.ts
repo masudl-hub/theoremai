@@ -129,7 +129,7 @@ function workIndex(turns: readonly LiveCaptionTurn[], event: LiveWorkEvent): num
 }
 
 /**
- * Fold a live turn event into the captions. A thought, a tool call or a citation joins the open
+ * Fold a live turn event into the captions. A thought, a tool call, or a citation joins the open
  * work, else starts it; a tool call's later events go to the work that made the call. `done` ends
  * the reply.
  */

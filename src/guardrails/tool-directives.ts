@@ -40,7 +40,7 @@ const EXFIL_TARGETS = new RegExp(EXFIL_TARGET.source, 'gi');
 /** How far from a signal its sentence is read, where the text has no sentence ends. */
 const SENTENCE_REACH = 240;
 
-/** Whether a sentence of `text` ends at `at`: a line break, or `.`, `!` or `?` before a space. */
+/** Whether a sentence of `text` ends at `at`: a line break, or `.`, `!`, or `?` before a space. */
 function endsSentence(text: string, at: number): boolean {
   const ch = text[at];
   if (ch === '\n') return true;
@@ -182,7 +182,7 @@ function directivesOf(signal: DirectiveSignal, ranges: readonly Range[]): Direct
 
 /**
  * Real indirect injection rarely names what it attacks, so this looks for content that behaves
- * like an instruction: each order, claim of authority, tool name and destination, where it sits
+ * like an instruction: each order, claim of authority, tool name, and destination, where it sits
  * in `text`. A page documenting an email API legitimately says "call send_email", so the
  * detector that reads with this (`tool_instructions`) starts at `flag`.
  *

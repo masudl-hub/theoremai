@@ -183,7 +183,7 @@ function wrongTypeMessage(ref: Reference, target: AgentDraft | undefined): strin
   if (!target || !type) return undefined;
   const id = target.identity.agentId.trim();
   if (ref.field === 'agentKey' && !CALLABLE_TYPES.has(type)) {
-    return `'${id}' is a ${type} agent. An agent tool runs a text, image or speech agent.`;
+    return `'${id}' is a ${type} agent. An agent tool runs a text, image, or speech agent.`;
   }
   if (ref.field === 'compactWith' && type !== 'text') {
     return `'${id}' is a ${type} agent. Only a text agent summarises.`;

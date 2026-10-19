@@ -10,7 +10,7 @@
 export const PROJECT_PLACEHOLDER = '__THEOREM_STUDIO_PROJECT__';
 
 /**
- * What the page may load and call. Scripts, workers and fonts are the studio's own. It calls this
+ * What the page may load and call. Scripts, workers, and fonts are the studio's own. It calls this
  * machine (the project's server, a local model) and the two providers it lists models from. An
  * image or a video in a reply or a tool's result loads from wherever it is, as the project's own
  * app would show it. Styles are written inline by the editor and the design system. A browser

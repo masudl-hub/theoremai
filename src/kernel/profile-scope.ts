@@ -26,7 +26,7 @@ const MODEL_PROFILE_TYPES: readonly ProfileType[] = [
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
 /** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
 const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
-const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files or slots';
+const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files, or slots';
 /** Types that take slots and context: the turn types, and a call. */
 const SLOT_TYPES: readonly ProfileType[] = ['text', 'image', 'live'];
 const SLOT_REASON = 'a decision takes JSON state, and speech reads its transcript only';
@@ -185,11 +185,11 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   },
   'inputs.state': {
     profileTypes: ['decision'],
-    reason: 'only a decision reads JSON state; a turn takes text, files and slots',
+    reason: 'only a decision reads JSON state; a turn takes text, files, and slots',
   },
   'inputs.maxStateBytes': {
     profileTypes: ['decision'],
-    reason: 'only a decision reads JSON state; a turn takes text, files and slots',
+    reason: 'only a decision reads JSON state; a turn takes text, files, and slots',
   },
   outputs: {
     profileTypes: ['text', 'image', 'speech'],
@@ -231,7 +231,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   },
   'guardrails.blockedReply': {
     profileTypes: ['text', 'image', 'live'],
-    reason: 'only a reply can be blocked, and speech, decision and host profiles write none',
+    reason: 'only a reply can be blocked, and speech, decision, and host profiles write none',
   },
   'guardrails.network': {
     profileTypes: ['text', 'image', 'live', 'host'],

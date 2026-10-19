@@ -554,7 +554,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "query": { "type": "string", "description": "A topic about a Microsoft or Azure product, service or API", "maxLength": 500, "examples": ["Azure Functions timeout"] }
+    "query": { "type": "string", "description": "A topic about a Microsoft or Azure product, service, or API", "maxLength": 500, "examples": ["Azure Functions timeout"] }
   },
   "required": ["query"]
 }`,
@@ -585,7 +585,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       request: 'search the Cloudflare docs for {query}',
       toolType: 'mcp',
       description:
-        'Search the Cloudflare developer documentation: Workers, R2, D1, Durable Objects, Zero Trust and more.',
+        'Search the Cloudflare developer documentation: Workers, R2, D1, Durable Objects, Zero Trust, and more.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',
@@ -668,7 +668,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       request: 'search the AWS docs for {search_phrase}',
       toolType: 'mcp',
       description:
-        'Search AWS documentation, blogs and guides. Each result carries the matching page text.',
+        'Search AWS documentation, blogs, and guides. Each result carries the matching page text.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',
@@ -727,7 +727,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       inputJson: `{
   "type": "object",
   "properties": {
-    "query": { "type": "string", "description": "A model, dataset or task to look for", "maxLength": 200, "examples": ["speech recognition"] },
+    "query": { "type": "string", "description": "A model, dataset, or task to look for", "maxLength": 200, "examples": ["speech recognition"] },
     "limit": { "type": "integer", "description": "How many results", "minimum": 1, "maximum": 10 }
   },
   "required": ["query"]
@@ -786,7 +786,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       request: 'search the web for {query}',
       toolType: 'mcp',
       description:
-        'Search the web with Exa for current information, news, people or companies. Describe the page you want, not just keywords.',
+        'Search the web with Exa for current information, news, people, or companies. Describe the page you want, not just keywords.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',
@@ -802,7 +802,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
   },
   "required": ["query"]
 }`,
-      outputJson: `{ "type": "string", "description": "Titles, links and highlights from the top results" }`,
+      outputJson: `{ "type": "string", "description": "Titles, links, and highlights from the top results" }`,
     },
   },
   {
@@ -1154,7 +1154,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
       request: 'look up {name}',
       toolType: 'http',
       description:
-        'Look up the latest published version of an npm package: its version, description, licence and dependencies.',
+        'Look up the latest published version of an npm package: its version, description, licence, and dependencies.',
       category: 'demo',
       access: 'read-only',
       permission: 'auto',
@@ -1186,7 +1186,7 @@ const DEMO_TOOL_SPECS: StudioToolSeed[] = [
   },
 ];
 
-/** The tools the travel concierge allows: places, weather, money, trip helpers and research. */
+/** The tools the travel concierge allows: places, weather, money, trip helpers, and research. */
 export const DEMO_CONCIERGE_TOOLS: readonly string[] = [
   'geocode_city',
   'search_places',
@@ -1207,7 +1207,7 @@ export const DEMO_CONCIERGE_TOOLS: readonly string[] = [
   ...DISCOVER_LOADED,
 ];
 
-/** The tools the code architect allows: docs, repositories, packages and research. */
+/** The tools the code architect allows: docs, repositories, packages, and research. */
 export const DEMO_ARCHITECT_TOOLS: readonly string[] = [
   'ask_repo_docs',
   'read_repo_file',
@@ -1242,21 +1242,21 @@ Communication Standards:
 - Answer First: Lead with the recommendation, then the reasons and the trade-offs. Name what you could not confirm.
 
 Tool & Fact Grounding:
-- Absolute Grounding: Ground claims about a library, a repository, a package version or a cloud service in the tools before answering. Never invent an API, a version or a default.
+- Absolute Grounding: Ground claims about a library, a repository, a package version, or a cloud service in the tools before answering. Never invent an API, a version, or a default.
 - Silent Execution: Never narrate tool calls or announce function names. Work findings into the answer.
 - Complete Resolution: Finish multi-step research before you answer.
 
 Audio briefings:
-- When asked for a podcast, a briefing or anything to listen to, write a short spoken script of what you found, in plain sentences with no markdown, and pass it to narrate. Then say in one line what the briefing covers.`;
+- When asked for a podcast, a briefing, or anything to listen to, write a short spoken script of what you found, in plain sentences with no markdown, and pass it to narrate. Then say in one line what the briefing covers.`;
 
 export const DEMO_LIVE_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge, on a call.
 
 Speaking:
-- Speak in short, natural sentences. No lists, no markdown, no reading out of addresses or codes unless asked.
+- Speak in short, natural sentences. No lists, no markdown, no reading out of addresses, or codes unless asked.
 - Give the recommendation first, then offer one next step.
 
 Tool & Fact Grounding:
-- Ground weather, currency, distances and places in the tools before you answer. Never invent live data.
+- Ground weather, currency, distances, and places in the tools before you answer. Never invent live data.
 - Never name a tool or say that you are calling one.`;
 
 export function demoToolSpecs(): StudioToolSeed[] {

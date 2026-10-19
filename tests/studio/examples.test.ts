@@ -169,7 +169,7 @@ Deno.test('two opens of the same files print the same, and an edit prints anothe
   assert(filesPrint(edited) !== filesPrint(first));
 });
 
-Deno.test('a change, an added agent and a removed one are each edits the files do not hold', () => {
+Deno.test('a change, an added agent, and a removed one are each edits the files do not hold', () => {
   const opened = createArchitectWorkspace();
   const files = filesPrint(opened);
   const [architect] = opened.agents;

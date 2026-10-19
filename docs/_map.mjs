@@ -95,27 +95,27 @@ const graph = {
       watches: [
         {
           path: 'studio/runtime.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'studio/runtime-scope.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'studio/browser-execution.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'studio/browser-transport.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
           path: 'studio/live-session-bridge.ts',
-          reason: 'The contract states how studio runs keep vaults, sessions and operation records',
+          reason: 'The contract states how studio runs keep vaults, sessions, and operation records',
           sections: ['Runs and sessions'],
         },
         {
@@ -250,7 +250,7 @@ const graph = {
         },
         {
           path: 'src/kernel/protocols/**',
-          reason: 'Protocols, providers and bindings are defined and run by the kernel',
+          reason: 'Protocols, providers, and bindings are defined and run by the kernel',
           sections: ['Registered providers', 'Model bindings', 'Protocol contract', 'Saved provider state'],
         },
       ],

@@ -128,7 +128,7 @@ const NOISE = [
 ];
 const LEET: Record<string, string> = { a: '4', e: '3', i: '1', o: '0', s: '5', t: '7' };
 
-/** One letter dropped, doubled or changed. */
+/** One letter dropped, doubled, or changed. */
 function misspell(piece: string, rnd: (n: number) => number): string {
   const at = rnd(piece.length);
   const letter = piece[at] as string;

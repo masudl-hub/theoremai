@@ -152,7 +152,7 @@ const OUTCOME_STATUS: Record<ToolOutcome, 'OK' | 'ERROR' | 'UNSET'> = {
 };
 
 /**
- * Spans from before `pre_tool` to settlement, so it covers the hooks, the gates and the body.
+ * Spans from before `pre_tool` to settlement, so it covers the hooks, the gates, and the body.
  * Provider-run tools (search, maps, code execution) get no span: Theorem did not run them.
  * `open` places it: a child of the turn's root, or the root of a host-invoked tool's own record.
  */

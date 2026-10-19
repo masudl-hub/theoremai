@@ -334,7 +334,7 @@ export function buildCanaryEgressAttacks(canary: string): CanaryEgressAttack[] {
   return attacks;
 }
 
-/** The attacks' names, categories and expected outcomes, without their replies. */
+/** The attacks' names, categories, and expected outcomes, without their replies. */
 export function canaryEgressCatalog(canary: string): CanaryEgressCatalogEntry[] {
   return buildCanaryEgressAttacks(canary).map(({ name, category, shouldBlock }) => ({
     name,

@@ -2,7 +2,7 @@
 
 **Status:** approved 23/09/2026. This is the step-2 target from [otel-turn-traces.md](./otel-turn-traces.md): every rule below is drawn once, in a concrete conversation.
 
-**Invariant:** the trace has the highest possible fidelity, accuracy and precision. A developer can answer any question over any stretch of time (one call, one turn, a conversation, a date range) from traces alone. Anything Theorem does not know is absent or labeled with where it came from; it is never invented.
+**Invariant:** the trace has the highest possible fidelity, accuracy, and precision. A developer can answer any question over any stretch of time (one call, one turn, a conversation, a date range) from traces alone. Anything Theorem does not know is absent or labeled with where it came from; it is never invented.
 
 Attribute names are checked against `open-telemetry/semantic-conventions-genai` @ `8ffdf56`. Names under `theorem.*` are ours, because semconv has nothing equivalent.
 
@@ -44,7 +44,7 @@ interface TraceSpan {
 - Everything is hashed the same way: system instructions, tool definitions, every message, tool arguments and results, and reasoning text.
 - Media bytes are never stored. A media part is `{ "type": "blob", "modality", "mime_type", "content_sha256", "bytes" }`, and its hash covers the raw bytes.
 - `content` maps each text hash to the exact text *after* the profile's scrub policy ran. A hash therefore identifies what was recorded; when scrub is off, that is what the model saw.
-- Provider rows, wire bodies, grounding payloads, server tool parts and a tool's raw output are JSON. Each is scrubbed, its own strings equal to a recorded text are replaced by `{ "content_sha256" }`, and the JSON is stored in `content` under its hash, referenced as `{ "json_sha256": "<hex>" }`. So a reference says how to read it: `content_sha256` is text, `json_sha256` is JSON, and `content_sha256` beside `bytes` is a blob hash that is not in `content`.
+- Provider rows, wire bodies, grounding payloads, server tool parts, and a tool's raw output are JSON. Each is scrubbed, its own strings equal to a recorded text are replaced by `{ "content_sha256" }`, and the JSON is stored in `content` under its hash, referenced as `{ "json_sha256": "<hex>" }`. So a reference says how to read it: `content_sha256` is text, `json_sha256` is JSON, and `content_sha256` beside `bytes` is a blob hash that is not in `content`.
 - `content` makes a record self-contained. A sink may deduplicate across records by hash.
 - `inlineContent(record, value)` rebuilds any value from its references. `toOtlpJson` uses it, so a viewer reads standard semconv messages.
 
@@ -55,7 +55,7 @@ interface TraceSpan {
 
 ## 2. Span catalogue
 
-The shipped wording for every span, attribute, event and value is the trace catalog in code (`src/observability/trace-catalog.ts`, see [the observability contract](../contracts/observability.md#trace-catalog)); where these tables and the catalog differ, the catalog is current.
+The shipped wording for every span, attribute, event, and value is the trace catalog in code (`src/observability/trace-catalog.ts`, see [the observability contract](../contracts/observability.md#trace-catalog)); where these tables and the catalog differ, the catalog is current.
 
 ### `invoke_agent {profile}`: one turn (INTERNAL)
 
@@ -82,13 +82,13 @@ The shipped wording for every span, attribute, event and value is the trace cata
 | `theorem.clock` | `io` inside a Cloudflare Worker (P6) |
 | `theorem.turn.time_to_first_text` | seconds from the turn's start to the first text the host received, after guardrail holdback |
 
-**Status:** `ERROR` for `provider_error`, `stream_incomplete` or a throw. `OK` for `completed`, `length` and `generation_complete`. `UNSET` for the stops a person or policy chose (`tool`, `gate`, `filtered`, `cancelled`, `interrupted`).
+**Status:** `ERROR` for `provider_error`, `stream_incomplete`, or a throw. `OK` for `completed`, `length`, and `generation_complete`. `UNSET` for the stops a person or policy chose (`tool`, `gate`, `filtered`, `cancelled`, `interrupted`).
 
 **Events:**
 - `theorem.stage`: `{ stage, affordance, hook_ms?, warnings? }` for `pre_turn` / `before_end` / `post_turn`.
   - `affordance` lists what the handlers applied (`inject`, `abort`, `deny`, `confirm`, `mutate`); `[]` when they applied nothing.
   - `hook_ms` is present only when handlers ran. `warnings` lists warning codes.
-- `theorem.guardrail`: decisions on input, egress and injected history (shape below).
+- `theorem.guardrail`: decisions on input, egress, and injected history (shape below).
 - `theorem.attempt.retry`: `{ attempt, reason }`, where `reason` is `egress` or `validation`.
 - `theorem.compaction`: the compaction decision (§4.8).
 - `exception`: `exception.type` and `exception.message` (a hash of the scrubbed message).
@@ -103,8 +103,8 @@ The shipped wording for every span, attribute, event and value is the trace cata
   "provenance": { "origin": "http", "tool": "track_shipment", "depth": 1 } }
 ```
 
-- `action` is `redact`, `flag` or `block`; the input and egress checks also record a pass as `allow`.
-- `check` and `duration_ms` name the check and how long it took: `input` and `egress` on the turn (`live_input` on a live session); `output_stream`, `stream_canary`, `tool_draft` and `live_output` on a model call, once per call with `runs`; and `tool_arguments`, `taint`, `tool_result`, `tool_failure`, `network` and `network_request` on a tool's span.
+- `action` is `redact`, `flag`, or `block`; the input and egress checks also record a pass as `allow`.
+- `check` and `duration_ms` name the check and how long it took: `input` and `egress` on the turn (`live_input` on a live session); `output_stream`, `stream_canary`, `tool_draft`, and `live_output` on a model call, once per call with `runs`; and `tool_arguments`, `taint`, `tool_result`, `tool_failure`, `network`, and `network_request` on a tool's span.
 - `start` / `end` are present when the check had offsets.
 - `match` is kept only under `guardrailMatchPreview`.
 - The whole event is kept only under `guardrailDecisions`.
@@ -122,7 +122,7 @@ The shipped wording for every span, attribute, event and value is the trace cata
 | `gen_ai.request.temperature`, `.max_tokens`, `.reasoning.level` | as requested |
 | `gen_ai.request.previous_response.id` | Interactions continuation |
 | `theorem.request.builtins` | provider-run tools requested (`[]` when none) |
-| `theorem.request.store`, `.summaries`, `.structured`, `.session_id`, `.cache`, `.image`, `.speech`, `.live` | request controls semconv has no names for, as requested. `live` holds voice, VAD, session resumption, context compression, transcription and `resumed`; a resumption handle is a credential and is never recorded. |
+| `theorem.request.store`, `.summaries`, `.structured`, `.session_id`, `.cache`, `.image`, `.speech`, `.live` | request controls semconv has no names for, as requested. `live` holds voice, VAD, session resumption, context compression, transcription, and `resumed`; a resumption handle is a credential and is never recorded. |
 | `gen_ai.response.id` | as the provider reported it; absent when not reported |
 | `gen_ai.response.finish_reasons` (chat) / `gen_ai.response.status` (Gemini) | the provider's own stop value. Absent when the call was stopped (cancelled, interrupted), because the provider never said. |
 | `gen_ai.response.time_to_first_chunk` | seconds from the start of the successful streamed HTTP try to its first chunk |
@@ -156,14 +156,14 @@ The shipped wording for every span, attribute, event and value is the trace cata
 
 **Children:** one `POST` HTTP client span per try (HTTP semconv).
 - Attributes: `http.request.method`, `server.address`, `url.path` (never the query), `http.response.status_code`, `http.request.resend_count`, `error.type` (the status, or the thrown error's name — HTTP convention), `theorem.key_slot`, and `theorem.retry.backoff_ms`, the wait before this try.
-- Headers are recorded as `http.request.header.<name>` / `http.response.header.<name>` (`[value]`). Any header whose name matches key, auth, cookie, secret or token is `[redacted]` before a span sees it.
+- Headers are recorded as `http.request.header.<name>` / `http.response.header.<name>` (`[value]`). Any header whose name matches key, auth, cookie, secret, or token is `[redacted]` before a span sees it.
 - Events: `theorem.wire.request` (the request body, interned like rows; `{ body_kind }` when the body is not JSON), kept only under `outboundWire`; the provider's error body as a `theorem.upstream.row`; `exception` when the try threw.
 - **Status:** `ERROR` for a status of 400 or higher, or a throw. A provider error inside a 200 body is the call's failure, not the try's. `UNSET` when the call was stopped mid-body.
 - Live has no HTTP children; its socket lifecycle is recorded as events on the session root (§4.12).
 
 ### `execute_tool {name}`: one tool call that Theorem ran (INTERNAL)
 
-**Opens** before `pre_tool`. **Closes** at settlement. So the span covers the hooks, the gates and the tool body.
+**Opens** before `pre_tool`. **Closes** at settlement. So the span covers the hooks, the gates, and the tool body.
 
 | Attribute | Meaning |
 |---|---|
@@ -182,14 +182,14 @@ The shipped wording for every span, attribute, event and value is the trace cata
 
 **Events:**
 - `theorem.stage`: `pre_tool` / `post_tool`, same shape as on the turn.
-- `theorem.gate`: `{ kind, permission?, summary?, auth? }`. `kind` is `permission`, `confirmation` or `auth`; `summary` is a hash; `auth` is `{ slot, type, service, issuer?, resource?, required_scopes? }` and never the challenge state.
+- `theorem.gate`: `{ kind, permission?, summary?, auth? }`. `kind` is `permission`, `confirmation`, or `auth`; `summary` is a hash; `auth` is `{ slot, type, service, issuer?, resource?, required_scopes? }` and never the challenge state.
 - `theorem.auth.scope_refused`: `{ slot, requested, declared }` — the service asked for scopes outside the tool's declared `auth.scopes`, so the call failed `out_of_scope` with no sign-in offered.
 - `theorem.guardrail`: sensitive arguments and the taint gate (stage `tool_call`), and redaction and directive signals on the result (stage `tool_result`).
 - `theorem.tool.warning`: `{ code, message, severity? }`, one per warning: the ones the tool streams and the kernel's `sources_invalid`. `message` is a hash.
 - `theorem.grounding`: `{ sources }`, the sources the tool cited.
 - `exception`.
 
-**Status:** `ERROR` only when the tool failed. `denied`, `gated`, `paused` and `cancelled` are `UNSET`: the tool did not fail, a policy or the user stopped it.
+**Status:** `ERROR` only when the tool failed. `denied`, `gated`, `paused`, and `cancelled` are `UNSET`: the tool did not fail, a policy or the user stopped it.
 
 **Provider-run tools** (Google search, maps, code execution) are not `execute_tool` spans: Theorem did not run them. They appear as semconv `server_tool_call` / `server_tool_call_response` parts in the model call's output. The kernel sees a step only once it is whole, so the part records its arrival as `theorem.observed_end`, and `theorem.partial: true` when the provider sent it incomplete. The row events hold every earlier row's arrival.
 
@@ -754,7 +754,7 @@ generate_content …  step 3                               UNSET  stop=interrupt
 
 record S (written at close)                              parent = the host's traceparent
 invoke_agent support.voice                               [0.000 → 48.200]  OK  theorem.steps=3
-   gen_ai.usage.* = sum of R1, R2 and R3
+   gen_ai.usage.* = sum of R1, R2, and R3
    events: theorem.wire.request { setup frame }; theorem.upstream.row { setupComplete }
            theorem.session { kind: "setup_complete" }
            theorem.session { kind: "voice_activity", activity, audio_offset }
@@ -763,11 +763,11 @@ invoke_agent support.voice                               [0.000 → 48.200]  OK 
 ```
 
 - **Response boundaries:** a response record opens at its first response-scoped event and closes at the provider's `turnComplete`. Each `done` the host receives carries the response span's `traceparent`.
-- **Input is new input only.** A response's `input.messages` holds what was sent since the previous response opened: realtime audio, text and tool responses. A tool response belongs to the response after the one that asked: Live completes the asking response as the result lands and answers in a new one. It is never the whole session: with sliding-window compression the provider drops earlier context, so what the model read of the session is unknowable.
+- **Input is new input only.** A response's `input.messages` holds what was sent since the previous response opened: realtime audio, text, and tool responses. A tool response belongs to the response after the one that asked: Live completes the asking response as the result lands and answers in a new one. It is never the whole session: with sliding-window compression the provider drops earlier context, so what the model read of the session is unknowable.
 - **Transcripts are labeled.** `theorem.source` says a text part is the provider's transcript, not something anyone typed. Speech heard after the model began answering is input for the next response.
 - **What the host received.** `theorem.output.delivered` on each response is its output as the host received it, after guardrails, beside `output.messages` (what the model produced). A transcript of the user's speech is input, so it stays on `input.messages`.
 - **Tool calls** each write their own record under the response that asked for them. A call the provider cancels is a `theorem.tool.cancel { gen_ai.tool.call.id, gen_ai.tool.name }` event on the response.
-- **Session events** (`theorem.session`) cover `key_overflow { key_slot, to_key_slot, error.type, error }` (setup on the pinned key was refused for quota and the session opened on `paid`, which its responses then name as `theorem.key_slot`), `setup_complete`, `session_resumption`, `voice_activity`, `closing_soon` (with `time_left_ms` when the provider gives one), `waiting_for_input`, `working`, `idle` and `closed { code, reason, initiator }`. `initiator` is `host`, `provider` or `theorem`. A provider close carries `error.type` (what its code means as a failure) when the code is not 1000, and, after a `goAway`, `cause: go_away`, `time_left_ms` and `closed_after_ms`.
+- **Session events** (`theorem.session`) cover `key_overflow { key_slot, to_key_slot, error.type, error }` (setup on the pinned key was refused for quota and the session opened on `paid`, which its responses then name as `theorem.key_slot`), `setup_complete`, `session_resumption`, `voice_activity`, `closing_soon` (with `time_left_ms` when the provider gives one), `waiting_for_input`, `working`, `idle`, and `closed { code, reason, initiator }`. `initiator` is `host`, `provider`, or `theorem`. A provider close carries `error.type` (what its code means as a failure) when the code is not 1000, and, after a `goAway`, `cause: go_away`, `time_left_ms`, and `closed_after_ms`.
 - **The resumption handle is a credential.** Frames are recorded without it, `theorem.request.live` records only `resumed`, and events record only that a handle was issued.
 - **Status:** the session is `ERROR` when it threw or the provider closed it with a code other than 1000 (`error.type` is the kind: a reason naming a quota `rate_limit`, else 1006 `network`, 1007 / 1008 `unsupported`, others `unavailable`), `UNSET` with `theorem.stop.kind=cancelled` when the host aborted it, `UNSET` with `theorem.stop.kind=go_away` when the provider closed it after warning it would (any code; no verdict, so a planned end neither alarms nor passes as fine), and `OK` otherwise.
 - If the Worker is evicted mid-session, R1, T1, R2 and R3 survive and record S is missing. A viewer shows a trace without its root, which is honest. Every response and tool record carries `gen_ai.agent.name` and `gen_ai.conversation.id` itself, so each one still says whose it is.
@@ -808,7 +808,7 @@ invoke_agent support.voice                               [0.000 → 48.200]  OK 
 
 ## 7. Choices made here (follow from the invariant; flag any you disagree with)
 
-1. **One `POST` span per HTTP try, always.** Retries, backoff and key rotation are visible, and the shape is the same whether or not a retry happened.
+1. **One `POST` span per HTTP try, always.** Retries, backoff, and key rotation are visible, and the shape is the same whether or not a retry happened.
 2. **Wire body and upstream rows kept, interned.** Every string equal to a known content text becomes its hash, so the wire is exactly reconstructable without storing text twice. Stream deltas stay inline, because their arrival times are the latency data.
 3. **Attempts are an attribute plus a retry event, not a span.** Viewers stay flat; nothing is lost.
 4. **Provider-run tools are output parts, not `execute_tool` spans**, per semconv. Theorem did not run them, so it cannot time them.

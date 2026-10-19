@@ -318,7 +318,7 @@ function readme(files: readonly SourceFile[], agent: CompiledStudio, entry: Entr
 }
 
 /**
- * The workspace as files: the README, the tools, one module per agent and the
+ * The workspace as files: the README, the tools, one module per agent, and the
  * registration, then the route and component for `agent`, the one being chatted with.
  * On a project, `project` is what its files hold that the code names and does not write again.
  */

@@ -27,7 +27,7 @@ export function gateExpired(createdAt: number, now: number, ttlMs: number): bool
   return now - createdAt >= ttlMs;
 }
 
-/** How a user can answer a tool gate: approve it, deny it or walk away. */
+/** How a user can answer a tool gate: approve it, deny it, or walk away. */
 export const GATE_DECISIONS = ['approve', 'deny', 'abandon'] as const;
 /** One of {@linkcode GATE_DECISIONS}. */
 export type GateDecision = (typeof GATE_DECISIONS)[number];
@@ -107,7 +107,7 @@ export function answerGatedCall(
   if (approvalOnly && decision !== 'approve') {
     throw new TheoremError(
       'request',
-      `only an approval takes edited input, a secret or a page answer (call ${callId})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `only an approval takes edited input, a secret, or a page answer (call ${callId})`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   if (decision !== 'approve') {

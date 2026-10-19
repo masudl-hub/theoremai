@@ -137,7 +137,7 @@ function isTypoglycemia(word: string, target: string): boolean {
   return sortedLetters(lower.slice(1, -1)) === sortedLetters(target.slice(1, -1));
 }
 
-/** Whether one insertion, deletion, substitution or swap of two neighbours turns `word` into `target`. */
+/** Whether one insertion, deletion, substitution, or swap of two neighbours turns `word` into `target`. */
 function isOneEdit(word: string, target: string): boolean {
   const wordEnd = word.length - 1;
   const targetEnd = target.length - 1;

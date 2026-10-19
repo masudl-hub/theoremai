@@ -67,7 +67,7 @@ Deno.test('a class under (?i) reads both cases, and a negated one neither', () =
   );
 });
 
-Deno.test("Go's dot, space and end of text are read as Go reads them", () => {
+Deno.test("Go's dot, space, and end of text are read as Go reads them", () => {
   const dot = goRegex('a.b');
   assertEquals(
     ['a\rb', 'a b', 'a\nb'].map((text) => dot.test(text)),

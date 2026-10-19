@@ -3,14 +3,14 @@
  * `studio/package.json` names built to JavaScript and declarations, and the page built in advance.
  * Deno runs no TypeScript from `node_modules`, so tsc writes the JavaScript; Deno checks it. Vite
  * builds the page with the kernel's declarations in it, so the studio ships in lockstep with the
- * kernel and the React package: the version, the runtime floor and both peers come from the root
+ * kernel and the React package: the version, the runtime floor, and both peers come from the root
  * manifest, pinned.
  */
 import { BUILT_PAGE, PROJECT_PLACEHOLDER } from '../studio/page.mjs';
 
 const studioDir = './studio';
 const outDir = `${studioDir}/npm`;
-/** The command and what it loads: the launcher, its checks and the page's server. */
+/** The command and what it loads: the launcher, its checks, and the page's server. */
 const launchers = [
   'start.mjs',
   'installed.mjs',

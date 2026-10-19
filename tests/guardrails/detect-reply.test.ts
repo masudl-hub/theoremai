@@ -244,7 +244,7 @@ Deno.test('a thought has no guard when nothing reads it', async () => {
   );
 });
 
-Deno.test('a detector at thought flags, replaces or ends what is shown of the thought', async () => {
+Deno.test('a detector at thought flags, replaces, or ends what is shown of the thought', async () => {
   const placeholder = readAt(KEY, 'thought', { credentials: 'redact' }).text ?? '';
   for (const size of SIZES) {
     const flagged = await thought({ credentials: { at: { thought: 'flag' } } }, TEXT, size);

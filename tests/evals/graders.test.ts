@@ -71,7 +71,7 @@ Deno.test('delivered JSON graders prefer the structured part and fall back to te
   );
 });
 
-Deno.test('tool trajectory: exact, in_order, any_order and subset', async () => {
+Deno.test('tool trajectory: exact, in_order, any_order, and subset', async () => {
   const trial = await trialOf({ tools: ['lookup', 'book', 'lookup'] });
   const mode = (m: 'exact' | 'in_order' | 'any_order' | 'subset', expect: string[]) =>
     passes(toolTrajectory({ mode: m, expect }), trial);

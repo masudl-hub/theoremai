@@ -179,7 +179,7 @@ Deno.test('a value shows by its catalog format first, then by its shape', () => 
   assertEquals(traceValueShape(object, [1, { a: 2 }]), { kind: 'stored' });
 });
 
-Deno.test('traceLatency reads first text, holdback, writing speed and guardrail time', () => {
+Deno.test('traceLatency reads first text, holdback, writing speed, and guardrail time', () => {
   const guardrail = (action: string, duration_ms?: number) => ({
     name: 'theorem.guardrail',
     timeUnixNano: '0',

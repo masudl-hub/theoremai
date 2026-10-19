@@ -1,4 +1,4 @@
-// P1: import and construction perform no env, net, fs, run, ffi or sys I/O. Deno loads the static
+// P1: import and construction perform no env, net, fs, run, ffi, or sys I/O. Deno loads the static
 // module graph without consulting permissions, so only construction itself is under test.
 import {
   createKernelScope,

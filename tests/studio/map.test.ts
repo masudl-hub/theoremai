@@ -69,7 +69,7 @@ const SIZES = {
 };
 const DETAIL = { detail: true };
 
-Deno.test('the map holds every profile, tool, model and provider, joined as the workspace joins them', () => {
+Deno.test('the map holds every profile, tool, model, and provider, joined as the workspace joins them', () => {
   const workspace = opened();
   const [desk, shop] = workspace.agents.map((agent) => agentNodeId(agent.key));
   const map = workspaceMap(workspace);

@@ -15,7 +15,7 @@ const PROFILE = 'scope_isolation_bot';
 const TOOL = 'scope_isolation_probe';
 const SCHEMA = 'scopeIsolationReply';
 
-/** A scope holding the same tool, profile and schema names as every other, answering `tag`. */
+/** A scope holding the same tool, profile, and schema names as every other, answering `tag`. */
 function taggedScope(tag: string): KernelScope {
   const scope = createKernelScope();
   scope.tools.register({
@@ -61,7 +61,7 @@ function recordingProvider(into: ModelRequest[]): TurnModel {
   };
 }
 
-Deno.test('scopes with the same names keep their own tools, profiles and schemas', async () => {
+Deno.test('scopes with the same names keep their own tools, profiles, and schemas', async () => {
   const a = taggedScope('alpha');
   const b = taggedScope('beta');
 

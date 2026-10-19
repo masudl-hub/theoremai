@@ -260,7 +260,7 @@ Deno.test('limits count files, each file against its cap, and the turn total', (
   );
 });
 
-Deno.test('an issue becomes copy with its params, its file name and its labels key', () => {
+Deno.test('an issue becomes copy with its params, its file name, and its labels key', () => {
   check(
     attachmentIssueCopy({
       code: 'file_too_large',

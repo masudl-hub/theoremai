@@ -413,7 +413,7 @@ Deno.test('the T2 loader promotes the tools it names and reports exactly those',
   check(snapshot.visible, ['record_lookup'], 'visible');
 });
 
-Deno.test('a result is completed with its activity label, parts and read-back', async () => {
+Deno.test('a result is completed with its activity label, parts, and read-back', async () => {
   const tool = makeTool({
     input: z.object({ value: z.number() }),
     output: z.object({ finding: z.string(), parts: z.array(z.unknown()) }),
@@ -563,7 +563,7 @@ Deno.test('sources are cited before completion for a result and never for a fail
   );
 });
 
-Deno.test('a settlement carries the model result, the guard-tagged text and ordered events', async () => {
+Deno.test('a settlement carries the model result, the guard-tagged text, and ordered events', async () => {
   const { events, settlement } = await run(makeTool());
   const result: ToolExecuteSettlement = settlement;
   check(result.modelResult?.finding, 'ok', 'finding');

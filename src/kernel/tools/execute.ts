@@ -1487,7 +1487,7 @@ async function* settleRemoteDestination(args: {
 
 /**
  * An agent tool runs as a function tool whose handler is the called agent's
- * turn, so input checks, gates, stages and the result guard are the same. The
+ * turn, so input checks, gates, stages, and the result guard are the same. The
  * agent's reply streams as the call's drafts and its other events as its
  * `progress`, and its usage rides on the call's last phase.
  */
@@ -1649,7 +1649,7 @@ async function* settleByType(
   });
 }
 
-/** Every tool returns through here, so a new tool type cannot skip the fence, detection or provenance label. */
+/** Every tool returns through here, so a new tool type cannot skip the fence, detection, or provenance label. */
 interface GuardInputs {
   provenance: Provenance;
   policy: ReturnType<typeof resolveGuardrailPolicy>;

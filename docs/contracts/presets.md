@@ -54,7 +54,7 @@ This barrel exports provider metadata, catalogs, local checks, media settings, a
 
 | Export | Role |
 | --- | --- |
-| `PROVIDER_FACTS`, `ProviderFacts` | Each provider's answers to what the kernel's rules ask: `needsKey`, `takesServer`, and where it has them `cacheOn`, `storesOn`, `traceName` and `decisionsUrl` |
+| `PROVIDER_FACTS`, `ProviderFacts` | Each provider's answers to what the kernel's rules ask: `needsKey`, `takesServer`, and where it has them `cacheOn`, `storesOn`, `traceName`, and `decisionsUrl` |
 | `registerGooglePreset` | Register Google builtins into the default scope's tool registry |
 | `GOOGLE_BUILTIN_TOOLS` | Catalog entries; register them into any scope's `tools` |
 | `registerOpenRouterPreset` | Register OpenRouter hosted tools into the default scope's tool registry before registering profiles |

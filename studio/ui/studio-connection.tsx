@@ -226,7 +226,7 @@ export type ProviderModels =
 	| { status: 'ready'; models: ProviderModel[] }
 	| { status: 'error'; models: ProviderModel[]; error: string };
 
-/** Lists already fetched this tab, by provider, profile type and key; a list barely changes. */
+/** Lists already fetched this tab, by provider, profile type, and key; a list barely changes. */
 const listed = new Map<string, ProviderModel[]>();
 
 /**

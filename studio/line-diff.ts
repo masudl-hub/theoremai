@@ -4,7 +4,7 @@
  * @module
  */
 
-/** One line of a diff: shared, taken out or put in. */
+/** One line of a diff: shared, taken out, or put in. */
 export interface DiffLine {
   sign: ' ' | '-' | '+';
   text: string;

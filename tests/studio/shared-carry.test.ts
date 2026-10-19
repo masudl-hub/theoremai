@@ -20,7 +20,7 @@ const named = (agentId: string) => ({
   identity: { ...example.identity, agentId, handle: agentId },
 });
 
-/** Three agents as the example is: `desk`, `shop` and `yard`. */
+/** Three agents as the example is: `desk`, `shop`, and `yard`. */
 function opened(): StudioWorkspace {
   return ['shop', 'yard'].reduce(
     (workspace, id) => addAgent(workspace, named(id)),

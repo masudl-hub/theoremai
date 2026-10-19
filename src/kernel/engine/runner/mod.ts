@@ -819,7 +819,7 @@ async function maybeAttachAfter(
 
 /**
  * `timing: 'after'`: run the compactor on the history `done.compaction` carried,
- * with the same split, failure rules and trace as `before`. `provider` runs the
+ * with the same split, failure rules, and trace as `before`. `provider` runs the
  * compactor. `undefined` when the split leaves nothing to compact.
  */
 async function compactHistoryInRegistry(

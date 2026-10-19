@@ -4,7 +4,7 @@
 [![CI](https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml/badge.svg)](https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/masudl-hub/theoremai/blob/main/LICENSE)
 
-Edit, run and test Theorem agents in a studio: on your own project with one command, or as a screen in your own app.
+Edit, run, and test Theorem agents in a studio: on your own project with one command, or as a screen in your own app.
 
 ## The idea
 
@@ -40,7 +40,7 @@ The screen keeps the profile it edits in the browser, as a **draft**. It sends t
 npm install -D @theoremjs/studio @theoremjs/agents @theoremjs/react
 ```
 
-The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents` and `@theoremjs/react` versions must match exactly.
+The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents`, and `@theoremjs/react` versions must match exactly.
 
 To show the screen in your app, also install the peers at the versions this package lists in `peerDependencies`:
 
@@ -76,7 +76,7 @@ Every export is optional. The studio reads only these:
 | Export | What the studio does with it |
 |---|---|
 | `default()` | Calls it once as it loads the project, before anything runs: register the project's profiles and tools here. It may be `async`. |
-| `provider` | The keys, network and limits every model call runs on (`ProviderHostOptions` from `@theoremjs/agents/kernel`). Without it, a run's model call fails for want of a key. |
+| `provider` | The keys, network, and limits every model call runs on (`ProviderHostOptions` from `@theoremjs/agents/kernel`). Without it, a run's model call fails for want of a key. |
 | `people`, `host` | Who a run's tools act for (below). |
 | `questions` | What each decision profile asks, by the profile's id: `{ [profileId]: { [questionId]: DecisionQuestion } }`. |
 
@@ -238,15 +238,15 @@ const studio = createStudioDraftHandler({
 
 `hostOptions` gets each draft's profile. The draft names its own key slots, so fill the slots its models name. A decision or embedding whose vault holds no key is refused with `auth`.
 
-With `lent`, the handler also runs chats, calls, decisions and embeddings. A draft that names a model the keys do not run is refused with the reason `LentKeys.violation` gives.
+With `lent`, the handler also runs chats, calls, decisions, and embeddings. A draft that names a model the keys do not run is refused with the reason `LentKeys.violation` gives.
 
 | Option | What it does |
 | --- | --- |
 | `lent` | `{ mode: 'demo', keys }`, with `hostOptions` filling each profile's key slots, and your tool handlers. Without it, no draft runs on the server. |
-| `spend` | Spends one `decision`, `call` or `agent` turn for whoever sent the request, before it runs. Throw a `TheoremError` to refuse it; the screen shows its wording. Default: nothing is counted. |
+| `spend` | Spends one `decision`, `call`, or `agent` turn for whoever sent the request, before it runs. Throw a `TheoremError` to refuse it; the screen shows its wording. Default: nothing is counted. |
 | `resolveHost` | Resolves the names the connection test calls, so the network guard refuses one that answers a private address. Workers have no DNS lookup: pass `dnsOverHttpsResolver(...)`. Default: `lent.resolveHost`. |
 | `onProbePassed` | Gets each probed text that some guardrail boundary let through, after the reply. |
-| `sessionStore`, `pageToolBroker`, `steer` | Where visitor sessions, page tool results and a running chat's steers are kept. Default: in memory. A host on several isolates needs stores they all reach. |
+| `sessionStore`, `pageToolBroker`, `steer` | Where visitor sessions, page tool results, and a running chat's steers are kept. Default: in memory. A host on several isolates needs stores they all reach. |
 | `conversationKey` | The key chat conversations are sealed with. Default: a new one for this handler's lifetime. A restart, or another isolate, then cannot open a chat, and the chat continues from the page's transcript. Pass one key to every isolate to keep each conversation on the server. |
 | `draftNetwork` | True only when the handler serves the builder alone, on their own machine, as the command's does. A connection test then keeps to the draft's network guardrail. Otherwise it reaches public hosts only. |
 
@@ -257,7 +257,7 @@ Live calls on lent keys open a WebSocket to `/api/live/relay`, not `/api/studio`
 | Import | What it holds |
 | --- | --- |
 | `theorem-studio` | The command. |
-| `@theoremjs/studio/server` | `createStudioDraftHandler`, `STUDIO_BASE` and their types. |
+| `@theoremjs/studio/server` | `createStudioDraftHandler`, `STUDIO_BASE`, and their types. |
 | `@theoremjs/studio/ui/*` | The screen: `ui/studio-screen.tsx`, `ui/lib/studio-open.ts`, the theme in `ui/built/`, and the stylesheets. |
 | `@theoremjs/studio/vite` | `studioVite`. |
 | `@theoremjs/studio/people` | `StudioPeople` and `StudioActingAs`, for a setup file. |
@@ -278,11 +278,11 @@ Use these when you build on the studio's draft yourself: compile it, export it a
 | `studioTree()`, `studioNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |
 | `compileStudio()` | Draft → profile definition, custom tools, structured schema; or issues keyed by node |
 | `studioSource()` | Compiled draft as a TypeScript module (`registerTool`, `defineProfile`, `registerProfile`) |
-| `LentKeys`, `LentHolds`, `StudioRunsOn`, `ON_OWN_KEYS`, `modelBindingViolation()` | What a studio runs on: a page's lent keys (which models, built-ins and decision sizes they allow, and what runs on them keep to whatever a profile says), or the builder's own keys or machine, where a profile runs as written |
+| `LentKeys`, `LentHolds`, `StudioRunsOn`, `ON_OWN_KEYS`, `modelBindingViolation()` | What a studio runs on: a page's lent keys (which models, built-ins, and decision sizes they allow, and what runs on them keep to whatever a profile says), or the builder's own keys or machine, where a profile runs as written |
 | `zodFromJsonSchema()`, `parseJsonSchema()` | Authored JSON Schema → Zod for registration |
 | run-payload helpers, `studioRunDefines()`, `clearStaleStudioRuns()` | Handoff of a compiled draft to the run tab, whether a kept run still defines on this package, and clearing the ones that do not |
 | `createStudioTransport()`, `studioInterface()` | The run tab's transport for a compiled draft; its `traces` feed receives the records each run writes |
-| `runGuardrailProbes()`, `runGuardrailProbe()`, `probeDraft()`, `PROBE_BOUNDARIES`, `PROBE_BOUNDARY_NOTES`, `PROBE_STATUSES` | Test a draft's guardrails: send one text across every boundary, or across one, on a scripted model. Each boundary answers with a status (passed, flagged, redacted or blocked), whether its turn was tainted by a remote read, the guardrail events, what went on past the boundary, and the turn's trace records. No model or host is called. Each boundary's note says what crosses it, when the kernel reads it and what the kernel does there |
+| `runGuardrailProbes()`, `runGuardrailProbe()`, `probeDraft()`, `PROBE_BOUNDARIES`, `PROBE_BOUNDARY_NOTES`, `PROBE_STATUSES` | Test a draft's guardrails: send one text across every boundary, or across one, on a scripted model. Each boundary answers with a status (passed, flagged, redacted, or blocked), whether its turn was tainted by a remote read, the guardrail events, what went on past the boundary, and the turn's trace records. No model or host is called. Each boundary's note says what crosses it, when the kernel reads it and what the kernel does there |
 | `PROBE_BATTERY` | Hard texts to probe with: disguised attacks and harmless texts that look like attacks, each with the boundary it crosses and whether a guardrail should act on it |
 | `createStudioTraceRouter()`, `STUDIO_RUN_METADATA_KEY`, `StudioTraceLine` | Trace delivery: the server registers the router's sink for `STUDIO_TRACE_DESTINATION`; each run opens a route and passes its metadata, and gets back `{ type: 'trace', record }` lines (after a text run's events, or on the Live socket as each record is written) |
 | `demoToolSpecs()`, `demoInputsSpec()` | Every example tool seed, and the inputs facet seed |

@@ -302,7 +302,7 @@ function primaryImageSpec(profile: ModelProfile) {
   return profile.type === 'image' ? profile.image : null;
 }
 
-/** Projects a profile into the plain object a host reads: its id, type, handle, models, inputs, outputs and the tools it can use. Throws for a host or decision profile. */
+/** Projects a profile into the plain object a host reads: its id, type, handle, models, inputs, outputs, and the tools it can use. Throws for a host or decision profile. */
 function projectProfileObject(tools: ToolRegistry, input: Profile): ProjectedProfile {
   const profile = requireModelProfile(input, 'projectProfile');
   const { identity } = profile;

@@ -8,7 +8,7 @@
  * events, then one `conversation` line with the ref the store issued, then
  * the run's error when it failed.
  *
- * The conversation owns the transcript, the history and the paused reply's
+ * The conversation owns the transcript, the history, and the paused reply's
  * events. Which paused calls may run, and with what input, stays the host's
  * session store's: a call is answered there first, and its events settle it here.
  *
@@ -522,7 +522,7 @@ export type PostedMessage = {
   /** The message's blocks (`prepareUserTurn`), with their media inline. */
   blocks: TranscriptBlock[];
   media: UserTurnHistoryMedia;
-  /** The kernel input without history: the message's text as the transcript shows it, its media, slots and context. */
+  /** The kernel input without history: the message's text as the transcript shows it, its media, slots, and context. */
   input: TurnInput;
 };
 

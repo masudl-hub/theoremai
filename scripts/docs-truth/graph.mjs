@@ -1,4 +1,4 @@
-/** Deterministic: no waivers, no LLM. Ownership, evidence and freshness only. */
+/** Deterministic: no waivers, no LLM. Ownership, evidence, and freshness only. */
 
 import { execFileSync } from 'node:child_process';
 import { access, readdir, readFile } from 'node:fs/promises';

@@ -6,7 +6,7 @@ import { kernelDefinitions, newProvider, type StudioProvider } from '../mod.ts';
 
 /**
  * Adds a provider to the project from the first of `definitions`, under the first free id, and
- * hands it to `onAdd`, which opens its page: its id, definition, connection and key slots are set
+ * hands it to `onAdd`, which opens its page: its id, definition, connection, and key slots are set
  * there. `taken` are the ids the workspace already holds. Compact, it is an icon beside a picker,
  * whose `definitions` are those that serve what picks.
  */

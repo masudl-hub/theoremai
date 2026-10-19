@@ -67,7 +67,7 @@ export type LiveClientMessage =
   | { type: 'text'; text: string }
   /** The page's context package, replacing the last: background the model reads without replying. */
   | { type: 'context'; context: unknown }
-  /** Run a call the model made, by its id; the live session holds its name, input and gate. */
+  /** Run a call the model made, by its id; the live session holds its name, input, and gate. */
   | {
       type: 'executeTool';
       callId: string;

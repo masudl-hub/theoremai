@@ -299,12 +299,12 @@ function imageWithInputs(id: string, inputs: Record<string, unknown>): ProfileDe
     inputs: { text: true, ...CHAT_MEDIA_LIMITS, ...inputs },
   } as ProfileDefinition;
 }
-Deno.test('image attachments take images, video and PDF', () => {
+Deno.test('image attachments take images, video, and PDF', () => {
   const accept = ['image/*', 'video/mp4', 'application/pdf'];
   const profile = defineProfile(imageWithInputs('image_accepts', { attachments: { accept } }));
   assertEquals(profile.type === 'image' && profile.inputs.attachments?.accept, accept);
 });
-Deno.test('image attachments refuse audio, text and other documents', () => {
+Deno.test('image attachments refuse audio, text, and other documents', () => {
   for (const mime of ['audio/wav', 'text/plain', 'application/json', '*/*']) {
     assertThrows(
       () => defineProfile(imageWithInputs('image_refuses', { attachments: { accept: [mime] } })),

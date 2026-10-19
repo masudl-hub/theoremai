@@ -1,6 +1,6 @@
 /**
  * The kernel copies request metadata into every record, so one router `sink` hands each record
- * to the run that wrote it. Recording, sampling and scrubbing stay the profile's observability
+ * to the run that wrote it. Recording, sampling, and scrubbing stay the profile's observability
  * policy: a record the policy does not write never reaches the router.
  */
 

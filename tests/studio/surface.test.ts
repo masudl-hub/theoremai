@@ -264,7 +264,7 @@ Deno.test('a tool with auth shows its test credential as a card', async () => {
   assertStringIncludes(JSON.stringify(refused.rejected), 'only the person enters this');
 });
 
-Deno.test('try reports the reply: its text, media, tool calls and errors', async () => {
+Deno.test('try reports the reply: its text, media, tool calls, and errors', async () => {
   const { runtime, host } = setup(createExampleDraft());
   const sent: string[] = [];
   host.send = (text) => {

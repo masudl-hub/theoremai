@@ -29,7 +29,7 @@ const SITES: SharedSites = {
   shop: [place('models.fast', 1, true), place('models.smart', 2, true)],
 };
 
-/** A store on `desk`, `shop` and `yard`, with `desk` open. Each test has its own tab. */
+/** A store on `desk`, `shop`, and `yard`, with `desk` open. Each test has its own tab. */
 function opened() {
   sessionStorage.clear();
   const workspace = ['shop', 'yard'].reduce((held, id) => addAgent(held, named(id)), workspaceFromDraft(named('desk')));

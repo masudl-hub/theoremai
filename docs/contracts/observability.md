@@ -17,7 +17,7 @@ at the upstream tap boundary before the existing trace scrub and content-hash po
 | --- | --- |
 | Import | `@theoremjs/agents/observability` / `jsr:@theoremjs/agents/observability` |
 | Module | `src/observability/mod.ts` |
-| File sink | `@theoremjs/agents/observability/jsonl` → `src/observability/jsonl.ts` (Node, Deno and Bun; keeps the filesystem out of browser and Worker bundles) |
+| File sink | `@theoremjs/agents/observability/jsonl` → `src/observability/jsonl.ts` (Node, Deno, and Bun; keeps the filesystem out of browser and Worker bundles) |
 | Viewer attributes | `@theoremjs/agents/observability/openinference` → `src/observability/openinference.ts` (optional) |
 | Viewer annotations | `@theoremjs/agents/observability/phoenix` → `src/observability/phoenix.ts` (optional) |
 
@@ -101,7 +101,7 @@ through it.
 
 Sampling reads the low 32 bits of the root span's trace id (OpenTelemetry
 `TraceIdRatioBased`). A turn, its specialists, a Live session's response and
-tool records, an `invokeTool` record and a host cutout that share one trace are
+tool records, an `invokeTool` record, and a host cutout that share one trace are
 therefore kept or dropped whole, in any process.
 
 ### Scrub
@@ -114,7 +114,7 @@ debug-off switch.
 
 | Switch | Cleans with |
 | --- | --- |
-| `sensitive` | `ids`, `financial`, `network`, `credentials` and every detector of the host's own |
+| `sensitive` | `ids`, `financial`, `network`, `credentials`, and every detector of the host's own |
 | `injection` | `injection` and `tool_instructions` |
 | `canary` | The canaries bound in the record |
 
@@ -194,7 +194,7 @@ tool calls and decisions write through it. Production hosts should set `onError`
 ## JSONL sink
 
 `jsonlSink` is its own entry point, `@theoremjs/agents/observability/jsonl`,
-because it writes files through Node's `node:fs` (Node, Deno and Bun all
+because it writes files through Node's `node:fs` (Node, Deno, and Bun all
 provide it). Browser and Worker bundles import `@theoremjs/agents` and
 `@theoremjs/agents/observability` without pulling in the filesystem.
 
@@ -305,7 +305,7 @@ becomes its string, and beside other keys becomes `content` (the semconv part
 field); a lone JSON reference becomes the parsed JSON, inlined recursively,
 and beside other keys a parsed object merges under them; a blob keeps its hash.
 
-The full span catalogue — every attribute, event, status rule and stop kind,
+The full span catalogue — every attribute, event, status rule, and stop kind,
 drawn in twelve worked traces including a Live voice session — is
 [the worked example](../proposals/otel-turn-traces-example.md).
 
@@ -317,7 +317,7 @@ it. The studio's trace panel reads it; a host's own tooling can too.
 
 | Lookup | Returns |
 | --- | --- |
-| `traceSpanMeta(span)` | `{ type, label, doc, subject? }`: what the span is (`Turn`, `Live session`, `Model call`, `Live response`, `Tool call`, `HTTP try`, `Cutout`, `Decision`, else `Host span`), decided from what it recorded, plus its subject: the agent, model, tool or path |
+| `traceSpanMeta(span)` | `{ type, label, doc, subject? }`: what the span is (`Turn`, `Live session`, `Model call`, `Live response`, `Tool call`, `HTTP try`, `Cutout`, `Decision`, else `Host span`), decided from what it recorded, plus its subject: the agent, model, tool, or path |
 | `traceAttributeMeta(key)` | `{ label, doc, format, group, options?, open?, fields? }` for a span attribute, including the modality-usage and recorded-header families; `undefined` for a key Theorem does not write |
 | `traceEventMeta(name)` | `{ label, doc, attributes }` for a span event |
 | `traceCatalogRows()` | Every trace field and span type as `{ name, label, doc }`, named by its record: `trace.resource`, `trace.type.turn` |
@@ -327,7 +327,7 @@ it. The studio's trace panel reads it; a host's own tooling can too.
 `format` says how a value reads (`tokens`, `usd`, `milliseconds`, `content`,
 `messages`, …). `options` describes a closed set's values and is keyed by the
 kernel's own enum types, so a new stop kind, error kind, tool outcome, key
-slot, guardrail stage or session kind fails the type check until it is
+slot, guardrail stage, or session kind fails the type check until it is
 described; `open: true` marks a set whose other values are real and show as
 is (provider names, HTTP error types). `fields` describes the keys inside an
 object value (Live settings, guardrail hits, sign-in details, including the
@@ -395,8 +395,8 @@ service:
 
 ## OpenInference attributes
 
-Phoenix maps the GenAI semconv span kinds, models and token counts itself, but
-its message views (the chat bubbles, Replay, the Input and Output columns of
+Phoenix maps the GenAI semconv span kinds, models, and token counts itself, but
+its message views (the chat bubbles, Replay, the Input, and Output columns of
 the trace list), reasoning tokens and cost read only [OpenInference names](https://github.com/Arize-ai/openinference/blob/main/spec/semantic_conventions.md).
 `withOpenInference(records)`, imported from
 `@theoremjs/agents/observability/openinference`, returns copies whose spans
@@ -418,7 +418,7 @@ also carry:
   media part named by modality (`[image]`), one per line; stored references
   are inlined. A text part that is the structured part's JSON as the model
   typed it is shown once, as the JSON. Tool calls and tool results keep their
-  ids, names and arguments.
+  ids, names, and arguments.
 - Only model calls and decisions carry usage: a viewer sums them across a
   trace, and an agent span's usage is already the sum of its calls.
 - A model call with no reported cost (Google reports none) gets no
@@ -435,7 +435,7 @@ the module.
 
 Eval results travel as `gen_ai.evaluation.result` events on a
 `theorem.eval.trial` span (see the evals contract). Phoenix shows them as span
-events, but its Annotations column, filters and experiment views read span
+events, but its Annotations column, filters, and experiment views read span
 annotations, which it takes over REST (`POST /v1/span_annotations`), not
 OTLP. `phoenixAnnotations(records)`, imported from
 `@theoremjs/agents/observability/phoenix`, builds that request's `data`: one

@@ -74,7 +74,7 @@ async function collect(events: AsyncIterable<ProtocolEvent>): Promise<ProtocolEv
   return out;
 }
 
-Deno.test('openAi streams text, thinking, drafts and a call under Theorem’s id', async () => {
+Deno.test('openAi streams text, thinking, drafts, and a call under Theorem’s id', async () => {
   const { sent, call } = setup(() =>
     sse([
       { id: 'r-1', model: 'm-1', choices: [{ delta: { reasoning_content: 'Hmm.' } }] },

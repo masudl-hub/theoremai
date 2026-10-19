@@ -89,7 +89,7 @@ async function sendProbe(payload: StudioRunPayload, text: string, only?: string)
 	}
 }
 
-/** A status as its token: the label, colour and icon the trace's guardrail checks wear. */
+/** A status as its token: the label, colour, and icon the trace's guardrail checks wear. */
 const STATUS_TOKENS: Record<
 	ProbeStatus,
 	{ label: string; color: 'green' | 'blue' | 'orange' | 'red'; icon: typeof IconEye }
@@ -453,7 +453,7 @@ function SentOverview({
 	);
 }
 
-/** What leads one boundary's answer: the way back, the boundary and its answer, and what got through. */
+/** What leads one boundary's answer: the way back, the boundary, and its answer, and what got through. */
 function AnswerHead({
 	answer,
 	isClose,

@@ -269,7 +269,7 @@ export function GuardrailStats({ latency }: { latency: TraceLatency }) {
 }
 
 /**
- * Duration, first text, cost, tokens, steps and guardrails of the open turn;
+ * Duration, first text, cost, tokens, steps, and guardrails of the open turn;
  * a total the trace did not record is left out.
  */
 export function TurnStats({

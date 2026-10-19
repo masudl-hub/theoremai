@@ -24,7 +24,7 @@ Deno.test('a steer body keeps the trimmed id, and its unit only the user message
   });
 });
 
-Deno.test('a steer without a turn, an id or a message fails its check', () => {
+Deno.test('a steer without a turn, an id, or a message fails its check', () => {
   const user = [{ role: 'user', content: 'steered' }];
   const refused: [unknown, string][] = [
     [{ turnId: 't', inject: user }, 'id'],

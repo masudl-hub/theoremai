@@ -1322,7 +1322,7 @@ function buildLiveSession(args: {
         if (decision !== undefined || input !== undefined || secret !== undefined) {
           throw new TheoremError(
             'request',
-            `call ${callId} is not waiting on a gate; it takes no decision, input or secret`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+            `call ${callId} is not waiting on a gate; it takes no decision, input, or secret`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
           );
         }
         return await runHeld(callId, held, held.arguments, undefined, { credentials, host, page });

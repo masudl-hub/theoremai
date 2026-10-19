@@ -15,7 +15,7 @@ Deno.test('SSE retains a whole unfinished frame between byte chunks', () => {
   const second = takeSsePayloads(`${first.rest}i"}\n\n`);
   assertEquals(second.payloads, [{ text: 'hi', sseEvent: 'delta' }]);
 });
-Deno.test('SSE supports CR, CRLF and split CRLF boundaries', async () => {
+Deno.test('SSE supports CR, CRLF, and split CRLF boundaries', async () => {
   const chunks = ['data: {"a":1}\r', '\n\r', '\ndata: {"b":2}\r\rdata: {"c":3}\n\n'];
   const body = new ReadableStream<Uint8Array>({
     start(controller) {

@@ -127,7 +127,7 @@ Deno.test('maxSteps is a whole number of 1 or more, or left out', () => {
   check(said(textProfile({ maxSteps: 3 })), 'defined', 'maxSteps 3');
   check(said(textProfile({ maxSteps: undefined })), 'defined', 'no maxSteps');
 });
-Deno.test('model bindings need a protocol, a provider and a model', () => {
+Deno.test('model bindings need a protocol, a provider, and a model', () => {
   for (const binding of [
     { protocol: 'openAi', provider: '', apiId: 'model' },
     { protocol: 'openAi', provider: 'company', apiId: '' },
@@ -674,7 +674,7 @@ Deno.test('a structured output maps only the choices of an existing slot', () =>
     'no slots at all',
   );
 });
-Deno.test('an image profile checks its pins, its references and its attachment types', () => {
+Deno.test('an image profile checks its pins, its references, and its attachment types', () => {
   const image = (image: Loose, over: Loose = {}) =>
     textProfile({ id: 'i', type: 'image', image: { aspectRatio: '1:1', ...image }, ...over });
   const png = { mimeType: 'image/png', data: 'x' };
@@ -713,7 +713,7 @@ Deno.test('an image profile checks its pins, its references and its attachment t
     [
       'attachments outside images',
       image({}, { inputs: { text: true, attachments: { accept: ['image/png', 'text/csv'] } } }),
-      "Profile i: an image profile's attachments take images, video and PDF only, not text/csv",
+      "Profile i: an image profile's attachments take images, video, and PDF only, not text/csv",
     ],
   ]);
   check(
@@ -787,7 +787,7 @@ Deno.test('an id takes 64 characters and a handle 32', () => {
     'a 33-character handle',
   );
 });
-Deno.test('a required field is named when null, empty or missing, shallowest first', () => {
+Deno.test('a required field is named when null, empty, or missing, shallowest first', () => {
   check(
     said(textProfile({ identity: { handle: null } })),
     "Profile p: type 'text' must set identity.handle",
@@ -849,7 +849,7 @@ Deno.test('a field the type may carry only as its off value names that value', (
     'no off value to name',
   );
 });
-Deno.test('a registry refuses an unknown id, and finds, lists and clears what it holds', () => {
+Deno.test('a registry refuses an unknown id, and finds, lists, and clears what it holds', () => {
   const registry = createProfileRegistry(createToolRegistry(), createSchemaRegistry());
   let message = 'returned';
   try {
@@ -1035,7 +1035,7 @@ Deno.test('an image profile names the types its attachments may not take', () =>
         maxTurnBytes: 1,
       },
     }),
-    "Profile p: an image profile's attachments take images, video and PDF only, not audio/wav, text/plain",
+    "Profile p: an image profile's attachments take images, video, and PDF only, not audio/wav, text/plain",
     'outside types',
   );
 });

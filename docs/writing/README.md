@@ -1,7 +1,7 @@
 
 # Writing Theorem documentation
 
-This guide is for every agent and every person that writes docs in this repo: Claude Code, Cursor, Copilot, Gemini, Codex or a human. Tool-specific files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursor/rules/writing-docs.mdc`, `.github/copilot-instructions.md`) only point here. This folder is the only copy. Edit it here.
+This guide is for every agent and every person that writes docs in this repo: Claude Code, Cursor, Copilot, Gemini, Codex, or a human. Tool-specific files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursor/rules/writing-docs.mdc`, `.github/copilot-instructions.md`) only point here. This folder is the only copy. Edit it here.
 
 Theorem documentation does five things. Each rule below exists to do one of them.
 
@@ -32,7 +32,7 @@ Pick the doc type from the reader's job:
 | --- | --- | --- |
 | Decide whether to use Theorem | Package README, npm page | The one idea, then the shortest working example |
 | Do a task | Guide or how-to | The goal, then numbered steps |
-| Look up a name, option or default | Reference or contract | A table, ordered by what readers look up most |
+| Look up a name, option, or default | Reference or contract | A table, ordered by what readers look up most |
 | Understand why it works this way | Explanation | The problem the design solves |
 | Change the code | Contract in `docs/contracts/` | Who owns what, what must stay true |
 
@@ -43,13 +43,13 @@ Do not mix types in one section. A reference table inside a how-to step hides bo
 For each feature, answer in the doc: **why would the reader want this, and what are they trying to do when they reach for it?** Put the answer in the first sentence under the heading, in the reader's terms.
 
 - Weak: "`chatRef` exposes the chat controller."
-- Strong: "Use `chatRef` when your page must start, stop or read the chat from outside the component, for example to clear the chat when the user signs out."
+- Strong: "Use `chatRef` when your page must start, stop, or read the chat from outside the component, for example to clear the chat when the user signs out."
 
 A feature with no use case that you can write down is a candidate for deletion from the doc, or a question to the user. Say which.
 
 ### 3. Collect evidence before you write
 
-Open the code first, not the old doc. An old doc is a list of claims, not evidence. For each thing you will state, find its source now (see step 6). Keep a short ledger as you go: claim, file and line or test or command output. You do not paste the ledger into the doc. You use it to write, then to check.
+Open the code first, not the old doc. An old doc is a list of claims, not evidence. For each thing you will state, find its source now (see step 6). Keep a short ledger as you go: claim, file and line, or test or command output. You do not paste the ledger into the doc. You use it to write, then to check.
 
 ### 4. Write in simplified technical English
 
@@ -76,7 +76,7 @@ Read [`proof.md`](proof.md). The rule: **a sentence goes in only when you have s
 node scripts/docs-claims.mjs check path/to/doc.md
 ```
 
-It fails on any code span that names a path, package or identifier that does not exist. It proves names, not meaning. You still read the code behind every behaviour, default and limit. Type-check or run every code example. If you cannot prove a claim, delete it or tell the user it is unverified. Do not soften it with "usually" or "typically".
+It fails on any code span that names a path, package, or identifier that does not exist. It proves names, not meaning. You still read the code behind every behaviour, default, and limit. Type-check or run every code example. If you cannot prove a claim, delete it, or tell the user it is unverified. Do not soften it with "usually" or "typically".
 
 ### 7. Make the doc fail when the code moves
 

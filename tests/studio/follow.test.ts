@@ -130,7 +130,7 @@ Deno.test('an argument is changed at the call, and what the function returns onl
   assertEquals(both.text['setup.ts'], HELPED);
 });
 
-Deno.test('a model call, a computed key and a spread constant are each written where they are set', () => {
+Deno.test('a model call, a computed key, and a spread constant are each written where they are set', () => {
   const files = { 'setup.ts': HELPED, 'models.ts': MODELS };
   const after = {
     ...fast,

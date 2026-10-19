@@ -13,7 +13,7 @@ const BUFFERED_CHIPS = '<div class="container"><a class="chip">chips</a></div>';
 
 // Interactions fixtures follow the shapes recorded from gemini-3.8-flash and
 // gemini-3.1-pro-preview (23/09/2026); values are synthetic.
-Deno.test('interactions steps: eventsFromDelta reads text, thought summary and media deltas', () => {
+Deno.test('interactions steps: eventsFromDelta reads text, thought summary, and media deltas', () => {
   assertEquals(eventsFromDelta({ type: 'text', text: 'hello text' }), [
     { type: 'text', text: 'hello text' },
   ]);

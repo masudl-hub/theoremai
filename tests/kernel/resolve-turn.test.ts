@@ -264,7 +264,7 @@ Deno.test('a continue turn needs a counter inside the profile cap, and takes no 
     'no continueFrom, no checks',
   );
 });
-Deno.test('image, speech and live profiles carry their own spec onto the generation', () => {
+Deno.test('image, speech, and live profiles carry their own spec onto the generation', () => {
   clearProfiles();
   define('img', {
     type: 'image',

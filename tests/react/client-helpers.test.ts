@@ -860,7 +860,7 @@ Deno.test('assistantTurnTiming keys replies by their prompt; a stopped reply rea
   assertEquals(pendingPromptOf(groups.slice(0, 3))?.key, 'u2');
 });
 
-Deno.test('composerActionState gates the primary button on payload, phase and recording', () => {
+Deno.test('composerActionState gates the primary button on payload, phase, and recording', () => {
   const iface = interfaceFromProfile(
     defineProfile({
       id: 'react.composer.actions',

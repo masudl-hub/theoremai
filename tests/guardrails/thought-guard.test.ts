@@ -149,7 +149,7 @@ Deno.test('a thought writing leak after leak loses the rest, in time in proporti
   assertEquals(shown.split('(omitted').length - 1 <= 17, true);
 });
 
-/** A guard that omits a marker, an image and a link, with no host let through. */
+/** A guard that omits a marker, an image, and a link, with no host let through. */
 const OMIT_ALL: ThoughtGuardOptions['omit'] = {
   markers: true,
   images: {},
@@ -171,7 +171,7 @@ const THOUGHT_DETECTORS: readonly Detector[] = [
   'ungiven_images',
 ];
 
-/** Whatever of the canary, the prompt, a marker or an image not given is left in `text`. */
+/** Whatever of the canary, the prompt, a marker, or an image not given is left in `text`. */
 function thoughtLeaks(text: string, canary: string) {
   const scope = { canary, privateSystem: [SYSTEM], givenUrls: givenUrlSets() };
   return replyHits(text, scope, THOUGHT_DETECTORS);
@@ -187,7 +187,7 @@ function leakGuard(canary: string, extra: Partial<ThoughtGuardOptions> = {}): Th
   });
 }
 
-Deno.test('a thought omits the canary, the system prompt and the user-data markers, and goes on', () => {
+Deno.test('a thought omits the canary, the system prompt, and the user-data markers, and goes on', () => {
   const canary = mintCanary();
   const cases: Array<[string[], string]> = [
     [
@@ -296,7 +296,7 @@ for (const [name, canary, text] of [
   });
 }
 
-Deno.test('a guarded thought never shows the canary, the prompt or a marker, and shows a clean one whole', () => {
+Deno.test('a guarded thought never shows the canary, the prompt, or a marker, and shows a clean one whole', () => {
   // Fixed so a failure replays; a random one found the four cases above.
   const canary = '58e14c8459e78be16ac156ab503c1307';
   const words = SYSTEM.split(' ');

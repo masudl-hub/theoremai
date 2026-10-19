@@ -264,9 +264,9 @@ function attributeKind(
 }
 
 /**
- * The fields a search over `nodes` offers: type, status, duration and events,
+ * The fields a search over `nodes` offers: type, status, duration, and events,
  * then every attribute the spans recorded that compares as a value. Stored
- * text, JSON and structured values are reached by the text field.
+ * text, JSON, and structured values are reached by the text field.
  */
 export function traceSearchFields(nodes: readonly TraceNode[]): TraceSearchField[] {
   const spans = traceSpans(nodes);
@@ -327,7 +327,7 @@ export function traceSearchFields(nodes: readonly TraceNode[]): TraceSearchField
   return fields;
 }
 
-/** Every string a span holds: what it is, its name and status, and its attributes and events with stored text inlined. */
+/** Every string a span holds: what it is, its name, and status, and its attributes and events with stored text inlined. */
 function spanText(node: TraceNode): string {
   const strings: string[] = [
     node.meta.label,

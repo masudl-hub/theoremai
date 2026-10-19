@@ -14,7 +14,7 @@ import { wireMessageContent } from '../../src/providers/openrouter/openai/compat
  *
  * The document row is Google's document-understanding list in full (PDF, text,
  * HTML, CSS, Markdown, CSV, XML, RTF, JavaScript, Python) plus the established
- * `application/json` row. TypeScript, `application/xml` and `application/rtf`
+ * `application/json` row. TypeScript, `application/xml`, and `application/rtf`
  * are not on Google's list, so they are not rows.
  */
 const EXPECTED: Record<string, MediaInputKind> = {

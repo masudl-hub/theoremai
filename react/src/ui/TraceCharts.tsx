@@ -300,7 +300,7 @@ function Columns<Row extends { index: number; open: () => void }>({
   );
 }
 
-/** Tokens stacked new, cached and written per row: the total, the columns, and each series' sum. */
+/** Tokens stacked new, cached, and written per row: the total, the columns, and each series' sum. */
 function TokensCard({ title, rows }: { title: string; rows: readonly TokenRow[] }) {
   const format = useTraceFormat();
   const { t } = format;
@@ -463,7 +463,7 @@ function SlowestCard({ root, onSelect }: { root: TraceNode; onSelect: (node: Tra
   );
 }
 
-/** Where a turn's time, tokens and slowest steps went. A bar opens its span. */
+/** Where a turn's time, tokens, and slowest steps went. A bar opens its span. */
 export function TraceCharts({
   root,
   split,

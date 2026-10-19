@@ -88,7 +88,7 @@ export function pinShellWhile(check: () => boolean): void {
 	pinned = check;
 }
 
-/** Whether the shell can move. A narrow screen, reduced motion and a host's pin cannot. */
+/** Whether the shell can move. A narrow screen, reduced motion, and a host's pin cannot. */
 export function shellCanMove(): boolean {
 	return (
 		globalThis.matchMedia('(min-width: 768px)').matches &&

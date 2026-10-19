@@ -7,7 +7,7 @@
  * and time a Worker cold start cannot spare, so it runs here, at build time:
  * `agents detect-compile` writes the tables, and `guardrails.detect` loads them.
  *
- * An automaton drops its pattern's assertions: a lookbehind, `\b`, `^` and `$`
+ * An automaton drops its pattern's assertions: a lookbehind, `\b`, `^`, and `$`
  * match nothing, and a lookahead is skipped, with its text read after what
  * precedes it wherever the match may end before that text does. A bounded
  * repeat over `COUNT_LIMIT` is unbounded. An optional repeat of one character

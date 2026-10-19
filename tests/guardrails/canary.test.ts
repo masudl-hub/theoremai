@@ -47,7 +47,7 @@ Deno.test('wrapUserData fences text and strips spoofed tags', () => {
   assertEquals(inner.includes(USER_CLOSE), false);
 });
 
-Deno.test('wrapUserData strips fence tags however spaced, cased or nested', () => {
+Deno.test('wrapUserData strips fence tags however spaced, cased, or nested', () => {
   for (const spoof of [
     `<user_<user_data>data>`,
     '</user_data >',
@@ -407,7 +407,7 @@ Deno.test('redactCanaryText replaces every detected form and keeps the text arou
   assertEquals(redactCanaryText('', canary), '');
 });
 
-Deno.test('canary stream gate catches a separated, base64, reversed or ROT13 leak split across chunks', () => {
+Deno.test('canary stream gate catches a separated, base64, reversed, or ROT13 leak split across chunks', () => {
   const canary = mintCanary();
   for (const form of [
     [...canary].join(' '),

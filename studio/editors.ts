@@ -5,7 +5,7 @@
  * @module
  */
 
-/** How an editor's command takes a file and a line: `-g file:line`, `file:line`, `--line n file` or `-l n file`. */
+/** How an editor's command takes a file and a line: `-g file:line`, `file:line`, `--line n file`, or `-l n file`. */
 export type EditorLineForm = 'goto' | 'colon' | 'line-flag' | 'l-flag';
 
 /** An editor the studio can start, by the command that starts it. */

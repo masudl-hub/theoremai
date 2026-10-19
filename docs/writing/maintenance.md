@@ -17,7 +17,7 @@ The repo has ownership and freshness checks for contracts, the root README, and 
   - an owned file changes and its owning doc is not in the diff (freshness);
   - a watched section does not change when its watched files do;
   - a barrel export is missing from the owning contract (export drift);
-  - a user-facing string in the kernel, guardrails, interface or headless react code is not in the labels (copy lint).
+  - a user-facing string in the kernel, guardrails, interface, or headless react code is not in the labels (copy lint).
 - `docs/DOCS_TRUTH.md` describes the rules. Read it before you add or move a doc.
 
 When you add a doc, add its entry to `docs/_map.mjs` in the same change. When you move code between owners, move the ownership. Never silence the lint with a comment edit. A comment-only edit counts as a change, so the lint cannot tell you did not revise the text. Revise the text.
@@ -38,7 +38,7 @@ A comment is documentation that no check reads, so it goes stale first. The code
 // text before it free to continue a run.
 ```
 
-`npm run lint:docs` runs `scripts/docs-truth/comment-kinds.mjs`. It fails on a `//` or block comment in `src/`, `react/src/` or `mod.ts` that has no tag. Delete a comment that restates the next line, narrates a step or marks a section. A comment that is stale is deleted, not reworded.
+`npm run lint:docs` runs `scripts/docs-truth/comment-kinds.mjs`. It fails on a `//` or block comment in `src/`, `react/src/`, or `mod.ts` that has no tag. Delete a comment that restates the next line, narrates a step, or marks a section. A comment that is stale is deleted, not reworded.
 
 The same check fails on any suppression comment (`biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable`, `@ts-expect-error`) in any scanned folder, tests and scripts included. Fix the cause. JSDoc is not checked here: it states what an export is for, and the kernel catalog owns the text of profile fields.
 
@@ -57,7 +57,7 @@ It lists each Markdown file that mentions a declared symbol or file path in your
 
 - **Derive, do not copy.** If a table repeats data that code owns (export lists, option names, defaults), generate it, or keep it in one place and link to it. Two copies drift.
 - **Point at the source.** Say where the truth lives ("Defaults come from `src/kernel/schema.ts`") so the next editor knows what to check.
-- **Fewer numbers.** Each version, count and size in prose is a future error. State a number only when the reader needs it, and take it from a file the check can see.
+- **Fewer numbers.** Each version, count, and size in prose is a future error. State a number only when the reader needs it, and take it from a file the check can see.
 - **Examples as tests.** Where the repo can, compile the README's first example in CI. A broken example then fails a build, not a reader.
 - **Short docs.** Every line is a line to keep true. Move maintainer detail to a contract, and consumer detail to the README. Do not repeat one in the other.
 - **Delete before you add.** When you change behaviour, remove the old sentence first. Then write the new one.

@@ -4,7 +4,7 @@ These instructions apply to every coding agent and every person who works in thi
 
 ## Writing documentation
 
-Before you write, change or review any documentation, read [`docs/writing/README.md`](docs/writing/README.md) and follow it. Documentation means a README, a file in `docs/`, a changelog entry or JSDoc.
+Before you write, change, or review any documentation, read [`docs/writing/README.md`](docs/writing/README.md) and follow it. Documentation means a README, a file in `docs/`, a changelog entry, or JSDoc.
 
 Two commands help. Run them from the repo root:
 

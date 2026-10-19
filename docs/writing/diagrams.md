@@ -64,4 +64,4 @@ Example (verified widths, 67 columns):
 
 ## Prove the diagram
 
-A diagram makes claims too. Each box, name and arrow needs a source in the code (`docs/writing/proof.md`). If the diagram shows "browser asks the server to describe the profile", find the route that does it.
+A diagram makes claims too. Each box, name, and arrow needs a source in the code (`docs/writing/proof.md`). If the diagram shows "browser asks the server to describe the profile", find the route that does it.

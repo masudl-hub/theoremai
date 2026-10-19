@@ -18,7 +18,7 @@ type ToolKind = (typeof TOOL_KINDS)[number];
 
 /**
  * The places a tool's text crosses: what the model sends, what comes back to it, its error text,
- * and what the call shows the person (its output, error, artifacts and trace on the turn's events).
+ * and what the call shows the person (its output, error, artifacts, and trace on the turn's events).
  */
 const TOOL_CROSSINGS = ['tool_arguments', 'tool_output', 'tool_failure', 'tool_shown'] as const;
 /** One of {@linkcode TOOL_CROSSINGS}. */
@@ -95,7 +95,7 @@ const TOOL_CROSSING_META: Readonly<Record<ToolCrossing, (kind: string) => Bounda
   }),
   tool_shown: (kind) => ({
     label: `Shown from ${kind} tools`,
-    doc: `What a call to a tool of type ${kind} shows the person: its output, error, artifacts and trace.`,
+    doc: `What a call to a tool of type ${kind} shows the person: its output, error, artifacts, and trace.`,
   }),
 };
 

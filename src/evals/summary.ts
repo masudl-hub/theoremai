@@ -3,7 +3,7 @@ import type { SuiteRun, TurnShape } from './run.ts';
 import type { EvalPassRule, EvalResult } from './types.ts';
 import type { CaseVerdict, TrialOutcome } from './verdict.ts';
 
-/** One trial in a run summary: its case, index, outcome, trace id, turn shape, error and grader results. */
+/** One trial in a run summary: its case, index, outcome, trace id, turn shape, error, and grader results. */
 interface TrialSummary {
   case?: string;
   index: number;
@@ -14,7 +14,7 @@ interface TrialSummary {
   results: EvalResult[];
 }
 
-/** A suite run reduced to what a report shows: the pass rule and verdict, cost, priced and unpriced counts, per-case verdicts, group summaries and trials. */
+/** A suite run reduced to what a report shows: the pass rule and verdict, cost, priced and unpriced counts, per-case verdicts, group summaries, and trials. */
 interface RunSummary {
   suite: string;
   mode: 'live' | 'recorded';

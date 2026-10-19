@@ -92,7 +92,7 @@ const evalAnswer = z.object({
 });
 true satisfies Equals<z.infer<typeof evalAnswer>, EvalAnswer>;
 
-/** What a case expects: tools, JSON fields, a transcription or an answer. */
+/** What a case expects: tools, JSON fields, a transcription, or an answer. */
 export interface EvalExpect {
   tools?: string[];
   json?: Record<string, unknown>;
@@ -177,7 +177,7 @@ export type EvalResultSource = 'code' | 'model';
 const evalResultSource = z.enum(['code', 'model']);
 true satisfies Equals<z.infer<typeof evalResultSource>, EvalResultSource>;
 
-/** One grader's verdict on a trial: a score, a label and why. */
+/** One grader's verdict on a trial: a score, a label, and why. */
 export interface EvalResult {
   name: string;
   source: EvalResultSource;
@@ -269,7 +269,7 @@ function isGrader(value: unknown): value is EvalGrader {
 }
 const evalGrader = z.custom<EvalGrader>(isGrader);
 
-/** A suite: a profile, a mode, a cases file and the graders to run. */
+/** A suite: a profile, a mode, a cases file, and the graders to run. */
 export interface EvalSuite {
   id: string;
   profile: string;

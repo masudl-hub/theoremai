@@ -144,7 +144,7 @@ function rowEvents(row: JsonObject, reply: Reply, request: ProtocolRequest, stre
   return events;
 }
 
-/** The calls, the structured reply and the stop, once the rows are done. */
+/** The calls, the structured reply, and the stop, once the rows are done. */
 function endEvents(reply: Reply, request: ProtocolRequest): ProtocolEvent[] {
   const events: ProtocolEvent[] = [];
   // why: some compatible servers end a tool-calling reply with `stop`, so the calls go out whatever the finish.

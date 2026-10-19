@@ -298,7 +298,7 @@ function useEnterMotion<T extends HTMLElement>() {
 }
 
 /**
- * Mic, camera, captions and call controls, centred under the stage. Icons show
+ * Mic, camera, captions, and call controls, centred under the stage. Icons show
  * what a click does, as End call does: a slash means "turn this off".
  */
 function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsToggle: ReactNode }) {

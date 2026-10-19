@@ -81,7 +81,7 @@ Deno.test('a host or decision profile never resolves a turn, and the refusal nam
     'decision projection',
   );
 });
-Deno.test('model, effort and continuation refusals are request errors; a missing default effort is a config error', () => {
+Deno.test('model, effort, and continuation refusals are request errors; a missing default effort is a config error', () => {
   clearProfiles();
   define('fixed');
   define('select', {
@@ -194,7 +194,7 @@ Deno.test('a guarded text profile carries no live or speech spec', () => {
   check(generation.live, undefined, 'no live spec');
   check(generation.speech, undefined, 'no speech spec');
 });
-Deno.test('a structured map follows the slot, falling back when the slot is unset, empty or unmapped', () => {
+Deno.test('a structured map follows the slot, falling back when the slot is unset, empty, or unmapped', () => {
   clearProfiles();
   registerStructured('a', { jsonSchema: { type: 'object' } } as never);
   registerStructured('b', { jsonSchema: { type: 'object' } } as never);

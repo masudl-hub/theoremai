@@ -49,7 +49,7 @@ Deno.test('the picker moves between the ends, chooses and leaves', () => {
   assertEquals(pick(state, 'leave').chosen, undefined);
 });
 
-Deno.test('arrow keys, enter, escape and control-c are the picker keys', () => {
+Deno.test('arrow keys, enter, escape, and control-c are the picker keys', () => {
   assertEquals(pickerKey({ name: 'up' }), 'up');
   assertEquals(pickerKey({ name: 'j' }), 'down');
   assertEquals(pickerKey({ name: 'return' }), 'choose');

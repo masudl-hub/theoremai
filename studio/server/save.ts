@@ -46,7 +46,7 @@ interface Compiled {
 }
 
 /**
- * What Save writes of a provider: its definition, what it connects with and its key slots, as the
+ * What Save writes of a provider: its definition, what it connects with, and its key slots, as the
  * fields its definition holds them in. Its id is what code and models name it by, so it stays.
  * Every definition holds a connection, so one the page leaves out is written as an empty one.
  */
@@ -77,7 +77,7 @@ export function projectNames(opened: StudioWorkspace): ProjectNames {
   };
 }
 
-/** The workspace as the project opened it: each agent, tool and provider the project has, at its start. */
+/** The workspace as the project opened it: each agent, tool, and provider the project has, at its start. */
 function atStart(workspace: StudioWorkspace, names: ProjectNames): StudioWorkspace {
   const { starts } = workspace;
   const agents = Object.values(starts.agents).filter((agent) => names.profiles.includes(agent.identity.agentId));
@@ -87,7 +87,7 @@ function atStart(workspace: StudioWorkspace, names: ProjectNames): StudioWorkspa
 }
 
 /**
- * The profiles, tools and providers that changed, each before and after, the ones the studio added,
+ * The profiles, tools, and providers that changed, each before and after, the ones the studio added,
  * and the ones it removed. `changes` holds what Save cannot write at all: a tool the studio added that no
  * agent allows, and an edit to a tool no agent allows.
  */

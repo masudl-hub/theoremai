@@ -1,5 +1,5 @@
 /**
- * Adversarial corpus, fuzz runners and live attack builders, kept off the production guardrails entry.
+ * Adversarial corpus, fuzz runners, and live attack builders, kept off the production guardrails entry.
  *
  * @module
  */

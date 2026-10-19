@@ -1,6 +1,6 @@
 /**
  * Where the studio keeps itself: this tab's sessionStorage, under the keys and in the record
- * shape the workspace store, its restore and the kept conversations share.
+ * shape the workspace store, its restore, and the kept conversations share.
  */
 import type { STUDIO_WORKSPACE_VERSION, StudioWorkspace } from '../../mod.ts';
 

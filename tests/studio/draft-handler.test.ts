@@ -347,7 +347,7 @@ Deno.test("a run's own error event reaches the visitor without its raw reason", 
   assert(!body.includes('sk-live-123'));
 });
 
-Deno.test('a caught failure answers with its kind, its status and the visitor wording', async () => {
+Deno.test('a caught failure answers with its kind, its status, and the visitor wording', async () => {
   const refused = errorJson(new TheoremError('request', SECRET));
   assertEquals(refused.status, 400);
   assertEquals(refused.headers.get('cache-control'), 'no-store');

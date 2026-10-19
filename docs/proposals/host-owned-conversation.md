@@ -4,7 +4,7 @@ Status: built for chat and Studio; live calls are still open (section 5). Sectio
 
 **Reader:** a Theorem maintainer, and Masud.
 **Job:** decide where a chat's conversation lives, and what changes if the host owns it.
-**After reading:** you can approve, change or reject the move, and you know every part of the code it touches.
+**After reading:** you can approve, change, or reject the move, and you know every part of the code it touches.
 
 ## 1. The problem
 
@@ -14,7 +14,7 @@ Today the browser owns both. The server handler says so in its own header (`reac
 
 This has three results:
 
-1. **The browser decides what the model reads.** The browser sends the whole history with every message. The handler removes system messages, then passed user, assistant and tool messages to the model unchanged (a filter in `react/src/server/handler.ts`, now deleted).
+1. **The browser decides what the model reads.** The browser sends the whole history with every message. The handler removes system messages, then passed user, assistant, and tool messages to the model unchanged (a filter in `react/src/server/handler.ts`, now deleted).
 2. **A host cannot choose where the conversation lives.** The handler takes a `sessionStore` for tool approvals and paused calls. It takes nothing for the conversation.
 3. **A server-owned action on a past message has nothing to act on.** "Try again" on a failed turn is the first case. The server does not know the message, so the browser must send it again.
 

@@ -15,7 +15,7 @@ export interface ClientTurnOptions {
   /**
    * Who reads the copy. A `'visitor'` (the default) reads the profile's wording, and every
    * builder-only diagnostic is stripped. A `'builder'` is whoever builds the app, on their own
-   * machine and keys, as in a local development tool: a failed turn, an ended session and a tool
+   * machine and keys, as in a local development tool: a failed turn, an ended session, and a tool
    * call's failure read their raw reason in place of the profile's wording, and builder-only
    * diagnostics stay. Never for a page visitors reach.
    */

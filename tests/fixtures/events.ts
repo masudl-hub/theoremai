@@ -168,7 +168,7 @@ export function foldedCall(
   return call;
 }
 
-/** A turn's tool snapshot where `tools` are eligible, visible and executable. */
+/** A turn's tool snapshot where `tools` are eligible, visible, and executable. */
 export function toolSnapshot(...tools: string[]): TurnToolSnapshot {
   return { builtins: [], gated: tools, visible: tools, executable: tools, wire: [] };
 }

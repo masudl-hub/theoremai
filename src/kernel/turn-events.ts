@@ -493,7 +493,7 @@ const toolAuthChallenge = z.object({
 true satisfies Equals<z.infer<typeof toolAuthChallenge>, ToolAuthChallenge>;
 
 /**
- * Fields every gate carries. `tool`, `summary` and `request` are trimmed and never blank.
+ * Fields every gate carries. `tool`, `summary`, and `request` are trimmed and never blank.
  * `request` is the tool's `labels.request` filled from the call's input; `access` is the tool's.
  */
 export interface ToolGateBase {
@@ -594,7 +594,7 @@ const wireFunctionTool = z.object({
 });
 true satisfies Equals<z.infer<typeof wireFunctionTool>, WireFunctionTool>;
 
-/** The tools a turn was offered: provider builtins, gated ids and the wire definitions. */
+/** The tools a turn was offered: provider builtins, gated ids, and the wire definitions. */
 export interface TurnToolSnapshot {
   builtins: string[];
   /** Tool ids eligible this turn (custom: allow + path; builtin: model builtInTools + path). */
@@ -703,7 +703,7 @@ export interface ToolCallEdit {
  *   `readBack` is the text the model reads back, after guardrails;
  *   `activityPast` is the tool's past activity label filled from its input and output, or its
  *   failed label when a `post_tool` handler asked for it (`labelFailed`).
- * - `gate` — confirmation, permission or sign-in held the call; the body did not run.
+ * - `gate` — confirmation, permission, or sign-in held the call; the body did not run.
  *   A sign-in gate's `readBack` is what the model reads while the person signs in.
  * - `error` — the call failed or was refused (`failure.kind` `declined` · `blocked` · `cancelled` · …);
  *   `readBack` is the text the model reads back for it, after guardrails;
@@ -911,7 +911,7 @@ export type DoneEvent = DoneBase &
     | { stop: TurnStop & { kind: Exclude<TurnStopKind, ToolSnapshotStopKind> }; tools?: undefined }
   );
 
-/** Every event a host receives from `runTurn`, `invokeTool` or a live session. */
+/** Every event a host receives from `runTurn`, `invokeTool`, or a live session. */
 /** One item an item rule removed from a structured reply, and why. */
 export interface RemovedItem {
   /** The dotted path of the list it sat in. */
@@ -958,7 +958,7 @@ export type TurnEvent =
    */
   | { type: 'structured_draft'; text: string }
   /**
-   * The turn threw the reply so far away and asks again. Text, media and structured output since
+   * The turn threw the reply so far away and asks again. Text, media, and structured output since
    * the turn began, or since the last `attempt`, are not the reply; {@linkcode keptReply} drops them.
    * `attempt` counts the retries: 1 for the first, as the trace's `theorem.attempt.retry` does.
    */

@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 
 /**
  * What a pane says when it has nothing of its own to show: centred both ways
- * in the room it is given. Loading, a failure and an empty pane are this one
+ * in the room it is given. Loading, a failure, and an empty pane are this one
  * component, so they sit in the same place.
  */
 export function PaneState({

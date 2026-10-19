@@ -35,7 +35,7 @@ function citationFromSource(source: Source, key: string): SourceCitation {
 
 /**
  * A source is linked only at an http(s) URL. Sources come from the model and
- * from tool output, so a `javascript:`, `data:` or other scheme never becomes
+ * from tool output, so a `javascript:`, `data:`, or other scheme never becomes
  * a clickable link.
  */
 function webUrl(uri: string): URL | undefined {

@@ -67,7 +67,7 @@ const ONLY: Readonly<Record<keyof SensitiveGroups, SensitiveGroups>> = recordOf(
  * What of the turn the detectors of what is the profile's own read: the canary it planted, whether
  * the model was given it besides, the private stretches of its system instruction, and the URLs
  * the model was given, and the names of its tools. A detector whose part is absent reads without
- * it: `canary_leak`, `prompt_leak` and `tool_leak` find nothing, and to `ungiven_images` and
+ * it: `canary_leak`, `prompt_leak`, and `tool_leak` find nothing, and to `ungiven_images` and
  * `ungiven_links` no URL was given.
  */
 interface DetectScope extends LeakScope, Pick<GuardrailContext, 'givenUrls' | 'ownTools'> {
@@ -156,7 +156,7 @@ const HOST_KIND: Readonly<Partial<Record<Detector, RedactSpan['kind']>>> = {
 };
 
 /**
- * What `detector` finds in `text`: with Theorem's patterns, the host's, both or neither, as its
+ * What `detector` finds in `text`: with Theorem's patterns, the host's, both, or neither, as its
  * `source` says. Left out, Theorem's only. A host's pattern is read on the text as written.
  */
 function spansOf(

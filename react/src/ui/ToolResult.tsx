@@ -104,7 +104,7 @@ function Charts({ charts }: { charts: ResultLayout['charts'] }) {
   );
 }
 
-/** What answers the call, laid out from the output: its figures as stat cards, its series as charts, the images and audio it returned. */
+/** What answers the call, laid out from the output: its figures as stat cards, its series as charts, the images, and audio it returned. */
 function ResultLead({
   layout,
   parts = [],

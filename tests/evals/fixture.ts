@@ -1,6 +1,6 @@
 /**
  * A synthetic turn trace for eval tests: one `invoke_agent` root with a
- * `chat` call, tool calls, a guardrail event, delivered text and structured
+ * `chat` call, tool calls, a guardrail event, delivered text, and structured
  * JSON, and usage. Built with the real span and record builders, so what the
  * graders read is what a turn would have written. No model in the loop.
  */
@@ -68,7 +68,7 @@ interface TurnFixtureOptions {
   policy?: ResolvedObservabilityPolicy;
 }
 
-/** An input message's parts as the turn trace stores them: its text, then any media by kind, hash and size. */
+/** An input message's parts as the turn trace stores them: its text, then any media by kind, hash, and size. */
 function inputParts(message: NonNullable<TurnFixtureOptions['input']>[number]): TraceAttributes[] {
   const parts: TraceAttributes[] = [{ type: 'text', ...traceContent(message.text) }];
   if (message.media) {
@@ -120,7 +120,7 @@ function chatOutput(options: TurnFixtureOptions, delivered: TraceAttributes[]): 
   };
 }
 
-/** The root's input, usage and stop, as a finished turn records them. */
+/** The root's input, usage, and stop, as a finished turn records them. */
 function rootAttributes(
   options: TurnFixtureOptions,
   delivered: TraceAttributes[],

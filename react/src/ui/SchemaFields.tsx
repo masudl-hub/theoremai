@@ -323,7 +323,7 @@ function Field({ field, value, onChange }: Edit & { field: SchemaField }) {
   );
 }
 
-/** Room a short field takes: numbers, dates, menus and one-line text sit side by side. */
+/** Room a short field takes: numbers, dates, menus, and one-line text sit side by side. */
 const SHORT_FIELD_PX = 200;
 /** Segments whose labels run this long in all still fit a short field's width. */
 const SHORT_SEGMENT_CHARS = 18;

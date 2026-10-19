@@ -18,13 +18,13 @@ deno install
 | Command | What it checks |
 | --- | --- |
 | `npm run test` | The Deno test suite. |
-| `npm run lint` | Docs truth, Deno lint, Biome, ast-grep and Fallow. |
+| `npm run lint` | Docs truth, Deno lint, Biome, ast-grep, and Fallow. |
 | `npm run check:react` | Type-check and theme check for `@theoremjs/react`. |
 | `deno publish --dry-run` | The JSR package. |
 | `npm run build:npm` | Builds the npm package into `npm/`. Run `cd npm && npm pack` to see the tarball. |
 | `deno task verify:provider-smoke` | One real OpenRouter turn. It reads `OPENROUTER_API_KEY` from the shell, or from the file that `THEOREM_ENV_FILE` names. |
 
-Never suppress a check. `npm run lint:docs` fails on a `biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable` or `@ts-expect-error` comment. Fix the cause. Every comment in `src/` and `react/src/` opens with `why:`, `invariant:`, `probed <date>:` or `license:`. The rules are in [`docs/writing/maintenance.md`](docs/writing/maintenance.md#comments-in-code).
+Never suppress a check. `npm run lint:docs` fails on a `biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable`, or `@ts-expect-error` comment. Fix the cause. Every comment in `src/` and `react/src/` opens with `why:`, `invariant:`, `probed <date>:`, or `license:`. The rules are in [`docs/writing/maintenance.md`](docs/writing/maintenance.md#comments-in-code).
 
 Biome is the only formatter. Run `npx biome check --write <file>`.
 
@@ -83,13 +83,13 @@ Provider and session changes can also require specific sections of that README.
 | [`docs/contracts/stages.md`](docs/contracts/stages.md) | Turn stages |
 | [`docs/contracts/providers.md`](docs/contracts/providers.md) | `@theoremjs/agents/providers` |
 | [`docs/contracts/guardrails.md`](docs/contracts/guardrails.md) | `@theoremjs/agents/guardrails` |
-| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremjs/agents/observability` and its `jsonl`, `openinference` and `phoenix` entrypoints |
+| [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremjs/agents/observability` and its `jsonl`, `openinference`, and `phoenix` entrypoints |
 | [`docs/contracts/host.md`](docs/contracts/host.md) | `@theoremjs/agents/host` |
 | [`docs/contracts/cli.md`](docs/contracts/cli.md) | `@theoremjs/agents/cli` |
 | [`docs/contracts/presets.md`](docs/contracts/presets.md) | `@theoremjs/agents/presets` |
 | [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `@theoremjs/agents/presets/google` |
 
-Two migration notes explain past cuts: [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) (the old per-turn dynamic tools) and [`docs/MIGRATION-boundary.md`](docs/MIGRATION-boundary.md) (studio, quota, labels and composer moved out of the package).
+Two migration notes explain past cuts: [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) (the old per-turn dynamic tools) and [`docs/MIGRATION-boundary.md`](docs/MIGRATION-boundary.md) (studio, quota, labels, and composer moved out of the package).
 
 ## Keep the package boundary
 

@@ -76,14 +76,14 @@ Owns every module under `src/guardrails/`.
 | `progressive-yield.ts` | Streaming gate for a reply, and for a draft of a tool call, a tool's output or a structured reply (`createDraftGate`): exact hold for the detectors and a host's patterns, a fixed tail for a host's `find` |
 | `detectors.ts` | `DETECTORS`, each one's declaration and defaults, `resolveDetect`, `resolveAllow` |
 | `detect-reply.ts` | `readReply` — a reply read whole at its boundaries when the attempt ends |
-| `detect-stream.ts` | A reply read as it streams: what is released, replaced or held |
+| `detect-stream.ts` | A reply read as it streams: what is released, replaced, or held |
 | `egress.ts` | The canary note's words (`boundaryNote`) and what a leak detector reads against (`LeakScope`) |
 | `egress-patterns.ts` | Every regex the detectors read a reply with, tagged by kind |
 | `egress-urls.ts` | Reply images and links read as a renderer reads them, and whether each URL leaks (`givenUrls`, reserved hosts, a detector's `allow.hosts`) |
 | `thought-guard.ts` | Thought text released as it clears, each leak (image, link, canary, prompt echo, boundary marker) omitted |
 | `egress-automata.ts` | Generated (`scripts/gen-egress-automata.ts`): reversed injection patterns and each pattern's superset automaton |
 | `egress-stream.ts` | The detectors and a host's patterns read incrementally: where a match could still start, and its settled hits |
-| `host-patterns.ts` | A host's own patterns: `HostPattern`, its checks, the matchers it runs as and the shape of its compiled table |
+| `host-patterns.ts` | A host's own patterns: `HostPattern`, its checks, the matchers it runs as, and the shape of its compiled table |
 | `compile-egress.ts` | `@theoremjs/agents/guardrails/compile` entry: `compileDetect`, `compilePatterns`, `compileDetectTables`, `compiledDetectModule`, `slowPatternProblem` |
 | `egress-compiler.ts` | Compiler from regexes to hold automata (`compileDetect`, `agents detect-compile`, `scripts/gen-egress-automata.ts`) |
 | `corpus/` | Adversarial bank (live attacks, inbound fuzz, canary egress catalog) |
@@ -100,14 +100,14 @@ Owns every module under `src/guardrails/`.
 | --- | --- |
 | `mintCanary` | Generate a random 32-hex token (128 bits, no prefix): a Live session's canary |
 | `bindCanary` | Append canary note to system prompt |
-| `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased or nested |
+| `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased, or nested |
 | `wrapContext` | Fence a context package in `<page_context from="client">` or `from="server"`, first stripping any fence tag in it, so neither the page nor the person can pass text off as the host's |
 | `contextNote` | The `context.note` labels line, which tells the model what that fence means; the runner appends it to the system prompt of a profile that sets `inputs.context`. An empty override leaves it out. |
-| `userDataNote` | The `user_data.note` labels line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image and live turn (speech has no system prompt). An empty override leaves it out. |
+| `userDataNote` | The `user_data.note` labels line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image, and live turn (speech has no system prompt). An empty override leaves it out. |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with the private stretches of the system prompt, also stops a reply echoing them |
-| `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
+| `scanTextForCanaryLeak` | The token — as written, reversed, in ROT13, spelled out (digit words, NATO letters), as character or byte codes, or in base64 at any offset — read through case, lookalike, and fullwidth characters, and separators up to 32 characters; any 16 consecutive characters of it count |
 | `eventHasCanary` | Scan any `TurnEvent` wire shape |
-| `scanTextForPromptEcho` | Whether a reply repeats `PROMPT_ECHO_WORDS` (12) consecutive words of one private stretch of the system prompt — case-folded, markup and list numbering ignored, read also backwards, in rot13 and in leetspeak, any one word or none in the canary's place; the leak the token alone cannot see (the `prompt_leak` detector) |
+| `scanTextForPromptEcho` | Whether a reply repeats `PROMPT_ECHO_WORDS` (12) consecutive words of one private stretch of the system prompt — case-folded, markup, and list numbering ignored, read also backwards, in rot13 and in leetspeak, any one word or none in the canary's place; the leak the token alone cannot see (the `prompt_leak` detector) |
 | `createCanaryGateSession` / `filterCanaryGatedEvents` | Canary batch helper; pass the private stretches of the system prompt as sent to catch prompt echo too, as `runTurn` and Live do (Live production uses `live-outbound-gate`) |
 
 A turn's canary is the profile's (`profileCanary`): a hash of the profile id
@@ -122,7 +122,7 @@ model besides the system prompt — the input, and the history and continuation
 messages the model did not write — with the reply's own detector
 (`requestGivesCanary`). Once it is found the turn sets
 `GuardrailContext.canaryGiven`: the canary stops nothing for the rest of the
-turn, while prompt echo, the boundary note, thought omission and trace
+turn, while prompt echo, the boundary note, thought omission, and trace
 scrubbing go on as before.
 
 ## Egress
@@ -130,7 +130,7 @@ scrubbing go on as before.
 What Theorem reads in a reply is `guardrails.detect` (see [Detect](#detect)):
 the canary, the system instruction, the kernel's markers, and images and links
 to addresses the model was not given are detectors like any other, each with an
-action at `reply`, `reply_structured`, `live_reply` and `thought`.
+action at `reply`, `reply_structured`, `live_reply`, and `thought`.
 A host's own check of a reply is a detector too (see
 [Detectors of your own](#detectors-of-your-own)), and
 `guardrails.blockedReply` is what happens to a reply any detector stops:
@@ -142,7 +142,7 @@ guardrails: {
 }
 ```
 
-`guardrails` takes `quota`, `detect`, `blockedReply`, `network` and `taint`.
+`guardrails` takes `quota`, `detect`, `blockedReply`, `network`, and `taint`.
 `defineProfile` rejects any other key, `egress` among them.
 
 When an attempt ends, the reply is read whole (`OutboundPayload`: its text and
@@ -199,7 +199,7 @@ continued.`
 A turn the egress gate withholds or answers with refusal copy ends with stop
 `filtered`, `native: 'egress'`, a leak of the canary or the private prompt in
 the reply's text among them. A leak in an event that is not text ends the turn
-at once with `native: 'canary'`, `'prompt_echo'` or `'provider_tool_leak'`.
+at once with `native: 'canary'`, `'prompt_echo'`, or `'provider_tool_leak'`.
 None is continue-eligible (see `kernel.md` → Resume policy).
 
 `rejection` is written for the model on a repair turn; the user never sees it.
@@ -230,10 +230,10 @@ rendered — a throwing `toJSON`, say — yields an `egress.unscannable` hit and
 gate **fails closed**, because output that could not be inspected cannot be
 vouched for.
 
-### Markers, images and links
+### Markers, images, and links
 
 Three detectors read what the model writes for what would carry data out, each
-at `reply`, `reply_structured`, `live_reply` and `thought`:
+at `reply`, `reply_structured`, `live_reply`, and `thought`:
 
 | Detector | Default | Finds |
 | --- | --- | --- |
@@ -255,7 +255,7 @@ detect: {
   too: it already takes data with no click, so a link there opens nothing new.
 - `fromTools` (default `true`) counts a URL a tool returned as given. A tool
   result can offer the model URLs to pick from, and the pick tells their server
-  something; `false` keeps only what the system prompt, the user and host
+  something; `false` keeps only what the system prompt, the user, and host
   history gave.
 
 `allow` on any other detector, an option it does not have, or a host that is
@@ -284,20 +284,20 @@ A URL is a leak unless:
   escapes); a URL the reply wrote with trailing punctuation matches with it
   trimmed;
 - its host is reserved and can receive nothing (`example.com`, `.net`, `.org`,
-  and the `.example`, `.test` and `.invalid` names); or
+  and the `.example`, `.test`, and `.invalid` names); or
 - its host is in the detector's `allow.hosts` (for links, the image detector's too).
 
-A relative URL, `data:` and `javascript:` load nothing off the page's own
+A relative URL, `data:`, and `javascript:` load nothing off the page's own
 origin and are not leaks. Images are found the way a renderer finds them:
 
 - markdown inline images (nested ones too), and reference definitions whenever
   the reply has an image opener that could use them;
 - HTML start tags as the browser tokenizer reads them, with entities decoded:
-  `src`, `srcset`, `poster`, `background`, `data`, `xlink:href` and the other
+  `src`, `srcset`, `poster`, `background`, `data`, `xlink:href`, and the other
   loading attributes; `href` on every tag but `a` and `area`; CSS `url()` and
   strings in `style`; a `srcdoc` document; a `meta` refresh. A named entity the
   table does not know makes its URL a leak;
-- `<style>` blocks, each `url()` and string in them (`@import "…"`, `image-set("…")`).
+- `<style>` blocks, each `url()`, and string in them (`@import "…"`, `image-set("…")`).
 
 CSS is read as a CSS tokenizer reads it: comments, strings (an escaped newline
 dropped), and escapes decoded per token, so `url(https://ok.com\)@attacker.io/)`
@@ -325,7 +325,7 @@ Not covered:
   that links it is the host's, and replies name domains all the time.
 - A URL the model was given that itself encodes data it chose — a search result
   link with a query the model picked, say — used as a covert channel;
-  `fromTools: false` narrows it to what the prompt, user and history gave.
+  `fromTools: false` narrows it to what the prompt, user, and history gave.
 - CSS a host builds from reply text outside markup.
 
 A thought is read by the same detectors, each at its `thought` action (see below).
@@ -387,7 +387,7 @@ For the detectors and a host's patterns the gate holds exactly what could
 still become a match (`egress-stream.ts`). Each detector regex is compiled
 ahead of time (`scripts/gen-egress-automata.ts`, checked in as
 `egress-automata.ts`) into an automaton that accepts every match of it and
-more: lookbehinds, `\b`, `^` and `$` are dropped, and a bounded repeat over
+more: lookbehinds, `\b`, `^`, and `$` are dropped, and a bounded repeat over
 256 is unbounded. A lookahead is skipped when the text that must follow it is
 at least as long as the lookahead: the match has read that text. Otherwise the
 automaton also accepts the text before the lookahead followed by the
@@ -579,7 +579,7 @@ Import corpus helpers from **`@theoremjs/agents/guardrails/testing`** (not the p
 | `buildLiveAttacks` | Live red-team cases from same corpus |
 | `buildCanaryEgressAttacks` | Synthetic canary egress leak attempts, including restatements of `FUZZ_SYSTEM` (the system prompt the fuzz binds its canary to) |
 | `deno task fuzz` | CLI inbound fuzz; exit `1` on expected miss |
-| `deno task fuzz-canary` | CLI canary egress fuzz (stream + Live gates): token encodings, splits across chunks, steps and cycles, and system-prompt echo, with benign controls |
+| `deno task fuzz-canary` | CLI canary egress fuzz (stream + Live gates): token encodings, splits across chunks, steps, and cycles, and system-prompt echo, with benign controls |
 | `deno task test:guardrails` | Unit tests + inbound + canary fuzz (no live API) |
 | `deno task verify:guardrails-api` | Real-provider red-team (`scripts/verify-guardrails-api.ts`) |
 | `deno task cassettes:record` | Record real-provider turns for replay (`--model`, `--only`, `--missing`, `--stale`) |
@@ -604,8 +604,8 @@ kernel, offline.
   prompt, so replay binds the one the model was sent. Every 16-byte random
   draw is recorded and drawn again on replay: a Live session's canary is the
   draw it was sent; trace ids are drawn alike and are not.
-- **What fails.** A canary, sensitive or forbidden leak in what reached the
-  host, an inbound secret or injection sent to the model, a tool guardrail
+- **What fails.** A canary, sensitive, or forbidden leak in what reached the
+  host, an inbound secret, or injection sent to the model, a tool guardrail
   that let the effect through, or an outcome (guardrail events, error kind,
   shown text, tools run) other than the recorded one. `cassettes:update`
   keeps a new outcome when a change means to alter it.
@@ -732,7 +732,7 @@ spreading the dump over them does not restart the count.
 A system prompt is a string or a list of parts (`SystemPrompt`), and the parts
 are sent concatenated as written. With no `{ private: text }` part the whole
 prompt is private; with one, the plain parts beside it are shareable — lines
-the agent is meant to say word for word, like a greeting or a voice line. Marks
+the agent is meant to say word for word, like a greeting, or a voice line. Marks
 apply per source: `identity.system` (or its `systemByRole` entry) and
 `req.system` are joined a blank line apart, and a mark in one leaves the other
 as private as it was written. The canary note and the `user_data` note are
@@ -773,7 +773,7 @@ looks, and what it does: a detector, a boundary, an action.
 | --- | --- |
 | `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`), `injection`, `tool_instructions`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
 | `BOUNDARIES` | Every place the kernel reads text as it crosses; `BOUNDARY_META` labels each |
-| `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output`, `tool_failure` and `tool_shown`, for each of `TOOL_KINDS` |
+| `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output`, `tool_failure`, and `tool_shown`, for each of `TOOL_KINDS` |
 | `recordOf` | One value for each of a list of keys, by key: `recordOf(BOUNDARIES, () => 'ignore')` |
 | `DETECT_ACTIONS` | `ignore`, `flag`, `redact`, `block`; `DETECT_ACTION_META` labels each |
 | `DETECT_DEFAULTS` | The action of every detector at every boundary when the profile sets none |
@@ -802,7 +802,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `live_reply` | What the model says in a Live session |
 | `thought` | The model's reasoning, where the host shows it |
 
-`<kind>` is a tool's `type`: `function`, `http`, `mcp` or `agent`. A provider
+`<kind>` is a tool's `type`: `function`, `http`, `mcp`, or `agent`. A provider
 builtin has no boundary: the provider runs it and the kernel never reads its
 text (see the known exception under [Invariant](#invariant)).
 
@@ -836,7 +836,7 @@ sensitive detectors do. A profile with no tools has nothing to find.
 
 ### Whose patterns
 
-`ids`, `financial`, `network`, `credentials` and `injection` read with
+`ids`, `financial`, `network`, `credentials`, and `injection` read with
 patterns, and a host chooses whose:
 
 | `theorem` | `patterns` | The detector reads with |
@@ -863,7 +863,7 @@ detect: compileDetect({
 ```
 
 - A `HostPattern` is a `name` and either a `pattern` (regular expression
-  source, with `flags` from `i`, `m`, `s` and `u`) or `words`. Words match
+  source, with `flags` from `i`, `m`, `s`, and `u`) or `words`. Words match
   whole, without regard to case, with any whitespace between the words of one.
   Every match is found; a sticky (`y`) pattern is refused.
 - A host pattern's match takes its detector's action at the boundary, like
@@ -934,7 +934,7 @@ detect: compileDetect({
 | `patterns`, `compiled` | As under [Whose patterns](#whose-patterns) |
 | `find` | A function of the host's (`HostFind`): the text and its `boundary` in, the stretches it matched out (`HostSpan`, `[start, end)` in UTF-16 units). It also reads the text a trace stores, with no `boundary` (`observability.scrub.sensitive`) |
 
-- The key is `namespace.name`, in lower case, digits and `_`. The namespace is
+- The key is `namespace.name`, in lower case, digits, and `_`. The namespace is
   the host's, so a detector Theorem adds later never takes its key.
 - It has no default. A boundary neither `action` nor `at` covers is `ignore`,
   and it applies at any boundary the profile has.
@@ -942,7 +942,7 @@ detect: compileDetect({
   and a pattern's `name` as `pattern`. `redact` replaces it with `[omitted]`.
 - `find` runs in the turn, on every text crossing a boundary the detector
   reads, and returns at once: it is not awaited. One that throws, or returns
-  a stretch outside the text, an empty one or anything but a list, stops the
+  a stretch outside the text, an empty one, or anything but a list, stops the
   text as `block` does whatever the action set; the hit names the detector, no
   match, and how it failed as its `signal`: `find_threw`, or `find_result`
   for what it returned.
@@ -959,7 +959,7 @@ detect: compileDetect({
 
 `ResolvedDetect.host` holds them resolved (`HostDetector`), in the order the
 profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
-`id`, `label`, `actions`, the `names` of the patterns and whether there is a
+`id`, `label`, `actions`, the `names` of the patterns, and whether there is a
 `find`. A client never runs them; `sanitizeUserDraft` leaves them to the kernel.
 
 | Boundaries | Sensitive detectors | `injection` | `tool_instructions` |
@@ -1046,7 +1046,7 @@ switch cannot mean different things on different paths.
 
 | API | Role |
 | --- | --- |
-| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, context, repair, history, system and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
+| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, context, repair, history, system, and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
 | `sanitizeTurnRequestWithEvents(req, profile)` | A `SanitizedTurnRequest`: the request, one `{ type: 'guardrail' }` event for each boundary where something matched, and the `refusal` to end the turn on when a match blocks |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
 | `sanitizeHistory` | Sanitize historical turn exchanges |
@@ -1062,7 +1062,7 @@ Patterns target untrusted user text before provider submission:
 - Instruction override (`ignore previous instructions`, `disregard rules`, …)
 - Mode hijack (`developer mode`, `jailbreak`, `DAN`, `do anything now`)
 - Safety bypass (`disable safety filters`, …)
-- Role / delimiter forgery (`<system>`, `[System Message]`, ChatML, Llama `[INST]` and DeepSeek control tokens)
+- Role / delimiter forgery (`<system>`, `[System Message]`, ChatML, Llama `[INST]`, and DeepSeek control tokens)
 - Prompt exfiltration (`reveal your system prompt`, …)
 - Multilingual override fragments
 
@@ -1154,7 +1154,7 @@ is not what the generator writes.
 | Keywords | The rule runs only when the text holds one of its keywords, in any case |
 | Secret | The rule's `secretGroup`, else its first non-empty group, else the whole match. Only the secret is redacted |
 | Entropy | The match is dropped when the secret's Shannon entropy is at or under the rule's floor |
-| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match or its lines, or when the secret holds a stopword |
+| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match, or its lines, or when the secret holds a stopword |
 
 Three differences from gitleaks are deliberate:
 
@@ -1166,7 +1166,7 @@ Three differences from gitleaks are deliberate:
 - gitleaks also decodes base64 and hex text and scans the result. Theorem does
   not.
 
-gitleaks' `generic-api-key` rule reads a key, token or password that is given
+gitleaks' `generic-api-key` rule reads a key, token, or password that is given
 a random-looking value, for example `"password": "aBcD1234EfGh"`. A tool that
 returns a new password or key for the user to read, such as a password
 generator, has that value redacted before the model sees it. On a profile with
@@ -1202,7 +1202,7 @@ servers author their own response bodies *and their own error strings*.
 Every registered tool returns through `executeRegisteredTool`, so the guard cannot
 be skipped by adding a tool type. Each result and failure that crosses the guard
 is labelled with `Provenance`; failures the kernel raises before a tool runs
-(unknown, ineligible or taint-refused calls) carry kernel text and are not
+(unknown, ineligible, or taint-refused calls) carry kernel text and are not
 labelled.
 
 | Field | Meaning |
@@ -1280,7 +1280,7 @@ The tool boundary's rules (all ids: [Rule ids](#rule-ids)):
 
 | Rule | Stage | Meaning |
 | --- | --- | --- |
-| `detect.<detector>` | `tool_call`, `tool_result` | That detector matched arguments, output or a failure message; the event's `boundary` says which |
+| `detect.<detector>` | `tool_call`, `tool_result` | That detector matched arguments, output, or a failure message; the event's `boundary` says which |
 | `tool_call.tainted-turn` | `tool_call` | State-changing call on a turn that has read remote content |
 | `tool_call.steered-turn` | `tool_call` | Same, where that content carried a directive |
 | `tool_call.remote-destination` | `tool_call` | An argument carries a destination that only a remote result named |
@@ -1305,8 +1305,8 @@ detector `tool_instructions` reads a tool's output and its error text for it
 | Tells the agent to set its instructions aside | `override` | `high` |
 
 It is a detector like any other: `guardrails.detect.tool_instructions` takes an
-action, `at`, `theorem`, `patterns` and `hint`. It starts at `flag` on what an
-`http`, `mcp` or `agent` tool returns and at `ignore` on a function's, whose
+action, `at`, `theorem`, `patterns`, and `hint`. It starts at `flag` on what an
+`http`, `mcp`, or `agent` tool returns and at `ignore` on a function's, whose
 text the host's own code wrote. The callable-tool signal reads
 `TurnToolSnapshot.executable`, so it is scoped to what the model can actually
 invoke on this turn; a failure message is read without it.
@@ -1331,7 +1331,7 @@ somewhere, so a destination anywhere in the result proves nothing: of 20 real
 search results, 3 shop pages were flagged for lines like "Remove This Item" and
 "if you need to exchange it, send us an email at …". An imperative or an
 authority claim counts when the destination comes before its clause ends, at
-the next comma, semicolon, sentence end or line break, at most 240 characters
+the next comma, semicolon, sentence end, or line break, at most 240 characters
 on. A tool's name counts when a destination is in its sentence, and never when
 the name is part of the address (`https://shop.example/search`).
 
@@ -1596,7 +1596,7 @@ Blocked by default: loopback (`127.0.0.0/8`, `::1`), RFC 1918 private ranges,
 link-local and cloud metadata (`169.254.0.0/16`), CGNAT (`100.64.0.0/10`),
 documentation and benchmark ranges (RFC 5737, RFC 2544), multicast and reserved
 space, and any scheme outside `allowedSchemes`. IPv6 forms of the same ranges
-are covered: unique-local, link-local and site-local space, and every range that
+are covered: unique-local, link-local, and site-local space, and every range that
 carries an IPv4 address (mapped, translated, compatible, NAT64, 6to4) judged by
 that address. Local-use NAT64 (`64:ff9b:1::/48`) and Teredo (`2001::/32`) are
 refused outright.

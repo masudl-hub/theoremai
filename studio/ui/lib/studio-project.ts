@@ -49,7 +49,7 @@ export interface ProjectSession {
 	shared: SharedSetting[];
 	/** The profiles and tools the files define that the project did not register. */
 	unregistered: Unregistered[];
-	/** The settings the project's files set in code, by profile id, tool name and provider id. */
+	/** The settings the project's files set in code, by profile id, tool name, and provider id. */
 	origins: ProjectOrigins;
 	/** Where the files define each provider the project registered. */
 	providerPlaces: ProviderPlace[];

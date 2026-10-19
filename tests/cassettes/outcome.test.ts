@@ -2,7 +2,7 @@ import { assertEquals, assertNotEquals } from '@std/assert';
 import type { TurnEvent } from '../../mod.ts';
 import { normalizeOutcome, outcomeOf } from './cases.ts';
 
-Deno.test('cassette outcomes list each rule per event while retaining actions, signals, events and effects', () => {
+Deno.test('cassette outcomes list each rule per event while retaining actions, signals, events, and effects', () => {
   const event: Extract<TurnEvent, { type: 'guardrail' }> = {
     type: 'guardrail',
     guardrail: {

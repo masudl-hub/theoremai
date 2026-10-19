@@ -77,7 +77,7 @@ Deno.test('backoffMs doubles from 1s to 8s', () => {
   assertEquals(backoffMs(9), 8000);
 });
 
-Deno.test('retryAfterMs reads milliseconds, seconds or a date', () => {
+Deno.test('retryAfterMs reads milliseconds, seconds, or a date', () => {
   const now = Date.parse('2026-10-03T12:00:00Z');
   const at = (init: Record<string, string>) => retryAfterMs(new Headers(init), now);
   assertEquals(at({}), undefined);

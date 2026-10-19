@@ -156,7 +156,7 @@ Deno.test('defineProfile refuses a guardrails key it does not know, and checks a
   assertThrows(
     profile({ detect: { marker_leak: { allow: { hosts: [] } } } }),
     TheoremError,
-    'is a setting of ungiven_images, ungiven_links and tool_leak only',
+    'is a setting of ungiven_images, ungiven_links, and tool_leak only',
   );
   assertThrows(
     profile({ blockedReply: { retries: 2 } }),
@@ -588,7 +588,7 @@ Deno.test('host profile rejects models, identity, inputs, outputs, turnBehaviour
     "type 'host' never runs a model",
   );
 });
-Deno.test("resolveTurn, runTurn, runSession and projectProfile refuse a 'host' profile", async () => {
+Deno.test("resolveTurn, runTurn, runSession, and projectProfile refuse a 'host' profile", async () => {
   registerProfile({ type: 'host', id: 'host_refusals', tools: { allow: [] } });
   assertThrows(() => resolveTurn({ profile: 'host_refusals' }), TheoremError, "type 'host'");
   assertThrows(() => projectProfile('host_refusals'), TheoremError, "type 'host'");

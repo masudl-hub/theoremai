@@ -81,7 +81,7 @@ const CARD_CANDIDATE = /\b(?:\d[\s.-]*?){13,19}\b/g;
  */
 const SENSITIVE_GROUPS = ['ids', 'financial', 'network', 'credentials'] as const;
 
-/** A group of sensitive-value checks: ids, financial, network or credentials. */
+/** A group of sensitive-value checks: ids, financial, network, or credentials. */
 type SensitiveGroup = (typeof SENSITIVE_GROUPS)[number];
 
 /** Per group, whether it runs. A group left out keeps its default. */
@@ -173,7 +173,7 @@ interface CardNetwork {
 
 const LENGTHS_16_TO_19 = [16, 17, 18, 19];
 
-/** Visa, Mastercard, American Express, Diners Club, Discover, JCB, UnionPay, Maestro, Mir and RuPay, in that order. */
+/** Visa, Mastercard, American Express, Diners Club, Discover, JCB, UnionPay, Maestro, Mir, and RuPay, in that order. */
 const CARD_NETWORKS: readonly CardNetwork[] = [
   { leading: [['4', '4']], lengths: [13, 16, 19] },
   {

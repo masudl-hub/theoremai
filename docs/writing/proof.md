@@ -4,7 +4,7 @@ The reader trusts a doc as much as the code. A false line in a doc costs more th
 
 ## The rule
 
-A sentence goes in only when you have seen its source in this session. An old doc, a commit message, a comment, your memory and another agent's summary are leads. They are not sources.
+A sentence goes in only when you have seen its source in this session. An old doc, a commit message, a comment, your memory, and another agent's summary are leads. They are not sources.
 
 ## What counts as evidence
 
@@ -14,7 +14,7 @@ A sentence goes in only when you have seen its source in this session. An old do
 | A signature or type | The declaration, or a type-check of a snippet that uses it |
 | A default value | The constant or the `??` in the code. Read the line, copy the value |
 | A behaviour | A test that asserts it, or you run it and read the output |
-| A limit, version or size | Measure it. Example: the TypeScript floor was found by compiling against 5.4, 5.7, 6.0 and 7.0 |
+| A limit, version, or size | Measure it. Example: the TypeScript floor was found by compiling against 5.4, 5.7, 6.0 and 7.0 |
 | An order of events | Follow the code path, or read a trace |
 | "Always" or "never" | Find the code path that would break it. If you cannot exclude it, say what you checked |
 | A link | The file exists on the branch the reader reads |
@@ -59,4 +59,4 @@ Do one of these, in this order:
 2. Ask the user to confirm it, and say which file would settle it.
 3. State it as unverified in your report to the user. Never as a fact in the doc.
 
-Do not use "usually", "typically" or "should" to cover a claim you did not check.
+Do not use "usually", "typically", or "should" to cover a claim you did not check.

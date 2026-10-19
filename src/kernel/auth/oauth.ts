@@ -80,7 +80,7 @@ function assertRedirectUri(value: string): void {
   }
 }
 
-/** RFC 6749 §3.3: a scope token is one or more printable ASCII characters other than space, `"` and `\`. */
+/** RFC 6749 §3.3: a scope token is one or more printable ASCII characters other than space, `"`, and `\`. */
 const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/;
 
 function assertScopeTokens(scopes: readonly string[]): void {
@@ -272,7 +272,7 @@ async function discoverEndpoints(
   };
 }
 
-/** Stateless: the verifier, expected issuer, token endpoint and resource are sealed into `state`. */
+/** Stateless: the verifier, expected issuer, token endpoint, and resource are sealed into `state`. */
 export async function createOAuthPkceFlow(options: CreatePkceFlowOptions): Promise<PkceFlowResult> {
   const endpoints =
     options.preResolved ?? (await discoverEndpoints(options.resourceServerUrl, options));

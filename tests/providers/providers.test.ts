@@ -89,7 +89,7 @@ async function decide(
   return { sent: sent[0] as Sent, usage: result.usage as JsonObject | undefined };
 }
 
-Deno.test('OpenRouter serves chat, images and decisions at its defaults, signed with a bearer key', async () => {
+Deno.test('OpenRouter serves chat, images, and decisions at its defaults, signed with a bearer key', async () => {
   const registry = createProviderRegistry();
   registry.register(openRouterProvider, { keySlot: 'main' });
   assertEquals(
@@ -178,7 +178,7 @@ Deno.test('a local server needs its address, and takes a key only when one is na
   await assertRejects(() => chat(registry, 'vllm', 'openAi', {}), TheoremError, 'vllm');
 });
 
-Deno.test('OpenRouter, TypeSafe and a local server share one registry and its protocols', () => {
+Deno.test('OpenRouter, TypeSafe, and a local server share one registry and its protocols', () => {
   const registry = createProviderRegistry();
   registry.register(openRouterProvider, { keySlot: 'main' });
   registry.register(typesafeProvider, { keySlot: 'typesafe' });

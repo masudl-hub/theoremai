@@ -5,7 +5,7 @@
  *     [--deno-config <deno.json>] [--editor <command>]
  *
  * The setup module is the project's: its default export registers the project's
- * tools, profiles and providers; an optional `host` export gives tool handlers
+ * tools, profiles, and providers; an optional `host` export gives tool handlers
  * their application context (the test user), and an optional `provider` export
  * says where the providers find their keys. Only this machine can reach the server.
  *

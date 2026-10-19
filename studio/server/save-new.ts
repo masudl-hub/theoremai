@@ -29,7 +29,7 @@ import {
 import { indentAt, indentUnit, type SavePlan, type SourceEdit } from './save-plan.ts';
 import type { SaveChange } from './save-wire.ts';
 
-/** A profile, tool or provider the studio added, as it compiles. `agents` is every agent of the workspace, in the order a scope registers them. */
+/** A profile, tool, or provider the studio added, as it compiles. `agents` is every agent of the workspace, in the order a scope registers them. */
 export interface NewSubjects {
   agents: readonly CompiledStudio[];
   /** The ids of the agents that are new. */

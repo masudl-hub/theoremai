@@ -371,7 +371,7 @@ Deno.test('agentdojo-benign tags each fixture with its category and skips one th
   );
 });
 
-Deno.test('recordsFromYaml renders each record with its fields, lists and unescaped newlines', () => {
+Deno.test('recordsFromYaml renders each record with its fields, lists, and unescaped newlines', () => {
   const yaml = `items:
   - id_: "0"
     to:

@@ -10,9 +10,9 @@ a host profile and takes its answer as the result. The judge is a text model,
 Jev (a decision profile), or Jev escalating to a text model, as the host
 chooses.
 
-Hosts own the cases, the judge profiles and the pass rule. THEOREM owns the
-trial view of a trace, the code graders, the judge grader and its rubrics, the
-result records and the verdict math. Viewing, labelling and comparing runs
+Hosts own the cases, the judge profiles, and the pass rule. THEOREM owns the
+trial view of a trace, the code graders, the judge grader, and its rubrics, the
+result records and the verdict math. Viewing, labelling, and comparing runs
 belong to the trace viewer the host already uses (Phoenix reads the records
 through `withOpenInference` and `phoenixAnnotations`).
 
@@ -27,11 +27,11 @@ through `withOpenInference` and `phoenixAnnotations`).
 
 | Path | Role |
 | --- | --- |
-| `src/evals/types.ts` | Suite, case, result and grader shapes (zod schemas + `Trial` view) |
+| `src/evals/types.ts` | Suite, case, result, and grader shapes (zod schemas + `Trial` view) |
 | `src/evals/trial.ts` | `buildTrial` (records → one `Trial`), `groupByTrace`, `hasTurn` |
 | `src/evals/graders/shared.ts` | `codeGrader`, `passFail`, delivered text/JSON readers |
 | `src/evals/graders/code.ts` | Code graders for any turn: `delivered`, `toolTrajectory`, `stopKind`, `guardrail`, `budget`, `outcome` |
-| `src/evals/graders/answer.ts` | `answer`: a dataset case's answer against its accepted, partial and rejected names, by code |
+| `src/evals/graders/answer.ts` | `answer`: a dataset case's answer against its accepted, partial, and rejected names, by code |
 | `src/evals/graders/live.ts` | Live graders: `transcription`, `interruptions` |
 | `src/evals/graders/latency.ts` | `turnLatency`: the person's wait before each reply began, for turns and Live |
 | `src/evals/graders/media.ts` | The media a judged turn carried, and its bytes from the case or the host's `media` store |
@@ -110,7 +110,7 @@ A `Trial` exposes: `root`, `top`, `spans(operation)` in start order across recor
 `content(value)` / `text(value)` resolving stored content markers against the
 merged content of every record, `delivered()` (root `gen_ai.output.messages`,
 or a Live turn's `theorem.output.delivered` from its response spans, parts left
-as stored markers) and `usage()` (tokens, thinking share and cost from the root).
+as stored markers) and `usage()` (tokens, thinking share, and cost from the root).
 
 `groupByTrace(records)` keeps records of one trace together, first seen first.
 `hasTurn(records)` says whether they hold a turn at all (an `invoke_agent` span).
@@ -169,7 +169,7 @@ first.
 `answer` grades a dataset question by code alone: no judge, since the case's
 list settles it, and a miss is for a person to read. It labels each trial
 `accepted` (passes, score 1), `partial` or `wrong` (fail, score 0). Names are
-compared ignoring case, accents, punctuation and spacing, so `DEVIL’S IVY`
+compared ignoring case, accents, punctuation, and spacing, so `DEVIL’S IVY`
 is `devil's ivy`, but `devils ivy` is not. `from` says where the answer is:
 
 | `from` | Reads | Matches when |
@@ -194,7 +194,7 @@ is graded as usual. Other stops (`length`, `stream_incomplete`, …) stay `wrong
 Latency is two readings, not one. `budget.maxTimeToFirstChunkMs` is the
 provider's share: from the successful HTTP try (or the Live response's first
 frame) to its first chunk. `turnLatency` is the person's whole wait. For a
-turn it runs from the turn's start, through guardrails, history and any
+turn it runs from the turn's start, through guardrails, history, and any
 retried try, to the first chunk of the first model call. For a Live session it
 runs, per response, from the provider's last `ACTIVITY_END` before the reply
 when the session heard speech, else from the response's first input frame. A
@@ -310,7 +310,7 @@ over a view.
 The Mustache (`rubrics/mustache.ts`) is variables, dotted names, `{{.}}`,
 triple braces, sections over lists and values, inverted sections and comments;
 a tag alone on its line takes the line with it. Nothing is HTML-escaped: the
-output is a prompt. Partials, delimiter changes and unbalanced sections are
+output is a prompt. Partials, delimiter changes, and unbalanced sections are
 config errors.
 
 `rubrics.*` is every classification evaluator Phoenix serves, fourteen from
@@ -318,7 +318,7 @@ Phoenix 20.16.0: `completeness`, `conciseness`, `correctness`,
 `documentRelevance`, `faithfulness`, `hallucination`, `piiDetection`,
 `refusal`, `retrievalRelevance`, `toolInvocation`, `toolResponseHandling`,
 `toolSelection`, `toxicity`, `userFriction`. Each keeps Phoenix's name (the
-result's, e.g. `tool_selection`), labels, scores and prompt, copied verbatim
+result's, e.g. `tool_selection`), labels, scores, and prompt, copied verbatim
 into `rubrics/catalog.ts` (Arize AI, Apache-2.0). `deno task rubrics:sync`
 copies them again from the running Phoenix (`deno task phoenix:up`), and
 refuses a prompt the judge cannot use: more than one message, a part that is
@@ -399,7 +399,7 @@ stopped on budget is `UNSET`, never `OK`. Failed verdicts never make the run
 `loadSuite(path)` imports the suite module, validates its `default` export
 with `evalSuiteSchema`, reads `cases` relative to the module (a bad line is
 named `file:line`; a repeated case id is a `TheoremError('config')`) and picks
-up `export const provider`, `judgeProvider`, `judgeDecision`, `media`, `onStage` and `host` when the module
+up `export const provider`, `judgeProvider`, `judgeDecision`, `media`, `onStage`, and `host` when the module
 has them. Every live trial's turn runs with the module's `onStage`, the stage
 handler the host's own requests carry, and with its `host` as `TurnRequest.host`,
 the application context the profile's tools read as `ctx.host`; recorded mode ignores both.
@@ -427,7 +427,7 @@ pinned.
 | `judgeDecision` | The key decision judges (Jev) run with: `{ vault }`, read through the slot the judge profile names, plus `fetch` / `endpoint` for tests; absent, the suite's `judgeDecision` export |
 | `media` | Where judges find media a trace names only by hash (see Judges); absent, the suite's `media` export, else only the case's attachments |
 | `recorded` | Recorded mode: the records to grade; a trace with no stamp for this suite is graded caseless (no verdict); judge calls (inside the judged trace, or in traces of their own) and eval run records among them are skipped with a warning, so a whole trace directory can be graded again |
-| `sink` | Where the judged turns' own records (live mode), the judge turns' records, `theorem.eval.trial` and `theorem.eval.run` go; absent, they are returned only |
+| `sink` | Where the judged turns' own records (live mode), the judge turns' records, `theorem.eval.trial`, and `theorem.eval.run` go; absent, they are returned only |
 | `repeat` | Overrides `suite.trials.repeat`; `1` adds a warning, since one trial cannot tell noise from change |
 | `maxCostUsd` | Live mode starts no further trial once the summed `theorem.usage.cost_usd` of agent turns and judge calls passes it; the run is `stopped: 'budget'` and never passes. A call whose provider reports no cost (Google) adds nothing, so the run warns when any ran |
 | `revision` | `vcs.ref.head.revision` on the run record |
@@ -486,12 +486,12 @@ when its record is in the trace), `modelCalls`,
 tag's trials in name order; the summary carries them as `groups` and the table
 prints them under the cases. A group gives its cases and how many met the
 suite's pass rule (`run.passRule`; under the default `all` this is pass^k)
-out of the decided ones (`casesUndecided` apart), its trials and how many
+out of the decided ones (`casesUndecided` apart), its trials, and how many
 passed out of those that did not error (`trialsErrored` apart), the `answer` labels over its trials when the
 suite grades answers (`none` counts trials with no label: the turn errored,
 or stopped `provider_error` before it answered), how its traced trials stopped (`stops`, counted by stop kind, so a
 run of provider errors is not read as a run of wrong answers), and the median
-and 90th percentile of turn time, model calls and tool calls. Percentiles are nearest-rank, so each is a value some trial had.
+and 90th percentile of turn time, model calls, and tool calls. Percentiles are nearest-rank, so each is a value some trial had.
 Caseless trials belong to no group.
 
 `run.costUsd` sums only the costs providers reported; `run.unpriced` counts

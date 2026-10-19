@@ -369,7 +369,7 @@ function parseYamlRecordLine(
 
 /**
  * Serialises each record the way a tool would return it. Extracting only prose bodies drops the
- * addresses, ids and amounts a real tool result carries, and a detector scores better than it deserves.
+ * addresses, ids, and amounts a real tool result carries, and a detector scores better than it deserves.
  */
 function recordsFromYaml(yaml: string): string[] {
   const blocks = yamlRecordBlocks(yaml);

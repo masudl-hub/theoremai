@@ -247,7 +247,7 @@ Applies to function, HTTP, and MCP tools on every execute path
 12. `onStage({ stage: 'post_tool', outputRaw, outputModel, activityPast?, activityFailed, failure?, awaiting? })`
     — `outputModel` is the guarded result. `activityPast` is the tool's past
     activity label filled from the input and `outputRaw`; it is absent when the
-    call failed, the tool has no label or a placeholder has no value.
+    call failed, the tool has no label, or a placeholder has no value.
     `activityFailed` is the tool's failed label, filled from the input as the
     model sent it; when the tool has none or a placeholder has no value, it is
     the labels' `tool.activity_failed` line naming the tool in words. Apply
@@ -442,9 +442,9 @@ never supplies the tool name or the model's input.
 
 **Rules:**
 
-- An unknown, settled or running `callId` is a `request` error and runs nothing.
+- An unknown, settled, or running `callId` is a `request` error and runs nothing.
 - A held call that is not gated runs once, with the model's stored arguments.
-  `decision`, `input` or `secret` on it is a `request` error.
+  `decision`, `input`, or `secret` on it is a `request` error.
 - A gated call needs a `decision`. `input` and `secret` go only with
   `approve`. `input` re-runs the call's `preTool` on the edit and the
   `running` event carries `edited: { from, to }`, `from` being the model's

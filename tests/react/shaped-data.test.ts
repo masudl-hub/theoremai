@@ -64,7 +64,7 @@ Deno.test('fields read as words, with units from a units object or a key suffix'
   assertEquals(fieldReading('distance_m', 'far'), { label: 'Distance m' });
 });
 
-Deno.test('plain values read as none, yes/no, numbers, links, dates or text', () => {
+Deno.test('plain values read as none, yes/no, numbers, links, dates, or text', () => {
   assertEquals(plainReading(null), { kind: 'none' });
   assertEquals(plainReading(undefined), { kind: 'none' });
   assertEquals(plainReading(true), { kind: 'boolean', value: true });

@@ -158,7 +158,7 @@ function isPrivateOrLocalIPv6(ip: string): boolean {
   });
 }
 
-/** True for loopback addresses and names reserved for local use: `localhost`, `.local`, `.internal`, `.lan`, `.home.arpa` and `.localdomain`. */
+/** True for loopback addresses and names reserved for local use: `localhost`, `.local`, `.internal`, `.lan`, `.home.arpa`, and `.localdomain`. */
 export function isLocalhostName(hostname: string): boolean {
   let lower = hostname.toLowerCase();
   while (lower.endsWith('.')) {

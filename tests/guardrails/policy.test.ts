@@ -101,7 +101,7 @@ Deno.test('Verdict is exhaustively handled', () => {
   assertEquals(describeVerdict({ action: 'block', hits, rejection: 'nope' }), 'block:nope');
 });
 
-Deno.test('a policy resolves its detectors, what they allow and what a blocked reply does', () => {
+Deno.test('a policy resolves its detectors, what they allow, and what a blocked reply does', () => {
   const unset = resolveGuardrailPolicy(undefined);
   assertEquals(unset.detect, DETECT_DEFAULTS);
   assertEquals(unset.allow, NO_ALLOW);

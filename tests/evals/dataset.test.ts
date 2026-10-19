@@ -2,7 +2,7 @@ import { fixtureHostOptions } from '../fixtures/registered-runner.ts';
 /**
  * Identification datasets: cases whose photos sit beside the cases file,
  * pinned by hash; the `answer` grader labelling a trial against the case's
- * accepted, partial and rejected names with no model, reading the reply, a JSON key or
+ * accepted, partial, and rejected names with no model, reading the reply, a JSON key or
  * a committing tool call's argument; and the run reported by tag.
  */
 
@@ -55,7 +55,7 @@ Deno.test('answer searches the reply for the case’s names as whole words', asy
     true,
     'reply names "golden pothos"',
   ]);
-  // Case, accents and punctuation do not matter: any apostrophe is punctuation, a missing one is a different word.
+  // Case, accents, and punctuation do not matter: any apostrophe is punctuation, a missing one is a different word.
   assertEquals((await labelOf(reply, { text: 'DEVIL’S IVY' }))[0], 'accepted');
   assertEquals((await labelOf(reply, { text: 'Devils ivy, I think.' }))[0], 'wrong');
   assertEquals((await labelOf(reply, { text: "It's devil's  ivy." }))[0], 'accepted');
@@ -271,7 +271,7 @@ function report(
   };
 }
 
-Deno.test('the run is reported overall and by tag: accuracy, pass^k, time and loops', () => {
+Deno.test('the run is reported overall and by tag: accuracy, pass^k, time, and loops', () => {
   const cactus: EvalCase = { ...POTHOS, id: 'cactus-01', tags: ['succulent', 'photo'] };
   const untagged: EvalCase = { ...POTHOS, id: 'bare-01', tags: undefined };
   const turn = (durationMs: number, modelCalls: number, toolCalls: number, stop = 'completed') => ({

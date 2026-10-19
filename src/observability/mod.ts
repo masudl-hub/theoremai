@@ -1,5 +1,5 @@
 /**
- * Trace sinks, the destination registry, observability policy, the span builder and the trace
+ * Trace sinks, the destination registry, observability policy, the span builder, and the trace
  * catalog. THEOREM owns no database: hosts register destinations or pass a sink into `runTurn`.
  *
  * @module

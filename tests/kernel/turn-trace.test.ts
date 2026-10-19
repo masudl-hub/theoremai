@@ -183,7 +183,7 @@ Deno.test('turn trace: a continuation reads the earlier call and marks where the
   ]);
   assertEquals(attrs(span as TraceSpan)['theorem.input.sent_from'], 2);
 });
-Deno.test('turn trace: each HTTP try is a POST span with its slot, body and backoff', () => {
+Deno.test('turn trace: each HTTP try is a POST span with its slot, body, and backoff', () => {
   const tree = trace();
   const call = startCallTrace(under(tree), {
     req: request(),

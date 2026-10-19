@@ -112,7 +112,7 @@ async function exchangeWith(
   return { run, seen };
 }
 
-Deno.test('a URL the flow is given must parse, be https and carry no fragment', async () => {
+Deno.test('a URL the flow is given must parse, be https, and carry no fragment', async () => {
   check(
     await rejection(() => flowFor({ preResolved: { ...PRE_RESOLVED, issuer: 'not a url' } })),
     'OAuth issuer "not a url" is not a URL',
@@ -765,7 +765,7 @@ Deno.test('a token covers its resource origin and the path at or below it', () =
   check(covers('not a url', 'https://a.example/mcp'), false, 'an unparseable resource');
 });
 
-Deno.test('a scope-refusal progress record has its kind, slot and both scope lists', () => {
+Deno.test('a scope-refusal progress record has its kind, slot, and both scope lists', () => {
   const record = {
     kind: 'auth_scope_refused',
     slot: 'docs',

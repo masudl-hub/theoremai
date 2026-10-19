@@ -101,7 +101,7 @@ export interface LiveClientOptions {
   /** What the page tells the agent as the call opens; `setContext` replaces it during the call. */
   context?: unknown;
   relayUrl?: string;
-  /** In-process connections reuse the same microphone, playback and tool client. */
+  /** In-process connections reuse the same microphone, playback, and tool client. */
   createSocket?: () => LiveSocket;
   /** When false, skip microphone capture; session still receives model audio. */
   voiceIngress?: boolean;

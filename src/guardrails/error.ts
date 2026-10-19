@@ -65,7 +65,7 @@ function publicError(err: unknown, labels?: LabelOverrides): string {
   return wording(errorKind(err), err instanceof TheoremError ? err.copy : undefined, labels);
 }
 
-/** Raw diagnostic for hosts, traces and logs; never shown to end users. */
+/** Raw diagnostic for hosts, traces, and logs; never shown to end users. */
 function describeError(err: unknown): string {
   if (typeof err === 'string') {
     return err;

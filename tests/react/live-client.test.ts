@@ -539,7 +539,7 @@ function liveHarness() {
   };
 }
 
-Deno.test('a call opens with its slots, context and host message; a changed context follows once', async () => {
+Deno.test('a call opens with its slots, context, and host message; a changed context follows once', async () => {
   const live = liveHarness();
   const client = new LiveSessionClient({
     createSocket: live.createSocket,

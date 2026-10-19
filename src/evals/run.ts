@@ -27,7 +27,7 @@ import type {
 } from './types.ts';
 import { type CaseVerdict, caseVerdict, type TrialOutcome, trialOutcome } from './verdict.ts';
 
-/** Names a trial by suite, case and trial number. */
+/** Names a trial by suite, case, and trial number. */
 interface EvalStamp {
   suite: string;
   case: string;
@@ -42,7 +42,7 @@ interface TurnShape {
   stop?: string;
 }
 
-/** One trial's outcome, results and records. */
+/** One trial's outcome, results, and records. */
 interface TrialReport {
   case?: EvalCase;
   index: number;
@@ -60,7 +60,7 @@ interface TrialReport {
   trialRecord?: TraceRecord;
 }
 
-/** Options for `runSuite`: the providers, the judge and how often to repeat. */
+/** Options for `runSuite`: the providers, the judge, and how often to repeat. */
 interface RunSuiteOptions {
   provider?: ProviderHostOptions;
   judgeProvider?: ProviderHostOptions;

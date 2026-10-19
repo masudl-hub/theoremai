@@ -15,7 +15,7 @@ import type { Provenance, ResolvedGuardrailPolicy, Verdict } from './types.ts';
 
 /** What the turn has read so far, by who wrote it. Keys are `kind:value`, lowercased. */
 interface TurnDestinations {
-  /** From the system prompt, the user, host history and local tools. */
+  /** From the system prompt, the user, host history, and local tools. */
   given: Set<string>;
   /** From the running text of remote tool results, with the tool that returned each. */
   remote: Map<string, string>;

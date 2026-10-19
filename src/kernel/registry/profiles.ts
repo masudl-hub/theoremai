@@ -833,7 +833,7 @@ function assertImageAccept(profileId: string, accept: string[] | undefined) {
   throw new TheoremError(
     'config',
     // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    `Profile ${profileId}: an image profile's attachments take images, video and PDF only, ` +
+    `Profile ${profileId}: an image profile's attachments take images, video, and PDF only, ` +
       `not ${outside.join(', ')}`,
   );
 }

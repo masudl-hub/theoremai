@@ -4,7 +4,7 @@ import type { ProfileType } from './schema.ts';
 /** The editor a graph facet is edited with: schema-driven or structural. */
 export type ProfileGraphEditor = 'schema' | 'structural';
 
-/** Where a facet sits in the graph: root, spine or branch. */
+/** Where a facet sits in the graph: root, spine, or branch. */
 export type ProfileGraphRole = 'root' | 'spine' | 'branch';
 
 interface ProfileGraphFacetDef {

@@ -113,7 +113,7 @@ Deno.test('openRouter writes its body: effort, routing, cache, session, web sear
   assertEquals(messages[1]?.reasoning, 'Plan.');
 });
 
-Deno.test('openRouter reads thinking, citation lists and reasoning to send back', async () => {
+Deno.test('openRouter reads thinking, citation lists, and reasoning to send back', async () => {
   const { call } = setup([
     {
       citations: ['https://a.test', 'https://a.test'],

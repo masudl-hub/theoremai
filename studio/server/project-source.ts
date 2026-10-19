@@ -46,7 +46,7 @@ export interface ProjectSource {
   providers: Map<string, SourceTarget[]>;
 }
 
-/** What the studio reads in a project's files and Save writes: a profile, a tool or a provider. */
+/** What the studio reads in a project's files and Save writes: a profile, a tool, or a provider. */
 export type SubjectKind = 'profile' | 'tool' | 'provider';
 
 /** Where the project's files write each thing of `kind`. */
@@ -120,7 +120,7 @@ export function propertyName(property: ts.ObjectLiteralElementLike): string | un
   return undefined;
 }
 
-/** The module specifier of each import, export-from and literal `import()` in a file. */
+/** The module specifier of each import, export-from, and literal `import()` in a file. */
 function specifiers(source: ts.SourceFile): string[] {
   const found: string[] = [];
   const visit = (node: ts.Node) => {
@@ -136,7 +136,7 @@ function specifiers(source: ts.SourceFile): string[] {
   return found;
 }
 
-/** The kernel's package, however a specifier names it: bare, `npm:` or `jsr:`, with a version, or a path in it. */
+/** The kernel's package, however a specifier names it: bare, `npm:`, or `jsr:`, with a version, or a path in it. */
 const KERNEL_PACKAGE = /^(?:npm:|jsr:)?@theoremjs\/agents(?:@[^/]*)?(?:\/|$)/;
 
 /** Whether an import from `specifier` may bring in the kernel: its package, or a path, which may lead to it. Another package does not. */
@@ -627,7 +627,7 @@ export interface ConstantUsers {
   profiles: Set<string>;
   tools: Set<string>;
   providers: Set<string>;
-  /** Code that is not a profile, a tool, a provider or another constant reads it. */
+  /** Code that is not a profile, a tool, a provider, or another constant reads it. */
   code: boolean;
   /** Each place that code reads it. None for a function nothing the studio reads calls. */
   readBy: Located[];
@@ -795,7 +795,7 @@ function targetsOf(project: ProjectSource, targets: Map<string, SourceTarget[]>,
 const USERS = new WeakMap<ProjectSource, Map<ts.Expression, ConstantUsers>>();
 
 /**
- * Follows a constant to everything it sets: a profile, tool or provider that reads it, and through a
+ * Follows a constant to everything it sets: a profile, tool, or provider that reads it, and through a
  * constant that reads it, whatever reads that one. The answer is the project's: do not change it.
  */
 export function usersOf(project: ProjectSource, binding: Binding): ConstantUsers {

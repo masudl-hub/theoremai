@@ -160,7 +160,7 @@ Deno.test('every way a reply can load an unseen image is a leak, in the policy a
   }
 });
 
-Deno.test('links, relative and inline images, reserved hosts and plain text are not leaks', () => {
+Deno.test('links, relative and inline images, reserved hosts, and plain text are not leaks', () => {
   for (const text of PASSES) {
     assertEquals([text, leaks(text)], [text, false]);
     assertEquals([text, streamBlocks(text)], [text, false]);
@@ -244,7 +244,7 @@ Deno.test('allow takes hostnames and its own settings, and detect only the detec
   refuses({ marker_leak: 'yes' }, 'guardrails.detect.marker_leak must be one of');
   refuses(
     { marker_leak: { allow: { hosts: ['cdn.acme.io'] } } },
-    'is a setting of ungiven_images, ungiven_links and tool_leak only',
+    'is a setting of ungiven_images, ungiven_links, and tool_leak only',
   );
   assertEquals(problem({ ungiven_links: { action: 'block', allow: { hosts: ['a.io'] } } }), '');
 });
@@ -371,7 +371,7 @@ Deno.test('a style block loads each URL it names', () => {
   }
 });
 
-Deno.test('a CSS escape, comment or escaped newline does not hide a URL from the style check', () => {
+Deno.test('a CSS escape, comment, or escaped newline does not hide a URL from the style check', () => {
   const ok = reading({ ungiven_images: { allow: { hosts: ['ok.com'] } } });
   for (const text of [
     '<style>a{background:url(https://ok.com\\)@attacker.io/p)}</style>',

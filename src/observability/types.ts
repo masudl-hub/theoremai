@@ -97,7 +97,7 @@ export interface ResolvedTraceInclude {
 /** A `ScrubSwitch` with its sides filled in; one with both sides off is `false`. */
 export type ResolvedScrubSwitch = boolean | { theorem: boolean; host: boolean };
 
-/** What is scrubbed from the text a trace stores: sensitive values, injection and the canary. */
+/** What is scrubbed from the text a trace stores: sensitive values, injection, and the canary. */
 export interface ResolvedTraceScrub {
   sensitive: ResolvedScrubSwitch;
   injection: ResolvedScrubSwitch;

@@ -1,6 +1,6 @@
 /**
- * Inbound and outbound guardrail primitives: sanitization, injection and sensitive detection,
- * canary egress gates, the detectors and public error mapping. App-specific policy copy stays host-owned.
+ * Inbound and outbound guardrail primitives: sanitization, injection, and sensitive detection,
+ * canary egress gates, the detectors, and public error mapping. App-specific policy copy stays host-owned.
  *
  * @module
  */

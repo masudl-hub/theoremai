@@ -1,6 +1,6 @@
 /**
  * The question the studio puts before a real run of a tool that writes: which tool, how it is
- * set, what the run sends and where. A tool that only reads is run unasked.
+ * set, what the run sends, and where. A tool that only reads is run unasked.
  *
  * @module
  */

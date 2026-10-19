@@ -266,7 +266,7 @@ function* yieldBufferedAttemptEvents(
 
 /**
  * Start the next attempt with the repair added. The turn is not resolved again:
- * the retry keeps attempt 1's canary, tools and system prompt, and only the
+ * the retry keeps attempt 1's canary, tools, and system prompt, and only the
  * repair prompt is new.
  */
 function updateFlowForRetry(

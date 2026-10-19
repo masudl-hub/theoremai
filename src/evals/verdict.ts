@@ -1,6 +1,6 @@
 import type { EvalCase, EvalPassRule, EvalResult } from './types.ts';
 
-/** How a trial ended: passed, failed, errored or ungraded. */
+/** How a trial ended: passed, failed, errored, or ungraded. */
 type TrialOutcome = 'passed' | 'failed' | 'errored' | 'ungraded';
 
 /** The outcome of a trial from its results. */

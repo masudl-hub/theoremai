@@ -19,7 +19,7 @@ Hosts install it from npm: `npm install -D @theoremjs/studio`.
 
 ## Changed: one vault, slots are yours to name
 
-`KEY_SLOTS`, `OVERFLOW_KEY_SLOTS` and `OverflowKeySlot` are removed, and `paid`
+`KEY_SLOTS`, `OVERFLOW_KEY_SLOTS`, and `OverflowKeySlot` are removed, and `paid`
 means nothing. A slot is any name you pick (`KEY_SLOT_NAME`); a vault holds as
 many as you fill. The host passes one `vault` for every provider, and a slot
 holds whatever secret you put there.
@@ -31,7 +31,7 @@ holds whatever secret you put there.
 | `runDecision` / decision handler `keyVault` | `vault` |
 | `openAiGateway.apiKey` | A vault slot named on the model (`models.*.key`) or the profile (`key`); `openAiGateway` keeps only `baseUrl`, `siteUrl`, `siteName`, `fetch`, `voice` |
 | Decision `apiKey` (`runDecision`, `createTheoremDecisionHandler`, eval `judgeDecision`) | `vault`; the slot the decision profile names reads it |
-| A model with no slot used the flat key | Every non-local model must name a slot: `defineProfile` refuses a `google`, `openrouter` or decision model with neither `models.*.key` nor the profile's `key` |
+| A model with no slot used the flat key | Every non-local model must name a slot: `defineProfile` refuses a `google`, `openrouter`, or decision model with neither `models.*.key` nor the profile's `key` |
 | Local models took no key | A local model that names a slot sends that key as a bearer token |
 | A quota refusal retried on the vault's `paid` key by itself | Retries once only on the slot the profile names in `fallbackKey` (or `models.*.fallbackKey`), for every provider |
 | `googleSearch` switched a model to `paid` (`forcePaidKey`) | No tool picks a key; pin the slot on the model with `key` |

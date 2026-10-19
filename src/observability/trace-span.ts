@@ -26,7 +26,7 @@ interface TraceBytes {
   $bytes: string;
 }
 
-/** In-memory provider row or wire body awaiting scrub, intern and hash at record build. */
+/** In-memory provider row or wire body awaiting scrub, intern, and hash at record build. */
 interface TraceJson {
   [key: string]: TraceAttributeValue;
   $json: TraceAttributeValue;
@@ -38,7 +38,7 @@ interface SpanLinkInput {
   attributes?: TraceAttributes;
 }
 
-/** Options for starting a span: its kind, attributes and links. */
+/** Options for starting a span: its kind, attributes, and links. */
 interface SpanOptions {
   kind?: TraceSpanKind;
   attributes?: TraceAttributes;

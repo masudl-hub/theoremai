@@ -76,7 +76,7 @@ Deno.test('a keyword after the match does not count, streamed or whole', () => {
   assertEquals(found('1234pin 5678', late), ['5678']);
 });
 
-Deno.test('an allowlist reads the secret, the match or the line, and stopwords read the secret', () => {
+Deno.test('an allowlist reads the secret, the match, or the line, and stopwords read the secret', () => {
   const pattern = /key=(\w+)/;
   const text = 'first\nexample key=abcd here\nlast key=wxyz';
   const lets = (list: Partial<CredentialAllowlist>) =>

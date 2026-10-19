@@ -401,7 +401,7 @@ export function toolModule(
   ].join('\n');
 }
 
-/** The library's function, HTTP and MCP tools, each once; agent tools wait for their agents. */
+/** The library's function, HTTP, and MCP tools, each once; agent tools wait for their agents. */
 function libraryModule(tools: readonly ToolRegistration[]): string {
   return [
     `import { z } from 'zod';\nimport { registerTool } from '@theoremjs/agents';\n`,

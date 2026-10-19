@@ -55,7 +55,7 @@ Deno.test('assertLabelOverrides accepts valid Theorem and Astryx lines', () => {
   );
 });
 
-Deno.test('assertLabelOverrides names the locale, key and problem', () => {
+Deno.test('assertLabelOverrides names the locale, key, and problem', () => {
   const cases: [Record<string, Record<string, unknown>>, string][] = [
     [
       { en: { '@theorem.chat.greting': 'Hi' } },

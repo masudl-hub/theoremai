@@ -57,7 +57,7 @@ function parts(request: TurnRequest) {
   }
 }
 const png = (name = 'a') => ({ mimeType: 'image/png', data: btoa(name) });
-Deno.test('text, attachments and voice become typed parts in that order, text wrapped as user data', () => {
+Deno.test('text, attachments, and voice become typed parts in that order, text wrapped as user data', () => {
   clearProfiles();
   define('chat');
   check(
@@ -384,7 +384,7 @@ Deno.test("resolveInputParts refuses on its own what resolveTurn already screene
     "slots are not this function's",
   );
 });
-Deno.test('slot, speech-role and image-pin refusals carry the request kind', () => {
+Deno.test('slot, speech-role, and image-pin refusals carry the request kind', () => {
   clearProfiles();
   define('slotted', { inputs: { text: true, slots: { mood: ['happy'] } } });
   const slotted = getProfile('slotted') as never;

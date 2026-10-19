@@ -105,7 +105,7 @@ function unanswered(trial: Trial, why: string): EvalResult | undefined {
   };
 }
 
-/** A code grader that checks the agent's answer against the case's `expect.answer` lists of accepted, partial and rejected names, normalizing both sides; with `from` it compares the named JSON key or tool argument exactly, otherwise it looks for the names in the reply text. A provider error before an answer errors the trial instead. */
+/** A code grader that checks the agent's answer against the case's `expect.answer` lists of accepted, partial, and rejected names, normalizing both sides; with `from` it compares the named JSON key or tool argument exactly, otherwise it looks for the names in the reply text. A provider error before an answer errors the trial instead. */
 function answer(options: { from?: AnswerSource } = {}): EvalGrader {
   const { from } = options;
   const identity = `answer:${from ? JSON.stringify(from) : 'reply'}`;

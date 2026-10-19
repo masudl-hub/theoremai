@@ -92,7 +92,7 @@ function parsedSlice(text: string, from: number, to: number) {
 
 /**
  * The top-level fields of a JSON object the model is still writing: each field whose value is
- * whole, and the string being written, as far as it goes. A number, object or array still being
+ * whole, and the string being written, as far as it goes. A number, object, or array still being
  * written is left out: it is not its value yet.
  */
 function partialJsonObject(text: string): Record<string, unknown> {

@@ -195,7 +195,7 @@ const PINNED: ImageResponseFormat = {
   outputCompression: 80,
 };
 
-Deno.test('buildImagesPayload sends quality, background, n, seed and output_compression', () => {
+Deno.test('buildImagesPayload sends quality, background, n, seed, and output_compression', () => {
   const payload = buildImagesPayload(createMockImageRequest({ image: PINNED }));
   assertEquals(payload.quality, 'high');
   assertEquals(payload.background, 'transparent');
@@ -213,7 +213,7 @@ Deno.test('buildImagesPayload omits every unset image pin', () => {
   }
 });
 
-Deno.test('imageToolParameters sends quality, background and compression but refuses n and seed', () => {
+Deno.test('imageToolParameters sends quality, background, and compression but refuses n and seed', () => {
   assertEquals(imageToolParameters({ ...PINNED, n: undefined, seed: undefined }), {
     quality: 'high',
     background: 'transparent',

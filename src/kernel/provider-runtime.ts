@@ -230,7 +230,7 @@ async function* guardedEvents(
   }
 }
 
-/** One binding's calls with the kernel's guards: its budget, its key redaction and event checks. */
+/** One binding's calls with the kernel's guards: its budget, its key redaction, and event checks. */
 export interface GuardedCall {
   complete(request: ProtocolRequest): AsyncIterable<ProtocolEvent>;
   openSession(request: ProtocolRequest): Promise<ProtocolSession>;
@@ -244,7 +244,7 @@ const SECRET_FIELD =
   /^(?:authorization|proxy-authorization|cookie|set-cookie|api[_-]?key|x-goog-api-key|secret|token|access[_-]?token|refresh[_-]?token|password)$/i;
 
 /**
- * One binding's call as the kernel runs it: the protocol runtime's keys, retries and ids, inside
+ * One binding's call as the kernel runs it: the protocol runtime's keys, retries, and ids, inside
  * the host's budgets, with every key it signs with kept out of errors and traces.
  */
 export function guardedCall(

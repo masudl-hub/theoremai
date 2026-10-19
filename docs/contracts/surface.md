@@ -27,7 +27,7 @@ secret reaches the agent only as a card.
 A surface has an `id`, a `revision` that rises with every change, a one-line
 `summary`, and `nodes()`, read fresh on every call. The first node is the root,
 with id `''`; the agent addresses it by the surface id alone and any other node
-as `surface/node`. A node may have `fields()`, `set`, `point` and `actions`.
+as `surface/node`. A node may have `fields()`, `set`, `point`, and `actions`.
 
 `look` with no `at` lists every mounted surface (revision, summary, up to 80
 nodes, issue counts) and any declared surface that isn't open. `look` at a node
@@ -74,7 +74,7 @@ five calls.
 | `headers` | The JSON object with credential-named values masked; text that isn't JSON is told only by its length |
 | `text` | As is, then scrubbed |
 
-Every answer, state line and note is scrubbed: each secret field's value and
+Every answer, state line, and note is scrubbed: each secret field's value and
 each value from `surface.secrets()` is replaced by `[secret name]`, then the
 kernel's sensitive patterns (`sensitiveSpans`) are masked. Strings are capped
 at 2,000 characters and long `data` strings are told as `(bytes)`. The agent

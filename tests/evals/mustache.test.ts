@@ -11,7 +11,7 @@ import {
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 
-Deno.test('variables, dotted names and triple braces render as written, nothing escaped', () => {
+Deno.test('variables, dotted names, and triple braces render as written, nothing escaped', () => {
   assertEquals(
     renderTemplate('{{a}} {{b.c}} {{{d}}} {{& d}} {{missing}}.', {
       a: '<x> & "y"',
@@ -52,7 +52,7 @@ Deno.test('a template names the paths it reads outside sections, and the variabl
   assertEquals(templateVariables(template), ['input', 'output']);
 });
 
-Deno.test('partials, delimiter changes and unbalanced sections are refused', () => {
+Deno.test('partials, delimiter changes, and unbalanced sections are refused', () => {
   for (const [template, message] of [
     ['{{> part}}', 'is not supported'],
     ['{{=<% %>=}}', 'is not supported'],

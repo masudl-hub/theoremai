@@ -179,7 +179,7 @@ Deno.test('a sealed secret opens only with its key version and exact binding', a
   );
 });
 
-Deno.test('a sealed secret refuses a rewritten key version, tampering and a malformed envelope', async () => {
+Deno.test('a sealed secret refuses a rewritten key version, tampering, and a malformed envelope', async () => {
   const sealed = await sealSecret({
     plaintext: 'token',
     key: KEY_1,

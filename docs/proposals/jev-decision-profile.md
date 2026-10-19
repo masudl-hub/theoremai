@@ -287,10 +287,10 @@ Two things differ from the plan above:
 
 - No separate `DecisionTraceRecord`: a decision is a standard v3 `TraceRecord`
   with one `decide <apiId>` CLIENT root span (`gen_ai.operation.name:
-  decide`, `gen_ai.provider.name: typesafe`), so every sink, viewer and the
+  decide`, `gen_ai.provider.name: typesafe`), so every sink, viewer, and the
   OTLP export read it without a second schema. It is not a turn: no
   `invoke_agent`, no messages.
-- State, questions and answers are stored as trace content under the
+- State, questions, and answers are stored as trace content under the
   profile's scrub policy, the way a turn stores its messages, not as hashes.
   Keys and raw provider payloads are still never recorded. The alternative,
   hashes only, leaves a viewer unable to show what the decision read.

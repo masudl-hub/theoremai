@@ -1,6 +1,6 @@
 /**
  * Asks a key's provider whether it accepts the key, so the builder can tell a bad key
- * from a bad setting. The key is used for this one request: never logged, kept or echoed back.
+ * from a bad setting. The key is used for this one request: never logged, kept, or echoed back.
  */
 import { z } from '@theoremjs/agents';
 import { readBody } from '@theoremjs/react/server';

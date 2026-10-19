@@ -110,7 +110,7 @@ export type TraceStep =
     }
   | { kind: 'answer'; id: string; node: TraceNode; offsetMs: number; text?: string };
 
-/** Events worth a line of their own: something acted, retried, waited or warned. */
+/** Events worth a line of their own: something acted, retried, waited, or warned. */
 const STORY_EVENTS: ReadonlySet<string> = new Set([
   'theorem.guardrail',
   'theorem.attempt.retry',
@@ -197,7 +197,7 @@ function storyEvents(node: TraceNode, turnStart: number): TraceStep[] {
 }
 
 /**
- * A turn as it happened: what the user asked, each model call and the tool
+ * A turn as it happened: what the user asked, each model call, and the tool
  * calls it asked for (nested under it), the events that changed the course,
  * and how it ended. HTTP tries stay in the timeline; they are how a call
  * travelled, not a step of the story.
@@ -286,7 +286,7 @@ export function storedValue(node: TraceNode, key: string): unknown {
   }
 }
 
-/** How a span ended when it did not simply succeed: a tool denied, paused or failed, or any span's error. */
+/** How a span ended when it did not simply succeed: a tool denied, paused, or failed, or any span's error. */
 export interface TraceOutcome {
   label: string;
   doc?: string;

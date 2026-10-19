@@ -16,7 +16,7 @@ import {
   evalSuiteSchema,
 } from './types.ts';
 
-/** A suite with its cases read, the providers, media resolver and stage handler its module exports, and the module's path. */
+/** A suite with its cases read, the providers, media resolver, and stage handler its module exports, and the module's path. */
 interface LoadedSuite {
   suite: EvalSuite;
   cases: EvalCase[];

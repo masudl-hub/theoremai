@@ -7,7 +7,7 @@ import {
 import { bytesToBase64 } from '../../src/kernel/util/base64.ts';
 import { pngBytes } from '../fixtures/media-bytes.ts';
 
-Deno.test('text estimates empty, short, Unicode and structured input', async () => {
+Deno.test('text estimates empty, short, Unicode, and structured input', async () => {
   const estimator = await loadTokenEstimator();
   for (const [text, tokens] of [
     ['', 0],

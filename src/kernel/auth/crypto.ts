@@ -219,7 +219,7 @@ export interface SealSecretInput {
   plaintext: string;
   /** The host's sealing key: at least 32 bytes, kept apart from where sealed values are stored. */
   key: string;
-  /** What the sealed value belongs to, such as owner, slot and row. Opening needs the same list. */
+  /** What the sealed value belongs to, such as owner, slot, and row. Opening needs the same list. */
   binding: readonly string[];
   /** Names `key`, so a rotated key still opens what an older one sealed. */
   keyVersion: number;
@@ -246,7 +246,7 @@ export interface OpenSecretInput {
   binding: readonly string[];
 }
 
-/** Opens what `sealSecret` sealed; throws when the envelope, key version or binding does not match. */
+/** Opens what `sealSecret` sealed; throws when the envelope, key version, or binding does not match. */
 export async function openSecret(input: OpenSecretInput): Promise<string> {
   const [version, keyVersionText, ...parts] = input.sealed.split('.');
   const keyVersion = Number(keyVersionText);

@@ -13,7 +13,7 @@ type HostPattern =
       name: string;
       /** The source of a regular expression. */
       pattern: string;
-      /** Any of `i`, `m`, `s` and `u`. Every match is found, so `g` is implied; `y` is refused. */
+      /** Any of `i`, `m`, `s`, and `u`. Every match is found, so `g` is implied; `y` is refused. */
       flags?: string;
     }
   | {
@@ -76,7 +76,7 @@ const MAX_PATTERNS = 64;
 const MAX_PATTERN_LENGTH = 1024;
 
 const PATTERN_FLAGS = 'imsu';
-/** A letter, digit or underscore in any script: what a word may not touch on either side. */
+/** A letter, digit, or underscore in any script: what a word may not touch on either side. */
 const WORD_UNIT = '[\\p{L}\\p{N}_]';
 
 function escaped(text: string): string {

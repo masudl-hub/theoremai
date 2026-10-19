@@ -4,7 +4,7 @@ import type { TurnHistoryMessage } from './turn-events.ts';
 
 /**
  * A protocol's saved continuation, and what it was saved for. It is used only when the next call
- * goes to the same protocol, provider registration, connection, model, key slot and keyed options.
+ * goes to the same protocol, provider registration, connection, model, key slot, and keyed options.
  */
 export interface ProviderCheckpoint {
   protocol: string;

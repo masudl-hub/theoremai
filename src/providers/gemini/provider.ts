@@ -17,7 +17,7 @@ export interface GeminiConnection {
   host?: string;
 }
 
-/** Gemini: Google's models with an API key. Text, images and speech, and Live voice. */
+/** Gemini: Google's models with an API key. Text, images, and speech, and Live voice. */
 export const geminiProvider: Provider<GeminiConnection, string> = defineProvider({
   id: 'gemini',
   name: 'Gemini',

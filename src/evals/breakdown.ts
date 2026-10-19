@@ -7,7 +7,7 @@ interface Spread {
   p90: number;
 }
 
-/** The results of one group of cases: all cases, or the cases with one tag. It counts cases and trials by outcome and, where they apply, the answers by grade, the stop kinds and the spread of duration, model calls and tool calls. */
+/** The results of one group of cases: all cases, or the cases with one tag. It counts cases and trials by outcome and, where they apply, the answers by grade, the stop kinds, and the spread of duration, model calls, and tool calls. */
 interface GroupSummary {
   group: string;
   cases: number;

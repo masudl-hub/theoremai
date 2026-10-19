@@ -1,4 +1,4 @@
-# Composer, queue and steer
+# Composer, queue, and steer
 
 `@theoremjs/agents/interface` owns stash / queue / steer list ops and the action matrix.
 This package wires AbortSignal, the pending bar, and the turn and steer requests.

@@ -156,7 +156,7 @@ const byKey = (each: { key: string }) => each.key;
 const byId = (provider: StudioProvider) => provider.id;
 
 /**
- * Gives a start to each agent, tool and provider that has none, and forgets the starts nothing can
+ * Gives a start to each agent, tool, and provider that has none, and forgets the starts nothing can
  * reach: a removed agent's, a tool's that is in no library and no agent's start, and a provider's
  * that is not held and that no agent's start has a model on.
  */
@@ -404,7 +404,7 @@ const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** Whether every agent, tool and provider is as it started, and no tool was added or removed. */
+/** Whether every agent, tool, and provider is as it started, and no tool was added or removed. */
 export function atStart(workspace: StudioWorkspace): boolean {
   const { agents, tools, providers } = workspace.starts;
   return workspace.agents.every((agent) => same(agent, agents[agent.key])) &&
@@ -474,7 +474,7 @@ export function resetAgent(workspace: StudioWorkspace, key: string): StudioWorks
 }
 
 /**
- * Puts every agent, every library tool and every provider back to its start, in one step. A tool that left the
+ * Puts every agent, every library tool, and every provider back to its start, in one step. A tool that left the
  * library comes back when an agent started out allowing it. An agent or a tool added here stays: it
  * started as it is. A workspace already at its start is returned as it is.
  */
@@ -517,7 +517,7 @@ export function resetAll(workspace: StudioWorkspace): StudioWorkspace {
 
 /**
  * The files' workspace, opened again over the one the studio holds. An agent or a tool the studio
- * already opened from the files keeps its key, so what is open, each conversation and the
+ * already opened from the files keeps its key, so what is open, each conversation, and the
  * settings agents share carry on. One the builder removed comes back under a new key.
  */
 export function reopened(files: StudioWorkspace, before: StudioWorkspace): StudioWorkspace {
@@ -623,7 +623,7 @@ export function editedSince(workspace: StudioWorkspace, files: string): boolean 
   return filesPrint(workspace) !== files;
 }
 
-/** One setting inside an agent, a tool or a provider, as the fields that lead to it. Empty for the whole of it. */
+/** One setting inside an agent, a tool, or a provider, as the fields that lead to it. Empty for the whole of it. */
 export type SettingPath = readonly (string | number)[];
 
 /** A setting the project's files changed. */
@@ -757,7 +757,7 @@ const isRows = (value: unknown): value is Row[] =>
   Array.isArray(value) && value.every((row) => isRecord(row) && typeof row.key === 'string');
 
 /**
- * One value three ways: what the files held, what the builder holds and what the files hold now.
+ * One value three ways: what the files held, what the builder holds, and what the files hold now.
  * A record merges field by field, a list of keyed rows row by row, and a list of names as a set.
  * A row either side added stays, and one either side took out goes unless the other changed it.
  * Anything else is one setting: whoever changed it has it, and both changing it is a conflict the
@@ -1011,7 +1011,7 @@ export function withFilesChosen(merge: FilesMerge, theirs: readonly number[]): S
     if (conflict.path.length > 0) {
       return held.map((each) => (keyOf(each) === conflict.key ? putAt(each, conflict.path, conflict.theirs) as T : each));
     }
-    // The whole agent, tool or provider: the files took it away, or hold one the builder removed.
+    // The whole agent, tool, or provider: the files took it away, or hold one the builder removed.
     if (conflict.theirs === undefined) {
       delete kept[conflict.key];
       return held.filter((each) => keyOf(each) !== conflict.key);

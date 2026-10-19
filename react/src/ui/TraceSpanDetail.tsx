@@ -119,7 +119,7 @@ const SPAN_FIELD_VALUES = {
   spanId: (node) => node.span.spanId,
 } satisfies Partial<Record<keyof typeof SPAN_FIELD_META, (node: TraceNode) => string>>;
 
-/** What the span was, how long it took, what it cost and when it started. */
+/** What the span was, how long it took, what it cost, and when it started. */
 function spanFacts(
   node: TraceNode,
   turnStartMs: number,
@@ -158,7 +158,7 @@ function StatusMessage({
   return <Text color="secondary">{message}</Text>;
 }
 
-/** Back (or close), then who acted, what it was, how it ended, how long it took and what it cost. */
+/** Back (or close), then who acted, what it was, how it ended, how long it took, and what it cost. */
 function SpanHeader({
   node,
   turnStartMs,
@@ -369,7 +369,7 @@ function SpanIO({ node }: { node: TraceNode }) {
   }
 }
 
-/** The span's own fields: its type, start and IDs. */
+/** The span's own fields: its type, start, and IDs. */
 function SpanFields({ node }: { node: TraceNode }) {
   return (
     <MetadataList columns="single" label={{ position: 'start', width: TRACE_LABEL_PX }}>

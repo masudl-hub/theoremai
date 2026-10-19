@@ -23,7 +23,7 @@ const VOICE_INPUT_MIMES = [...GOOGLE_VOICE_INPUT_MIMES];
 const IMAGE_ASPECT_RATIOS = [...GOOGLE_IMAGE_ASPECT_RATIOS];
 const IMAGE_RESOLUTIONS = [...GOOGLE_IMAGE_RESOLUTIONS];
 /**
- * Text, image and speech bindings run on the scripted protocol, which answers with whatever model
+ * Text, image, and speech bindings run on the scripted protocol, which answers with whatever model
  * a test scripts; their apiIds and settings are Gemini's. `onGeminiInteractions` puts one on the
  * real wire.
  */

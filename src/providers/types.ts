@@ -37,7 +37,7 @@ export interface LiveConnection {
   flush?(): Promise<void>;
   /** Text the model reads without it ending the user's turn. */
   sendContext(text: string): void;
-  /** Text, audio or video from the user, as it arrives. */
+  /** Text, audio, or video from the user, as it arrives. */
   sendInput(input: InteractionPart): void;
   /** The result of a tool call the model made. */
   sendToolResponse(callId: string, name: string, output: unknown, parts?: InteractionPart[]): void;

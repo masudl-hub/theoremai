@@ -117,7 +117,7 @@ class Reader {
     this.named(here, path);
   }
 
-  /** A value the files reach by a name, a call or a key: read where it is written. */
+  /** A value the files reach by a name, a call, or a key: read where it is written. */
   private named(at: Located, path: string[]) {
     const origin = followed(this.project, at);
     if (origin.node === at.node && origin.source === at.source) this.note('code', path, at);
@@ -263,7 +263,7 @@ function questionsOrigin(project: ProjectSource, profileId: string): SettingOrig
 }
 
 /**
- * The settings the project's files set in code, for each profile, tool and provider the files
+ * The settings the project's files set in code, for each profile, tool, and provider the files
  * define. One with none is left out. `decisions` names the decision profiles the studio
  * shows: each one's questions are set in the setup module.
  */

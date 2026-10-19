@@ -91,7 +91,7 @@
       {
         "files": ["studio/ui/code/studio-code.tsx"],
         "maxUnitSize": 210,
-        "reason": "The code view mounts Monaco in one effect: the editor, its worker and its listeners share that scope. Moved from the website as it was."
+        "reason": "The code view mounts Monaco in one effect: the editor, its worker, and its listeners share that scope. Moved from the website as it was."
       },
       {
         "files": ["studio/ui/**", "studio/vite.mjs"],

@@ -63,7 +63,7 @@ Deno.test('every boundary is named once, and each kind of tool has its four', ()
   }
 });
 
-Deno.test('every detector, action and boundary has a label and a description', () => {
+Deno.test('every detector, action, and boundary has a label and a description', () => {
   const metas = [
     ...DETECTORS.map((detector) => DETECTOR_META[detector]),
     ...DETECT_ACTIONS.map((action) => DETECT_ACTION_META[action]),
@@ -193,7 +193,7 @@ Deno.test('at names the boundaries that differ from action', () => {
   assertEquals(where(spec, 'ids', 'flag').length, BOUNDARIES.length - 1);
 });
 
-Deno.test('detectProblem names a misspelt detector, boundary or action', () => {
+Deno.test('detectProblem names a misspelt detector, boundary, or action', () => {
   assertEquals(detectProblem('guardrails.detect', undefined), undefined);
   assertEquals(detectProblem('guardrails.detect', 'redact'), undefined);
   assertEquals(detectProblem('guardrails.detect', { ids: { at: { reply: 'block' } } }), undefined);
@@ -238,7 +238,7 @@ Deno.test('defineProfile rejects a bad detect rule, and a boundary a host profil
   );
 });
 
-Deno.test('the catalog has a row for the setting, each detector and each boundary it applies at', () => {
+Deno.test('the catalog has a row for the setting, each detector, and each boundary it applies at', () => {
   ok('guardrails.detect' in PROFILE_FIELDS);
   for (const detector of DETECTORS) {
     ok(PROFILE_FIELDS[`guardrails.detect.${detector}`]?.doc.includes(DETECTOR_META[detector].doc));

@@ -38,7 +38,7 @@ const CACHE_VERSION = 1;
  * app that shows it; its install holds React and the design library.
  *
  * - The screen's packages resolve to the host's install where it has them, so there is one copy
- *   of each. Monaco, fflate and zod are the package's own dependencies: an install from the
+ *   of each. Monaco, fflate, and zod are the package's own dependencies: an install from the
  *   registry puts them in the host, and a linked package keeps them beside itself.
  * - `virtual:studio-codicons/*` is Monaco's icon sheets.
  * - `virtual:studio-type-sources` is the declarations for the open agent's file. The Monaco

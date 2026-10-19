@@ -73,7 +73,7 @@ const traceSpanEvent = z.object({
 });
 true satisfies Equals<z.infer<typeof traceSpanEvent>, TraceSpanEvent>;
 
-/** One span of a trace: its ids, name, kind, times, attributes, events, links and status. */
+/** One span of a trace: its ids, name, kind, times, attributes, events, links, and status. */
 export interface TraceSpan {
   traceId: string;
   spanId: string;

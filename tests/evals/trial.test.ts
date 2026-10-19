@@ -70,7 +70,7 @@ Deno.test('delivered text and structured output resolve through the merged conte
   assertEquals(trial.text('not a reference'), undefined);
 });
 
-Deno.test('usage reads the root: tokens, reasoning share and cost', async () => {
+Deno.test('usage reads the root: tokens, reasoning share, and cost', async () => {
   const turn = await turnRecord({ costUsd: 0.0031 });
   const trial = buildTrial({ suite: 's', index: 0, records: [turn] });
   assertEquals(trial.usage(), {

@@ -22,9 +22,11 @@ export const ERROR_KINDS = [
   'auth',
   /** Too many requests, or a quota used up. */
   'rate_limit',
+  /** The provider is up but too busy for the call; another key or a moment later may serve it. */
+  'busy',
   /** The model or route cannot serve this request. */
   'unsupported',
-  /** The provider is down or overloaded. */
+  /** The provider is down. */
   'unavailable',
   /** The provider answered with something that cannot be used. */
   'bad_response',

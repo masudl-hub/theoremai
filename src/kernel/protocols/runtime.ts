@@ -1,4 +1,4 @@
-import { httpStatusError, isModelBusy, TheoremError } from '../../guardrails/error.ts';
+import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import { retryTransient, type Wait, waitDefault } from '../../providers/shared/retry.ts';
 import { readSseChunks } from '../../providers/shared/sse.ts';
@@ -196,8 +196,8 @@ async function failure(
   const body = failureBody(await response.text());
   const error =
     protocol.error?.({ status: response.status, body, headers: response.headers }) ??
-    httpStatusError(
-      response.status,
+    new TheoremError(
+      kindOfHttpStatus(response.status),
       labelText('protocol.http', { provider, status: response.status }),
     );
   // why: the host reads the upstream status beside the kind, e.g. a decision's 403 is `permission`.
@@ -431,7 +431,7 @@ async function* withKeys<E>(
     } catch (error) {
       if (started) throw error;
       if (
-        (isKind(error, 'rate_limit') || isModelBusy(error)) &&
+        (isKind(error, 'rate_limit') || isKind(error, 'busy')) &&
         fallback &&
         slot !== fallback &&
         holdsKey(setup, fallback)

@@ -1,5 +1,5 @@
 import {
-  httpStatusError,
+  kindOfHttpStatus,
   type ProducedError,
   TheoremError,
   toErrorEvent,
@@ -29,7 +29,9 @@ async function httpErrorEvent(res: Response, label: string): Promise<ProducedErr
     // why: Not JSON: the raw body is the detail.
   }
   const head = `${label} HTTP ${String(res.status)}`;
-  return toErrorEvent(httpStatusError(res.status, detail ? `${head}: ${detail}` : head));
+  return toErrorEvent(
+    new TheoremError(kindOfHttpStatus(res.status), detail ? `${head}: ${detail}` : head),
+  );
 }
 
 interface GatewayHeaderConfig {

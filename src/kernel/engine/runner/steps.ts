@@ -227,6 +227,7 @@ function releasesNow(
 
 // why: Every other kind is the provider's answer to the request itself (it refused a part, a key, a setting); the same call sent again gets the same answer.
 const PASSING_ERROR_KINDS: ReadonlySet<ErrorKind> = new Set([
+  'busy',
   'unavailable',
   'bad_response',
   'network',

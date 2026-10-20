@@ -458,6 +458,7 @@ function decisionProviderError(error: unknown): DecisionError {
     auth: 'authentication',
     rate_limit: 'rate_limited',
     network: 'network',
+    busy: 'unavailable',
     unavailable: 'unavailable',
     timeout: 'timeout',
     cancelled: 'cancelled',

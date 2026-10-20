@@ -111,7 +111,7 @@ call before spending quota. TypeSafe uses `/v1/systemone`; OpenRouter uses
 `/api/alpha/decisions`. Bindings may set
 `timeoutMs`; omission uses the operation limit (`ProviderLimits`).
 A binding has no retry field. The kernel retries a transient failure within its five-second wait budget.
-After a `rate_limit` or a busy model, it tries the fallback slot once. The builder chooses questions
+After a `rate_limit` or `busy`, it tries the fallback slot once. The builder chooses questions
 compatible with its model. Provider-reported cost is used when available.
 Otherwise the provider's prices give an estimated cost.
 `typesafeProvider` prices `jev-*` models at $0.042 per million input tokens with output free.
@@ -479,7 +479,8 @@ turn's user message is the labels' `continue.instruction` (a continue turn takes
 `input.text`); the host passes the partial reply as the last assistant message in
 `input.history`. On image and speech nothing is added: the host re-sends the
 original request and the turn runs it again in full. `continueFrom` carries only
-the `stop` being resumed.
+the `stop` being resumed. A model call that failed `busy` is one the turn may send
+again itself (see the re-send rules below).
 
 Trace context on the request, all optional:
 
@@ -1019,7 +1020,7 @@ A timed-out browser result produces `tool.page_timed_out`. It does not restore a
 A function tool with neither a handler nor `answeredBy` does not register.
 The kernel checks every result against `output`, and a mismatch fails the call as `invalid_output`.
 Declarative HTTP tools (`type: 'http'`) call REST APIs directly with templated URLs, query parameters, headers, and body mapping.
-A `read-only` HTTP tool is sent again after a network error or a 408, 429, 500, 502, 503 or 504 status, on the same waits and limits as a model call (`docs/contracts/providers.md`). A `read-write` or `destructive` one is sent once.
+A `read-only` HTTP tool is sent again after a network error or a 408, 429, 500, 502, 503, 504 or 529 status, on the same waits and limits as a model call (`docs/contracts/providers.md`). A `read-write` or `destructive` one is sent once.
 Remote MCP tools (`type: 'mcp'`) call external Model Context Protocol servers over Streamable HTTP.
 The preferred revision is `2026-07-28`; the kernel negotiates downward through
 `MCP_PROTOCOL_VERSIONS` (`2026-07-28` → `2025-11-25` → `2025-06-18` → `2025-03-26`)
@@ -1478,7 +1479,7 @@ turnBehaviour: {
 A text turn sends a failed model call again itself. The call must have stopped as
 `provider_error` or `stream_incomplete`, the profile must set `autoContinue` and list
 that stop in it, and the call must have given no reply and no tool call. A failure the
-same call would meet again is not sent again: only the kinds `unavailable`,
+same call would meet again is not sent again: only the kinds `busy`, `unavailable`,
 `bad_response`, `network`, `timeout`, and `rate_limit` are. A profile
 that omits `autoContinue` sends nothing again: the default list advises the host only. The turn waits
 `AUTO_CONTINUE_DELAY_MS`, then sends the same step again. Its history, its step
@@ -1487,9 +1488,7 @@ earlier steps are kept. One turn sends at most `maxContinues` calls again, or on
 when the profile sets none. The failed call's `error` event is not emitted; the
 turn's trace records `theorem.step.resume` with the step, the count, the stop and
 the provider's reason. When no re-send is left, the turn ends with that `error`
-and stop as before. A model that answered 503 or 529 is busy: its `error` is
-`unavailable` with the copy `model.busy`, so the user reads that the model is busy,
-not that the app failed.
+and stop as before.
 
 A call that gave part of its reply, and a reply cut at `length`, are not sent again
 by the turn: the host continues them with `continueFrom`. A `continueFrom` turn is a

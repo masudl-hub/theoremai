@@ -96,7 +96,6 @@ export {
   describeError,
   ERROR_KINDS,
   errorKind,
-  httpStatusError,
   isAbortError,
   isTimeoutError,
   kindOfHttpStatus,

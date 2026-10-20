@@ -57,7 +57,7 @@ slot”).
 | `rate_limit` | 429 | `declined` | 409 |
 | `unsupported` | 422 | `failed` | 502 |
 | `unavailable` | 503 | `cancelled` | 499 (client closed request) |
-| | | `internal` | 500 |
+| `busy` | 503 | `internal` | 500 |
 
 `auth` is 401 whichever key was refused. A key the host's vault lacks (a model's
 slot left empty: `the vault has no key in slot '<slot>'`) is `auth` too; keys

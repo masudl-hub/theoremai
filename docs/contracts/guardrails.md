@@ -637,7 +637,7 @@ is guessed from message text; a value that reaches a boundary without a kind is
 | User | `error` on error events and `failure.error` on failed tool steps — the labels' `error.<kind>` |
 
 Kinds (`ERROR_KINDS`): `config`, `request`, `input`, `action`, `auth`,
-`rate_limit`, `unsupported`, `unavailable`, `bad_response`, `network`,
+`rate_limit`, `busy`, `unsupported`, `unavailable`, `bad_response`, `network`,
 `timeout`, `safety`, `blocked`, `declined`, `failed`, `cancelled`, `internal`.
 
 Wording resolves the profile's `labels` → `overrideLabels` → the default.
@@ -667,16 +667,16 @@ leaked fragments never reach the client wire.
 | HTTP 401 / 402 / 403 | `auth` |
 | HTTP 408 / 504 / 524 | `timeout` |
 | HTTP 429 | `rate_limit` |
-| HTTP ≥ 500 | `unavailable` |
+| HTTP 503 / 529 | `busy` |
+| Other HTTP ≥ 500 | `unavailable` |
 | Other HTTP ≥ 400 | `unsupported` |
 | Request never reached the provider | `network` |
 | Unreadable or invalid provider payload | `bad_response` |
 | Mid-stream provider error without a status | `unavailable` |
 
-A provider's HTTP status becomes its `TheoremError` through
-`httpStatusError(status, message)`, on every provider path. A 503 or 529 says the
-model is overloaded, not that the app failed: it stays `unavailable` and carries
-the copy `model.busy`. Nothing is read from the message text.
+`busy` and `unavailable` are different facts: a busy provider is up but too
+overloaded for the call, so another key or a moment later may serve it; an
+unavailable one is down. The user reads `error.busy` or `error.unavailable`.
 
 ### Tool failures
 
@@ -1682,7 +1682,6 @@ placeholder, or a placeholder the key never fills in.
 | Attachments | `attachments.*` | labels (structured codes also exposed) |
 | Errors | `error.<kind>` | labels (resolved where the event reaches the host) |
 | Quota | `quota.exhausted`, `quota.busy` | labels (`quotaExhausted`, `quotaBusy` → `rate_limit`) |
-| Busy model | `model.busy` | labels (`httpStatusError` on a 503 or 529 → `unavailable`) |
 | Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.refusal_cut`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | labels |
 | Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | labels |
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | labels |
@@ -1727,7 +1726,7 @@ From `src/guardrails/mod.ts`:
 
 | Group | Symbols |
 | --- | --- |
-| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `httpStatusError`, `publicError`, `toErrorEvent`, `withPublicLabels`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
+| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicLabels`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
 | Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |

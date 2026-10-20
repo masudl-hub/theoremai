@@ -10,7 +10,7 @@ export const WAIT_BUDGET_MS = 5000;
 const MAX_RETRIES = BACKOFF_MS.length;
 const MS_PER_SECOND = 1000;
 
-const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504, 529]);
 
 const TRANSIENT_THROWN_RE =
   /name resolution|dns|econnreset|econnrefused|etimedout|connection (?:refused|reset)|error sending request|network|fetch failed|temporarily unavailable|socket|503|502|504/i;

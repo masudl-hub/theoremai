@@ -1,4 +1,4 @@
-import { httpStatusError, TheoremError } from '../../guardrails/error.ts';
+import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
 
 const HTTP_STATUS_MIN = 100;
@@ -86,7 +86,7 @@ function namedCodeError(code: string, message: string): TheoremError {
   const status = NAMED_CODE_STATUS[code];
   return status === undefined
     ? new TheoremError('bad_response', message)
-    : httpStatusError(status, message);
+    : new TheoremError(kindOfHttpStatus(status), message);
 }
 
 /**
@@ -107,18 +107,18 @@ export function readGeminiApiError(record: Record<string, unknown>): TheoremErro
         : message;
   if (refusesKey(details)) return new TheoremError('auth', text);
   if (typeof code === 'number' && code >= HTTP_STATUS_MIN && code <= HTTP_STATUS_MAX) {
-    return httpStatusError(code, text);
+    return new TheoremError(kindOfHttpStatus(code), text);
   }
   return typeof code === 'string'
     ? namedCodeError(code, text)
     : new TheoremError('bad_response', text);
 }
 
-/** The kind and wording are the HTTP status's, unless the body names a refused key. */
+/** The kind is the HTTP status's, unless the body names a refused key. */
 export async function readNonOkError(response: Response): Promise<TheoremError> {
   const text = await response.text().catch(() => '');
   if (!text.trim()) {
-    return httpStatusError(response.status, `HTTP ${response.status}`);
+    return new TheoremError(kindOfHttpStatus(response.status), `HTTP ${response.status}`);
   }
   const parsed = parseRecord(text);
   return statedOrStatusError(
@@ -135,7 +135,7 @@ export function statedOrStatusError(
   fallback: string,
 ): TheoremError {
   if (stated?.kind === 'auth') return stated;
-  return httpStatusError(status, stated?.message ?? fallback);
+  return new TheoremError(kindOfHttpStatus(status), stated?.message ?? fallback);
 }
 
 function parseRecord(text: string): Record<string, unknown> | undefined {

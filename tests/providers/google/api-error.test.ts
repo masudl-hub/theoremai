@@ -57,7 +57,7 @@ Deno.test('readGeminiApiError reads the named code of a stream error', () => {
       },
       event_type: 'error',
     })?.kind,
-    'unavailable',
+    'busy',
   );
   assertEquals(
     readGeminiApiError({
@@ -83,7 +83,7 @@ Deno.test('every documented named code keeps the kind its HTTP status has', () =
     too_many_requests: 'rate_limit',
     cancelled: 'cancelled',
     api_error: 'unavailable',
-    service_unavailable: 'unavailable',
+    service_unavailable: 'busy',
     deadline_exceeded: 'timeout',
     internal_server_error: 'unavailable',
     gateway_timeout: 'timeout',
@@ -102,21 +102,9 @@ Deno.test('every documented named code keeps the kind its HTTP status has', () =
   assertEquals(read, kinds);
 });
 
-Deno.test('an overloaded model mid-stream is unavailable, not a bad response', () => {
-  assertEquals(
-    shape(
-      readGeminiApiError({
-        error: { code: 'service_unavailable', message: 'high demand' },
-        event_type: 'error',
-      }),
-    ),
-    { kind: 'unavailable', message: 'high demand' },
-  );
-});
-
 Deno.test('readNonOkError takes the kind from the status and the detail from the body', async () => {
   assertEquals(shape(await readNonOkError(new Response('', { status: 503 }))), {
-    kind: 'unavailable',
+    kind: 'busy',
     message: 'HTTP 503',
   });
   assertEquals(shape(await readNonOkError(new Response('not json', { status: 400 }))), {
@@ -168,18 +156,15 @@ Deno.test('an overloaded Gemini reads as busy, not down', async () => {
     },
   };
   const named = readGeminiApiError(busy);
-  assertEquals(named?.kind, 'unavailable');
-  assertEquals(publicError(named), labelDefault('model.busy'));
+  assertEquals(named?.kind, 'busy');
+  assertEquals(publicError(named), labelDefault('error.busy'));
   const status = await readNonOkError(new Response(JSON.stringify(busy), { status: 503 }));
-  assertEquals(status.kind, 'unavailable');
-  assertEquals(publicError(status), labelDefault('model.busy'));
-  assertEquals(
-    publicError(statedOrStatusError(null, 529, 'overloaded')),
-    labelDefault('model.busy'),
-  );
+  assertEquals(status.kind, 'busy');
+  assertEquals(publicError(status), labelDefault('error.busy'));
+  assertEquals(statedOrStatusError(null, 529, 'overloaded').kind, 'busy');
 });
 
-Deno.test('a provider fault that is not overload keeps the unavailable wording', () => {
+Deno.test('a provider fault that is not overload is unavailable', () => {
   for (const code of [500, 502]) {
     const err = readGeminiApiError({ error: { code, message: 'x' } });
     assertEquals(err?.kind, 'unavailable');

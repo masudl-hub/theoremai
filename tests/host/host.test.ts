@@ -57,6 +57,7 @@ Deno.test('caughtStatus replies with the status of the error kind', () => {
     action: 403,
     auth: 401,
     rate_limit: 429,
+    busy: 503,
     unsupported: 422,
     unavailable: 503,
     bad_response: 502,

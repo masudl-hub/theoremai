@@ -37,18 +37,17 @@ export const PROFILE_TYPE_ICON = {
   host: IconServer,
 } satisfies Record<StudioProfileType, IconType>;
 
-/** An agent's icon: TypeSafe's mark for a decision whose model is on TypeSafe, else its type's. */
-export function agentTypeIcon(
-  agent: Pick<StudioDraft, 'identity' | 'modelBindings'>,
+/** A Decision page's icon: TypeSafe's mark when the agent's model is on TypeSafe, else the type's. */
+export function decisionIcon(
+  agent: Pick<StudioDraft, 'modelBindings'>,
   providers: StudioDraft['providers'],
 ): IconType {
-  const type = agent.identity.profileType || 'text';
   const onTypeSafe = agent.modelBindings.some((binding) =>
     providers.some(
       (provider) => provider.id === binding.provider && provider.definition === 'typesafe',
     ),
   );
-  return type === 'decision' && onTypeSafe ? IconTypeSafe : PROFILE_TYPE_ICON[type];
+  return onTypeSafe ? IconTypeSafe : PROFILE_TYPE_ICON.decision;
 }
 
 /** The icon for a profile type, or none when the type is not one of those. */

@@ -1127,7 +1127,7 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | `ids` | SSNs (bare and in context), ITINs, EINs |
 | `financial` | IBANs, and card numbers a card network issues that pass the Luhn check |
 | `network` | IPv4 and IPv6 addresses |
-| `credentials` | Every credential the gitleaks rules find (vendor API keys and tokens, key and password assignments, JWTs, private keys), plus Theorem's own rules: short or spaced `sk-` keys, OpenRouter keys, short GitHub and Slack tokens, `Bearer` tokens, short PEM private keys |
+| `credentials` | Every credential the gitleaks rules find (vendor API keys and tokens, key and password assignments, JWTs, private keys), plus Theorem's own rules: short or spaced `sk-` keys, OpenRouter keys, short GitHub and Slack tokens, `Bearer` tokens, short PEM private keys, and Apify, FleetBase, Nightfall, Teamwork and Ubidots keys and Zapier webhook URLs |
 
 ### Credential rules
 
@@ -1139,7 +1139,9 @@ The `credentials` group reads two rule lists (`CREDENTIALS` in `sensitive.ts`):
   `credential-rules.ts` from it. A rule that reads a file path is left out,
   because a chat has no files.
 - **Theorem's own rules** (`OWN_CREDENTIAL_RULES`), for forms gitleaks does not
-  cover.
+  cover. The vendor formats come from a comparison with the SecretBench
+  candidate regexes: each one has a prefix of its own and gitleaks has no rule
+  for it. Publishable `pk_` keys are left out, because they are not secret.
 
 To take a new gitleaks release, replace the two files in `scripts/gitleaks/`,
 then run:

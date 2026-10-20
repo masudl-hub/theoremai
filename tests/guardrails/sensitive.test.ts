@@ -81,6 +81,32 @@ Deno.test("sensitiveSpans finds the vendor keys and the key assignments gitleaks
   }
 });
 
+Deno.test('sensitiveSpans finds the vendor formats gitleaks has no rule for, each whole', () => {
+  const body = 'q7RkT2mZx9LpW4vYc1NbH8sDf3GjK6aEu0XoR2tW';
+  for (const value of [
+    ['apify', 'api', body.slice(0, 36)].join('_'),
+    ['flb', 'live', body.slice(0, 20)].join('_'),
+    ['NF', body.slice(0, 32)].join('-'),
+    `tkn.v1_${body}${body.slice(0, 31)}=`,
+    ['BBFF', body.slice(0, 30)].join('-'),
+    'https://hooks.zapier.com/hooks/catch/1234567/abcdef1/',
+    ['sk', 'live', body].join('_'),
+  ]) {
+    const text = `see ${value} `;
+    assertEquals(
+      [value, sensitiveSpans(text)],
+      [value, [{ start: 4, end: 4 + value.length, kind: 'sensitive' }]],
+    );
+  }
+  for (const value of [
+    ['apify', 'api', body.slice(0, 35)].join('_'),
+    ['NF', body.slice(0, 31)].join('-'),
+    'https://hooks.zapier.com/hooks/',
+  ]) {
+    assertEquals([value, sensitiveSpans(`see ${value} `)], [value, []]);
+  }
+});
+
 Deno.test('a key assignment is redacted at its value, the name left to read', () => {
   const value = 'q7RkT2mZx9LpW4vYc1NbH8sDf3GjK6aE';
   const text = `api_key = "${value}"`;

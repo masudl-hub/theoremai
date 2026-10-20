@@ -637,7 +637,7 @@ is guessed from message text; a value that reaches a boundary without a kind is
 | User | `error` on error events and `failure.error` on failed tool steps — the labels' `error.<kind>` |
 
 Kinds (`ERROR_KINDS`): `config`, `request`, `input`, `action`, `auth`,
-`rate_limit`, `unsupported`, `unavailable`, `bad_response`, `network`,
+`rate_limit`, `busy`, `unsupported`, `unavailable`, `bad_response`, `network`,
 `timeout`, `safety`, `blocked`, `declined`, `failed`, `cancelled`, `internal`.
 
 Wording resolves the profile's `labels` → `overrideLabels` → the default.
@@ -667,11 +667,16 @@ leaked fragments never reach the client wire.
 | HTTP 401 / 402 / 403 | `auth` |
 | HTTP 408 / 504 / 524 | `timeout` |
 | HTTP 429 | `rate_limit` |
-| HTTP ≥ 500 | `unavailable` |
+| HTTP 503 / 529 | `busy` |
+| Other HTTP ≥ 500 | `unavailable` |
 | Other HTTP ≥ 400 | `unsupported` |
 | Request never reached the provider | `network` |
 | Unreadable or invalid provider payload | `bad_response` |
 | Mid-stream provider error without a status | `unavailable` |
+
+`busy` and `unavailable` are different facts: a busy provider is up but too
+overloaded for the call, so another key or a moment later may serve it; an
+unavailable one is down. The user reads `error.busy` or `error.unavailable`.
 
 ### Tool failures
 
@@ -1653,6 +1658,8 @@ guardrails object is treated like missing quota config.
 `json(caughtStatus(err), { error: publicError(err, profile.labels) }, cors)`:
 `429` and the labels' `quota.exhausted` line (`{perDay}`), which the
 profile's `labels` can replace.
+`quotaBusy(profile)` returns the busy slot (the client's last turn is still
+running) as a `TheoremError` of kind `rate_limit` with the copy `quota.busy`.
 `resetSlots()` clears in-memory state (tests).
 
 ## Labels
@@ -1674,7 +1681,7 @@ placeholder, or a placeholder the key never fills in.
 | Taint / advisory | `taint.*`, `advisory.*` | labels |
 | Attachments | `attachments.*` | labels (structured codes also exposed) |
 | Errors | `error.<kind>` | labels (resolved where the event reaches the host) |
-| Quota | `quota.exhausted` | labels (`quotaExhausted` → `rate_limit`) |
+| Quota | `quota.exhausted`, `quota.busy` | labels (`quotaExhausted`, `quotaBusy` → `rate_limit`) |
 | Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.refusal_cut`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | labels |
 | Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | labels |
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | labels |
@@ -1732,7 +1739,7 @@ From `src/guardrails/mod.ts`:
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
 | Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `NameAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
-| Quota | `QuotaSlotStatus`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
+| Quota | `QuotaSlotStatus`, `clientIp`, `quotaBusy`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels`, `validateLabelOverrides` |
 
 From `src/guardrails/compile-egress.ts` (build time only):

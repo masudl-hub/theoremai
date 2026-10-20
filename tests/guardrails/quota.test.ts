@@ -3,6 +3,7 @@ import { publicError } from '../../src/guardrails/error.ts';
 import { labelDefault } from '../../src/guardrails/labels.ts';
 import {
   clientIp,
+  quotaBusy,
   quotaExhausted,
   releaseSlot,
   resetSlots,
@@ -207,4 +208,11 @@ Deno.test('takeSlot day key is a 10-character YYYY-MM-DD string not the full ISO
   assertEquals(takeSlot(profile, ip2, evening), 'busy');
   releaseSlot(profile, ip2);
   resetSlots();
+});
+
+Deno.test('quotaBusy is a rate_limit error the user reads as the busy line', () => {
+  const err = quotaBusy(getProfile('image'));
+  assertEquals(err.kind, 'rate_limit');
+  assertEquals(caughtStatus(err), 429);
+  assertEquals(publicError(err), labelDefault('quota.busy'));
 });

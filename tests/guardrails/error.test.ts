@@ -35,6 +35,7 @@ const LOCKED: Record<ErrorKind, string> = {
   action: "Sorry, that isn't available here.",
   auth: "Sorry, the assistant can't connect at the moment.",
   rate_limit: 'Sorry, the usage limit has been reached. Please try again later.',
+  busy: 'Sorry, the model is busy right now. Please try again in a moment.',
   unsupported: "Sorry, that isn't something the assistant can do.",
   unavailable: "Sorry, the model isn't available at the moment. Please try again shortly.",
   bad_response: "Sorry, that reply didn't come through properly. Please try again.",
@@ -78,9 +79,10 @@ Deno.test('kindOfHttpStatus maps provider statuses to kinds', () => {
     [429, 'rate_limit'],
     [500, 'unavailable'],
     [502, 'unavailable'],
-    [503, 'unavailable'],
+    [503, 'busy'],
     [504, 'timeout'],
     [524, 'timeout'],
+    [529, 'busy'],
   ];
   for (const [status, kind] of cases) assertEquals(kindOfHttpStatus(status), kind);
 });

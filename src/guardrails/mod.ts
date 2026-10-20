@@ -157,6 +157,7 @@ export { PROMPT_ECHO_WORDS, scanTextForPromptEcho } from './prompt-echo.ts';
 export type { QuotaSlotStatus } from './quota.ts';
 export {
   clientIp,
+  quotaBusy,
   quotaExhausted,
   releaseSlot,
   resetSlots,

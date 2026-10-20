@@ -408,7 +408,7 @@ function isKind(error: unknown, kind: string): boolean {
 
 /**
  * Runs one call with the kernel's retries, all before the first event: once on the fallback slot
- * when the first key is out of quota, and once after an `auth` refusal with the minted token
+ * when the first key is out of quota or its model is busy, and once after an `auth` refusal with the minted token
  * dropped. A fallback starts clean: it may be another account, so it never sends the first key's
  * state.
  */
@@ -431,7 +431,7 @@ async function* withKeys<E>(
     } catch (error) {
       if (started) throw error;
       if (
-        isKind(error, 'rate_limit') &&
+        (isKind(error, 'rate_limit') || isKind(error, 'busy')) &&
         fallback &&
         slot !== fallback &&
         holdsKey(setup, fallback)

@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects } from '@std/assert';
+import { TheoremError } from '../../../src/guardrails/error.ts';
 import {
   backoffMs,
   isTransientHttp,
@@ -34,27 +35,17 @@ function answering(...responses: (Response | Error)[]): {
 }
 
 Deno.test('isTransientHttp flags retryable status codes only', () => {
-  for (const status of [408, 429, 500, 502, 503, 504]) assertEquals(isTransientHttp(status), true);
+  for (const status of [408, 429, 500, 502, 503, 504, 529])
+    assertEquals(isTransientHttp(status), true);
   for (const status of [200, 400, 401, 403, 404, 409, 501])
     assertEquals(isTransientHttp(status), false);
 });
 
-Deno.test('isTransientThrown matches known transient network error shapes', () => {
-  assertEquals(isTransientThrown(new Error('dns lookup failed')), true);
-  assertEquals(isTransientThrown(new Error('ECONNRESET')), true);
-  assertEquals(isTransientThrown(new Error('fetch failed')), true);
-  assertEquals(isTransientThrown(new Error('503 service unavailable')), true);
-  assertEquals(isTransientThrown(new Error('socket hang up')), true);
-  assertEquals(isTransientThrown(new Error('temporarily unavailable')), true);
-  assertEquals(isTransientThrown(new TypeError('connection reset')), true);
-  assertEquals(
-    isTransientThrown(
-      new TypeError(
-        'error sending request for url (https://openrouter.ai/api/v1): client error (Connect): tcp connect error: Connection refused (os error 61)',
-      ),
-    ),
-    true,
-  );
+Deno.test('isTransientThrown retries any rejected send, whatever its words', () => {
+  assertEquals(isTransientThrown(new TypeError('fetch failed')), true);
+  assertEquals(isTransientThrown(new TypeError('Load failed')), true);
+  assertEquals(isTransientThrown(new Error('anything at all')), true);
+  assertEquals(isTransientThrown(new TheoremError('network', 'no route')), true);
 });
 
 Deno.test('isTransientThrown never retries an abort or a timeout', () => {
@@ -65,8 +56,9 @@ Deno.test('isTransientThrown never retries an abort or a timeout', () => {
   assertEquals(isTransientThrown(new DOMException('network timed out', 'TimeoutError')), false);
 });
 
-Deno.test('isTransientThrown is false for unrelated errors', () => {
-  assertEquals(isTransientThrown(new Error('invalid input')), false);
+Deno.test('isTransientThrown never retries a failure that already has another kind', () => {
+  assertEquals(isTransientThrown(new TheoremError('blocked', 'host refused')), false);
+  assertEquals(isTransientThrown(new TheoremError('auth', 'no key')), false);
 });
 
 Deno.test('backoffMs doubles from 1s to 8s', () => {
@@ -184,7 +176,7 @@ Deno.test('retryTransient retries a network failure and rethrows the last one', 
 });
 
 Deno.test('retryTransient rethrows a non-transient error without retrying', async () => {
-  const upstream = answering(new Error('invalid input'));
+  const upstream = answering(new TheoremError('blocked', 'host refused'));
   await assertRejects(() => retryTransient(upstream.send, recordWaits().wait)('https://x.test'));
   assertEquals(upstream.calls(), 1);
 });

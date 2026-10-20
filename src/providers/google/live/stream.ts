@@ -11,7 +11,7 @@ const CLOSE_KINDS: Readonly<Record<number, ErrorKind>> = {
   1007: 'unsupported',
   1008: 'unsupported',
   1011: 'unavailable',
-  1013: 'unavailable',
+  1013: 'busy',
 };
 
 /**

@@ -212,7 +212,8 @@ const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
   },
   rate_limit: { label: 'Rate limit', doc: 'Too many requests, or a quota used up.' },
   unsupported: { label: 'Unsupported', doc: 'The model or route cannot serve this request.' },
-  unavailable: { label: 'Unavailable', doc: 'The provider is down or overloaded.' },
+  busy: { label: 'Busy', doc: 'The provider is up but too busy for the call.' },
+  unavailable: { label: 'Unavailable', doc: 'The provider is down.' },
   bad_response: {
     label: 'Unusable response',
     doc: 'The provider answered with something that cannot be used.',

@@ -1,4 +1,5 @@
-import { isAbortError, isTimeoutError } from '../../guardrails/error.ts';
+import { TheoremError } from '../../guardrails/error.ts';
+import { networkError } from './upstream-tap.ts';
 
 /** How a retry waits; a host or test may pass its own. The signal ends the wait early. */
 export type Wait = (ms: number, signal?: AbortSignal | null) => Promise<void>;
@@ -10,10 +11,7 @@ export const WAIT_BUDGET_MS = 5000;
 const MAX_RETRIES = BACKOFF_MS.length;
 const MS_PER_SECOND = 1000;
 
-const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
-
-const TRANSIENT_THROWN_RE =
-  /name resolution|dns|econnreset|econnrefused|etimedout|connection (?:refused|reset)|error sending request|network|fetch failed|temporarily unavailable|socket|503|502|504/i;
+const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504, 529]);
 
 export const waitDefault: Wait = (ms, signal) =>
   new Promise((resolve, reject) => {
@@ -40,11 +38,10 @@ export function isTransientHttp(status: number): boolean {
   return TRANSIENT_STATUSES.has(status);
 }
 
+/** A rejected send that never got a response: a network failure, by `networkError`'s rule. An abort, a timeout, or any other kind is not. */
 export function isTransientThrown(err: unknown): boolean {
-  if (isAbortError(err) || isTimeoutError(err)) {
-    return false;
-  }
-  return TRANSIENT_THROWN_RE.test(String(err));
+  const failure = networkError(err);
+  return failure instanceof TheoremError && failure.kind === 'network';
 }
 
 export function backoffMs(attempt: number): number {

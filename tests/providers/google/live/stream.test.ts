@@ -47,7 +47,7 @@ Deno.test('Live close errors carry the kind of their close code', () => {
     [1007, 'unsupported'],
     [1008, 'unsupported'],
     [1011, 'unavailable'],
-    [1013, 'unavailable'],
+    [1013, 'busy'],
     [1000, 'unavailable'],
     [4000, 'unavailable'],
   ] as const) {

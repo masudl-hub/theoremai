@@ -699,7 +699,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'models.*.fallbackKeySlot': field(
     'KeySlot',
-    "The key slot tried once after a rate limit on the primary slot, instead of the provider's fallback. Must differ from the primary slot. Absent: the provider's fallback slot, if it has one.",
+    "The key slot tried once after a rate limit or a busy model on the primary slot, instead of the provider's fallback. Must differ from the primary slot. Absent: the provider's fallback slot, if it has one.",
   ),
   'models.*.options': field(
     'JsonObject',

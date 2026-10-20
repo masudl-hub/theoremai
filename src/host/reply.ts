@@ -16,6 +16,7 @@ const STATUS_BY_KIND: Readonly<Record<ErrorKind, number>> = {
   action: 403,
   auth: 401,
   rate_limit: HTTP_BUSY,
+  busy: 503,
   unsupported: 422,
   unavailable: 503,
   bad_response: 502,

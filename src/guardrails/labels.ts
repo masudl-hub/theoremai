@@ -72,12 +72,14 @@ export const LABEL_KEYS = [
   'input.too_long',
   'attachments.limits_unconfigured',
   'quota.exhausted',
+  'quota.busy',
   'error.config',
   'error.request',
   'error.input',
   'error.action',
   'error.auth',
   'error.rate_limit',
+  'error.busy',
   'error.unsupported',
   'error.unavailable',
   'error.bad_response',
@@ -238,6 +240,7 @@ export const CLIENT_LABEL_KEYS = [
   'error.action',
   'error.auth',
   'error.rate_limit',
+  'error.busy',
   'error.unsupported',
   'error.unavailable',
   'error.bad_response',
@@ -426,12 +429,14 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     params.perDay === 1
       ? "You've reached today's limit of 1 message."
       : `You've reached today's limit of ${String(params.perDay)} messages.`,
+  'quota.busy': 'Sorry, your last message is still being answered. Please wait for it to finish.',
   'error.config': 'Sorry, something went wrong.',
   'error.request': 'Sorry, something went wrong.',
   'error.input': "Sorry, that file can't be used here.",
   'error.action': "Sorry, that isn't available here.",
   'error.auth': "Sorry, the assistant can't connect at the moment.",
   'error.rate_limit': 'Sorry, the usage limit has been reached. Please try again later.',
+  'error.busy': 'Sorry, the model is busy right now. Please try again in a moment.',
   'error.unsupported': "Sorry, that isn't something the assistant can do.",
   'error.unavailable': "Sorry, the model isn't available at the moment. Please try again shortly.",
   'error.bad_response': "Sorry, that reply didn't come through properly. Please try again.",
@@ -679,6 +684,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'attachments.limits_unconfigured':
     'Shown to the user who sends a file to an agent whose file limits are not set.',
   'quota.exhausted': 'Shown to the user who has used up the daily message cap. Takes {perDay}.',
+  'quota.busy':
+    'Shown to the user who sends a message while their last one is still being answered (`quotaBusy`).',
   'error.config':
     "Shown to the user when the turn fails because the agent's profile, a tool, or a schema is set up wrong. Takes {tool} when one step failed.",
   'error.request':
@@ -691,10 +698,12 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     'Shown to the user when a model key is missing or rejected, or its account cannot be billed. Takes {tool} when one step failed.',
   'error.rate_limit':
     'Shown to the user when the model provider reports too many requests, or a quota is used up. Takes {tool} when one step failed.',
+  'error.busy':
+    'Shown to the user when the model provider is up but too busy for the call (HTTP 503 or 529). Takes {tool} when one step failed.',
   'error.unsupported':
     'Shown to the user when the model or its route cannot serve the request. Takes {tool} when one step failed.',
   'error.unavailable':
-    'Shown to the user when the model provider is down or overloaded. Takes {tool} when one step failed.',
+    'Shown to the user when the model provider is down. Takes {tool} when one step failed.',
   'error.bad_response':
     'Shown to the user when the model provider answers with something that cannot be used. Takes {tool} when one step failed.',
   'error.network':

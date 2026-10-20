@@ -71,6 +71,8 @@ Register providers before profiles. Use the registered provider's model helper t
 | `typesafeProvider` (`typesafe`) | `systemOne` (decision) |
 | A provider from `defineProvider` | The protocols that its `serves` function returns |
 
+Every provider types a failed answer by its HTTP status (`kindOfHttpStatus`), unless its protocol's `error` reads a stated kind.
+
 ```ts
 import { createKernelScope, defineProfile, openRouterProvider } from '@theoremjs/agents';
 
@@ -135,6 +137,7 @@ Registrations supply credential defaults. Profiles do not contain credential val
 `checkBinding` refuses a protocol that the provider does not serve, and a protocol with no endpoint for the profile type.
 It also refuses options that do not parse, equal primary and fallback slots, and a slot on a provider without a key.
 A live binding fails when its sign-in needs WebSocket headers and the runtime cannot send them.
+A busy upstream model (503 or 529) fails a binding's call as `busy`. The kernel moves it to the fallback slot, and the profile's `autoContinue` decides whether it is sent again.
 
 ## Protocol contract
 
@@ -150,7 +153,7 @@ Reuse a protocol when the endpoint speaks it. An endpoint address alone does not
 | `continuation` | Optional version, state schema, and the options that change what saved state means |
 | `reasoning`, `custom` | Optional schemas for the reasoning data and custom content that it emits |
 | `framing` | Optional reader of the reply framing. Absent: SSE for a stream, one JSON row otherwise |
-| `error` | Optional typing of a failed answer. Absent: the kind follows the HTTP status |
+| `error` | Optional typing of a failed answer. Absent: the kind follows the HTTP status (`kindOfHttpStatus`) |
 | `embeddingLimits` | Optional: what a named embedding model takes, per input and per request |
 | `refusedOptions` | Optional: the options a named model refuses, though the protocol takes them for others. Absent: none |
 | `create` | Returns the operations for one call |
@@ -420,6 +423,7 @@ With persistence enabled, checkpoint data contains the interaction ID.
 After checkpoint validation, the protocol sends only history beyond the covered prefix.
 After a mismatch, it sends portable history without the native ID.
 Gemini speech returns `pcm` audio.
+A failed answer keeps Gemini's own error only when it says the key was refused. Otherwise the HTTP status decides its kind, so a 503 or 529 is `busy`.
 
 ## Local non-text models
 
@@ -454,6 +458,7 @@ The protocol requests input and output transcriptions for portable audio history
 The kernel records final transcriptions only after the outbound gate releases them.
 Portable user text excludes the fences added to upstream input.
 The normalized boundary preserves provider close warnings and errors.
+A close with 1013 (try again later) is `busy`; 1011 is `unavailable` unless its reason names a quota.
 
 ## Local provider
 
@@ -471,6 +476,7 @@ const binding = local.model('openAi', 'llama3.2');
 Register `localProvider` again with a different `id` to reach a second server.
 For a server that needs a different address scheme or sign-in, define a provider that serves `openAi`.
 The protocol assembles fragmented tool IDs, names, and arguments before it releases a call.
+A failed answer's kind follows its HTTP status. A 503 or 529 is `busy`.
 
 ## Speech roles
 
@@ -497,7 +503,7 @@ Supply credentials through host options. Keep credential values and resolver fun
 
 `CredentialResolver` receives provider ID, model ID, selected slot, and abort signal.
 The host resolver owns caching and refresh. Binding slot overrides take precedence over registration defaults.
-Fallback requires an explicitly configured slot. The kernel moves to it once, after a `rate_limit` failure before the first event.
+Fallback requires an explicitly configured slot. The kernel moves to it once, after a `rate_limit` or `busy` failure before the first event.
 It moves only when the vault holds the fallback slot. After an `auth` failure, it drops the cached signer and tries once more.
 Vault lookup reads only own properties. An inherited primary entry is missing; an inherited fallback entry is never tried.
 
@@ -537,6 +543,7 @@ At browser ingress, chat and live must also validate conversation ownership befo
 The React session boundary provides this check for live relays.
 The relay must save checkpoint ownership before it exposes the checkpoint to the browser.
 Failed or discarded output does not commit a usable history prefix or authorize pending tools.
+A failed call, a busy model's included, leaves the saved state as it was.
 
 ## Exported API
 
@@ -761,7 +768,8 @@ The protocol receives resolved limits through `ProtocolContext.limits`.
 | Pending client tool calls | 32 |
 
 The operation deadline includes creation and credential resolution. Retries retain the original deadline and consumption budget.
-Theorem sends a request again when it fails with a network error or a 408, 429, 500, 502, 503 or 504 status, while the waits between tries stay within five seconds in all, and at most four times.
+Theorem sends a request again when it fails with a network error or a 408, 429, 500, 502, 503, 504 or 529 status, while the waits between tries stay within five seconds in all, and at most four times.
+A network error is any send that got no response and was not aborted or timed out. Its message is never read.
 Each wait is the response's `Retry-After` when it gives one. Otherwise it is 1, 2, 4, then 8 seconds. A wait that would pass the five seconds is not taken, and the last answer goes back as it came.
 A timeout or an abort is not retried. A 429 moves to the fallback key slot only after the last try.
 Injected fetch counts decompressed bytes before forwarding each chunk. SSE records include incomplete records and comments.

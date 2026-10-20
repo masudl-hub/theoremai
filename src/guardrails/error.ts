@@ -37,11 +37,12 @@ function errorKind(err: unknown): ErrorKind {
   return 'internal';
 }
 
-/** The error kind for an HTTP status: 401, 402 and 403 are `auth`; 408, 504 and 524 `timeout`; 429 `rate_limit`; 500 and above `unavailable`; the rest `unsupported`. */
+/** The error kind for an HTTP status: 401, 402 and 403 are `auth`; 408, 504 and 524 `timeout`; 429 `rate_limit`; 503 and 529 (overloaded) `busy`; 500 and above `unavailable`; the rest `unsupported`. */
 function kindOfHttpStatus(status: number): ErrorKind {
   if (status === 401 || status === 402 || status === 403) return 'auth';
   if (status === 408 || status === 504 || status === 524) return 'timeout';
   if (status === 429) return 'rate_limit';
+  if (status === 503 || status === 529) return 'busy';
   if (status >= 500) return 'unavailable';
   return 'unsupported';
 }

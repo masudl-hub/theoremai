@@ -305,6 +305,9 @@ becomes its string, and beside other keys becomes `content` (the semconv part
 field); a lone JSON reference becomes the parsed JSON, inlined recursively,
 and beside other keys a parsed object merges under them; a blob keeps its hash.
 
+A failed span's `error.type` is its error kind: a provider too busy for the call
+is `busy`, one that is down is `unavailable`.
+
 The full span catalogue — every attribute, event, status rule, and stop kind,
 drawn in twelve worked traces including a Live voice session — is
 [the worked example](../proposals/otel-turn-traces-example.md).

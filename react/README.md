@@ -3,6 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@theoremjs/react?logo=npm&label=npm&color=cb3837)](https://www.npmjs.com/package/@theoremjs/react)
 [![CI](https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml/badge.svg)](https://github.com/masudl-hub/theoremai/actions/workflows/ci.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/masudl-hub/theoremai/blob/main/LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/masudl-hub/theoremai)
 
 Define an agent once. Get the server and the user interface from the same definition.
 

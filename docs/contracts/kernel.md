@@ -111,7 +111,7 @@ call before spending quota. TypeSafe uses `/v1/systemone`; OpenRouter uses
 `/api/alpha/decisions`. Bindings may set
 `timeoutMs`; omission uses the operation limit (`ProviderLimits`).
 A binding has no retry field. The kernel retries a transient failure within its five-second wait budget.
-After a `rate_limit`, it tries the fallback slot once. The builder chooses questions
+After a `rate_limit` or a busy model, it tries the fallback slot once. The builder chooses questions
 compatible with its model. Provider-reported cost is used when available.
 Otherwise the provider's prices give an estimated cost.
 `typesafeProvider` prices `jev-*` models at $0.042 per million input tokens with output free.
@@ -1487,7 +1487,9 @@ earlier steps are kept. One turn sends at most `maxContinues` calls again, or on
 when the profile sets none. The failed call's `error` event is not emitted; the
 turn's trace records `theorem.step.resume` with the step, the count, the stop and
 the provider's reason. When no re-send is left, the turn ends with that `error`
-and stop as before.
+and stop as before. A model that answered 503 or 529 is busy: its `error` is
+`unavailable` with the copy `model.busy`, so the user reads that the model is busy,
+not that the app failed.
 
 A call that gave part of its reply, and a reply cut at `length`, are not sent again
 by the turn: the host continues them with `continueFrom`. A `continueFrom` turn is a

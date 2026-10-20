@@ -72,6 +72,8 @@ export const LABEL_KEYS = [
   'input.too_long',
   'attachments.limits_unconfigured',
   'quota.exhausted',
+  'quota.busy',
+  'model.busy',
   'error.config',
   'error.request',
   'error.input',
@@ -426,6 +428,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     params.perDay === 1
       ? "You've reached today's limit of 1 message."
       : `You've reached today's limit of ${String(params.perDay)} messages.`,
+  'quota.busy': 'Sorry, your last message is still being answered. Please wait for it to finish.',
+  'model.busy': 'Sorry, the model is busy right now. Please try again in a moment.',
   'error.config': 'Sorry, something went wrong.',
   'error.request': 'Sorry, something went wrong.',
   'error.input': "Sorry, that file can't be used here.",
@@ -679,6 +683,10 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'attachments.limits_unconfigured':
     'Shown to the user who sends a file to an agent whose file limits are not set.',
   'quota.exhausted': 'Shown to the user who has used up the daily message cap. Takes {perDay}.',
+  'quota.busy':
+    'Shown to the user who sends a message while their last one is still being answered (`quotaBusy`).',
+  'model.busy':
+    'Shown to the user when the model provider says it is overloaded (HTTP 503 or 529), in place of error.unavailable.',
   'error.config':
     "Shown to the user when the turn fails because the agent's profile, a tool, or a schema is set up wrong. Takes {tool} when one step failed.",
   'error.request':

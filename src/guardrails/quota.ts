@@ -98,10 +98,19 @@ function quotaExhausted(profile: Profile): TheoremError | undefined {
   );
 }
 
+/** A turn already holds this client's slot (`takeSlot` returned `busy`): worded by the labels' `quota.busy`. */
+function quotaBusy(profile: Profile): TheoremError {
+  return new TheoremError(
+    'rate_limit',
+    `${profile.id} is already running a turn for this client`, // labels-exempt: internal diagnostic; the user reads the copy key
+    { copy: { key: 'quota.busy' } },
+  );
+}
+
 /** Clears all process-local quota counters; intended for tests or host resets. */
 function resetSlots(): void {
   slots.clear();
 }
 
 export type { QuotaSlotStatus };
-export { clientIp, quotaExhausted, releaseSlot, resetSlots, skipQuota, takeSlot };
+export { clientIp, quotaBusy, quotaExhausted, releaseSlot, resetSlots, skipQuota, takeSlot };

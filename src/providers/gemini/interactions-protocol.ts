@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
 import { jsonObjectSchema } from '../../kernel/json.ts';
 import {
@@ -10,7 +9,7 @@ import {
   type ProtocolRequest,
 } from '../../kernel/protocols/mod.ts';
 import type { ModelEvent } from '../../kernel/types.ts';
-import { readGeminiApiError } from '../google/api-error.ts';
+import { readGeminiApiError, statedOrStatusError } from '../google/api-error.ts';
 import { googleBuiltins } from '../google/builtins.ts';
 import {
   type InteractionsRequest,
@@ -115,12 +114,11 @@ export const geminiInteractions: Protocol<GeminiInteractionsOptions> = definePro
   continuation: { version: 1, schema: state, keyOptions: ['store', 'persistViaInteractionId'] },
   reasoning: thoughtSignature,
   error(failure) {
-    const kind = kindOfHttpStatus(failure.status);
     const record = asRecord(failure.body);
-    const stated = record ? readGeminiApiError(record) : null;
-    return new TheoremError(
-      stated?.kind === 'auth' ? 'auth' : kind,
-      stated?.message ?? `Gemini HTTP ${failure.status}`,
+    return statedOrStatusError(
+      record ? readGeminiApiError(record) : null,
+      failure.status,
+      `Gemini HTTP ${failure.status}`,
     );
   },
   create(context) {

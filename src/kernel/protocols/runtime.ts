@@ -1,4 +1,4 @@
-import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
+import { httpStatusError, isModelBusy, TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import { retryTransient, type Wait, waitDefault } from '../../providers/shared/retry.ts';
 import { readSseChunks } from '../../providers/shared/sse.ts';
@@ -196,8 +196,8 @@ async function failure(
   const body = failureBody(await response.text());
   const error =
     protocol.error?.({ status: response.status, body, headers: response.headers }) ??
-    new TheoremError(
-      kindOfHttpStatus(response.status),
+    httpStatusError(
+      response.status,
       labelText('protocol.http', { provider, status: response.status }),
     );
   // why: the host reads the upstream status beside the kind, e.g. a decision's 403 is `permission`.
@@ -408,7 +408,7 @@ function isKind(error: unknown, kind: string): boolean {
 
 /**
  * Runs one call with the kernel's retries, all before the first event: once on the fallback slot
- * when the first key is out of quota, and once after an `auth` refusal with the minted token
+ * when the first key is out of quota or its model is busy, and once after an `auth` refusal with the minted token
  * dropped. A fallback starts clean: it may be another account, so it never sends the first key's
  * state.
  */
@@ -431,7 +431,7 @@ async function* withKeys<E>(
     } catch (error) {
       if (started) throw error;
       if (
-        isKind(error, 'rate_limit') &&
+        (isKind(error, 'rate_limit') || isModelBusy(error)) &&
         fallback &&
         slot !== fallback &&
         holdsKey(setup, fallback)

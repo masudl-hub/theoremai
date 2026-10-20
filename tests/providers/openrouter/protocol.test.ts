@@ -172,6 +172,63 @@ Deno.test('openRouter sends speech as openAi does', async () => {
   assertEquals(sent[0], { model: 'tts-1', input: 'And tomorrow?' });
 });
 
+Deno.test('a busy model moves to the fallback slot once the primary key has had its tries', async () => {
+  const seen: (string | null)[] = [];
+  const registry = createProviderRegistry();
+  const provider = registry.register(router, { keySlot: 'main', fallbackKeySlot: 'spare' });
+  const call = callProtocol({
+    provider,
+    binding: checkBinding(
+      provider,
+      { protocol: 'openRouter', provider: 'router', apiId: 'm-1' },
+      'text',
+    ),
+    profileType: 'text',
+    vault: { main: 'main-key', spare: 'spare-key' },
+    wait: () => Promise.resolve(),
+    fetch: (_input, init) => {
+      const auth = new Headers(init?.headers).get('authorization');
+      seen.push(auth);
+      return Promise.resolve(
+        auth === 'Bearer main-key'
+          ? new Response('{}', { status: 503 })
+          : sse([{ choices: [{ delta: { content: 'Rain.' }, finish_reason: 'stop' }] }]),
+      );
+    },
+  });
+  const events = await collect(call.complete(request));
+  assertEquals(
+    events.map((event) => event.type),
+    ['text', 'done'],
+  );
+  assertEquals(seen.at(-1), 'Bearer spare-key');
+  assertEquals(seen.filter((auth) => auth === 'Bearer spare-key').length, 1);
+});
+
+Deno.test('a 500 stays on the primary key', async () => {
+  const seen: (string | null)[] = [];
+  const registry = createProviderRegistry();
+  const provider = registry.register(router, { keySlot: 'main', fallbackKeySlot: 'spare' });
+  const call = callProtocol({
+    provider,
+    binding: checkBinding(
+      provider,
+      { protocol: 'openRouter', provider: 'router', apiId: 'm-1' },
+      'text',
+    ),
+    profileType: 'text',
+    vault: { main: 'main-key', spare: 'spare-key' },
+    wait: () => Promise.resolve(),
+    fetch: (_input, init) => {
+      seen.push(new Headers(init?.headers).get('authorization'));
+      return Promise.resolve(new Response('{}', { status: 500 }));
+    },
+  });
+  const events = await collect(call.complete(request));
+  assertEquals(events.at(-1)?.type, 'error');
+  assertEquals(new Set(seen), new Set(['Bearer main-key']));
+});
+
 Deno.test('a quota refusal backs off on the primary key before the fallback slot, taping every try with its slot', async () => {
   const seen: (string | null)[] = [];
   const taped: unknown[] = [];

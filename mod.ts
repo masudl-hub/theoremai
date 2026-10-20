@@ -165,6 +165,7 @@ export {
 export type { QuotaSlotStatus } from './src/guardrails/quota.ts';
 export {
   clientIp,
+  quotaBusy,
   quotaExhausted,
   releaseSlot,
   resetSlots,

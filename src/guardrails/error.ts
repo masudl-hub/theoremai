@@ -46,6 +46,28 @@ function kindOfHttpStatus(status: number): ErrorKind {
   return 'unsupported';
 }
 
+/** The statuses a provider sends when it is up but too busy for the call: 503, and 529 (overloaded). */
+const BUSY_STATUSES: ReadonlySet<number> = new Set([503, 529]);
+
+/** The error for a provider's HTTP status: its kind, and the busy wording when the provider says it is overloaded. */
+function httpStatusError(status: number, message: string): TheoremError {
+  return new TheoremError(
+    kindOfHttpStatus(status),
+    message,
+    BUSY_STATUSES.has(status) ? { copy: { key: 'model.busy' } } : undefined,
+  );
+}
+
+/** Whether a provider said it was too busy for the call (`httpStatusError` on a 503 or 529). */
+function isModelBusy(err: unknown): boolean {
+  return (
+    err instanceof TheoremError &&
+    err.copy !== undefined &&
+    'key' in err.copy &&
+    err.copy.key === 'model.busy'
+  );
+}
+
 function kindText(kind: ErrorKind, labels?: LabelOverrides, params?: LabelParams): string {
   return labelText(`error.${kind}`, params, labels);
 }
@@ -112,7 +134,9 @@ export {
   describeError,
   errorCopyText,
   errorKind,
+  httpStatusError,
   isAbortError,
+  isModelBusy,
   isTimeoutError,
   kindOfHttpStatus,
   publicError,

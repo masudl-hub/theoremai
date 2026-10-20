@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
+import { httpStatusError, TheoremError } from '../../guardrails/error.ts';
 import { asRecord } from '../../kernel/engine/record.ts';
 import type { JsonObject } from '../../kernel/json.ts';
 import {
@@ -68,7 +68,7 @@ function errorRow(row: JsonObject): void {
   if (!error) return;
   const status = typeof error.code === 'number' ? error.code : 502;
   const message = typeof error.message === 'string' ? error.message : JSON.stringify(error);
-  throw new TheoremError(kindOfHttpStatus(status), message);
+  throw httpStatusError(status, message);
 }
 
 function citations(part: Record<string, unknown>, reply: Reply): ProtocolEvent[] {

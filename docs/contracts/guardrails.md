@@ -673,6 +673,11 @@ leaked fragments never reach the client wire.
 | Unreadable or invalid provider payload | `bad_response` |
 | Mid-stream provider error without a status | `unavailable` |
 
+A provider's HTTP status becomes its `TheoremError` through
+`httpStatusError(status, message)`, on every provider path. A 503 or 529 says the
+model is overloaded, not that the app failed: it stays `unavailable` and carries
+the copy `model.busy`. Nothing is read from the message text.
+
 ### Tool failures
 
 The kind is set where the tool fails, beside its `code`; the code is detail,
@@ -1653,6 +1658,8 @@ guardrails object is treated like missing quota config.
 `json(caughtStatus(err), { error: publicError(err, profile.labels) }, cors)`:
 `429` and the labels' `quota.exhausted` line (`{perDay}`), which the
 profile's `labels` can replace.
+`quotaBusy(profile)` returns the busy slot (the client's last turn is still
+running) as a `TheoremError` of kind `rate_limit` with the copy `quota.busy`.
 `resetSlots()` clears in-memory state (tests).
 
 ## Labels
@@ -1674,7 +1681,8 @@ placeholder, or a placeholder the key never fills in.
 | Taint / advisory | `taint.*`, `advisory.*` | labels |
 | Attachments | `attachments.*` | labels (structured codes also exposed) |
 | Errors | `error.<kind>` | labels (resolved where the event reaches the host) |
-| Quota | `quota.exhausted` | labels (`quotaExhausted` → `rate_limit`) |
+| Quota | `quota.exhausted`, `quota.busy` | labels (`quotaExhausted`, `quotaBusy` → `rate_limit`) |
+| Busy model | `model.busy` | labels (`httpStatusError` on a 503 or 529 → `unavailable`) |
 | Repair / egress | `repair.*` (`repair.default_guidance` is the validation repair guidance), `egress.default_repair_guidance`, `egress.refusal`, `egress.refusal_cut`, `egress.rejection`, `egress.rejection_found`, `egress.hint_unscannable`, `egress.hint_provider_tool_leak`, `detect.hint.*` | labels |
 | Thoughts | `thought.omitted_image`, `thought.omitted_link`, `thought.omitted_instructions` (a leading space is dropped after whitespace) | labels |
 | Session | `session.abandon_gated`, `session.tool_denied`, `session.tool_aborted`, `session.sign_in`, `session.gate_expired`, `session.turn_ended`, `session.gate_pending`, `session.part_skipped` | labels |
@@ -1719,7 +1727,7 @@ From `src/guardrails/mod.ts`:
 
 | Group | Symbols |
 | --- | --- |
-| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicLabels`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
+| Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `httpStatusError`, `publicError`, `toErrorEvent`, `withPublicLabels`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
 | Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
 | Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |
@@ -1732,7 +1740,7 @@ From `src/guardrails/mod.ts`:
 | Canary | `mintCanary`, `bindCanary`, `wrapUserData`, `scanTextForCanaryLeak`, `scanTextForPromptEcho`, `PROMPT_ECHO_WORDS`, `createCanaryStreamGate`, `eventHasCanary`, `isStreamedCanaryEvent`, `redactCanary`, `OMIT_CANARY`, `USER_OPEN`, `USER_CLOSE`, `createCanaryGateSession`, `filterCanaryGatedEvents`, `CanaryGateResult`, `CanaryGateSession`, `CanaryStreamGate` |
 | Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `NameAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
-| Quota | `QuotaSlotStatus`, `clientIp`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
+| Quota | `QuotaSlotStatus`, `clientIp`, `quotaBusy`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
 | Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels`, `validateLabelOverrides` |
 
 From `src/guardrails/compile-egress.ts` (build time only):

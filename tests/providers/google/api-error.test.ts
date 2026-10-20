@@ -1,6 +1,11 @@
-import type { TheoremError } from '../../../src/guardrails/error.ts';
+import { publicError, type TheoremError } from '../../../src/guardrails/error.ts';
+import { labelDefault } from '../../../src/guardrails/labels.ts';
 import { assertEquals } from '../../../src/kernel/engine/assert.ts';
-import { readGeminiApiError, readNonOkError } from '../../../src/providers/google/api-error.ts';
+import {
+  readGeminiApiError,
+  readNonOkError,
+  statedOrStatusError,
+} from '../../../src/providers/google/api-error.ts';
 
 function shape(err: TheoremError | null): { kind: string; message: string } | null {
   return err ? { kind: err.kind, message: err.message } : null;
@@ -151,4 +156,33 @@ Deno.test('a refused key is auth, not the 400 it arrives as', async () => {
     kind: 'auth',
     message: 'INVALID_ARGUMENT: API key not valid. Please pass a valid API key.',
   });
+});
+
+Deno.test('an overloaded Gemini reads as busy, not down', async () => {
+  // recorded 2026-10-20: the Interactions reply that failed a Studio turn twice
+  const busy = {
+    error: {
+      message:
+        'gemini-3.5-flash-lite is currently experiencing high demand, spikes in demand are usually temporary. Please try again later.',
+      code: 'service_unavailable',
+    },
+  };
+  const named = readGeminiApiError(busy);
+  assertEquals(named?.kind, 'unavailable');
+  assertEquals(publicError(named), labelDefault('model.busy'));
+  const status = await readNonOkError(new Response(JSON.stringify(busy), { status: 503 }));
+  assertEquals(status.kind, 'unavailable');
+  assertEquals(publicError(status), labelDefault('model.busy'));
+  assertEquals(
+    publicError(statedOrStatusError(null, 529, 'overloaded')),
+    labelDefault('model.busy'),
+  );
+});
+
+Deno.test('a provider fault that is not overload keeps the unavailable wording', () => {
+  for (const code of [500, 502]) {
+    const err = readGeminiApiError({ error: { code, message: 'x' } });
+    assertEquals(err?.kind, 'unavailable');
+    assertEquals(publicError(err), labelDefault('error.unavailable'));
+  }
 });

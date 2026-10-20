@@ -251,6 +251,23 @@ The handler accepts these requests:
 
 The console builds a form from the input schema. It shows the result as figures, charts, tables, images, audio, or Markdown, with the raw JSON beside it. If the data renderer fails, the view switches to JSON so the selected view matches what is shown. For your own UI, use `createHostTransport` and `useTheoremHost`.
 
+#### Serve a host profile over MCP
+
+`createTheoremMcpHandler` serves the same profile to MCP clients, such as coding agents and chat apps, at one endpoint. It answers MCP clients of the current revision and clients that still open with `initialize`, and it keeps no session between requests.
+
+```ts
+import { createTheoremMcpHandler } from '@theoremjs/react/server';
+
+export const mcp = createTheoremMcpHandler({ profile: docsTools, version: '1.0.0' }); // mount at /mcp
+```
+
+- `tools/list` gives each allowed tool with its input schema. A tool's `access` becomes the read-only and destructive hints of MCP.
+- Clients of the current revision may cache the tool list for 5 minutes and the discovery result for an hour. Neither holds anything about the caller, so a shared cache may keep them.
+- `tools/call` runs the tool through the gates, the guardrails, and the trace of the kernel. The client receives the text a model would read, not the raw output.
+- A tool that fails returns a result marked `isError`, so the model can read it and try again.
+- No one can approve a call over MCP. The handler refuses a profile when an allowed tool has a permission other than `auto`.
+- A browser page on another origin is refused unless `origins` lists it.
+
 ### Decision
 
 A `decision` profile has no conversation. You give it a JSON state and questions. It answers the questions about the state.

@@ -1,6 +1,6 @@
 /**
  * Server half of `@theoremjs/react`: serve one profile to the chat UI, a
- * decision profile to the decision UI, or a host profile's tools to the host UI.
+ * decision profile to the decision UI, or a host profile's tools to the host UI or to MCP clients.
  *
  * @module
  */
@@ -74,6 +74,7 @@ export {
   theoremSession,
   theoremSessionId,
 } from './handler.ts';
+export { createTheoremMcpHandler, type TheoremMcpHandlerOptions } from './mcp-handler.ts';
 export {
   createMemoryPageToolBroker,
   type PageToolBroker,

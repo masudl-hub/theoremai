@@ -1062,13 +1062,8 @@ async function hostRoute(
   session: Session,
 ): Promise<Response> {
   const target = routeOf(request);
-  if (request.method === 'GET' && target === '') {
-    const tool = (name: string) => {
-      const registered = defaultKernelScope.tools.get(name);
-      return registered?.type === 'builtin' ? undefined : registered;
-    };
-    return jsonResponse(200, { interface: hostInterface(ctx.profile, tool) });
-  }
+  if (request.method === 'GET' && target === '')
+    return jsonResponse(200, { interface: hostInterface(ctx.profile, hostTool) });
   if (request.method === 'POST' && target === 'call') {
     const body = await readBody(request, theoremHostCallRequestSchema, ctx.options.maxRequestBytes);
     return eventStream(ctx, request, () => callEvents(ctx, request, session, body));
@@ -1145,12 +1140,30 @@ export function createTheoremHandler(
 export function createTheoremHostHandler(
   options: TheoremHostHandlerOptions,
 ): (request: Request) => Promise<Response> {
-  const profile = defineProfile(options.profile as ProfileDefinition);
+  return serve(
+    'createTheoremHostHandler',
+    defineHostProfile('createTheoremHostHandler', options.profile),
+    options,
+  );
+}
+
+/** The host profile a handler serves; any other type is the builder's mistake, refused at setup. */
+export function defineHostProfile(
+  handler: string,
+  definition: TheoremHostHandlerOptions['profile'],
+): Extract<Profile, { type: 'host' }> {
+  const profile = defineProfile(definition as ProfileDefinition);
   if (profile.type !== 'host') {
     // labels-exempt: builder config error at setup; no user sees it
-    throw new Error(`createTheoremHostHandler serves type 'host'; got type '${profile.type}'.`);
+    throw new Error(`${handler} serves type 'host'; got type '${profile.type}'.`);
   }
-  return serve('createTheoremHostHandler', profile, options);
+  return profile;
+}
+
+/** A registered tool a host profile can serve: builtins run only inside a model's turn. */
+export function hostTool(name: string) {
+  const registered = defaultKernelScope.tools.get(name);
+  return registered?.type === 'builtin' ? undefined : registered;
 }
 
 function serve(

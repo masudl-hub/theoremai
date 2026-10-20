@@ -1,4 +1,4 @@
-import { type LexiconOverrides, lexiconText } from '../../guardrails/lexicon.ts';
+import { type LabelOverrides, labelText } from '../../guardrails/labels.ts';
 import type { Profile, TurnHistoryMessage, TurnRepairRequest } from '../types.ts';
 
 const MAX_REPAIR_HISTORY_EXCHANGES = 2;
@@ -13,13 +13,13 @@ function scopeHistory(history: TurnHistoryMessage[] | undefined): TurnHistoryMes
 
 function formatHistoryBlock(
   messages: TurnHistoryMessage[],
-  lexicon: LexiconOverrides | undefined,
+  labels: LabelOverrides | undefined,
 ): string {
   if (messages.length === 0) {
     return '';
   }
   const lines = messages.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`);
-  const heading = lexiconText('repair.history_heading', { count: messages.length }, lexicon);
+  const heading = labelText('repair.history_heading', { count: messages.length }, labels);
   return `${heading}\n${lines.join('\n')}\n\n`;
 }
 
@@ -29,26 +29,26 @@ function synthesizeRepairPrompt(args: {
   history?: TurnHistoryMessage[];
 }): string {
   const { profile, repair, history } = args;
-  const guidance = repair.guidance || lexiconText('repair.default_guidance', {}, profile.lexicon);
+  const guidance = repair.guidance || labelText('repair.default_guidance', {}, profile.labels);
 
-  const historyBlock = formatHistoryBlock(scopeHistory(history), profile.lexicon);
+  const historyBlock = formatHistoryBlock(scopeHistory(history), profile.labels);
 
-  let prompt = `${lexiconText('repair.prompt_header', {}, profile.lexicon)}\n\n`;
-  prompt += `${lexiconText('repair.prompt_intro', {}, profile.lexicon)}\n\n`;
+  let prompt = `${labelText('repair.prompt_header', {}, profile.labels)}\n\n`;
+  prompt += `${labelText('repair.prompt_intro', {}, profile.labels)}\n\n`;
 
-  prompt += `${lexiconText('repair.section_previous_output', {}, profile.lexicon)}\n\`\`\`\n${repair.previousOutput.trim()}\n\`\`\`\n\n`;
-  prompt += `${lexiconText('repair.section_validator_rejection', {}, profile.lexicon)}\n${repair.rejection.trim()}\n\n`;
+  prompt += `${labelText('repair.section_previous_output', {}, profile.labels)}\n\`\`\`\n${repair.previousOutput.trim()}\n\`\`\`\n\n`;
+  prompt += `${labelText('repair.section_validator_rejection', {}, profile.labels)}\n${repair.rejection.trim()}\n\n`;
 
   if (guidance.trim()) {
-    prompt += `${lexiconText('repair.section_repair_guidance', {}, profile.lexicon)}\n${guidance.trim()}\n\n`;
+    prompt += `${labelText('repair.section_repair_guidance', {}, profile.labels)}\n${guidance.trim()}\n\n`;
   }
 
   if (historyBlock) {
     prompt += historyBlock;
   }
 
-  prompt += `${lexiconText('repair.section_instructions', {}, profile.lexicon)}\n`;
-  prompt += lexiconText('repair.prompt_instructions', {}, profile.lexicon);
+  prompt += `${labelText('repair.section_instructions', {}, profile.labels)}\n`;
+  prompt += labelText('repair.prompt_instructions', {}, profile.labels);
 
   return prompt;
 }

@@ -1,8 +1,13 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
 import { assertEquals } from '@std/assert';
 import { runCanaryFuzz } from '../../src/cli/commands/fuzz-canary.ts';
 
 /** Leak shapes the scan does not detect yet; each is a bypass until it does. */
-const UNDETECTED = ['reversed-text', 'rot13-text', 'spelled-words-text', 'split-across-turns'];
+const UNDETECTED: string[] = [];
 
 Deno.test('fuzz-canary catches every other leak on both channels, with no false alarms', async () => {
   const results = await runCanaryFuzz();

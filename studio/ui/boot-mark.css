@@ -1,0 +1,53 @@
+/* First load: the pen waits a beat, then finishes, dot included. A page that is ready inside that
+   beat never shows the mark (boot-mark.tsx reads the delay as the answer). */
+[data-boot] .theorem-mark {
+  --mark-delay: 240ms;
+  --mark-draw: 620ms;
+  --mark-draw-late: 560ms;
+  --mark-stagger: 200ms;
+  --mark-dot-at: 780ms;
+  --mark-dot-in: 220ms;
+}
+
+[data-boot] {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  /* Literal, matching the inline paint in boot-paint.ts. The mark sits in the shell,
+	   outside the theme scope, so a surface token here is the library default. */
+  color: #fff;
+  background: #262626;
+}
+
+/* A project being read: the mark has given way and the shell is its own surface again. Once it
+   has pulled in beside the rail, the loader is that panel, and the map draws on it. */
+[data-boot]:not([data-phase="draw"]) {
+  background: none;
+}
+
+@media (width >= 768px) {
+  html[data-shell-move] [data-boot]:not([data-phase="draw"]) {
+    inset: var(--spacing-4) var(--spacing-4) var(--spacing-4) var(--spacing-12);
+  }
+}
+
+/* The map fades out before the panel pulls in to the page. */
+[data-boot] .read-map {
+  transition: opacity var(--shell-hold-ms) ease;
+}
+
+[data-boot][data-phase="leave"] .read-map {
+  opacity: 0;
+}
+
+/* Words for a screen reader only. */
+.boot-said {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

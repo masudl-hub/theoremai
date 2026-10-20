@@ -1,50 +1,18 @@
 /**
- * THEOREM public API.
- *
- * Import this entrypoint when an application wants the complete kernel surface:
- * profile registration, turn execution, provider constructors, guardrails,
- * observability sinks, and public type contracts.
- *
- * @example
- * ```ts
- * import { defineProfile, registerProfile, runTurn } from "jsr:@theoremai/agents";
- *
- * const profile = defineProfile({
- *   id: "assistant.basic",
- *   type: "text",
- *   identity: {
- *     handle: "assistant",
- *     system: "Answer plainly.",
- *   },
- *   models: {
- *     default: {
- *       protocol: "openAi",
- *       provider: "openrouter",
- *       apiId: "perplexity/sonar",
- *       efforts: { normal: "minimal" },
- *       summaries: false,
- *       maxOutputTokens: 8192,
- *       temperature: 1,
- *     },
- *   },
- *   maxSteps: 1,
- *   tools: { allow: [] },
- *   inputs: { text: true },
- *   outputs: {
- *     streaming: { streamThoughts: false },
- *   },
- *   guardrails: {
- *     quota: { perDay: 100 },
- *   },
- * });
- *
- * registerProfile(profile);
- * ```
+ * THEOREM's complete public API: profiles, turns, providers, guardrails, observability and
+ * types. The narrower subpath exports carry parts of it without the rest.
  *
  * @module
  */
 
-export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './src/guardrails/error.ts';
+/** Compose with this `z`: two copies of zod, even at one version, do not mix. */
+export { z } from 'zod';
+export type {
+  ErrorCopies,
+  ErrorCopy,
+  ErrorKind,
+  TheoremErrorOptions,
+} from './src/guardrails/error.ts';
 export {
   describeError,
   ERROR_KINDS,
@@ -56,6 +24,11 @@ export {
   toErrorEvent,
 } from './src/guardrails/error.ts';
 export {
+  errorCopiesSchema,
+  errorKindSchema,
+  guardrailEventSchema,
+} from './src/guardrails/event-schemas.ts';
+export {
   guardrailFromHits,
   guardrailFromVerdict,
   guardrailTurnEvent,
@@ -66,27 +39,31 @@ export {
   projectGuardrailEvent,
 } from './src/guardrails/hits.ts';
 export type {
-  ClientLexiconKey,
-  LexiconKey,
-  LexiconOverrides,
-  LexiconParams,
-} from './src/guardrails/lexicon.ts';
+  ClientLabelKey,
+  LabelKey,
+  LabelOverrides,
+  LabelParams,
+} from './src/guardrails/labels.ts';
 export {
-  CLIENT_LEXICON_KEYS,
-  LEXICON_KEYS,
-  lexiconDefault,
-  lexiconText,
-  overrideLexicon,
-  resetLexicon,
-} from './src/guardrails/lexicon.ts';
+  CLIENT_LABEL_KEYS,
+  LABEL_KEYS,
+  labelDefault,
+  labelText,
+  overrideLabels,
+  resetLabels,
+} from './src/guardrails/labels.ts';
 export type {
   AdvisoryLevel,
+  BlockedReplyOnBlock,
+  BlockedReplySpec,
   CanaryGateResult,
   CanaryGateSession,
   CanaryStreamGate,
-  DetectionOptions,
-  EgressEnforcer,
-  EgressOnBlock,
+  DestinationGate,
+  DestinationVerdict,
+  Directive,
+  DirectiveSignal,
+  GivenUrls,
   GuardedToolText,
   GuardrailAction,
   GuardrailContext,
@@ -94,12 +71,13 @@ export type {
   GuardrailHit,
   GuardrailStage,
   HostGuardrailsSpec,
+  InspectedToolArguments,
   LiveHeldOutput,
   LiveOutboundBatchResult,
   LiveOutboundGateSession,
+  NameAllow,
   NetworkGuardrailSpec,
   OutboundPayload,
-  ProfileEgressSpec,
   ProfileGuardrailsSpec,
   ProgressiveYieldGate,
   ProgressiveYieldGateOptions,
@@ -108,31 +86,39 @@ export type {
   QuotaGuardrailSpec,
   ResolvedGuardrailPolicy,
   ScanText,
+  SensitiveGroup,
+  SensitiveSelection,
+  SensitiveSwitches,
   Severity,
   TaintGate,
   TaintGuardrailSpec,
   ToolOrigin,
   TrustLevel,
+  TurnDestinations,
   TurnTaint,
+  UrlAllow,
   Verdict,
 } from './src/guardrails/mod.ts';
 export {
   ADVISORY_LEVELS,
   abortLiveOutboundTurn,
+  addGivenDestinations,
+  addHistoryDestinations,
+  addRequestDestinations,
+  addResultDestinations,
+  BLOCKED_REPLY_ON_BLOCK,
   bindCanary,
+  checkDestinationGate,
   checkTaintGate,
-  collectEgressHits,
   composeToolText,
   createCanaryGateSession,
   createCanaryStreamGate,
   createLiveOutboundGateSession,
   createOutboundProgressiveGate,
   createProgressiveYieldGate,
-  DEFAULT_HOLDBACK,
-  DIRECTIVE_RULES,
-  detectionForTrust,
-  directiveHits,
-  EGRESS_ON_BLOCK,
+  DESTINATION_GATES,
+  DIRECTIVE_SIGNALS,
+  directives,
   EGRESS_RULES,
   eventHasCanary,
   filterCanaryGatedEvents,
@@ -145,24 +131,22 @@ export {
   isRemoteOrigin,
   isSuspicious,
   isTainted,
-  looksDirective,
   mintCanary,
   OMIT_CANARY,
   processLiveOutboundBatch,
   recordTaint,
   redactCanary,
   resolveGuardrailPolicy,
-  runEnforcer,
   SEVERITIES,
   scanTextForCanaryLeak,
   scanTextOf,
-  standardEgressEnforce,
   TAINT_GATES,
   TOOL_CLOSE,
   TOOL_ORIGINS,
   TRUST_LEVELS,
   textForScan,
   toolCallEvent,
+  turnDestinations,
   wrapToolData,
   wrapUserData,
 } from './src/guardrails/mod.ts';
@@ -187,15 +171,51 @@ export {
   skipQuota,
   takeSlot,
 } from './src/guardrails/quota.ts';
+export type { SanitizedTurnRequest } from './src/guardrails/sanitize.ts';
 export {
-  detectionForProfile,
-  detectText,
-  redactSensitiveOnly,
   sanitizeProjectId,
-  sanitizeText,
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './src/guardrails/sanitize.ts';
+export type { ProviderStateRebuilt } from './src/kernel/checkpoint.ts';
+export {
+  historyHash,
+  providerCheckpointSchema,
+  providerContinuationSchema,
+  providerWarningSchema,
+} from './src/kernel/checkpoint.ts';
+export {
+  clearProfiles,
+  compactHistory,
+  getProfile,
+  getProvider,
+  getStructured,
+  getTool,
+  hasProfile,
+  hasTool,
+  invokeTool,
+  invokeToolStep,
+  listProfiles,
+  listProtocols,
+  listProviders,
+  listTools,
+  projectProfile,
+  registerProfile,
+  registerProfiles,
+  registerProvider,
+  registerStructured,
+  registerTool,
+  registerTools,
+  requireTool,
+  resetTools,
+  resolveTurn,
+  runDecision,
+  runEmbedding,
+  runSession,
+  runTool,
+  runToolStep,
+  runTurn,
+} from './src/kernel/default-scope.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
   compactionMeter,
@@ -205,6 +225,7 @@ export {
   shouldCompact,
   splitForCompaction,
 } from './src/kernel/engine/compaction.ts';
+export { validateDecisionRequest } from './src/kernel/engine/decision.ts';
 export { prepareLiveInboundText } from './src/kernel/engine/live-inbound.ts';
 export type { LiveIngressChannel } from './src/kernel/engine/live-ingress.ts';
 export {
@@ -215,18 +236,13 @@ export {
   liveIngressEnabled,
   liveIngressEnabledFromSpec,
 } from './src/kernel/engine/live-ingress.ts';
-export { runTurn } from './src/kernel/engine/runner.ts';
-export type { RunSessionOptions } from './src/kernel/engine/session/mod.ts';
-export { runSession } from './src/kernel/engine/session/mod.ts';
+export type { RunSessionOptions, SignInGatePolicy } from './src/kernel/engine/session/mod.ts';
 export type {
-  MediaPayload,
-  MediaTokenFamily,
   TokenCount,
   TokenEstimator,
 } from './src/kernel/engine/token-estimate.ts';
 export {
   loadTokenEstimator,
-  mediaTokenFamily,
   TOKEN_TEXT_ENCODING,
 } from './src/kernel/engine/token-estimate.ts';
 export { sumTokens } from './src/kernel/engine/usage.ts';
@@ -241,6 +257,18 @@ export {
   profileGraphFacet,
   spineFacetsForProfileType,
 } from './src/kernel/profile-graph.ts';
+export type { RuntimeAbilities } from './src/kernel/protocols/binding.ts';
+export {
+  checkBinding,
+  commonModelSettingsSchema,
+  decisionModelBindingSchema,
+  keySlotSchema,
+  keySlotsOf,
+  modelBindingSchema,
+} from './src/kernel/protocols/binding.ts';
+export { providerLimitsSchema, resolveProviderLimits } from './src/kernel/protocols/limits.ts';
+export type { CallSetup, ProtocolCall } from './src/kernel/protocols/runtime.ts';
+export { callProtocol, plainWebSocket } from './src/kernel/protocols/runtime.ts';
 export type { AttachmentFacts, AttachmentRules } from './src/kernel/registry/attachments.ts';
 export {
   assertTurnAttachments,
@@ -248,6 +276,7 @@ export {
   attachmentIssues,
   attachmentIssueText,
   attachmentsRefused,
+  base64Bytes,
   maxBytesForMime,
   requireMediaLimits,
   resolveMediaLimits,
@@ -265,31 +294,31 @@ export {
   modelEntryByApiId,
   requireModelBinding,
 } from './src/kernel/registry/catalog.ts';
+export type { EmbeddingRules } from './src/kernel/registry/embedding-rules.ts';
+export { embeddingMediaIssues, embeddingRules } from './src/kernel/registry/embedding-rules.ts';
+export type { KernelRegistry } from './src/kernel/registry/kernel-registry.ts';
+export { createKernelRegistry } from './src/kernel/registry/kernel-registry.ts';
 export type {
+  EmbeddingProfileDefinition,
   ImageProfileDefinition,
   LiveProfileDefinition,
   ProfileDefinition,
   ProfileDefinitionBase,
+  ProfileRegistry,
   SpeechProfileDefinition,
   TextProfileDefinition,
 } from './src/kernel/registry/profiles.ts';
-export {
-  clearProfiles,
-  defineProfile,
-  getProfile,
-  hasProfile,
-  listProfiles,
-  registerProfile,
-  registerProfiles,
-} from './src/kernel/registry/profiles.ts';
-export { pickModel, projectProfile, resolveTurn } from './src/kernel/registry/resolve.ts';
-export { getStructured, registerStructured } from './src/kernel/registry/schemas.ts';
+export { createProfileRegistry, defineProfile } from './src/kernel/registry/profiles.ts';
+export { pickModel } from './src/kernel/registry/resolve.ts';
+export type { SchemaRegistry } from './src/kernel/registry/schemas.ts';
+export { createSchemaRegistry } from './src/kernel/registry/schemas.ts';
 export type {
   AuthUnauthenticatedPolicy,
   ContinueStopKind,
   CustomToolType,
   HttpMethod,
-  PlaygroundAuthType,
+  StepLimitMode,
+  StudioAuthType,
   ToolAccess,
   ToolAuthType,
   ToolPermission,
@@ -297,49 +326,41 @@ export type {
   TurnStopKind,
 } from './src/kernel/schema.ts';
 export {
+  API_EXPORTS,
   ATTACHMENT_ACCEPT_MIMES,
   AUTH_UNAUTHENTICATED_POLICIES,
   AWAITING_USER_INPUT_KINDS,
   AWAITING_USER_INPUT_STATUS,
   COMPACTION_METERS,
+  COMPACTION_OUTCOMES,
   COMPACTION_TIMINGS,
   CONTINUE_STOP_KINDS,
   catalogPathFor,
-  coerceProtocol,
-  coerceProvider,
-  coerceSpeechFormat,
   DYNAMIC_FIELD_PARENTS,
   EXTRA_FIELDS,
   fieldMeta,
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
-  isSpeechFormatAllowedForProtocol,
+  isKeySlotName,
   isToolGateKind,
   isTurnInjectStage,
   isTurnStage,
-  isValidPair,
-  isValidProfileProtocol,
-  KEY_SLOTS,
+  KEY_SLOT_NAME,
   LIVE_ACTIVITY_HANDLINGS,
-  LIVE_SPEECH_SENSITIVITIES,
+  LIVE_END_SENSITIVITIES,
+  LIVE_START_SENSITIVITIES,
   MEDIA_INPUT_KIND_VALUES,
   MEDIA_INPUT_KINDS,
   MEDIA_WILDCARDS,
-  OVERFLOW_KEY_SLOTS,
-  PLAYGROUND_AUTH_TYPES,
   PROFILE_FIELDS,
-  PROFILE_TYPE_PROTOCOLS,
+  PROFILE_HANDLE_MAX_CHARS,
+  PROFILE_ID_MAX_CHARS,
   PROFILE_TYPES,
-  PROTOCOL_PROVIDERS,
-  PROTOCOLS,
-  PROVIDERS,
-  protocolsFor,
-  protocolsForProfileType,
-  providersFor,
+  REQUEST_FIELDS,
   SPEECH_AUDIO_FORMATS,
   STREAM_MODES,
+  STUDIO_AUTH_TYPES,
   SUMMARY_MODES,
-  speechFormatsForProtocol,
   THINKING_LEVELS,
   TOOL_ACCESS,
   TOOL_AUTH_TYPES,
@@ -352,6 +373,8 @@ export {
   TURN_STOP_KINDS,
   VOICE_ACCEPT_MIMES,
 } from './src/kernel/schema.ts';
+export type { KernelScope } from './src/kernel/scope.ts';
+export { createKernelScope, defaultKernelScope } from './src/kernel/scope.ts';
 export type {
   AwaitingUserInput,
   StageAffordance,
@@ -367,9 +390,6 @@ export type {
 } from './src/kernel/stages.ts';
 export {
   applyStageResult,
-  isAwaitingUserInput,
-  parseAwaitingUserInput,
-  parseToolGate,
   STAGE_AFFORDANCE_MATRIX,
   STAGE_AFFORDANCES,
   stageAllowsAffordance,
@@ -399,41 +419,81 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
-export type { McpProtocolVersion, McpRpcResponse } from './src/kernel/tools/mod.ts';
+export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
+export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
+export type {
+  CredentialQuery,
+  McpProtocolVersion,
+  McpRpcResponse,
+  ToolRegistry,
+} from './src/kernel/tools/mod.ts';
 export {
+  askUserTool,
   buildHttpToolTarget,
+  createToolRegistry,
+  credentialPlacement,
   executeHttpTool,
   executeMcpTool,
   formatToolResult,
-  getTool,
-  hasTool,
-  invokeTool,
   isUnsupportedMcpProtocolError,
-  listBuiltinIds,
-  listFunctionIds,
-  listTools,
   MCP_PROTOCOL_VERSIONS,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   registerHarnessTools,
-  registerTool,
-  registerTools,
-  requireTool,
-  resetTools,
   resolveToolAuth,
+  UncheckedOutput,
+  uncheckedOutput,
+  withCredentialQuery,
 } from './src/kernel/tools/mod.ts';
+export type {
+  BeginToolOperationResult,
+  PageToolDispatch,
+  PageToolExecution,
+  SavedToolInvocation,
+  TerminalToolEvent,
+  ToolExecutionCoordinator,
+  ToolOperationClaim,
+  ToolOperationIdentity,
+  ToolOperationOutcome,
+  ToolOperationUncertainty,
+} from './src/kernel/tools/operation.ts';
+export {
+  savedToolInvocationSchema,
+  toolInvocationHash,
+  toolOperationOutcomeSchema,
+} from './src/kernel/tools/operation.ts';
+export type {
+  SettledToolCall,
+  ToolCallResult,
+  ToolStepCallResult,
+} from './src/kernel/tools/run.ts';
+export type { ModelToolResult, PageAnswer, ToolContext } from './src/kernel/tools/types.ts';
+export {
+  awaitingUserInputSchema,
+  type GateReference,
+  gateReferenceSchema,
+  isAwaitingUserInput,
+  keptReply,
+  reasoningPartSchema,
+  TURN_EVENT_SCHEMAS,
+  toolGateSchema,
+  turnDoneOf,
+  turnEventSchema,
+  turnHistoryMessageSchema,
+  turnToolSnapshotSchema,
+} from './src/kernel/turn-events.ts';
 export type * from './src/kernel/types.ts';
 export type {
-  JsonlSinkOptions,
-  JsonlTraceDestination,
   OtlpAnyValue,
   OtlpKeyValue,
   OtlpSpan,
   OtlpTraceRequest,
   ProfileObservabilitySpec,
   ResolvedObservabilityPolicy,
+  ResolvedScrubSwitch,
   ResolvedTraceInclude,
   ResolvedTraceScrub,
+  ScrubSwitch,
   SpanHandle,
   SpanLinkInput,
   SpanOptions,
@@ -444,7 +504,6 @@ export type {
   TraceBytes,
   TraceClock,
   TraceContent,
-  TraceDestination,
   TraceEventMeta,
   TraceIncludeSpec,
   TraceJson,
@@ -469,13 +528,11 @@ export {
   contentOf,
   getTraceDestination,
   inlineContent,
-  isJsonlTraceDestination,
   isTraceSink,
-  jsonlDestination,
-  jsonlSink,
   listTraceDestinationIds,
   memorySink,
   noopSink,
+  readTraceparent,
   registerTraceDestination,
   requireTraceDestination,
   resolveObservabilityPolicy,
@@ -492,15 +549,9 @@ export {
   traceEventAttributeMeta,
   traceEventMeta,
   traceJson,
+  traceRecordSchema,
   traceSpanMeta,
   writeTrace,
 } from './src/observability/mod.ts';
 export * from './src/presets/mod.ts';
-export type {
-  CreateProviderOptions,
-  GeminiTransport,
-  KeyVault,
-  LocalProviderConfig,
-  OpenAiGatewayConfig,
-} from './src/providers/mod.ts';
-export { createProvider } from './src/providers/mod.ts';
+export * from './src/providers/mod.ts';

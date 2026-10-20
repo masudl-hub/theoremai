@@ -1,0 +1,576 @@
+import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
+import { type ModelEvent, TheoremError, type TurnModel } from '../../mod.ts';
+import { withPageToolDispatch } from '../../react/src/client/page-dispatch.ts';
+import type { ChatLine, ClientTurnEvent } from '../../react/src/client/transport.ts';
+import { issuedOperationId } from '../../react/src/client/turn-client.ts';
+import { createSealedConversationStore } from '../../react/src/server/conversation-store.ts';
+import { createMemorySteerInbox } from '../../react/src/server/steer-inbox.ts';
+import { TEST_GOOGLE_KEY, TEST_OPENROUTER_KEY } from '../../src/guardrails/corpus/secrets.ts';
+import {
+  createBrowserStudioTransport,
+  keyKind,
+  localStudioConfig,
+  studioKeySlots,
+  studioVault,
+} from '../../studio/browser.ts';
+import { newConversationKey } from '../../studio/conversation-key.ts';
+import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { compileStudio, createExampleDraft, createStudioTransport } from '../../studio/mod.ts';
+import { streamStudioTurn } from '../../studio/runtime.ts';
+import { replyText } from '../fixtures/reply.ts';
+
+function payload() {
+  const result = compileStudio(createExampleDraft(), ON_OWN_KEYS);
+  if (!result.ok) throw new Error(JSON.stringify(result.issues));
+  return result;
+}
+/** The tab's key, as a page run takes it. */
+function sealing() {
+  return { conversationKey: newConversationKey() };
+}
+function provider(events: ModelEvent[]): TurnModel {
+  return {
+    async *complete() {
+      yield* events;
+    },
+  };
+}
+Deno.test('browser and HTTP studio transports preserve turn events and traces', async () => {
+  const compiled = payload();
+  const runtime = {
+    mode: 'byok' as const,
+    provider: () =>
+      provider([
+        { type: 'text', text: 'Hello.' },
+        { type: 'tokens', tokens: { input: 10, output: 2, total: 12 } },
+      ]),
+  };
+  const browser = createBrowserStudioTransport(compiled, runtime, sealing());
+  const http = createStudioTransport(compiled, {
+    fetch: async (_url, init) => {
+      const lines = [];
+      for await (const line of streamStudioTurn({
+        ...compiled,
+        request: JSON.parse(String(init?.body)),
+        conversations: {
+          sessionId: 'studio-http',
+          store: createSealedConversationStore({
+            keys: { 1: newConversationKey() },
+            keyVersion: 1,
+          }),
+        },
+        signal: new AbortController().signal,
+        steer: createMemorySteerInbox(),
+        runtime,
+      }))
+        lines.push(line);
+      return new Response(`${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    },
+  });
+  const directEvents: ChatLine[] = [];
+  const httpEvents: ChatLine[] = [];
+  await browser.turn({ input: { text: 'Hello' } }, (event) => directEvents.push(event));
+  await http.turn({ input: { text: 'Hello' } }, (event) => httpEvents.push(event));
+  // Each side seals with its own key, so the refs differ; the lines around them must not.
+  const normalized = (events: ChatLine[]) =>
+    events.map((event) =>
+      event.type === 'done'
+        ? { ...event, traceparent: undefined }
+        : event.type === 'conversation'
+          ? { ...event, ref: 'sealed' }
+          : event,
+    );
+  assertEquals(normalized(directEvents), normalized(httpEvents));
+  assertEquals(
+    replyText(
+      directEvents.filter(
+        (event) =>
+          event.type !== 'conversation' &&
+          event.type !== 'unsupported' &&
+          event.type !== 'malformed',
+      ),
+    ),
+    'Hello.',
+  );
+  assertEquals(browser.traces?.records().length, http.traces?.records().length);
+  assert((browser.traces?.records().length ?? 0) > 0);
+});
+Deno.test('browser failures reject with the same public error as HTTP', async () => {
+  const compiled = payload();
+  const runtime = {
+    mode: 'byok' as const,
+    provider: () => ({
+      async *complete() {
+        await Promise.resolve();
+        yield* [];
+        throw new TheoremError('auth', 'Missing key');
+      },
+    }),
+  };
+  const browser = createBrowserStudioTransport(compiled, runtime, sealing());
+  const emitted: ChatLine[] = [];
+  const failure = await assertRejects(() =>
+    browser.turn({ input: { text: 'Hello' } }, (event) => emitted.push(event)),
+  );
+  assertEquals(
+    (
+      failure as {
+        kind?: string;
+      }
+    ).kind,
+    'auth',
+  );
+  assertEquals(
+    emitted.some((event) => event.type === 'error'),
+    false,
+  );
+  assert((browser.traces?.records().length ?? 0) > 0);
+});
+Deno.test('named primary and fallback slots include model overrides and isolate vaults', () => {
+  const slots = studioKeySlots({
+    key: 'primary',
+    fallbackKey: 'backup',
+    models: { fast: { keySlot: 'fast-key', fallbackKeySlot: 'backup' } },
+  });
+  assertEquals(slots, ['primary', 'backup', 'fast-key']);
+  assertEquals(
+    studioVault([...slots, 'constructor'], { primary: 'a', backup: 'b', unrelated: 'private' }),
+    { primary: 'a', backup: 'b', 'fast-key': undefined, constructor: undefined },
+  );
+  assertEquals(studioVault(slots, { primary: 'other' }).primary, 'other');
+  const draft = createExampleDraft();
+  draft.modelBindings = draft.modelBindings.filter((model) => model.provider === 'gemini');
+  draft.models.fallbackKey = 'backup';
+  draft.modelBindings[0].keySlot = 'fast-key';
+  draft.modelBindings[0].fallbackKeySlot = 'fast-backup';
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
+  assert(compiled.ok && compiled.profile.type === 'text');
+  assertEquals(
+    compiled.profile.models[
+      compiled.profile.defaultModel ?? Object.keys(compiled.profile.models)[0]
+    ].fallbackKeySlot,
+    'backup',
+  );
+  assertEquals(compiled.profile.models.fast.keySlot, 'fast-key');
+  assertEquals(compiled.profile.models.fast.fallbackKeySlot, 'fast-backup');
+});
+Deno.test('a pasted key shows its service from the published prefix, and nothing else', () => {
+  assertEquals(keyKind(` ${TEST_GOOGLE_KEY}`), 'gemini');
+  assertEquals(keyKind(TEST_OPENROUTER_KEY), 'openrouter');
+  assertEquals(keyKind('some-other-key'), undefined);
+  assertEquals(keyKind(''), undefined);
+  assertEquals(keyKind(undefined), undefined);
+});
+Deno.test('local connections refuse remote URLs and redirects, and add no auth of their own', async () => {
+  for (const baseUrl of [
+    'https://example.com',
+    'http://user:pass@localhost:11434',
+    'http://localhost:11434?key=secret',
+  ])
+    assertThrows(() => localStudioConfig({ baseUrl }));
+  const config = localStudioConfig({ baseUrl: 'http://127.0.0.1:11434' });
+  assert(config?.fetch);
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (_input, init) => {
+    called = true;
+    assertEquals(new Headers(init?.headers).get('Authorization'), null);
+    assertEquals(init?.redirect, 'error');
+    assertEquals(init?.credentials, 'omit');
+    return Promise.resolve(new Response('{}'));
+  };
+  try {
+    await config.fetch('http://127.0.0.1:11434/v1/chat/completions', {});
+    assert(called);
+    called = false;
+    const send = config.fetch;
+    await assertRejects(() => send('https://example.com', {}));
+    assertEquals(called, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+Deno.test('browser cancellation reaches the provider without contacting a site endpoint', async () => {
+  const controller = new AbortController();
+  let providerSignal: AbortSignal | undefined;
+  const transport = createBrowserStudioTransport(
+    payload(),
+    {
+      mode: 'byok',
+      provider: () => ({
+        async *complete(request) {
+          providerSignal = request.signal;
+          controller.abort();
+          yield* [];
+          request.signal?.throwIfAborted();
+        },
+      }),
+    },
+    sealing(),
+  );
+  const events: ChatLine[] = [];
+  await transport.turn(
+    { input: { text: 'Hello' } },
+    (event) => events.push(event),
+    controller.signal,
+  );
+  assert(events.some((event) => event.type === 'done' && event.stop?.kind === 'cancelled'));
+  assertEquals(providerSignal?.aborted, true);
+});
+Deno.test('local browser runs block HTTP tools unless explicitly enabled', async () => {
+  const { createBrowserStudioHostTransport } = await import('../../studio/browser.ts');
+  const compiled = {
+    agentId: 'local-host',
+    profile: { id: 'local-host', type: 'host' as const, tools: { allow: ['remote'] } },
+    customTools: [
+      {
+        type: 'http' as const,
+        name: 'remote',
+        description: 'Remote read',
+        category: 'read',
+        access: 'read-only' as const,
+        permission: 'auto' as const,
+        loadTier: 'T2' as const,
+        paths: ['remote'],
+        endpoint: 'https://example.com',
+        method: 'GET' as const,
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema: { type: 'object', properties: {} },
+      },
+    ],
+  };
+  const transport = createBrowserStudioHostTransport(compiled, {
+    mode: 'local',
+    remoteTools: false,
+  });
+  const events: ClientTurnEvent[] = [];
+  await transport.call({ name: 'remote', input: {} }, (event) => events.push(event));
+  assertEquals(
+    events.some((event) => event.type === 'tool' && event.tool.phase === 'complete'),
+    false,
+  );
+  assert(events.some((event) => event.type === 'tool' && event.tool.phase === 'error'));
+});
+Deno.test('browser host gates settle through the same replay path as HTTP', async () => {
+  const { createBrowserStudioHostTransport } = await import('../../studio/browser.ts');
+  const { createStudioHostTransport } = await import('../../studio/transport.ts');
+  const { streamStudioCall, streamStudioHostInvoke } = await import('../../studio/runtime.ts');
+  const compiled = {
+    agentId: 'gated-host',
+    profile: { id: 'gated-host', type: 'host' as const, tools: { allow: ['echo'] } },
+    customTools: [
+      {
+        type: 'function' as const,
+        name: 'echo',
+        description: 'Test gate',
+        category: 'test',
+        access: 'read-only' as const,
+        permission: 'always_confirm' as const,
+        loadTier: 'T0' as const,
+        paths: ['*'],
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema: { type: 'object', properties: {} },
+        stubResponse: { ok: true },
+      },
+    ],
+  };
+  const runtime = { mode: 'byok' as const };
+  const http = createStudioHostTransport(compiled, {
+    fetch: async (url, init) => {
+      const body = JSON.parse(String(init?.body));
+      const source = String(url).endsWith('/invoke')
+        ? streamStudioHostInvoke({
+            ...compiled,
+            answer: body,
+            runtime,
+            signal: new AbortController().signal,
+          })
+        : streamStudioCall({ ...compiled, call: body, runtime });
+      const lines = [];
+      for await (const line of source) lines.push(line);
+      return new Response(`${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    },
+  });
+  for (const transport of [http, createBrowserStudioHostTransport(compiled, runtime)]) {
+    const events: ClientTurnEvent[] = [];
+    await transport.call({ name: 'echo', input: {} }, (event) => events.push(event));
+    const gate = events.find((event) => event.type === 'tool' && event.tool.phase === 'gate');
+    assert(gate?.type === 'tool');
+    assertEquals(
+      events.some((event) => event.type === 'tool' && event.tool.phase === 'complete'),
+      false,
+    );
+    const settled: ClientTurnEvent[] = [];
+    await transport.invoke(
+      {
+        gateId: gate.tool.callId,
+        operationId: issuedOperationId(gate.tool),
+        decision: 'approve',
+        replay: { name: 'echo', input: {} },
+      },
+      (event) => settled.push(event),
+    );
+    const complete = settled.find(
+      (event) => event.type === 'tool' && event.tool.phase === 'complete',
+    );
+    assert(complete?.type === 'tool' && complete.tool.phase === 'complete');
+    assertEquals(complete.tool.output, { ok: true });
+  }
+});
+Deno.test('model discovery uses the inference endpoint and returns the server model names', async () => {
+  const { listLocalStudioModels } = await import('../../studio/browser.ts');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (input) => {
+    assertEquals(String(input), 'http://127.0.0.1:11434/v1/models');
+    return Promise.resolve(
+      Response.json({
+        data: [{ id: 'local-model:7b' }, { id: 'local-model:3b' }, { id: 'local-model:7b' }],
+      }),
+    );
+  };
+  try {
+    assertEquals(await listLocalStudioModels({ baseUrl: 'http://127.0.0.1:11434' }), [
+      'local-model:7b',
+      'local-model:3b',
+    ]);
+    globalThis.fetch = () => Promise.resolve(Response.json({ unexpected: 'shape' }));
+    await assertRejects(() => listLocalStudioModels({ baseUrl: 'http://127.0.0.1:11434' }));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+Deno.test('provider model lists keep the profile type and never put the key in the URL', async () => {
+  const { listProviderModels } = await import('../../studio/browser.ts');
+  const originalFetch = globalThis.fetch;
+  const seen: {
+    url: string;
+    headers: Headers;
+  }[] = [];
+  globalThis.fetch = (input, init) => {
+    const url = String(input);
+    seen.push({ url, headers: new Headers(init?.headers) });
+    if (url.startsWith('https://openrouter.ai/')) {
+      return Promise.resolve(
+        Response.json({
+          data: [
+            {
+              id: 'vendor/painter',
+              name: 'Vendor: Painter',
+              architecture: { output_modalities: ['image', 'text'] },
+            },
+            {
+              id: 'vendor/chatter',
+              name: 'Vendor: Chatter',
+              architecture: { output_modalities: ['text'] },
+            },
+          ],
+        }),
+      );
+    }
+    const page = new URL(url).searchParams.get('pageToken');
+    return Promise.resolve(
+      Response.json(
+        page
+          ? {
+              models: [
+                {
+                  name: 'models/gemini-live',
+                  displayName: 'Gemini Live',
+                  supportedGenerationMethods: ['bidiGenerateContent'],
+                },
+              ],
+            }
+          : {
+              models: [
+                {
+                  name: 'models/gemini-flash',
+                  displayName: 'Gemini Flash',
+                  supportedGenerationMethods: ['generateContent'],
+                },
+                { name: 'models/text-embedding', supportedGenerationMethods: ['embedContent'] },
+              ],
+              nextPageToken: 'next',
+            },
+      ),
+    );
+  };
+  try {
+    assertEquals(await listProviderModels('openrouter', 'image', undefined), [
+      { id: 'vendor/painter', label: 'Vendor: Painter' },
+    ]);
+    assertEquals(seen[0].url, 'https://openrouter.ai/api/v1/models?output_modalities=image');
+    assertEquals(await listProviderModels('openrouter', 'live', TEST_OPENROUTER_KEY), []);
+    assertEquals(await listProviderModels('gemini', 'text', TEST_GOOGLE_KEY), [
+      { id: 'gemini-flash', label: 'Gemini Flash' },
+    ]);
+    assertEquals(await listProviderModels('gemini', 'live', TEST_GOOGLE_KEY), [
+      { id: 'gemini-live', label: 'Gemini Live' },
+    ]);
+    for (const request of seen.slice(1)) {
+      assertEquals(request.url.includes(TEST_GOOGLE_KEY), false);
+      assertEquals(request.headers.get('x-goog-api-key'), TEST_GOOGLE_KEY);
+    }
+    await assertRejects(() => listProviderModels('gemini', 'text', undefined), TheoremError);
+    globalThis.fetch = () => Promise.resolve(new Response('', { status: 400 }));
+    await assertRejects(
+      () => listProviderModels('gemini', 'text', TEST_GOOGLE_KEY),
+      TheoremError,
+      'refused the key',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test('browser authority preserves runtime prototype methods and private receivers', async () => {
+  class Runtime {
+    mode = 'byok' as const;
+    #text = 'Class runtime works.';
+    provider() {
+      return provider([{ type: 'text', text: this.#text }]);
+    }
+  }
+  const transport = createBrowserStudioTransport(payload(), new Runtime(), sealing());
+  const events: ChatLine[] = [];
+  await transport.turn({ input: { text: 'Hello' } }, (event) => events.push(event));
+  assertEquals(
+    replyText(
+      events.filter(
+        (event) =>
+          event.type !== 'conversation' &&
+          event.type !== 'unsupported' &&
+          event.type !== 'malformed',
+      ),
+    ),
+    'Class runtime works.',
+  );
+});
+
+Deno.test('browser host retains dispatch authority and refuses a changed replay without another callback', async () => {
+  const { createBrowserStudioHostTransport } = await import('../../studio/browser.ts');
+  const compiled = {
+    agentId: 'browser-page-host',
+    profile: { id: 'browser-page-host', type: 'host' as const, tools: { allow: ['page_effect'] } },
+    customTools: [
+      {
+        type: 'function' as const,
+        name: 'page_effect',
+        description: 'Act on the page',
+        category: 'test',
+        access: 'read-write' as const,
+        permission: 'auto' as const,
+        loadTier: 'T0' as const,
+        paths: ['*'],
+        answeredBy: 'page' as const,
+        inputSchema: { type: 'object', properties: {} },
+        outputSchema: { type: 'object', properties: {} },
+      },
+    ],
+  };
+  let effects = 0;
+  const transport = withPageToolDispatch(
+    createBrowserStudioHostTransport(compiled, { mode: 'byok' }),
+    {
+      page_effect: () => {
+        effects++;
+        return { output: { ok: true } };
+      },
+    },
+  );
+  const events: ClientTurnEvent[] = [];
+  await transport.call({ name: 'page_effect', input: {} }, (event) => events.push(event));
+  const dispatch = events.find((event) => event.type === 'tool' && event.tool.phase === 'dispatch');
+  assert(dispatch?.type === 'tool');
+  assert(events.some((event) => event.type === 'tool' && event.tool.phase === 'complete'));
+  await assertRejects(() =>
+    transport.invoke(
+      {
+        gateId: dispatch.tool.callId,
+        operationId: issuedOperationId(dispatch.tool),
+        decision: 'approve',
+        replay: { name: 'page_effect', input: {} },
+      },
+      (event) => events.push(event),
+    ),
+  );
+  assertEquals(effects, 1);
+});
+
+Deno.test('a decision on the builder own keys says why it failed and keeps its trace', async () => {
+  const { createBrowserStudioDecisionTransport } = await import('../../studio/browser.ts');
+  const { compileStudio: compile, createDecisionExampleDraft } = await import(
+    '../../studio/mod.ts'
+  );
+  const { failedDecisionTraces } = await import('../../studio/runtime.ts');
+  const compiled = compile(await createDecisionExampleDraft(), ON_OWN_KEYS);
+  if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
+  const transport = createBrowserStudioDecisionTransport(compiled, { mode: 'byok', decision: {} });
+  const failure = await assertRejects(() => transport.decide({ action: 'delete' }));
+  const { clientFailure } = await import('../../react/src/client/failure.ts');
+  assertEquals(clientFailure(failure).errorKind, 'auth');
+  assert(clientFailure(failure).error.includes('has no credential in slot'));
+  assertEquals(failedDecisionTraces(failure).length, 1);
+});
+
+Deno.test('the decision example sends its pictures from the browser and returns boxes', async () => {
+  const { createBrowserStudioDecisionTransport } = await import('../../studio/browser.ts');
+  const {
+    decisionExampleAssets,
+    DECISION_EXAMPLE_STATE,
+    compileStudio: compile,
+    createDecisionExampleDraft,
+  } = await import('../../studio/mod.ts');
+  const compiled = compile(await createDecisionExampleDraft(), ON_OWN_KEYS);
+  if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
+  assert(compiled.profile.type === 'decision');
+  const slot = compiled.profile.models.decision.keySlot;
+  assert(slot);
+  const seen: { body: Record<string, unknown>; headers: Headers }[] = [];
+  const box = { top: 0.1, bottom: 0.9, left: 0.1, right: 0.4 };
+  const transport = createBrowserStudioDecisionTransport(compiled, {
+    mode: 'byok',
+    decision: {
+      vault: { [slot]: 'k' },
+      fetch: (_url, init) => {
+        seen.push({ body: JSON.parse(String(init?.body)), headers: new Headers(init?.headers) });
+        return Promise.resolve(
+          Response.json({
+            model: 'jev-1.14.0',
+            answers: {
+              Ginger: { type: 'box', box, confidence: 0.9 },
+              'Something to drink': { type: 'noul', noul: 0.95 },
+              'Fruit salad': { type: 'noul', noul: 0.7 },
+              'Where the green apple lands on the chart': { type: 'box', box, confidence: 0.6 },
+              'Bread on the shelf': { type: 'noul', noul: 0.05 },
+              'Union Jack': { type: 'box', box, confidence: 0.8 },
+              Brunch: {
+                type: 'choice',
+                choice: 'fruit',
+                confidence: 0.6,
+                probabilities: { toast: 0.3, fruit: 0.6, shop: 0.1 },
+              },
+            },
+            usage: { input_tokens: 10, output_tokens: 1 },
+          }),
+        );
+      },
+    },
+  });
+  const reply = await transport.decide(JSON.parse(DECISION_EXAMPLE_STATE), undefined, {
+    ...(await decisionExampleAssets()),
+  });
+  assertEquals(reply.result.answers.Ginger, { type: 'box', box, confidence: 0.9 });
+  assertEquals(seen[0].headers.get('TypeSafe-Danger-Zone-Images'), 'true');
+  assertEquals(Object.keys(seen[0].body.assets as object), [
+    '<ginger>',
+    '<union_jack>',
+    '<apple_ripeness>',
+    '<pantry_shelf>',
+  ]);
+  const questions = seen[0].body.questions as Record<string, unknown>;
+  assertEquals(questions['Where the green apple lands on the chart'], {
+    type: 'box',
+    instructions:
+      'Where on <apple_ripeness> would the green apple in `photo` sit? Give the box in <apple_ripeness>.',
+  });
+});

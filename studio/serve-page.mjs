@@ -1,0 +1,96 @@
+/**
+ * Serves the installed package's built page, as Vite serves the sources in the repo:
+ *
+ *   node serve-page.mjs --port <port> --project <the project server's /api/studio address>
+ *
+ * Only this machine reaches it. Every response carries the page's headers (`page.mjs`). A path
+ * that names no file is the page itself, so a run tab's address opens the screen.
+ */
+import { readdirSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { BUILT_PAGE, PAGE_BASE, PAGE_HEADERS, PROJECT_PLACEHOLDER } from './page.mjs';
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), BUILT_PAGE);
+const PAGE_FILE = path.join(root, 'index.html');
+
+const TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.wasm': 'application/wasm',
+};
+
+const args = process.argv.slice(2);
+const flag = (name) => {
+  const at = args.indexOf(`--${name}`);
+  return at === -1 ? undefined : args[at + 1];
+};
+const port = Number(flag('port'));
+const project = flag('project');
+if (!Number.isInteger(port) || !project) {
+  console.error('usage: node serve-page.mjs --port <port> --project <address>');
+  process.exit(2);
+}
+
+const page = readFileSync(PAGE_FILE, 'utf8').replaceAll(PROJECT_PLACEHOLDER, project);
+
+/** The build's files, each with the path a request names it by, less the page (served with its project filled in). Nothing else is ever read. */
+const FILES = [];
+(function list(dir, named) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) list(file, `${named}${entry.name}/`);
+    else if (entry.isFile() && file !== PAGE_FILE) FILES.push([`${named}${entry.name}`, file]);
+  }
+})(root, '');
+
+/** The built file a request names, or undefined for the page itself (a malformed path too). */
+function fileFor(pathname) {
+  let relative;
+  try {
+    relative = decodeURIComponent(pathname.slice(PAGE_BASE.length));
+  } catch {
+    return undefined;
+  }
+  // why: the request only picks among the build's own files; what is read comes from the list, never from the address.
+  for (const [name, file] of FILES) {
+    if (name === relative) return { body: readFileSync(file), type: TYPES[path.extname(file)] };
+  }
+  return undefined;
+}
+
+/** What a request is answered: the way to the page, nothing, or a built file or the page. */
+function answerFor(method, pathname) {
+  if (pathname === '/' || `${pathname}/` === PAGE_BASE) {
+    return { status: 302, headers: { ...PAGE_HEADERS, Location: PAGE_BASE } };
+  }
+  if (!readsPage(method, pathname)) return { status: 404, headers: PAGE_HEADERS };
+  return served(method, pathname);
+}
+
+/** Whether a request reads something of the page's. */
+function readsPage(method, pathname) {
+  return (method === 'GET' || method === 'HEAD') && pathname.startsWith(PAGE_BASE);
+}
+
+/** The built file a read names, or the page itself; a HEAD has no body. */
+function served(method, pathname) {
+  const file = fileFor(pathname);
+  const type = file ? (file.type ?? 'application/octet-stream') : TYPES['.html'];
+  const body = method === 'HEAD' ? undefined : (file?.body ?? page);
+  return { status: 200, headers: { ...PAGE_HEADERS, 'Content-Type': type }, body };
+}
+
+createServer((request, response) => {
+  const { pathname } = new URL(request.url ?? '/', 'http://localhost');
+  const { status, headers, body } = answerFor(request.method, pathname);
+  response.writeHead(status, headers).end(body);
+}).listen(port, '127.0.0.1');

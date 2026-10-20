@@ -1,8 +1,8 @@
-import { getProfile, listProfiles } from '../../kernel/registry/profiles.ts';
+import { getProfile, listProfiles } from '../../kernel/default-scope.ts';
 import { profileToolAllow } from '../../kernel/tools/resolve.ts';
-import type { ModelProfile, Profile } from '../../kernel/types.ts';
+import type { EmbeddingProfile, ModelProfile, Profile } from '../../kernel/types.ts';
 
-function formatProfileInputs(p: ModelProfile): string {
+function formatProfileInputs(p: ModelProfile | EmbeddingProfile): string {
   if (p.type === 'speech') {
     return 'text (speech)';
   }
@@ -15,7 +15,7 @@ function formatProfileInputs(p: ModelProfile): string {
     return 'none';
   }
   if (spec.text !== false) inputs.push('text');
-  if (p.type !== 'image' && p.inputs?.voice) inputs.push('voice');
+  if (p.type !== 'image' && p.type !== 'embedding' && p.inputs?.voice) inputs.push('voice');
   if (spec.attachments) {
     inputs.push(`attachments [${spec.attachments.accept?.join(', ')}]`);
   }
@@ -39,12 +39,14 @@ function printProfileCard(p: Profile): void {
     console.log(`   - Model:      ${Object.keys(p.models).join(', ')}`);
     console.log(`   - Inputs:     JSON state`);
     console.log(`   - Contract:   ${p.decision.contract}`);
-    console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);
     console.log('-'.repeat(70));
     return;
   }
   const models = Object.keys(p.models).join(', ') || 'default';
-  const structured = p.type === 'live' || p.type === 'speech' ? undefined : p.outputs?.structured;
+  const structured =
+    p.type === 'live' || p.type === 'speech' || p.type === 'embedding'
+      ? undefined
+      : p.outputs?.structured;
   const structuredLabel =
     typeof structured === 'string' ? structured : structured ? 'custom' : 'none';
 
@@ -53,7 +55,6 @@ function printProfileCard(p: Profile): void {
   console.log(`   - Inputs:     ${formatProfileInputs(p)}`);
   console.log(`   - Tools:      ${tools}`);
   console.log(`   - Structured: ${structuredLabel}`);
-  console.log(`   - Key Slot: ${p.key ?? '(unset)'}`);
   console.log('-'.repeat(70));
 }
 

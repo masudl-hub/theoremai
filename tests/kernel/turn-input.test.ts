@@ -1,23 +1,19 @@
-/**
- * A text turn's opening input has one owner: turn history. Tool steps, stage
- * injects and repair retries land after it on every provider, with or without
- * a stage handler. A retry adds only the repair and keeps the turn it retries.
- */
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { EGRESS_RULES, standardEgressEnforce } from '../../src/guardrails/egress.ts';
-import type { GuardrailContext, OutboundPayload, Verdict } from '../../src/guardrails/types.ts';
+import { DETECT_RULES } from '../../src/guardrails/rules.ts';
+import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
-import { registerTool } from '../../src/kernel/tools/mod.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
-  ModelProvider,
-  ProviderCompleteRequest,
+  ModelRequest,
   TurnEvent,
   TurnHistoryMessage,
+  TurnModel,
   TurnRequest,
 } from '../../src/kernel/types.ts';
+import { blockNaming, TERM_HINT } from '../fixtures/detect.ts';
+import { eventsOf } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 
 const PNG = { mimeType: 'image/png', data: btoa('px') };
@@ -25,11 +21,11 @@ const CANARY = /[0-9a-f]{32}/;
 
 async function requestsFor(
   req: TurnRequest,
-  reply: (call: number, request: ProviderCompleteRequest) => TurnEvent[],
+  reply: (call: number, request: ModelRequest) => TurnEvent[],
 ) {
-  const seen: ProviderCompleteRequest[] = [];
+  const seen: ModelRequest[] = [];
   const events: TurnEvent[] = [];
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* (request) {
       seen.push({ ...request, history: [...(request.history ?? [])] });
       for (const event of reply(seen.length, request)) yield event;
@@ -45,32 +41,25 @@ function roles(history: TurnHistoryMessage[] | undefined): string[] {
 
 const toolThenText = (call: number): TurnEvent[] =>
   call === 1
-    ? [{ type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, id: 'c1' } }]
+    ? [{ type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' } }]
     : [{ type: 'text', text: 'done' }];
 
-/** Blocks the first attempt's draft so the turn retries once; the standard checks still run. */
+/** Blocks the first attempt's draft so the turn retries once; the default detectors still run. */
 const blockFirstReply = {
   quota: { perDay: 50 },
-  egress: {
-    onBlock: 'reject_to_agent' as const,
-    maxRetries: 1,
-    enforce: (payload: OutboundPayload, context: GuardrailContext): Verdict =>
-      payload.text.includes('draft')
-        ? {
-            action: 'block',
-            hits: [{ rule: 'draft', severity: 'high' }],
-            rejection: 'Say it without the draft.',
-          }
-        : standardEgressEnforce(payload, context),
-  },
+  blockedReply: { onBlock: 'retry' as const, maxRetries: 1 },
+  detect: blockNaming('draft'),
 };
+
+/** What the model is told after a blocked draft. */
+const REJECTION = TERM_HINT;
 
 registerProfile(
   defineProfile({
     type: 'text',
-    id: 'input.openai.tools',
+    id: 'input.tools',
     identity: { handle: 'bot' },
-    ...geminiModels('sonar'),
+    ...geminiModels('gemini35FlashLite'),
     maxSteps: 3,
     tools: { allow: ['stub_tool'] },
     inputs: { text: true },
@@ -86,13 +75,13 @@ registerProfile(
     maxSteps: 2,
     tools: { allow: [] },
     inputs: { text: true, attachments: { accept: ['image/png'] }, ...CHAT_MEDIA_LIMITS },
-    guardrails: { ...blockFirstReply, canary: true },
+    guardrails: { ...blockFirstReply },
   }),
 );
 
-Deno.test('turn input: the question stays ahead of tool results on an OpenAI-compatible step', async () => {
+Deno.test('turn input: the question stays ahead of tool results on a later step', async () => {
   const { seen } = await requestsFor(
-    { profile: 'input.openai.tools', input: { text: 'run the tool' } },
+    { profile: 'input.tools', input: { text: 'run the tool' } },
     toolThenText,
   );
   assertEquals(seen.length, 2);
@@ -105,7 +94,7 @@ Deno.test('turn input: the question stays ahead of tool results on an OpenAI-com
 Deno.test('turn input: host history comes first, then the question', async () => {
   const { seen } = await requestsFor(
     {
-      profile: 'input.openai.tools',
+      profile: 'input.tools',
       input: {
         text: 'and now?',
         history: [
@@ -143,9 +132,9 @@ for (const withStage of [false, true]) {
     );
     assertStringIncludes(JSON.stringify(opening?.parts), 'describe this');
     // Then the repair, text only.
-    assertStringIncludes(String(retry?.history?.[1]?.content), 'Say it without the draft.');
+    assertStringIncludes(String(retry?.history?.[1]?.content), REJECTION);
     assertEquals(
-      events.filter((e) => e.type === 'text').map((e) => e.text),
+      eventsOf(events, 'text').map((e) => e.text),
       ['a leaf'],
     );
   });
@@ -155,11 +144,11 @@ Deno.test('turn input: a retry keeps the canary-bound system prompt and the tool
   registerTool({
     type: 'function',
     name: 'turn_input_t1_tool',
-    description: 'T1 tool the policy selects',
+    description: 'T2 tool the policy selects',
     category: 'test',
     access: 'read-only',
     paths: ['*'],
-    loadTier: 'T1',
+    loadTier: 'T2',
     permission: 'auto',
     input: z.object({}),
     output: z.object({ finding: z.string() }),
@@ -174,7 +163,7 @@ Deno.test('turn input: a retry keeps the canary-bound system prompt and the tool
       maxSteps: 2,
       tools: { allow: ['turn_input_t1_tool'], t1Policy: () => ['turn_input_t1_tool'] },
       inputs: { text: true },
-      guardrails: { ...blockFirstReply, canary: true },
+      guardrails: { ...blockFirstReply },
     }),
   );
   // The retry leaks the canary bound into the system prompt; it must still be caught.
@@ -194,7 +183,9 @@ Deno.test('turn input: a retry keeps the canary-bound system prompt and the tool
   );
   assertEquals(seen[1]?.wireTools, seen[0]?.wireTools);
   assertEquals(
-    events.some((e) => e.guardrail?.hits?.some((hit) => hit.rule === EGRESS_RULES.canary)),
+    eventsOf(events, 'guardrail').some((e) =>
+      e.guardrail.hits?.some((hit) => hit.rule === DETECT_RULES.canary_leak),
+    ),
     true,
   );
   assertEquals(
@@ -210,7 +201,7 @@ Deno.test('turn input: a before_end inject on a retry lands after the repair', a
       profile: 'input.retry',
       input: { text: 'describe this' },
       onStage: ({ stage, history }) => {
-        const repaired = history.some((m) => String(m.content).includes('without the draft'));
+        const repaired = history.some((m) => String(m.content).includes(REJECTION));
         if (stage === 'before_end' && repaired && !injected) {
           injected = true;
           return { inject: [{ role: 'user', content: 'also name the plant' }] };
@@ -221,12 +212,9 @@ Deno.test('turn input: a before_end inject on a retry lands after the repair', a
     (call) => [{ type: 'text', text: call === 1 ? 'a draft' : 'a leaf' }],
   );
   assertEquals(seen.length, 3);
-  const contents = (seen[2]?.continuation ?? seen[2]?.history ?? []).map((m) => String(m.content));
+  const contents = (seen[2]?.history ?? []).map((m) => String(m.content));
   assertStringIncludes(contents.at(-1) ?? '', 'also name the plant');
-  assertEquals(
-    seen[2]?.history?.findIndex((m) => String(m.content).includes('without the draft')) ?? -1,
-    1,
-  );
+  assertEquals(seen[2]?.history?.findIndex((m) => String(m.content).includes(REJECTION)) ?? -1, 1);
 });
 
 Deno.test('turn input: a repair reaches a profile that takes no text from the user', async () => {
@@ -248,7 +236,7 @@ Deno.test('turn input: a repair reaches a profile that takes no text from the us
   );
   assertEquals(seen.length, 2);
   assertEquals(roles(seen[1]?.history), ['user', 'user']);
-  assertStringIncludes(String(seen[1]?.history?.[1]?.content), 'Say it without the draft.');
+  assertStringIncludes(String(seen[1]?.history?.[1]?.content), REJECTION);
 });
 
 Deno.test('turn input: an image turn with a stage handler keeps its prompt as input', async () => {
@@ -257,7 +245,7 @@ Deno.test('turn input: an image turn with a stage handler keeps its prompt as in
     type: 'image',
     identity: { handle: 'img' },
     ...geminiModels('gemini31FlashLiteImage'),
-    image: { aspectRatio: '1:1', size: '1K', mimeType: 'image/jpeg', includeText: false },
+    image: { aspectRatio: '1:1', resolution: '1K', mimeType: 'image/jpeg', includeText: false },
     tools: { allow: [] },
     inputs: { text: true },
     outputs: { structured: null },
@@ -275,7 +263,7 @@ Deno.test('turn input: post_turn after an abort sees the history the model saw',
   const controller = new AbortController();
   let postTurnHistory: readonly TurnHistoryMessage[] = [];
   let call = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* () {
       call++;
       if (call === 2) {
@@ -283,14 +271,14 @@ Deno.test('turn input: post_turn after an abort sees the history the model saw',
         controller.abort();
         throw new DOMException('The operation was aborted.', 'AbortError');
       }
-      yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, id: 'c1' } };
-      yield { type: 'done' };
+      yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' } };
+      yield { type: 'done', stop: { kind: 'tool' } };
     },
   };
   const events: TurnEvent[] = [];
   for await (const event of runTurn(
     {
-      profile: 'input.openai.tools',
+      profile: 'input.tools',
       input: { text: 'run the tool' },
       signal: controller.signal,
       onStage: ({ stage, history }) => {

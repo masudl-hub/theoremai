@@ -34,10 +34,6 @@ jobs:
       - name: Install npm lint tools
         run: npm ci
 
-      # Fallow resolves the react package's script bins (e.g. `astryx`) from its node_modules.
-      - name: Install react dependencies
-        run: npm --prefix react ci
-
       - name: Docs truth
         run: npm run lint:docs
         env:
@@ -51,11 +47,6 @@ jobs:
 
       - name: ast-grep
         run: npm run lint:ast-grep
-
-      - name: Fallow
-        run: npm run lint:fallow
-        env:
-          FALLOW_AUDIT_BASE: origin/${{ github.base_ref || github.event.repository.default_branch }}
 
   check:
     runs-on: ubuntu-latest
@@ -90,8 +81,21 @@ jobs:
       - name: Verify publish bundle
         run: deno task verify:publish
 
-      - name: Test
-        run: deno task test
+      - name: Install studio dependencies
+        run: npm --prefix studio ci
+
+      - name: Studio tests
+        run: npm --prefix studio test
+
+      - name: Build studio package
+        run: npm run build:npm:studio
+
+      # The suite runs once, with coverage, and Fallow scores the change against it.
+      # Fallow resolves the react package's script bins (e.g. `astryx`), installed by check:react.
+      - name: Test and Fallow
+        run: npm run lint:fallow
+        env:
+          FALLOW_AUDIT_BASE: origin/${{ github.base_ref || github.event.repository.default_branch }}
 
   publish-dry-run:
     runs-on: ubuntu-latest
@@ -130,6 +134,30 @@ jobs:
 
       - name: Dry-run npm publish
         working-directory: npm
+        run: |
+          npm version "0.0.0-pr.${GITHUB_RUN_ID}" --no-git-tag-version
+          npm publish --dry-run --access public --tag ci-validate
+
+      - name: Build React package
+        run: |
+          npm ci
+          npm --prefix react ci
+          npm run build:npm:react
+
+      - name: Dry-run React npm publish
+        working-directory: react/npm
+        run: |
+          npm version "0.0.0-pr.${GITHUB_RUN_ID}" --no-git-tag-version
+          npm publish --dry-run --access public --tag ci-validate
+
+      - name: Test and build studio package
+        run: |
+          npm --prefix studio ci
+          npm --prefix studio test
+          npm run build:npm:studio
+
+      - name: Dry-run studio npm publish
+        working-directory: studio/npm
         run: |
           npm version "0.0.0-pr.${GITHUB_RUN_ID}" --no-git-tag-version
           npm publish --dry-run --access public --tag ci-validate

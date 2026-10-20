@@ -1,15 +1,25 @@
 /**
- * Generic inbound and outbound guardrail primitives.
- *
- * Owns sanitization, injection/sensitive detection, canary egress gates,
- * bundled egress policy, and public error mapping.
- * App-specific policy copy remains host-owned.
- *
- * Adversarial corpus and fuzz runners: `@theoremai/agents/guardrails/testing`.
+ * Inbound and outbound guardrail primitives: sanitization, injection, and sensitive detection,
+ * canary egress gates, the detectors, and public error mapping. App-specific policy copy stays host-owned.
  *
  * @module
  */
 
+export type {
+  Boundary,
+  BoundaryMeta,
+  ToolBoundary,
+  ToolCrossing,
+  ToolKind,
+} from './boundaries.ts';
+export {
+  BOUNDARIES,
+  BOUNDARY_META,
+  recordOf,
+  TOOL_BOUNDARIES,
+  TOOL_KINDS,
+  toolBoundary,
+} from './boundaries.ts';
 export type { CanaryGateResult, CanaryStreamGate } from './canary.ts';
 export {
   bindCanary,
@@ -26,14 +36,62 @@ export {
 } from './canary.ts';
 export type { CanaryGateSession } from './canary-gate.ts';
 export { createCanaryGateSession, filterCanaryGatedEvents } from './canary-gate.ts';
+export type { DestinationVerdict, TurnDestinations } from './destinations.ts';
 export {
-  collectEgressHits,
-  EGRESS_RULES,
-  hitRules,
-  runEnforcer,
-  standardEgressEnforce,
-} from './egress.ts';
-export type { ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
+  addGivenDestinations,
+  addHistoryDestinations,
+  addRequestDestinations,
+  addResultDestinations,
+  checkDestinationGate,
+  turnDestinations,
+} from './destinations.ts';
+export type { Detection, DetectOutcome } from './detect-at.ts';
+export { detectAt } from './detect-at.ts';
+export type {
+  DetectAction,
+  DetectMatrix,
+  DetectMeta,
+  Detector,
+  DetectorConfig,
+  DetectorDeclaration,
+  DetectorGroup,
+  DetectorRule,
+  DetectorSource,
+  DetectSources,
+  DetectSpec,
+  HostDetector,
+  HostDetectorConfig,
+  HostDetectorId,
+  HostFind,
+  HostSpan,
+  NameAllow,
+  ResolvedAllow,
+  ResolvedDetect,
+  UrlAllow,
+  UrlDetector,
+} from './detectors.ts';
+export {
+  actionAt,
+  DETECT_ACTION_META,
+  DETECT_ACTIONS,
+  DETECT_DEFAULTS,
+  DETECTOR_BOUNDARIES,
+  DETECTOR_GROUP_META,
+  DETECTOR_GROUPS,
+  DETECTOR_META,
+  DETECTORS,
+  detectProblem,
+  detects,
+  HOST_FIND_HOLD,
+  HOST_FIND_HOLD_LIVE,
+  hintProblem,
+  PATTERN_DETECTORS,
+  resolveAllow,
+  resolveDetect,
+} from './detectors.ts';
+export { hitRules } from './egress.ts';
+export type { GivenUrls } from './egress-urls.ts';
+export type { ErrorCopies, ErrorCopy, ErrorKind, TheoremErrorOptions } from './error.ts';
 export {
   describeError,
   ERROR_KINDS,
@@ -45,8 +103,9 @@ export {
   TheoremError,
   throwIfAborted,
   toErrorEvent,
-  withPublicWording,
+  withPublicLabels,
 } from './error.ts';
+export { errorCopiesSchema, errorKindSchema, guardrailEventSchema } from './event-schemas.ts';
 export {
   guardrailFromHits,
   guardrailFromVerdict,
@@ -57,16 +116,25 @@ export {
   hitFromSpan,
   projectGuardrailEvent,
 } from './hits.ts';
-export { injectionSpans } from './injection.ts';
-export type { ClientLexiconKey, LexiconKey, LexiconOverrides, LexiconParams } from './lexicon.ts';
+export type { CompiledPatterns, HostPattern } from './host-patterns.ts';
 export {
-  CLIENT_LEXICON_KEYS,
-  LEXICON_KEYS,
-  lexiconDefault,
-  lexiconText,
-  overrideLexicon,
-  resetLexicon,
-} from './lexicon.ts';
+  listsPatterns,
+  MAX_PATTERN_LENGTH,
+  MAX_PATTERNS,
+  patternListProblem,
+} from './host-patterns.ts';
+export { injectionSpans } from './injection.ts';
+export type { ClientLabelKey, LabelKey, LabelOverrides, LabelParams } from './labels.ts';
+export {
+  CLIENT_LABEL_KEYS,
+  LABEL_KEYS,
+  labelCatalogRows,
+  labelDefault,
+  labelText,
+  overrideLabels,
+  resetLabels,
+  validateLabelOverrides,
+} from './labels.ts';
 export type {
   LiveHeldOutput,
   LiveOutboundBatchResult,
@@ -78,18 +146,14 @@ export {
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from './live-outbound-gate.ts';
-export type { DetectionOptions } from './policy.ts';
-export { detectionForTrust, resolveGuardrailPolicy } from './policy.ts';
+export { resolveGuardrailPolicy } from './policy.ts';
 export type {
   ProgressiveYieldGate,
   ProgressiveYieldGateOptions,
   ProgressiveYieldResult,
 } from './progressive-yield.ts';
-export {
-  createOutboundProgressiveGate,
-  createProgressiveYieldGate,
-  DEFAULT_HOLDBACK,
-} from './progressive-yield.ts';
+export { createOutboundProgressiveGate, createProgressiveYieldGate } from './progressive-yield.ts';
+export { PROMPT_ECHO_WORDS, scanTextForPromptEcho } from './prompt-echo.ts';
 export type { QuotaSlotStatus } from './quota.ts';
 export {
   clientIp,
@@ -99,26 +163,34 @@ export {
   skipQuota,
   takeSlot,
 } from './quota.ts';
+export type { GuardrailRule } from './rules.ts';
 export {
-  detectionForProfile,
-  detectText,
-  redactSensitiveOnly,
+  DETECT_RULES,
+  detectRule,
+  EGRESS_RULES,
+  NETWORK_RULES,
+  TOOL_RULES,
+} from './rules.ts';
+export type { SanitizedTurnRequest } from './sanitize.ts';
+export {
   sanitizeHistory,
   sanitizeProjectId,
-  sanitizeText,
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,
 } from './sanitize.ts';
 export { sensitiveSpans } from './sensitive.ts';
+export type {
+  SensitiveGroup,
+  SensitiveGroups,
+  SensitiveSelection,
+  SensitiveSwitches,
+} from './sensitive-groups.ts';
+export { SENSITIVE_GROUPS } from './sensitive-groups.ts';
 export type { ScanText } from './serialize.ts';
 export { scanTextOf, textForScan } from './serialize.ts';
-export {
-  advisoryLevel,
-  DIRECTIVE_RULES,
-  directiveHits,
-  looksDirective,
-} from './tool-directives.ts';
-export type { GuardedToolText } from './tool-result.ts';
+export type { Directive, DirectiveSignal } from './tool-directives.ts';
+export { advisoryLevel, DIRECTIVE_SIGNALS, directives } from './tool-directives.ts';
+export type { GuardedToolText, InspectedToolArguments } from './tool-result.ts';
 export {
   checkTaintGate,
   composeToolText,
@@ -135,8 +207,9 @@ export {
 } from './tool-result.ts';
 export type {
   AdvisoryLevel,
-  EgressEnforcer,
-  EgressOnBlock,
+  BlockedReplyOnBlock,
+  BlockedReplySpec,
+  DestinationGate,
   GuardrailAction,
   GuardrailContext,
   GuardrailEvent,
@@ -145,10 +218,10 @@ export type {
   HostGuardrailsSpec,
   NetworkGuardrailSpec,
   OutboundPayload,
-  ProfileEgressSpec,
   ProfileGuardrailsSpec,
   Provenance,
   QuotaGuardrailSpec,
+  ResolvedBlockedReply,
   ResolvedGuardrailPolicy,
   Severity,
   TaintGate,
@@ -160,7 +233,8 @@ export type {
 } from './types.ts';
 export {
   ADVISORY_LEVELS,
-  EGRESS_ON_BLOCK,
+  BLOCKED_REPLY_ON_BLOCK,
+  DESTINATION_GATES,
   GUARDRAIL_STAGES,
   SEVERITIES,
   TAINT_GATES,

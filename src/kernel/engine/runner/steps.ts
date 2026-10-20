@@ -1,91 +1,139 @@
+import { requestGivesCanary } from '../../../guardrails/canary.ts';
+import { addRequestDestinations, addResultDestinations } from '../../../guardrails/destinations.ts';
+import { TURN_REPLY } from '../../../guardrails/detect-reply.ts';
+import { addRequestUrls } from '../../../guardrails/egress-urls.ts';
 import { isAbortError, throwIfAborted } from '../../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../../guardrails/policy.ts';
+import { replyIsJudged } from '../../../guardrails/progressive-yield.ts';
+import type { ErrorKind } from '../../../guardrails/theorem-error.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TraceAttributes } from '../../../observability/trace-span.ts';
+import { waitDefault } from '../../../providers/shared/retry.ts';
+import { historyToolCalls } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
-import { profileAllowsInject } from '../../stop.ts';
+import {
+  AUTO_CONTINUE_DELAY_MS,
+  isFailedStopKind,
+  profileAllowsInject,
+  profileTurnResumption,
+  shouldAutoContinue,
+  stageAbortStop,
+} from '../../stop.ts';
+import type { BoundSystem } from '../../system-parts.ts';
+import {
+  failedActivity,
+  failureEvent,
+  type ToolCallBase,
+  toolCallRequestEvent,
+} from '../../tools/events.ts';
 import type { ToolExecuteSettlement } from '../../tools/execute.ts';
 import {
   executeRegisteredTool,
-  formatToolFailureForModel,
-  formatToolResult,
-  newCallId,
+  shownToolArguments,
   type ToolStageSupport,
 } from '../../tools/execute.ts';
-import type { ModelToolResult, ToolFailure } from '../../tools/types.ts';
+import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
+import { profileToolsParallel } from '../../tools/resolve.ts';
+import type { ModelToolResult, ToolCallEvent, ToolFailure } from '../../tools/types.ts';
+import type { ReasoningPart } from '../../turn-events.ts';
 import type {
-  ModelProvider,
   Profile,
   ResolvedGeneration,
   TurnEvent,
+  TurnEventOf,
   TurnHistoryMessage,
+  TurnModel,
   TurnRequest,
   TurnStop,
 } from '../../types.ts';
+import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
 import { applyStageInjects } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
-import { isWithheldOnBlock, type OutboundStreamControl, yieldProviderEvents } from './stream.ts';
+import { inStep, runSideBySide, stepOrder } from './step-order.ts';
+import {
+  isWithheldOnBlock,
+  type OutboundStreamControl,
+  StructuredDrafts,
+  yieldProviderEvents,
+} from './stream.ts';
 import { callTokensEvent, observeCallEvent, startCallUsage } from './usage.ts';
 
 function isStepLimitReached(step: number, maxSteps: number): boolean {
-  if (maxSteps === undefined || maxSteps <= 0) {
-    return false;
-  }
-  return step >= maxSteps;
+  return maxSteps > 0 && step >= maxSteps;
 }
 
+/** The step's generation: the turn's history so far, and no tools when the step must answer. */
 function generationForProviderStep(
   generation: ResolvedGeneration,
   state: StepExecutionState,
+  answerOnly: boolean,
 ): ResolvedGeneration {
-  if (state.interactionsContinuation) {
-    const { previousInteractionId, messages } = state.interactionsContinuation;
-    state.interactionsContinuation = undefined;
-    return {
-      ...generation,
-      history: [],
-      input: [],
-      previousInteractionId,
-      continuation: [...messages],
-    };
-  }
-  return { ...generation, history: state.currentHistory };
+  const forStep = { ...generation, history: state.currentHistory };
+  if (!answerOnly) return forStep;
+  return { ...forStep, builtins: [], tools: { ...generation.tools, wire: [] } };
 }
 
-function captureInteractionId(event: TurnEvent, state: StepExecutionState): void {
-  if (event.interactionId) {
-    state.lastInteractionId = event.interactionId;
-  }
-}
-
-async function* executeAutonomousStep(
-  args: {
-    profile: Profile;
-    generation: ResolvedGeneration;
-    system: string;
-    provider: ModelProvider;
-    signal?: AbortSignal;
-  },
-  state: StepExecutionState,
-  buffer: { holdLate: boolean } = {
-    holdLate: false,
-  },
-): AsyncGenerator<TurnEvent, { pendingTools: TurnEvent[]; latestStructured?: unknown }> {
-  const { generation, system, provider, signal } = args;
-  const continuation = state.interactionsContinuation;
-  const usage = startCallUsage(
-    system,
-    continuation && state.lastCall
-      ? { previous: state.lastCall, continuation: continuation.messages }
-      : { history: state.currentHistory, input: generation.input },
+/** True on the last step `maxSteps` allows, for a profile whose `atStepLimit` is `'answer'`. */
+function isAnswerOnlyStep(profile: Profile, generation: ResolvedGeneration, step: number): boolean {
+  return (
+    profile.type === 'text' &&
+    profile.turnBehaviour?.atStepLimit === 'answer' &&
+    isStepLimitReached(step, generation.maxSteps ?? 0)
   );
+}
+
+/**
+ * A call the model made in one step: its raw call, which owns the arguments,
+ * and the failure a provider pairs with a malformed one (the model reads that
+ * back instead of the tool running).
+ */
+interface ModelCall extends ToolCallBase {
+  arguments: Record<string, unknown>;
+  failure?: ToolFailure;
+}
+
+/**
+ * Hold the model's calls until its stream ends: a raw call, and a provider's
+ * failure for a call it already sent. Returns false for any other tool event.
+ */
+function holdModelCall(calls: ModelCall[], tool: ToolCallEvent): boolean {
+  if (tool.phase === undefined) {
+    calls.push({
+      name: tool.name,
+      callId: tool.callId,
+      arguments: tool.arguments,
+    });
+    return true;
+  }
+  const call = findLast(calls, (held) => held.callId === tool.callId);
+  if (tool.phase !== 'error' || !call) return false;
+  call.failure = tool.failure;
+  return true;
+}
+
+/** The step's request, with what it gives the model noted on `state`, and its call's usage and trace. */
+function startProviderCall(
+  generation: ResolvedGeneration,
+  system: BoundSystem,
+  state: StepExecutionState,
+  answerOnly: boolean,
+) {
+  const usage = startCallUsage(system.text, {
+    history: state.currentHistory,
+    input: generation.input,
+  });
   state.lastCall = usage;
-  const genForStep = generationForProviderStep(generation, state);
-  const request = providerCompleteRequest(genForStep, system);
+  const genForStep = generationForProviderStep(generation, state, answerOnly);
+  const request = providerCompleteRequest(state.tools, genForStep, system.text);
+  addRequestUrls(state.givenUrls, request);
+  addRequestDestinations(state.destinations, request, state.givenUrls.own);
+  if (generation.canary && !state.canaryGiven) {
+    state.canaryGiven = requestGivesCanary(request, generation.canary, state.canaryScanned);
+  }
   state.trace.calls += 1;
   const call = startCallTrace((name, options) => state.trace.root.child(name, options), {
     req: request,
@@ -95,218 +143,294 @@ async function* executeAutonomousStep(
     step: state.stepCount,
     attempt: state.trace.attempt,
   });
-  const pendingTools: TurnEvent[] = [];
-  let latestStructured: unknown;
-  // The stop this call ended with after gates: a canary block or provider
-  // error outranks what the provider reported.
-  let stop: TurnStop | undefined;
-  const control: OutboundStreamControl = { withholdVisible: false };
+  return { usage, genForStep, request, call };
+}
+
+/** What a model call left: its tool calls, its structured reply, and whether it is to be sent again. */
+interface StepOutcome {
+  calls: ModelCall[];
+  /** The signed reasoning the call wrote, to go back on the assistant message with its calls. */
+  reasoning: ReasoningPart[];
+  latestStructured?: unknown;
+  resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined };
+}
+
+/**
+ * True when the profile itself lists the stop in `turnBehaviour.resumption.autoContinue`.
+ *
+ * why: `DEFAULT_AUTO_CONTINUE` advises a host; a turn spends another model call only where the profile says so.
+ */
+function resendsFailedCall(profile: Profile, stop: TurnStop): boolean {
+  const policy = profileTurnResumption(profile);
+  return policy?.autoContinue !== undefined && shouldAutoContinue(stop, policy);
+}
+
+/** The events that are a model call's reply, as opposed to its thoughts, usage, or failure. */
+const REPLY_EVENTS: ReadonlySet<TurnEvent['type']> = new Set([
+  'text',
+  'media',
+  'structured',
+  'citation',
+]);
+
+/** What one model call has given so far. */
+interface CallTally {
+  calls: ModelCall[];
+  reasoning: ReasoningPart[];
+  latestStructured?: unknown;
+  /** The stop the call ended with after gates: a canary block or provider error outranks what the provider reported. */
+  stop?: TurnStop;
+  /** why: A call's failure is the turn's only once the call is not sent again, so it waits for the call's end. */
+  failures: TurnEventOf<'error'>[];
+  replied: boolean;
+}
+
+/** Takes what an event says about the call itself. True when the event goes no further. */
+function tallyCallEvent(
+  event: TurnEvent,
+  tally: CallTally,
+  call: ReturnType<typeof startProviderCall>['call'],
+): boolean {
+  if (event.type === 'error') {
+    tally.failures.push(event);
+    return true;
+  }
+  if (event.type === 'tool') return holdModelCall(tally.calls, event.tool);
+  if (event.type === 'guardrail') call.guardrail(event.guardrail);
+  if (event.type === 'structured') tally.latestStructured = event.structured;
+  if (REPLY_EVENTS.has(event.type)) tally.replied = true;
+  return false;
+}
+
+/** Records an event the call gave. True when the host gets it now. */
+function releasesNow(
+  event: TurnEvent,
+  control: OutboundStreamControl,
+  state: StepExecutionState,
+  buffer: { holdLate: boolean; holdVisible: boolean },
+): boolean {
+  recordStepEvent(event, state);
+  if (control.withholdVisible && isWithheldOnBlock(event)) {
+    // why: Progressive-yield blocked this attempt — keep events for egress/repair only.
+    // Record the decision so the attempt gate knows nothing reached the host.
+    state.withheldVisible = true;
+    return false;
+  }
+  if (event.type === 'text') state.released += event.text;
+  // why: Text and media stream via progressive-yield under egress, thoughts
+  // stream unguarded; holdLate only buffers non-visible events (e.g.
+  // structured) for validation.
+  const isUserVisible =
+    event.type === 'thought' || (!buffer.holdVisible && isWithheldOnBlock(event));
+  return !buffer.holdLate || isUserVisible;
+}
+
+// why: Every other kind is the provider's answer to the request itself (it refused a part, a key, a setting); the same call sent again gets the same answer.
+const PASSING_ERROR_KINDS: ReadonlySet<ErrorKind> = new Set([
+  'unavailable',
+  'bad_response',
+  'network',
+  'timeout',
+  'rate_limit',
+]);
+
+/**
+ * The re-send a finished call is due, if any.
+ *
+ * A failure the same call would meet again is not sent again (`PASSING_ERROR_KINDS`).
+ *
+ * why: A failed call that gave no reply and no tool call left nothing behind, so sending it again repeats
+ * nothing. A reply cut at `length` is not a failure: the same call would be cut at the same place.
+ */
+function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepOutcome['resume'] {
+  const { stop } = tally;
+  if (!mayResume || tally.replied || tally.calls.length > 0 || !stop) return undefined;
+  if (!isFailedStopKind(stop.kind) || !resendsFailedCall(profile, stop)) return undefined;
+  const failure = tally.failures[0];
+  if (failure?.errorKind && !PASSING_ERROR_KINDS.has(failure.errorKind)) return undefined;
+  return { stop, failure };
+}
+
+/** Carries what the call's stream guards still hold into the turn's next call. */
+function keepStreamCarry(state: StepExecutionState, control: OutboundStreamControl): void {
+  state.canaryCarry = control.canaryCarry;
+  state.thoughtCarry = control.thoughtCarry;
+  if (control.promptLeaks) {
+    state.promptLeaks = [...(state.promptLeaks ?? []), ...control.promptLeaks];
+  }
+}
+
+async function* executeAutonomousStep(
+  args: {
+    profile: Profile;
+    generation: ResolvedGeneration;
+    system: BoundSystem;
+    provider: TurnModel;
+    signal?: AbortSignal;
+    /** True while the turn has a re-send left under the profile's resumption. */
+    mayResume: boolean;
+  },
+  state: StepExecutionState,
+  buffer: { holdLate: boolean; holdVisible: boolean } = {
+    holdLate: false,
+    holdVisible: false,
+  },
+): AsyncGenerator<TurnEvent, StepOutcome> {
+  const { profile, generation, system, provider, signal } = args;
+  const { usage, genForStep, request, call } = startProviderCall(
+    generation,
+    system,
+    state,
+    isAnswerOnlyStep(profile, generation, state.stepCount),
+  );
+  const tally: CallTally = { calls: [], reasoning: [], failures: [], replied: false };
+  const control: OutboundStreamControl = {
+    withholdVisible: false,
+    ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
+    ...(state.thoughtCarry ? { thoughtCarry: state.thoughtCarry } : {}),
+  };
+
+  const seen = {
+    profile: args.profile,
+    generation: genForStep,
+    privateSystem: system.private,
+    givenUrls: state.givenUrls,
+    canaryGiven: state.canaryGiven,
+    ...(state.ownTools ? { ownTools: state.ownTools } : {}),
+  };
+  const shown = new StructuredDrafts(seen);
 
   try {
     for await (const event of yieldProviderEvents({
-      profile: args.profile,
-      generation: genForStep,
+      ...seen,
       request,
       provider,
       call,
       signal,
       control,
+      tools: state.tools,
     })) {
-      captureInteractionId(event, state);
-      if (observeCallEvent(usage, event)) {
+      if (observeCallEvent(usage, event)) continue;
+      if (event.type === 'reasoning') {
+        const { type: _type, ...part } = event;
+        tally.reasoning.push(part);
         continue;
-      }
-      if (event.type === 'guardrail') {
-        call.guardrail(event);
-      }
-      if (event.type === 'structured') {
-        latestStructured = event.structured;
       }
       if (event.type === 'done') {
-        if (event.stop) {
-          stop = event.stop;
-          state.lastStop = event.stop;
-        }
+        state.providerState = event.providerState;
+        tally.stop = event.stop;
+        state.lastStop = event.stop;
         continue;
       }
-      if (event.type === 'tool' && event.tool) {
-        pendingTools.push(event);
+      if (event.type === 'tool_draft') {
+        // why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
+        // as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
+        if (!buffer.holdVisible) yield event;
         continue;
       }
-      recordStepEvent(event, state);
-      if (control.withholdVisible && isWithheldOnBlock(event)) {
-        // Progressive-yield blocked this attempt — keep events for egress/repair only.
-        // Record the decision so the attempt gate knows nothing reached the host.
-        state.withheldVisible = true;
-        continue;
-      }
-      // Text and media stream via progressive-yield under egress, thoughts
-      // stream unguarded; holdLate only buffers non-visible events (e.g.
-      // structured) for validation.
-      const isUserVisible =
-        event.type === 'thought' || event.type === 'text' || event.type === 'media';
-      const streamNow = !buffer.holdLate || isUserVisible;
-      if (streamNow) {
-        yield event;
-      }
+      if (tallyCallEvent(event, tally, call)) continue;
+      if (!releasesNow(event, control, state, buffer)) continue;
+      yield* shown.show(event);
     }
   } catch (err) {
-    call.end(isAbortError(err) ? { stop: { kind: 'cancelled' } } : { stop, thrown: err });
+    call.end(
+      isAbortError(err) ? { stop: { kind: 'cancelled' } } : { stop: tally.stop, thrown: err },
+    );
     throw err;
   }
 
-  const tokens = await callTokensEvent(usage, generation, state.mediaFamily);
-  call.end({ tokens: tokens?.tokens, stop });
+  yield* shown.end();
+  keepStreamCarry(state, control);
+  const resume = resumeOf(args.mayResume, profile, tally);
+  if (!resume) {
+    for (const failure of tally.failures) {
+      recordStepEvent(failure, state);
+      if (!buffer.holdLate) yield failure;
+    }
+  }
+  const tokens = await callTokensEvent(usage, generation);
+  call.end({ tokens: tokens?.tokens, stop: tally.stop });
   if (tokens) {
     recordStepEvent(tokens, state);
     yield tokens;
   }
 
-  return { pendingTools, latestStructured };
+  return {
+    calls: tally.calls,
+    reasoning: tally.reasoning,
+    latestStructured: tally.latestStructured,
+    ...(resume ? { resume } : {}),
+  };
 }
 
-function toolResultMessage(
-  name: string,
-  callId: string,
-  result: ModelToolResult,
-): TurnHistoryMessage {
+/**
+ * One step of a text turn. A model call that fails (`provider_error`,
+ * `stream_incomplete`) on a kind the profile's own `turnBehaviour.resumption.autoContinue`
+ * lists, having given no reply and no tool call, is sent again in the same turn
+ * after a pause, up to `maxContinues` times a turn (once when the profile sets
+ * none). The turn's history, its step count, and what it has read stay as they were.
+ */
+async function* executeResumedStep(
+  args: Omit<Parameters<typeof executeAutonomousStep>[0], 'mayResume'>,
+  state: StepExecutionState,
+  buffer: { holdLate: boolean; holdVisible: boolean },
+): AsyncGenerator<TurnEvent, StepOutcome> {
+  const limit = profileTurnResumption(args.profile)?.maxContinues ?? 1;
+  for (;;) {
+    const mayResume = args.profile.type === 'text' && state.resumes < limit;
+    const outcome = yield* executeAutonomousStep({ ...args, mayResume }, state, buffer);
+    if (!outcome.resume) return outcome;
+    state.resumes += 1;
+    const detail = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error;
+    state.trace.root.event('theorem.step.resume', {
+      step: state.stepCount,
+      resume: state.resumes,
+      stop: outcome.resume.stop.kind,
+      ...(detail ? { error: detail } : {}),
+    });
+    state.lastStop = undefined;
+    await waitDefault(AUTO_CONTINUE_DELAY_MS, args.signal);
+  }
+}
+
+function toolResultMessage(call: ModelCall, result: ModelToolResult): TurnHistoryMessage {
   return {
     role: 'tool',
-    tool_call_id: callId,
-    name,
+    tool_call_id: call.callId,
+    name: call.name,
     content: formatToolResult(result),
     ...(result.parts && result.parts.length > 0 ? { parts: result.parts } : {}),
   };
 }
 
-function appendInteractionsToolResultToHistory(
-  history: TurnHistoryMessage[],
-  toolEv: TurnEvent,
-  result: ModelToolResult,
-): void {
-  const tool = toolEv.tool;
-  if (!tool) {
-    return;
-  }
-  history.push(toolResultMessage(tool.name, tool.id ?? tool.callId ?? `call_${tool.name}`, result));
-}
+/**
+ * One step's calls as one assistant message, the way the model made them.
+ * Providers read a step's calls together, then their results: Google rejects
+ * a call replayed after an earlier call's result (probe 25/09/2026).
+ */
 
-function appendToolTurnToHistory(
-  history: TurnHistoryMessage[],
-  toolEv: TurnEvent,
-  result: ModelToolResult,
-): void {
-  const tool = toolEv.tool;
-  if (!tool) {
-    return;
-  }
-  const callId = tool.id ?? tool.callId ?? newCallId(tool.name);
-  history.push({
-    role: 'assistant',
-    tool_calls: [
-      {
-        id: callId,
-        type: 'function',
-        function: {
-          name: tool.name,
-          arguments: JSON.stringify(tool.arguments ?? {}),
-        },
-      },
-    ],
-  });
-  history.push(toolResultMessage(tool.name, callId, result));
-}
-
-function queueInteractionsToolContinuation(
-  state: StepExecutionState,
-  toolEv: TurnEvent,
-  result: ModelToolResult,
-  fallbackInteractionId?: string,
-): void {
-  const tool = toolEv.tool;
-  if (!tool) {
-    return;
-  }
-  const previousInteractionId = state.lastInteractionId ?? fallbackInteractionId;
-  if (!previousInteractionId) {
-    return;
-  }
-  const message = toolResultMessage(
-    tool.name,
-    tool.id ?? tool.callId ?? `call_${tool.name}`,
-    result,
-  );
-  if (
-    state.interactionsContinuation &&
-    state.interactionsContinuation.previousInteractionId === previousInteractionId
-  ) {
-    state.interactionsContinuation.messages.push(message);
-    return;
-  }
-  state.interactionsContinuation = {
-    previousInteractionId,
-    messages: [message],
-  };
-}
-
+/** Record the approved read-back in portable history. */
 function recordToolModelResult(
   state: StepExecutionState,
-  toolEv: TurnEvent,
+  call: ModelCall,
   modelResult: ModelToolResult,
-  generation: ResolvedGeneration,
-  useInteractionsContinuation: boolean,
 ): void {
-  if (useInteractionsContinuation) {
-    queueInteractionsToolContinuation(state, toolEv, modelResult, generation.previousInteractionId);
-    if (!state.interactionsContinuation) {
-      appendInteractionsToolResultToHistory(state.currentHistory, toolEv, modelResult);
-    }
-    return;
-  }
-  appendToolTurnToHistory(state.currentHistory, toolEv, modelResult);
+  state.currentHistory.push(toolResultMessage(call, modelResult));
 }
 
-function enrichToolEvent(
-  tool: NonNullable<TurnEvent['tool']>,
-  callId: string,
-  patch?: Partial<NonNullable<TurnEvent['tool']>>,
-): TurnEvent {
-  return {
-    type: 'tool',
-    tool: {
-      ...tool,
-      ...patch,
-      callId,
-      id: tool.id ?? callId,
-    },
-  };
-}
-
-async function* drainToolExecEvents(
+async function* forwardToolEvents(
   exec: AsyncGenerator<TurnEvent, ToolExecuteSettlement>,
-  tool: NonNullable<TurnEvent['tool']>,
-  callId: string,
   state: StepExecutionState,
-): AsyncGenerator<TurnEvent, { settlement: ToolExecuteSettlement; sawGate: boolean }> {
+): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   let next = await exec.next();
-  let sawGate = false;
   while (!next.done) {
-    const event = next.value;
-    if (event.type === 'tool') {
-      const enriched = enrichToolEvent(tool, callId, event.tool);
-      state.allEmittedEvents.push(enriched);
-      yield enriched;
-      if (event.tool?.phase === 'gate') sawGate = true;
-    } else {
-      state.allEmittedEvents.push(event);
-      yield event;
-    }
+    state.allEmittedEvents.push(next.value);
+    yield next.value;
     next = await exec.next();
   }
-  return { settlement: next.value, sawGate };
+  return next.value;
 }
 
-/** Opens a turn tool call's `execute_tool` span under the turn's root. */
 function toolSpanOpener(state: StepExecutionState) {
   return (name: string, attributes: TraceAttributes) =>
     state.trace.root.child(name, { attributes });
@@ -318,53 +442,36 @@ function toolSpanOpener(state: StepExecutionState) {
  */
 function recordProviderToolFailure(
   state: StepExecutionState,
-  toolEv: TurnEvent,
-  tool: NonNullable<TurnEvent['tool']>,
-  callId: string,
+  call: ModelCall,
   failure: ToolFailure,
-  generation: ResolvedGeneration,
-  useInteractionsContinuation: boolean,
-  patch?: Partial<NonNullable<TurnEvent['tool']>>,
 ): TurnEvent {
-  const enriched = enrichToolEvent(tool, callId, {
-    phase: 'error',
-    failure,
-    ...patch,
-  });
-  state.allEmittedEvents.push(enriched);
+  const event = failureEvent(call, failure);
+  state.allEmittedEvents.push(event);
   const modelResult = formatToolFailureForModel(failure);
   startToolTrace(toolSpanOpener(state), {
-    name: enriched.tool?.name ?? '',
-    callId,
-    call: tool,
+    name: call.name,
+    callId: call.callId,
+    call,
     step: state.stepCount,
   }).end({
     outcome: 'error',
     result: { text: formatToolResult(modelResult) },
     failure,
   });
-  recordToolModelResult(state, toolEv, modelResult, generation, useInteractionsContinuation);
-  return enriched;
+  recordToolModelResult(state, call, modelResult);
+  return event;
 }
 
-function applyToolSettlement(
+function* applyToolSettlement(
   settlement: ToolExecuteSettlement,
   state: StepExecutionState,
-  toolEv: TurnEvent,
-  generation: ResolvedGeneration,
-  useInteractionsContinuation: boolean,
-): 'continue' | 'stop_cancelled' | 'gated' {
+  call: ModelCall,
+): Generator<TurnEvent, 'continue' | 'stop_cancelled' | 'gated'> {
   if (settlement.aborted) {
-    state.lastStop = {
-      kind: 'cancelled',
-      ...(typeof settlement.aborted === 'object' && settlement.aborted.reason
-        ? { native: settlement.aborted.reason }
-        : {}),
-    };
+    state.lastStop = stageAbortStop(settlement.aborted);
     return 'stop_cancelled';
   }
   if (settlement.gated) {
-    state.toolSnapshot = generation.tools;
     return 'gated';
   }
   if (settlement.modelResult?.provenance) {
@@ -373,98 +480,130 @@ function applyToolSettlement(
       settlement.modelResult.provenance,
       settlement.modelResult.suspicious,
     );
+    addResultDestinations(
+      state.destinations,
+      settlement.modelResult,
+      settlement.modelResult.provenance,
+    );
   }
   if (!settlement.modelResult) return 'continue';
-  recordToolModelResult(
-    state,
-    toolEv,
-    settlement.modelResult,
-    generation,
-    useInteractionsContinuation,
-  );
-  if (settlement.pendingInject?.length) {
-    applyStageInjects(state, settlement.pendingInject);
+  if (!settlement.failure && 'outputRaw' in settlement) {
+    state.toolResults.push({ tool: call.name, output: settlement.outputRaw });
+  }
+  recordToolModelResult(state, call, settlement.modelResult);
+  if (settlement.pendingInject) {
+    yield* applyStageInjects(state, 'post_tool', settlement.pendingInject, {
+      callId: call.callId,
+      toolName: call.name,
+    });
   }
   return 'continue';
 }
 
-async function* handlePendingTools(
-  pendingTools: TurnEvent[],
+/**
+ * Run the model's calls. Each reaches the host as its raw call first, all of them before
+ * any runs; their phases then arrive as each tool gives them. With `tools.parallel` they
+ * run side by side; otherwise one at a time, in the order the model made them. A call
+ * whose `pre_tool` answers `waitFor` starts its body once those calls settle
+ * (`step-order.ts`). A call the provider handed over already failed does not run. A call
+ * reads the turn's taint, destinations, and visible tools as they stood when the step
+ * began: the model chose every call in the step before any of their results came back.
+ *
+ * Results are recorded in the order the model made the calls, each followed by its
+ * `post_tool` inject. A call that gates waits for its own approval while the others run.
+ * After the step, any gate stops the turn. A call a stage cancelled stops the turn too,
+ * once every result that did come back is recorded.
+ */
+async function* handleModelCalls(
+  { calls: upstreamCalls, reasoning }: Pick<StepOutcome, 'calls' | 'reasoning'>,
   generation: ResolvedGeneration,
   profile: Profile,
   state: StepExecutionState,
+  system: BoundSystem,
   { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
-  let executed = false;
-  let sawGate = false;
-  const useInteractionsContinuation = generation.transport === 'interactions';
-  for (const toolEv of pendingTools) {
-    if (sawGate) break;
-    const tool = toolEv.tool;
-    if (!tool) continue;
+  if (upstreamCalls.length > 0) {
+    state.currentHistory.push(
+      historyToolCalls(
+        upstreamCalls.map((call, index) => (index === 0 ? { ...call, reasoning } : call)),
+      ),
+    );
+  }
+  const stepId = crypto.randomUUID();
+  const leakScope = {
+    canary: generation.canary,
+    canaryGiven: state.canaryGiven,
+    privateSystem: system.private,
+  };
+  const calls = upstreamCalls.map((call) => ({
+    ...call,
+    operationId: crypto.randomUUID(),
+    // why: The host and every `pre_tool` see the call as its tool gets it; a failed call never reaches a tool.
+    shown: call.failure
+      ? call.arguments
+      : shownToolArguments({
+          tools: state.tools,
+          profile,
+          name: call.name,
+          input: call.arguments,
+          scope: leakScope,
+        }),
+  }));
+  for (const [index, call] of calls.entries()) {
+    const request = toolCallRequestEvent(call, call.shown, {
+      ...(index === 0 && reasoning.length ? { reasoning } : {}),
+      stepId,
+      stepCallCount: calls.length,
+    });
+    state.allEmittedEvents.push(request);
+    yield request;
+  }
+  const order = stepOrder(
+    calls.map((call) => call.callId),
+    profileToolsParallel(profile) === true,
+    signal,
+  );
 
-    executed = true;
-    const callId = tool.id ?? tool.callId ?? newCallId(tool.name || 'unknown');
-
-    if (tool.phase === 'cancel') {
-      const enriched = enrichToolEvent(tool, callId);
-      state.allEmittedEvents.push(enriched);
-      yield enriched;
-      continue;
-    }
-
-    if (tool.phase === 'error' && tool.failure) {
-      yield recordProviderToolFailure(
-        state,
-        toolEv,
-        tool,
-        callId,
-        tool.failure,
-        generation,
-        useInteractionsContinuation,
-      );
-      continue;
-    }
-
-    if (!tool.name) {
-      yield recordProviderToolFailure(
-        state,
-        toolEv,
-        tool,
-        callId,
-        {
-          code: 'malformed_arguments',
-          kind: 'bad_response',
-          message: 'Provider tool call is missing a function name', // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        },
-        generation,
-        useInteractionsContinuation,
-        { name: '' },
-      );
-      continue;
-    }
-
-    const stages: ToolStageSupport = {
-      handlers: onStage ? [onStage] : [],
-      profile,
-      step: state.stepCount,
-      history: () => state.currentHistory,
-      injectAllowed: profileAllowsInject(profile),
-      injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
-      host: generation.host,
-      signal,
-    };
-
-    const drained = yield* drainToolExecEvents(
+  const stages: ToolStageSupport = {
+    handlers: onStage ? [onStage] : [],
+    profile,
+    step: state.stepCount,
+    history: () => state.currentHistory,
+    injectAllowed: profileAllowsInject(profile),
+    injectWouldExceedMaxSteps: injectWouldExceedMaxSteps(state.stepCount, generation.maxSteps),
+    host: generation.host,
+    signal,
+    stepCalls: calls.map((call) => ({ callId: call.callId, tool: call.name, input: call.shown })),
+    wait: order.wait,
+    drafts: generation.stream !== false,
+  };
+  const turn = {
+    step: state.stepCount,
+    taint: state.taint,
+    destinations: state.destinations,
+    visible: [...generation.tools.visible],
+  };
+  const execute = (call: (typeof calls)[number]) =>
+    forwardToolEvents(
       executeRegisteredTool({
+        tools: state.tools,
+        execution: generation.execution,
+        invocation: {
+          model: generation.model,
+          input: generation.input,
+          history: generation.history,
+        },
+        ...(state.agents ? { agents: state.agents } : {}),
         profile,
-        name: tool.name,
-        input: tool.arguments ?? {},
-        callId,
+        name: call.name,
+        input: call.arguments,
+        callId: call.callId,
         ctx: {
+          operationId: call.operationId,
+          pageExecution: generation.pageExecution,
           sessionPermissions: generation.sessionPermissions,
           path: generation.tools.path,
-          turn: { step: state.stepCount, taint: state.taint },
+          turn,
           credentials,
           resolveHost,
           host: generation.host,
@@ -473,81 +612,99 @@ async function* handlePendingTools(
         },
         snapshot: generation.tools,
         stages,
+        scope: leakScope,
         openSpan: toolSpanOpener(state),
       }),
-      tool,
-      callId,
       state,
     );
-
-    if (drained.sawGate) sawGate = true;
-    const outcome = applyToolSettlement(
-      drained.settlement,
-      state,
-      toolEv,
-      generation,
-      useInteractionsContinuation,
-    );
-    if (outcome === 'stop_cancelled') return false;
-    if (outcome === 'gated' || sawGate) {
-      sawGate = true;
-    }
+  for (const call of calls) {
+    if (call.failure) order.settle(call.callId);
   }
-  if (sawGate) {
+  const settlements = yield* runSideBySide(
+    calls.map((call) =>
+      call.failure ? undefined : inStep(order, call.callId, () => execute(call)),
+    ),
+  );
+
+  let gated = false;
+  let cancelled = false;
+  for (const [index, call] of calls.entries()) {
+    if (call.failure) {
+      yield recordProviderToolFailure(
+        state,
+        { ...call, activityFailed: failedActivity(call.name, profile.labels) },
+        call.failure,
+      );
+      continue;
+    }
+    const settlement = settlements[index];
+    if (!settlement) continue;
+    const outcome = yield* applyToolSettlement(settlement, state, call);
+    if (outcome === 'stop_cancelled') cancelled = true;
+    if (outcome === 'gated') gated = true;
+  }
+  if (cancelled) return false;
+  if (gated) {
     state.lastStop = { kind: 'gate' };
     return false;
   }
-  return executed;
+  return calls.length > 0;
 }
 
 async function* executeAttempt(args: {
   safe: TurnRequest;
   profile: Profile;
   generation: ResolvedGeneration;
-  system: string;
-  provider: ModelProvider;
+  system: BoundSystem;
+  provider: TurnModel;
   state: StepExecutionState;
-}): AsyncGenerator<TurnEvent, { pendingTools: TurnEvent[]; latestStructured?: unknown }> {
+}): AsyncGenerator<TurnEvent, { latestStructured?: unknown }> {
   const { profile, generation, system, provider, state } = args;
   let latestStructured: unknown;
-  let pendingTools: TurnEvent[] = [];
-  // Text streams via progressive-yield under egress, thoughts unguarded; validation and egress
+  // why: Text streams via progressive-yield under egress, thoughts unguarded; validation and egress
   // both hold non-visible events (structured) until the attempt gate, so a policy
   // sees the structured payload before any of it reaches the host.
-  const holdLate = Boolean(
-    profileTurnOutputs(profile)?.validation ||
-      resolveGuardrailPolicy(profile.guardrails).egress?.enforce,
-  );
+  const validation = profileTurnOutputs(profile)?.validation;
+  const holdLate =
+    validation !== undefined ||
+    replyIsJudged(resolveGuardrailPolicy(profile.guardrails), TURN_REPLY);
+  // why: Buffered delivery holds each attempt's text and media until it passes; streamed delivery shows them live.
+  const holdVisible = validation !== undefined && generation.stream === false;
 
-  // Ceiling is cumulative `state.stepCount` across before_end inject re-entries
+  // why: Ceiling is cumulative `state.stepCount` across before_end inject re-entries
   // within this attempt. Validation/egress repair resets stepCount at the start
-  // of each attempt cycle (see gates.ts).
+  // of each attempt cycle.
   while (!isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
     throwIfAborted(args.safe.signal);
     state.stepCount++;
-    // Mid-loop inject lives on `post_tool` (after tools). Opening inject is `pre_turn`
+    // why: Mid-loop inject lives on `post_tool` (after tools). Opening inject is `pre_turn`
     // outside this loop.
-    const stepResult = yield* executeAutonomousStep(
+    const stepResult = yield* executeResumedStep(
       { profile, generation, system, provider, signal: args.safe.signal },
       state,
-      { holdLate },
+      { holdLate, holdVisible },
     );
     if (stepResult.latestStructured !== undefined) {
       latestStructured = stepResult.latestStructured;
     }
-    pendingTools = stepResult.pendingTools;
-
-    if (pendingTools.length === 0) {
-      break;
-    }
-
-    const executed = yield* handlePendingTools(pendingTools, generation, profile, state, args.safe);
+    const executed = yield* handleModelCalls(
+      stepResult,
+      generation,
+      profile,
+      state,
+      system,
+      args.safe,
+    );
     if (!executed) {
       break;
     }
+    // why: The tools ran and no step is left to read them, so the turn has no answer.
+    if (isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
+      state.lastStop = { kind: 'step_limit' };
+    }
   }
 
-  return { pendingTools, latestStructured };
+  return { latestStructured };
 }
 
 export { executeAttempt };

@@ -1,6 +1,6 @@
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { getStructured, registerStructured } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
-import { getStructured, registerStructured } from '../../src/kernel/registry/schemas.ts';
 import type { StructuredSpec } from '../../src/kernel/types.ts';
 
 Deno.test('registerStructured stores the schema the model is held to', () => {

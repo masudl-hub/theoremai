@@ -1,27 +1,25 @@
-/**
- * Turn-stage spine: pre_turn / post_tool / before_end / post_turn + onStage inject.
- */
+import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
+import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
-import { runTurn } from '../../src/kernel/engine/runner.ts';
-import { defineProfile, registerProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type {
-  ModelProvider,
-  ProviderCompleteRequest,
+  ModelRequest,
   TurnEvent,
   TurnHistoryMessage,
+  TurnModel,
 } from '../../src/kernel/types.ts';
+import { eventsOf, rawCallsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
-async function collect(gen: AsyncIterable<TurnEvent>): Promise<TurnEvent[]> {
-  const out: TurnEvent[] = [];
-  for await (const ev of gen) out.push(ev);
-  return out;
+/** The stage events that report named injects landing. */
+function injectedOf(events: TurnEvent[]): TurnEvent[] {
+  return eventsOf(events, 'stage').filter((e) => e.injected !== undefined);
 }
 
 function stageNames(events: TurnEvent[]): string[] {
-  return events.filter((e) => e.type === 'stage' && !e.stageWarnings).map((e) => e.stage ?? '');
+  return eventsOf(events, 'stage').flatMap((e) => (e.stageWarnings ? [] : [e.stage]));
 }
 
 Deno.test('stages: emits pre_turn / before_end / post_turn on a plain text turn', async () => {
@@ -37,14 +35,14 @@ Deno.test('stages: emits pre_turn / before_end / post_turn on a plain text turn'
     }),
   );
 
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* () {
       yield { type: 'text', text: 'ok' };
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn({ profile: 'stage.spine.basic', input: { text: 'hi' } }, provider),
   );
   assertEquals(stageNames(events), ['pre_turn', 'before_end', 'post_turn']);
@@ -70,15 +68,15 @@ Deno.test('stages: allowSteering false still emits stages but rejects inject', a
 
   let staged = 0;
   let seenHistory: TurnHistoryMessage[] | undefined;
-  const provider: ModelProvider = {
-    complete: async function* (req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
       seenHistory = req.history;
       yield { type: 'text', text: 'ok' };
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'stage.spine.off',
@@ -115,28 +113,35 @@ Deno.test('stages: onStage inject at pre_turn reaches the provider history', asy
   );
 
   let seenHistory: TurnHistoryMessage[] | undefined;
-  const provider: ModelProvider = {
-    complete: async function* (req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
       seenHistory = req.history;
       yield { type: 'text', text: 'acked' };
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
-  await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'stage.inject.pre_turn',
         input: { text: 'first' },
         onStage: ({ stage }) => {
           if (stage === 'pre_turn') {
-            return { inject: [{ role: 'user', content: 'follow-up absorbed' }] };
+            return {
+              inject: [{ role: 'user', content: 'follow-up absorbed' }],
+              injectId: 'steer-1',
+            };
           }
         },
       },
       provider,
     ),
   );
+
+  assertEquals(injectedOf(events), [
+    { type: 'stage', stage: 'pre_turn', injected: [{ id: 'steer-1' }] },
+  ]);
 
   assertEquals(
     seenHistory?.some((m) => m.content === 'follow-up absorbed'),
@@ -164,24 +169,24 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
   const stages: string[] = [];
   let call = 0;
   let continuation: TurnHistoryMessage[] | undefined;
-  const provider: ModelProvider = {
-    complete: async function* (req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
       call++;
       if (call === 1) {
         yield {
           type: 'tool',
-          tool: { name: 'stub_tool', arguments: { value: 1 }, id: 'c1' },
+          tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' },
         };
-        yield { type: 'done', interactionId: 'ix-1' };
+        yield { type: 'done', stop: { kind: 'tool' }, interactionId: 'ix-1' };
         return;
       }
-      continuation = req.continuation;
+      continuation = req.history?.slice(-2);
       yield { type: 'text', text: 'after tools' };
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'stage.inject.post_tool',
@@ -191,6 +196,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
           if (stage === 'post_tool') {
             return {
               inject: [{ role: 'user', content: 'also do this' }],
+              injectId: 'steer-2',
             };
           }
           if (stage === 'pre_turn') {
@@ -207,7 +213,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
   assertEquals(stages.includes('before_end'), true);
   assertEquals(stages.includes('post_turn'), true);
   assertEquals(
-    events.filter((e) => e.type === 'stage').map((e) => e.stage),
+    eventsOf(events, 'stage').map((e) => e.stage),
     stageNames(events),
   );
   assertEquals(call, 2);
@@ -217,6 +223,18 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
     ['tool', 'user'],
   );
   assertEquals(continuation?.[1]?.content, 'also do this');
+  const [stubCall] = rawCallsOf(events);
+  assertEquals(stubCall?.name, 'stub_tool');
+  assertEquals(continuation?.[0]?.tool_call_id, stubCall?.callId);
+  assertEquals(injectedOf(events), [
+    {
+      type: 'stage',
+      stage: 'post_tool',
+      callId: stubCall?.callId,
+      toolName: 'stub_tool',
+      injected: [{ id: 'steer-2' }],
+    },
+  ]);
 });
 
 Deno.test('stages: before_end inject re-enters the model step under maxSteps', async () => {
@@ -233,8 +251,8 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
   );
 
   let call = 0;
-  const provider: ModelProvider = {
-    complete: async function* (req: ProviderCompleteRequest) {
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
       call++;
       if (call === 1) {
         assertEquals(
@@ -242,7 +260,7 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
           false,
         );
         yield { type: 'text', text: 'first reply' };
-        yield { type: 'done' };
+        yield { type: 'done', stop: { kind: 'completed' } };
         return;
       }
       assertEquals(
@@ -250,12 +268,12 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
         true,
       );
       yield { type: 'text', text: 'second reply' };
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
   let beforeEndCount = 0;
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'stage.before_end.extend',
@@ -264,7 +282,7 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
           if (stage === 'before_end') {
             beforeEndCount++;
             if (beforeEndCount === 1) {
-              return { inject: [{ role: 'user', content: 'extend please' }] };
+              return { inject: [{ role: 'user', content: 'extend please' }], injectId: 'steer-4' };
             }
           }
         },
@@ -275,6 +293,9 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
 
   assertEquals(call, 2);
   assertEquals(beforeEndCount >= 2, true);
+  assertEquals(injectedOf(events), [
+    { type: 'stage', stage: 'before_end', injected: [{ id: 'steer-4' }] },
+  ]);
   // Both steps reply: the re-entered step's text follows the first.
   assertEquals(replyText(events), 'first replysecond reply');
 });
@@ -293,15 +314,15 @@ Deno.test('stages: before_end inject cannot exceed maxSteps across re-entry', as
   );
 
   let call = 0;
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* () {
       call++;
       yield { type: 'text', text: `reply-${call}` };
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'stage.before_end.maxsteps',
@@ -340,14 +361,14 @@ Deno.test('stages: inject_not_allowed yields stageWarnings', async () => {
     }),
   );
 
-  const provider: ModelProvider = {
+  const provider: TurnModel = {
     complete: async function* () {
       yield { type: 'text', text: 'ok' };
-      yield { type: 'done' };
+      yield { type: 'done', stop: { kind: 'completed' } };
     },
   };
 
-  const events = await collect(
+  const events = await Array.fromAsync(
     runTurn(
       {
         profile: 'stage.warn.inject_off',

@@ -1,0 +1,625 @@
+import {
+  type DecisionAsset,
+  labelText,
+  type ProfileDefinition,
+  registerTraceDestination,
+  resolveObservabilityPolicy,
+  TheoremError,
+  type TraceRecord,
+  type TurnEvent,
+  z,
+} from '@theoremjs/agents';
+import {
+  gatedToolsFromEvents,
+  interfaceFromProfile,
+  promotedToolIdsFromEvents,
+  type TranscriptBlock,
+  toolSnapshotFromEvents,
+} from '@theoremjs/agents/interface';
+import {
+  answerGatedCall,
+  type EmbeddingRequest,
+  type EmbeddingResult,
+  type GateAnswerRequest,
+  type GateReference,
+  type HeldGatedCall,
+  memoryCredentialSource,
+  type RegisteredTool,
+  type RunDecisionOptions,
+} from '@theoremjs/agents/kernel';
+import {
+  type ConversationView,
+  type DecisionTransport,
+  decisionAssets,
+  type TheoremConversationRequest,
+  type TheoremHostCallRequest,
+  type TheoremInvokeRequest,
+  type TheoremReplay,
+  type TheoremRewindRequest,
+  type TheoremRewound,
+  type TheoremTurnRequest,
+  withFailedTraces,
+} from '@theoremjs/react/client';
+import {
+  answerReply,
+  checkRequest,
+  conversationView,
+  messageReply,
+  type OpenedConversation,
+  openConversation,
+  postedMessage,
+  type ReplyLine,
+  type ReplyRunner,
+  readerConversationHost,
+  rewindConversation,
+  type SteerInbox,
+  startConversation,
+  statelessRefusal,
+  steerStage,
+  type TheoremConversationStore,
+  waitingCalls,
+} from '@theoremjs/react/server';
+import { STUDIO_TRACE_DESTINATION } from './policy.ts';
+import { studioReader } from './reader.ts';
+import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
+import type { StudioRunPayload } from './run-payload.ts';
+import {
+  agentCallHook,
+  runtimeProvider,
+  type StudioDependency,
+  type StudioRuntime,
+  studioScope,
+} from './runtime-scope.ts';
+import { createStudioTraceRouter, type StudioTraceLine } from './traces.ts';
+import type { StudioSteerLine } from './transport.ts';
+
+// Profiles that write to the studio destination get their records back on the run's own stream.
+export const studioTraces = createStudioTraceRouter();
+registerTraceDestination(STUDIO_TRACE_DESTINATION, studioTraces.sink);
+
+/**
+ * Streams one run's lines, then the trace records it wrote. The kernel writes
+ * a run's records before the run returns or throws, so a failed run still
+ * delivers them ahead of its failure.
+ */
+async function* withRunTraces<Line>(
+  run: (metadata: Record<string, string>) => AsyncIterable<Line>,
+): AsyncGenerator<Line | StudioTraceLine> {
+  const records: TraceRecord[] = [];
+  const traces = studioTraces.route((record) => records.push(record));
+  let failure: { error: unknown } | undefined;
+  try {
+    yield* run(traces.metadata);
+  } catch (error) {
+    failure = { error };
+  } finally {
+    traces.close();
+  }
+  for (const record of records) yield { type: 'trace', record };
+  if (failure) throw failure.error;
+}
+
+function assertNotLiveProfile(profileType: string, action: string): void {
+  if (profileType === 'live') {
+    throw new TheoremError('request', `Studio ${action} does not support live profiles.`);
+  }
+}
+
+/** A compiled draft as a run takes it. */
+export type StudioDraftRun = {
+  profile: ProfileDefinition;
+  customTools: ToolRegistration[];
+  structured?: StructuredRegistration;
+  runtime: StudioRuntime;
+  /** The agents this one names, registered before it. */
+  dependencies?: StudioDependency[];
+};
+
+export { newConversationKey } from './conversation-key.ts';
+
+/** Where a chat's conversation is kept: the store, and the session its refs open in. */
+export type StudioConversations = { sessionId: string; store: TheoremConversationStore };
+
+type StudioScope = Awaited<ReturnType<typeof studioScope>>['scope'];
+type StudioProfile = Awaited<ReturnType<typeof studioScope>>['profile'];
+
+/** The draft's scope and its chat: the conversation host, or none for a stateless profile. */
+async function studioChat(draft: StudioDraftRun, conversations: StudioConversations) {
+  const { scope, profile } = await studioScope(
+    draft.profile,
+    draft.customTools,
+    draft.structured,
+    draft.runtime,
+    draft.dependencies,
+  );
+  assertNotLiveProfile(profile.type, 'turn runner — use runSession');
+  const iface = interfaceFromProfile(profile, scope.tools);
+  if (iface.type === 'live') {
+    // labels-exempt: internal diagnostic; the user reads error.request
+    throw new TheoremError('request', 'A studio chat does not run a live profile.');
+  }
+  const host =
+    iface.providerContinuation?.history === 'stateless'
+      ? undefined
+      : readerConversationHost({
+          ...conversations,
+          profile,
+          clientEvents: studioReader(draft.runtime),
+        });
+  return { scope, profile, iface, host };
+}
+
+/** How a chat request runs the model for a reply, on the draft's scope. */
+function studioRunner(args: {
+  scope: StudioScope;
+  profile: StudioProfile;
+  runtime: StudioRuntime;
+  metadata: Record<string, string>;
+  sessionPermissions: string[] | undefined;
+  model?: string;
+  effort?: string;
+  signal: AbortSignal;
+  onStage?: ReturnType<typeof steerStage>;
+}): ReplyRunner {
+  const { scope, profile, runtime, metadata, signal } = args;
+  return {
+    run: (turn) =>
+      scope.runTurn(
+        {
+          profile: profile.id,
+          execution: runtime.execution,
+          pageExecution: runtime.pageExecution,
+          metadata,
+          input: turn.input,
+          providerState: turn.providerState,
+          sessionPermissions: args.sessionPermissions,
+          resolveHost: runtime.resolveHost,
+          signal,
+          ...(turn.model ? { model: turn.model } : {}),
+          ...(turn.effort ? { effort: turn.effort } : {}),
+          ...(args.onStage ? { onStage: args.onStage } : {}),
+          onAgentCall: agentCallHook(scope, runtime),
+        },
+        runtimeProvider(runtime, scope, profile, turn.model),
+      ),
+    async compact(history, tokens, model) {
+      const compacted = await scope.compactHistory(
+        { profile: profile.id, history, tokens, signal, ...(model ? { model } : {}) },
+        runtimeProvider(runtime, scope, profile, model),
+      );
+      return compacted?.history;
+    },
+    ...(args.model ? { model: args.model } : {}),
+    ...(args.effort ? { effort: args.effort } : {}),
+    signal,
+  };
+}
+
+/**
+ * The paused call as the stored reply holds it, answered. The studio keeps no
+ * session, so the call's gate comes from the draft's registered tool; only the
+ * permissions the page granted come from the browser.
+ */
+function answerPaused(
+  scope: StudioScope,
+  profile: string,
+  opened: OpenedConversation,
+  request: GateAnswerRequest & GateReference,
+  sessionPermissions: string[] | undefined,
+  runtime: StudioRuntime,
+) {
+  const events = opened.conversation.paused?.events ?? [];
+  const call = gatedToolsFromEvents(events).find(
+    (gated) => gated.callId === request.callId && gated.operationId === request.operationId,
+  );
+  // labels-exempt: internal diagnostic; the user reads error.internal
+  if (!call) throw new TheoremError('internal', `the paused reply holds no call ${request.callId}`);
+  return answerReplayed(
+    scope,
+    profile,
+    request,
+    {
+      name: call.name,
+      input: call.arguments,
+      gateKind: call.gateKind,
+      snapshot: toolSnapshotFromEvents(events),
+      promoted: promotedToolIdsFromEvents(events),
+      ...(opened.conversation.paused?.model ? { model: opened.conversation.paused.model } : {}),
+      ...(sessionPermissions ? { sessionPermissions } : {}),
+    },
+    runtime,
+  );
+}
+
+/**
+ * One message, run against the conversation the host keeps: the paused calls it
+ * walks away from settle first, then the reply runs.
+ */
+export async function* streamStudioTurn(
+  args: StudioDraftRun & {
+    request: TheoremTurnRequest;
+    conversations: StudioConversations;
+    signal: AbortSignal;
+    /** Where the turn's mid-turn steers queue. */
+    steer: SteerInbox;
+  },
+): AsyncGenerator<ReplyLine | StudioTraceLine | StudioSteerLine> {
+  const { request, runtime, signal } = args;
+  const { scope, profile, iface, host } = await studioChat(args, args.conversations);
+  const message = postedMessage(iface, request.input);
+  const sessionPermissions = request.replay?.sessionPermissions;
+  if (!host && request.conversation !== undefined) throw statelessRefusal('continue');
+  if (!host && request.abandon) throw statelessRefusal('walk away from');
+  const opened = host
+    ? await openConversation(
+        host,
+        request.conversation,
+        { kind: 'message', ...(request.abandon ? { abandon: request.abandon } : {}) },
+        // why: The draft is the visitor's own, so the page's transcript is as much theirs as the store's copy.
+        request.transcript ? { profile, blocks: request.transcript } : undefined,
+      )
+    : undefined;
+  // Answered up front, so a refused call starts nothing.
+  const walked = opened
+    ? (request.abandon ?? []).map((reference) => ({
+        reference,
+        invoke: answerPaused(
+          scope,
+          profile.id,
+          opened,
+          { ...reference, decision: 'abandon' },
+          sessionPermissions,
+          runtime,
+        ),
+      }))
+    : [];
+
+  // Random and picked here, so only the run's own browser can steer it.
+  const inbox = globalThis.crypto.randomUUID();
+  await args.steer.open(inbox);
+  const steerLine: StudioSteerLine = { type: 'steer_inbox', inbox };
+  yield steerLine;
+  try {
+    yield* withRunTraces((metadata): AsyncIterable<ReplyLine> => {
+      const runner = studioRunner({
+        scope,
+        profile,
+        runtime,
+        metadata,
+        sessionPermissions,
+        ...(request.model ? { model: request.model } : {}),
+        ...(request.effort ? { effort: request.effort } : {}),
+        signal,
+        onStage: steerStage(args.steer, inbox),
+      });
+      if (!host || !opened) {
+        return runner.run({ input: message.input, model: request.model, effort: request.effort });
+      }
+      const walkAway = walked.map(({ reference, invoke }) => ({
+        ...reference,
+        events: scope.invokeTool({ ...invoke, metadata, signal }),
+      }));
+      return messageReply({ host, opened, message, walkAway, runner });
+    });
+  } finally {
+    await args.steer.close(inbox);
+  }
+}
+
+/** The model's input to the paused call, as the browser replays it. */
+const modelArguments = z.record(z.string(), z.unknown());
+
+/** The gate a tool waits on: its permission tier, and the slot a sign-in gate fills. */
+function heldGate(tool: RegisteredTool): Pick<HeldGatedCall, 'permission' | 'auth'> {
+  const auth = 'auth' in tool ? tool.auth : undefined;
+  return {
+    permission: tool.permission,
+    ...(auth
+      ? {
+          auth: { slot: auth.slot, authType: auth.type, service: auth.service },
+        }
+      : {}),
+  };
+}
+
+/**
+ * The user's answer to a paused call, as `replay` holds it. The studio keeps no
+ * session; its gate comes from the draft's registered tool, and the answer
+ * settles it by the rule every Theorem host uses. Returns the run that settles
+ * it, less its trace metadata.
+ */
+function answerReplayed(
+  scope: StudioScope,
+  profile: string,
+  request: GateAnswerRequest & { operationId: string },
+  replay: TheoremReplay,
+  runtime: StudioRuntime,
+): Omit<Parameters<StudioScope['invokeTool']>[0], 'metadata'> {
+  const tool = replay.name === undefined ? undefined : scope.tools.get(replay.name);
+  if (!tool) {
+    // labels-exempt: internal diagnostic; the user reads error.request
+    throw new TheoremError('request', 'invoke: the paused call names no tool in this draft');
+  }
+  const answered = answerGatedCall(
+    request,
+    {
+      name: tool.name,
+      arguments: checkRequest(modelArguments, replay.input, 'replayed call input'),
+      gateKind: replay.gateKind,
+      ...heldGate(tool),
+    },
+    replay.sessionPermissions ?? [],
+  );
+  return {
+    profile,
+    name: tool.name,
+    callId: request.callId,
+    operationId: request.operationId,
+    input: answered.input,
+    resume: answered.resume,
+    ...(answered.page ? { page: answered.page } : {}),
+    sessionPermissions: answered.sessionPermissions,
+    ...(answered.typed
+      ? {
+          credentials: memoryCredentialSource({
+            [answered.typed.slot]: answered.typed.credential,
+          }),
+        }
+      : {}),
+    snapshot: replay.snapshot,
+    promoted: replay.promoted,
+    model: replay.model,
+    resolveHost: runtime.resolveHost,
+    execution: runtime.execution,
+    pageExecution: runtime.pageExecution,
+    onAgentCall: agentCallHook(scope, runtime),
+  };
+}
+
+function answerOf(answer: TheoremInvokeRequest): GateAnswerRequest & GateReference {
+  const { gateId, operationId, decision, input, secret, page } = answer;
+  return { callId: gateId, operationId, decision, input, secret, page };
+}
+
+/** A paused call the browser replays, answered: a host draft's call, or a stateless chat's. */
+function replayedInvoke(
+  scope: StudioScope,
+  profile: string,
+  answer: TheoremInvokeRequest,
+  runtime: StudioRuntime,
+  signal: AbortSignal,
+): AsyncIterable<TurnEvent | StudioTraceLine> {
+  const invoke = answerReplayed(scope, profile, answerOf(answer), answer.replay ?? {}, runtime);
+  return withRunTraces((metadata) => scope.invokeTool({ ...invoke, metadata, signal }));
+}
+
+/**
+ * The user's answer to a paused call. In a kept conversation the reply goes on
+ * in the same stream once no call waits; otherwise the stream is the call's.
+ */
+export async function* streamStudioInvoke(
+  args: StudioDraftRun & {
+    answer: TheoremInvokeRequest;
+    conversations: StudioConversations;
+    signal: AbortSignal;
+  },
+): AsyncGenerator<ReplyLine | StudioTraceLine> {
+  const { answer, runtime, signal } = args;
+  const { scope, profile, host } = await studioChat(args, args.conversations);
+  const request = answerOf(answer);
+  const sessionPermissions = answer.replay?.sessionPermissions;
+  if (!host) {
+    if (answer.conversation !== undefined) throw statelessRefusal('continue');
+    yield* replayedInvoke(scope, profile.id, answer, runtime, signal);
+    return;
+  }
+  if (answer.conversation === undefined) throw statelessRefusal('continue');
+  const opened = await openConversation(host, answer.conversation, {
+    kind: 'answer',
+    call: { callId: request.callId, operationId: request.operationId },
+  });
+  const invoke = answerPaused(scope, profile.id, opened, request, sessionPermissions, runtime);
+  yield* withRunTraces((metadata) =>
+    answerReply({
+      host,
+      opened,
+      call: { callId: request.callId, operationId: request.operationId },
+      settling: scope.invokeTool({ ...invoke, metadata, signal }),
+      runner: studioRunner({
+        scope,
+        profile,
+        runtime,
+        metadata,
+        sessionPermissions,
+        signal,
+      }),
+    }),
+  );
+}
+
+/** A conversation that opens on blocks the page wrote, read first by the draft's guardrails: its ref and view. */
+export async function startStudioConversation(
+  draft: StudioDraftRun,
+  conversations: StudioConversations,
+  blocks: readonly TranscriptBlock[],
+): Promise<{ conversation: string; view: ConversationView }> {
+  const { profile, host } = await studioChat(draft, conversations);
+  if (!host) throw statelessRefusal('start');
+  const { ref, view } = await startConversation(host, profile, blocks);
+  return { conversation: ref, view };
+}
+
+/** The conversation under a ref, as the page draws it. */
+export async function studioConversation(
+  draft: StudioDraftRun,
+  conversations: StudioConversations,
+  request: TheoremConversationRequest,
+): Promise<ConversationView> {
+  const { host } = await studioChat(draft, conversations);
+  if (!host) throw statelessRefusal('read');
+  const opened = await openConversation(host, request.conversation, { kind: 'read' });
+  return conversationView(host, opened.conversation);
+}
+
+/** The conversation cut after one block; a reply that waits on gates is walked away from first. */
+export async function rewindStudio(
+  draft: StudioDraftRun,
+  conversations: StudioConversations,
+  request: TheoremRewindRequest,
+  signal: AbortSignal,
+): Promise<TheoremRewound> {
+  const { scope, profile, host } = await studioChat(draft, conversations);
+  if (!host) throw statelessRefusal('rewind');
+  const opened = await openConversation(host, request.conversation, {
+    kind: 'rewind',
+    at: request.at,
+  });
+  const walkAway = waitingCalls(opened.conversation).map((reference) => {
+    const invoke = answerPaused(
+      scope,
+      profile.id,
+      opened,
+      { ...reference, decision: 'abandon' },
+      undefined,
+      draft.runtime,
+    );
+    return { ...reference, events: scope.invokeTool({ ...invoke, signal }) };
+  });
+  const next = await rewindConversation({ host, opened, at: request.at, walkAway });
+  if (next.ref === null) throw new TheoremError('internal', labelText('error.internal'));
+  return { conversation: next.ref, view: conversationView(host, next.conversation) };
+}
+
+/** The user's answer to a host draft's paused call: the studio keeps no session, so the browser replays it. */
+export async function* streamStudioHostInvoke(
+  args: StudioDraftRun & { answer: TheoremInvokeRequest; signal: AbortSignal },
+): AsyncGenerator<TurnEvent | StudioTraceLine> {
+  const { scope, profile } = await hostScope(args);
+  yield* replayedInvoke(scope, profile.id, args.answer, args.runtime, args.signal);
+}
+
+/** A host draft's scope; any other profile is refused. */
+async function hostScope(draft: Omit<StudioDraftRun, 'structured'>) {
+  const opened = await studioScope(
+    draft.profile,
+    draft.customTools,
+    undefined,
+    draft.runtime,
+    draft.dependencies,
+  );
+  if (opened.profile.type !== 'host') {
+    // labels-exempt: internal diagnostic; the user reads error.request
+    throw new TheoremError('request', 'Studio calls run host profiles only.');
+  }
+  return opened;
+}
+
+/** One call of a host draft's tool, streamed. */
+export async function* streamStudioCall(args: {
+  profile: ProfileDefinition;
+  customTools: ToolRegistration[];
+  call: TheoremHostCallRequest;
+  /** Tools the user allowed for the page; the studio keeps no session. */
+  sessionPermissions?: string[];
+  signal?: AbortSignal;
+  runtime: StudioRuntime;
+  dependencies?: StudioDependency[];
+}): AsyncGenerator<TurnEvent | StudioTraceLine> {
+  const { scope, profile } = await hostScope(args);
+  yield* withRunTraces((metadata) =>
+    scope.invokeTool({
+      profile: profile.id,
+      execution: args.runtime.execution,
+      pageExecution: args.runtime.pageExecution,
+      name: args.call.name,
+      input: args.call.input,
+      sessionPermissions: args.sessionPermissions,
+      resolveHost: args.runtime.resolveHost,
+      onAgentCall: agentCallHook(scope, args.runtime),
+      signal: args.signal,
+      metadata,
+    }),
+  );
+}
+
+export { type StudioDependency, type StudioRuntime, studioScope } from './runtime-scope.ts';
+
+/** The records a preview writes, and the sink that keeps them when its profile records traces. */
+function collectTraces(
+  observability: Parameters<typeof resolveObservabilityPolicy>[0] | undefined,
+) {
+  const traces: TraceRecord[] = [];
+  if (!observability || !resolveObservabilityPolicy(observability).record) return { traces };
+  const sink = {
+    write: (record: TraceRecord) => {
+      traces.push(record);
+      return Promise.resolve();
+    },
+  };
+  return { traces, sink };
+}
+
+/** Both hosts run decisions through the kernel; the browser supplies its provider vault. */
+export async function runStudioDecision(
+  payload: StudioRunPayload,
+  state: Parameters<DecisionTransport['decide']>[0],
+  options: RunDecisionOptions,
+  signal?: AbortSignal,
+  assets?: Record<string, DecisionAsset>,
+) {
+  const { scope, profile } = await studioScope(payload.profile, [], undefined, {
+    mode: 'byok',
+  });
+  const { traces, sink } = collectTraces(profile.observability);
+  try {
+    const result = await scope.runDecision(
+      {
+        profile: profile.id,
+        state,
+        questions: payload.questions ?? {},
+        assets: decisionAssets(payload.images, assets),
+        signal,
+      },
+      { ...options, ...(sink ? { sink } : {}) },
+    );
+    return { result, traces };
+  } catch (err) {
+    // The kernel traces a decision however it ends; the failure carries what it left.
+    throw withFailedTraces(err, traces);
+  }
+}
+
+/** Runs one embedding preview and returns its normalized result with the records it wrote. */
+export async function runStudioEmbedding(
+  payload: StudioRunPayload,
+  request: Omit<EmbeddingRequest, 'profile'>,
+  runtime: StudioRuntime,
+): Promise<{ result: EmbeddingResult; traces: TraceRecord[] }> {
+  const { scope, profile } = await studioScope(
+    payload.profile,
+    payload.customTools,
+    payload.structured,
+    runtime,
+    payload.dependencies,
+  );
+  if (profile.type !== 'embedding') {
+    throw new TheoremError('request', 'Studio embedding runs require an embedding profile.');
+  }
+  const { traces, sink } = collectTraces(profile.observability);
+  try {
+    const result = await scope.runEmbedding(
+      { ...request, profile: profile.id },
+      {
+        ...runtimeProvider(runtime, scope, profile, request.model),
+        ...(sink ? { sink } : {}),
+      },
+    );
+    return { result, traces };
+  } catch (err) {
+    throw withFailedTraces(err, traces);
+  }
+}
+
+export { failedDecisionTraces, withFailedTraces } from '@theoremjs/react/client';
+
+export { studioKeySlots } from './browser-connection.ts';

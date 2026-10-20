@@ -1,32 +1,25 @@
-/**
- * Synthetic performance benchmark for the THEOREM kernel pipeline.
- *
- * Measures overhead added by profile resolution, sanitization, canary
- * binding, stream processing, and event dispatch vs. a bare provider call.
- *
- * Metrics:
- *   TTFE  — time to first event (profile resolve + provider setup)
- *   TTFT  — time to first text delta
- *   T/s   — text tokens per second throughput
- *   Overhead — total wall-clock delta vs. raw provider consumption
- *
- * @module
- */
+import { z } from 'zod';
+import { defineProtocol, type ProtocolEvent } from '../../kernel/protocols/protocol.ts';
+import { defineProvider } from '../../kernel/protocols/provider.ts';
+// why: TTFE: time to first event (profile resolve + provider setup). TTFT: time to first text delta.
+// Overhead: total wall-clock delta vs. raw provider consumption.
 
-import { bindCanary, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
+import { canaryNote, eventHasCanary, mintCanary } from '../../guardrails/canary.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import {
+  clearProfiles,
+  getProfile,
+  getProvider,
+  registerProfile,
+  registerProvider,
+  resolveTurn,
+  runTurn,
+} from '../../kernel/default-scope.ts';
 import { startCallUsage } from '../../kernel/engine/runner/usage.ts';
-import { runTurn } from '../../kernel/engine/runner.ts';
 import { startCallTrace } from '../../kernel/engine/turn-trace.ts';
-import { clearProfiles, registerProfile } from '../../kernel/registry/profiles.ts';
-import { resolveTurn } from '../../kernel/registry/resolve.ts';
 import { pickSystemRole } from '../../kernel/registry/system-role.ts';
-import type {
-  ModelProvider,
-  ProviderCompleteRequest,
-  TurnEvent,
-  TurnRequest,
-} from '../../kernel/types.ts';
+import { bindSystem } from '../../kernel/system-parts.ts';
+import type { ModelRequest, TurnEvent, TurnModel, TurnRequest } from '../../kernel/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
 import { buildRecord } from '../../observability/trace-record.ts';
 import { startTrace } from '../../observability/trace-span.ts';
@@ -54,8 +47,8 @@ function registerBenchProfile(): void {
     },
     models: {
       'bench-model': {
-        protocol: 'openAi',
-        provider: 'openrouter',
+        protocol: 'bench',
+        provider: 'bench',
         apiId: 'bench-model',
         efforts: { normal: 'none' },
         summaries: false,
@@ -67,11 +60,6 @@ function registerBenchProfile(): void {
     defaultModel: 'bench-model',
     tools: { allow: [] },
     inputs: { text: true },
-    guardrails: {
-      canary: true,
-      sanitizeInput: true,
-      redactSensitive: true,
-    },
   });
 }
 
@@ -84,18 +72,43 @@ function generateChunks(count: number): TurnEvent[] {
     type: 'tokens',
     tokens: { input: 10, output: count, total: 10 + count },
   });
-  events.push({ type: 'done' });
+  events.push({ type: 'done', stop: { kind: 'completed' } });
   return events;
 }
 
-function createMockProvider(chunks: TurnEvent[]): ModelProvider {
+function createMockProvider(chunks: TurnEvent[]): TurnModel {
   return {
-    async *complete(_req: ProviderCompleteRequest): AsyncGenerator<TurnEvent> {
+    async *complete(_req: ModelRequest): AsyncGenerator<TurnEvent> {
       for (const chunk of chunks) {
         yield chunk;
       }
     },
   };
+}
+
+/** A protocol and provider that answer every turn with `chunks`, so the bench times the kernel alone. */
+function registerBenchProvider(chunks: TurnEvent[]): void {
+  if (getProvider('bench')) return;
+  const protocol = defineProtocol({
+    id: 'bench',
+    name: 'Bench',
+    description: 'Streams the bench chunks without a network.',
+    endpoints: { text: '/bench' },
+    options: z.strictObject({}),
+    create: () => ({
+      async *complete() {
+        yield* chunks as ProtocolEvent[];
+      },
+    }),
+  });
+  registerProvider(
+    defineProvider({
+      id: 'bench',
+      name: 'Bench',
+      description: 'Answers the bench in process.',
+      serves: () => [{ protocol, baseUrl: 'https://bench.invalid' }],
+    }),
+  );
 }
 
 function buildBenchRequest(): TurnRequest {
@@ -106,7 +119,7 @@ function buildBenchRequest(): TurnRequest {
 }
 
 /** What a bare consumer sends a provider: the bench prompt, no kernel shaping. */
-function benchProviderRequest(text: string): ProviderCompleteRequest {
+function benchProviderRequest(text: string): ModelRequest {
   return {
     model: 'bench-model',
     apiId: 'bench-model',
@@ -129,7 +142,7 @@ interface TimingResult {
   textEvents: number;
 }
 
-async function measureRawProvider(provider: ModelProvider): Promise<TimingResult> {
+async function measureRawProvider(provider: TurnModel): Promise<TimingResult> {
   const req = buildBenchRequest();
   const start = performance.now();
   let firstEvent = 0;
@@ -138,7 +151,6 @@ async function measureRawProvider(provider: ModelProvider): Promise<TimingResult
   let gotFirst = false;
   let gotFirstText = false;
 
-  // Simulate what a bare consumer does — no kernel overhead
   const fakeReq = benchProviderRequest(req.input?.text ?? '');
 
   for await (const event of provider.complete(fakeReq)) {
@@ -163,7 +175,7 @@ async function measureRawProvider(provider: ModelProvider): Promise<TimingResult
   };
 }
 
-async function measureKernelPipeline(provider: ModelProvider): Promise<TimingResult> {
+async function measureKernelPipeline(_provider: TurnModel): Promise<TimingResult> {
   const req = buildBenchRequest();
   const start = performance.now();
   let firstEvent = 0;
@@ -172,7 +184,7 @@ async function measureKernelPipeline(provider: ModelProvider): Promise<TimingRes
   let gotFirst = false;
   let gotFirstText = false;
 
-  for await (const event of runTurn(req, provider)) {
+  for await (const event of runTurn(req)) {
     if (!gotFirst) {
       firstEvent = performance.now() - start;
       gotFirst = true;
@@ -227,7 +239,7 @@ function aggregate(results: TimingResult[]): AggregatedMetrics {
     },
     tokensPerSec: {
       median: percentile(tps, 50),
-      p95: percentile(tps, 5), // lower is worse for throughput
+      p95: percentile(tps, 5), // why: lower is worse for throughput
       mean: mean(tps),
     },
     totalMs: {
@@ -305,17 +317,16 @@ function measureSetupPhases(): PhaseTimings {
   const req = buildBenchRequest();
 
   const t0 = performance.now();
-  const safe = sanitizeTurnRequest(req);
+  const safe = sanitizeTurnRequest(req, getProfile(req.profile));
   const t1 = performance.now();
 
   const { profile, generation } = resolveTurn(safe);
   const t2 = performance.now();
 
   pickSystemRole(profile, safe.input?.role);
-  const sys = profile.type === 'speech' ? '' : (profile.identity.system ?? '');
   const t3 = performance.now();
 
-  bindCanary(sys, generation.canary);
+  bindSystem(generation.resolvedSystem, [canaryNote(generation.canary)]);
   const t4 = performance.now();
 
   return {
@@ -349,7 +360,7 @@ function printPhaseBreakdown(iterations: number): void {
   console.log(`  sanitizeTurnRequest    ${fmtMs(sanitize).padStart(10)}`);
   console.log(`  resolveTurn            ${fmtMs(resolve).padStart(10)}`);
   console.log(`  pickSystemRole         ${fmtMs(system).padStart(10)}`);
-  console.log(`  bindCanary             ${fmtMs(canary).padStart(10)}`);
+  console.log(`  bindSystem             ${fmtMs(canary).padStart(10)}`);
   console.log(`  ─────────────────────────────`);
   console.log(`  Total setup            ${fmtMs(total).padStart(10)}`);
 }
@@ -423,7 +434,7 @@ async function microAsyncGenOverhead(
   const start = performance.now();
   for (let i = 0; i < iterations; i++) {
     for await (const _e of layer4(chunks)) {
-      // consume
+      // why: only the time to read the stream matters, so each event is dropped.
     }
   }
   const elapsed = performance.now() - start;
@@ -466,7 +477,7 @@ async function microTraceRecord(chunks: TurnEvent[], iterations: number): Promis
       req,
       usage: startCallUsage('', { history: [], input: req.input }),
       binding: undefined,
-      transport: 'interactions',
+      transport: 'turn',
       step: 0,
       attempt: 0,
     });
@@ -500,7 +511,7 @@ function microSanitizeScaling(): void {
     const runs = 500;
     const start = performance.now();
     for (let i = 0; i < runs; i++) {
-      sanitizeTurnRequest(req);
+      sanitizeTurnRequest(req, getProfile(req.profile));
     }
     const elapsed = performance.now() - start;
     const perCall = elapsed / runs;
@@ -548,21 +559,19 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
   const chunks = generateChunks(chunkCount);
   const provider = createMockProvider(chunks);
 
+  registerBenchProvider(chunks);
   registerBenchProfile();
 
-  // Warmup
   for (let i = 0; i < warmup; i++) {
     await measureRawProvider(provider);
     await measureKernelPipeline(provider);
   }
 
-  // Collect raw baseline
   const rawResults: TimingResult[] = [];
   for (let i = 0; i < iterations; i++) {
     rawResults.push(await measureRawProvider(provider));
   }
 
-  // Collect kernel pipeline
   const kernelResults: TimingResult[] = [];
   for (let i = 0; i < iterations; i++) {
     kernelResults.push(await measureKernelPipeline(provider));
@@ -577,7 +586,6 @@ export async function benchCommand(options: BenchOptions = {}): Promise<void> {
   printPhaseBreakdown(iterations);
   await printMicroBenchmarks(chunks, iterations);
 
-  // Cleanup
   clearProfiles();
 
   console.log('\n');

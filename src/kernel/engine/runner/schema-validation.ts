@@ -1,14 +1,10 @@
-/**
- * Schema-driven structured-output validation.
- *
- * Required vs optional comes only from the JSON Schema. Host field validators
- * run for required paths and for optional paths that are present.
- *
- * @module
- */
-
 import { TheoremError } from '../../../guardrails/error.ts';
-import type { ProfileValidator, ValidationResult } from '../../types.ts';
+import type {
+  ItemCheckTurn,
+  ProfileItemRule,
+  ProfileValidator,
+  ValidationResult,
+} from '../../types.ts';
 
 interface ValidationFailure {
   path: string;
@@ -55,7 +51,7 @@ function joinPath(prefix: string, key: string): string {
 }
 
 function pushMissing(path: string, failures: ValidationFailure[]): void {
-  failures.push({ path, error: `required field '${path}' is missing` }); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  failures.push({ path, error: `required field '${path}' is missing` }); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
 }
 
 async function runFieldValidator(
@@ -74,7 +70,7 @@ async function runFieldValidator(
   }
   failures.push({
     path,
-    error: check.error || check.finding || `Validation failed for '${path}'`, // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    error: check.error || check.finding || `Validation failed for '${path}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   });
 }
 
@@ -131,8 +127,8 @@ async function walkObject(
 }
 
 /**
- * Collect schema presence failures and host field-validator failures.
- * Throws when the root schema is not an object schema.
+ * Required vs optional comes only from the JSON Schema; host field validators run for required
+ * paths and for optional paths that are present. Throws when the root is not an object schema.
  */
 async function collectValidationFailures(
   jsonSchema: Record<string, unknown>,
@@ -142,7 +138,7 @@ async function collectValidationFailures(
 ): Promise<ValidationFailure[]> {
   const root = asObjectSchema(jsonSchema);
   if (!root) {
-    throw new TheoremError('config', 'structured validation requires a JSON Schema object root'); // lexicon-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    throw new TheoremError('config', 'structured validation requires a JSON Schema object root'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
   const failures: ValidationFailure[] = [];
   if (!asRecord(structured)) {
@@ -155,9 +151,108 @@ async function collectValidationFailures(
   return failures;
 }
 
+/**
+ * Whether a validator keyed by `path` can run against `jsonSchema`: each segment is a
+ * property or required key of an object schema, as `collectValidationFailures` walks it.
+ */
+function schemaReaches(jsonSchema: Record<string, unknown>, path: string): boolean {
+  let schema: unknown = jsonSchema;
+  for (const key of path.split('.')) {
+    const object = asObjectSchema(schema);
+    if (!object) {
+      return false;
+    }
+    const props = propertySchemas(object);
+    if (!Object.hasOwn(props, key) && !requiredKeys(object).includes(key)) {
+      return false;
+    }
+    schema = props[key];
+  }
+  return true;
+}
+
 function formatValidationFailures(failures: ValidationFailure[]): string {
   return failures.map((f) => f.error).join('; ');
 }
 
-export type { ValidationFailure };
-export { collectValidationFailures, formatValidationFailures, isAbsent };
+/** One list item an item rule refused: where it sat, the item, and why. */
+interface ItemFailure {
+  path: string;
+  index: number;
+  item: unknown;
+  reason: string;
+  onFail: ProfileItemRule['onFail'];
+}
+
+/** The value at a dotted path, reached through object properties only. */
+function valueAt(structured: unknown, path: string): unknown {
+  let value: unknown = structured;
+  for (const key of path.split('.')) {
+    value = asRecord(value)?.[key];
+  }
+  return value;
+}
+
+/** `structured` with the list at `path` replaced; every object on the way is copied. */
+function withListAt(structured: unknown, path: string, list: unknown[]): unknown {
+  const [key, ...rest] = path.split('.');
+  const record = asRecord(structured) ?? {};
+  if (key === undefined) return structured;
+  return {
+    ...record,
+    [key]: rest.length ? withListAt(record[key], rest.join('.'), list) : list,
+  };
+}
+
+/** Each item an item rule refuses, in the reply's own order. A path with no list has no items. */
+async function collectItemFailures(
+  structured: unknown,
+  items: Record<string, ProfileItemRule> | undefined,
+  turn: ItemCheckTurn,
+): Promise<ItemFailure[]> {
+  const failures: ItemFailure[] = [];
+  for (const [path, rule] of Object.entries(items ?? {})) {
+    const list = valueAt(structured, path);
+    if (!Array.isArray(list)) continue;
+    for (const [index, item] of list.entries()) {
+      const check = await rule.check(item, turn);
+      if (check.isValid) continue;
+      failures.push({
+        path,
+        index,
+        item,
+        reason: check.error || check.finding || `Validation failed for '${path}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        onFail: rule.onFail,
+      });
+    }
+  }
+  return failures;
+}
+
+/** The schema of one item of the list at `path`, or `undefined` when the path reaches no list with one. */
+function itemSchemaAt(
+  jsonSchema: Record<string, unknown>,
+  path: string,
+): Record<string, unknown> | undefined {
+  let schema: unknown = jsonSchema;
+  for (const key of path.split('.')) {
+    const object = asObjectSchema(schema);
+    if (!object) return undefined;
+    schema = propertySchemas(object)[key];
+  }
+  const list = asRecord(schema);
+  if (list?.type !== 'array') return undefined;
+  return asRecord(list.items) ?? undefined;
+}
+
+export type { ItemFailure, ValidationFailure };
+export {
+  collectItemFailures,
+  collectValidationFailures,
+  formatValidationFailures,
+  isAbsent,
+  itemSchemaAt,
+  schemaReaches,
+  valueAt,
+  withListAt,
+};

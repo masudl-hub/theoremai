@@ -1,44 +1,26 @@
-/**
- * Host tool invoke context derived from turn events — snapshot and T2 promotions.
- *
- * @module
- */
-
+import { extractLoadedIds } from '../kernel/tools/resolve.ts';
 import type { ToolId, TurnEvent, TurnToolSnapshot } from '../kernel/types.ts';
 import { findLast } from '../kernel/util/find-last.ts';
 
-/** Collect T2 ids promoted by loader tool completions in a turn event stream. */
+/** The ids of the tools a turn loaded, read from the loaded ids in its completed tool events. */
 function promotedToolIdsFromEvents(events: readonly TurnEvent[]): ToolId[] {
   const ids = new Set<ToolId>();
   for (const event of events) {
-    if (
-      event.type !== 'tool' ||
-      event.tool?.phase !== 'complete' ||
-      event.tool.output === undefined
-    ) {
+    if (event.type !== 'tool' || event.tool.phase !== 'complete') {
       continue;
     }
-    const loaded = (event.tool.output as { loaded?: unknown }).loaded;
-    if (!Array.isArray(loaded)) {
-      continue;
-    }
-    for (const id of loaded) {
-      if (typeof id === 'string') {
-        ids.add(id);
-      }
+    for (const id of extractLoadedIds(event.tool.output) ?? []) {
+      ids.add(id);
     }
   }
   return [...ids];
 }
 
-/** Read the turn tool snapshot emitted on a gate (or legacy tool-pause) terminal `done`. */
+/** The tool snapshot on the last `done` event that carries one, which only a turn stopped on a tool or gate does. */
 function toolSnapshotFromEvents(events: readonly TurnEvent[]): TurnToolSnapshot | undefined {
-  const done = findLast(
-    events,
-    (event) =>
-      event.type === 'done' && (event.stop?.kind === 'gate' || event.stop?.kind === 'tool'),
-  );
-  return done?.tools;
+  // why: Only a `done` that stopped on `tool` or `gate` carries one (`DoneEvent`).
+  const done = findLast(events, (event) => event.type === 'done' && event.tools !== undefined);
+  return done?.type === 'done' ? done.tools : undefined;
 }
 
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents };

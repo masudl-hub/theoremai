@@ -1,13 +1,11 @@
+import type { BoundaryReader } from '../../guardrails/detect-at.ts';
 import { type ErrorCopy, TheoremError } from '../../guardrails/error.ts';
-import { injectionSpans } from '../../guardrails/injection.ts';
 import {
-  type LexiconKey,
-  type LexiconOverrides,
-  type LexiconParams,
-  lexiconText,
-} from '../../guardrails/lexicon.ts';
-import { sensitiveSpans } from '../../guardrails/sensitive.ts';
-import { applySpans } from '../../observability/spans.ts';
+  type LabelKey,
+  type LabelOverrides,
+  type LabelParams,
+  labelText,
+} from '../../guardrails/labels.ts';
 import type {
   AttachmentValidationIssue,
   MediaLimits,
@@ -27,7 +25,7 @@ const B64_TRIPLET = 3;
 const CSV_FORMULA = /(^|,)(\s*)("?)(?:([=@])|([+-])(?![0-9."]))/gm;
 const B64_BODY = /^[A-Za-z0-9+/]*={0,2}$/;
 const TEXT_MIMES = new Set(['text/csv', 'text/plain', 'text/markdown']);
-/** Returns complete attachment limits only when every required global limit is set. */
+/** The media limits an inputs spec sets, or `undefined` unless it sets `maxFiles`, `maxBytes`, and `maxTurnBytes`. */
 function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   const { maxFiles, maxBytes, maxTurnBytes, limitsByMime } = inputs;
   if (maxFiles && maxBytes && maxTurnBytes) {
@@ -36,7 +34,7 @@ function resolveMediaLimits(inputs: MimeInputs): MediaLimits | undefined {
   return undefined;
 }
 
-/** Resolves a MIME-specific byte cap, then its category wildcard, then the global cap. */
+/** A MIME-specific cap, then its category wildcard, then the global cap. */
 function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
   if (limits.limitsByMime) {
     const cleanMime = mimeEssence(mimeType);
@@ -52,36 +50,32 @@ function maxBytesForMime(mimeType: string, limits: MediaLimits): number {
   return limits.maxBytes;
 }
 
-/** Attachment supplied by provider file reference — no bytes to size-check or sanitize. */
 function isTurnMediaRef(item: TurnBlob | TurnMediaRef): item is TurnMediaRef {
   return 'uri' in item;
 }
 
-/**
- * Returns a turn-capable profile's attachment limits or throws when its profile
- * type cannot accept attachments or it omitted a complete limits declaration.
- */
+/** The profile's media limits; throws when it takes no media. */
 function requireMediaLimits(profile: Profile): MediaLimits {
   if (profile.type === 'speech') {
-    throw new TheoremError('request', `Profile ${profile.id} (speech) does not accept media input`); // lexicon-exempt: developer contract error
+    throw new TheoremError('request', `Profile ${profile.id} (speech) does not accept media input`); // labels-exempt: developer contract error
   }
   if (profile.type === 'live') {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id} (live) does not accept turn attachment input`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id} (live) does not accept turn attachment input`, // labels-exempt: developer contract error
     );
   }
-  if (profile.type === 'host' || profile.type === 'decision') {
+  if (profile.type === 'host' || profile.type === 'decision' || profile.type === 'embedding') {
     throw new TheoremError(
       'request',
-      `Profile ${profile.id} (${profile.type}) does not accept turn input`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id} (${profile.type}) does not accept turn input`, // labels-exempt: developer contract error
     );
   }
   const limits = resolveMediaLimits(profile.inputs ?? {});
   if (!limits) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id} must set maxFiles, maxBytes, and maxTurnBytes`, // labels-exempt: developer contract error
     );
   }
   return limits;
@@ -105,7 +99,7 @@ function decodeText(bytes: Uint8Array): string {
   }
 }
 
-/** Prefixes CSV formula-like cells with an apostrophe before they reach a model. */
+/** CSV formula injection: formula-like cells get an apostrophe before they reach a model. */
 function sanitizeCsvText(text: string): string {
   return text.replace(CSV_FORMULA, (_full, ...groups: string[]) => {
     const [a, b, c, d, e] = groups;
@@ -113,27 +107,22 @@ function sanitizeCsvText(text: string): string {
   });
 }
 
-function sanitizeTextBytes(mime: string, bytes: Uint8Array): Uint8Array {
+function sanitizeTextBytes(mime: string, bytes: Uint8Array, reader: BoundaryReader): Uint8Array {
   let text = decodeText(bytes);
   if (mime === 'text/csv') {
     text = sanitizeCsvText(text);
   }
-  return new TextEncoder().encode(
-    applySpans(text, [...injectionSpans(text), ...sensitiveSpans(text)]),
-  );
+  return new TextEncoder().encode(reader.read(text));
 }
 
-/** One file as validation sees it. `sizeBytes` is absent for provider references, which carry no bytes. */
+/** `sizeBytes` is absent for provider references, which carry no bytes. */
 export interface AttachmentFacts {
   name?: string;
   mimeType: string;
   sizeBytes?: number;
 }
 
-/**
- * What a profile takes: each channel's `accept` list (absent when it takes none)
- * and its complete limits.
- */
+/** An absent `accept` list means the channel takes nothing. */
 export interface AttachmentRules {
   attachments?: string[];
   voice?: string[];
@@ -179,11 +168,7 @@ function limitIssues(files: AttachmentFacts[], limits: MediaLimits): AttachmentV
   return issues;
 }
 
-/**
- * Every reason a turn's files are refused, each file's naming that file. Empty
- * means the files are accepted. The one attachment check: the kernel throws on
- * it at ingress and the headless interface runs it before a send.
- */
+/** The one attachment check: the kernel throws on it at ingress and the headless interface runs it before a send. */
 function attachmentIssues(
   rules: AttachmentRules,
   files: AttachmentFacts[],
@@ -204,9 +189,10 @@ function attachmentIssues(
   return [...issues, ...limitIssues([...files, ...clips], rules.limits)];
 }
 
-const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LexiconKey> = {
+const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LabelKey> = {
   mime_not_allowed: 'attachments.mime_not_allowed',
   too_many_files: 'attachments.too_many_files',
+  too_many_of_kind: 'attachments.too_many_of_kind',
   file_too_large: 'attachments.file_too_large',
   turn_too_large: 'attachments.turn_too_large',
   attachments_not_accepted: 'attachments.not_accepted',
@@ -214,9 +200,9 @@ const ISSUE_KEYS: Record<AttachmentValidationIssue['code'], LexiconKey> = {
   limits_unconfigured: 'attachments.limits_unconfigured',
 };
 
-/** The lexicon line for one issue, with its parameters and the file's name. */
+/** The user-facing wording key and params for an attachment issue. */
 function attachmentIssueCopy(issue: AttachmentValidationIssue): ErrorCopy {
-  const params: LexiconParams = {};
+  const params: LabelParams = {};
   for (const [key, value] of Object.entries(issue.params ?? {})) {
     if (value !== undefined) params[key] = value;
   }
@@ -224,39 +210,39 @@ function attachmentIssueCopy(issue: AttachmentValidationIssue): ErrorCopy {
   return { key: ISSUE_KEYS[issue.code], params };
 }
 
-/** The user's line for one issue, in the profile's wording when `lexicon` is given. */
-function attachmentIssueText(issue: AttachmentValidationIssue, lexicon?: LexiconOverrides): string {
+/** The user-facing text for an attachment issue. */
+function attachmentIssueText(issue: AttachmentValidationIssue, labels?: LabelOverrides): string {
   const copy = attachmentIssueCopy(issue);
-  return lexiconText(copy.key, copy.params, lexicon);
+  return labelText(copy.key, copy.params, labels);
 }
 
-/** The refusal for a turn's files: one `input` error whose copy carries a line per issue. */
+/** The error for a turn whose attachments were refused. */
 function attachmentsRefused(issues: readonly AttachmentValidationIssue[]): TheoremError {
   return new TheoremError(
     'input',
-    // lexicon-exempt: internal diagnostic; the user reads the copy lines
+    // labels-exempt: internal diagnostic; the user reads the copy lines
     `attachments refused: ${issues.map((issue) => issue.code).join(', ')}`,
     { copy: issues.map(attachmentIssueCopy) },
   );
 }
 
-function factsOf(item: TurnBlob | TurnMediaRef): AttachmentFacts {
-  const facts: AttachmentFacts = { mimeType: item.mimeType };
-  if (item.name) facts.name = item.name;
-  if (isTurnMediaRef(item)) return facts;
-  if (!B64_BODY.test(item.data)) {
-    // lexicon-exempt: developer-facing wire-format diagnostic, not product copy
+/** The decoded size of inline base64 data; throws when it is not base64. */
+function base64Bytes(data: string): number {
+  if (!B64_BODY.test(data)) {
+    // labels-exempt: developer-facing wire-format diagnostic, not product copy
     throw new TheoremError('request', 'attachment data must be base64');
   }
-  facts.sizeBytes = b64DecodedLen(item.data);
+  return b64DecodedLen(data);
+}
+
+function factsOf(item: TurnBlob | TurnMediaRef): AttachmentFacts {
+  const facts: AttachmentFacts = { mimeType: item.mimeType, name: item.name };
+  if (isTurnMediaRef(item)) return facts;
+  facts.sizeBytes = base64Bytes(item.data);
   return facts;
 }
 
-/**
- * Refuse a turn's files when any is not accepted, naming every reason: one
- * `input` error whose copy carries a line per issue. Provider references are
- * checked for MIME and count; byte limits apply to inline blobs only.
- */
+/** Provider references are checked for MIME and count; byte limits apply to inline blobs only. */
 function assertTurnAttachments(
   profile: Profile,
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,
@@ -276,7 +262,7 @@ function assertTurnAttachments(
   if (issues.length > 0) throw attachmentsRefused(issues);
 }
 
-function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T): T {
+function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T, reader: BoundaryReader): T {
   if (isTurnMediaRef(blob)) {
     return blob;
   }
@@ -284,7 +270,7 @@ function sanitizeAttachment<T extends TurnBlob | TurnMediaRef>(blob: T): T {
   if (!TEXT_MIMES.has(mimeEssence(mimeType))) {
     return blob;
   }
-  const bytes = sanitizeTextBytes(mimeType, base64ToBytes(data));
+  const bytes = sanitizeTextBytes(mimeType, base64ToBytes(data), reader);
   return { ...blob, data: bytesToBase64(bytes) };
 }
 
@@ -294,23 +280,19 @@ function hasTurnBlobs(attachments?: TurnAttachments, voice?: TurnBlob[]): boolea
   return (attachments?.length ?? 0) > 0 || (voice?.length ?? 0) > 0;
 }
 
-/**
- * Refuses files the profile does not accept (every reason at once), then
- * sanitizes inline text and CSV blobs. Provider file references pass through
- * unchanged because the kernel has no bytes to scan. Names ride along.
- */
+/** Provider file references pass through unsanitized: the kernel has no bytes to scan. */
 function sanitizeTurnBlobs(
   profile: Profile,
   attachments: Array<TurnBlob | TurnMediaRef> | undefined,
   voice: TurnBlob[] | undefined,
+  at: { attachment: BoundaryReader; voice: BoundaryReader },
 ): { attachments?: Array<TurnBlob | TurnMediaRef>; voice?: TurnBlob[] } {
-  if (!hasTurnBlobs(attachments, voice)) {
-    return { attachments, voice };
-  }
   assertTurnAttachments(profile, attachments, voice);
   return {
-    attachments: attachments?.length ? attachments.map(sanitizeAttachment) : attachments,
-    voice: voice?.length ? voice.map(sanitizeAttachment) : voice,
+    attachments: attachments?.length
+      ? attachments.map((blob) => sanitizeAttachment(blob, at.attachment))
+      : attachments,
+    voice: voice?.length ? voice.map((blob) => sanitizeAttachment(blob, at.voice)) : voice,
   };
 }
 
@@ -320,6 +302,7 @@ export {
   attachmentIssues,
   attachmentIssueText,
   attachmentsRefused,
+  base64Bytes,
   isTurnMediaRef,
   maxBytesForMime,
   requireMediaLimits,

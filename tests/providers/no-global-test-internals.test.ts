@@ -1,15 +1,7 @@
-/**
- * Effect-level guard for F-01: the old global test bag must never appear after
- * loading the public / provider surface.
- *
- * Static lint catches natural spellings of the banned name. This test checks
- * the *effect*. The key is assembled here on purpose so the guard can name the
- * bag without embedding the banned literal (which lint correctly rejects).
- */
+// F-01: the global test bag must never appear after loading the public and provider surface.
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import '../../mod.ts';
-import '../../src/providers/create-provider.ts';
-import '../../src/providers/probe.ts';
+import '../../src/providers/mod.ts';
 
 /** Assembled so this file does not contain the banned whole-token literal. */
 const BANNED_GLOBALS = [['__theorem', 'TestInternals'].join('')];

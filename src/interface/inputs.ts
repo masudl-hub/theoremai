@@ -1,9 +1,3 @@
-/**
- * Profile `inputs` → UI affordances and validation.
- *
- * @module
- */
-
 import { attachmentIssues, resolveMediaLimits } from '../kernel/registry/attachments.ts';
 import { mimeAllowed } from '../kernel/registry/catalog.ts';
 import type { ProfileInputsSpec } from '../kernel/types.ts';
@@ -22,6 +16,7 @@ const RECORDER_CANDIDATES = [
   'audio/mpeg',
 ] as const;
 
+/** The accepted MIME types as the value of an HTML `accept` attribute, comma-joined. */
 function attachmentAcceptAttr(accept: string[]): string {
   return accept.join(',');
 }
@@ -40,6 +35,7 @@ function inputsFromSpec(inputs: ProfileInputsSpec | null | undefined): ProfileIn
     maxTurnBytes: inputs?.maxTurnBytes,
     limitsByMime: inputs?.limitsByMime,
     slots: inputs?.slots,
+    context: inputs?.context,
   };
 }
 
@@ -53,6 +49,7 @@ function toProfileInputsSpec(inputs: ProfileInputsInterface): ProfileInputsSpec 
     maxTurnBytes: inputs.maxTurnBytes,
     limitsByMime: inputs.limitsByMime,
     slots: inputs.slots,
+    context: inputs.context,
   };
 }
 

@@ -1,28 +1,19 @@
 /**
- * Env for the live verify scripts. The dev chooses which keys fill which
- * `KeyVault` slot; the scripts read only the slot-named variables below and
- * `OPENROUTER_API_KEY`, and `THEOREM_ENV_FILE`, when set, names a `KEY=value`
- * file to load first. Keys never go on the command line, where `deno task`
- * echoes them.
- * Variables already set in the shell win over the file.
- *
- * @module
+ * `THEOREM_ENV_FILE`, when set, names a `KEY=value` file to load first; variables already set in
+ * the shell win. Keys never go on the command line, where `deno task` echoes them.
  */
 
 import type { KeySlot, KeyVault } from '../src/kernel/types.ts';
 
-/** The env variable that fills each vault slot. */
-export const VAULT_ENV: Record<KeySlot, string> = {
-  slotA: 'THEOREM_VAULT_SLOT_A',
-  slotB: 'THEOREM_VAULT_SLOT_B',
-  slotC: 'THEOREM_VAULT_SLOT_C',
-  paid: 'THEOREM_VAULT_PAID',
-};
+const VAULT_PREFIX = 'THEOREM_VAULT_';
 
-/** The env variable that holds the OpenRouter key. */
+/** The variable a slot reads: `slot_a` → `THEOREM_VAULT_SLOT_A`. Name slots with `_`, not `-`, to set them here. */
+export function vaultEnv(slot: KeySlot): string {
+  return `${VAULT_PREFIX}${slot.toUpperCase()}`;
+}
+
 export const OPENROUTER_ENV = 'OPENROUTER_API_KEY';
 
-/** Set each `KEY=value` line not already set. */
 function loadEnvFile(path: string): void {
   const text = Deno.readTextFileSync(path);
   for (const line of text.split('\n')) {
@@ -40,27 +31,30 @@ function loadEnvFile(path: string): void {
   }
 }
 
-/**
- * Load `THEOREM_ENV_FILE` when set (a named file that cannot be read throws),
- * then log which vault slots are set, never their values.
- */
+/** A named file that cannot be read throws; logs which vault slots are set, never their keys. */
 export function loadHostEnv(): void {
   const path = Deno.env.get('THEOREM_ENV_FILE');
   if (path) {
     loadEnvFile(path);
     console.log(`Loaded env from ${path}`);
   }
-  const state = Object.entries(hostVault()).map(([n, key]) => `${n} ${key ? 'set' : 'unset'}`);
-  console.log(`Vault: ${state.join(', ')}; openrouter ${hostOpenRouterKey() ? 'set' : 'unset'}`);
+  const slots = Object.keys(hostVault());
+  console.log(
+    `Vault: ${slots.length ? slots.join(', ') : 'no slots'}; openrouter ${hostOpenRouterKey() ? 'set' : 'unset'}`,
+  );
 }
 
-/** The vault from the slot-named variables; an unset slot stays undefined and fails upstream. */
+/** Every set `THEOREM_VAULT_<NAME>` variable, as slot `<name>` lowercased; an empty one is left out. */
 export function hostVault(): KeyVault {
-  const slot = (name: KeySlot) => Deno.env.get(VAULT_ENV[name])?.trim() || undefined;
-  return { slotA: slot('slotA'), slotB: slot('slotB'), slotC: slot('slotC'), paid: slot('paid') };
+  const vault: Record<KeySlot, string> = {};
+  for (const [name, value] of Object.entries(Deno.env.toObject())) {
+    const key = value.trim();
+    if (!name.startsWith(VAULT_PREFIX) || !key) continue;
+    vault[name.slice(VAULT_PREFIX.length).toLowerCase()] = key;
+  }
+  return vault;
 }
 
-/** The OpenRouter key from `OPENROUTER_API_KEY`; undefined when unset. */
 export function hostOpenRouterKey(): string | undefined {
   return Deno.env.get(OPENROUTER_ENV)?.trim() || undefined;
 }

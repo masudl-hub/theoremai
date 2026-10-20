@@ -1,0 +1,15 @@
+# Phoenix and the Collector in front of it, for viewing eval runs locally.
+# Phoenix takes OTLP protobuf only; toOtlpJson writes OTLP/JSON, so the
+# Collector takes JSON on 4318 and forwards protobuf to Phoenix on 4317.
+#   deno task phoenix:up    UI on http://localhost:6006, Jev priced (up.ts)
+#   deno task phoenix:down
+services:
+  phoenix:
+    image: arizephoenix/phoenix:version-20.16.0
+    ports: ["6006:6006", "4317:4317"]
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./collector.yaml:/etc/otelcol/config.yaml:ro"]
+    ports: ["4318:4318"]
+    depends_on: [phoenix]

@@ -1,6 +1,6 @@
 import '../fixtures/test-host.ts';
 import { publicError } from '../../src/guardrails/error.ts';
-import { lexiconDefault } from '../../src/guardrails/lexicon.ts';
+import { labelDefault } from '../../src/guardrails/labels.ts';
 import {
   clientIp,
   quotaExhausted,
@@ -10,8 +10,9 @@ import {
   takeSlot,
 } from '../../src/guardrails/quota.ts';
 import { caughtStatus } from '../../src/host/reply.ts';
+import { getProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
-import { defineProfile, getProfile } from '../../src/kernel/registry/profiles.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const now = Date.parse('2026-08-16T12:00:00Z');
@@ -51,7 +52,6 @@ Deno.test('clientIp uses cf-connecting-ip only when the peer is loopback', () =>
   assertEquals(clientIp('127.0.0.1', req), '203.0.113.9');
   assertEquals(clientIp('198.51.100.2', req), '198.51.100.2');
 
-  // Release non-existent slot does not throw
   releaseSlot(getProfile('image'), 'non-existent-ip');
 });
 
@@ -104,14 +104,11 @@ Deno.test('quotaExhausted is a rate_limit error the user reads as the quota line
   const err = quotaExhausted(getProfile('image'));
   assertEquals(err?.kind, 'rate_limit');
   assertEquals(caughtStatus(err), 429);
-  assertEquals(publicError(err), lexiconDefault('quota.exhausted', { perDay: 4 }));
-  assertEquals(
-    publicError(err),
-    "You've reached today's limit of 4 messages. Please come back tomorrow.",
-  );
+  assertEquals(publicError(err), labelDefault('quota.exhausted', { perDay: 4 }));
+  assertEquals(publicError(err), "You've reached today's limit of 4 messages.");
 });
 
-Deno.test('quotaExhausted wording comes from the profile lexicon', () => {
+Deno.test('quotaExhausted wording comes from the profile labels', () => {
   const profile = defineProfile({
     type: 'text',
     identity: { handle: 'metered', system: 'test' },
@@ -119,10 +116,10 @@ Deno.test('quotaExhausted wording comes from the profile lexicon', () => {
     inputs: { text: true },
     id: 'quota-with-message',
     guardrails: { quota: { perDay: 2 } },
-    lexicon: { 'quota.exhausted': 'Host copy: {perDay} a day' },
+    labels: { 'quota.exhausted': 'Host copy: {perDay} a day' },
     ...geminiModels('gemini35FlashLite'),
   });
-  assertEquals(publicError(quotaExhausted(profile), profile.lexicon), 'Host copy: 2 a day');
+  assertEquals(publicError(quotaExhausted(profile), profile.labels), 'Host copy: 2 a day');
 });
 
 Deno.test('quotaExhausted is undefined when the profile omits quota', () => {

@@ -1,8 +1,11 @@
-/** Native, single-request execution for TypeSafe Jev decision profiles. */
-
-import { type ErrorKind, TheoremError } from '../../guardrails/error.ts';
+import { type ErrorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
+import { labelText } from '../../guardrails/labels.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
-import { getProfile } from '../registry/profiles.ts';
+import type { TraceSink } from '../../observability/trace-sink.ts';
+import { type SpanHandle, traceJson } from '../../observability/trace-span.ts';
+import type { ProviderHostOptions } from '../protocols/runtime.ts';
+import { guardedCall } from '../provider-runtime.ts';
+import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { soleModelId } from '../registry/sole-model.ts';
 import type {
   DecisionAnswer,
@@ -11,14 +14,12 @@ import type {
   DecisionQuestion,
   DecisionRequest,
   DecisionResult,
-  KeyVault,
   ModelId,
 } from '../types.ts';
 import { isRecord } from '../util/record.ts';
+import { tracedCall } from './call-trace.ts';
 
-const TYPESAFE_SYSTEM_ONE_URL = 'https://api.typesafe.ai/v1/systemone';
-
-/** Each native-decision failure code and the error kind it reports. */
+/** Where the provider takes decision requests, as its preset states. */
 const DECISION_ERROR_KINDS = {
   invalid_request: 'request',
   authentication: 'auth',
@@ -32,31 +33,33 @@ const DECISION_ERROR_KINDS = {
   disclosure_blocked: 'blocked',
 } as const satisfies Record<string, ErrorKind>;
 
-/** A normalized native-decision failure; response bodies are deliberately omitted. */
+/**
+ * A normalized native-decision failure; response bodies are deliberately omitted. What the
+ * provider path threw is its `cause`, and a failure the framework named reads as that failure.
+ */
 export class DecisionError extends TheoremError {
   constructor(
     readonly code: keyof typeof DECISION_ERROR_KINDS,
     message: string,
     readonly status?: number,
+    options?: ErrorOptions,
   ) {
-    super(DECISION_ERROR_KINDS[code], message);
+    super(DECISION_ERROR_KINDS[code], message, options);
   }
 }
 
-export interface RunDecisionOptions {
-  /** A flat API key, or use `keyVault` with profile/model key slots. */
-  apiKey?: string;
-  keyVault?: KeyVault;
-  fetch?: typeof globalThis.fetch;
-  endpoint?: string;
+/** Options for running a decision: the key vault, transport utilities, and a trace sink that replaces the profile's. */
+export interface RunDecisionOptions extends ProviderHostOptions {
+  /** Replaces the profile's `observability.writeTo`; an explicit sink always records, unsampled. */
+  sink?: TraceSink;
 }
 
-function requireDecisionProfile(id: string): DecisionProfile {
-  const profile = getProfile(id);
+function requireDecisionProfile(registry: KernelRegistry, id: string): DecisionProfile {
+  const profile = registry.profiles.get(id);
   if (profile.type !== 'decision') {
     throw new TheoremError(
       'request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       `runDecision requires profile.type 'decision' (got '${profile.type}' for ${profile.id})`,
     );
   }
@@ -70,7 +73,7 @@ function decisionModel(profile: DecisionProfile): [ModelId, DecisionProfile['mod
   if (!modelId || !binding) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id}: type 'decision' must declare exactly one model`, // lexicon-exempt: developer contract error
+      `Profile ${profile.id}: type 'decision' must declare exactly one model`, // labels-exempt: developer contract error
     );
   }
   return [modelId, binding];
@@ -78,7 +81,7 @@ function decisionModel(profile: DecisionProfile): [ModelId, DecisionProfile['mod
 
 function finite(value: unknown, path: string, min = 0, max = 1): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) {
-    throw new DecisionError('malformed_response', `${path} is outside its valid range`); // lexicon-exempt: upstream contract error
+    throw new DecisionError('malformed_response', `${path} is outside its valid range`); // labels-exempt: upstream contract error
   }
   return value;
 }
@@ -87,17 +90,44 @@ function distribution(value: unknown, labels: string[], path: string): Record<st
   if (
     !isRecord(value) ||
     Object.keys(value).length !== labels.length ||
-    labels.some((key) => !(key in value))
+    labels.some((key) => !Object.hasOwn(value, key))
   ) {
-    throw new DecisionError('malformed_response', `${path} does not match declared labels`); // lexicon-exempt: upstream contract error
+    throw new DecisionError('malformed_response', `${path} does not match declared labels`); // labels-exempt: upstream contract error
   }
-  const out: Record<string, number> = {};
+  const out: Record<string, number> = Object.create(null);
   for (const label of labels) out[label] = finite(value[label], `${path}.${label}`);
   const total = Object.values(out).reduce((sum, item) => sum + item, 0);
   if (Math.abs(total - 1) > 0.001) {
-    throw new DecisionError('malformed_response', `${path} must sum to one`); // lexicon-exempt: upstream contract error
+    throw new DecisionError('malformed_response', `${path} must sum to one`); // labels-exempt: upstream contract error
   }
   return out;
+}
+
+/** A box's four edges, each a fraction of the image, with the low edge before the high one. */
+function box(value: unknown, path: string) {
+  if (!isRecord(value)) throw new DecisionError('malformed_response', `${path} is invalid`); // labels-exempt: upstream contract error
+  const edges = {
+    top: finite(value.top, `${path}.top`),
+    bottom: finite(value.bottom, `${path}.bottom`),
+    left: finite(value.left, `${path}.left`),
+    right: finite(value.right, `${path}.right`),
+  };
+  if (edges.left >= edges.right || edges.top >= edges.bottom)
+    throw new DecisionError('malformed_response', `${path} has an edge out of order`); // labels-exempt: upstream contract error
+  return edges;
+}
+
+/** A score's legend: text for every declared level. */
+function legend(value: unknown, labels: string[], path: string): Record<string, string> {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== labels.length ||
+    labels.some((label) => !Object.hasOwn(value, label)) ||
+    Object.values(value).some((text) => typeof text !== 'string' || !text.trim())
+  ) {
+    throw new DecisionError('malformed_response', `${path} is invalid`); // labels-exempt: upstream contract error
+  }
+  return value as Record<string, string>;
 }
 
 function validateAnswers(
@@ -105,21 +135,29 @@ function validateAnswers(
   questions: Record<string, DecisionQuestion>,
 ): Record<string, DecisionAnswer> {
   if (!isRecord(raw) || Object.keys(raw).length !== Object.keys(questions).length) {
-    throw new DecisionError('malformed_response', 'Jev returned an incomplete answer set'); // lexicon-exempt: upstream contract error
+    throw new DecisionError(
+      'malformed_response',
+      // labels-exempt: upstream contract error
+      'Decision provider returned an incomplete answer set',
+    );
   }
-  const answers: Record<string, DecisionAnswer> = {};
+  const answers: Record<string, DecisionAnswer> = Object.create(null);
   for (const [id, question] of Object.entries(questions)) {
     const answer = raw[id];
     if (!isRecord(answer) || answer.type !== question.type) {
-      throw new DecisionError('malformed_response', `Jev returned an invalid answer for '${id}'`); // lexicon-exempt: upstream contract error
+      throw new DecisionError(
+        'malformed_response',
+        // labels-exempt: upstream contract error
+        `Decision provider returned an invalid answer for '${id}'`,
+      );
     }
     if (question.type === 'choice') {
       const labels = Object.keys(question.criteria);
       if (typeof answer.choice !== 'string' || !labels.includes(answer.choice)) {
         throw new DecisionError(
           'malformed_response',
-          // lexicon-exempt: upstream contract error
-          `Jev returned an undeclared choice for '${id}'`,
+          // labels-exempt: upstream contract error
+          `Decision provider returned an undeclared choice for '${id}'`,
         );
       }
       answers[id] = {
@@ -130,22 +168,19 @@ function validateAnswers(
       };
     } else if (question.type === 'noul') {
       answers[id] = { type: 'noul', noul: finite(answer.noul, `${id}.noul`) };
+    } else if (question.type === 'box') {
+      answers[id] = {
+        type: 'box',
+        box: box(answer.box, `${id}.box`),
+        confidence: finite(answer.confidence, `${id}.confidence`),
+      };
     } else {
       const labels = question.criteria.map((_, index) => String(index));
       answers[id] = {
         type: 'score',
         score: finite(answer.score, `${id}.score`, 0, Math.max(0, labels.length - 1)),
         confidence: finite(answer.confidence, `${id}.confidence`),
-        legend: isRecord(answer.legend)
-          ? Object.fromEntries(
-              Object.entries(answer.legend).map(([key, value]) => [
-                key,
-                finite(value, `${id}.legend.${key}`, 0, labels.length - 1),
-              ]),
-            )
-          : (() => {
-              throw new DecisionError('malformed_response', `${id}.legend is invalid`);
-            })(),
+        legend: legend(answer.legend, labels, `${id}.legend`),
         probabilities: distribution(answer.probabilities, labels, `${id}.probabilities`),
       };
     }
@@ -153,209 +188,361 @@ function validateAnswers(
   return answers;
 }
 
-function isNonNullJson(value: unknown): value is Exclude<DecisionJson, null> {
-  return (
-    isRecord(value) ||
-    Array.isArray(value) ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  );
+function isJson(value: unknown): value is DecisionJson {
+  const ancestors = new Set<object>();
+  const pending: { value: unknown; exit?: boolean }[] = [{ value }];
+  while (pending.length) {
+    const next = pending.pop();
+    if (!next) break;
+    const item = next.value;
+    if (next.exit) {
+      ancestors.delete(item as object);
+      continue;
+    }
+    if (item === null || typeof item === 'string' || typeof item === 'boolean') continue;
+    if (typeof item === 'number') {
+      if (!Number.isFinite(item)) return false;
+      continue;
+    }
+    if (typeof item !== 'object' || ancestors.has(item)) return false;
+    if (
+      !Array.isArray(item) &&
+      Object.getPrototypeOf(item) !== Object.prototype &&
+      Object.getPrototypeOf(item) !== null
+    )
+      return false;
+    if (Object.getOwnPropertySymbols(item).length) return false;
+    ancestors.add(item);
+    pending.push({ value: item, exit: true });
+    const entries = Array.isArray(item) ? Array.from(item) : Object.values(item);
+    for (const entry of entries) pending.push({ value: entry });
+  }
+  return true;
 }
 
-function validateQuestion(id: string, question: DecisionQuestion): void {
-  if (!id.trim() || !isDecisionEntry(question.instructions)) {
+function validateQuestion(id: string, question: unknown): void {
+  if (!isRecord(question) || !id.trim() || !isDecisionEntry(question.instructions)) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       `Decision question '${id}' must include instructions`,
     );
   }
-  if (question.type === 'noul') return;
-  const criteria =
-    question.type === 'choice' ? Object.values(question.criteria) : question.criteria;
+  if ((question.type === 'noul' || question.type === 'box') && question.criteria === undefined)
+    return;
+  if (
+    typeof question.type !== 'string' ||
+    !['choice', 'noul', 'score'].includes(question.type) ||
+    (question.type === 'score' ? !Array.isArray(question.criteria) : !isRecord(question.criteria))
+  ) {
+    throw new DecisionError('invalid_request', `Decision question '${id}' has invalid criteria`); // labels-exempt: developer contract error
+  }
+  const criteria = Array.isArray(question.criteria)
+    ? question.criteria
+    : Object.values(question.criteria as Record<string, unknown>);
   if (!criteria.length || !criteria.every(isDecisionEntry)) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       `Decision ${question.type} '${id}' must declare criteria`,
     );
   }
 }
 
-function validateRequest(request: DecisionRequest, profile: DecisionProfile): void {
+/** Check a decision before a host spends quota or dispatches it. Does not apply model-specific policy. */
+export function validateDecisionRequest(
+  request: Omit<DecisionRequest, 'state' | 'questions'> & { state: unknown; questions: unknown },
+  profile: DecisionProfile,
+): asserts request is DecisionRequest {
+  throwIfAborted(request.signal);
   if ((request as DecisionRequest & { model?: unknown }).model !== undefined) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       'Decision requests do not select a model; the profile runs its one model',
     );
   }
-  if (!isNonNullJson(request.state)) {
-    throw new DecisionError('invalid_request', 'Decision state must be non-null JSON'); // lexicon-exempt: developer contract error
+  if (request.state === null || !isJson(request.state)) {
+    throw new DecisionError('invalid_request', 'Decision state must be non-null JSON'); // labels-exempt: developer contract error
   }
-  const bytes = new TextEncoder().encode(JSON.stringify(request.state)).byteLength;
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(request.state);
+  } catch {
+    // labels-exempt: developer contract error
+    throw new DecisionError('invalid_request', 'Decision state cannot be serialized as JSON');
+  }
+  const bytes = new TextEncoder().encode(serialized).byteLength;
   if (profile.inputs.maxStateBytes !== undefined && bytes > profile.inputs.maxStateBytes) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       `Decision state exceeds ${profile.inputs.maxStateBytes} bytes`,
     );
   }
-  if (Object.keys(request.questions).length === 0) {
+  if (
+    !isRecord(request.questions) ||
+    !isJson(request.questions) ||
+    Object.keys(request.questions).length === 0
+  ) {
     throw new DecisionError(
       'invalid_request',
-      // lexicon-exempt: developer contract error
+      // labels-exempt: developer contract error
       'Decision request must declare at least one question',
     );
   }
   for (const [id, question] of Object.entries(request.questions)) validateQuestion(id, question);
+  if (request.assets !== undefined) validateAssets(request.assets);
+  for (const [id, question] of Object.entries(request.questions))
+    validateBoxImage(id, question, request.state, request.assets);
+}
+
+function stateAt(state: unknown, path: string): unknown {
+  let value = state;
+  for (const step of path.split('.')) {
+    if (!isRecord(value) && !Array.isArray(value)) return undefined;
+    value = Array.isArray(value) ? value[Number(step)] : value[step];
+  }
+  return value;
+}
+
+/** A box's image names an image the request holds, itself or through the state field it gives. */
+function validateBoxImage(
+  id: string,
+  question: DecisionJson,
+  state: unknown,
+  assets: DecisionRequest['assets'],
+): void {
+  if (!isRecord(question) || question.image === undefined) return;
+  const image = question.image;
+  const reference = typeof image === 'string' && !assets?.[image] ? stateAt(state, image) : image;
+  if (question.type !== 'box' || typeof reference !== 'string' || assets?.[reference] === undefined)
+    throw new DecisionError(
+      'invalid_request',
+      // labels-exempt: developer contract error
+      `Decision question '${id}' has an image that is neither a held image nor a state field holding one`,
+    );
+}
+
+/** The question as a provider reads it: a box's image said in its instructions, not as a field. */
+function providerQuestion(
+  question: DecisionQuestion,
+  assets: DecisionRequest['assets'],
+): DecisionQuestion {
+  if (question.type !== 'box' || question.image === undefined) return question;
+  const { image, instructions } = question;
+  const hint = labelText('decision.box_image', {
+    image: assets?.[image] ? image : `\`${image}\``,
+  });
+  return {
+    type: 'box',
+    instructions:
+      typeof instructions === 'string' ? `${instructions} ${hint}` : [instructions, hint],
+  };
+}
+
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/** Only what any provider needs: a known image type and bare, padded base64. The provider holds its own limits. */
+function validateAssets(assets: unknown): void {
+  if (!isRecord(assets) || Object.keys(assets).length === 0)
+    throw new DecisionError('invalid_request', 'Decision assets must name at least one image'); // labels-exempt: developer contract error
+  for (const [reference, asset] of Object.entries(assets)) {
+    if (
+      !reference.trim() ||
+      !isRecord(asset) ||
+      (asset.mimeType !== 'image/png' && asset.mimeType !== 'image/jpeg') ||
+      typeof asset.data !== 'string' ||
+      asset.data.length % 4 !== 0 ||
+      !BASE64.test(asset.data)
+    )
+      throw new DecisionError(
+        'invalid_request',
+        // labels-exempt: developer contract error
+        `Decision asset '${reference}' must be PNG or JPEG bytes as padded base64`,
+      );
+  }
 }
 
 function isDecisionEntry(value: unknown): boolean {
-  if (typeof value === 'string') return value.trim().length > 0;
-  if (Array.isArray(value)) return value.length > 0 && value.every(isDecisionEntry);
-  return (
-    isRecord(value) && Object.keys(value).length > 0 && Object.values(value).every(isDecisionEntry)
-  );
-}
-
-function errorForStatus(status: number): DecisionError {
-  if (status === 400 || status === 409 || status === 413 || status === 422)
-    return new DecisionError('invalid_request', 'Jev rejected the decision request', status); // lexicon-exempt: upstream contract error
-  if (status === 401)
-    return new DecisionError('authentication', 'Jev authentication failed', status); // lexicon-exempt: upstream contract error
-  if (status === 403)
-    return new DecisionError('permission', 'Jev refused the decision request', status); // lexicon-exempt: upstream contract error
-  if (status === 429)
-    return new DecisionError('rate_limited', 'Jev rate limited the decision request', status); // lexicon-exempt: upstream contract error
-  return new DecisionError('unavailable', 'Jev is unavailable', status); // lexicon-exempt: upstream contract error
+  const pending = [value];
+  while (pending.length) {
+    const item = pending.pop();
+    if (typeof item === 'string') {
+      if (!item.trim()) return false;
+      continue;
+    }
+    if (!isRecord(item) && !Array.isArray(item)) return false;
+    const entries = Object.values(item);
+    if (!entries.length) return false;
+    for (const entry of entries) pending.push(entry);
+  }
+  return true;
 }
 
 async function enforceDisclosure(
   profile: DecisionProfile,
   model: string,
+  provider: DecisionProfile['models'][string]['provider'],
   request: DecisionRequest,
 ): Promise<void> {
   const verdict: DecisionDisclosureVerdict | undefined =
     await profile.guardrails?.disclosure?.enforce(request.state, {
-      destination: 'typesafe',
+      destination: provider,
       profileId: profile.id,
       model,
       questionIds: Object.keys(request.questions),
+      ...(request.assets ? { assets: request.assets } : {}),
     });
   if (verdict?.action === 'block') {
-    throw new DecisionError('disclosure_blocked', 'Decision disclosure was blocked'); // lexicon-exempt: developer contract error
+    throw new DecisionError('disclosure_blocked', 'Decision disclosure was blocked'); // labels-exempt: developer contract error
   }
 }
 
-function requireApiKey(
+function decisionSpanAttributes(
   profile: DecisionProfile,
+  modelId: ModelId,
   binding: DecisionProfile['models'][string],
-  options: RunDecisionOptions,
-): string {
-  const keySlot = binding.key ?? profile.key;
-  const apiKey = options.apiKey ?? (keySlot ? options.keyVault?.[keySlot] : undefined);
-  if (!apiKey) throw new DecisionError('authentication', 'Jev requires an API key'); // lexicon-exempt: developer contract error
-  return apiKey;
-}
-
-async function sendDecisionRequest(args: {
-  request: DecisionRequest;
-  apiId: string;
-  apiKey: string;
-  options: RunDecisionOptions;
-  signal: AbortSignal;
-}): Promise<Response> {
-  try {
-    const response = await (args.options.fetch ?? globalThis.fetch)(
-      args.options.endpoint ?? TYPESAFE_SYSTEM_ONE_URL,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${args.apiKey}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({
-          model: args.apiId,
-          state: args.request.state,
-          questions: args.request.questions,
-        }),
-        signal: args.signal,
-      },
-    );
-    if (!response.ok) throw errorForStatus(response.status);
-    return response;
-  } catch (error) {
-    if (error instanceof DecisionError) throw error;
-    if (args.request.signal?.aborted)
-      throw new DecisionError('cancelled', 'Decision request was cancelled'); // lexicon-exempt: developer contract error
-    if (args.signal.aborted) throw new DecisionError('timeout', 'Decision request timed out'); // lexicon-exempt: developer contract error
-    throw new DecisionError('network', 'Jev network request failed'); // lexicon-exempt: upstream contract error
-  }
-}
-
-function usageFrom(body: Record<string, unknown>): DecisionResult['usage'] {
-  const usage = body.usage;
-  if (
-    !isRecord(usage) ||
-    !Number.isInteger(usage.input_tokens) ||
-    !Number.isInteger(usage.output_tokens)
-  ) {
-    return undefined;
-  }
-  return { inputTokens: usage.input_tokens as number, outputTokens: usage.output_tokens as number };
-}
-
-async function resultFromResponse(
-  response: Response,
-  questions: DecisionRequest['questions'],
-): Promise<DecisionResult> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    throw new DecisionError('malformed_response', 'Jev returned non-JSON output'); // lexicon-exempt: upstream contract error
-  }
-  if (!isRecord(body) || typeof body.model !== 'string' || !isRecord(body.answers)) {
-    throw new DecisionError('malformed_response', 'Jev response has an invalid shape'); // lexicon-exempt: upstream contract error
-  }
-  const usage = usageFrom(body);
+  request: DecisionRequest,
+) {
   return {
-    model: body.model,
-    answers: validateAnswers(body.answers, questions),
-    ...(usage ? { usage } : {}),
+    'gen_ai.operation.name': 'decide',
+    'gen_ai.provider.name': binding.provider,
+    'gen_ai.agent.name': profile.id,
+    'gen_ai.request.model': binding.apiId,
+    'theorem.model.id': modelId,
+    'theorem.decision.contract': profile.decision.contract,
+    'theorem.decision.state': traceJson(request.state),
+    'theorem.decision.questions': traceJson(request.questions),
+    ...(request.assets
+      ? {
+          // invariant: Image bytes never reach a trace; it keeps each image's type and size.
+          'theorem.decision.assets': traceJson(
+            Object.fromEntries(
+              Object.entries(request.assets).map(([reference, { mimeType, data }]) => [
+                reference,
+                { mimeType, bytes: data.length },
+              ]),
+            ),
+          ),
+        }
+      : {}),
   };
 }
 
-/** Execute exactly one Jev System One request. This function never retries an ambiguous POST. */
-export async function runDecision(
+function recordResult(root: SpanHandle, result: DecisionResult): void {
+  root.set({
+    'gen_ai.response.model': result.model,
+    'theorem.decision.answers': traceJson(result.answers),
+    ...(result.usage
+      ? {
+          'gen_ai.usage.input_tokens': result.usage.inputTokens,
+          'gen_ai.usage.output_tokens': result.usage.outputTokens,
+          ...(result.usage.costUsd === undefined
+            ? {}
+            : { 'theorem.usage.cost_usd': result.usage.costUsd }),
+        }
+      : {}),
+  });
+}
+
+function decisionProviderError(error: unknown): DecisionError {
+  if (error instanceof DecisionError) return error;
+  const kind =
+    error instanceof TheoremError
+      ? error.kind
+      : error instanceof TypeError
+        ? 'network'
+        : 'bad_response';
+  const codes: Partial<Record<ErrorKind, keyof typeof DECISION_ERROR_KINDS>> = {
+    auth: 'authentication',
+    rate_limit: 'rate_limited',
+    network: 'network',
+    unavailable: 'unavailable',
+    timeout: 'timeout',
+    cancelled: 'cancelled',
+    request: 'invalid_request',
+    unsupported: 'invalid_request',
+  };
+  const code =
+    kind === 'auth' && isRecord(error) && error.status === 403
+      ? 'permission'
+      : (codes[kind] ?? 'malformed_response');
+  return new DecisionError(
+    code,
+    // why: A framework failure's message holds no response body, and says what stopped the decision.
+    error instanceof TheoremError ? error.message : labelText('provider.decision_failed'),
+    isRecord(error) && typeof error.status === 'number' ? error.status : undefined,
+    { cause: error },
+  );
+}
+
+async function decide(
+  registry: KernelRegistry,
+  profile: DecisionProfile,
+  [modelId, binding]: [ModelId, DecisionProfile['models'][string]],
   request: DecisionRequest,
   options: RunDecisionOptions,
 ): Promise<DecisionResult> {
-  const profile = requireDecisionProfile(request.profile);
-  validateRequest(request, profile);
-  const [modelId, binding] = decisionModel(profile);
-  await enforceDisclosure(profile, modelId, request);
-  const apiKey = requireApiKey(profile, binding, options);
-  const controller = new AbortController();
-  const timeout = binding.timeoutMs
-    ? setTimeout(() => controller.abort(), binding.timeoutMs)
-    : undefined;
-  const abort = () => controller.abort();
-  request.signal?.addEventListener('abort', abort, { once: true });
+  throwIfAborted(request.signal);
+  const provider = registry.providers.require(binding.provider, binding.apiId);
+  await enforceDisclosure(profile, modelId, binding.provider, request);
+  throwIfAborted(request.signal);
   try {
-    const response = await sendDecisionRequest({
-      request,
-      apiId: binding.apiId,
-      apiKey,
-      options,
-      signal: controller.signal,
+    const call = guardedCall(provider, binding, 'decision', options, {
+      ...(request.signal ? { signal: request.signal } : {}),
+      ...(binding.timeoutMs ? { timeoutMs: binding.timeoutMs } : {}),
     });
-    return await resultFromResponse(response, request.questions);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-    request.signal?.removeEventListener('abort', abort);
+    const result = await call.decide({
+      apiId: binding.apiId,
+      state: request.state,
+      questions: Object.fromEntries(
+        Object.entries(request.questions).map(([id, question]) => [
+          id,
+          providerQuestion(question, request.assets),
+        ]),
+      ),
+      ...(request.assets ? { assets: request.assets } : {}),
+    });
+    if (typeof result.model !== 'string' || !result.model.trim())
+      throw new DecisionError('malformed_response', labelText('provider.decision_model_missing'));
+    return { ...result, answers: validateAnswers(result.answers, request.questions) };
+  } catch (error) {
+    if (request.signal?.aborted)
+      throw new DecisionError('cancelled', labelText('provider.decision_ended'));
+    throw decisionProviderError(error);
   }
+}
+
+/**
+ * Exactly one decision request, traced however it ends. An ambiguous POST is never retried,
+ * and a trace write failure never changes the decision's outcome.
+ */
+export async function runDecisionInRegistry(
+  registry: KernelRegistry,
+  request: DecisionRequest,
+  options: RunDecisionOptions,
+): Promise<DecisionResult> {
+  const profile = requireDecisionProfile(registry, request.profile);
+  validateDecisionRequest(request, profile);
+  const model = decisionModel(profile);
+  const [modelId, binding] = model;
+  return await tracedCall(
+    {
+      name: `decide ${binding.apiId}`,
+      attributes: decisionSpanAttributes(profile, modelId, binding, request),
+      traceparent: request.traceparent,
+      metadata: request.metadata,
+      writer: {
+        override: options.sink,
+        observability: profile.observability,
+        guardrails: profile.guardrails,
+      },
+    },
+    async (root) => {
+      const result = await decide(registry, profile, model, request, options);
+      recordResult(root, result);
+      return result;
+    },
+  );
 }

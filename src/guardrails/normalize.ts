@@ -1,13 +1,3 @@
-/**
- * Unicode normalization for injection detection preprocessing.
- *
- * Strips invisible characters, normalizes homoglyphs, fullwidth, math
- * variants, and Unicode spaces so regex-based injection patterns can
- * match evasion attempts that use visually similar substitutions.
- *
- * @module
- */
-
 const STRIP_CODES: number[] = [
   0x200b, 0x200c, 0x200d, 0xfeff, 0x00ad, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
   0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0x034f, 0x061c, 0x180e, 0x2066, 0x2067, 0x2068, 0x2069,
@@ -114,38 +104,85 @@ function mapMath(code: number): string | undefined {
   return undefined;
 }
 
-const EMOJI_BETWEEN =
-  /(?<=[a-zA-Z])(?:[\u{1F300}-\u{1FFFF}]|[\u{2600}-\u{27BF}]|[\u{FE00}-\u{FE0F}]|[\u{231A}-\u{23FF}])+(?=[a-zA-Z])/gu;
+const EMOJI = String.raw`(?:[\u{1F300}-\u{1FFFF}]|[\u{2600}-\u{27BF}]|[\u{FE00}-\u{FE0F}]|[\u{231A}-\u{23FF}])`;
+/** Emoji runs between two letters are dropped: `ig😀nore` reads `ignore`. */
+const EMOJI_BETWEEN = new RegExp(`(?<=[a-zA-Z])${EMOJI}+(?=[a-zA-Z])`, 'gu');
+const EMOJI_CHAR = new RegExp(`^${EMOJI}$`, 'u');
 
 const BACKSLASH_BEFORE_ALPHA = /\\(?=[a-zA-Z])/g;
+
+/** What one code point reads as: stripped, folded to ASCII, or itself. */
+function normalizeCodePoint(ch: string): string {
+  const code = ch.codePointAt(0) ?? 0;
+  if (STRIP_SET.has(code)) return '';
+  if (code >= COMBINING_LO && code <= COMBINING_HI) return '';
+  if (code >= FULLWIDTH_LO && code <= FULLWIDTH_HI) {
+    return String.fromCodePoint(code - FULLWIDTH_OFFSET);
+  }
+  const math = mapMath(code);
+  if (math !== undefined) return math;
+  const homo = HOMOGLYPH_MAP.get(code);
+  if (homo !== undefined) return homo;
+  if (SPACE_SET.has(code)) return ' ';
+  return ch;
+}
+
+/** Whether a code point is one `EMOJI_BETWEEN` drops between letters. */
+function isEmoji(ch: string): boolean {
+  return EMOJI_CHAR.test(ch);
+}
 
 function normalizeForDetection(text: string): string {
   let out = '';
   for (const ch of text) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (STRIP_SET.has(code)) continue;
-    if (code >= COMBINING_LO && code <= COMBINING_HI) continue;
-    if (code >= FULLWIDTH_LO && code <= FULLWIDTH_HI) {
-      out += String.fromCodePoint(code - FULLWIDTH_OFFSET);
-      continue;
-    }
-    const math = mapMath(code);
-    if (math !== undefined) {
-      out += math;
-      continue;
-    }
-    const homo = HOMOGLYPH_MAP.get(code);
-    if (homo !== undefined) {
-      out += homo;
-      continue;
-    }
-    if (SPACE_SET.has(code)) {
-      out += ' ';
-      continue;
-    }
-    out += ch;
+    out += normalizeCodePoint(ch);
   }
   return out.replace(EMOJI_BETWEEN, '').replace(BACKSLASH_BEFORE_ALPHA, '');
 }
 
-export { normalizeForDetection };
+/** `normalizeForDetection` of a text, and for each index of it the stretch of the text it stands for. */
+interface NormalizedView {
+  text: string;
+  /** Where in the text as written the character at each index starts. */
+  start: number[];
+  /** Where in the text as written the character at each index ends. */
+  end: number[];
+}
+
+function withoutMatches(view: NormalizedView, pattern: RegExp): NormalizedView {
+  const kept: NormalizedView = { text: '', start: [], end: [] };
+  let last = 0;
+  const keep = (to: number): void => {
+    kept.text += view.text.slice(last, to);
+    kept.start.push(...view.start.slice(last, to));
+    kept.end.push(...view.end.slice(last, to));
+  };
+  for (const match of view.text.matchAll(pattern)) {
+    keep(match.index);
+    last = match.index + match[0].length;
+  }
+  keep(view.text.length);
+  return kept;
+}
+
+/**
+ * `normalizeForDetection(text)` with its way back: a match in the normalized
+ * text is placed on the characters of `text` it was read from.
+ */
+function normalizedView(text: string): NormalizedView {
+  const view: NormalizedView = { text: '', start: [], end: [] };
+  let at = 0;
+  for (const ch of text) {
+    const folded = normalizeCodePoint(ch);
+    for (let i = 0; i < folded.length; i += 1) {
+      view.start.push(at);
+      view.end.push(at + ch.length);
+    }
+    view.text += folded;
+    at += ch.length;
+  }
+  return withoutMatches(withoutMatches(view, EMOJI_BETWEEN), BACKSLASH_BEFORE_ALPHA);
+}
+
+export type { NormalizedView };
+export { isEmoji, normalizeCodePoint, normalizedView, normalizeForDetection };

@@ -1,16 +1,9 @@
 import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
 import { TheoremError } from '../../../src/guardrails/error.ts';
-import type { ImageResponseFormat, ProviderCompleteRequest } from '../../../src/kernel/types.ts';
+import type { ImageResponseFormat, ModelRequest } from '../../../src/kernel/types.ts';
 import {
-  buildImageHeaders,
-  buildInterleavedChatPayload,
-  createImageProvider,
   imagesFromChatMessage,
   imagesFromImagesBody,
-  OPENROUTER_IMAGE_TOOL,
-  streamImage,
-  yieldImagesEndpoint,
-  yieldInterleavedChat,
 } from '../../../src/providers/openrouter/image.ts';
 import {
   attachImagePins,
@@ -25,13 +18,11 @@ const IMAGE: ImageResponseFormat = {
   type: 'image',
   mimeType: 'image/png',
   aspectRatio: '16:9',
-  size: '2K',
+  resolution: '2K',
   includeText: false,
 };
 
-function createMockImageRequest(
-  overrides: Partial<ProviderCompleteRequest> = {},
-): ProviderCompleteRequest {
+function createMockImageRequest(overrides: Partial<ModelRequest> = {}): ModelRequest {
   return {
     model: 'seedream',
     apiId: 'bytedance-seed/seedream-4.5',
@@ -70,28 +61,22 @@ Deno.test('buildImagesPayload maps kernel image pins to OpenAI-compat body', () 
   });
 });
 
+Deno.test('buildImagesPayload sends no system prompt or history', () => {
+  const body = JSON.stringify(
+    buildImagesPayload(
+      createMockImageRequest({
+        system: 'SYSTEM-MARKER',
+        history: [{ role: 'user', content: 'HISTORY-MARKER' }],
+      }),
+    ),
+  );
+  assertEquals(body.includes('SYSTEM-MARKER') || body.includes('HISTORY-MARKER'), false);
+});
+
 Deno.test('outputFormatFromMime normalizes jpeg aliases', () => {
   assertEquals(outputFormatFromMime('image/jpeg'), 'jpeg');
   assertEquals(outputFormatFromMime('image/jpg'), 'jpeg');
   assertEquals(outputFormatFromMime('image/webp'), 'webp');
-});
-
-Deno.test('buildInterleavedChatPayload attaches the OpenRouter image generation tool', () => {
-  const req = createMockImageRequest({
-    image: { ...IMAGE, includeText: true },
-  });
-  const payload = buildInterleavedChatPayload(req);
-  assertEquals(payload.stream, false);
-  assertEquals(payload.tools, [
-    {
-      type: 'openrouter:image_generation',
-      parameters: {
-        aspect_ratio: '16:9',
-        resolution: '2K',
-        output_format: 'png',
-      },
-    },
-  ]);
 });
 
 // Response shapes follow the OpenRouter probe of 23/09/2026 (seedream-4.5 on
@@ -129,147 +114,6 @@ Deno.test('imagesFromChatMessage reads base64 data urls from message.images', ()
   );
 });
 
-Deno.test('streamImage yields error when apiKey is missing', async () => {
-  const events = [];
-  for await (const event of streamImage(createMockImageRequest(), { apiKey: '' })) {
-    events.push(event);
-  }
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { errorKind: string }).errorKind, 'auth');
-});
-
-Deno.test('streamImage yields error on empty prompt text', async () => {
-  const events = [];
-  for await (const event of streamImage(createMockImageRequest({ input: [] }), { apiKey: 'key' })) {
-    events.push(event);
-  }
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { errorKind: string }).errorKind, 'request');
-});
-
-Deno.test('yieldImagesEndpoint maps /images JSON to media and tokens', async () => {
-  const mockFetch: typeof fetch = () =>
-    Promise.resolve(
-      new Response(
-        JSON.stringify({
-          data: [{ b64_json: 'img-bytes', media_type: 'image/png' }],
-          usage: { prompt_tokens: 4, completion_tokens: 100, total_tokens: 104 },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    );
-
-  const taped: Record<string, unknown>[] = [];
-  const events = [];
-  for await (const event of yieldImagesEndpoint(
-    createMockImageRequest({ tapUpstream: (row) => taped.push(row) }),
-    { apiKey: 'key', fetch: mockFetch },
-    'key',
-  )) {
-    events.push(event);
-  }
-  assertEquals(
-    events.map((event) => event.type),
-    ['media', 'tokens', 'done'],
-  );
-  assertEquals(events[0]?.media, { mimeType: 'image/png', data: 'img-bytes' });
-  assertEquals(
-    taped.map((row) => row.eventType ?? 'body'),
-    ['http_request', 'http_response', 'body'],
-  );
-});
-
-Deno.test('yieldImagesEndpoint yields error on HTTP failure', async () => {
-  const mockFetch: typeof fetch = () => Promise.resolve(new Response('nope', { status: 502 }));
-  const events = [];
-  for await (const event of yieldImagesEndpoint(
-    createMockImageRequest(),
-    { apiKey: 'key', fetch: mockFetch },
-    'key',
-  )) {
-    events.push(event);
-  }
-  assertEquals(events.length, 1);
-  assertEquals(events[0]?.type, 'error');
-  assertEquals((events[0] as { errorKind: string }).errorKind, 'unavailable');
-});
-
-Deno.test('yieldInterleavedChat yields text, media, tokens and done, taping each row', async () => {
-  const body = {
-    choices: [
-      {
-        message: {
-          role: 'assistant',
-          content: 'A leaf.',
-          images: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0K' } }],
-        },
-      },
-    ],
-    usage: { prompt_tokens: 10, completion_tokens: 200, total_tokens: 210 },
-  };
-  const mockFetch: typeof fetch = () =>
-    Promise.resolve(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
-  const taped: Record<string, unknown>[] = [];
-  const events = [];
-  for await (const event of yieldInterleavedChat(
-    createMockImageRequest({
-      image: { ...IMAGE, includeText: true },
-      tapUpstream: (row) => taped.push(row),
-    }),
-    { apiKey: 'key', fetch: mockFetch },
-    'key',
-  )) {
-    events.push(event);
-  }
-  assertEquals(
-    events.map((event) => event.type),
-    ['text', 'media', 'tokens', 'done'],
-  );
-  assertEquals(events[0]?.text, 'A leaf.');
-  assertEquals(events[1]?.media, { mimeType: 'image/png', data: 'iVBORw0K' });
-  assertEquals(
-    taped.map((row) => row.eventType ?? 'body'),
-    ['http_request', 'http_response', 'body'],
-  );
-  assertEquals(taped[2], body);
-});
-
-Deno.test('yieldInterleavedChat without message.images is an error', async () => {
-  const mockFetch: typeof fetch = () =>
-    Promise.resolve(
-      new Response(JSON.stringify({ choices: [{ message: { content: 'No image.' } }] }), {
-        status: 200,
-      }),
-    );
-  const events = [];
-  for await (const event of yieldInterleavedChat(
-    createMockImageRequest({ image: { ...IMAGE, includeText: true } }),
-    { apiKey: 'key', fetch: mockFetch },
-    'key',
-  )) {
-    events.push(event);
-  }
-  assertEquals(
-    events.map((event) => event.type),
-    ['text', 'error'],
-  );
-});
-
-Deno.test('createImageProvider exposes complete()', () => {
-  const provider = createImageProvider({ apiKey: 'key' });
-  assertEquals(typeof provider.complete, 'function');
-  assertEquals(OPENROUTER_IMAGE_TOOL, 'openrouter:image_generation');
-  const headers = buildImageHeaders('test-key', { apiKey: 'test-key' });
-  assertEquals(headers.Authorization, 'Bearer test-key');
-});
-
 Deno.test('wireInputReferences wires image parts and skips the text prompt', () => {
   const ref = wireInputReference({ type: 'image', mimeType: 'image/png', data: 'abc' });
   assertEquals(ref.type, 'image_url');
@@ -286,6 +130,19 @@ Deno.test('wireInputReferences wires image parts and skips the text prompt', () 
     ]),
     [ref],
   );
+});
+
+Deno.test('wireInputReferences passes an http(s) reference through and refuses other schemes', () => {
+  const url = 'https://example.com/style.png';
+  assertEquals(wireInputReferences([{ type: 'image', mimeType: 'image/png', uri: url }]), [
+    { type: 'image_url', image_url: { url } },
+  ]);
+  const error = assertThrows(
+    () => wireInputReferences([{ type: 'image', mimeType: 'image/png', uri: 'gs://bucket/a.png' }]),
+    TheoremError,
+  );
+  assertEquals(error.kind, 'unsupported');
+  assertStringIncludes(error.message, 'http(s)');
 });
 
 Deno.test('wireInputReferences refuses media /images cannot take', () => {
@@ -326,4 +183,41 @@ Deno.test('imageToolParameters and buildImagesPayload omit unset aspect and size
   assertEquals(payload.output_format, 'jpeg');
   assertEquals(Object.hasOwn(payload, 'aspect_ratio'), false);
   assertEquals(Object.hasOwn(payload, 'resolution'), false);
+});
+
+const PINNED: ImageResponseFormat = {
+  type: 'image',
+  includeText: false,
+  quality: 'high',
+  background: 'transparent',
+  n: 2,
+  seed: 7,
+  outputCompression: 80,
+};
+
+Deno.test('buildImagesPayload sends quality, background, n, seed, and output_compression', () => {
+  const payload = buildImagesPayload(createMockImageRequest({ image: PINNED }));
+  assertEquals(payload.quality, 'high');
+  assertEquals(payload.background, 'transparent');
+  assertEquals(payload.n, 2);
+  assertEquals(payload.seed, 7);
+  assertEquals(payload.output_compression, 80);
+});
+
+Deno.test('buildImagesPayload omits every unset image pin', () => {
+  const payload = buildImagesPayload(
+    createMockImageRequest({ image: { type: 'image', includeText: false } }),
+  );
+  for (const key of ['quality', 'background', 'n', 'seed', 'output_compression']) {
+    assertEquals(Object.hasOwn(payload, key), false);
+  }
+});
+
+Deno.test('imageToolParameters sends quality, background, and compression but refuses n and seed', () => {
+  assertEquals(imageToolParameters({ ...PINNED, n: undefined, seed: undefined }), {
+    quality: 'high',
+    background: 'transparent',
+    output_compression: 80,
+  });
+  assertThrows(() => imageToolParameters(PINNED), TheoremError);
 });

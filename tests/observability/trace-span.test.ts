@@ -1,11 +1,9 @@
-/**
- * Span builder: nesting, trace context, links, clocks, and closing what was left open.
- */
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import {
   formatTraceparent,
   parseTraceparent,
+  readTraceparent,
   startTrace,
   type TraceClock,
   traceJson,
@@ -51,6 +49,15 @@ Deno.test('a root opened under a traceparent joins that trace', () => {
   assertEquals(root?.traceId, PARENT_TRACE);
   assertEquals(root?.parentSpanId, PARENT_SPAN);
   assertEquals(tree.root.traceparent(), `00-${PARENT_TRACE}-${root?.spanId}-01`);
+});
+
+Deno.test('readTraceparent reads what a turn accepts and nothing else', () => {
+  const traceparent = formatTraceparent(PARENT_TRACE, PARENT_SPAN);
+  assertEquals(readTraceparent(` ${traceparent} `), { traceId: PARENT_TRACE, spanId: PARENT_SPAN });
+  assertEquals(readTraceparent('not-a-traceparent'), undefined);
+  assertEquals(readTraceparent(formatTraceparent('0'.repeat(32), PARENT_SPAN)), undefined);
+  assertEquals(readTraceparent(formatTraceparent(PARENT_TRACE, '0'.repeat(16))), undefined);
+  assertEquals(readTraceparent(traceparent.toUpperCase()), undefined);
 });
 
 Deno.test('malformed or all-zero trace context throws', () => {

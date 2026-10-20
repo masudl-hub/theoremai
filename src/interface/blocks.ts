@@ -1,27 +1,32 @@
-/**
- * Turn event folding — map kernel `TurnEvent` streams to transcript blocks.
- *
- * @module
- */
-
-import type { TurnEvent } from '../kernel/types.ts';
+import { keptReply } from '../kernel/turn-events.ts';
+import type { Source, ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
+import { partialJsonObject } from '../kernel/util/partial-json.ts';
+import { applyToolDraft, applyToolEvent } from './tool-calls.ts';
 import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
-import type { FoldTurnEventsOptions, TranscriptBlock, UserTurnDraft } from './types.ts';
+import type {
+  CitationBlock,
+  FoldTurnEventsOptions,
+  StructuredBlock,
+  ToolBlock,
+  TranscriptBlock,
+  UserTurnDraft,
+} from './types.ts';
 
-let userBlockCounter = 0;
 let turnBlockCounter = 0;
 
+/**
+ * User block ids are random: a counter restarts wherever this module loads
+ * again (a hot reload, a second bundled copy) and would reuse an id already on
+ * screen. Turn block ids count from each fold so streaming refolds keep keys.
+ */
 function nextBlockId(prefix: string): string {
-  if (prefix === 'user') {
-    userBlockCounter += 1;
-    return `user-${String(userBlockCounter)}`;
-  }
+  if (prefix === 'user') return `user-${globalThis.crypto.randomUUID()}`;
   turnBlockCounter += 1;
   return `${prefix}-${String(turnBlockCounter)}`;
 }
 
+/** Restarts block id numbering at zero. */
 function resetBlockIds(): void {
-  userBlockCounter = 0;
   turnBlockCounter = 0;
 }
 
@@ -30,12 +35,6 @@ function isAppendableTextBlock(
   kind: 'text' | 'thought',
 ): block is Extract<TranscriptBlock, { kind: 'text' | 'thought' }> {
   return block?.kind === kind;
-}
-
-function toolKey(event: TurnEvent, index: number): string {
-  const tool = event.tool;
-  if (!tool) return `tool-${String(index)}`;
-  return tool.callId ?? tool.id ?? `${tool.name}-${String(index)}`;
 }
 
 function appendText(
@@ -56,31 +55,130 @@ function appendText(
   });
 }
 
-function upsertToolBlock(blocks: TranscriptBlock[], event: TurnEvent, key: string): void {
-  const tool = event.tool;
-  if (!tool) return;
-  const existing = blocks.find((block) => block.kind === 'tool' && block.id === `tool-${key}`);
-  const payload = { ...tool, id: tool.id ?? tool.callId };
-  if (existing && existing.kind === 'tool') {
-    existing.tool = { ...existing.tool, ...payload };
+/**
+ * A decision made while text streams goes ahead of that text's block, so the block stays last and
+ * the rest of the text joins it.
+ */
+function addGuardrailBlock(blocks: TranscriptBlock[], block: TranscriptBlock): void {
+  const last = blocks.at(-1);
+  const streaming = last?.kind === 'text' || last?.kind === 'thought';
+  blocks.splice(streaming ? blocks.length - 1 : blocks.length, 0, block);
+}
+
+function findToolBlock(blocks: TranscriptBlock[], id: string): ToolBlock | undefined {
+  return blocks.find((block): block is ToolBlock => block.kind === 'tool' && block.id === id);
+}
+
+/** invariant: Issued operation IDs separate action blocks; historical events use callId. */
+function upsertToolBlock(blocks: TranscriptBlock[], tool: ToolCallEvent): void {
+  const id = `tool-${tool.operationId ?? tool.callId}`;
+  const existing = findToolBlock(blocks, id);
+  const call = applyToolEvent(existing?.tool, tool);
+  if (existing) {
+    existing.tool = call;
+    return;
+  }
+  // why: The call the model was drafting arrives whole where its draft stood.
+  const draft = tool.phase === undefined ? findToolBlock(blocks, `tool-${tool.callId}`) : undefined;
+  if (draft?.tool.draft !== undefined) {
+    draft.id = id;
+    draft.tool = call;
+    return;
+  }
+  blocks.push({ id, kind: 'tool', tool: call });
+}
+
+/** The call the model is still writing, as far as its draft has come. */
+function upsertToolDraft(blocks: TranscriptBlock[], draft: TurnEventOf<'tool_draft'>): void {
+  const id = `tool-${draft.callId}`;
+  const existing = findToolBlock(blocks, id);
+  const call = applyToolDraft(existing?.tool, draft);
+  if (existing) {
+    existing.tool = call;
+    return;
+  }
+  blocks.push({ id, kind: 'tool', tool: call });
+}
+
+/** The structured reply the model is still writing, if one is showing. */
+function openStructuredDraft(blocks: TranscriptBlock[]): StructuredBlock | undefined {
+  return blocks.findLast(
+    (block): block is StructuredBlock => block.kind === 'structured' && block.draft !== undefined,
+  );
+}
+
+/** The structured reply the model is still writing, as far as its draft has come. */
+function upsertStructuredDraft(blocks: TranscriptBlock[], text: string, idPrefix: string): void {
+  const open = openStructuredDraft(blocks);
+  const draft = (open?.draft ?? '') + text;
+  if (open) {
+    open.draft = draft;
+    open.value = partialJsonObject(draft);
     return;
   }
   blocks.push({
-    id: `tool-${key}`,
-    kind: 'tool',
-    tool: payload,
+    id: nextBlockId(idPrefix),
+    kind: 'structured',
+    value: partialJsonObject(draft),
+    draft,
   });
 }
 
-/** Append inline media blocks for http(s) image/video/audio URLs in completed tool output. */
+/** The structured reply, in its draft's place when one is showing. */
+function settleStructured(blocks: TranscriptBlock[], value: unknown, idPrefix: string): void {
+  const open = openStructuredDraft(blocks);
+  if (open) {
+    open.value = value;
+    delete open.draft;
+    return;
+  }
+  blocks.push({ id: nextBlockId(idPrefix), kind: 'structured', value });
+}
+
+/** Same source: one place, or one link. */
+function sameSource(a: Source, b: Source): boolean {
+  if (a.type !== b.type) return false;
+  if (a.placeId && b.placeId) return a.placeId === b.placeId;
+  return a.uri === b.uri;
+}
+
+/**
+ * One sources row per citer: the provider's grounding (no `callId`) or one
+ * tool call. A stream cites the same places more than once (the search result
+ * lists them, then the answer's annotations cite them), so later citations
+ * fold into the row with each source listed once.
+ */
+function foldCitation(
+  blocks: TranscriptBlock[],
+  event: TurnEventOf<'citation'>,
+  idPrefix: string,
+): void {
+  const existing = blocks.find(
+    (block): block is CitationBlock => block.kind === 'citation' && block.callId === event.callId,
+  );
+  const sources = existing ? [...existing.sources] : [];
+  for (const source of event.sources) {
+    if (!sources.some((seen) => sameSource(seen, source))) sources.push(source);
+  }
+  if (existing) {
+    existing.sources = sources;
+    return;
+  }
+  blocks.push({
+    id: nextBlockId(idPrefix),
+    kind: 'citation',
+    sources,
+    ...(event.callId !== undefined ? { callId: event.callId } : {}),
+  });
+}
+
 function appendPromotedToolMedia(
   blocks: TranscriptBlock[],
-  event: TurnEvent,
+  tool: ToolCallEvent,
   idPrefix: string,
   seenUrls: Set<string>,
 ): void {
-  const tool = event.tool;
-  if (tool?.phase !== 'complete' || tool.output === undefined) return;
+  if (tool.phase !== 'complete' || tool.output === undefined) return;
   for (const media of collectPromotedMediaFromToolOutput(tool.output)) {
     if (seenUrls.has(media.url)) continue;
     seenUrls.add(media.url);
@@ -94,9 +192,8 @@ function appendPromotedToolMedia(
   }
 }
 
-/** Build transcript blocks for a user-authored turn. */
+/** Turns a user draft into transcript blocks: a `user-text` block for the trimmed text, then one block per attachment and per voice clip. */
 function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): TranscriptBlock[] {
-  // Do not reset counters — user ids must stay unique across the conversation.
   const blocks: TranscriptBlock[] = [];
   const text = draft.text?.trim();
   if (text) {
@@ -129,16 +226,7 @@ function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): Transcrip
   return blocks;
 }
 
-/**
- * Fold a single assistant turn's `TurnEvent` stream into ordered transcript blocks.
- *
- * Merges consecutive `text` and `thought` deltas, upserts tool calls by id,
- * promotes http(s) media URLs from completed tool output into `media` blocks, and
- * skips kernel bookkeeping events (`tokens`, `session`) unless folded into `turn-done`.
- *
- * Resets only the turn id sequence so streaming refolds keep stable `turn-*` keys;
- * user ids are left alone.
- */
+/** Resets only the turn id sequence, so streaming refolds keep stable `turn-*` keys. */
 function foldTurnEvents(
   events: readonly TurnEvent[],
   options: FoldTurnEventsOptions = {},
@@ -148,10 +236,9 @@ function foldTurnEvents(
   turnBlockCounter = 0;
 
   const blocks: TranscriptBlock[] = [];
-  let toolIndex = 0;
   const promotedMediaUrls = new Set<string>();
 
-  for (const event of events) {
+  for (const event of keptReply(events)) {
     switch (event.type) {
       case 'thought':
         if (showThoughts && event.text) {
@@ -163,19 +250,18 @@ function foldTurnEvents(
           appendText(blocks, 'text', event.text, idPrefix);
         }
         break;
-      case 'tool': {
-        const key = toolKey(event, toolIndex);
-        toolIndex += 1;
-        upsertToolBlock(blocks, event, key);
-        appendPromotedToolMedia(blocks, event, idPrefix, promotedMediaUrls);
+      case 'tool_draft':
+        upsertToolDraft(blocks, event);
         break;
-      }
+      case 'tool':
+        upsertToolBlock(blocks, event.tool);
+        appendPromotedToolMedia(blocks, event.tool, idPrefix, promotedMediaUrls);
+        break;
+      case 'structured_draft':
+        upsertStructuredDraft(blocks, event.text, idPrefix);
+        break;
       case 'structured':
-        blocks.push({
-          id: nextBlockId(idPrefix),
-          kind: 'structured',
-          value: event.structured,
-        });
+        settleStructured(blocks, event.structured, idPrefix);
         break;
       case 'media':
         if (event.media) {
@@ -188,22 +274,28 @@ function foldTurnEvents(
         }
         break;
       case 'grounding':
-        if (event.grounding) {
-          blocks.push({
-            id: nextBlockId(idPrefix),
-            kind: 'grounding',
-            grounding: event.grounding,
-          });
-        }
+        blocks.push({
+          id: nextBlockId(idPrefix),
+          kind: 'grounding',
+          grounding: event.grounding,
+        });
+        break;
+      case 'citation':
+        foldCitation(blocks, event, idPrefix);
         break;
       case 'evidence':
-        if (event.evidence) {
-          blocks.push({
-            id: nextBlockId(idPrefix),
-            kind: 'evidence',
-            evidence: event.evidence,
-          });
-        }
+        blocks.push({
+          id: nextBlockId(idPrefix),
+          kind: 'evidence',
+          evidence: event.evidence,
+        });
+        break;
+      case 'guardrail':
+        addGuardrailBlock(blocks, {
+          id: nextBlockId(idPrefix),
+          kind: 'guardrail',
+          guardrail: event.guardrail,
+        });
         break;
       case 'error':
         if (event.error) {
@@ -224,10 +316,6 @@ function foldTurnEvents(
           compaction: event.compaction !== undefined,
         });
         break;
-      case 'tokens':
-      case 'session':
-      case 'stage':
-        break;
       default:
         break;
     }
@@ -236,7 +324,7 @@ function foldTurnEvents(
   return blocks;
 }
 
-/** User draft blocks followed by folded assistant turn events. */
+/** One conversation turn as blocks: the user draft's blocks followed by the assistant events folded into blocks. */
 function foldConversationTurn(
   draft: UserTurnDraft,
   assistantEvents: readonly TurnEvent[],

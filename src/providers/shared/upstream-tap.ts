@@ -4,7 +4,7 @@ import {
   isTimeoutError,
   TheoremError,
 } from '../../guardrails/error.ts';
-import type { KeySlot, ProviderCompleteRequest } from '../../kernel/types.ts';
+import type { KeySlot, ModelRequest } from '../../kernel/types.ts';
 
 const SECRET_HEADER = /key|auth|cookie|secret|token/i;
 
@@ -30,11 +30,7 @@ export function throwRow(err: unknown): Record<string, unknown> {
   return { eventType: 'http_throw', name: 'Error', message: String(err) };
 }
 
-/**
- * The request body as sent: parsed when it is JSON text, the text itself
- * otherwise. Every provider here sends string bodies; any other body kind
- * is named rather than read, since reading it would consume the stream.
- */
+/** A non-string body is named rather than read, since reading it would consume the stream. */
 function tapeBody(body: RequestInit['body']): Record<string, unknown> {
   if (body === undefined || body === null) {
     return {};
@@ -49,12 +45,8 @@ function tapeBody(body: RequestInit['body']): Record<string, unknown> {
   }
 }
 
-/**
- * Wrap one HTTP try so the tape sees it: request (with the key slot it was
- * sent under and its body), response status, error body, or throw.
- */
 export function tapFetch(
-  tap: ProviderCompleteRequest['tapUpstream'],
+  tap: ModelRequest['tapUpstream'],
   send: typeof fetch = fetch,
   keySlot?: KeySlot,
 ): typeof fetch {
@@ -89,10 +81,7 @@ export function tapFetch(
   };
 }
 
-/**
- * The upstream could not be reached: a fetch rejection that is not an abort or
- * a timeout, since fetch rejects only when no response came back.
- */
+/** fetch rejects only when no response came back, so any non-abort, non-timeout rejection is `network`. */
 export function networkError(err: unknown): unknown {
   if (err instanceof TheoremError || isAbortError(err) || isTimeoutError(err)) {
     return err;
@@ -100,7 +89,6 @@ export function networkError(err: unknown): unknown {
   return new TheoremError('network', describeError(err), { cause: err });
 }
 
-/** `send`, with a transport failure reported as a `network` error. */
 export function networkFetch(send: typeof fetch = fetch): typeof fetch {
   return async (url, init) => {
     try {

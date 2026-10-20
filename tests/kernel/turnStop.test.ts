@@ -62,12 +62,13 @@ Deno.test('resume policy helpers', () => {
     shouldAutoContinue({ kind: 'provider_error' }, { autoContinue: ['provider_error'] }),
     true,
   );
-  // A stop the profile doesn't let be continued is never continued on its own.
-  assertEquals(
-    shouldAutoContinue({ kind: 'length' }, { allowContinue: ['provider_error'] }),
-    false,
-  );
-  assertEquals(shouldAutoContinue({ kind: 'length' }, { allowContinue: ['length'] }), true);
+  // Offering Continue and continuing on its own are picked apart: neither list reads the other.
+  const unoffered = { allowContinue: [], autoContinue: ['provider_error' as const] };
+  assertEquals(shouldAutoContinue({ kind: 'provider_error' }, unoffered), true);
+  for (const kind of ['length', 'stream_incomplete', 'provider_error'] as const) {
+    assertEquals(isResumeableStop({ kind }, []), false);
+    assertEquals(shouldAutoContinue({ kind }, { autoContinue: [] }), false);
+  }
   assertEquals(AUTO_CONTINUE_DELAY_MS, 1_500);
 });
 

@@ -25,14 +25,22 @@ export type {
 export { resolveComposerMenuActions, resolveComposerPrimary } from './composer-actions.ts';
 export type { PrepareUserTurnResult } from './draft.ts';
 export { prepareUserTurn, sanitizeUserDraft } from './draft.ts';
-export { interfaceFrom, interfaceFromProfile, interfaceFromProjected } from './from-profile.ts';
+export {
+  clientProfileInterface,
+  interfaceFromProfile,
+  interfaceFromProjected,
+} from './from-profile.ts';
 export type { UserTurnHistoryMedia } from './history.ts';
 export {
+  answerOpenToolCalls,
   appendAssistantEventsToHistory,
+  appendPausedTurnToHistory,
   appendToolDenialToHistory,
   appendToolExchangeToHistory,
   appendUserDraftToHistory,
+  assertOpenToolCalls,
   historyFromTranscriptBlocks,
+  toolReadBack,
   userDraftToSteerInject,
 } from './history.ts';
 export {
@@ -67,9 +75,11 @@ export {
   orderComposerPendingMessages,
   promoteComposerPendingKind,
   removeComposerPendingMessage,
+  removeLandedSteers,
   updateComposerPendingDraft,
   userDraftHasPayload,
 } from './pending.ts';
+export { profileInterfaceSchema } from './profile-interface.ts';
 export type {
   AwaitingToolContext,
   GatedToolContext,
@@ -77,13 +87,17 @@ export type {
   ToolGateAuth,
 } from './session.ts';
 export {
-  abandonGatedToolSession,
   applyTurnEventsToSession,
   awaitingFromEvents,
   branchInterfaceTurnSession,
   emptyInterfaceTurnSession,
   gatedToolFromEvents,
+  gatedToolsFromEvents,
 } from './session.ts';
+export type { WordedStopKind } from './stop.ts';
+export { stopText, WORDED_STOP_KINDS } from './stop.ts';
+export type { SettledToolCallEvent } from './tool-calls.ts';
+export { argumentsSoFar, settlesToolCall, toolCallRanWith, toolCallsOf } from './tool-calls.ts';
 export { promotedToolIdsFromEvents, toolSnapshotFromEvents } from './tool-invoke.ts';
 export type { PromotedToolMedia } from './tool-media.ts';
 export {
@@ -92,18 +106,19 @@ export {
 } from './tool-media.ts';
 export type {
   AttachmentValidationResult,
+  ComposerInterfaceFields,
   ComposerProfileInterface,
   FoldTurnEventsOptions,
   ImageProfileInterface,
   LiveProfileInterface,
-  LiveResolvedTools,
+  ModelBindingView,
   PendingAttachment,
   ProfileGuardrailsView,
   ProfileInputsInterface,
   ProfileInterface,
-  ProfileInterfaceSource,
   ProfileObservabilityView,
-  ResolvedTools,
+  ProfileOutputsView,
+  ProfileToolsView,
   SpeechProfileInterface,
   TextProfileInterface,
   TranscriptBlock,

@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { lexiconDefault, TheoremError } from '../../mod.ts';
+import { labelDefault, TheoremError } from '../../mod.ts';
 import { clientFailure, turnFailure } from '../../react/src/client/failure.ts';
 import { TheoremStreamError } from '../../react/src/client/transport.ts';
 
@@ -11,14 +11,14 @@ Deno.test('clientFailure keeps the host wording of a stream failure', () => {
   });
 });
 
-Deno.test('clientFailure words a stream failure without host wording from the lexicon', () => {
+Deno.test('clientFailure words a stream failure without host wording from the labels', () => {
   assertEquals(clientFailure(new TheoremStreamError('timeout'), { 'error.timeout': 'Too slow.' }), {
     error: 'Too slow.',
     errorKind: 'timeout',
   });
   assertEquals(
     clientFailure(new TheoremStreamError('timeout')).error,
-    lexiconDefault('error.timeout'),
+    labelDefault('error.timeout'),
   );
 });
 
@@ -36,7 +36,7 @@ Deno.test('clientFailure uses the error copy key when one is set', () => {
     }),
   );
   assertEquals(failure.errorKind, 'declined');
-  assertEquals(failure.error, lexiconDefault('session.tool_denied', { tool: 'search' }));
+  assertEquals(failure.error, labelDefault('session.tool_denied', { tool: 'search' }));
 });
 
 Deno.test('turnFailure marks a stop as aborted', () => {

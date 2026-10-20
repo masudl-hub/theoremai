@@ -1,8 +1,12 @@
 import type { Profile, ProfileOutputsSpec } from '../types.ts';
 
-/** Turn-based `outputs` pins — absent on `type: 'live'` and `type: 'host'`. */
 function profileTurnOutputs(profile: Profile): ProfileOutputsSpec | undefined {
-  if (profile.type === 'live' || profile.type === 'host' || profile.type === 'decision') {
+  if (
+    profile.type === 'live' ||
+    profile.type === 'host' ||
+    profile.type === 'decision' ||
+    profile.type === 'embedding'
+  ) {
     return undefined;
   }
   return profile.outputs;

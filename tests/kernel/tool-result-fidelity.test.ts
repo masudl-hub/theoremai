@@ -1,18 +1,15 @@
-/**
- * Tool-result fidelity: project → history shape → adapter wire.
- */
 import '../fixtures/test-host.ts';
 import { assertEquals } from '@std/assert';
 import { historyMessageParts, wireInteractionPart } from '../../src/kernel/interaction-parts.ts';
-import {
-  coerceToolResultParts,
-  formatToolResult,
-  projectForModel,
-} from '../../src/kernel/tools/execute.ts';
+import { coerceToolResultParts, projectForModel } from '../../src/kernel/tools/execute.ts';
+import { formatToolResult } from '../../src/kernel/tools/model-text.ts';
 import type { FunctionToolDef } from '../../src/kernel/tools/types.ts';
 import { historyStep } from '../../src/providers/google/interactions/framing.ts';
-import { wireMessageContent } from '../../src/providers/openrouter/openai/compat.ts';
-import { toolResultMessage } from '../../src/providers/openrouter/openai/sdk-messages.ts';
+import {
+  buildChatMessages,
+  wireMessageContent,
+} from '../../src/providers/openrouter/openai/compat.ts';
+import { stubCompleteRequest } from '../fixtures/provider-request.ts';
 
 const visible = { exposeToModel: true } as FunctionToolDef;
 
@@ -51,23 +48,8 @@ Deno.test('tool-result fidelity round-trip: project → adapters keep media part
     result: historyMessageParts(historyMsg).map(wireInteractionPart),
   });
 
-  const sdk = toolResultMessage(historyMsg);
-  if (sdk.role !== 'tool') throw new Error('expected tool');
-  const part = sdk.content[0];
-  if (part.type !== 'tool-result') throw new Error('expected tool-result');
-  assertEquals(part.output, {
-    type: 'content',
-    value: [
-      { type: 'text', text: historyMsg.content },
-      { type: 'text', text: '1. palm' },
-      {
-        type: 'file',
-        mediaType: 'image/jpeg',
-        data: { type: 'data', data: '/9j/abc' },
-      },
-      { type: 'text', text: '2. missing preview' },
-    ],
-  });
+  const messages = buildChatMessages(stubCompleteRequest({ history: [historyMsg], input: [] }));
+  assertEquals(messages.at(-1)?.content, wireMessageContent(historyMessageParts(historyMsg)));
 
   assertEquals(wireMessageContent(projected.parts ?? []), [
     { type: 'text', text: '1. palm' },
@@ -89,4 +71,10 @@ Deno.test('coerceToolResultParts drops empty media and unknown shapes', () => {
   );
   assertEquals(coerceToolResultParts([]), undefined);
   assertEquals(coerceToolResultParts('nope'), undefined);
+});
+
+Deno.test('coerceToolResultParts skips entries that are not parts instead of failing on them', () => {
+  assertEquals(coerceToolResultParts([null, 5, 'x', { type: 3 }, { type: 'text', text: 'kept' }]), [
+    { type: 'text', text: 'kept' },
+  ]);
 });

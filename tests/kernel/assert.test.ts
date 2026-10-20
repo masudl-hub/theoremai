@@ -6,11 +6,9 @@ import {
 } from '../../src/kernel/engine/assert.ts';
 
 Deno.test('kernel engine assert utilities test all success and failure branches', () => {
-  // assertEquals
   kernelAssertEquals({ a: 1 }, { a: 1 });
   assertThrows(() => kernelAssertEquals({ a: 1 }, { a: 2 }), Error, 'assertEquals failed');
 
-  // assertStringIncludes
   kernelAssertStringIncludes('hello world', 'world');
   assertThrows(
     () => kernelAssertStringIncludes('hello world', 'planet'),
@@ -18,12 +16,10 @@ Deno.test('kernel engine assert utilities test all success and failure branches'
     'assertStringIncludes failed',
   );
 
-  // assertThrows - success
   kernelAssertThrows(() => {
     throw new TypeError('invalid type');
   }, TypeError);
 
-  // assertThrows - did not throw
   assertThrows(
     () => {
       kernelAssertThrows(() => {
@@ -34,7 +30,6 @@ Deno.test('kernel engine assert utilities test all success and failure branches'
     'assertThrows failed: expected Error',
   );
 
-  // assertThrows - threw unexpected error type (should rethrow)
   assertThrows(
     () => {
       kernelAssertThrows(() => {

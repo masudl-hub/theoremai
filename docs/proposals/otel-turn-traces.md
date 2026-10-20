@@ -1,12 +1,16 @@
 # OpenTelemetry-shaped turn traces — proposed specification
 
 **Status:** decisions locked 22/09/2026. Steps 1 (usage), 2 (spans + v3 record, including Live), 3 (retention), 4 (OTLP) and 5 (CLI/docs, Theorem side) implemented 23/09/2026; the theoremai-frontend copy awaits approval; step 6 not yet. The shipped contract is [observability.md](../contracts/observability.md).
-**Version:** ships within `@theoremai/agents` 2.x (decided 22/09/2026). The `TraceRecord` shape changes, so every reader updates in the same change.
+**Version:** ships within `@theoremjs/agents` 2.x (decided 22/09/2026). The `TraceRecord` shape changes, so every reader updates in the same change.
 **Worked example (step-2 target, approved 23/09/2026; `gen_ai.*` names kept wherever semconv defines the exact meaning, `theorem.*` otherwise):** [otel-turn-traces-example.md](./otel-turn-traces-example.md) — the v3 record drawn across a 12-exchange conversation.
+
+**Update, 07/10/2026:** Theorem now estimates text as UTF-16 code units divided by four, rounded up per string.
+The tokenizer dependency was removed. The survey and tokenizer design below record the earlier proposal.
+Current behavior is specified in [kernel.md](../contracts/kernel.md#history-estimate-meter-history).
 
 ## Goal
 
-A Theorem turn should produce a trace that any OpenTelemetry GenAI tool can read without translation: one span per agent run, per model call, and per tool call, with real timing, real usage and real cost.
+A Theorem turn should produce a trace that any OpenTelemetry GenAI tool can read without translation: one span per agent run, per model call, and per tool call, with real timing, real usage, and real cost.
 
 The evaluation layer is built on top of this trace. That is the next spec, not this one.
 
@@ -28,11 +32,11 @@ Theorem stays unopinionated:
 | F7 | Live sessions (`runSession`) write no trace. | No `writeTrace`/`buildRecord` under `engine/session`. |
 | F8 | When a provider reports no usage, the kernel invents token counts (characters ÷ 4). Those counts are indistinguishable from reported ones. This breaks "unknown is first-class". | `runner/tokens.ts` `calculateFallbackTokens` |
 | F9 | Bonsai keeps a second span system: `AgentTurnTraceCollector`, flat `{name, ms}` spans that go to `done.timing` for DevTools. Its Theorem spans are rebuilt from the event stream. | `agent-turn-trace.ts`, `theorem-turn-observability.ts` |
-| F11 | **Four token estimators, one real one.** Theorem's `estimateHistoryTokens` counts text with the o200k tokenizer (tiktoken's encoding, via `gpt-tokenizer`) and counts media with per-type minimums: image or document 258, audio 32/s, video 263/s. Only compaction uses it. The fallback (F8) uses characters ÷ 4 instead. Bonsai has two more characters ÷ 4 copies: `estTokensDiv4` in the wire budget, which the frontend mirrors, and `estimateTokens` in `context/format.ts`, which `build-prompt.ts` uses for history budgeting and truncation. | `kernel/engine/history-tokens.ts`, `runner/tokens.ts`, `theorem-interaction-wire-budget.ts`, `context/format.ts` |
+| F11 | **Four token estimators, one real one.** Theorem's `estimateHistoryTokens` counts text with the o200k tokenizer (tiktoken's encoding, via gpt-tokenizer) and counts media with per-type minimums: image or document 258, audio 32/s, video 263/s. Only compaction uses it. The fallback (F8) uses characters ÷ 4 instead. Bonsai has two more characters ÷ 4 copies: `estTokensDiv4` in the wire budget, which the frontend mirrors, and `estimateTokens` in `context/format.ts`, which `build-prompt.ts` uses for history budgeting and truncation. | `kernel/engine/history-tokens.ts`, `runner/tokens.ts`, `theorem-interaction-wire-budget.ts`, `context/format.ts` |
 | F12 | Token counts mean different things per provider: Google's output leaves reasoning out, OpenRouter's includes it (see P2). | Live probes, 22/09/2026 |
 | F10 | `flushMintTrace` (a host-side audit row written after an image cutout) has no Bonsai caller. | grep |
 
-F1, F8, F11 and F12 are correctness bugs. The rest are gaps.
+F1, F8, F11, and F12 are correctness bugs. The rest are gaps.
 
 ## Shape
 
@@ -75,7 +79,7 @@ interface TraceSpan {
 ```
 
 - Field names follow OTLP/JSON, so export is a pure reshape. The one difference: OTLP writes attributes as `KeyValue[]` arrays, and the export function converts them.
-- `TraceSink.write(record)` stays as it is. `noopSink`, `jsonlSink` and `memorySink` all stay.
+- `TraceSink.write(record)` stays as it is. `noopSink`, `jsonlSink`, and `memorySink` all stay.
 
 ### Attributes
 
@@ -93,7 +97,7 @@ interface TraceSpan {
 1. **Clock.** The kernel stamps start and end times, using `Date.now()` for the epoch and `performance.now()` for durations. No `TurnEvent` gets a new public time field. Spans are built from kernel checkpoints, not from host-visible events.
 2. **Checkpoints** (where each span opens and closes):
    - `chat`: opens around each provider stream in `executeAutonomousStep` and closes at the stream's end or on throw.
-   - `execute_tool`: opens in `handlePendingTools` before `executeRegisteredTool`, which covers `pre_tool`, the tool body and `post_tool`. It closes at settlement. Hook durations are recorded as `theorem.stage` events.
+   - `execute_tool`: opens in `handlePendingTools` before `executeRegisteredTool`, which covers `pre_tool`, the tool body, and `post_tool`. It closes at settlement. Hook durations are recorded as `theorem.stage` events.
    - `invoke_agent`: opens at `runTurn` entry and closes at flush. If a span is still open at flush, it closes with `ERROR` / `unclosed`.
 3. **Usage (fixes F1).** Each `chat` span holds its own round's usage. The turn total is the sum. `trace-usage.ts`'s "last event" logic is deleted.
 4. **Cost (fixes F4).** `TurnTokens` gains `cost?: { usd: number; upstreamUsd?: number }`, filled only from provider-reported fields. OpenRouter fills it; Google Live and Interactions leave it out.
@@ -110,7 +114,7 @@ interface TraceSpan {
 - `kernel/`: `engine/history-tokens.ts` → `engine/token-estimate.ts`, `engine/compaction.ts`, `engine/runner/tokens.ts` (deleted), `mod.ts` (export rename), `engine/runner/{mod,steps}.ts`, `tools/execute.ts`, `engine/delta.ts` (cost), `providers/openrouter/chat.ts` (cost), `types.ts`, `schema.ts`.
 - `cli/`: `event-log.ts`, `commands/{run,test,bench}.ts`, `index.ts`; `interface/{types,from-profile}.ts`; `host/mint-trace.ts` (see question 5).
 - Tests: `tests/observability/*` (6 files), `tests/cli/event-log.test.ts`, `tests/host/host.test.ts`, `tests/kernel/{abort,theorem,tools}.test.ts`, `tests/providers/shared/upstream-tape.test.ts`.
-- Docs: `docs/contracts/observability.md` (Trace records section rewritten), `stages.md` (stage span events), `kernel.md` (`traceparent`), `_map.mjs` ownership for the new files, lexicon for any new copy.
+- Docs: `docs/contracts/observability.md` (Trace records section rewritten), `stages.md` (stage span events), `kernel.md` (`traceparent`), `_map.mjs` ownership for the new files, labels for any new copy.
 - theoremai-frontend: `unified-docs.ts`, `architecture.ts`.
 
 **Bonsai** (on the package bump)
@@ -157,7 +161,7 @@ Would the agent know? Not applicable, since there is no change the agent can see
 - An OpenRouter fixture with `cost` produces `cost_usd`. A Google fixture has no cost attribute.
 - A `traceparent` passed in gives the same `traceId`, and the root's parent equals the caller's span.
 - An abort in the middle of a tool: the tool span closes as `cancelled` and nothing is left unclosed.
-- Scrub, hash and canary behavior is unchanged (existing policy tests, moved to the new locations).
+- Scrub, hash, and canary behavior is unchanged (existing policy tests, moved to the new locations).
 - `toOtlpJson` output matches the OTLP/JSON trace shape (structural contract test; a Collector or Phoenix ingest run waits for approval to run one).
 - Token normalization: a Google fixture with 1 output + 506 thought gives `output_tokens=507`, `reasoning.output_tokens=506`. An OpenRouter fixture with 424 completion (423 reasoning) gives 424 / 423. Both use the live-probe numbers.
 - Every `chat` span carries `gen_ai.provider.name`.
@@ -168,11 +172,11 @@ Each assumption was checked against a primary source (live provider calls, the s
 
 | # | Assumption | Result | Spec change |
 |---|---|---|---|
-| P1 | Our attribute names match semconv | **Mostly.** Checked against `open-telemetry/semantic-conventions-genai` @ `8ffdf56`. Semconv already has `usage.reasoning.output_tokens`, `request.reasoning.level`, `request.stream`, `response.time_to_first_chunk` and `conversation.compacted`, so our `theorem.*` versions of these were unnecessary. `provider.name` is **required** on chat spans and was missing. Semconv has **no cost attribute**, so `theorem.usage.cost_usd` stays ours. | Attribute table corrected (above). |
+| P1 | Our attribute names match semconv | **Mostly.** Checked against `open-telemetry/semantic-conventions-genai` @ `8ffdf56`. Semconv already has `usage.reasoning.output_tokens`, `request.reasoning.level`, `request.stream`, `response.time_to_first_chunk`, and `conversation.compacted`, so our `theorem.*` versions of these were unnecessary. `provider.name` is **required** on chat spans and was missing. Semconv has **no cost attribute**, so `theorem.usage.cost_usd` stays ours. | Attribute table corrected (above). |
 | P2 | "Output tokens" means the same thing on every provider | **False (F12).** The same prompt, live on `gemini-3.8-flash`: Google reports `total_output_tokens: 1` and `total_thought_tokens: 506` separately, while OpenRouter reports `completion_tokens: 424` **including** `reasoning_tokens: 423`. Theorem passes both through as `output`. Theorem also never reads OpenRouter's reasoning count (`completion_tokens_details` is not searched). Semconv rule: output **includes** reasoning, and input **includes** cached tokens. | Adapters normalize `TurnTokens` to the semconv meaning (Google: output = output + thought; OpenRouter: thinking from `completion_tokens_details.reasoning_tokens` / AI SDK `outputTokenDetails.reasoningTokens`). The only Bonsai readers are the two diagnostic files already being rewritten; no quota or billing code reads output tokens. |
 | P3 | Google's reported counts are the billed counts | **Yes for the `total_*` fields.** Google's pricing page lists "Output price (including thinking tokens)", so billed output = `total_output_tokens` + `total_thought_tokens`. That confirms P2's normalization. Live probe, same ~7,900-token prompt sent 3 times: `total_input_tokens` stayed 7,899 while `total_cached_tokens` went 0 → 4,079, so cached tokens are **inside** input, as semconv requires. `raw_prompt_token` (always input + 31) and `model_invocation_token_counts` are **undocumented** in the Interactions reference, so Theorem does not read them. | Google adapter: `input_tokens = total_input_tokens`, `cache_read = total_cached_tokens`, `output_tokens = total_output + total_thought`, `reasoning.output_tokens = total_thought`. The contract cites the pricing page and the probe. |
-| P4 | Phoenix reads OTel GenAI spans | **Yes, recently.** `phoenix/trace/gen_ai/conversion.py` maps `chat` / `execute_tool` / `invoke_agent` to its LLM / TOOL / AGENT views, including tokens, messages and tool calls. It does **not** map reasoning tokens or any cost, and Phoenix's own conventions (OpenInference) take precedence when both are present. | Cost and reasoning appear in Phoenix only if the export also writes OpenInference `llm.cost.*` / `llm.token_count.completion_details.reasoning`. Open question B. |
-| P5 | `toOtlpJson` can feed Phoenix directly | **False.** Phoenix's `/v1/traces` accepts `application/x-protobuf` only. The official encoder (`@opentelemetry/otlp-transformer`) pulls in the SDK trace, metrics and logs packages. | Open question A. |
+| P4 | Phoenix reads OTel GenAI spans | **Yes, recently.** `phoenix/trace/gen_ai/conversion.py` maps `chat` / `execute_tool` / `invoke_agent` to its LLM / TOOL / AGENT views, including tokens, messages, and tool calls. It does **not** map reasoning tokens or any cost, and Phoenix's own conventions (OpenInference) take precedence when both are present. | Cost and reasoning appear in Phoenix only if the export also writes OpenInference `llm.cost.*` / `llm.token_count.completion_details.reasoning`. Open question B. |
+| P5 | `toOtlpJson` can feed Phoenix directly | **False.** Phoenix's `/v1/traces` accepts `application/x-protobuf` only. The official encoder (`@opentelemetry/otlp-transformer`) pulls in the SDK trace, metrics, and logs packages. | Open question A. |
 | P6 | The kernel's clock gives real durations everywhere | **Not in a Cloudflare Worker.** Cloudflare's docs: "`Date.now()` returns the time of the last I/O. It does not advance during code execution." Live sessions run in the Worker (`bonsai-runtime/src/live`). Normal turns run in the brain Container (Deno, real clock). | Spans in a Worker are measured to I/O boundaries. Model calls and I/O-bound tools are real; pure-CPU work shows 0. The contract says so, and the spans carry `theorem.clock=io` when running in a Worker. |
 | P7 | Theorem can stamp its own version on traces | **No runtime constant exists.** The version lives only in `deno.json` and `package.json`. | Dropped `theorem.version` from the resource. Adding one needs a single source kept in sync by the release script; deferred unless you want it. |
 | P8 | Specialists can receive the tool's parent link | **Yes.** Every Bonsai tool goes through `runBonsaiTool(name, input, ctx, action)`, which builds the `BonsaiToolCall` passed to each action. | `traceparent` rides on `BonsaiToolCall`. Actions that call specialists pass it to `runBonsaiProfileTurn`. Specialists called outside a tool stay roots. |
@@ -191,7 +195,7 @@ Each assumption was checked against a primary source (live provider calls, the s
 
 ## Host spans (from decisions 4 and 5)
 
-Theorem exports the span builder the kernel itself uses (`@theoremai/agents/observability`), so hosts write the same shape:
+Theorem exports the span builder the kernel itself uses (`@theoremjs/agents/observability`), so hosts write the same shape:
 
 ```ts
 const tree = startTrace('bonsai.turn', { traceparent });            // host root
@@ -208,7 +212,7 @@ Bonsai consumers added:
 - `agent-turn-trace.ts`: `AgentTurnTraceCollector` is replaced by the builder.
 - `run-host-turn.ts`, `load-host-turn-context.ts`, `assemble-host-turn-prompt.ts`, `run-orchestrator-generation.ts`, `handle-agent-turn-policy.ts`, `context/load-live-context.ts`, `paths/web/handler/path-web-authed-turn.ts`: callers move to the builder.
 - `theorem-turn-observability.ts`: the round and tool timing inference is deleted, because the kernel spans replace it.
-- **Frontend:** `frontend/src/lib/agent-turn-timing.ts` (+ test, `web-chat-reply.ts`, `use-web-chat-send.ts`, `use-web-message-actions.ts`) keeps a hand-copied mirror of the backend span and usage types that `done.timing` carries. The hand-copied types are deleted. The frontend imports the span type from `@theoremai/agents/observability`, as it already does for `TurnEvent` from `@theoremai/agents/kernel`.
+- **Frontend:** `frontend/src/lib/agent-turn-timing.ts` (+ test, `web-chat-reply.ts`, `use-web-chat-send.ts`, `use-web-message-actions.ts`) keeps a hand-copied mirror of the backend span and usage types that `done.timing` carries. The hand-copied types are deleted. The frontend imports the span type from `@theoremjs/agents/observability`, as it already does for `TurnEvent` from `@theoremjs/agents/kernel`.
 
 ## Live sessions (from decision 6)
 
@@ -244,19 +248,19 @@ estimator.messages(history);                    // what compaction uses today
   - `context/build-prompt.ts`: history trail budget (`trimLiveMessagesToTokenBudget`) and long-message truncation (`renderMessageSpeechContent`, `renderMessageMetaExtras`, `renderMessageContent`) take the estimator.
   - Their callers pass it in: `assemble-host-turn-history.ts`, `paths/imessage/imessage-group-history-build.ts`, `paths/imessage/imessage-group-history-prose.ts`. Tests: `live-trail.test.ts`, `format.test.ts`.
   - The wire budget (`estTokensDiv4`) and its frontend mirror use the estimator. The field is renamed `estTokens`.
-- **Behavior change the agent can notice:** where old history is cut short and how much history a proactive wake keeps now follow real token counts. For English text this is close to today; emoji, other languages and code count more accurately. Nothing else changes.
+- **Behavior change the agent can notice:** where old history is cut short and how much history a proactive wake keeps now follow real token counts. For English text this is close to today; emoji, other languages, and code count more accurately. Nothing else changes.
 - Not in scope: the `TEXT_TRUNCATE_TOKENS` (10,000) and `PROACTIVE_LIVE_TOKEN_BUDGET` limits themselves. They are flagged for a separate review.
 
 ## Re-check after main merge (22/09/2026, 29e81c9)
 
 - The cited files changed mostly by the Theorum → Theorem rename; the line references still hold.
 - **New: OpenRouter drops thought events when `summaries: 'none'`** (`providers/openrouter/chat.ts`, `shouldEmitProviderEvent`). The trace then has no reasoning *text*, but `gen_ai.usage.reasoning.output_tokens` still comes from provider usage. Contract test: reasoning count present, thought text absent, under `summaries: 'none'`.
-- **New: `validateTraceDir`** rejects trace directories inside the project checkout. The main path (`registerTraceDestination` / `jsonlDestination`) throws at startup. The optional helpers `resolveTraceDir` / `sinkFromDir` instead fell back silently to a second directory or to discarding traces. **J (locked): deleted** in this branch, along with their exports, tests and doc rows, so a bad trace directory fails at startup on the one remaining path.
+- **New: `validateTraceDir`** rejects trace directories inside the project checkout. The main path (`registerTraceDestination` / `jsonlDestination`) throws at startup. The optional helpers `resolveTraceDir` / `sinkFromDir` instead fell back silently to a second directory or to discarding traces. **J (locked): deleted** in this branch, along with their exports, tests, and doc rows, so a bad trace directory fails at startup on the one remaining path.
 
 ## Decisions (locked 22/09/2026, round 2)
 
 - **A. Collector.** Theorem ships only `toOtlpJson` (no encoder dependency). Getting data into a viewer goes through the standard OpenTelemetry Collector (OTLP/JSON in, protobuf out). Theorem documents a reference Collector config. The host owns running it: for Bonsai that's local dev tooling in the Bonsai repo, not Theorem.
-- **B. Viewer attributes.** A separate, optional exporter module (`@theoremai/agents/observability/openinference`) adds OpenInference `llm.cost.*` and reasoning-token attributes. The kernel and `toOtlpJson` stay viewer-neutral. Hosts that don't use Phoenix never load it.
+- **B. Viewer attributes.** A separate, optional exporter module (`@theoremjs/agents/observability/openinference`) adds OpenInference `llm.cost.*` and reasoning-token attributes. The kernel and `toOtlpJson` stay viewer-neutral. Hosts that don't use Phoenix never load it.
 - **C. Google counts.** Verified (P3).
 
 ## Other hosts (Theorem is not Bonsai)
@@ -285,14 +289,14 @@ Every Theorem-side item was re-read for Bonsai assumptions:
     - Other documents (plain text, CSV, JSON, …), file references (`uri`), and unreadable headers: **unknown**.
   - **Revised again 22/09/2026 (billed usage).** `countTokens` is not what Gemini bills. Interactions `usage` and `generateContent` `usageMetadata` agree exactly with each other on gemini-3.8-flash, and differ from `countTokens`:
     - **Image:** unchanged (the 1120 grid).
-    - **Audio:** 25 per second of decoded audio, rounded up (2.2 s → 56). Bare `audio/pcm` is 16 kHz mono; `audio/L16` needs `rate` and `channels`; `audio/pcm` with parameters, `alaw` and `mulaw` are refused.
+    - **Audio:** 25 per second of decoded audio, rounded up (2.2 s → 56). Bare `audio/pcm` is 16 kHz mono; `audio/L16` needs `rate` and `channels`; `audio/pcm` with parameters, `alaw`, and `mulaw` are refused.
     - **PDF:** 520 per page.
     - **Video:** `frames × ⌊√(70·w/h)⌋ × ⌊√(70·h/w)⌋ + ⌈min(audio, frames) × 25⌉`, frames = video seconds rounded half up (66 per frame at 16:9, 63 at 4:3). Under half a second is refused. Read from MP4 / MOV / 3GP and WebM headers; other containers are unknown.
     - **Text documents:** counted as their text (o200k). Types Gemini converts first (`text/md`, `application/x-python`, mono `audio/L16`) add undocumented text tokens and are unknown.
     - **Known gap:** ADTS AAC, where Gemini estimates length from bitrate (2–3 tokens under ours at 10 s).
     - **Parked:** the full probe (WebM / MOV / 3GP video, anamorphic video, other Gemini 3 models, OpenRouter) and the open decisions are tracked in [theoremai#18](https://github.com/masudl-hub/theoremai/issues/18), to pick up when a provider stops reporting counts.
   - **Family resolution:** by model generation. `gemini-3*` flash/pro text models, direct or `google/…` via OpenRouter, get the rule. Everything else is unknown until verified live.
-  - **Every estimate reads the facts it needs** from the payload: image size from PNG/JPEG/GIF/WebP/HEIC headers, decoded audio length from WAV/AIFF/FLAC/Ogg/WebM/MP4/MP3/ADTS headers, video length and frame size from MP4 and WebM headers, and the PDF page count from the page tree, including trees inside compressed object streams. Page counts were checked against PDFKit on real pdfTeX and Chrome PDFs.
+  - **Every estimate reads the facts it needs** from the payload: image size from PNG/JPEG/GIF/WebP/HEIC headers, decoded audio length from WAV/AIFF/FLAC/Ogg/WebM/MP4/MP3/ADTS headers, video length, and frame size from MP4 and WebM headers, and the PDF page count from the page tree, including trees inside compressed object streams. Page counts were checked against PDFKit on real pdfTeX and Chrome PDFs.
   - **Compaction:** the history meter now reports media it could not count (`unknownMedia`) instead of adding 258.
 - **F. Declared server identity.** A `local` profile may declare its server name (e.g. `ollama`), which becomes `gen_ai.provider.name`. When it isn't declared, the attribute is absent (unknown), not guessed. Why it matters: without it, a trace can't say which server produced an answer, so evals can't compare servers.
 - **G. Reference, not copy.** A generic `include` reference mode in Theorem, as proposed. Content already held by a host store is written as its id. Only content stored nowhere else stays in the trace.
@@ -318,11 +322,11 @@ Every Theorem-side item was re-read for Bonsai assumptions:
 
 ## Decisions (locked 22/09/2026, round 4)
 
-**Invariant:** the trace has the highest possible fidelity, accuracy and precision. A developer can answer any question over any span of time (one call, one turn, a session, a date range) from traces alone.
+**Invariant:** the trace has the highest possible fidelity, accuracy, and precision. A developer can answer any question over any span of time (one call, one turn, a session, a date range) from traces alone.
 
 **Build order:** 1 usage (done) → continuation input → usage sum → CLI label → probe fixture → Live / grounding probes → 2 spans + v3 record → 3 retention → 4 OTLP → 5 CLI/docs → 6 Bonsai. Nothing ships until every step is done.
 
-- **R4-1. `trace-span.ts`** (done): wired in by step 2 and exported from `@theoremai/agents/observability`; the dead-code gate is green.
+- **R4-1. `trace-span.ts`** (done): wired in by step 2 and exported from `@theoremjs/agents/observability`; the dead-code gate is green.
 - **R4-2. Gate order (done).** `check:ci` runs `verify:publish` before `lint:fallow`: fallow writes `coverage/`, which the publish check rejects on purpose. CI is unaffected (separate jobs).
 - **R4-3. Usage sum (done; exported as `sumTokens`).** One function sums `TurnTokens` across calls. It is used by the trace record, the CLI total, and later the `invoke_agent` span. Counts add up. A side is estimated if any call estimated it. `unknownMedia` adds up per side. Cost: summed over the calls that reported it, and marked `partial` when some calls did and others did not. When no call reported a cost, the cost is absent (unknown). `upstreamUsd` sums where present; OpenRouter reports it only for BYOK, so absence is not missing data.
 - **R4-4. Continuation input (done).** `interactionOnlyInput` (raw Interactions steps built by the runner) is replaced by kernel messages that the Google provider maps with `historySteps`. The wire does not change; the public request type does. The runner stops building provider wire. This is a step-2 prerequisite, because chat spans record what each call sent in kernel terms.
@@ -340,12 +344,12 @@ Every Theorem-side item was re-read for Bonsai assumptions:
   - **Aligned (23/09/2026):** OpenAI-compat invented `call_<name>` / `call_tool` and the AI SDK path invented tool name `'tool'`; Interactions sent `''` for both. All four transports now share `historyToolIdentity`: id and name only where history carries them. A missing one reaches the provider unfilled (the AI SDK rejects it before sending). `fallbackToolCallId` and both `stringDefault` copies are deleted.
 - **R4-6. CLI label (done; `TestRunResult.tokens` replaces `tokensTotal`).** A passing `test` whose total includes estimates prints `✓ STATUS: PASSED (took 2.31s, 1234 tokens, includes estimates)`. The result object carries the flag.
 - **R4-7. Grounding (done; probed 23/09/2026).** Probe Interactions with `google_search`. Delete any `grounding_metadata` read that the recorded stream does not show.
-  - **Interactions** (gemini-3.8-flash, `google_search` and `google_maps`, streamed and buffered; thinking `low`, since this model rejects `minimal` and `none`): no `grounding_metadata` / `groundingMetadata` anywhere. Grounding is `result[].search_suggestions`, `result[].places[]` (`name`, `url`, `place_id`; maps also sends `widget_context_token`) and `annotations[]` (`url_citation`: `url`, `title`; `place_citation`: `url`, `name`, `place_id`; both with `start_index` / `end_index`). Streams carry them on `step.delta`; buffered bodies on `steps[]`, annotations under `content[]`.
+  - **Interactions** (gemini-3.8-flash, `google_search`, and `google_maps`, streamed and buffered; thinking `low`, since this model rejects `minimal` and `none`): no `grounding_metadata` / `groundingMetadata` anywhere. Grounding is `result[].search_suggestions`, `result[].places[]` (`name`, `url`, `place_id`; maps also sends `widget_context_token`) and `annotations[]` (`url_citation`: `url`, `title`; `place_citation`: `url`, `name`, `place_id`; both with `start_index` / `end_index`). Streams carry them on `step.delta`; buffered bodies on `steps[]`, annotations under `content[]`.
   - **Live** (gemini-3.1-flash-live-preview, `googleSearch`): one `serverContent.groundingMetadata` per turn, camelCase only: `groundingChunks[].web` (`uri`, `title`), `groundingSupports[]` (`groundingChunkIndices`, `segment`), `searchEntryPoint.renderedContent`, `webSearchQueries`.
   - **Done:** the parser reads only those shapes (every guessed camel/snake alias deleted). Buffered bodies were emitting no grounding at all (the parser read `interaction.steps`, the body has top-level `steps`); `eventsFromInteractionEnd` now owns buffered grounding and the buffered path no longer asks twice. Tests use the recorded shapes with synthetic values (the recorded maps rows carry a location, so they stay out of the public repo).
   - **Step 2 fidelity inputs:** `usage.grounding_tool_count[]` (`type`, `count`, `search_query_count`), `input_tokens_by_modality`, and the per-invocation `prompt_tokens_details` / `candidates_tokens_details`. Citation offsets and `groundingSupports` stay on the raw `metadata`.
 - **R4-9. Unobserved wire aliases (done 23/09/2026).** Every guessed alias outside grounding was probed; what the wire does not send is deleted, what it sends is read in its one observed spelling. Documented-but-unobserved fields are kept and marked as such.
-  - **Interactions, deleted:** event types `content.delta` / `interaction.complete`, `payload.type` beside `event_type`, camel `mimeType` in deltas, top-level `status` on `interaction.completed`, `output_image` / `outputs`, the `interaction.steps` read on the completed row (streams carry no `steps` there). The stream fold is now one model: `step.start` / `step.delta` / `step.stop` per `index`; `function_call`, code execution and builtin steps merge and emit once, whole, at `step.stop`; buffered bodies emit the same events from `steps[]` (`eventsFromStep`, `eventsFromInteractionEnd`).
+  - **Interactions, deleted:** event types `content.delta` / `interaction.complete`, `payload.type` beside `event_type`, camel `mimeType` in deltas, top-level `status` on `interaction.completed`, `output_image` / `outputs`, the `interaction.steps` read on the completed row (streams carry no `steps` there). The stream fold is now one model: `step.start` / `step.delta` / `step.stop` per `index`; `function_call`, code execution, and builtin steps merge and emit once, whole, at `step.stop`; buffered bodies emit the same events from `steps[]` (`eventsFromStep`, `eventsFromInteractionEnd`).
   - **Live, deleted:** snake aliases `interaction_status`, `url_context_metadata`, `waiting_for_input`, `generation_complete`, `turn_complete`; a numeric `goAway.timeLeft` (the wire sends a Duration string, `"50s"`).
   - **Tape:** the scrub finds inline bytes by the shapes the wire and Theorem send (`inlineBytesKey`): `mime_type` + `data` (Interactions request, deltas, steps), `mimeType` + `data` (Theorem media parts in a tool's raw output; Live `inlineData`), `media_type` + `b64_json` (OpenRouter `/images`) and `data:<mime>;base64,` URLs anywhere (OpenRouter chat `message.images`). Bytes become their sha256 (`dataKind: 'sha256'`; a data URL becomes `data:<mime>;sha256,<hex>`). Inline data that is not base64 is hashed as text and labelled (`dataKind: 'text_sha256'`, `data:<mime>;text_sha256,<hex>`); a `$bytes` marker that is not base64 resolves to `{invalid_base64: true, text_sha256}`. One bad blob never loses the record. `data` without a mime (e.g. `reasoning.encrypted`) is kept.
   - **Bugs the probes exposed (fixed, with regression tests):** (1) Live read `interactionStatus` at the top level; it lives under `serverContent`, so an extended-thinking turn closed while `IN_PROGRESS`. (2) The Interactions stream dropped code execution evidence. (3) Builtin steps were emitted twice and incomplete. (4) Buffered mode dropped `function_call` steps. (5) Buffered mode dropped thought summaries. (6) Buffered mode emitted media twice. (7) 24000 Hz was hardcoded on every transport; the rate and channels now come from the mime (`shared/pcm.ts`), and Live `part.thought: true` is now a `thought`, not text. (8) OpenRouter chat image generation (`image.includeText`) always failed: images arrive in `message.images[]`, and the parser read markdown and content parts. Only the first `/images` entry was kept; every entry is now `media`. (9) An Interactions stream cut off before `interaction.completed` ended as `completed`; it is now `stream_incomplete`, and a non-terminal status keeps its `native`.
@@ -360,12 +364,12 @@ Every Theorem-side item was re-read for Bonsai assumptions:
     - **OpenRouter builtins (done).** A builtin with no `wire.openRouter` (Maps, URL context, code execution) was silently dropped; it now throws through `requireBuiltinWire`, as on Interactions and Live, and the call ends as an `error` before any request is sent. `builtinWire` is gone.
     - **Live (done, probe 23/09/2026 on four Live models).** Builtins were silently dropped (no `wire.live`) and, had one been set, declared as a function named after the builtin; they are now their own setup tools (`{ googleSearch: {} }`) and a builtin with no Live wire throws, as on Interactions. `voiceActivity` is `evidence` (`voice_activity`). `codeExecutionResult` parts are `evidence` (`code_execution_result`); `executableCode` was never sent, so nothing reads it. A cancel carries the name of the call this connection issued; an unknown id is an `error`. Realtime input sends the host's mime as given, and `LiveSession.sendAudio` / `sendVideo` now require `mimeType` (breaking for hosts that omitted it). The duplicate `buildGeminiLiveRealtimeText` is gone.
 - **R4-10. `thinking: 'none'` on Interactions (closed 23/09/2026, no change).** Interactions framing sends whatever level the host's binding maps to; gemini-3.8-flash rejects `none` (and `minimal`) with 400. Which levels a model accepts is provider-shaped and changes, so the kernel does not validate it: the host's binding decides and the API error is the answer (it reaches the trace as the call's error). Presets are the only place a level list could live; the Google preset declares no model bindings or efforts today, so nothing maps to `none`.
-- **R4-11. Concurrent tool execution (noted 23/09/2026, open, out of scope).** Same-step tool calls execute in order by contract (`stages.md` → same-round batch rules; `handlePendingTools`), because the gate, taint accumulation, stage hooks and result order all depend on it. The design question is tracked in [#19](https://github.com/masudl-hub/theoremai/issues/19). Traces need no change for it: every `execute_tool` span carries its own start and end times, so concurrent execution would show as overlapping siblings. The example's E5 wording describes today's behaviour.
+- **R4-11. Concurrent tool execution (noted 23/09/2026, open, out of scope).** Same-step tool calls execute in order by contract (`stages.md` → same-round batch rules; `handlePendingTools`), because the gate, taint accumulation, stage hooks, and result order all depend on it. The design question is tracked in [#19](https://github.com/masudl-hub/theoremai/issues/19). Traces need no change for it: every `execute_tool` span carries its own start and end times, so concurrent execution would show as overlapping siblings. The example's E5 wording describes today's behaviour.
 - **R4-8 (done).** Fix `tests/fixtures/probes/create-provider-load.ts` so it passes `deno check`; the typecheck gate (CI and `check:ci`) now includes `tests/fixtures/probes/`, which tests spawn without type-checking.
 
 ## Step 2 (done 23/09/2026)
 
-Every writer builds a v3 record through `buildRecord`: `runTurn`, specialists, `invokeTool`, Live (response, tool and session records), and `flushMintTrace`. The literal shape is the [worked example](./otel-turn-traces-example.md), corrected where it disagreed with the code.
+Every writer builds a v3 record through `buildRecord`: `runTurn`, specialists, `invokeTool`, Live (response, tool, and session records), and `flushMintTrace`. The literal shape is the [worked example](./otel-turn-traces-example.md), corrected where it disagreed with the code.
 
 Found and fixed while wiring it:
 - **Sampling split traces.** `sampleRate` drew a random number per record, so a turn could be kept while its specialist or Live responses were dropped. It is now decided by trace id (OpenTelemetry `TraceIdRatioBased`), so a trace is kept or dropped whole, in any process.
@@ -383,17 +387,17 @@ Found and fixed while wiring it:
 
 ## Step 4 (done 23/09/2026)
 
-- **`toOtlpJson(records)`** (`src/observability/otlp.ts`): one `resourceSpans` per record, one scope `@theoremai/agents` with the record's `schemaUrl`, OTLP enum numbers, hex ids, `intValue` as a decimal string, `null` left out. No encoder dependency (decision A); the contract doc carries a reference Collector config (OTLP/JSON in, protobuf out) that the host runs.
+- **`toOtlpJson(records)`** (`src/observability/otlp.ts`): one `resourceSpans` per record, one scope `@theoremjs/agents` with the record's `schemaUrl`, OTLP enum numbers, hex ids, `intValue` as a decimal string, `null` left out. No encoder dependency (decision A); the contract doc carries a reference Collector config (OTLP/JSON in, protobuf out) that the host runs.
 - **References name their kind.** `$json` values were referenced as `content_sha256`, the same key as text, so a reader could not tell stored JSON from text that happens to be JSON. They are now `{ json_sha256 }`; text stays `{ content_sha256 }`; a blob's `content_sha256` sits beside `bytes` and is not in `content`. The worked example changed with it.
 - **`inlineContent(record, value)`** rebuilds any value from its references; `toOtlpJson` and the CLI's `--verbose` rows use it, so a viewer reads standard semconv messages.
 - **Not exported to OTLP:** `metadata` (host-owned; no OTLP slot) and blob bytes (never stored).
-- **`@theoremai/agents/observability/openinference`** (decision B): `withOpenInference(records)` adds `llm.token_count.completion_details.reasoning` and `llm.cost.total` to model-call spans only (an agent's usage is already their sum), and never writes a partial cost as a total. Names checked against the OpenInference spec; Phoenix's GenAI conversion merges beside them without skipping (read in its source, not run).
+- **`@theoremjs/agents/observability/openinference`** (decision B): `withOpenInference(records)` adds `llm.token_count.completion_details.reasoning` and `llm.cost.total` to model-call spans only (an agent's usage is already their sum), and never writes a partial cost as a total. Names checked against the OpenInference spec; Phoenix's GenAI conversion merges beside them without skipping (read in its source, not run).
 - **Not yet verified by a run:** ingest into a Collector or Phoenix. Needs approval to start one.
 
 ## Step 5 (done 23/09/2026, Theorem side)
 
 - **CLI:** `--trace` prints the v3 record; `--verbose` prints its upstream rows through `inlineContent`. `bench` labelled its trace micro-benchmark per event after the step 2 rename (the per-turn check matched a stale label); each result now carries its own unit.
-- **`kernel.md`:** the Trace lifecycle step described the v2 wire snapshot (`toInteractionsBody`, which no longer exists); rewritten. A trace-context table documents `traceparent`, `conversationId`, `links`, `metadata`, `done.traceparent` and `ToolContext.traceparent`.
+- **`kernel.md`:** the Trace lifecycle step described the v2 wire snapshot (`toInteractionsBody`, which no longer exists); rewritten. A trace-context table documents `traceparent`, `conversationId`, `links`, `metadata`, `done.traceparent`, and `ToolContext.traceparent`.
 - **`stages.md`:** `theorem.stage` span events and which span each stage records on.
-- **theoremai-frontend (`unified-docs.ts`, `architecture.ts`):** stale — names `dirSink`, `sinkFromDir`, `resolveTraceDir`, `trace-attach.ts` and `trace-usage.ts`, none of which exist. Public copy, so the lines wait for approval.
+- **theoremai-frontend (`unified-docs.ts`, `architecture.ts`):** stale — names `dirSink`, `sinkFromDir`, `resolveTraceDir`, `trace-attach.ts`, and `trace-usage.ts`, none of which exist. Public copy, so the lines wait for approval.
 

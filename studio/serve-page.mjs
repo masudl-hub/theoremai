@@ -6,7 +6,7 @@
  * Only this machine reaches it. Every response carries the page's headers (`page.mjs`). A path
  * that names no file is the page itself, so a run tab's address opens the screen.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,16 +44,26 @@ const page = readFileSync(path.join(root, 'index.html'), 'utf8').replaceAll(
   project,
 );
 
-/** The built file a request names, or undefined for the page itself. Nothing outside the build is read. */
+/** The build's files by the path a request names them with. Nothing else is ever read. */
+const FILES = new Map();
+(function list(dir, named) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) list(file, `${named}${entry.name}/`);
+    else if (entry.isFile()) FILES.set(`${named}${entry.name}`, file);
+  }
+})(root, '');
+
+/** The built file a request names, or undefined for the page itself (a malformed path too). */
 function fileFor(pathname) {
-  const relative = decodeURIComponent(pathname.slice(PAGE_BASE.length));
-  const file = path.resolve(root, relative);
-  if (relative === '' || !file.startsWith(root + path.sep)) return undefined;
+  let relative;
   try {
-    return readFileSync(file);
+    relative = decodeURIComponent(pathname.slice(PAGE_BASE.length));
   } catch {
     return undefined;
   }
+  const file = FILES.get(relative);
+  return file && { body: readFileSync(file), type: TYPES[path.extname(file)] };
 }
 
 /** What a request is answered: the way to the page, nothing, or a built file or the page. */
@@ -73,10 +83,8 @@ function readsPage(method, pathname) {
 /** The built file a read names, or the page itself; a HEAD has no body. */
 function served(method, pathname) {
   const file = fileFor(pathname);
-  const type = file
-    ? (TYPES[path.extname(pathname)] ?? 'application/octet-stream')
-    : TYPES['.html'];
-  const body = method === 'HEAD' ? undefined : (file ?? page);
+  const type = file ? (file.type ?? 'application/octet-stream') : TYPES['.html'];
+  const body = method === 'HEAD' ? undefined : (file?.body ?? page);
   return { status: 200, headers: { ...PAGE_HEADERS, 'Content-Type': type }, body };
 }
 

@@ -422,6 +422,8 @@ export {
 } from './src/kernel/stop.ts';
 export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
 export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
+export type { MemoryToolExecutionOptions } from './src/kernel/tools/memory-execution.ts';
+export { createMemoryToolExecution } from './src/kernel/tools/memory-execution.ts';
 export type {
   CredentialQuery,
   McpProtocolVersion,

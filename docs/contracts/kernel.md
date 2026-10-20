@@ -907,6 +907,9 @@ It checks cancellation before emission, then validates the returned answer throu
 The service is trusted host code. Profiles, browser request bodies, and protocols cannot inject it.
 Permission and sign-in resumes retain `gateKind`, so preparation that did not run before approval still runs before dispatch.
 The shared executor accepts an optional host-owned `ToolExecutionCoordinator` through trusted `execution` options.
+`createMemoryToolExecution` is the kernel's in-process coordinator. It checks the claim token on `settle` and `markUncertain`.
+It refuses `settleNotStarted` for an operation that already has a record, and refuses new operations at the `maxOperations` of its `MemoryToolExecutionOptions`.
+It holds no storage outside the process, so a host that resumes across workers supplies its own coordinator.
 The host must reserve storage before returning an acquired claim. React handlers enforce finite capacity and reserve terminal evidence.
 Capacity exhaustion must refuse dispatch. It must not remove unresolved claims to authorize another attempt.
 `TurnRequest`, `InvokeToolRequest`, and `RunSessionOptions` carry this service. Profiles and provider options do not.

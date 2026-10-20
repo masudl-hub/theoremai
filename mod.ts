@@ -390,7 +390,6 @@ export type {
 } from './src/kernel/stages.ts';
 export {
   applyStageResult,
-  isAwaitingUserInput,
   STAGE_AFFORDANCE_MATRIX,
   STAGE_AFFORDANCES,
   stageAllowsAffordance,
@@ -473,6 +472,7 @@ export {
   awaitingUserInputSchema,
   type GateReference,
   gateReferenceSchema,
+  isAwaitingUserInput,
   keptReply,
   reasoningPartSchema,
   TURN_EVENT_SCHEMAS,

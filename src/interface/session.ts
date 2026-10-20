@@ -1,7 +1,6 @@
-import { isAwaitingUserInput } from '../kernel/stages.ts';
 import type { ToolGateAuth } from '../kernel/tools/gate-answer.ts';
 import type { ToolGate, TurnToolSnapshot } from '../kernel/tools/types.ts';
-import type { ReasoningPart } from '../kernel/turn-events.ts';
+import { isAwaitingUserInput, type ReasoningPart } from '../kernel/turn-events.ts';
 import type { ModelId, ToolId, TurnEvent, TurnHistoryMessage } from '../kernel/types.ts';
 import { findLast } from '../kernel/util/find-last.ts';
 import { historyFromTranscriptBlocks } from './history.ts';

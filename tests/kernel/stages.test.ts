@@ -13,7 +13,6 @@ import {
   applyStageResult,
   injectedStageEvent,
   injectMessages,
-  isAwaitingUserInput,
   runStage,
   STAGE_AFFORDANCE_MATRIX,
   STAGE_AFFORDANCES,
@@ -23,6 +22,7 @@ import {
 import { profileAllowsInject, profileAllowsSteering } from '../../src/kernel/stop.ts';
 import {
   awaitingUserInputSchema,
+  isAwaitingUserInput,
   type ToolGate,
   toolGateSchema,
 } from '../../src/kernel/turn-events.ts';

@@ -579,6 +579,11 @@ true satisfies Equals<z.infer<typeof awaitingUserInput>, AwaitingUserInput>;
 /** The schema a pause for user input parses against. */
 export const awaitingUserInputSchema: z.ZodType<AwaitingUserInput> = awaitingUserInput;
 
+/** True when a tool output asks the turn to pause for the user. */
+export function isAwaitingUserInput(output: unknown): output is AwaitingUserInput {
+  return awaitingUserInputSchema.safeParse(output).success;
+}
+
 /** A function tool as it is sent to the model. */
 export interface WireFunctionTool {
   type: 'function';

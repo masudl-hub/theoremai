@@ -8,12 +8,7 @@ import { guardrailAttributes } from './engine/turn-trace.ts';
 import type { StageApplyWarningCode, TurnStage } from './schema.ts';
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
-import {
-  type AwaitingUserInput,
-  awaitingUserInputSchema,
-  type StageApplyWarning,
-  type TurnEventOf,
-} from './turn-events.ts';
+import type { AwaitingUserInput, StageApplyWarning, TurnEventOf } from './turn-events.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from './types.ts';
 import { isRecord } from './util/record.ts';
 
@@ -163,11 +158,6 @@ function warn(
   message: string,
 ): void {
   warnings.push({ code, field, message });
-}
-
-/** True when a tool output asks the turn to pause for the user. */
-export function isAwaitingUserInput(output: unknown): output is AwaitingUserInput {
-  return awaitingUserInputSchema.safeParse(output).success;
 }
 
 /** Drops unknown keys and rejects `role: 'tool'`; sanitizeHistory runs at the inject site. */

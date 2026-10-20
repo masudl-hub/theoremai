@@ -21,8 +21,8 @@ import {
   type ToolOutcome,
 } from '../engine/tool-trace.ts';
 import { jsonObjectSchema } from '../json.ts';
-import { type InjectUnit, isAwaitingUserInput } from '../stages.ts';
-import type { Source } from '../turn-events.ts';
+import type { InjectUnit } from '../stages.ts';
+import { isAwaitingUserInput, type Source } from '../turn-events.ts';
 import type { InteractionPart, Profile, ToolId, TurnEvent, TurnTokens } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';

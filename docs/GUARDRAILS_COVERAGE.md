@@ -112,6 +112,13 @@ This section maps each detector to the labelled data we can benchmark it on, and
 
 The external sets are in `~/Development/.guardrail-corpus/`, outside the repo. The in-repo sets in `src/guardrails/corpus/` were written by us while building the detectors, so they are not unseen data. A benchmark on them shows a regression, not accuracy.
 
+Two kinds of evidence are kept apart:
+
+- **Accuracy on unseen data** comes only from sets someone else labelled, such as SPL and the Tensor Trust detection set.
+- **End-to-end runs** send attacks from others' data through the real kernel to a real model, and label the replies. They show that the detector catches what a model actually writes, and how often it raises a false alarm on real replies. They do not measure accuracy: they cover one model, and a simple label rule, such as "the reply holds the canary", is close to the detector's own rule.
+
+End-to-end runs follow three rules. The attacks come unchanged from others' data; we never write, pick or tune them. A person reads every reply where the detector and the code label disagree, plus a random sample of the rest, and that reading is the label. We never generate data to fill a gap: a detector with no labelled external set stays a gap.
+
 Status as of 20/10/2026.
 
 | Detector | Boundaries it fits | Attacks | Benign | Coverage |
@@ -121,10 +128,10 @@ Status as of 20/10/2026.
 | `ids`, `financial`, `network` | inbound; tool output; tool arguments | gravitee PII spans[^gravitee], labelled US SSN, US ITIN, credit card, IBAN and IP address | Rows of the same set without those spans | Inbound and tool output only. None in model-written text. The eval loader already reads this set, so it may not be unseen |
 | `credentials` | inbound; tool output; tool shown; tool arguments; `reply` | In-repo `secrets.ts`[^secrets]. gitleaks' own rule examples[^gitleaks]: 855 of 855 match. The SecretBench[^secretbench] candidate regexes, as a check of which vendors have a rule | gitleaks' own should-not-match examples: 0 of 291 match | **Gap:** no labelled set of real secrets. SecretBench's labels need its authors' agreement |
 | `prompt_leak` | outbound | System Prompt Leakage (SPL)[^spl] test split, synthetic: 30,938 paraphrases of the system prompt | SPL: 40,413 replies to the same prompts | Precision 0.99, recall 0.18. Recall is 100% when the reply keeps 60% or more of the prompt's four-word runs, and 0% under 10% |
-| `canary_leak` | tool arguments; outbound | Tensor Trust extraction detection[^tt-extract]: 115 replies that reveal a player's access code, by hand label | Tensor Trust: 115 replies paired with another player's code | Recall 0.55, false alarms 8.7%. The access codes are words, not the kernel's token, so this tests the matcher, not the real canary. **Gap:** recorded runs with the real canary |
-| `marker_leak` | outbound | In-repo `canary-egress-attacks.ts`[^canary-attacks] and `live-attacks.ts`[^live-attacks] only | AgentDojo assistant replies[^agentdojo-runs], as clean model output | **Gap:** recorded runs |
-| `tool_leak` | outbound | None | AgentDojo assistant replies | **Gap** |
-| `ungiven_images`, `ungiven_links` | outbound | None | AgentDojo assistant replies | **Gap** |
+| `canary_leak` | tool arguments; outbound | Tensor Trust extraction detection[^tt-extract]: 115 replies that reveal a player's access code, by hand label | Tensor Trust: 115 replies paired with another player's code | Recall 0.55, false alarms 8.7%. The access codes are words, not the kernel's token, so this tests the matcher, not the real canary. End-to-end: the 570 Tensor Trust extraction attacks[^tt-robust], in progress |
+| `marker_leak` | outbound | In-repo `canary-egress-attacks.ts`[^canary-attacks] and `live-attacks.ts`[^live-attacks] only | AgentDojo assistant replies[^agentdojo-runs], as clean model output | **Gap:** no labelled external set. End-to-end: the Tensor Trust run above |
+| `tool_leak` | outbound | None | AgentDojo assistant replies | **Gap:** no labelled external set |
+| `ungiven_images`, `ungiven_links` | outbound | None | AgentDojo assistant replies | **Gap:** no labelled external set |
 
 ### Boundaries with no native data
 
@@ -207,3 +214,4 @@ These settings act on tools and turns, not on text at a boundary.
 [^tt-extract]: [Tensor Trust extraction detection v1](https://github.com/HumanCompatibleAI/tensor-trust-data/tree/main/detecting-extractions/v1), GitHub
 [^canary-attacks]: [src/guardrails/corpus/canary-egress-attacks.ts](../src/guardrails/corpus/canary-egress-attacks.ts)
 [^live-attacks]: [src/guardrails/corpus/live-attacks.ts](../src/guardrails/corpus/live-attacks.ts)
+[^tt-robust]: [Tensor Trust extraction robustness v1](https://github.com/HumanCompatibleAI/tensor-trust-data/tree/main/benchmarks/extraction-robustness/v1), GitHub

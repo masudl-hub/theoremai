@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import type { DetectSpec } from '../../src/guardrails/detectors.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
 import {
   guardToolFailureText,
@@ -35,7 +36,7 @@ function toolProfile(detect?: DetectSpec): Profile {
       identity: { handle: 'tb' },
       ...geminiModels('gemini35FlashLite'),
       maxSteps: 2,
-      tools: { allow: ['local_lookup', 'remote_lookup'] },
+      tools: { allow: ['local_lookup', 'remote_lookup', 'mcp_lookup'] },
       inputs: { text: true },
       outputs: {},
       guardrails: { quota: { perDay: 50 }, ...(detect ? { detect } : {}) },
@@ -91,6 +92,44 @@ function registerRemote(body: unknown, status = 200): () => void {
     )) as typeof fetch;
   return () => {
     globalThis.fetch = original;
+  };
+}
+
+/** An MCP tool whose server answers every `tools/call` with `result`; `calls` counts them. */
+function registerMcp(result: unknown): { calls: () => number; restore: () => void } {
+  registerTool({
+    name: 'mcp_lookup',
+    description: 'MCP lookup',
+    type: 'mcp',
+    serverUrl: 'https://mcp.example.com/mcp',
+    mcpToolName: 'lookup',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({ q: z.string() }),
+    output: z.object({}).passthrough(),
+  });
+  let calls = 0;
+  const original = globalThis.fetch;
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? '{}'));
+    if (body.method === 'tools/call') calls += 1;
+    const reply = {
+      jsonrpc: '2.0',
+      id: body.id,
+      result: body.method === 'tools/call' ? result : {},
+    };
+    return Promise.resolve(
+      new Response(JSON.stringify(reply), { headers: { 'Content-Type': 'application/json' } }),
+    );
+  }) as typeof fetch;
+  return {
+    calls: () => calls,
+    restore: () => {
+      globalThis.fetch = original;
+    },
   };
 }
 
@@ -485,4 +524,107 @@ Deno.test('arguments that cannot be read stop the call', () => {
     'tool_arguments_function',
   );
   assertEquals('args' in unread, true);
+});
+
+Deno.test('blocked arguments: an http tool is not called, at tool_arguments_http', async () => {
+  const profile = toolProfile({ credentials: { at: { tool_arguments_http: 'block' } } });
+  resetTools();
+  let fetched = 0;
+  const restore = registerRemote({ note: 'ok' });
+  const mocked = globalThis.fetch;
+  globalThis.fetch = ((...args: Parameters<typeof fetch>) => {
+    fetched += 1;
+    return mocked(...args);
+  }) as typeof fetch;
+  try {
+    const { events } = await run(profile, 'remote_lookup', { q: `key ${TEST_OPENAI_KEY}` });
+    assertEquals(fetched, 0);
+    assertEquals(toolEventsOf(events, 'error')[0]?.failure.code, 'arguments_blocked');
+    const event = guardrails(events).find((g) => g?.stage === 'tool_call');
+    assertEquals([event?.boundary, event?.action], ['tool_arguments_http', 'block']);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test('blocked arguments: an MCP tool is not called, at tool_arguments_mcp', async () => {
+  const profile = toolProfile({ credentials: { at: { tool_arguments_mcp: 'block' } } });
+  resetTools();
+  const server = registerMcp({ structuredContent: { note: 'ok' } });
+  try {
+    const { events } = await run(profile, 'mcp_lookup', { q: `key ${TEST_OPENAI_KEY}` });
+    assertEquals(server.calls(), 0);
+    assertEquals(toolEventsOf(events, 'error')[0]?.failure.code, 'arguments_blocked');
+    const event = guardrails(events).find((g) => g?.stage === 'tool_call');
+    assertEquals([event?.boundary, event?.action], ['tool_arguments_mcp', 'block']);
+  } finally {
+    server.restore();
+  }
+});
+
+Deno.test('injection in an MCP tool result is blocked at tool_output_mcp', async () => {
+  const profile = toolProfile({ injection: { at: { tool_output_mcp: 'block' } } });
+  resetTools();
+  const server = registerMcp({ structuredContent: { note: INJ_IGNORE } });
+  try {
+    const { events, result } = await run(profile, 'mcp_lookup', { q: 'x' });
+    assertEquals(server.calls(), 1);
+    const text = formatToolResult(result as ModelToolResult);
+    assertEquals(text.includes(INJ_IGNORE), false);
+    assertEquals(toolEventsOf(events, 'error')[0]?.failure.code, 'output_blocked');
+    const event = guardrails(events).find((g) => g?.boundary === 'tool_output_mcp');
+    assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.injection']);
+  } finally {
+    server.restore();
+  }
+});
+
+Deno.test('an MCP failure message is read at tool_failure_mcp', async () => {
+  const profile = toolProfile({ injection: { at: { tool_failure_mcp: 'block' } } });
+  resetTools();
+  const server = registerMcp({ isError: true, content: [{ type: 'text', text: INJ_IGNORE }] });
+  try {
+    const { events, result } = await run(profile, 'mcp_lookup', { q: 'x' });
+    const text = formatToolResult(result as ModelToolResult);
+    assertEquals(text.includes(INJ_IGNORE), false);
+    assertEquals(text.includes("The tool's output was withheld"), true);
+    const event = guardrails(events).find((g) => g?.boundary === 'tool_failure_mcp');
+    assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.injection']);
+  } finally {
+    server.restore();
+  }
+});
+
+Deno.test('what an http tool shows the person is read at tool_shown_http', async () => {
+  const profile = toolProfile({ credentials: { at: { tool_shown_http: 'block' } } });
+  resetTools();
+  const restore = registerRemote({ note: `found ${TEST_OPENAI_KEY}` });
+  try {
+    const { events } = await run(profile, 'remote_lookup', { q: 'x' });
+    assertEquals(
+      toolEventsOf(events, 'complete')[0]?.output,
+      labelText('detect.shown_blocked', {}),
+    );
+    const event = guardrails(events).find((g) => g?.boundary === 'tool_shown_http');
+    assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.credentials']);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test('what an MCP tool shows the person is read at tool_shown_mcp', async () => {
+  const profile = toolProfile({ credentials: { at: { tool_shown_mcp: 'block' } } });
+  resetTools();
+  const server = registerMcp({ structuredContent: { note: `found ${TEST_OPENAI_KEY}` } });
+  try {
+    const { events } = await run(profile, 'mcp_lookup', { q: 'x' });
+    assertEquals(
+      toolEventsOf(events, 'complete')[0]?.output,
+      labelText('detect.shown_blocked', {}),
+    );
+    const event = guardrails(events).find((g) => g?.boundary === 'tool_shown_mcp');
+    assertEquals([event?.action, event?.hits[0]?.rule], ['block', 'detect.credentials']);
+  } finally {
+    server.restore();
+  }
 });

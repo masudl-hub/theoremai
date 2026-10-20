@@ -1772,9 +1772,13 @@ Deno.test('misspelling: the redaction covers the words as written, whatever thei
 Deno.test('misspelling: reading a long plain text costs about what it did', () => {
   const plain =
     'The quarterly report covers revenue, systems work and the previous roadmap. '.repeat(60);
-  const started = performance.now();
-  for (let i = 0; i < 20; i++) injectionSpans(plain);
-  const each = (performance.now() - started) / 20;
+  // The fastest of twenty: other work on the machine only ever adds time.
+  let each = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < 20; i++) {
+    const started = performance.now();
+    injectionSpans(plain);
+    each = Math.min(each, performance.now() - started);
+  }
   assertEquals(injectionSpans(plain).length, 0);
   assertEquals(each < 20 ? 'fast' : `${each.toFixed(2)}ms for ${plain.length} characters`, 'fast');
 });

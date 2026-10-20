@@ -417,8 +417,22 @@ Deno.test('a reply that costs more to read than its length allows is a leak as a
 });
 
 Deno.test('reading a reply takes time in proportion to its length', () => {
-  const n = 64_000;
-  for (const unit of [
+  const read = (unit: string, n: number) => {
+    const text = `x ${unit.repeat(Math.ceil(n / unit.length))}>`;
+    const start = performance.now();
+    detectAt(text, 'reply', LINKS.detect, { allow: LINKS.allow });
+    const stream = createEgressStream({
+      detect: detectorsAt('reply', LINKS.detect),
+      allow: LINKS.allow,
+    });
+    for (let at = 0; at < text.length; at += 64)
+      if (stream.push(text.slice(at, at + 64)).length > 0) break;
+    return performance.now() - start;
+  };
+  // The fastest of three: other work on the machine only ever adds time.
+  const fastest = (unit: string, n: number) =>
+    Math.min(...Array.from({ length: 3 }, () => read(unit, n)));
+  const units = [
     '[',
     '![',
     '<a ',
@@ -438,17 +452,16 @@ Deno.test('reading a reply takes time in proportion to its length', () => {
     'https://a.b/.',
     '<https:',
     'www.',
-  ]) {
-    const text = `x ${unit.repeat(Math.ceil(n / unit.length))}>`;
-    const start = performance.now();
-    detectAt(text, 'reply', LINKS.detect, { allow: LINKS.allow });
-    const stream = createEgressStream({
-      detect: detectorsAt('reply', LINKS.detect),
-      allow: LINKS.allow,
-    });
-    for (let at = 0; at < text.length; at += 64)
-      if (stream.push(text.slice(at, at + 64)).length > 0) break;
-    const took = performance.now() - start;
-    assertEquals([unit, took < 3000], [unit, true]);
+  ];
+  // The first long reads pay for compiling the scanners and growing the heap.
+  for (const unit of units) read(unit, 128_000);
+  for (const unit of units) {
+    // Under five milliseconds the clock measures the machine, not the read.
+    const ratio = fastest(unit, 128_000) / Math.max(fastest(unit, 16_000), 5);
+    // Eight times the reply takes about eight times as long; a rescan at each step is sixty-four.
+    assertEquals(
+      [unit, ratio < 24 ? 'linear' : `128k/16k took ${ratio.toFixed(1)}x`],
+      [unit, 'linear'],
+    );
   }
 });

@@ -62,7 +62,6 @@ import {
   addAgent,
   addArchitectExample,
   addProvider,
-  agentDraft,
   agentNodeId,
   type CompiledStudio,
   type CompiledWorkspace,
@@ -75,7 +74,6 @@ import {
   createLiveExampleDraft,
   createNarratorExampleDraft,
   createStudioRunId,
-  definitionFactory,
   draftFacets,
   duplicateAgent,
   editedSince,
@@ -99,10 +97,7 @@ import {
   type ProjectCode,
   providerIdOf,
   providerNodeId,
-  providerSource,
   providerUse,
-  readProviderSource,
-  readStudioSource,
   rebased,
   removeAgent,
   removeLibraryTool,
@@ -167,7 +162,6 @@ import { flushSync } from 'react-dom';
 import { ActingAsButton } from './acting-as-button.tsx';
 import { AddProviderButton } from './add-provider.tsx';
 import { IconTypeSafe, modelFamilyMark } from './brand-icons.tsx';
-import { StudioCode } from './code/studio-code.tsx';
 import { useConfirmWrite } from './confirm-write.tsx';
 import {
   ConfirmWrite,
@@ -183,7 +177,6 @@ import {
   WorkspaceContext,
 } from './inspector-context.ts';
 import { ActingAsContext, chatKeyOf, useActingAsState } from './lib/acting-as.ts';
-import { exportFiles, exportText, llmBrief } from './lib/export-agent.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel } from './lib/panel-motion.ts';
 import { screenEndpoint } from './lib/project-address.ts';
@@ -222,7 +215,6 @@ import { toolCredential } from './lib/tool-credentials.ts';
 import { runToolProbe } from './lib/tool-probe.ts';
 import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { warmWhenIdle } from './lib/when-idle.ts';
-import { zipFiles } from './lib/zip.ts';
 import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
 import { ProviderEditor } from './provider-editor.tsx';
 import { SharedChange } from './shared-change.tsx';
@@ -233,21 +225,24 @@ import {
   useStudioConnection,
 } from './studio-connection.tsx';
 import {
-  type CodeApply,
   type StudioHost,
   StudioHostContext,
   type StudioOpened,
   type StudioReport,
   useStudioHost,
 } from './studio-host.ts';
-import { StudioMap } from './studio-map.tsx';
 import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
 
-// The tester and Settings load when they first open, or once the page is idle.
+// The tester, Settings, the map and the code view load when they first open, or once the page is idle.
 const testerPanel = () => import('./guardrail-tester.tsx');
 const settingsPanel = () => import('./studio-settings.tsx');
+const mapPanel = () => import('./studio-map.tsx');
+const codePane = () => import('./studio-code-pane.tsx');
+const StudioMap = lazy(() => mapPanel().then((map) => ({ default: map.StudioMap })));
+const CodeBody = lazy(() => codePane().then((code) => ({ default: code.CodeBody })));
+const ProviderCode = lazy(() => codePane().then((code) => ({ default: code.ProviderCode })));
 const GuardrailTester = lazy(() =>
   testerPanel().then((tester) => ({ default: tester.GuardrailTester })),
 );
@@ -980,9 +975,27 @@ function openInNewTab(payload: StudioRunPayload, project: ProjectSession | null)
   globalThis.open(`/studio/run?run=${encodeURIComponent(runId)}${named}`, '_blank', 'noopener');
 }
 
+type Exporter = typeof import('./lib/export-agent.ts') & typeof import('./lib/zip.ts');
+let exporter: Exporter | undefined;
+/** The export and its zip, loaded when the page is idle or on the first export. */
+const exportKit = (): Promise<Exporter> =>
+  Promise.all([import('./lib/export-agent.ts'), import('./lib/zip.ts')]).then(
+    ([agent, zip]) => (exporter = { ...agent, ...zip }),
+  );
+
+/** Runs `use` with the export code: at once when it has loaded, so a copy stays inside the click. */
+function withExporter(use: (kit: Exporter) => void) {
+  if (exporter) use(exporter);
+  else void exportKit().then(use);
+}
+
 /** The workspace's files as a .zip, named for the agent being chatted with. */
-function downloadExport(files: Parameters<typeof zipFiles>[0], agentId: string) {
-  download(`${agentId}.zip`, new Blob([zipFiles(files)], { type: 'application/zip' }));
+function downloadExport(
+  kit: Exporter,
+  files: Parameters<Exporter['zipFiles']>[0],
+  agentId: string,
+) {
+  download(`${agentId}.zip`, new Blob([kit.zipFiles(files)], { type: 'application/zip' }));
 }
 
 /** Downloads `blob` as `filename`. */
@@ -1270,13 +1283,15 @@ function runMembers(
       const agent = result.ok ? compiledAgent(result, workspace, workspace.chatWith) : undefined;
       if (!result.ok || !agent) return Promise.resolve(false);
       const code = projectCode(page.current.project, workspace);
-      if (format === 'zip') {
-        downloadExport(exportFiles(result, agent, code), agent.agentId);
-      } else if (format === 'copy') {
-        page.current.copy(exportText(exportFiles(result, agent, code)), 'the files');
-      } else {
-        page.current.copy(llmBrief(result, agent, code), 'the files and their brief');
-      }
+      withExporter((kit) => {
+        if (format === 'zip') {
+          downloadExport(kit, kit.exportFiles(result, agent, code), agent.agentId);
+        } else if (format === 'copy') {
+          page.current.copy(kit.exportText(kit.exportFiles(result, agent, code)), 'the files');
+        } else {
+          page.current.copy(kit.llmBrief(result, agent, code), 'the files and their brief');
+        }
+      });
       return Promise.resolve(true);
     },
   };
@@ -1414,7 +1429,9 @@ function ExportMenu({
           icon: <Icon icon={IconFileZip} size="sm" />,
           onClick: () => {
             if (compiled && chatted) {
-              downloadExport(exportFiles(compiled, chatted, code()), chatted.agentId);
+              withExporter((kit) => {
+                downloadExport(kit, kit.exportFiles(compiled, chatted, code()), chatted.agentId);
+              });
             }
           },
         },
@@ -1425,7 +1442,9 @@ function ExportMenu({
           icon: <Icon icon={IconCopy} size="sm" />,
           onClick: () => {
             if (compiled && chatted) {
-              copy(exportText(exportFiles(compiled, chatted, code())), 'the files');
+              withExporter((kit) => {
+                copy(kit.exportText(kit.exportFiles(compiled, chatted, code())), 'the files');
+              });
             }
           },
         },
@@ -1438,7 +1457,9 @@ function ExportMenu({
           icon: <Icon icon={IconSparkles} size="sm" />,
           onClick: () => {
             if (compiled && chatted) {
-              copy(llmBrief(compiled, chatted, code()), 'the files and their brief');
+              withExporter((kit) => {
+                copy(kit.llmBrief(compiled, chatted, code()), 'the files and their brief');
+              });
             }
           },
         },
@@ -2161,7 +2182,7 @@ function useWorkspaceContext(
   }, [agents, focus, update, ownsProviders]);
 }
 
-type StudioWorkspaceState = ReturnType<typeof useStudioWorkspace>;
+export type StudioWorkspaceState = ReturnType<typeof useStudioWorkspace>;
 type Sheet = 'tree' | 'preview' | null;
 
 /** The node the editor has open: the selected one while it exists, else the open agent's identity. */
@@ -2697,60 +2718,6 @@ function EditorBody({
   );
 }
 
-/** The open agent's TypeScript. A failed compile keeps the text and marks the issues. */
-function CodeBody({
-  source,
-  blocked,
-  issues,
-  state,
-}: {
-  source: string | null;
-  blocked: string | undefined;
-  issues: StudioIssue[];
-  state: StudioWorkspaceState;
-}) {
-  const seen = useRef(source);
-  if (source) seen.current = source;
-  const apply = useCallback(
-    (text: string): CodeApply => {
-      const current = agentDraft(state.workspace, state.focus);
-      if (!current) {
-        return { errors: [{ message: 'No agent is open.', line: 1, column: 1 }], spans: [] };
-      }
-      const read = readStudioSource(
-        text,
-        { ...current, toolSpecs: state.workspace.toolSpecs },
-        (agentId) =>
-          state.workspace.agents.find((agent) => agent.identity.agentId.trim() === agentId)?.key,
-      );
-      if (!read.ok) return { errors: read.errors, spans: [] };
-      state.update((workspace) =>
-        withAgentDraft(workspace, state.focus, read.draft, read.registered),
-      );
-      return { errors: [], spans: read.spans };
-    },
-    [state],
-  );
-  if (!seen.current) {
-    return (
-      <PaneFailure
-        title="No code yet"
-        description={`${blocked ?? ''} to generate the TypeScript.`}
-      />
-    );
-  }
-  return (
-    <div className="studio-fill">
-      <StudioCode
-        text={source ?? seen.current}
-        hold={source == null}
-        issues={issues}
-        onApply={apply}
-      />
-    </div>
-  );
-}
-
 /** Clears the conversation and its traces; the profile stays. */
 function ClearHistoryButton({ run }: { run: ConversationRun }) {
   return (
@@ -3265,13 +3232,15 @@ function Studio({ opened }: { opened: StudioOpened }) {
                       }
                       map={
                         view.mapOpen && (
-                          <StudioMap
-                            workspace={state.workspace}
-                            shared={state.shared}
-                            selected={view.keysOpen ? '' : selected}
-                            onOpen={view.open}
-                            onClose={closeMap}
-                          />
+                          <Suspense fallback={null}>
+                            <StudioMap
+                              workspace={state.workspace}
+                              shared={state.shared}
+                              selected={view.keysOpen ? '' : selected}
+                              onOpen={view.open}
+                              onClose={closeMap}
+                            />
+                          </Suspense>
                         )
                       }
                     >
@@ -3676,48 +3645,6 @@ function shownProvider(
     : held;
 }
 
-/**
- * An open provider's definition. On a project it is edited here as in its editor; the studio's own,
- * and one on an adapter the project made, only show.
- */
-function ProviderCode({
-  provider,
-  issues,
-  state,
-  isEditable,
-}: {
-  provider: StudioProvider;
-  issues: StudioIssue[];
-  state: StudioWorkspaceState;
-  isEditable: boolean;
-}) {
-  const apply = useCallback(
-    (text: string): CodeApply => {
-      const current = state.workspace.providers.find((each) => each.id === provider.id);
-      if (!current) {
-        return { errors: [{ message: 'No provider is open.', line: 1, column: 1 }], spans: [] };
-      }
-      const read = readProviderSource(text, current);
-      if (!read.ok) return { errors: read.errors, spans: [] };
-      state.update((workspace) => withProvider(workspace, read.provider));
-      return { errors: [], spans: read.spans };
-    },
-    [state, provider.id],
-  );
-  return (
-    <div className="studio-fill">
-      <StudioCode
-        key={provider.id}
-        text={providerSource(provider)}
-        hold={false}
-        isReadOnly={!isEditable || definitionFactory(provider.definition) === undefined}
-        issues={issues}
-        onApply={apply}
-      />
-    </div>
-  );
-}
-
 /** Under the editor's header: the Keys panel, the open node's editor, or its code. */
 function EditorColumnBody({
   state,
@@ -3745,23 +3672,24 @@ function EditorColumnBody({
   const provider = shownProvider(state.workspace, editing, project !== null, connection);
   if (view.keysOpen) return <KeysBody connection={connection} state={state} />;
   if (view.editorView === 'code') {
-    if (provider) {
-      return (
-        <ProviderCode
-          provider={provider}
-          issues={rowIssues.filter((issue) => issue.nodeId === editing)}
-          state={state}
-          isEditable={project !== null}
-        />
-      );
-    }
     return (
-      <CodeBody
-        source={compile.source}
-        blocked={compile.blocked}
-        issues={compile.editorIssues}
-        state={state}
-      />
+      <Suspense fallback={null}>
+        {provider ? (
+          <ProviderCode
+            provider={provider}
+            issues={rowIssues.filter((issue) => issue.nodeId === editing)}
+            state={state}
+            isEditable={project !== null}
+          />
+        ) : (
+          <CodeBody
+            source={compile.source}
+            blocked={compile.blocked}
+            issues={compile.editorIssues}
+            state={state}
+          />
+        )}
+      </Suspense>
     );
   }
   return (
@@ -3783,7 +3711,7 @@ function EditorColumnBody({
 /** The studio, opened on `opened`, with what the page showing it provides. */
 export function StudioScreen({ opened, host }: { opened: StudioOpened; host: StudioHost }) {
   useEffect(() => {
-    warmWhenIdle(testerPanel);
+    warmWhenIdle(testerPanel, mapPanel, codePane, exportKit);
   }, []);
   return (
     <StudioHostContext.Provider value={host}>

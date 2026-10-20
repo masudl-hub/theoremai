@@ -19,7 +19,6 @@ import {
   withFailedTraces,
 } from '@theoremjs/react/client';
 import type { ReplyLine } from '@theoremjs/react/server';
-import { browserExecution } from './browser-execution.ts';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import type { StudioRuntimeBase } from './runtime-scope.ts';
@@ -85,16 +84,23 @@ async function deliver(
   }
 }
 
-function localPageResult(local: ReturnType<typeof browserExecution> | undefined) {
-  return local
-    ? async (result: import('@theoremjs/react/client').PageDispatchResult) => {
-        await local.pageResult(result);
-      }
-    : undefined;
+type Engine = typeof import('./browser-engine.ts');
+type LocalExecution = ReturnType<Engine['browserExecution']>;
+
+/** A page tool's answer goes to the page's own sessions, once the engine they live in has loaded. */
+function localPageResult(
+  runtime: StudioBrowserRuntime,
+  local: () => Promise<LocalExecution | undefined>,
+) {
+  return runtime.execution
+    ? undefined
+    : async (result: import('@theoremjs/react/client').PageDispatchResult) => {
+        await (await local())?.pageResult(result);
+      };
 }
 
-function withBrowserExecution(runtime: StudioBrowserRuntime) {
-  const local = runtime.execution ? undefined : browserExecution();
+function withBrowserExecution(runtime: StudioBrowserRuntime, run: Engine) {
+  const local = runtime.execution ? undefined : run.browserExecution();
   if (local) {
     const original = runtime;
     runtime = {
@@ -127,13 +133,11 @@ export function createBrowserStudioTransport(
   runtime: StudioBrowserRuntime,
   options: { conversationKey: string; traces?: TraceFeed },
 ): TheoremTransport {
-  const prepared = withBrowserExecution(runtime);
-  runtime = prepared.runtime;
-  const local = prepared.local;
   const traces = options.traces ?? createTraceFeed();
   // The engine starts loading as the transport is made, when the builder connects.
   const session = browserEngine().then((run) => ({
     run,
+    ...withBrowserExecution(runtime, run),
     steer: run.createMemorySteerInbox(),
     conversations: {
       sessionId: PAGE_SESSION,
@@ -151,7 +155,6 @@ export function createBrowserStudioTransport(
     customTools: payload.customTools,
     structured: payload.structured,
     dependencies: payload.dependencies,
-    runtime,
   };
   const route = (onLine: ChatLineSink, onInbox = (_inbox: string) => {}) =>
     routeStudioLines(onLine, traces, onInbox);
@@ -164,14 +167,15 @@ export function createBrowserStudioTransport(
     }
   };
   return {
-    pageResult: localPageResult(local),
+    pageResult: localPageResult(runtime, async () => (await session).local),
     describe: () => Promise.resolve(studioInterface(payload)),
     async turn(request, onEvent, signal) {
       try {
         await deliver(
-          after(session, ({ run, conversations, steer }) =>
+          after(session, ({ run, runtime: inPage, conversations, steer }) =>
             run.streamStudioTurn({
               ...compiled,
+              runtime: inPage,
               request,
               conversations,
               signal: runSignal(runtime, signal),
@@ -189,9 +193,10 @@ export function createBrowserStudioTransport(
     },
     invoke: (answer, onEvent, signal) =>
       deliver(
-        after(session, ({ run, conversations }) =>
+        after(session, ({ run, runtime: inPage, conversations }) =>
           run.streamStudioInvoke({
             ...compiled,
+            runtime: inPage,
             answer,
             conversations,
             signal: runSignal(runtime, signal),
@@ -202,13 +207,18 @@ export function createBrowserStudioTransport(
       ),
     conversation: (request) =>
       answered(async () => {
-        const { run, conversations } = await session;
-        return run.studioConversation(compiled, conversations, request);
+        const { run, runtime: inPage, conversations } = await session;
+        return run.studioConversation({ ...compiled, runtime: inPage }, conversations, request);
       }),
     rewind: (request, signal) =>
       answered(async () => {
-        const { run, conversations } = await session;
-        return run.rewindStudio(compiled, conversations, request, runSignal(runtime, signal));
+        const { run, runtime: inPage, conversations } = await session;
+        return run.rewindStudio(
+          { ...compiled, runtime: inPage },
+          conversations,
+          request,
+          runSignal(runtime, signal),
+        );
       }),
     async steer(request) {
       const inbox = inboxes.get(request.turnId);
@@ -228,21 +238,21 @@ export function createBrowserStudioHostTransport(
   runtime: StudioBrowserRuntime,
   options: { traces?: TraceFeed } = {},
 ): HostTransport {
-  const prepared = withBrowserExecution(runtime);
-  runtime = prepared.runtime;
-  const local = prepared.local;
   const traces = options.traces ?? createTraceFeed();
   let sessionPermissions: string[] = [];
+  let prepared: Promise<{ run: Engine } & ReturnType<typeof withBrowserExecution>> | undefined;
+  /** The engine and the page's sessions, made on the first call and kept for the rest. */
+  const prepare = () =>
+    (prepared ??= browserEngine().then((run) => ({ run, ...withBrowserExecution(runtime, run) })));
   const compiled = {
     profile: payload.profile,
     customTools: payload.customTools,
     dependencies: payload.dependencies,
-    runtime,
   };
   const route = (onEvent: TurnEventSink) =>
     routeStudioLines(hostCallLines(onEvent), traces, () => {});
   return {
-    pageResult: localPageResult(local),
+    pageResult: localPageResult(runtime, async () => (await prepare()).local),
     describe: () =>
       Promise.resolve(
         hostInterface(
@@ -255,9 +265,10 @@ export function createBrowserStudioHostTransport(
       ),
     call: (call, onEvent, signal) =>
       deliver(
-        after(browserEngine(), (run) =>
+        after(prepare(), ({ run, runtime: inPage }) =>
           run.streamStudioCall({
             ...compiled,
+            runtime: inPage,
             call,
             sessionPermissions,
             signal: runSignal(runtime, signal),
@@ -269,9 +280,10 @@ export function createBrowserStudioHostTransport(
     invoke(answer, onEvent, signal) {
       sessionPermissions = answer.replay?.sessionPermissions ?? sessionPermissions;
       return deliver(
-        after(browserEngine(), (run) =>
+        after(prepare(), ({ run, runtime: inPage }) =>
           run.streamStudioHostInvoke({
             ...compiled,
+            runtime: inPage,
             answer,
             signal: runSignal(runtime, signal),
           }),
@@ -344,7 +356,7 @@ export function createBrowserStudioEmbeddingTransport(
             ...embed,
             signal: runSignal(runtime, signal),
           },
-          withBrowserExecution(runtime).runtime,
+          withBrowserExecution(runtime, run).runtime,
         );
         return { result: response.result, traces: response.traces };
       } catch (error) {

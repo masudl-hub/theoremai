@@ -1,12 +1,14 @@
 import { type LabelOverrides, type LiveSession, TheoremError } from '@theoremjs/agents';
 import { clientError } from '@theoremjs/agents/host';
 import type { LiveConnection, LiveSocket } from '@theoremjs/react/client';
-import { browserExecution } from './browser-execution.ts';
 import { browserEngine, type StudioBrowserRuntime } from './browser-transport.ts';
 import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import type { StudioTraceRoute } from './traces.ts';
+
+type Engine = typeof import('./browser-engine.ts');
+type LocalExecution = ReturnType<Engine['browserExecution']>;
 
 /** The Live UI's existing relay protocol, carried in memory instead of over a site socket. */
 class BrowserLiveSocket implements LiveSocket {
@@ -24,7 +26,7 @@ class BrowserLiveSocket implements LiveSocket {
   constructor(
     payload: StudioRunPayload,
     runtime: StudioBrowserRuntime,
-    local?: ReturnType<typeof browserExecution>,
+    local?: (run: Engine) => LocalExecution,
   ) {
     // Install the UI's handlers before the first ready/error message.
     queueMicrotask(() => {
@@ -54,7 +56,7 @@ class BrowserLiveSocket implements LiveSocket {
   private async open(
     payload: StudioRunPayload,
     runtime: StudioBrowserRuntime,
-    local?: ReturnType<typeof browserExecution>,
+    local?: (run: Engine) => LocalExecution,
   ): Promise<void> {
     if (this.readyState === 3) return;
     this.readyState = 1;
@@ -62,6 +64,7 @@ class BrowserLiveSocket implements LiveSocket {
     let traces: StudioTraceRoute | undefined;
     try {
       const run = await browserEngine();
+      const page = local?.(run);
       traces = run.studioTraces.route((record) => this.receive({ type: 'trace', record }));
       const { scope, profile } = await run.studioScope(
         payload.profile,
@@ -79,16 +82,16 @@ class BrowserLiveSocket implements LiveSocket {
       }
       const session = await scope.runSession(
         {
-          ...(await (local
-            ? (await local.boundary).prepareLiveOpen(run.parseLiveOpenMessage(first))
+          ...(await (page
+            ? (await page.boundary).prepareLiveOpen(run.parseLiveOpenMessage(first))
             : Promise.resolve(run.liveSessionOpen(run.parseLiveOpenMessage(first))))),
           profile: profile.id,
           metadata: traces.metadata,
           signal: runtime.signal,
         },
         {
-          execution: runtime.execution ?? local?.execution,
-          pageExecution: runtime.pageExecution ?? local?.pageExecution,
+          execution: runtime.execution ?? page?.execution,
+          pageExecution: runtime.pageExecution ?? page?.pageExecution,
           vault: runtime.providers.vault,
           fetch: runtime.providers.fetch,
           wait: runtime.providers.wait,
@@ -107,15 +110,15 @@ class BrowserLiveSocket implements LiveSocket {
         profile.id,
         traces,
         profile.labels,
-        local
+        page
           ? {
-              pageResult: local.pageResult,
+              pageResult: page.pageResult,
               beforeEvent: async (event) => {
                 if (
                   (event.type === 'done' || event.type === 'provider_checkpoint') &&
                   event.providerState
                 )
-                  await (await local.boundary).recordCheckpoint(event.providerState);
+                  await (await page.boundary).recordCheckpoint(event.providerState);
               },
             }
           : {},
@@ -169,6 +172,8 @@ export function browserStudioLiveConnection(
   runtime: StudioBrowserRuntime,
 ): LiveConnection {
   // The in-process connection knows its draft, so its open message carries none.
-  const local = runtime.execution ? undefined : browserExecution();
+  // The page's sessions are made once, by the first call, from the engine that call loaded.
+  let page: LocalExecution | undefined;
+  const local = runtime.execution ? undefined : (run: Engine) => (page ??= run.browserExecution());
   return { createSocket: () => new BrowserLiveSocket(payload, runtime, local) };
 }

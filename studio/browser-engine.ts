@@ -12,6 +12,7 @@ export {
   parseLiveOpenMessage,
   steerUnitOf,
 } from '@theoremjs/react/server';
+export { browserExecution } from './browser-execution.ts';
 export { attachStudioLiveSession } from './live-session-bridge.ts';
 export {
   rewindStudio,

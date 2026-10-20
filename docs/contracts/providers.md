@@ -525,7 +525,7 @@ The kernel creates the checkpoint envelope and history hash. The protocol suppli
 | `version`, `apiId` | State format version and upstream model identity |
 | `keySlot` | The slot of the key that wrote the state |
 | `compatibilityKey` | Hash of the connection and the options the protocol keys its state on |
-| `coveredHistoryLength`, `coveredHistoryHash` | Portable history prefix represented by the native state |
+| `coveredHistoryLength`, `coveredHistoryHash` | Portable history prefix represented by the native state, up to and including the step's own reply (its text, then its tool calls), as the turn's history holds it |
 | `data` | Protocol state validated by its continuation schema |
 | `wireCallIds` | Optional map from Theorem tool-call IDs to upstream IDs |
 

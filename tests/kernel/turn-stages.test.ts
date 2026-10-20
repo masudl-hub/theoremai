@@ -237,6 +237,52 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
   ]);
 });
 
+Deno.test('stages: the text a step writes before its calls is in the next step history', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      id: 'stage.text_before_calls',
+      identity: { handle: 'bot' },
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 3,
+      tools: { allow: ['stub_tool'] },
+      inputs: { text: true },
+    }),
+  );
+
+  let call = 0;
+  let read: TurnHistoryMessage[] | undefined;
+  const provider: TurnModel = {
+    complete: async function* (req: ModelRequest) {
+      call++;
+      if (call === 1) {
+        yield { type: 'text', text: 'Let me check.' };
+        yield { type: 'tool', tool: { name: 'stub_tool', arguments: { value: 1 }, callId: 'c1' } };
+        yield { type: 'done', stop: { kind: 'tool' } };
+        return;
+      }
+      read = req.history;
+      yield { type: 'text', text: 'Done.' };
+      yield { type: 'done', stop: { kind: 'completed' } };
+    },
+  };
+
+  const events = await Array.fromAsync(
+    runTurn({ profile: 'stage.text_before_calls', input: { text: 'run tool' } }, provider),
+  );
+
+  assertEquals(call, 2);
+  assertEquals(
+    read?.slice(1).map((m) => [m.role, m.content ?? null, m.tool_calls?.length ?? 0]),
+    [
+      ['assistant', 'Let me check.', 0],
+      ['assistant', null, 1],
+      ['tool', read?.[3]?.content ?? null, 0],
+    ],
+  );
+  assertEquals(replyText(events), 'Let me check.Done.');
+});
+
 Deno.test('stages: before_end inject re-enters the model step under maxSteps', async () => {
   registerProfile(
     defineProfile({
@@ -263,9 +309,13 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
         yield { type: 'done', stop: { kind: 'completed' } };
         return;
       }
+      // The model reads the answer it wrote, then the inject, and goes on from there.
       assertEquals(
-        req.history?.some((m) => m.content === 'extend please'),
-        true,
+        req.history?.slice(-2).map((m) => [m.role, m.content]),
+        [
+          ['assistant', 'first reply'],
+          ['user', 'extend please'],
+        ],
       );
       yield { type: 'text', text: 'second reply' };
       yield { type: 'done', stop: { kind: 'completed' } };

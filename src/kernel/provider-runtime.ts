@@ -14,7 +14,7 @@ import {
   type ProviderWarning,
   providerCheckpointSchema,
 } from './checkpoint.ts';
-import { historyToolCalls } from './interaction-parts.ts';
+import { stepReplyMessages } from './interaction-parts.ts';
 import { type JsonValue, jsonObjectSchema, jsonValueSchema } from './json.ts';
 import {
   type DecisionModelBinding,
@@ -536,7 +536,8 @@ async function* consumeModelStep(
     failed: boolean;
     pending: ToolCallRequest[];
     reasoning: ReasoningPart[];
-    outputs: TurnHistoryMessage[];
+    text: string;
+    structured?: unknown;
     wireCallIds: Record<string, string>;
   }
 > {
@@ -546,11 +547,7 @@ async function* consumeModelStep(
   const pending: ToolCallRequest[] = [];
   const reasoning: ReasoningPart[] = [];
   let text = '';
-  const outputs: TurnHistoryMessage[] = [];
-  const flushText = () => {
-    if (text) outputs.push({ role: 'assistant', content: text });
-    text = '';
-  };
+  let structured: unknown;
   const iterator = events[Symbol.asyncIterator]();
   let exhausted = false;
   try {
@@ -571,8 +568,7 @@ async function* consumeModelStep(
           text += event.text;
           break;
         case 'structured':
-          flushText();
-          outputs.push({ role: 'assistant', content: JSON.stringify(event.structured) });
+          structured = event.structured;
           break;
         case 'reasoning': {
           const { type: _type, ...part } = event;
@@ -582,7 +578,6 @@ async function* consumeModelStep(
         case 'tool_call':
           if (pending.some((call) => call.callId === event.call.callId))
             throw new TheoremError('bad_response', labelText('provider.duplicate_call'));
-          flushText();
           if (event.call.wireCallId) wireCallIds[event.call.callId] = event.call.wireCallId;
           pending.push(kernelCall(event.call));
           continue;
@@ -602,8 +597,15 @@ async function* consumeModelStep(
       void Promise.resolve(iterator.return()).catch(() => undefined);
   }
 
-  flushText();
-  return { terminal, failed, pending, reasoning, outputs, wireCallIds };
+  return {
+    terminal,
+    failed,
+    pending,
+    reasoning,
+    text,
+    ...(structured !== undefined ? { structured } : {}),
+    wireCallIds,
+  };
 }
 
 /**
@@ -639,7 +641,7 @@ export function registeredTurnModel(
         yield { type: 'provider_warning', warning: restored.warning };
       }
       const call = guardedCall(provider, binding, profileType, host, req);
-      const { terminal, failed, pending, reasoning, outputs, wireCallIds } =
+      const { terminal, failed, pending, reasoning, text, structured, wireCallIds } =
         yield* consumeModelStep(
           call.complete(protocolRequest(req, protocol, restored)),
           req.signal,
@@ -657,12 +659,6 @@ export function registeredTurnModel(
         yield { type: 'done', stop: terminal.stop };
         return;
       }
-      if (pending.length)
-        outputs.push(
-          historyToolCalls(
-            pending.map((entry, index) => (index === 0 ? { ...entry, reasoning } : entry)),
-          ),
-        );
       const history = [...(req.history ?? [])];
       if (req.input.length)
         history.push(
@@ -680,7 +676,11 @@ export function registeredTurnModel(
         terminal.state,
         [
           ...history,
-          ...(pending.length ? outputs.filter((message) => message.tool_calls) : outputs),
+          ...stepReplyMessages({
+            text,
+            structured,
+            calls: pending.map((entry, index) => (index === 0 ? { ...entry, reasoning } : entry)),
+          }),
         ],
         { ...restored.wireCallIds, ...wireCallIds },
       );

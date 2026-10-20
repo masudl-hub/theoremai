@@ -444,12 +444,15 @@ Live sessions emit the same stage names around utterance cycles and
    Each reads the turn's taint, destinations, and visible tools as they stood when the step
    began, so a tool the `tools.t2Loader` loads can be called from the next step. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
-   The runner records tool calls and results in portable history.
+   The runner records each step's reply in portable history: the text it wrote
+   (its structured reply, when it gave one), then its tool calls, then their results,
+   so the next call reads what the model wrote before its calls.
    The kernel validates native state, and the model's protocol encodes the next request.
    Native continuation does not replace authoritative tool outcomes.
    Server-side `codeExecution` does not consume a runner step.
-8. **`before_end`** — stage before egress/validation; inject re-enters the step
-   loop when under `maxSteps`.
+8. **`before_end`** — stage before egress/validation; an inject goes into turn
+   history after the answer the model wrote, and re-enters the step loop when
+   under `maxSteps`.
 9. **Validation / repair** — structured output validators (`outputs.validation`)
    may trigger repair turns with `input.repair`. The repair prompt is the next
    user message in turn history (image and speech: it replaces the prompt
@@ -1197,7 +1200,7 @@ On text turns the runner always yields `{ type: 'stage', stage }`:
 
 1. `pre_turn` — once before the first provider step.
 2. `post_tool` — per tool call, before its terminal `tool` event (inject window before the next model step; may `deny` / `mutate` the result).
-3. `before_end` — before egress/validation; inject may re-enter the step loop under `maxSteps`.
+3. `before_end` — before egress/validation; an inject lands after the answer the model wrote and may re-enter the step loop under `maxSteps`.
 4. `post_turn` — after terminal `done` (sees compaction-after when attached).
 
 Inject applies only when `profileAllowsInject(profile)` (text + live when

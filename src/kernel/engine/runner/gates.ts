@@ -649,6 +649,7 @@ async function* executeSingleAttemptCycle(args: {
       state,
       stage: 'before_end',
       step: Math.max(state.stepCount, 1),
+      reply: attempt.reply,
       onStage: flow.currentReq.onStage,
       signal: flow.currentReq.signal,
       host: flow.currentGen.host,

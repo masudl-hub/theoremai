@@ -185,8 +185,10 @@ ran; `warnings` lists warning codes. See
    An inject with any message live cannot send as plain text (`parts`, or no
    text) is refused whole with an `inject_invalid_messages` stage warning;
    none of it is written.
-6. `before_end` inject on text: re-enter the step loop subject to **maxSteps**
-   (see Budgets). On live: schedule ingress; does not invent a fake model pull.
+6. `before_end` inject on text: the answer the model just wrote goes into turn
+   history first, then the inject, and the step loop re-enters subject to
+   **maxSteps** (see Budgets), so the model goes on from its answer. On live:
+   schedule ingress; does not invent a fake model pull.
 
 **Reporting a landed inject.** A handler names its inject with `injectId` (a
 non-empty string; anything else refuses the inject whole with an
@@ -385,7 +387,7 @@ in turn history, so a `before_end` inject on the retry lands after it.
 | --- | --- |
 | `pre_turn` | After resolve / sanitize / compaction-before / canary bind; before first provider step of the turn |
 | `pre_tool` / `post_tool` | Shared execute path |
-| `before_end` | No further autonomous work (no pending tools, or batch finished without gate); **before** egress/validation finalize. Inject → re-enter step loop if under `maxSteps` |
+| `before_end` | No further autonomous work (no pending tools, or batch finished without gate); **before** egress/validation finalize. Inject → the answer, then the inject, join turn history and the step loop re-enters if under `maxSteps` |
 | `post_turn` | Immediately after terminal `done` |
 
 On a text turn the opening user input is already the last message of

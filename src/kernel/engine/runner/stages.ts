@@ -10,7 +10,13 @@ import {
   type StageHandler,
 } from '../../stages.ts';
 import { profileAllowsInject } from '../../stop.ts';
-import type { Profile, ResolvedGeneration, TurnEvent, TurnStage } from '../../types.ts';
+import type {
+  Profile,
+  ResolvedGeneration,
+  TurnEvent,
+  TurnHistoryMessage,
+  TurnStage,
+} from '../../types.ts';
 import type { StepExecutionState } from './state.ts';
 
 export interface ApplyTurnStageArgs extends StageCallBag {
@@ -24,6 +30,8 @@ export interface ApplyTurnStageArgs extends StageCallBag {
   /** Another provider step would exceed maxSteps — reject inject. */
   injectWouldExceedMaxSteps?: boolean;
   host?: unknown;
+  /** `before_end`: the answer the model just wrote, which goes into turn history ahead of an inject. */
+  reply?: readonly TurnHistoryMessage[];
 }
 
 export interface ApplyTurnStageResult {
@@ -53,7 +61,7 @@ export function* applyStageInjects(
 export async function* applyTurnStage(
   args: ApplyTurnStageArgs,
 ): AsyncGenerator<TurnEvent, ApplyTurnStageResult> {
-  const { profile, generation, state, onStage, host, ...call } = args;
+  const { profile, generation, state, onStage, host, reply, ...call } = args;
   throwIfAborted(call.signal);
   const run = runStage({
     ...call,
@@ -71,6 +79,8 @@ export async function* applyTurnStage(
     next = await run.next();
   }
   const out = next.value;
+  // why: The model goes on after the inject, so it reads the answer it wrote before it.
+  if (reply && injectMessages(out.inject).length > 0) state.currentHistory.push(...reply);
   return {
     abort: out.abort,
     injectCount: yield* applyStageInjects(state, call.stage, out.inject),

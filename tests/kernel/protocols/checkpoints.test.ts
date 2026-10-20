@@ -109,3 +109,92 @@ Deno.test('a provider-held conversation is the checkpoint alone; a stateless one
   assertThrows(() => assertHistoryKept({ history: 'stateless' }, undefined, history));
   assertThrows(() => assertHistoryKept({ history: 'stateless' }, checkpoint, []));
 });
+
+Deno.test('a turn keeps its checkpoint across a step that wrote text before its calls, and a before_end inject', async () => {
+  await import('../../fixtures/test-host.ts');
+  const { defaultKernelScope } = await import('../../../src/kernel/scope.ts');
+  const { registerProfile, registerProvider } = await import(
+    '../../../src/kernel/default-scope.ts'
+  );
+  const { defineProfile } = await import('../../../src/kernel/registry/profiles.ts');
+  // What each call after the first sends: the saved state, and the history it does not cover.
+  const sent: { state: unknown; uncovered: TurnHistoryMessage[] }[] = [];
+  let call = 0;
+  const continued = defineProtocol({
+    id: 'continuedFixture',
+    name: 'Continued fixture',
+    description:
+      'Writes, calls a tool, answers, and answers again, keeping a cursor between calls.',
+    endpoints: { text: '/turn' },
+    options: z.strictObject({}),
+    continuation: { version: 1, schema: z.strictObject({ cursor: z.string() }) },
+    create: () => ({
+      async *complete(request) {
+        call++;
+        if (call > 1) {
+          sent.push({
+            state: request.state,
+            uncovered: (request.history ?? []).slice(request.stateHistoryLength ?? 0),
+          });
+        }
+        if (call === 1) {
+          yield { type: 'text', text: 'Let me check.' };
+          yield {
+            type: 'tool_call',
+            call: { callId: 'c1', name: 'stub_tool', arguments: { value: 1 } },
+          };
+          yield { type: 'done', stop: { kind: 'tool' }, state: { cursor: 'one' } };
+          return;
+        }
+        yield { type: 'text', text: call === 2 ? 'First answer.' : 'Second answer.' };
+        yield { type: 'done', stop: { kind: 'completed' }, state: { cursor: `c${call}` } };
+      },
+    }),
+  });
+  const deployment = registerProvider(
+    defineProvider({
+      id: 'continued-fixture',
+      name: 'Continued fixture',
+      description: 'Serves the continued fixture with no key.',
+      serves: () => [{ protocol: continued, baseUrl: 'https://continued.test' }],
+    }),
+  );
+  registerProfile(
+    defineProfile({
+      id: 'continued-worker',
+      type: 'text',
+      identity: { handle: 'Worker' },
+      models: { main: deployment.model(continued, 'model') },
+      maxSteps: 4,
+      tools: { allow: ['stub_tool'] },
+      inputs: { text: true },
+      guardrails: { detect: 'ignore' },
+    }),
+  );
+  let injected = false;
+  const events = await Array.fromAsync(
+    defaultKernelScope.runTurn(
+      {
+        profile: 'continued-worker',
+        input: { text: 'check it' },
+        onStage: ({ stage }) => {
+          if (stage !== 'before_end' || injected) return undefined;
+          injected = true;
+          return { inject: [{ role: 'user', content: 'and the fern?' }], injectId: 'late' };
+        },
+      },
+      {},
+    ),
+  );
+  assertEquals(
+    events.filter((event) => event.type === 'provider_warning'),
+    [],
+  );
+  assertEquals(
+    sent.map(({ state, uncovered }) => [state, uncovered.map((m) => [m.role, m.content])]),
+    [
+      [{ cursor: 'one' }, [['tool', sent[0]?.uncovered[0]?.content]]],
+      [{ cursor: 'c2' }, [['user', 'and the fern?']]],
+    ],
+  );
+});

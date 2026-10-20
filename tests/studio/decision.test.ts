@@ -375,6 +375,7 @@ Deno.test('an added picture is named after its file, and numbered after a name t
   const png = { mimeType: 'image/png', data: 'AAAA' };
   assertEquals(newDecisionImage(draft, 'GHS 02.png', png).name, 'ghs_02');
   assertEquals(newDecisionImage(draft, 'ginger.jpg', png).name, 'ginger_2');
+  assertEquals(newDecisionImage(draft, '__My shelf!!.png', png).name, 'my_shelf');
   assertEquals(newDecisionImage(draft, '.png', png).name, 'image');
 });
 

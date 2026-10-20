@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { BUILT_PAGE, PAGE_BASE, PAGE_HEADERS, PROJECT_PLACEHOLDER } from './page.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), BUILT_PAGE);
+const PAGE_FILE = path.join(root, 'index.html');
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -39,18 +40,15 @@ if (!Number.isInteger(port) || !project) {
   process.exit(2);
 }
 
-const page = readFileSync(path.join(root, 'index.html'), 'utf8').replaceAll(
-  PROJECT_PLACEHOLDER,
-  project,
-);
+const page = readFileSync(PAGE_FILE, 'utf8').replaceAll(PROJECT_PLACEHOLDER, project);
 
-/** The build's files by the path a request names them with. Nothing else is ever read. */
-const FILES = new Map();
+/** The build's files, each with the path a request names it by, less the page (served with its project filled in). Nothing else is ever read. */
+const FILES = [];
 (function list(dir, named) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const file = path.join(dir, entry.name);
     if (entry.isDirectory()) list(file, `${named}${entry.name}/`);
-    else if (entry.isFile()) FILES.set(`${named}${entry.name}`, file);
+    else if (entry.isFile() && file !== PAGE_FILE) FILES.push([`${named}${entry.name}`, file]);
   }
 })(root, '');
 
@@ -62,8 +60,11 @@ function fileFor(pathname) {
   } catch {
     return undefined;
   }
-  const file = FILES.get(relative);
-  return file && { body: readFileSync(file), type: TYPES[path.extname(file)] };
+  // why: the request only picks among the build's own files; what is read comes from the list, never from the address.
+  for (const [name, file] of FILES) {
+    if (name === relative) return { body: readFileSync(file), type: TYPES[path.extname(file)] };
+  }
+  return undefined;
 }
 
 /** What a request is answered: the way to the page, nothing, or a built file or the page. */

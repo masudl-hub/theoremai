@@ -656,7 +656,7 @@ export function newDecisionImage(
       .replace(/\.[^.]*$/, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '') || 'image';
+      .replace(/^_|_$/g, '') || 'image';
   const taken = draft.decision.images.map((each) => each.name);
   const name = freeName(base, taken, (n) => `${base}_${n}`);
   return { key: draftKey('image'), name, ...image };

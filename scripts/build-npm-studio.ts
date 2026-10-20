@@ -161,7 +161,7 @@ async function copyAssets(from: string, to: string) {
 
 /** A declared source path as the module it builds to; globs stay as they are. */
 function builtSideEffect(path: string): string {
-  return path.replace(/^\.\//, './').replace(/\.tsx?$/, '.js');
+  return path.replace(/\.tsx?$/, '.js');
 }
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {

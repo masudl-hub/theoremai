@@ -61,6 +61,14 @@ const SUPPORTED_VERSIONS = [MODERN_VERSION, ...LEGACY_VERSIONS];
 const META_VERSION = 'io.modelcontextprotocol/protocolVersion';
 const META_CAPABILITIES = 'io.modelcontextprotocol/clientCapabilities';
 const META_SERVER = 'io.modelcontextprotocol/serverInfo';
+/**
+ * How long a current-revision client may keep each cacheable result, in milliseconds. Neither
+ * holds anything of the caller's, so any cache may share them.
+ */
+const CACHED: Partial<Record<string, number>> = {
+  'server/discover': 3_600_000,
+  'tools/list': 300_000,
+};
 
 const PARSE_ERROR = -32700;
 const INVALID_REQUEST = -32600;
@@ -307,6 +315,7 @@ export function createTheoremMcpHandler(
           ...instructions,
         };
       case 'ping':
+        if (modern) break;
         return {};
       case 'tools/list':
         return { tools: listed() };
@@ -345,11 +354,17 @@ export function createTheoremMcpHandler(
       // invariant: A notification has no reply; the client needs only to know it arrived.
       if (message.id === undefined) return new Response(null, { status: 202 });
       const answered = await result(request, message, modern);
+      const ttlMs = CACHED[message.method];
       return reply(200, {
         jsonrpc: '2.0',
         id: message.id,
         result: modern
-          ? { resultType: 'complete', ...answered, _meta: { [META_SERVER]: serverInfo } }
+          ? {
+              resultType: 'complete',
+              ...answered,
+              ...(ttlMs !== undefined ? { ttlMs, cacheScope: 'public' } : {}),
+              _meta: { [META_SERVER]: serverInfo },
+            }
           : answered,
       });
     } catch (err) {

@@ -108,6 +108,7 @@ Deno.test('discovery names the versions, the tools capability, and the server', 
   assertEquals(result.supportedVersions[0], MODERN);
   assertEquals(result.capabilities, { tools: {} });
   assertEquals(result.instructions, 'Look records up.');
+  assertEquals([result.ttlMs, result.cacheScope], [3_600_000, 'public']);
   assertEquals(result._meta['io.modelcontextprotocol/serverInfo'], {
     name: 'mcp-discover',
     version: '1.2.3',
@@ -129,6 +130,16 @@ Deno.test('the tool list is the profile allow list, with input schemas and acces
   );
   assertEquals(result.tools[0].inputSchema.type, 'object');
   assertEquals(result.tools[0].inputSchema.required, ['id']);
+  assertEquals([result.ttlMs, result.cacheScope], [300_000, 'public']);
+});
+
+Deno.test('ping is answered on an earlier revision and is not a method on the current one', async () => {
+  const handler = handlerFor('mcp-ping');
+  const modernRes = await handler(modern('ping'));
+  assertEquals(modernRes.status, 404);
+  assertEquals((await modernRes.json()).error.code, -32601);
+  const legacyRes = await handler(legacy({ id: 1, method: 'ping' }));
+  assertEquals((await legacyRes.json()).result, {});
 });
 
 Deno.test('a call returns the text the model would read back, not the raw output', async () => {

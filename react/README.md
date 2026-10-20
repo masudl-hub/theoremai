@@ -262,6 +262,7 @@ export const mcp = createTheoremMcpHandler({ profile: docsTools, version: '1.0.0
 ```
 
 - `tools/list` gives each allowed tool with its input schema. A tool's `access` becomes the read-only and destructive hints of MCP.
+- Clients of the current revision may cache the tool list for 5 minutes and the discovery result for an hour. Neither holds anything about the caller, so a shared cache may keep them.
 - `tools/call` runs the tool through the gates, the guardrails, and the trace of the kernel. The client receives the text a model would read, not the raw output.
 - A tool that fails returns a result marked `isError`, so the model can read it and try again.
 - No one can approve a call over MCP. The handler refuses a profile when an allowed tool has a permission other than `auto`.

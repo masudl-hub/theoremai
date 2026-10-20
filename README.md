@@ -21,6 +21,7 @@
   <a href="https://jsr.io/@theoremjs/agents/score"><img src="https://jsr.io/badges/@theoremjs/agents/score" alt="JSR score"></a>
   <a href="https://www.npmjs.com/package/@theoremjs/agents"><img src="https://img.shields.io/npm/v/@theoremjs/agents?logo=npm&label=npm&color=cb3837" alt="npm"></a>
   <a href="https://github.com/masudl-hub/theoremai/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
+  <a href="https://deepwiki.com/masudl-hub/theoremai"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
 <p align="center">

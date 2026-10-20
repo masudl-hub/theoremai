@@ -7,6 +7,6 @@ set -eu
 cd "$(dirname "$0")/.."
 raw=$(mktemp -d)
 trap 'rm -rf "$raw"' EXIT
-deno test --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ --coverage="$raw/v8" tests/
+deno test --parallel --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ --coverage="$raw/v8" tests/
 deno coverage "$raw/v8" --lcov --output="$raw/lcov.info"
 node scripts/lcov-to-istanbul.mjs "$raw/lcov.info" coverage/coverage-final.json

@@ -81,12 +81,12 @@ Its provider and session watches require updates to the relevant README sections
 | --- | --- |
 | `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
-| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `react/` via its own `tsc`, since it builds against the kernel as the `@theoremjs/agents` package), and tests (publish check before fallow, which writes `coverage/`) |
-| CI | `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, then `lint:biome` + `lint:ast-grep` + `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`) |
+| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `react/` via its own `tsc`, since it builds against the kernel as the `@theoremjs/agents` package), and the tests, run once with coverage for fallow (`lint:fallow`, last) |
+| CI | `lint` job: `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, `lint:biome`, `lint:ast-grep`. `check` job: typechecks, `verify:publish`, studio tests, then `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`), which runs the test suite once with coverage |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
-| Pre-push | `fallow audit --base origin/main` (uses the generated coverage report when present) |
+| Pre-push | `fallow audit` against the branch's upstream, or `FALLOW_AUDIT_BASE` (uses the generated coverage report when present) |
 
-`lint:fallow` runs Istanbul coverage, then `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`), then full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
+`lint:fallow` runs the test suite once, in parallel, with coverage (`npm run coverage`), then `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`) against it. `lint:fallow:deep` runs full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
 
 Fallow: `docs/_map.mjs` is listed under `dynamicallyLoaded` in `.fallowrc.jsonc`
 (docs-truth imports it at runtime; static analysis cannot see the edge).

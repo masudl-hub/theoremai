@@ -116,13 +116,13 @@ Status as of 20/10/2026.
 
 | Detector | Boundaries it fits | Attacks | Benign | Coverage |
 | --- | --- | --- | --- | --- |
-| `injection` | inbound (user-shaped); tool output and errors | User-shaped: Lakera b3, TensorTrust hijack, WildJailbreak, deepset, SPML. Tool-shaped: LLMail, NVIDIA agentic IPI, InjecAgent, ASB, AgentDojo | User-shaped: NotInject, Aegis safe, WildGuard benign, ASB normal. Tool-shaped: Glaive tool results, AgentDojo benign, InjecAgent clean results, Bonsai pages and tools | Good at `user` and tool output. Other inbound boundaries only by replay |
+| `injection` | inbound (user-shaped); tool output and errors | User-shaped: Lakera b3[^lakera], TensorTrust hijack[^tt-hijack], WildJailbreak[^wildjailbreak], deepset[^deepset], SPML[^spml]. Tool-shaped: LLMail[^llmail], NVIDIA agentic IPI[^nvidia-ipi], InjecAgent[^injecagent], ASB[^asb], AgentDojo[^agentdojo] | User-shaped: NotInject[^notinject], Aegis safe[^aegis], WildGuard benign[^wildguard], ASB normal. Tool-shaped: Glaive tool results[^glaive], AgentDojo benign, InjecAgent clean results, Bonsai pages and tools[^bonsai-pages] | Good at `user` and tool output. Other inbound boundaries only by replay |
 | `tool_instructions` | tool output and errors | The tool-shaped injection sets above | The tool-shaped benign sets above | Good |
-| `ids`, `financial`, `network` | inbound; tool output; tool arguments | gravitee PII spans, labelled US SSN, US ITIN, credit card, IBAN and IP address | Rows of the same set without those spans | Inbound and tool output only. None in model-written text. The eval loader already reads this set, so it may not be unseen |
-| `credentials` | inbound; tool output; tool shown; tool arguments; `reply` | In-repo `secrets.ts`. gitleaks' own rule examples: 855 of 855 match. The SecretBench candidate regexes, as a check of which vendors have a rule | gitleaks' own should-not-match examples: 0 of 291 match | **Gap:** no labelled set of real secrets. SecretBench's labels need its authors' agreement |
-| `prompt_leak` | outbound | [System Prompt Leakage](https://huggingface.co/datasets/gabrielchua/system-prompt-leakage) (SPL) test split, synthetic: 30,938 paraphrases of the system prompt | SPL: 40,413 replies to the same prompts | Precision 0.99, recall 0.18. Recall is 100% when the reply keeps 60% or more of the prompt's four-word runs, and 0% under 10% |
-| `canary_leak` | tool arguments; outbound | [Tensor Trust extraction detection](https://github.com/HumanCompatibleAI/tensor-trust-data/tree/main/detecting-extractions/v1): 115 replies that reveal a player's access code, by hand label | Tensor Trust: 115 replies paired with another player's code | Recall 0.55, false alarms 8.7%. The access codes are words, not the kernel's token, so this tests the matcher, not the real canary. **Gap:** recorded runs with the real canary |
-| `marker_leak` | outbound | In-repo `canary-egress-attacks.ts` and `live-attacks.ts` only | AgentDojo assistant replies, as clean model output | **Gap:** recorded runs |
+| `ids`, `financial`, `network` | inbound; tool output; tool arguments | gravitee PII spans[^gravitee], labelled US SSN, US ITIN, credit card, IBAN and IP address | Rows of the same set without those spans | Inbound and tool output only. None in model-written text. The eval loader already reads this set, so it may not be unseen |
+| `credentials` | inbound; tool output; tool shown; tool arguments; `reply` | In-repo `secrets.ts`[^secrets]. gitleaks' own rule examples[^gitleaks]: 855 of 855 match. The SecretBench[^secretbench] candidate regexes, as a check of which vendors have a rule | gitleaks' own should-not-match examples: 0 of 291 match | **Gap:** no labelled set of real secrets. SecretBench's labels need its authors' agreement |
+| `prompt_leak` | outbound | System Prompt Leakage (SPL)[^spl] test split, synthetic: 30,938 paraphrases of the system prompt | SPL: 40,413 replies to the same prompts | Precision 0.99, recall 0.18. Recall is 100% when the reply keeps 60% or more of the prompt's four-word runs, and 0% under 10% |
+| `canary_leak` | tool arguments; outbound | Tensor Trust extraction detection[^tt-extract]: 115 replies that reveal a player's access code, by hand label | Tensor Trust: 115 replies paired with another player's code | Recall 0.55, false alarms 8.7%. The access codes are words, not the kernel's token, so this tests the matcher, not the real canary. **Gap:** recorded runs with the real canary |
+| `marker_leak` | outbound | In-repo `canary-egress-attacks.ts`[^canary-attacks] and `live-attacks.ts`[^live-attacks] only | AgentDojo assistant replies[^agentdojo-runs], as clean model output | **Gap:** recorded runs |
 | `tool_leak` | outbound | None | AgentDojo assistant replies | **Gap** |
 | `ungiven_images`, `ungiven_links` | outbound | None | AgentDojo assistant replies | **Gap** |
 
@@ -183,3 +183,27 @@ These settings act on tools and turns, not on text at a boundary.
 [^blocked-reply]: [`guardrails.blockedReply`, src/kernel/schema.ts:1188](../src/kernel/schema.ts#L1188)
 [^quota]: [`guardrails.quota`, src/kernel/schema.ts:1179](../src/kernel/schema.ts#L1179)
 [^disclosure]: [`guardrails.disclosure`, src/kernel/schema.ts:1237](../src/kernel/schema.ts#L1237)
+[^lakera]: [Lakera/b3-agent-security-benchmark-weak](https://huggingface.co/datasets/Lakera/b3-agent-security-benchmark-weak), Hugging Face
+[^tt-hijack]: [Tensor Trust hijacking robustness v1](https://github.com/HumanCompatibleAI/tensor-trust-data/tree/main/benchmarks/hijacking-robustness/v1), GitHub
+[^wildjailbreak]: [allenai/wildjailbreak](https://huggingface.co/datasets/allenai/wildjailbreak), eval split, Hugging Face
+[^deepset]: [deepset/prompt-injections](https://huggingface.co/datasets/deepset/prompt-injections), Hugging Face
+[^spml]: [reshabhs/SPML_Chatbot_Prompt_Injection](https://huggingface.co/datasets/reshabhs/SPML_Chatbot_Prompt_Injection), Hugging Face
+[^llmail]: [microsoft/llmail-inject-challenge](https://huggingface.co/datasets/microsoft/llmail-inject-challenge), Phase 1, Hugging Face
+[^nvidia-ipi]: [nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1](https://huggingface.co/datasets/nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1), Hugging Face
+[^injecagent]: [uiuc-kang-lab/InjecAgent](https://github.com/uiuc-kang-lab/InjecAgent/tree/main/data), the `dh` and `ds` base test cases and the user cases, GitHub
+[^asb]: [agiresearch/ASB](https://github.com/agiresearch/ASB/tree/main/data), the attack tools, normal tools and agent tasks, GitHub
+[^agentdojo]: [ethz-spylab/agentdojo](https://github.com/ethz-spylab/agentdojo), its workspace suite fixtures and recorded runs, GitHub
+[^agentdojo-runs]: [AgentDojo recorded runs](https://github.com/ethz-spylab/agentdojo/tree/main/runs), GitHub
+[^notinject]: [leolee99/NotInject](https://huggingface.co/datasets/leolee99/NotInject), Hugging Face
+[^aegis]: [nvidia/Aegis-AI-Content-Safety-Dataset-2.0](https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety-Dataset-2.0), prompts labelled safe, Hugging Face
+[^wildguard]: [allenai/wildguardmix](https://huggingface.co/datasets/allenai/wildguardmix), prompts labelled unharmful, Hugging Face
+[^glaive]: [glaiveai/glaive-function-calling-v2](https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2), function responses only, Hugging Face
+[^bonsai-pages]: Web search results from [Exa](https://exa.ai)'s public MCP server, the search Bonsai uses, collected by `~/Development/.guardrail-corpus/collect.py`
+[^gravitee]: [gravitee-io/pii-detection-dataset](https://huggingface.co/datasets/gravitee-io/pii-detection-dataset), Hugging Face
+[^secrets]: [src/guardrails/corpus/secrets.ts](../src/guardrails/corpus/secrets.ts)
+[^gitleaks]: [gitleaks v8.30.1](https://github.com/gitleaks/gitleaks/tree/v8.30.1/cmd/generate/config/rules), the true and false positive examples in each rule's source, GitHub
+[^secretbench]: [SecretBench](https://github.com/setu1421/SecretBench), its list of secret regular expressions, GitHub
+[^spl]: [gabrielchua/system-prompt-leakage](https://huggingface.co/datasets/gabrielchua/system-prompt-leakage), test split, Hugging Face
+[^tt-extract]: [Tensor Trust extraction detection v1](https://github.com/HumanCompatibleAI/tensor-trust-data/tree/main/detecting-extractions/v1), GitHub
+[^canary-attacks]: [src/guardrails/corpus/canary-egress-attacks.ts](../src/guardrails/corpus/canary-egress-attacks.ts)
+[^live-attacks]: [src/guardrails/corpus/live-attacks.ts](../src/guardrails/corpus/live-attacks.ts)

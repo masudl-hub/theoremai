@@ -15,6 +15,10 @@ Deno.test('each card goes under the shortest column so far, and unmeasured cards
     [1, 3],
     [2, 4, 5],
   ]);
-  assertEquals(wallColumns([undefined, undefined, undefined, undefined], 3, 12), [[0, 3], [1], [2]]);
+  assertEquals(wallColumns([undefined, undefined, undefined, undefined], 3, 12), [
+    [0, 3],
+    [1],
+    [2],
+  ]);
   assertEquals(wallColumns([], 2, 12), [[], []]);
 });

@@ -11,12 +11,12 @@ export {};
 
 declare module '@astryxdesign/core/Badge' {
   interface BadgeVariantMap {
-    gray: true;
+    'gray': true;
   }
 }
 
 declare module '@astryxdesign/core/Card' {
   interface CardVariantMap {
-    bubble: true;
+    'bubble': true;
   }
 }

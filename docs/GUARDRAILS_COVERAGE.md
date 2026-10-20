@@ -198,7 +198,7 @@ These settings act on tools and turns, not on text at a boundary.
 [^aegis]: [nvidia/Aegis-AI-Content-Safety-Dataset-2.0](https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety-Dataset-2.0), prompts labelled safe, Hugging Face
 [^wildguard]: [allenai/wildguardmix](https://huggingface.co/datasets/allenai/wildguardmix), prompts labelled unharmful, Hugging Face
 [^glaive]: [glaiveai/glaive-function-calling-v2](https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2), function responses only, Hugging Face
-[^bonsai-pages]: Web search results from [Exa](https://exa.ai)'s public MCP server, the search Bonsai uses, collected by `~/Development/.guardrail-corpus/collect.py`
+[^bonsai-pages]: Web search results from [Exa](https://exa.ai)'s public MCP server, the search Bonsai uses, collected by our script in the external corpus folder
 [^gravitee]: [gravitee-io/pii-detection-dataset](https://huggingface.co/datasets/gravitee-io/pii-detection-dataset), Hugging Face
 [^secrets]: [src/guardrails/corpus/secrets.ts](../src/guardrails/corpus/secrets.ts)
 [^gitleaks]: [gitleaks v8.30.1](https://github.com/gitleaks/gitleaks/tree/v8.30.1/cmd/generate/config/rules), the true and false positive examples in each rule's source, GitHub

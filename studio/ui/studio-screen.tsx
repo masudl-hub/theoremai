@@ -166,7 +166,7 @@ import {
 import { flushSync } from 'react-dom';
 import { ActingAsButton } from './acting-as-button.tsx';
 import { AddProviderButton } from './add-provider.tsx';
-import { modelFamilyMark } from './brand-icons.tsx';
+import { IconTypeSafe, modelFamilyMark } from './brand-icons.tsx';
 import { StudioCode } from './code/studio-code.tsx';
 import { useConfirmWrite } from './confirm-write.tsx';
 import {
@@ -220,7 +220,7 @@ import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
 import { subscribeToFiles } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
 import { runToolProbe } from './lib/tool-probe.ts';
-import { decisionIcon, PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { warmWhenIdle } from './lib/when-idle.ts';
 import { zipFiles } from './lib/zip.ts';
 import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
@@ -259,10 +259,12 @@ const StudioSettings = lazy(() =>
 function nodeIcon(draft: StudioDraft, ref: StudioNodeRef) {
   const type = draft.identity.profileType;
   if (ref.facet === 'identity' && type) return PROFILE_TYPE_ICON[type];
-  if (ref.facet === 'decision') return decisionIcon(draft, draft.providers);
   if (ref.facet === 'modelBinding') {
     const binding = draft.modelBindings.find((each) => each.key === ref.key);
-    return (binding && modelFamilyMark(binding.apiId)) ?? FACET_ICON.modelBinding;
+    if (!binding) return FACET_ICON.modelBinding;
+    const definition = draft.providers.find((each) => each.id === binding.provider)?.definition;
+    if (definition === 'typesafe') return IconTypeSafe;
+    return modelFamilyMark(binding.apiId) ?? FACET_ICON.modelBinding;
   }
   if (ref.facet !== 'toolSpec') return FACET_ICON[ref.facet];
   const tool = draft.toolSpecs.find((spec) => spec.key === ref.key);

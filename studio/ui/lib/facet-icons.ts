@@ -8,7 +8,7 @@ import {
   IconCpu,
   IconFileExport,
   IconFileImport,
-  IconGitBranch,
+  IconGavel,
   IconHeadset,
   IconId,
   IconPhoto,
@@ -35,5 +35,5 @@ export const FACET_ICON = {
   image: IconPhoto,
   speech: IconVolume,
   live: IconHeadset,
-  decision: IconGitBranch,
+  decision: IconGavel,
 } satisfies Record<Exclude<StudioNodeRef['facet'], 'toolSpec'>, unknown>;

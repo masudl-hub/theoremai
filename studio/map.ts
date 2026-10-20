@@ -35,7 +35,7 @@ export interface MapNode {
   holds?: string[];
   /** A model whose label another model has too: its label with what tells the two apart. */
   long?: string;
-  /** An agent's profile type, a tool's type, or the section a shared setting fills. */
+  /** An agent's profile type, a tool's type, a model's provider definition, or the section a shared setting fills. */
   type?: string;
   /** A profile's sections, in the tree's order. */
   rows?: MapRow[];
@@ -142,7 +142,9 @@ export function workspaceMap(
   };
 
   const providers = new Map<string, MapNode>();
-  const defined = new Set(workspace.providers.map((provider) => provider.id));
+  const definitions = new Map(
+    workspace.providers.map((provider) => [provider.id, provider.definition]),
+  );
   const models = new Map<string, MapNode>();
   for (const agent of workspace.agents) {
     const to = at(agent.key, 'models');
@@ -157,7 +159,7 @@ export function workspaceMap(
           kind: 'provider',
           label: binding.provider,
           note: '',
-          opens: defined.has(binding.provider)
+          opens: definitions.has(binding.provider)
             ? provider
             : agentNodeId(agent.key, modelBindingNodeId(binding.key)),
         });
@@ -171,6 +173,7 @@ export function workspaceMap(
           kind: 'model',
           label: binding.modelId || 'New model',
           note: binding.apiId,
+          type: definitions.get(binding.provider),
           opens,
           holds: [opens],
         });

@@ -1,6 +1,6 @@
 import { assert, assertEquals } from '@std/assert';
 import type { ComposerProfileInterface } from '../../src/interface/mod.ts';
-import { interfaceFromProfile } from '../../src/interface/mod.ts';
+import { createComposerPendingMessage, interfaceFromProfile } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { failureEvent } from '../../src/kernel/tools/events.ts';
@@ -99,6 +99,27 @@ function said(blocks: readonly { kind: string; text?: string }[]): [string, stri
     b.kind === 'user-text' || b.kind === 'text' ? [[b.kind, b.text]] : [],
   );
 }
+
+Deno.test('a chat starts with the text, files and set-aside messages it is given', () => {
+  const host = heldHost();
+  const file = new File(['%PDF'], 'pass.pdf', { type: 'application/pdf' });
+  const later = createComposerPendingMessage({ kind: 'stash', draft: { text: 'Later' }, now: 2 });
+  const next = createComposerPendingMessage({ kind: 'queue', draft: { text: 'Next' }, now: 1 });
+  const chat = createChatController({
+    transport: host.transport,
+    iface: textInterface(),
+    initialText: 'Now',
+    initialFiles: [file],
+    initialPending: [later, next],
+  });
+  const state = chat.getState();
+  assertEquals(state.draftText, 'Now');
+  assertEquals(state.pendingFiles, [file]);
+  assertEquals(
+    state.pendingMessages.map((message) => message.kind),
+    ['queue', 'stash'],
+  );
+});
 
 Deno.test('a draft sent at idle joins the transcript with its reply, and the composer empties', async () => {
   const host = heldHost();

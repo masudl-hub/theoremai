@@ -6,6 +6,7 @@ import { Text } from '@astryxdesign/core/Text';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
+  type ComposerPendingMessage,
   type ComposerProfileInterface,
   moveComposerPendingWithinKind,
   removeComposerPendingMessage,
@@ -123,6 +124,13 @@ export type TheoremChatProps = {
   conversationView?: ConversationView;
   /** The text the composer starts with, for the user to send or change. Read once, when the chat mounts. */
   initialText?: string;
+  /** The files the composer starts with, staged to send. Read once, when the chat mounts. */
+  initialFiles?: readonly File[];
+  /**
+   * The messages the composer starts with set aside: queued, stashed or steering, as
+   * `createComposerPendingMessage` makes them. Read once, when the chat mounts.
+   */
+  initialPending?: readonly ComposerPendingMessage[];
   /**
    * Called with each new ref the host issues for the conversation: once the message posts, and
    * again as the reply's runs are saved. Keep the latest to resume the chat later. `undefined`
@@ -262,6 +270,8 @@ function ChatBody({
   conversation,
   conversationView,
   initialText,
+  initialFiles,
+  initialPending,
   onConversationChange,
   chatRef,
   composer: hasComposer = true,
@@ -278,6 +288,8 @@ function ChatBody({
     conversation,
     conversationView,
     initialText,
+    initialFiles,
+    initialPending,
     onConversationChange,
     slots,
     onSlotsChange,

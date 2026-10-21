@@ -102,6 +102,10 @@ export interface StudioRunnerProps {
   conversationView?: ChatProps['conversationView'];
   /** The text a chat's composer starts with. */
   initialText?: ChatProps['initialText'];
+  /** The files a chat's composer starts with, staged. */
+  initialFiles?: ChatProps['initialFiles'];
+  /** The messages a chat's composer starts with set aside. */
+  initialPending?: ChatProps['initialPending'];
   onConversationChange?: ChatProps['onConversationChange'];
   chatRef?: ChatProps['chatRef'];
   /** The value the page picked for each slot, for a chat's turns and a call's start. */
@@ -135,6 +139,8 @@ export function StudioRunner({
   conversation,
   conversationView,
   initialText,
+  initialFiles,
+  initialPending,
   onConversationChange,
   chatRef,
   slots,
@@ -164,6 +170,8 @@ export function StudioRunner({
         conversation={conversation}
         conversationView={conversationView}
         initialText={initialText}
+        initialFiles={initialFiles}
+        initialPending={initialPending}
         onConversationChange={onConversationChange}
         chatRef={chatRef}
         slots={slots}
@@ -188,6 +196,8 @@ function Run({
   conversation,
   conversationView,
   initialText,
+  initialFiles,
+  initialPending,
   onConversationChange,
   chatRef,
   slots,
@@ -272,6 +282,8 @@ function Run({
       conversation={conversation}
       conversationView={conversationView}
       initialText={initialText}
+      initialFiles={initialFiles}
+      initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
       slots={slots}
@@ -576,6 +588,8 @@ function TurnRun({
   conversation,
   conversationView,
   initialText,
+  initialFiles,
+  initialPending,
   onConversationChange,
   chatRef,
   slots,
@@ -616,6 +630,8 @@ function TurnRun({
       conversation={conversation}
       conversationView={conversationView}
       initialText={initialText}
+      initialFiles={initialFiles}
+      initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
       slots={slots}

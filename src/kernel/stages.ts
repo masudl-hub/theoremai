@@ -40,7 +40,7 @@ export const STAGE_AFFORDANCE_MATRIX: Readonly<Record<TurnStage, readonly StageA
     post_turn: Object.freeze([] as const),
   });
 
-const STAGE_RESULT_KEYS = new Set<string>([...STAGE_AFFORDANCES, 'injectId']);
+const STAGE_RESULT_KEYS = new Set<string>([...STAGE_AFFORDANCES, 'injectId', 'released']);
 
 /** A call the model made in this step, as the host was shown it. */
 export interface StepCall {
@@ -86,6 +86,13 @@ export interface StageResult {
    * non-string id refuses the inject whole.
    */
   injectId?: string;
+  /**
+   * With `inject`, at `post_tool` or `before_end`: how many characters of the attempt's reply text,
+   * as the turn gave it, the user already has. The rest is a draft they never got: it leaves the
+   * turn's history and its reply when the inject lands, so the model answers everything afresh
+   * after the part they have. Left out, they have all of it.
+   */
+  released?: number;
   abort?: boolean | { reason?: string };
   /** `pre_tool`: refuse the call. `post_tool`: replace the result with this failure. */
   deny?: { code?: string; message?: string };
@@ -132,6 +139,8 @@ export interface StageApplyInput {
 export interface InjectUnit {
   id?: string;
   messages: TurnHistoryMessage[];
+  /** {@linkcode StageResult.released}: the reply text the user has when this inject lands. */
+  released?: number;
 }
 
 /** A stage handler's result after validation: the parts the turn will act on. */
@@ -273,6 +282,19 @@ function coerceHistoryMessages(
   return out.length > 0 ? out : undefined;
 }
 
+/** `released` as a count of characters; anything else is a warning, and the user has the whole reply. */
+function injectReleased(raw: unknown, warnings: StageApplyWarning[]): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) return raw;
+  warn(
+    warnings,
+    'inject_released_invalid',
+    'released',
+    'released must be a whole number of characters, 0 or more; ignored', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+  return undefined;
+}
+
 /** The inject's messages under its id; an unusable id refuses the inject whole. */
 function injectUnit(
   result: Record<string, unknown>,
@@ -280,9 +302,11 @@ function injectUnit(
 ): InjectUnit | undefined {
   const messages = coerceHistoryMessages(result.inject, warnings);
   if (!messages) return undefined;
-  if (result.injectId === undefined) return { messages };
+  const released = injectReleased(result.released, warnings);
+  const unit: InjectUnit = { messages, ...(released === undefined ? {} : { released }) };
+  if (result.injectId === undefined) return unit;
   if (typeof result.injectId === 'string' && result.injectId.trim()) {
-    return { id: result.injectId, messages };
+    return { id: result.injectId, ...unit };
   }
   warn(
     warnings,
@@ -301,6 +325,9 @@ function applyInjectField(
   if (!('inject' in result) || result.inject === undefined) {
     if (result.injectId !== undefined) {
       warn(out.warnings, 'inject_id_invalid', 'injectId', 'injectId without inject ignored'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
+    if (result.released !== undefined) {
+      warn(out.warnings, 'inject_released_invalid', 'released', 'released without inject ignored'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
     return;
   }
@@ -558,6 +585,7 @@ export type StageEventExtra = {
   gate?: ToolGate;
   stop?: TurnStop;
   injected?: { id: string }[];
+  released?: number;
 };
 
 /** Build a stream `stage` event. Unknown extra keys are not copied. */
@@ -574,6 +602,7 @@ export function stageEventFields(
   if (extra.gate !== undefined) event.gate = extra.gate;
   if (extra.stop !== undefined) event.stop = extra.stop;
   if (extra.injected !== undefined) event.injected = extra.injected;
+  if (extra.released !== undefined) event.released = extra.released;
   return event;
 }
 
@@ -583,17 +612,18 @@ export function injectMessages(units: readonly InjectUnit[]): TurnHistoryMessage
 
 /**
  * The `stage` event recording that `units` landed, naming the ones the host
- * named; `undefined` when none was named. Emit it where the messages land,
- * never before: an inject that never lands is never reported.
+ * named, and the reply text the user has when they dropped a draft (`released`);
+ * `undefined` when there is neither. Emit it where the messages land, never
+ * before: an inject that never lands is never reported.
  */
 export function injectedStageEvent(
   stage: TurnStage,
   units: readonly InjectUnit[],
-  extra?: Pick<StageEventExtra, 'callId' | 'toolName'>,
+  extra?: Pick<StageEventExtra, 'callId' | 'toolName' | 'released'>,
 ): TurnEventOf<'stage'> | undefined {
   const injected = units.flatMap((unit) => (unit.id === undefined ? [] : [{ id: unit.id }]));
-  if (injected.length === 0) return undefined;
-  return stageEventFields(stage, { ...extra, injected });
+  if (injected.length === 0 && extra?.released === undefined) return undefined;
+  return stageEventFields(stage, { ...extra, ...(injected.length > 0 ? { injected } : {}) });
 }
 
 export function injectWouldExceedMaxSteps(

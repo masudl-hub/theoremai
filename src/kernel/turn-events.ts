@@ -1004,6 +1004,12 @@ export type TurnEvent =
       stageWarnings?: StageApplyWarning[];
       /** The named injects (`StageResult.injectId`) that landed in the conversation at this stage. */
       injected?: { id: string }[];
+      /**
+       * An inject at this stage dropped a draft the user never got: of the reply text since the
+       * turn began or its last `attempt`, only the first `released` characters stay the reply.
+       * {@linkcode keptReply} drops the rest.
+       */
+      released?: number;
     }
   /**
    * A tool call the model is still writing: the next piece of its arguments' JSON text, in order,
@@ -1197,6 +1203,7 @@ const TURN_EVENTS = {
       .array(z.object({ id: z.string().regex(/\S/) }))
       .min(1)
       .optional(),
+    released: z.number().int().nonnegative().optional(),
   }),
   tool_draft: z.object({
     type: z.literal('tool_draft'),
@@ -1263,9 +1270,30 @@ function isReply(event: TurnEvent): boolean {
 }
 
 /**
+ * `reply` with only its first `released` characters of text: the text past them, and every
+ * media and structured output that came after, are a draft the user never got.
+ */
+function cutReply(reply: readonly TurnEvent[], released: number): TurnEvent[] {
+  const out: TurnEvent[] = [];
+  let left = released;
+  for (const event of reply) {
+    if (!isReply(event)) out.push(event);
+    else if (event.type !== 'text') {
+      if (left > 0) out.push(event);
+    } else if (left > 0) {
+      const text = event.text.slice(0, left);
+      left -= text.length;
+      out.push(text === event.text ? event : { ...event, text });
+    }
+  }
+  return out;
+}
+
+/**
  * `events` without the replies a retry threw away: each `attempt` drops the text, media and
- * structured output before it, back to the turn's start or its last `done`. Tool calls, thoughts
- * and everything else stay, since they happened.
+ * structured output before it, back to the turn's start or its last `done`. A `stage` event with
+ * `released` keeps only that much of the reply's text, and drops what followed it. Tool calls,
+ * thoughts and everything else stay, since they happened.
  */
 export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
   const kept: TurnEvent[] = [];
@@ -1274,6 +1302,9 @@ export function keptReply(events: readonly TurnEvent[]): TurnEvent[] {
     if (event.type === 'attempt') {
       const before = kept.splice(turnStart);
       kept.push(...before.filter((each) => !isReply(each)));
+    }
+    if (event.type === 'stage' && event.released !== undefined) {
+      kept.push(...cutReply(kept.splice(turnStart), event.released));
     }
     kept.push(event);
     if (event.type === 'done') turnStart = kept.length;

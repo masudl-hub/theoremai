@@ -703,19 +703,31 @@ unchanged. The call's `execute_tool` span records the cited sources as a
 `sources_invalid`) as a `theorem.tool.warning` event. A tool that cites nothing
 omits `sources`.
 
-### Tool media
+### Tool images
 
 An HTTP or MCP tool whose result names pictures by address may declare
-`media: (output) => string[]`. After a call succeeds (before `post_tool`), the
-kernel fetches up to `MAX_TOOL_MEDIA_FILES` (4) of the distinct addresses, each
-within `MEDIA_FETCH_TIMEOUT_MS` (15 s) and through the profile's network policy
-on every hop, redirects included, and adds each as an `image` part to the
-model's result beside any the server sent. Only png, jpeg, gif and webp up to
-`MAX_TOOL_MEDIA_BYTES` (5 MiB) are taken. An address that is blocked, slow, too
-big, not an image, or not answered, and a hook that throws, leave their pictures
-out and give the call one tool `warning` (`code: 'media_unfetched'`) naming each
-reason; the call still completes. A function tool returns the bytes itself as
-`parts` and has no hook.
+`images: (output) => string[]`. Once a call succeeds and its result has passed the
+`tool_output` guard and the after-call stages, the kernel fetches up to
+`MAX_TOOL_IMAGES` (4) of the distinct https addresses, each within
+`IMAGE_FETCH_TIMEOUT_MS` (15 s), and adds each as an `image` part to the model's
+result beside any the server sent. A result the guard blocks or replaces fetches
+nothing and carries no pictures. Only png, jpeg, gif and webp up to
+`MAX_TOOL_IMAGE_BYTES` (5 MiB) each, and about 10 MiB in all per call, are taken.
+An address that is not absolute https, blocked, slow, too big, not an image, or
+not answered, and a hook that throws, leave their pictures out and give the call
+one tool `warning` (`code: 'images_unfetched'`) naming each reason; the call still
+completes. A function tool returns the bytes itself as `parts` and has no hook.
+
+Pictures are fetched without the tool's credentials. Every hop, redirects
+included, runs through the profile's network policy: with no policy, any public
+https host is allowed and private addresses are refused; a profile that allowlists
+hosts must list the picture CDN hosts as well as the tool's endpoint, or the
+pictures arrive as `images_unfetched`. The policy resolves a host before the
+connection is made, so a host that changes its answer in between (DNS rebinding)
+is not caught; the runtimes give no way to pin the address. The pictures carry the
+tool-result provenance of the text beside them and are not scanned (there are no
+image detectors, as for MCP image blocks). The fetched addresses are added to the
+result's text, so `ungiven_images` with `fromTools` counts them as given.
 
 ### Agent tools
 

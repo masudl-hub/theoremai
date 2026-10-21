@@ -211,6 +211,16 @@ function sLabs(split: 'train' | 'validation' | 'test', role: Role): BenchDataset
 
 const NEURALCHEMY = (split: string) => `${CORPUS}neuralchemy/core/${split}-00000-of-00001.parquet`;
 
+/**
+ * neuralchemy's attacks that are not takeovers, left out of the score: harmful asks from HarmBench
+ * and WildGuard, with at most a persona or a suffix; harmful asks built up over turns; questions
+ * about the model; and harmless controls labelled as attacks.
+ */
+const NEURALCHEMY_UNSCORED = {
+  sources: new Set(['harmbench', 'wildguard_judgecomp']),
+  categories: new Set(['crescendo', 'model_fingerprinting', 'control']),
+};
+
 /** neuralchemy's `core` set: the original rows, without the augmented copies `full` adds to train. */
 function neuralchemy(split: 'train' | 'validation' | 'test', role: Role): BenchDataset {
   return {
@@ -228,14 +238,21 @@ function neuralchemy(split: 'train' | 'validation' | 'test', role: Role): BenchD
         'text',
         'label',
         'category',
+        'source',
       ])) {
         const body = text(row.text);
         if (!body || (row.label !== 0 && row.label !== 1)) continue;
+        const category = text(row.category) ?? (row.label === 1 ? 'attack' : 'benign');
+        const isUnscored =
+          row.label === 1 &&
+          (NEURALCHEMY_UNSCORED.sources.has(text(row.source) ?? '') ||
+            NEURALCHEMY_UNSCORED.categories.has(category));
         yield {
           id: String(n++),
           text: body,
           attack: row.label === 1,
-          category: text(row.category) ?? (row.label === 1 ? 'attack' : 'benign'),
+          category,
+          ...(isUnscored ? { unscored: ['injection' as const] } : {}),
         };
       }
     },

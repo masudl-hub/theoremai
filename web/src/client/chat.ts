@@ -38,13 +38,14 @@ import {
   streamInterfaceTurn,
 } from './run-session.ts';
 import type { AnsweringGate, ToolDecisionAction, ToolGateResolution } from './tool-resume.ts';
-import type {
-  ChatLine,
-  ChatLineSink,
-  ConversationView,
-  TheoremTransport,
-  TheoremTurnRequest,
-  TurnEventSink,
+import {
+  type ChatLine,
+  type ChatLineSink,
+  type ConversationView,
+  isUnknownConversation,
+  type TheoremTransport,
+  type TheoremTurnRequest,
+  type TurnEventSink,
 } from './transport.ts';
 import { foldAssistantTurn, issuedOperationId, type RunScope } from './turn-client.ts';
 
@@ -68,9 +69,10 @@ export type ChatOptions = {
   initialText?: string;
   /**
    * Each new ref the host issues for the conversation: once the message posts, and again as the
-   * reply's runs are saved. Keep the latest to resume the chat later.
+   * reply's runs are saved. Keep the latest to resume the chat later. `undefined` when the host
+   * can no longer open the ref the chat resumed: the chat starts a new one, so forget it.
    */
-  onConversationChange?: (ref: string) => void;
+  onConversationChange?: (ref: string | undefined) => void;
   /**
    * The value chosen for each of the profile's `inputs.slots`. Sent with every turn. A slot you
    * name here is fixed to that value; one you leave out is the visitor's to pick (the chat's
@@ -648,7 +650,13 @@ class Chat implements ChatController {
         if (this.#state.blocks !== before || this.#busy) return;
         this.#draw(view, this.#state.session, []);
       },
-      (err: unknown) => this.#showFailure(turnFailure(err, iface.labels)),
+      (err: unknown) => {
+        // why: Nobody asked for the lost conversation by hand; the chat just starts a new one.
+        if (!isUnknownConversation(err)) return this.#showFailure(turnFailure(err, iface.labels));
+        if (this.#conversation !== ref) return;
+        this.#conversation = undefined;
+        this.#options.onConversationChange?.(undefined);
+      },
     );
   }
 

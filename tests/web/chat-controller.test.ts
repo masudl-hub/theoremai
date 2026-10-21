@@ -7,12 +7,13 @@ import { failureEvent } from '../../src/kernel/tools/events.ts';
 import type { TurnEvent } from '../../src/kernel/turn-events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { createChatController } from '../../web/src/client/chat.ts';
-import type {
-  ChatLineSink,
-  TheoremInvokeRequest,
-  TheoremSteerRequest,
-  TheoremTransport,
-  TheoremTurnRequest,
+import {
+  type ChatLineSink,
+  type TheoremInvokeRequest,
+  type TheoremSteerRequest,
+  TheoremStreamError,
+  type TheoremTransport,
+  type TheoremTurnRequest,
 } from '../../web/src/client/transport.ts';
 import { toolSnapshot } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -269,7 +270,7 @@ function hostedInterface(): ComposerProfileInterface {
 
 Deno.test('a host that keeps the conversation is drawn from its ref once the reply ends', async () => {
   const host = heldHost();
-  const refs: string[] = [];
+  const refs: (string | undefined)[] = [];
   const asked: string[] = [];
   const transport: TheoremTransport = {
     ...host.transport,
@@ -342,6 +343,30 @@ Deno.test('a resumed conversation is read from the host once someone follows the
     chat.getState().blocks.map((b) => b.id),
     ['u5'],
   );
+});
+
+Deno.test('a resumed conversation the host lost starts a new one, with no error', async () => {
+  const refs: (string | undefined)[] = [];
+  const transport: TheoremTransport = {
+    ...heldHost().transport,
+    conversation: () =>
+      Promise.reject(
+        new TheoremStreamError('request', 'gone', undefined, {
+          key: 'session.conversation_unknown',
+        }),
+      ),
+  };
+  const chat = createChatController({
+    transport,
+    iface: hostedInterface(),
+    conversation: 'ref-7',
+    onConversationChange: (ref) => refs.push(ref),
+  });
+  chat.subscribe(() => {});
+  await settle();
+  assertEquals(refs, [undefined]);
+  assertEquals(chat.getState().failure, null);
+  assertEquals(chat.getState().blocks, []);
 });
 
 /** A call to `lookup` that waits on the page, or on the visitor's permission. */

@@ -125,9 +125,11 @@ export type TheoremChatProps = {
   initialText?: string;
   /**
    * Called with each new ref the host issues for the conversation: once the message posts, and
-   * again as the reply's runs are saved. Keep the latest to resume the chat later.
+   * again as the reply's runs are saved. Keep the latest to resume the chat later. `undefined`
+   * when the host can no longer open the ref the chat resumed: the chat starts a new one, so
+   * forget it.
    */
-  onConversationChange?: (ref: string) => void;
+  onConversationChange?: (ref: string | undefined) => void;
   /** Lets the host send a message as the composer would; see {@link TheoremChatHandle}. */
   chatRef?: Ref<TheoremChatHandle>;
   /**

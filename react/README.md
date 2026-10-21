@@ -180,6 +180,7 @@ The server keeps the conversation in its `conversationStore`. The browser never 
 
 - when the message reaches the server
 - each time the server saves the reply, while the reply runs and when it ends
+- with `undefined` when the server can no longer open the ref you resumed. The chat starts a new conversation with no error, so forget the ref.
 
 Keep the latest ref. To resume the conversation, pass it as `conversation`. The component reads this value once, when it mounts. It then draws the conversation as the server keeps it, including a reply that waits for a gate.
 
@@ -187,7 +188,7 @@ Keep the latest ref. To resume the conversation, pass it as `conversation`. The 
 <TheoremChat
   endpoint="/api/theorem"
   conversation={savedRef}
-  onConversationChange={(ref) => saveRef(ref)}
+  onConversationChange={(ref) => (ref ? saveRef(ref) : forgetRef())}
 />
 ```
 

@@ -2901,7 +2901,8 @@ function PreviewBody({
             conversation: run.conversation,
             initialText: run.initialText,
             onConversationChange: (ref) => {
-              saveConversation(run.chatKey, run.sealer, ref);
+              if (ref) saveConversation(run.chatKey, run.sealer, ref);
+              else clearConversation(run.chatKey);
             },
             slots: sent.slots,
             context: sent.context,

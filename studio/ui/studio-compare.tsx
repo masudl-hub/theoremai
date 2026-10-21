@@ -361,7 +361,7 @@ function useConversations(isEditing: boolean) {
   const conversations = useRef<Partial<Record<Side, string>>>({});
   if (!isEditing) conversations.current.edited = undefined;
   const [onChange] = useState(() => {
-    const change = (side: Side) => (ref: string) => {
+    const change = (side: Side) => (ref: string | undefined) => {
       conversations.current[side] = ref;
     };
     return { saved: change('saved'), edited: change('edited') };

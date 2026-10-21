@@ -4,6 +4,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Item } from '@astryxdesign/core/Item';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
+import { ProgressBar } from '@astryxdesign/core/ProgressBar';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { StackItem } from '@astryxdesign/core/Stack';
 import {
@@ -28,8 +29,10 @@ import { type ReactNode, useEffect, useState } from 'react';
 import {
   BENCH_OUTCOMES,
   type BenchOutcome,
+  type BenchProgress,
   type BenchRow,
   type BenchRunAnswer,
+  type BenchSummary,
   type DatasetScore,
   type DetectorScore,
   ROLES,
@@ -81,16 +84,22 @@ type ScoreRow = {
   recallBefore?: number;
   falseAlarmBefore?: number;
   thin: boolean;
+  /** The dataset the run is on: its figures are the rows read so far. */
+  running: boolean;
   score: DetectorScore;
 };
 
-function scoreRows(answer: BenchRunAnswer): ScoreRow[] {
+function scoreRows(
+  scores: readonly DatasetScore[],
+  previous: BenchSummary | undefined,
+  running?: string,
+): ScoreRow[] {
   const before = new Map(
-    (answer.previous?.scores ?? []).flatMap((dataset) =>
+    (previous?.scores ?? []).flatMap((dataset) =>
       dataset.detectors.map((d) => [`${d.dataset}/${d.detector}`, d] as const),
     ),
   );
-  return answer.summary.scores.flatMap((dataset) =>
+  return scores.flatMap((dataset) =>
     dataset.detectors.map((score) => {
       const id = `${score.dataset}/${score.detector}`;
       const prior = before.get(id);
@@ -106,6 +115,7 @@ function scoreRows(answer: BenchRunAnswer): ScoreRow[] {
         recallBefore: prior?.recall,
         falseAlarmBefore: prior?.falseAlarmRate,
         thin: score.thin,
+        running: score.dataset === running,
         score,
       };
     }),
@@ -165,7 +175,8 @@ function ScoresTable({ rows, onOpen }: { rows: ScoreRow[]; onOpen: (row: ScoreRo
           renderCell: (row) => (
             <HStack gap={1} align="center">
               <Text type="supporting">{row.dataset}</Text>
-              {row.thin && <Token label="Few rows" size="sm" color="gray" />}
+              {row.running && <Token label="Running" size="sm" color="blue" />}
+              {row.thin && !row.running && <Token label="Few rows" size="sm" color="gray" />}
             </HStack>
           ),
         },
@@ -202,27 +213,61 @@ function ScoresTable({ rows, onOpen }: { rows: ScoreRow[]; onOpen: (row: ScoreRo
   );
 }
 
+function duration(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  return minutes > 0
+    ? `${String(minutes)} min ${(seconds % 60).toFixed(0)} s`
+    : `${seconds.toFixed(0)} s`;
+}
+
+function Skipped({ skipped }: { skipped: BenchSummary['skipped'] }) {
+  if (skipped.length === 0) return null;
+  return (
+    <Banner
+      status="warning"
+      title={`${String(skipped.length)} datasets not run`}
+      description={skipped.map((skip) => skip.dataset).join(', ')}
+    />
+  );
+}
+
 /** The run in short: what it ran, on which commit, and what it could not read. */
-function RunFacts({ answer }: { answer: BenchRunAnswer }) {
-  const { summary, previous } = answer;
+function RunFacts({ summary, previous }: { summary: BenchSummary; previous?: BenchSummary }) {
   return (
     <VStack gap={2}>
       <MetadataList>
         <MetadataListItem label="Run">{summary.run}</MetadataListItem>
         <MetadataListItem label="Commit">{summary.commit.slice(0, 8)}</MetadataListItem>
-        <MetadataListItem label="Took">{`${summary.seconds.toFixed(0)} s`}</MetadataListItem>
+        <MetadataListItem label="Took">{duration(summary.seconds)}</MetadataListItem>
         <MetadataListItem label="Compared with">{previous?.run ?? '—'}</MetadataListItem>
-        {summary.limit !== undefined && (
-          <MetadataListItem label="Rows per dataset">{String(summary.limit)}</MetadataListItem>
-        )}
       </MetadataList>
-      {summary.skipped.length > 0 && (
-        <Banner
-          status="warning"
-          title={`${String(summary.skipped.length)} datasets not run`}
-          description={summary.skipped.map((skip) => skip.dataset).join(', ')}
-        />
-      )}
+      <Skipped skipped={summary.skipped} />
+    </VStack>
+  );
+}
+
+/** A run still going: how far through its datasets it is, and the one it is on. */
+function LiveFacts({ live, previous }: { live: BenchProgress; previous?: BenchSummary }) {
+  const finished = live.scores.length - (live.current ? 1 : 0) + live.skipped.length;
+  return (
+    <VStack gap={2}>
+      <ProgressBar
+        label={`Running: ${String(finished)} of ${String(live.datasets.length)} datasets`}
+        value={finished}
+        max={live.datasets.length}
+        hasValueLabel
+      />
+      <MetadataList>
+        <MetadataListItem label="Run">{live.run}</MetadataListItem>
+        <MetadataListItem label="Now">
+          {live.current
+            ? `${live.current.dataset} · ${live.current.rows.toLocaleString()} rows`
+            : '—'}
+        </MetadataListItem>
+        <MetadataListItem label="Running for">{duration(live.seconds)}</MetadataListItem>
+        <MetadataListItem label="Compared with">{previous?.run ?? '—'}</MetadataListItem>
+      </MetadataList>
+      <Skipped skipped={live.skipped} />
     </VStack>
   );
 }
@@ -499,13 +544,24 @@ function GuardrailHealth({
   payload: StudioRunPayload;
   isWide: boolean;
 }) {
-  const roles = rolesIn(answer.summary.scores);
+  const { live, summary } = answer;
+  // why: A run still going is compared with the last whole run; a finished one with the run before it.
+  const previous = live ? summary : answer.previous;
+  const scores = live?.scores ?? summary?.scores ?? [];
+  const run = live?.run ?? summary?.run ?? '';
+  const roles = rolesIn(scores);
   const [role, setRole] = useState<Role | 'all'>('all');
   const [open, setOpen] = useState<ScoreRow | null>(null);
-  const rows = scoreRows(answer).filter((row) => role === 'all' || row.role === role);
+  const rows = scoreRows(scores, previous, live?.current?.dataset).filter(
+    (row) => role === 'all' || row.role === role,
+  );
   const overview = (
     <VStack gap={4} padding={4}>
-      <RunFacts answer={answer} />
+      {live ? (
+        <LiveFacts live={live} previous={previous} />
+      ) : (
+        summary && <RunFacts summary={summary} previous={previous} />
+      )}
       <SegmentedControl
         label="Datasets"
         size="sm"
@@ -533,7 +589,7 @@ function GuardrailHealth({
           <ScoreDetail
             key={open.id}
             row={open}
-            run={answer.summary.run}
+            run={run}
             endpoint={endpoint}
             payload={payload}
             isClose={isWide}
@@ -547,26 +603,50 @@ function GuardrailHealth({
   );
 }
 
-/** The bench's last run, when the project's server has one: undefined while it is asked, null when there is none. */
+function askBench(endpoint: string): Promise<BenchRunAnswer | null> {
+  return fetch(`${endpoint}/bench`)
+    .then((response) => (response.ok ? response.json<BenchRunAnswer>() : null))
+    .catch(() => null);
+}
+
+/**
+ * The bench's last run, when the project's server has one: undefined while it is asked, null when
+ * there is none. A run still going is followed as it goes, and the answer asked again once it ends.
+ */
 function useBenchRun(endpoint: string | undefined): BenchRunAnswer | null | undefined {
   const [answer, setAnswer] = useState<BenchRunAnswer | null | undefined>(
     endpoint ? undefined : null,
   );
   useEffect(() => {
     if (!endpoint) return;
-    let live = true;
-    fetch(`${endpoint}/bench`)
-      .then((response) => (response.ok ? response.json<BenchRunAnswer>() : null))
-      .then((body) => {
-        if (live) setAnswer(body);
-      })
-      .catch(() => {
-        if (live) setAnswer(null);
-      });
+    let mounted = true;
+    void askBench(endpoint).then((body) => {
+      if (mounted) setAnswer(body);
+    });
     return () => {
-      live = false;
+      mounted = false;
     };
   }, [endpoint]);
+  const following = answer?.live?.run;
+  useEffect(() => {
+    if (!endpoint || !following || typeof EventSource === 'undefined') return;
+    const source = new EventSource(`${endpoint}/bench/live?run=${encodeURIComponent(following)}`);
+    source.onmessage = (event: MessageEvent<string>) => {
+      try {
+        const live = JSON.parse(event.data) as BenchProgress;
+        setAnswer((before) => (before ? { ...before, live } : before));
+      } catch {
+        // why: A line cut short is followed by the next one, a second later.
+      }
+    };
+    source.addEventListener('ended', () => {
+      source.close();
+      void askBench(endpoint).then(setAnswer);
+    });
+    return () => {
+      source.close();
+    };
+  }, [endpoint, following]);
   return answer;
 }
 
@@ -608,10 +688,10 @@ export function GuardrailPane({ payload, isWide }: { payload: StudioRunPayload; 
       <StackItem size="fill">
         {mode === 'test' ? (
           <GuardrailTester payload={payload} isWide={isWide} />
-        ) : bench.summary.scores.length === 0 ? (
+        ) : (bench.live?.scores ?? bench.summary?.scores ?? []).length === 0 ? (
           <PaneState
             icon={<Icon icon={IconHeartbeat} size="lg" color="secondary" />}
-            title="The last bench run scored nothing."
+            title={bench.live ? 'The bench run is starting.' : 'The last bench run scored nothing.'}
           />
         ) : (
           <GuardrailHealth answer={bench} endpoint={endpoint} payload={payload} isWide={isWide} />

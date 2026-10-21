@@ -11,7 +11,14 @@
  * The data root is `--root`, or `GUARDRAIL_DATA`, or `~/Development/.guardrail-data`. The guardrail
  * corpus is `--corpus`, or `GUARDRAIL_CORPUS`, or `guardrail-corpus` under the root.
  */
-import { BENCH_DIR, type BenchSummary, ROLES, type Role } from '../studio/guardrail-bench.ts';
+import {
+  BENCH_DIR,
+  BENCH_PROGRESS_MS,
+  type BenchProgress,
+  type BenchSummary,
+  ROLES,
+  type Role,
+} from '../studio/guardrail-bench.ts';
 import {
   type BenchDataset,
   type BenchSample,
@@ -117,6 +124,7 @@ async function benchDataset(
   dataset: BenchDataset,
   pool: Pool,
   write: (row: BenchRow) => Promise<void>,
+  progressed: (rows: BenchRow[]) => void,
 ): Promise<BenchRow[]> {
   const rows: BenchRow[] = [];
   const inflight = new Set<Promise<void>>();
@@ -146,6 +154,7 @@ async function benchDataset(
           rows.push(row);
           await write(row);
         }
+        progressed(rows);
       });
     inflight.add(task);
     task.finally(() => inflight.delete(task));
@@ -183,6 +192,30 @@ const skipped: { dataset: string; reason: string }[] = [];
 const scores: DatasetScore[] = [];
 const pool = new Pool(workers);
 const started = performance.now();
+let told = 0;
+/** Rewrites `progress.json` for the studio's Health view, at most once a {@linkcode BENCH_PROGRESS_MS}. */
+const tell = (current?: { dataset: BenchDataset; rows: BenchRow[] }, now = false) => {
+  if (!now && performance.now() - told < BENCH_PROGRESS_MS) return;
+  told = performance.now();
+  const progress: BenchProgress = {
+    run,
+    ...(limit === undefined ? {} : { limit }),
+    seconds: (told - started) / 1000,
+    datasets: chosen.map(({ id, role, boundary }) => ({ id, role, boundary })),
+    skipped,
+    scores: current
+      ? [
+          ...scores,
+          scoreDataset(current.rows, current.dataset.labels, detectorsAt(current.dataset.boundary)),
+        ]
+      : scores,
+    ...(current ? { current: { dataset: current.dataset.id, rows: current.rows.length } } : {}),
+  };
+  // why: A rename replaces the file whole, so the studio never reads one half written.
+  Deno.writeTextFileSync(`${dir}/progress.json.part`, JSON.stringify(progress));
+  Deno.renameSync(`${dir}/progress.json.part`, `${dir}/progress.json`);
+};
+tell(undefined, true);
 try {
   for (const dataset of chosen) {
     const missing: string[] = [];
@@ -192,7 +225,9 @@ try {
       continue;
     }
     const t0 = performance.now();
-    const rows = await benchDataset(dataset, pool, write);
+    const rows = await benchDataset(dataset, pool, write, (sofar) => {
+      if (sofar.length > 0) tell({ dataset, rows: sofar });
+    });
     console.error(
       `${dataset.id}: ${rows.length} rows in ${((performance.now() - t0) / 1000).toFixed(0)}s`,
     );
@@ -201,6 +236,7 @@ try {
       continue;
     }
     scores.push(scoreDataset(rows, dataset.labels, detectorsAt(dataset.boundary)));
+    tell(undefined, true);
   }
 } finally {
   pool.close();

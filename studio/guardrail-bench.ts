@@ -142,15 +142,40 @@ export interface BenchSummary {
   scores: DatasetScore[];
 }
 
+/**
+ * A run's `progress.json`, rewritten while it runs: the datasets finished, and the one it is on,
+ * scored on the rows read so far.
+ */
+export interface BenchProgress {
+  run: string;
+  limit?: number;
+  seconds: number;
+  datasets: { id: string; role: Role; boundary: ProbeBoundary }[];
+  skipped: { dataset: string; reason: string }[];
+  /** The datasets finished, then the current one's rows so far. */
+  scores: DatasetScore[];
+  current?: { dataset: string; rows: number };
+}
+
 /** The folder the bench writes into, under the folder it ran in. */
 export const BENCH_DIR = '.guardrails-bench';
 
 /** A run's name: the time it started, as a folder name. */
 export const BENCH_RUN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/;
 
-/** What the studio server answers for a run: its summary, and the run before it to compare with. */
+/** How often a run rewrites its progress, at most. */
+export const BENCH_PROGRESS_MS = 1000;
+
+/** A run whose progress has not moved for this long has stopped. */
+export const BENCH_STALE_MS = 120_000;
+
+/**
+ * What the studio server answers: the newest whole run's summary and the whole run before it, and
+ * a run still going. A run with a `limit` read part of each dataset, so it is never one of these.
+ */
 export interface BenchRunAnswer {
   runs: string[];
-  summary: BenchSummary;
+  summary?: BenchSummary;
   previous?: BenchSummary;
+  live?: BenchProgress;
 }

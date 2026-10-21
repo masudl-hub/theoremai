@@ -529,16 +529,27 @@ rows that each path read.
 
 Each run writes `.guardrails-bench/<run>/results.jsonl`, one line per text, and
 `summary.json`. `.guardrails-bench/latest` names the last run. A line keeps its
-text only when a detector fired or the text is an attack.
+text only when a detector fired or the text is an attack. While it runs, the
+bench also rewrites `progress.json`, at most once a second, with the datasets
+finished and the current one scored on its rows so far.
 
 To read a run in the studio, start the studio from the folder the bench ran in.
 Test guardrails then shows a Health view. It lists each detector on each
 dataset, with recall, false alarms, and time, and the change since the run
 before. Open a row to see its worst categories and the texts behind each
 figure, with each match marked. **Probe the draft** sends one of those texts
-through the probe again, with the open draft. The studio server reads the runs
-from `GET /api/studio/bench` and `GET /api/studio/bench/rows`. Where no run
-exists, both answer 404 and the view does not show. `studio/guardrail-bench.ts`
+through the probe again, with the open draft.
+
+A run still going shows as it goes: how many datasets it has finished, the one
+it is on, and the scores so far, compared with the last whole run. A run with
+`--limit` reads only part of each dataset, so the view never shows it or
+compares with it. A run whose progress has not moved for two minutes has
+stopped, and the view leaves it out.
+
+The studio server answers `GET /api/studio/bench` with the runs,
+`GET /api/studio/bench/live` with a running run's progress as server-sent
+events, and `GET /api/studio/bench/rows` with a figure's texts. Where no run
+exists, they answer 404 and the view does not show. `studio/guardrail-bench.ts`
 holds the shapes that the bench writes and the view reads.
 
 `DATASETS` in `scripts/guardrails-bench/datasets.ts` lists every dataset, with

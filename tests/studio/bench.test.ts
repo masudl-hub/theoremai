@@ -1,5 +1,12 @@
 import { assertEquals } from '@std/assert';
-import { BENCH_DIR, type BenchRow, type BenchSummary } from '../../studio/guardrail-bench.ts';
+import {
+  BENCH_DIR,
+  BENCH_STALE_MS,
+  type BenchProgress,
+  type BenchRow,
+  type BenchRunAnswer,
+  type BenchSummary,
+} from '../../studio/guardrail-bench.ts';
 import { answerBench, BENCH_ROWS_LIMIT } from '../../studio/server/bench.ts';
 
 const BASE = '/api/studio';
@@ -131,4 +138,69 @@ Deno.test('rows stop at the limit', async () => {
     `/bench/rows?run=${run}&dataset=d&detector=email&outcome=false_alarm`,
   );
   assertEquals((body as { rows: BenchRow[] }).rows.length, BENCH_ROWS_LIMIT);
+});
+
+Deno.test('a run with a limit read part of each dataset, so it is never the run or the one before', async () => {
+  const root = await project({ '2026-10-20T10-00-00Z': [], '2026-10-21T10-00-00Z': [] });
+  const part = `${root}/${BENCH_DIR}/2026-10-21T10-00-00Z/summary.json`;
+  await Deno.writeTextFile(part, JSON.stringify({ ...summary('2026-10-21T10-00-00Z'), limit: 20 }));
+  const answer = (await get(root, '/bench')).body as { runs: string[]; summary: BenchSummary };
+  assertEquals(answer.runs, ['2026-10-20T10-00-00Z']);
+  assertEquals(answer.summary.run, '2026-10-20T10-00-00Z');
+});
+
+function progress(run: string, over: Partial<BenchProgress> = {}): BenchProgress {
+  return { run, seconds: 3, datasets: [], skipped: [], scores: [], ...over };
+}
+
+Deno.test('a run still going answers beside the last whole run, and its feed sends its progress', async () => {
+  const done = '2026-10-20T10-00-00Z';
+  const going = '2026-10-21T10-00-00Z';
+  const root = await project({ [done]: [], [going]: undefined });
+  const dir = `${root}/${BENCH_DIR}/${going}`;
+  await Deno.writeTextFile(`${dir}/progress.json`, JSON.stringify(progress(going)));
+  const answer = (await get(root, '/bench')).body as BenchRunAnswer;
+  assertEquals(answer.summary?.run, done);
+  assertEquals(answer.live?.run, going);
+  const feed = await answerBench(
+    root,
+    BASE,
+    new Request(`http://127.0.0.1${BASE}/bench/live?run=${going}`),
+    {},
+  );
+  const reader = feed?.body?.pipeThrough(new TextDecoderStream()).getReader();
+  const first = await reader?.read();
+  assertEquals(first?.value, `data: ${JSON.stringify(progress(going))}\n\n`);
+  await Deno.writeTextFile(`${dir}/summary.json`, JSON.stringify(summary(going)));
+  const next = await reader?.read();
+  assertEquals(next?.value?.startsWith('event: ended'), true);
+  await reader?.cancel();
+});
+
+Deno.test('a run whose progress stopped moving is not going, and a part run is never followed', async () => {
+  const going = '2026-10-21T10-00-00Z';
+  const root = await project({ [going]: undefined });
+  const file = `${root}/${BENCH_DIR}/${going}/progress.json`;
+  await Deno.writeTextFile(file, JSON.stringify(progress(going)));
+  const old = new Date(Date.now() - BENCH_STALE_MS - 1000);
+  await Deno.utime(file, old, old);
+  assertEquals((await get(root, '/bench')).status, 404);
+  await Deno.writeTextFile(file, JSON.stringify(progress(going, { limit: 20 })));
+  assertEquals((await get(root, '/bench')).status, 404);
+});
+
+Deno.test('the last line of a run still writing its rows is left out, not a failure', async () => {
+  const run = '2026-10-21T10-00-00Z';
+  const root = await project({ [run]: [row('alarm', { detectors: ['email'] })] });
+  const file = `${root}/${BENCH_DIR}/${run}/results.jsonl`;
+  await Deno.writeTextFile(file, '{"dataset":"d","id":"half', { append: true });
+  const { status, body } = await get(
+    root,
+    `/bench/rows?run=${run}&dataset=d&detector=email&outcome=false_alarm`,
+  );
+  assertEquals(status, 200);
+  assertEquals(
+    (body as { rows: BenchRow[] }).rows.map((each) => each.id),
+    ['alarm'],
+  );
 });

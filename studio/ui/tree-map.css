@@ -1,7 +1,7 @@
-/* The tree map: the lines are one drawing under the tokens (map-token.css), as on the map. */
+/* The tree map: the lines are one drawing under the tokens (map-token.css), as on the map. It has no
+   background of its own: it sits on whatever holds it. */
 .studio-tree-map {
   position: relative;
-  background-color: var(--color-background-surface);
 }
 
 .studio-tree-map-lines {

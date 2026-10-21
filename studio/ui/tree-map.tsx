@@ -1,12 +1,12 @@
 /**
  * The workspace's tree, every row open, drawn as the map draws: each row a map token, and a line
  * from each row down and across to each of its children. Beside the tree, what feeds it: the
- * providers that serve each agent's models, and the tool registry its tool policy picks from, each
- * with a line into its row. It changes nothing and opens nothing: a picture of what a workspace holds, for a
+ * runner that runs each agent's turns, the providers that serve its models, and the tool registry its
+ * tool policy picks from, with the tool runner under it, each with a line into its row. It changes nothing and opens nothing: a picture of what a workspace holds, for a
  * page that is not the studio.
  */
 import type { IconType } from '@astryxdesign/core/Icon';
-import { IconCloud, IconTool } from '@tabler/icons-react';
+import { IconBolt, IconCloud, IconPlayerPlay, IconTool } from '@tabler/icons-react';
 import { useRef } from 'react';
 import { mapCurve } from '../map-line.ts';
 import {
@@ -46,16 +46,17 @@ interface Row extends Place {
   parent?: Place;
 }
 
-/** A provider or the tool registry beside the tree, and the rows it feeds. */
+/** A runner, a provider or the tool registry beside the tree, the rows it joins, and the feed above it that it runs. */
 interface Feed {
   id: string;
   label: string;
   icon: IconType;
   y: number;
   into: string[];
+  under?: string;
 }
 
-function rowsOf(workspace: StudioWorkspace): Row[] {
+function rowsOf(workspace: StudioWorkspace, only?: string): Row[] {
   const rows: Row[] = [];
   const walk = (node: StudioTreeNode, agent: string, depth: number, parent?: Row) => {
     const row: Row = {
@@ -69,7 +70,8 @@ function rowsOf(workspace: StudioWorkspace): Row[] {
     for (const child of node.children) walk(child, agent, depth + 1, row);
   };
   workspaceTree(workspace).agents.forEach((root, index) => {
-    walk(root, workspace.agents[index]?.key ?? '', 0);
+    const key = workspace.agents[index]?.key ?? '';
+    if (only === undefined || key === only) walk(root, key, 0);
   });
   return rows;
 }
@@ -80,18 +82,29 @@ function rowId(row: Row): string {
 }
 
 /**
- * Each agent's providers, beside its models, and the workspace's tool registry, beside its Tools row. A feed
- * sits level with the middle of the rows it feeds, or under the feed before it when that is lower.
+ * Each agent's runner (`runTurn`), beside its name; its providers, beside its models; and the
+ * workspace's tool registry, beside its Tools row, with the tool runner under it. A feed sits level
+ * with the middle of the rows it joins, or under the feed before it when that is lower.
  */
 function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const feeds: Feed[] = [];
-  const add = (id: string, label: string, icon: IconType, into: Row[]) => {
-    const middle = into.reduce((sum, row) => sum + row.y, 0) / into.length;
+  const add = (id: string, label: string, icon: IconType, into: Row[], under?: string) => {
     const below = (feeds.at(-1)?.y ?? Number.NEGATIVE_INFINITY) + ROW;
-    feeds.push({ id, label, icon, y: Math.max(middle, below), into: into.map(rowId) });
+    const middle = into.length ? into.reduce((sum, row) => sum + row.y, 0) / into.length : below;
+    feeds.push({
+      id,
+      label,
+      icon,
+      y: Math.max(middle, below),
+      into: into.map(rowId),
+      ...(under ? { under } : {}),
+    });
   };
   for (const agent of workspace.agents) {
     const mine = rows.filter((row) => row.agent === agent.key);
+    const name = mine.find((row) => row.node.ref.facet === 'identity');
+    if (!name) continue;
+    add(`${agent.key}/runner`, 'Agent runner', IconPlayerPlay, [name]);
     const providers = new Map<string, Row[]>();
     for (const binding of agent.modelBindings) {
       const row = mine.find(
@@ -106,6 +119,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     const tools = mine.find((row) => row.node.ref.facet === 'tools');
     if (tools && workspace.toolSpecs.length > 0) {
       add(`${agent.key}/tools`, 'Tool registry', IconTool, [tools]);
+      add(`${agent.key}/tool-runner`, 'Tool runner', IconBolt, [], `${agent.key}/tools`);
     }
   }
   return feeds;
@@ -117,9 +131,15 @@ function linePath(from: Place, to: Place): string {
   return `M ${x} ${from.y + HALF} V ${to.y - TURN} Q ${x} ${to.y} ${x + TURN} ${to.y} H ${to.x - LINE_GAP}`;
 }
 
-export function StudioTreeMap({ workspace }: { workspace: StudioWorkspace }) {
+export interface StudioTreeMapProps {
+  workspace: StudioWorkspace;
+  /** The key of the one agent to draw; every agent when unset. */
+  agent?: string | undefined;
+}
+
+export function StudioTreeMap({ workspace, agent }: StudioTreeMapProps) {
   const root = useRef<HTMLDivElement>(null);
-  const rows = rowsOf(workspace);
+  const rows = rowsOf(workspace, agent);
   const feeds = feedsOf(workspace, rows);
   const widths = useTokenWidths(root, workspace);
   const drafts = new Map(
@@ -131,6 +151,7 @@ export function StudioTreeMap({ workspace }: { workspace: StudioWorkspace }) {
   const right = (row: Row) => row.x + (widths[rowId(row)] ?? GUESS);
   const feedX = Math.max(0, ...rows.map(right)) + GAP;
   const byId = new Map(rows.map((row) => [rowId(row), row]));
+  const feedY = new Map(feeds.map((feed) => [feed.id, feed.y]));
   const height = PAD * 2 + Math.max(rows.length * ROW, ...feeds.map((feed) => feed.y + HALF - PAD));
   const width = feedX + Math.max(GUESS, ...feeds.map((feed) => widths[feed.id] ?? GUESS)) + PAD;
   return (
@@ -153,6 +174,19 @@ export function StudioTreeMap({ workspace }: { workspace: StudioWorkspace }) {
             return <path key={`${feed.id}>${id}`} className="map-line" d={d} />;
           }),
         )}
+        {feeds.map((feed) => {
+          const above = feed.under === undefined ? undefined : feedY.get(feed.under);
+          if (above === undefined) return null;
+          // Straight up from under its icon into the feed it runs.
+          const x = feedX + TRUNK;
+          return (
+            <path
+              key={`${feed.id}^`}
+              className="map-line"
+              d={`M ${x} ${feed.y - HALF} V ${above + HALF}`}
+            />
+          );
+        })}
       </svg>
       {rows.map((row) => {
         const draft = drafts.get(row.agent) ?? createBlankDraft();

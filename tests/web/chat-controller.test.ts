@@ -314,3 +314,26 @@ Deno.test('a resumed conversation is drawn from the view the page already has', 
   host.turns[0].end();
   await sent;
 });
+
+Deno.test('a resumed conversation is read from the host once someone follows the chat', async () => {
+  const host = heldHost();
+  const asked: string[] = [];
+  const transport: TheoremTransport = {
+    ...host.transport,
+    conversation: ({ conversation }) => {
+      asked.push(conversation);
+      return Promise.resolve({ transcript: [{ id: 'u5', kind: 'user-text', text: 'Before' }] });
+    },
+  };
+  const chat = createChatController({ transport, iface: hostedInterface(), conversation: 'ref-5' });
+  await settle();
+  assertEquals(asked, []);
+  chat.subscribe(() => {});
+  chat.subscribe(() => {});
+  await settle();
+  assertEquals(asked, ['ref-5']);
+  assertEquals(
+    chat.getState().blocks.map((b) => b.id),
+    ['u5'],
+  );
+});

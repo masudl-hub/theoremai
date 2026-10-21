@@ -143,7 +143,10 @@ export type ChatUpdate<T> = T | ((prev: T) => T);
  */
 export type ChatController = {
   getState(): ChatState;
-  /** Called after each change, once per batch of changes. Returns the unsubscribe. */
+  /**
+   * Called after each change, once per batch of changes. Returns the unsubscribe. A conversation
+   * resumed without its `conversationView` is read from the host once the first listener subscribes.
+   */
   subscribe(listener: () => void): () => void;
   /** The latest options. `conversation`, `conversationView` and `initialText` are read only at creation. */
   update(options: ChatOptions): void;
@@ -338,6 +341,7 @@ class Chat implements ChatController {
 
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
+    if (this.#listeners.size === 1) this.#settle();
     return () => this.#listeners.delete(listener);
   };
 
@@ -606,10 +610,12 @@ class Chat implements ChatController {
   /** Draws the conversation the chat resumes, once. A run that starts first draws it itself. */
   #resume(iface: ComposerProfileInterface): void {
     if (this.#resumed) return;
-    this.#resumed = true;
     const ref = this.#conversation;
-    if (ref === undefined || !keepsConversation(iface)) return;
     const shown = this.#options.conversationView;
+    // why: A chat no one follows yet (one React's strict mode builds and drops) reads nothing from the host.
+    if (ref !== undefined && !shown && this.#listeners.size === 0) return;
+    this.#resumed = true;
+    if (ref === undefined || !keepsConversation(iface)) return;
     if (shown) {
       this.#draw(shown, this.#state.session, []);
       return;

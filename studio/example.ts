@@ -118,7 +118,11 @@ function exampleQuestion(
  * it, so it runs as it opens.
  */
 export async function createDecisionExampleDraft(): Promise<StudioDraft> {
-  const images = await decisionImages();
+  return decisionExampleDraft(await decisionImages());
+}
+
+/** The decision example with the pictures given: none for a page that only shows its shape. */
+export function decisionExampleDraft(images: DecisionImageDraft[] = []): StudioDraft {
   const blank = createBlankDraft();
   const had = new Set(includableFacets(blank));
   const decision = setProfileType(blank, 'decision', EXAMPLE_PICKS);

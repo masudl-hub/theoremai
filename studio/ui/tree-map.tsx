@@ -1,7 +1,7 @@
 /**
  * The workspace's tree, every row open, drawn as the map draws: each row a map token, and a line
  * from each row down and across to each of its children. Beside the tree, what feeds it: the
- * runner that runs each agent's turns, the providers that serve its models, and the tool registry its
+ * runner that runs each agent (its turns, or its decisions), the providers that serve its models, and the tool registry its
  * tool policy picks from, a few of its tools nested under it and the tool runner under those, each
  * with a line into its row. It changes nothing and opens nothing: a picture of what a workspace holds, for a
  * page that is not the studio.
@@ -34,6 +34,8 @@ const PAD = 16;
 /** Between the tree's widest row and the feeds, and between a token's side and its line. */
 const GAP = 72;
 const LINE_GAP = 4;
+/** How far right of the widest feed a line coming round them runs. */
+const RAIL = 20;
 /** How many of the registry's tools sit under it: one of each type first. */
 const SHOWN_TOOLS = 4;
 const TOOL_TYPES = ['function', 'http', 'mcp', 'agent'];
@@ -63,7 +65,7 @@ interface Feed {
   depth: number;
 }
 
-function rowsOf(workspace: StudioWorkspace, only?: string): Row[] {
+function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
   const rows: Row[] = [];
   const walk = (node: StudioTreeNode, agent: string, depth: number, parent?: Row) => {
     const row: Row = {
@@ -78,7 +80,7 @@ function rowsOf(workspace: StudioWorkspace, only?: string): Row[] {
   };
   workspaceTree(workspace).agents.forEach((root, index) => {
     const key = workspace.agents[index]?.key ?? '';
-    if (only === undefined || key === only) walk(root, key, 0);
+    if (only === undefined || only.includes(key)) walk(root, key, 0);
   });
   return rows;
 }
@@ -89,7 +91,7 @@ function rowId(row: Row): string {
 }
 
 /**
- * Each agent's runner (`runTurn`), beside its name; its providers, beside its models; and the
+ * Each agent's runner (`runTurn`, or `runDecision` for a decision), beside its name; its providers, beside its models; and the
  * workspace's tool registry, beside its Tools row, with the tool runner under it. A feed sits level
  * with the middle of the rows it joins, or under the feed before it when that is lower.
  */
@@ -119,7 +121,9 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     const mine = rows.filter((row) => row.agent === agent.key);
     const name = mine.find((row) => row.node.ref.facet === 'identity');
     if (!name) continue;
-    add(`${agent.key}/runner`, 'Agent runner', IconEngine, [name]);
+    // A decision runs through `runDecision`, every other profile through `runTurn`.
+    const runner = agent.identity.profileType === 'decision' ? 'Decision runner' : 'Turn runner';
+    add(`${agent.key}/runner`, runner, IconEngine, [name]);
     const providers = new Map<string, Row[]>();
     for (const binding of agent.modelBindings) {
       const row = mine.find(
@@ -155,6 +159,15 @@ function shownTools(tools: StudioWorkspace['toolSpecs']): StudioWorkspace['toolS
   return [...firsts, ...rest].slice(0, SHOWN_TOOLS);
 }
 
+/** Right from `from` to `rail`, up or down it, and back left to `to`, its corners turned. */
+function sidePath(from: Place, to: Place, rail: number): string {
+  const up = Math.sign(to.y - from.y);
+  return (
+    `M ${from.x} ${from.y} H ${rail - TURN} Q ${rail} ${from.y} ${rail} ${from.y + up * TURN}` +
+    ` V ${to.y - up * TURN} Q ${rail} ${to.y} ${rail - TURN} ${to.y} H ${to.x}`
+  );
+}
+
 /** Down from under the parent's icon, then a turn across to the child. */
 function linePath(from: Place, to: Place): string {
   const x = from.x + TRUNK;
@@ -163,13 +176,13 @@ function linePath(from: Place, to: Place): string {
 
 export interface StudioTreeMapProps {
   workspace: StudioWorkspace;
-  /** The key of the one agent to draw; every agent when unset. */
-  agent?: string | undefined;
+  /** The keys of the agents to draw, in the workspace's order; every agent when unset. */
+  agents?: readonly string[] | undefined;
 }
 
-export function StudioTreeMap({ workspace, agent }: StudioTreeMapProps) {
+export function StudioTreeMap({ workspace, agents }: StudioTreeMapProps) {
   const root = useRef<HTMLDivElement>(null);
-  const rows = rowsOf(workspace, agent);
+  const rows = rowsOf(workspace, agents);
   const feeds = feedsOf(workspace, rows);
   const widths = useTokenWidths(root, workspace);
   const drafts = new Map(
@@ -184,8 +197,16 @@ export function StudioTreeMap({ workspace, agent }: StudioTreeMapProps) {
   const feedById = new Map(feeds.map((feed) => [feed.id, feed]));
   const height = PAD * 2 + Math.max(rows.length * ROW, ...feeds.map((feed) => feed.y + HALF - PAD));
   const feedLeft = (feed: Feed) => feedX + feed.depth * INDENT;
-  const width =
-    Math.max(GUESS, ...feeds.map((feed) => feedLeft(feed) + (widths[feed.id] ?? GUESS))) + PAD;
+  const feedRight = (feed: Feed) => feedLeft(feed) + (widths[feed.id] ?? GUESS);
+  /** Right of every feed from `above` down to `feed`. */
+  const railFor = (feed: Feed, above: Feed) =>
+    Math.max(...feeds.filter((each) => each.y >= above.y && each.y <= feed.y).map(feedRight)) +
+    RAIL;
+  const rails = feeds.flatMap((feed) => {
+    const above = feed.under === undefined ? undefined : feedById.get(feed.under);
+    return above && feed.depth <= above.depth ? [railFor(feed, above)] : [];
+  });
+  const width = Math.max(GUESS, ...feeds.map(feedRight), ...rails) + PAD;
   return (
     <div ref={root} className="studio-tree-map" style={{ width, height }}>
       <svg className="studio-tree-map-lines" width={width} height={height} aria-hidden="true">
@@ -210,11 +231,16 @@ export function StudioTreeMap({ workspace, agent }: StudioTreeMapProps) {
           const above = feed.under === undefined ? undefined : feedById.get(feed.under);
           if (above === undefined) return null;
           const from = { x: feedLeft(above), y: above.y };
-          // One of its own turns in from the trunk, as a tree row does; one level with it runs straight up.
+          // One of its own turns in from the trunk, as a tree row does; one level with it comes round
+          // the right of what lies between, so it reads as joining the feed, not as one of its own.
           const d =
             feed.depth > above.depth
               ? linePath(from, { x: feedLeft(feed), y: feed.y })
-              : `M ${from.x + TRUNK} ${feed.y - HALF} V ${above.y + HALF}`;
+              : sidePath(
+                  { x: feedRight(feed) + LINE_GAP, y: feed.y },
+                  { x: feedRight(above) + LINE_GAP, y: above.y },
+                  railFor(feed, above),
+                );
           return <path key={`${feed.id}^`} className="map-line" d={d} />;
         })}
       </svg>

@@ -110,6 +110,11 @@ interface StageContext {
   awaiting?: boolean;
   stop?: TurnStop;
   gate?: ToolGate;
+  /**
+   * before_end on text: the answer the model just wrote, before any guardrail verdict on it and
+   * not yet in `history`. Its last step wrote no text when no message here carries any.
+   */
+  reply?: readonly TurnHistoryMessage[];
 }
 
 interface StageResult {
@@ -191,7 +196,10 @@ ran; `warnings` lists warning codes. See
    An inject with any message live cannot send as plain text (`parts`, or no
    text) is refused whole with an `inject_invalid_messages` stage warning;
    none of it is written.
-6. `before_end` inject on text: the answer the model just wrote goes into turn
+6. `before_end` on text: `StageContext.reply` is the answer the model just wrote, so a host can
+   tell a turn about to end with no answer (no text in it) and inject to ask for one. A draft a
+   detector goes on to stop is in it: the egress gate, not the host, answers that draft.
+   `before_end` inject on text: the answer the model just wrote goes into turn
    history first, then the inject, and the step loop re-enters subject to
    **maxSteps** (see Budgets), so the model goes on from its answer. On live:
    schedule ingress; does not invent a fake model pull.

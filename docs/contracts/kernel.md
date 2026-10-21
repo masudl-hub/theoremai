@@ -454,9 +454,10 @@ Live sessions emit the same stage names around utterance cycles and
    The kernel validates native state, and the model's protocol encodes the next request.
    Native continuation does not replace authoritative tool outcomes.
    Server-side `codeExecution` does not consume a runner step.
-8. **`before_end`** — stage before egress/validation; an inject goes into turn
-   history after the answer the model wrote, and re-enters the step loop when
-   under `maxSteps`.
+8. **`before_end`** — stage before egress/validation. `StageContext.reply` holds
+   the answer the model wrote; no text in it means the turn would end with no
+   answer. An inject goes into turn history after that answer, and re-enters the
+   step loop when under `maxSteps`.
 9. **Validation / repair** — structured output validators (`outputs.validation`)
    may trigger repair turns with `input.repair`. The repair prompt is the next
    user message in turn history (image and speech: it replaces the prompt

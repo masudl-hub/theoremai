@@ -71,6 +71,11 @@ export type StageCallBag = {
   awaiting?: boolean;
   stop?: TurnStop;
   gate?: ToolGate;
+  /**
+   * `before_end` on text: the answer the model just wrote, before any guardrail verdict on it and
+   * not yet in `history`. Its last step wrote no text when no message here carries any.
+   */
+  reply?: readonly TurnHistoryMessage[];
 };
 
 /** What a stage handler is given: the stage, the step, and what has happened so far. */

@@ -5,6 +5,32 @@ export {
   timeDomainBytesToLevel,
 } from './audio-level.ts';
 export {
+  type ChatController,
+  type ChatOptions,
+  type ChatSlots,
+  type ChatState,
+  type ChatUpdate,
+  createChatController,
+  type MessageDelivery,
+  type SentTurn,
+} from './chat.ts';
+export {
+  type ComposerDrawerKind,
+  type ComposerDrawerSummary,
+  composerDrawerSummary,
+} from './composer-drawer.ts';
+export {
+  type ComposerHint,
+  isStashShortcut,
+  resolveComposerHint,
+  STASH_SHORTCUT,
+} from './composer-hints.ts';
+export {
+  type ComposerActionState,
+  composerActionState,
+  composerHasPayload,
+} from './composer-primary.ts';
+export {
   createDecisionTransport,
   type DecisionInterface,
   type DecisionQuestionView,
@@ -81,7 +107,7 @@ export type {
   PageToolAnswer,
   PageTools,
 } from './live/live-page-tool.ts';
-export { pageToolMismatch } from './live/live-page-tool.ts';
+export { pageToolMismatch, warnPageToolMismatch } from './live/live-page-tool.ts';
 export {
   type LiveConnectPhase,
   type LiveSessionStatus,

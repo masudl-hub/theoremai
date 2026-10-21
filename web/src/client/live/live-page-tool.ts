@@ -39,3 +39,26 @@ export function pageToolMismatch(
     unused: handled.filter((name) => !declared.includes(name)),
   };
 }
+
+/**
+ * Says in the console where the page's tools and the profile's disagree. A wrong name is the
+ * builder's to fix, so it is never said to the visitor.
+ */
+export function warnPageToolMismatch(
+  declared: readonly string[],
+  handled: readonly string[],
+): void {
+  const { unanswered, unused } = pageToolMismatch(declared, handled);
+  for (const name of unanswered) {
+    // labels-exempt: builder diagnostic
+    console.warn(
+      `Theorem: page tool '${name}' has no handler in pageTools; the agent gets no answer.`,
+    );
+  }
+  for (const name of unused) {
+    // labels-exempt: builder diagnostic
+    console.warn(
+      `Theorem: pageTools has '${name}', which the profile does not declare answeredBy: 'page'.`,
+    );
+  }
+}

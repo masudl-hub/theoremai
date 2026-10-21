@@ -408,6 +408,8 @@ The hooks give you the same state and actions that the ready-made components use
 
 `useTheoremInterface` reads the interface of the profile from the server. `useTheoremChat` keeps the transcript, the streaming state, the drafts, the queue, and the gates.
 
+`useTheoremChat` binds `createChatController` from `@theoremjs/web/client` to React. To draw the chat in another framework, or in none, use the controller directly. See [A chat with no framework](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#a-chat-with-no-framework).
+
 ```tsx
 import { createHttpTransport, useTheoremChat, useTheoremInterface } from '@theoremjs/react';
 

@@ -150,6 +150,62 @@ for await (const event of session.events()) {
 - `open.host` is the `openMessage` that the page's `connection` returned.
 - Read later messages with `parseLiveClientMessage`. Give context messages to `session.sendContext({ client: message.context })`.
 
+## A chat with no framework
+
+Use `createChatController` when you draw the chat yourself, in any framework or none. It holds all of the chat's logic, and it draws nothing:
+
+- the transcript, and the reply as it streams;
+- the composer's draft, files, and voice note;
+- the pending messages: steer, queue, and stash;
+- the gates, branching, and resuming a conversation.
+
+`useTheoremChat` from `@theoremjs/react` is this controller, bound to React.
+
+```ts
+import { createChatController, createHttpTransport } from '@theoremjs/web/client';
+
+const transport = createHttpTransport({ endpoint: '/api/theorem' });
+const iface = await transport.describe();
+if (iface.type === 'live') throw new Error('Use LiveSessionClient for a live profile.');
+
+const chat = createChatController({ transport, iface });
+chat.subscribe(() => draw(chat.getState()));
+
+chat.setDraftText('What is in my cart?');
+await chat.submit();
+```
+
+- `getState()` returns a `ChatState`. It is a new object after each change, and the same object between changes. So you can compare it by reference, as React's `useSyncExternalStore` does.
+- `subscribe(listener)` calls the listener once for each group of changes, after the code that made them has run. It returns the function that unsubscribes.
+- `update(options)` gives the controller your latest options, such as a new `context`, `slots`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, and `initialText` are read only when the controller is created.
+- Each method is bound to the controller. Pass it as a callback as it is.
+
+`state.phase` is `'idle'`, `'streaming'`, or `'gated'`. The methods for the composer depend on it:
+
+| Method | What it does |
+| --- | --- |
+| `submit()` | At `idle`, sends the draft. Otherwise, queues it. |
+| `enqueue('steer')` | Sends the draft to the running turn with `transport.steer`. The steer leaves `pendingMessages` when the turn's `stage` event names it in `injected`. A steer the turn never takes waits at the front of the queue. |
+| `enqueue('queue')` | Keeps the draft to send after the reply. When the reply ends without a failure and no gate waits, the first queued message is sent. |
+| `enqueue('stash')` | Keeps the draft without sending it. `queuePending(id)` moves it to the queue. |
+| `sendNow(message?)` | Sends a pending message, or the draft, at once. A streaming reply is stopped first. A reply that waits on gates is left. |
+| `restorePending(id)` | Puts a pending message back in the composer. The draft that was there is stashed first, so the user loses nothing. |
+| `stop()` | Stops the streaming reply. |
+| `decide(action)`, `authenticate(secret?)` | Answer the gate that the reply waits on. |
+| `branch(index)` | Cuts the conversation after transcript block `index`. |
+| `sendText(text, files?)` | Sends a message from your code. It resolves with the blocks the turn added, or `null` when the chat cannot take a message now. |
+
+The controller uses these methods of the transport: `turn`, `invoke` (to answer a gate), `steer`, `conversation`, and `rewind`. `conversation` and `rewind` are called only for a profile whose host keeps the conversation. `pageResult` is called when the reply hands a tool to the page.
+
+The controller writes no English text. The helpers below give the composer's controls as values, and you choose the words:
+
+| Helper | What it gives |
+| --- | --- |
+| `composerActionState(args)` | The primary button (`send`, `queue`, `stop`, or `none`), the send menu, and whether the button is off. |
+| `composerDrawerSummary(args)` | The count of waiting messages by kind, for a collapsed drawer. |
+| `resolveComposerHint(args)` | The stash hint, when the whole draft is selected. |
+| `isStashShortcut(event)` | Whether a key press is the stash shortcut, `STASH_SHORTCUT`. |
+
 ## A custom browser transport
 
 Use `withPageToolDispatch` when your screen consumes turn events through a custom transport.

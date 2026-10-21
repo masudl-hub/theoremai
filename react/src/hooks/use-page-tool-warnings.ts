@@ -1,10 +1,7 @@
-import { type PageTools, pageToolMismatch } from '@theoremjs/web/client';
+import { type PageTools, warnPageToolMismatch } from '@theoremjs/web/client';
 import { useEffect } from 'react';
 
-/**
- * Says in the console, once, where the page's tools and the profile's disagree. A wrong name is
- * the builder's to fix, so it is never said to the visitor.
- */
+/** Says in the console, once for each set of names, where the page's tools and the profile's disagree. */
 export function usePageToolWarnings(
   declared: readonly string[] | undefined,
   pageTools: PageTools | undefined,
@@ -15,21 +12,6 @@ export function usePageToolWarnings(
   const named = declared?.join('\n');
   useEffect(() => {
     if (named === undefined) return;
-    const { unanswered, unused } = pageToolMismatch(
-      named ? named.split('\n') : [],
-      handled ? handled.split('\n') : [],
-    );
-    for (const name of unanswered) {
-      // labels-exempt: builder diagnostic
-      console.warn(
-        `Theorem: page tool '${name}' has no handler in pageTools; the agent gets no answer.`,
-      );
-    }
-    for (const name of unused) {
-      // labels-exempt: builder diagnostic
-      console.warn(
-        `Theorem: pageTools has '${name}', which the profile does not declare answeredBy: 'page'.`,
-      );
-    }
+    warnPageToolMismatch(named ? named.split('\n') : [], handled ? handled.split('\n') : []);
   }, [named, handled]);
 }

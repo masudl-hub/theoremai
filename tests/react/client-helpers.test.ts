@@ -3,9 +3,6 @@ import {
   formatAttachmentSize,
   resolveAttachPreviewStyle,
 } from '../../react/src/client/attachment-hover-preview.ts';
-import { composerDrawerSummary } from '../../react/src/client/composer-drawer.ts';
-import { isStashShortcut, resolveComposerHint } from '../../react/src/client/composer-hints.ts';
-import { composerActionState } from '../../react/src/client/composer-primary.ts';
 import {
   computeInkBarTargets,
   INK_WAVE_BAR_COUNT,
@@ -49,6 +46,9 @@ import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.t
 import type { ProviderEvidence, Source } from '../../src/kernel/turn-events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
+import { composerDrawerSummary } from '../../web/src/client/composer-drawer.ts';
+import { isStashShortcut, resolveComposerHint } from '../../web/src/client/composer-hints.ts';
+import { composerActionState } from '../../web/src/client/composer-primary.ts';
 import {
   applyLiveToolTurnEvent,
   type LiveToolCallDraft,

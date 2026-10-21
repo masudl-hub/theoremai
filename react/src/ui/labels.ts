@@ -8,9 +8,8 @@
  * @module
  */
 
-import type { LiveState } from '@theoremjs/web/client';
+import type { ComposerDrawerSummary, LiveState } from '@theoremjs/web/client';
 import { IntlMessageFormat } from 'intl-messageformat';
-import type { ComposerDrawerSummary } from '../client/composer-drawer.ts';
 import type { TurnUsage, WorkStatus } from '../client/transcript-groups.ts';
 
 type LabelEntry = { defaultMessage: string; description: string; params?: readonly string[] };

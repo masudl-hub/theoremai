@@ -16,6 +16,19 @@ function fileSpecs(files: readonly File[]) {
   }));
 }
 
+/** Whether the composer holds something to send: text that isn't blank, a file, or a voice note. */
+export function composerHasPayload(
+  draftText: string,
+  pendingFiles: readonly File[],
+  pendingVoice: readonly File[],
+): boolean {
+  return userDraftHasPayload({
+    ...(draftText.trim() ? { text: draftText } : {}),
+    ...(pendingFiles.length ? { attachments: fileSpecs(pendingFiles) } : {}),
+    ...(pendingVoice.length ? { voice: fileSpecs(pendingVoice) } : {}),
+  });
+}
+
 export type ComposerActionState = {
   primary: ComposerPrimaryAction;
   menuActions: ComposerMenuAction[];
@@ -33,11 +46,7 @@ export function composerActionState(args: {
   recording: boolean;
 }): ComposerActionState {
   const allowSteering = 'allowSteering' in args.iface && Boolean(args.iface.allowSteering);
-  const hasPayload = userDraftHasPayload({
-    ...(args.draftText.trim() ? { text: args.draftText } : {}),
-    ...(args.pendingFiles.length ? { attachments: fileSpecs(args.pendingFiles) } : {}),
-    ...(args.pendingVoice.length ? { voice: fileSpecs(args.pendingVoice) } : {}),
-  });
+  const hasPayload = composerHasPayload(args.draftText, args.pendingFiles, args.pendingVoice);
   const context = { phase: args.phase, hasPayload, allowSteering };
   const primary = resolveComposerPrimary(context);
   const needsPayload = primary === 'send' || primary === 'queue';

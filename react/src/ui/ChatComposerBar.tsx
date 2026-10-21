@@ -49,6 +49,15 @@ import {
 } from '@theoremjs/agents/interface';
 import type { ClientFailure } from '@theoremjs/web/client';
 import {
+  type ComposerDrawerSummary,
+  type ComposerHint as ComposerHintData,
+  composerActionState,
+  composerDrawerSummary,
+  isStashShortcut,
+  resolveComposerHint,
+  STASH_SHORTCUT,
+} from '@theoremjs/web/client';
+import {
   type ChangeEvent,
   type ReactNode,
   useCallback,
@@ -58,14 +67,6 @@ import {
   useState,
 } from 'react';
 import { stageComposerFiles } from '../client/composer-attachments.ts';
-import { type ComposerDrawerSummary, composerDrawerSummary } from '../client/composer-drawer.ts';
-import {
-  type ComposerHint as ComposerHintData,
-  isStashShortcut,
-  resolveComposerHint,
-  STASH_SHORTCUT,
-} from '../client/composer-hints.ts';
-import { composerActionState } from '../client/composer-primary.ts';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
 import { useEditorSelection } from '../components/use-editor-selection.ts';
 import { composerDrawerLabel } from './labels.ts';

@@ -68,7 +68,7 @@ The intent was **host-owned**: the host decides where the conversation comes fro
 
 | Piece | Owner today | Source |
 | --- | --- | --- |
-| Transcript | Browser (`useTheoremChat` state) | `react/src/hooks/use-theorem-chat-state.ts` |
+| Transcript | Browser (`createChatController` state) | `web/src/client/chat.ts` |
 | History the model reads | Browser builds it after each turn | `web/src/client/run-commit.ts` |
 | History sent each turn | Browser, in `input.history` | `TheoremTurnInput` in `web/src/client/transport.ts` |
 | Saving between visits | The page, through onChatChange and initialChat (deleted) | `react/src/ui/TheoremChat.tsx` |

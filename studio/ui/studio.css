@@ -315,13 +315,6 @@ button.inspector-origin:hover {
   color: var(--color-text-secondary);
 }
 
-.studio-diff-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .studio-diff-sides {
   display: flex;
   flex-wrap: wrap;
@@ -344,16 +337,12 @@ button.inspector-origin:hover {
   color: var(--color-text-green);
 }
 
-/* The gutters size to their widest cell and every line shares them. */
+/* The sign gutter sizes to its widest cell and every line shares it. */
 .studio-diff-lines {
   display: grid;
-  grid-template-columns: repeat(2, max-content) minmax(max-content, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   overflow: auto;
   padding-block: var(--spacing-1);
-}
-
-.studio-diff[data-wrapped="true"] .studio-diff-lines {
-  grid-template-columns: repeat(2, max-content) minmax(0, 1fr);
 }
 
 .studio-diff-line {
@@ -370,17 +359,11 @@ button.inspector-origin:hover {
   background: var(--color-background-green);
 }
 
-.studio-diff-number,
 .studio-diff-sign {
   padding-inline: var(--spacing-2);
   color: var(--color-text-secondary);
-  text-align: end;
-  user-select: none;
-}
-
-.studio-diff-sign {
-  grid-column: 2;
   text-align: center;
+  user-select: none;
 }
 
 .studio-diff-line[data-sign="-"] .studio-diff-sign {
@@ -392,16 +375,11 @@ button.inspector-origin:hover {
 }
 
 .studio-diff-line code {
-  grid-column: 3;
   padding-inline-end: var(--spacing-3);
   font: inherit;
-  white-space: pre;
-  transition: opacity 120ms ease;
-}
-
-.studio-diff[data-wrapped="true"] .studio-diff-line code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  transition: opacity 120ms ease;
 }
 
 /* The side that does not stand is set aside: struck through and faint. */

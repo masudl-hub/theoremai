@@ -25,14 +25,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  atStart,
-  type DiffLine,
-  removeAgent,
-  resetAgent,
-  type StudioWorkspace,
-  startedHere,
-} from '../mod.ts';
+import { atStart, removeAgent, resetAgent, type StudioWorkspace, startedHere } from '../mod.ts';
 import type {
   DiffHunk,
   SaveChange,
@@ -40,7 +33,6 @@ import type {
   SaveRefusal,
   SaveReview,
 } from '../server/save-wire.ts';
-import { DiffBlock } from './diff-block.tsx';
 import { type ProjectSession, reviewSave, undoSave, writeSave } from './lib/studio-project.ts';
 import { RefusalDetail } from './refusal-detail.tsx';
 
@@ -136,23 +128,26 @@ function reason(change: SaveChange): string {
   }
 }
 
-/** One run of changed lines: the lines taken out marked `-`, the lines put in marked `+`. */
+/** One run of changed lines as a unified diff over the file's own language. */
 function HunkBlock({ file, hunk }: { file: SaveFile; hunk: DiffHunk }) {
-  const signed = (sign: DiffLine['sign']) => (text: string) => ({ sign, text });
+  const signed = (sign: ' ' | '-' | '+') => (text: string) => `${sign}${text}`;
+  const code = [
+    ...hunk.lead.map(signed(' ')),
+    ...hunk.removed.map(signed('-')),
+    ...hunk.added.map(signed('+')),
+    ...hunk.trail.map(signed(' ')),
+  ].join('\n');
+  const place =
+    file.created || file.removed
+      ? `${fileNote(file)} · ${file.file}`
+      : `${file.file}:${String(hunk.line)}`;
   return (
-    <DiffBlock
-      title={
-        file.created || file.removed
-          ? `${fileNote(file)} · ${file.file}`
-          : `${file.file}:${String(hunk.line)}`
-      }
-      start={hunk.line - hunk.lead.length}
-      lines={[
-        ...hunk.lead.map(signed(' ')),
-        ...hunk.removed.map(signed('-')),
-        ...hunk.added.map(signed('+')),
-        ...hunk.trail.map(signed(' ')),
-      ]}
+    <CodeBlock
+      code={code}
+      language={file.file.split('.').at(-1)}
+      title={`${place} · +${String(hunk.added.length)} −${String(hunk.removed.length)}`}
+      isDiff
+      size="sm"
     />
   );
 }

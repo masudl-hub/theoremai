@@ -160,7 +160,6 @@ import {
 import { flushSync } from 'react-dom';
 import { ActingAsButton } from './acting-as-button.tsx';
 import { AddProviderButton } from './add-provider.tsx';
-import { IconTypeSafe, modelFamilyMark } from './brand-icons.tsx';
 import { useConfirmWrite } from './confirm-write.tsx';
 import {
   ConfirmWrite,
@@ -217,6 +216,7 @@ import type { ProbeResult } from './lib/tool-probe.ts';
 import { runToolProbe } from './lib/tool-probe.ts';
 import { AGENT_ICON, PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { warmWhenIdle } from './lib/when-idle.ts';
+import { nodeIcon } from './node-icon.ts';
 import { addToolSpec, ProfileEditor, ShownProbe } from './profile-editor.tsx';
 import { ProviderEditor } from './provider-editor.tsx';
 import { SharedChange } from './shared-change.tsx';
@@ -254,22 +254,6 @@ const TraceReplay = lazy(() => traceReplay().then((pane) => ({ default: pane.Tra
 const StudioSettings = lazy(() =>
   settingsPanel().then((settings) => ({ default: settings.StudioSettings })),
 );
-
-/** A node's icon; Identity shows the profile type's once one is picked. */
-function nodeIcon(draft: StudioDraft, ref: StudioNodeRef) {
-  const type = draft.identity.profileType;
-  if (ref.facet === 'identity' && type) return PROFILE_TYPE_ICON[type];
-  if (ref.facet === 'modelBinding') {
-    const binding = draft.modelBindings.find((each) => each.key === ref.key);
-    if (!binding) return FACET_ICON.modelBinding;
-    const definition = draft.providers.find((each) => each.id === binding.provider)?.definition;
-    if (definition === 'typesafe') return IconTypeSafe;
-    return modelFamilyMark(binding.apiId) ?? FACET_ICON.modelBinding;
-  }
-  if (ref.facet !== 'toolSpec') return FACET_ICON[ref.facet];
-  const tool = draft.toolSpecs.find((spec) => spec.key === ref.key);
-  return tool ? toolTypeIcon(tool.toolType) : IconTool;
-}
 
 /**
  * What every row of one agent's tree reads: its draft, the selection, and how to change them.

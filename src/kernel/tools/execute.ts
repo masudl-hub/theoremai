@@ -492,9 +492,14 @@ async function* settleToolCall(args: {
     }
   }
 
-  if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
-  if (!failure && args.images && outputRaw !== undefined) {
-    modelResult = yield* withFetchedImages(base, modelResult, args.images, outputRaw);
+  if (!failure) {
+    modelResult = yield* citeAndShow({
+      base,
+      sources,
+      images: args.images,
+      outputRaw,
+      modelResult,
+    });
   }
   yield failure
     ? failureEvent(
@@ -517,6 +522,20 @@ async function* settleToolCall(args: {
     ...(awaiting ? { awaiting: true as const } : {}),
     ...stageSettlement(post),
   };
+}
+
+/** The settled output's cited sources, then the pictures its tool names; the result carrying them. */
+async function* citeAndShow(args: {
+  base: ToolCallBase;
+  sources: ((output: unknown) => Source[]) | undefined;
+  images: ((output: unknown) => ReturnType<typeof fetchToolImages>) | undefined;
+  outputRaw: unknown;
+  modelResult: ModelToolResult;
+}): AsyncGenerator<TurnEvent, ModelToolResult> {
+  const { base, sources, images, outputRaw, modelResult } = args;
+  if (sources) yield* sourceEvents(base, sources, outputRaw);
+  if (!images || outputRaw === undefined) return modelResult;
+  return yield* withFetchedImages(base, modelResult, images, outputRaw);
 }
 
 /**

@@ -586,32 +586,34 @@ export async function fetchConversation(
   );
 }
 
+async function fetchConversationRef(
+  url: string,
+  body: unknown,
+  options: HttpOptions & { signal?: AbortSignal },
+  what: string,
+): Promise<TheoremRewound> {
+  const { signal, ...http } = options;
+  return checkWire(theoremRewound, await fetchJson(url, { body, signal }, http), what);
+}
+
 /** POST a rewind to `url`, and check the rewound conversation the host answers. */
-export async function fetchRewound(
+export function fetchRewound(
   url: string,
   body: unknown,
   options: HttpOptions & { signal?: AbortSignal } = {},
 ): Promise<TheoremRewound> {
-  const { signal, ...http } = options;
-  return checkWire(
-    theoremRewound,
-    await fetchJson(url, { body, signal }, http),
-    'the rewound conversation', // labels-exempt: internal diagnostic; the user reads error.bad_response
-  );
+  // labels-exempt: internal diagnostic; the user reads error.bad_response
+  return fetchConversationRef(url, body, options, 'the rewound conversation');
 }
 
 /** POST blocks to start a conversation on to `url`, and check the conversation the host answers. */
-export async function fetchStarted(
+export function fetchStarted(
   url: string,
   body: unknown,
   options: HttpOptions & { signal?: AbortSignal } = {},
 ): Promise<TheoremRewound> {
-  const { signal, ...http } = options;
-  return checkWire(
-    theoremRewound,
-    await fetchJson(url, { body, signal }, http),
-    'the started conversation', // labels-exempt: internal diagnostic; the user reads error.bad_response
-  );
+  // labels-exempt: internal diagnostic; the user reads error.bad_response
+  return fetchConversationRef(url, body, options, 'the started conversation');
 }
 
 export type HttpTransportOptions = HttpOptions & {

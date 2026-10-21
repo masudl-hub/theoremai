@@ -127,6 +127,14 @@ function argumentsOf(part: Part): Record<string, unknown> {
   }
 }
 
+/** The text or visible thought a recorded part says, if it says any. */
+function saidOf(part: Part): { type: 'thought' | 'text'; text: string } | undefined {
+  if (typeof part.content !== 'string') return undefined;
+  if (part.type === 'reasoning') return { type: 'thought', text: part.content };
+  if (part.type === 'text') return { type: 'text', text: part.content };
+  return undefined;
+}
+
 /** The events one recorded reply stands for, in the order the model wrote them. */
 function replyEvents(messages: readonly Message[]): Omit<ReplayCall, 'agent'> {
   const events: ModelEvent[] = [];
@@ -136,11 +144,9 @@ function replyEvents(messages: readonly Message[]): Omit<ReplayCall, 'agent'> {
     const parts = partsOf(message);
     const hasText = parts.some((part) => part.type === 'text');
     for (const part of parts) {
+      const said = saidOf(part);
       if (unrecorded(part)) missing = true;
-      else if (part.type === 'reasoning' && typeof part.content === 'string')
-        events.push({ type: 'thought', text: part.content });
-      else if (part.type === 'text' && typeof part.content === 'string')
-        events.push({ type: 'text', text: part.content });
+      else if (said) events.push(said);
       else if (part.type === 'structured' && !hasText)
         events.push({ type: 'text', text: JSON.stringify(part.content) });
       else if (part.type === 'tool_call' && typeof part.name === 'string') {
@@ -230,10 +236,8 @@ function shownEvents(record: TraceRecord, root: TraceSpan): TurnEvent[] {
   const events: TurnEvent[] = [];
   for (const message of messagesOf(record, root, 'gen_ai.output.messages')) {
     for (const part of partsOf(message)) {
-      if (part.type === 'reasoning' && typeof part.content === 'string')
-        events.push({ type: 'thought', text: part.content });
-      else if (part.type === 'text' && typeof part.content === 'string')
-        events.push({ type: 'text', text: part.content });
+      const said = saidOf(part);
+      if (said) events.push(said);
       else if (part.type === 'tool_call' && typeof part.name === 'string') {
         const callId = typeof part.id === 'string' ? part.id : `call-${String(events.length)}`;
         events.push(...toolEvents(record, part.name, callId, argumentsOf(part), toolSpan));

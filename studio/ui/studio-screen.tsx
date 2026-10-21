@@ -2783,6 +2783,37 @@ function DownloadTraceButton({ feed, name }: { feed: TraceFeed; name: string }) 
   );
 }
 
+/** Open trace, for a type whose conversation a trace holds, and Download trace, outside an opened one. */
+function TraceFileButtons({
+  payload,
+  tracing,
+  feed,
+  profileId,
+}: {
+  payload: WorkspaceCompile['payload'];
+  tracing: { open: boolean; toggle: () => void };
+  feed: TraceFeed;
+  profileId: string | undefined;
+}) {
+  if (payload == null) return null;
+  const openLabel = tracing.open ? 'Close trace' : 'Open trace';
+  return (
+    <>
+      {!NO_CONVERSATION.has(payload.profile.type) && (
+        <IconButton
+          label={openLabel}
+          variant={tracing.open ? 'secondary' : 'ghost'}
+          tooltip={openLabel}
+          icon={<Icon icon={IconFileImport} size="sm" />}
+          aria-pressed={tracing.open}
+          onClick={tracing.toggle}
+        />
+      )}
+      {!tracing.open && <DownloadTraceButton feed={feed} name={profileId ?? 'agent'} />}
+    </>
+  );
+}
+
 /** The preview's header: back to the editor, the agent to chat with, history, trace, and Export. */
 function PreviewHeader({
   store,
@@ -2817,9 +2848,7 @@ function PreviewHeader({
 }) {
   const testLabel = testing.open ? 'Close guardrail test' : 'Test guardrails';
   const traceLabel = trace.open ? 'Hide trace' : 'View trace';
-  const openLabel = tracing.open ? 'Close trace' : 'Open trace';
-  const { compiled, payload } = compile;
-  const replays = payload != null && !NO_CONVERSATION.has(payload.profile.type);
+  const { compiled } = compile;
   return (
     <Section variant="transparent" paddingInline={3} paddingBlock={0}>
       <HStack gap={2} vAlign="center">
@@ -2838,18 +2867,13 @@ function PreviewHeader({
             {compile.payload && run.isUsed && !testing.open && !tracing.open && (
               <ClearHistoryButton run={run} />
             )}
-            {replays && !testing.open && (
-              <IconButton
-                label={openLabel}
-                variant={tracing.open ? 'secondary' : 'ghost'}
-                tooltip={openLabel}
-                icon={<Icon icon={IconFileImport} size="sm" />}
-                aria-pressed={tracing.open}
-                onClick={tracing.toggle}
+            {!testing.open && (
+              <TraceFileButtons
+                payload={compile.payload}
+                tracing={tracing}
+                feed={feed}
+                profileId={profileId}
               />
-            )}
-            {compile.payload && !testing.open && !tracing.open && (
-              <DownloadTraceButton feed={feed} name={profileId ?? 'agent'} />
             )}
             {compile.payload && (
               <IconButton

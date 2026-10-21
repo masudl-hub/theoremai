@@ -44,6 +44,7 @@ import {
   toolEvent,
 } from './events.ts';
 import { type HandlerEventChecks, HandlerEvents } from './handler-events.ts';
+import { fetchToolMedia } from './media-fetch.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
 import type {
   ToolExecutionCoordinator,
@@ -1022,6 +1023,21 @@ function authorizeSavedDisclosure(
   if (guard.event?.action === 'block' || guard.event?.action === 'redact') throw blocked();
 }
 
+/** A successful remote call's result with the pictures its tool's `media` names, fetched and added beside any the server sent. */
+async function* withNamedMedia(
+  tool: HttpToolDef | McpToolDef,
+  outcome: ToolBodyOutcome,
+  ctx: ToolContext,
+  base: ToolCallBase,
+): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
+  if (outcome.kind !== 'ok' || !tool.media) return outcome;
+  const fetched = await fetchToolMedia(tool.media, outcome.outputRaw, ctx);
+  if (fetched.warning) yield toolEvent(base, { phase: 'warning', warning: fetched.warning });
+  if (fetched.parts.length === 0) return outcome;
+  const parts = [...(outcome.modelResult.parts ?? []), ...fetched.parts];
+  return { ...outcome, modelResult: { ...outcome.modelResult, parts } };
+}
+
 /** Settles an outcome the kernel reached without a handler's own result: a remote body, or a sign-in. */
 async function* settleBodyOutcome(args: {
   outcome: ToolBodyOutcome;
@@ -1625,7 +1641,7 @@ async function* settleByType(
     });
   }
   const guard = resultGuard(tools, tool, fullCtx, snapshot, stages?.span);
-  const remoteOutcome: ToolBodyOutcome =
+  const body: ToolBodyOutcome =
     tool.type === 'http'
       ? yield* executeHttpTool(
           tool,
@@ -1637,6 +1653,7 @@ async function* settleByType(
           new HandlerEvents(base, guard.handlerEvents(stages?.drafts === true)),
         )
       : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages, tools.mcpSessions, beginBody);
+  const remoteOutcome = yield* withNamedMedia(tool, body, fullCtx, base);
   return yield* settleBodyOutcome({
     outcome: remoteOutcome,
     tool,

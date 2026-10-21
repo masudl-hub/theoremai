@@ -209,6 +209,16 @@ export interface ToolOutputHooks<TOut = unknown> {
   sources?: (output: TOut) => Source[];
 }
 
+/** For a tool whose result names pictures by address; function tools return the bytes themselves as `parts`. */
+export interface ToolMediaHooks<TOut = unknown> {
+  /**
+   * The https addresses of pictures in `output` the model should see, at most `MAX_TOOL_MEDIA_FILES`
+   * of them. The kernel fetches each one through the profile's network policy and hands the model
+   * the image as a part; one it cannot fetch is a `media_unfetched` warning, never a failed call.
+   */
+  media?: (output: TOut) => string[];
+}
+
 export interface FunctionToolDef<TIn = unknown, TOut = unknown>
   extends ToolBase,
     ToolHostHooks<TIn>,
@@ -256,7 +266,8 @@ export interface ToolAuthConfig {
 export interface HttpToolDef<TIn = unknown, TOut = unknown>
   extends ToolBase,
     ToolHostHooks<TIn>,
-    ToolOutputHooks<TOut> {
+    ToolOutputHooks<TOut>,
+    ToolMediaHooks<TOut> {
   type: 'http';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
@@ -288,7 +299,8 @@ export interface HttpToolLimit {
 export interface McpToolDef<TIn = unknown, TOut = unknown>
   extends ToolBase,
     ToolHostHooks<TIn>,
-    ToolOutputHooks<TOut> {
+    ToolOutputHooks<TOut>,
+    ToolMediaHooks<TOut> {
   type: 'mcp';
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;

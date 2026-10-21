@@ -703,6 +703,20 @@ unchanged. The call's `execute_tool` span records the cited sources as a
 `sources_invalid`) as a `theorem.tool.warning` event. A tool that cites nothing
 omits `sources`.
 
+### Tool media
+
+An HTTP or MCP tool whose result names pictures by address may declare
+`media: (output) => string[]`. After a call succeeds (before `post_tool`), the
+kernel fetches up to `MAX_TOOL_MEDIA_FILES` (4) of the distinct addresses, each
+within `MEDIA_FETCH_TIMEOUT_MS` (15 s) and through the profile's network policy
+on every hop, redirects included, and adds each as an `image` part to the
+model's result beside any the server sent. Only png, jpeg, gif and webp up to
+`MAX_TOOL_MEDIA_BYTES` (5 MiB) are taken. An address that is blocked, slow, too
+big, not an image, or not answered, and a hook that throws, leave their pictures
+out and give the call one tool `warning` (`code: 'media_unfetched'`) naming each
+reason; the call still completes. A function tool returns the bytes itself as
+`parts` and has no hook.
+
 ### Agent tools
 
 An agent tool (`type: 'agent'`) runs one turn of another registered profile and

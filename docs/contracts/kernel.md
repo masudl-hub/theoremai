@@ -74,7 +74,7 @@ A `Profile` binds:
 | `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. `{name}` in `identity.system` becomes the value the request chose for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
-| `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `atStepLimit` on **text**; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
+| `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `atStepLimit` on **text**; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; an inject's `released` drops the draft the user never got, and a bad one warns `inject_released_invalid`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
 | `guardrails` | Quota, detect, blockedReply, network, taint — on `host` narrowed to `HostGuardrailsSpec` (`detect`, `network`); on `decision`, only pre-dispatch `disclosure` is active. A guarded `live` profile (a detector above `ignore` at `live_reply`) always requests its output transcript: `resolveTurn` sets `live.transcription.output` |
 | `observability` | Trace destination, scrub, include, sampling (`writeTo`, `sampleRate`, …) |
 
@@ -444,12 +444,15 @@ Live sessions emit the same stage names around utterance cycles and
    Each reads the turn's taint, destinations, and visible tools as they stood when the step
    began, so a tool the `tools.t2Loader` loads can be called from the next step. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
-   The runner records tool calls and results in portable history.
+   The runner records each step's reply in portable history: the text it wrote
+   (its structured reply, when it gave one), then its tool calls, then their results,
+   so the next call reads what the model wrote before its calls.
    The kernel validates native state, and the model's protocol encodes the next request.
    Native continuation does not replace authoritative tool outcomes.
    Server-side `codeExecution` does not consume a runner step.
-8. **`before_end`** — stage before egress/validation; inject re-enters the step
-   loop when under `maxSteps`.
+8. **`before_end`** — stage before egress/validation; an inject goes into turn
+   history after the answer the model wrote, and re-enters the step loop when
+   under `maxSteps`.
 9. **Validation / repair** — structured output validators (`outputs.validation`)
    may trigger repair turns with `input.repair`. The repair prompt is the next
    user message in turn history (image and speech: it replaces the prompt
@@ -523,7 +526,7 @@ The kernel validates protocol events before it releases them or executes client 
 | `citation` | `sources` (`title` / `uri` / `type` / `placeId?`) a provider or a tool cited. From a provider: Google `url_citation` / `place_citation` annotations and `google_maps_result` places, OpenRouter citations and `url_citation` annotations. From a tool: its `sources(output)` on a completed call, with the call's `callId` (see [Tool sources](#tool-sources)) |
 | `evidence` | Provider-native attachments. Google code execution sets `kind` (`code_execution_call` / `code_execution_result`) plus parsed `code` / `result` / `isError` / `id` / `callId`, and always keeps `raw`. Live ASR uses `input_transcription` / `output_transcription` (optional `interim`); Live `voiceActivity` uses `voice_activity` (`raw`); session resumption uses `session_resumption` + `resumable`. `partial: true` marks a step the provider started and never finished (the stream ended first); a partial tool call never runs. |
 | `session` | Live control: `closing_soon` (optional `timeLeftMs`); `ended`, the provider's close after it warned of one — not an error: `ended { cause: 'go_away', code, closedAfterMs, errorKind? }` (`errorKind` when the code is not 1000), `timeLeftMs` (the last warning's window), `message` (the user's wording, labels `live.session_ended`) and the raw close as `errorInternal`; `waiting_for_input`, `turn_complete` (one spoken response ended), `working` (server still reasoning / awaiting async tools), `idle` (cycle boundary) |
-| `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md) |
+| `stage` | Turn timeline (`stage`: `pre_turn` \| `pre_tool` \| `post_tool` \| `before_end` \| `post_turn`) — see [`stages.md`](stages.md). With `released`, an inject dropped the reply past that many characters: `keptReply` cuts it there |
 | `tokens` | One per model call, after that call's output: `TurnTokens` (see [Token usage](#token-usage)); may gate `meter: 'input'` |
 | `response` | Protocol → runner only, never yielded by `runTurn`: the response identity (`id`, `model`) as soon as the wire names it, and again when it grows or changes. The runner records it on the call's trace span (`gen_ai.response.id` / `gen_ai.response.model`), so a call that fails or is cut by a guardrail still names the model that served it |
 | `compaction` | `timing: 'before'` ran the compactor: `outcome`, the `history` the turn used, `summary` when compacted, `failure` when not, `droppedMedia`, the meter's count and message counts (see [Compaction](#compaction)) |
@@ -904,6 +907,9 @@ It checks cancellation before emission, then validates the returned answer throu
 The service is trusted host code. Profiles, browser request bodies, and protocols cannot inject it.
 Permission and sign-in resumes retain `gateKind`, so preparation that did not run before approval still runs before dispatch.
 The shared executor accepts an optional host-owned `ToolExecutionCoordinator` through trusted `execution` options.
+`createMemoryToolExecution` is the kernel's in-process coordinator. It checks the claim token on `settle` and `markUncertain`.
+It refuses `settleNotStarted` for an operation that already has a record, and refuses new operations at the `maxOperations` of its `MemoryToolExecutionOptions`.
+It holds no storage outside the process, so a host that resumes across workers supplies its own coordinator.
 The host must reserve storage before returning an acquired claim. React handlers enforce finite capacity and reserve terminal evidence.
 Capacity exhaustion must refuse dispatch. It must not remove unresolved claims to authorize another attempt.
 `TurnRequest`, `InvokeToolRequest`, and `RunSessionOptions` carry this service. Profiles and provider options do not.
@@ -1197,7 +1203,7 @@ On text turns the runner always yields `{ type: 'stage', stage }`:
 
 1. `pre_turn` — once before the first provider step.
 2. `post_tool` — per tool call, before its terminal `tool` event (inject window before the next model step; may `deny` / `mutate` the result).
-3. `before_end` — before egress/validation; inject may re-enter the step loop under `maxSteps`.
+3. `before_end` — before egress/validation; an inject lands after the answer the model wrote and may re-enter the step loop under `maxSteps`.
 4. `post_turn` — after terminal `done` (sees compaction-after when attached).
 
 Inject applies only when `profileAllowsInject(profile)` (text + live when

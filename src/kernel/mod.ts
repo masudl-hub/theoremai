@@ -304,6 +304,8 @@ export {
   sessionPermissionsAfterApproval,
   type ToolGateAuth,
 } from './tools/gate-answer.ts';
+export type { MemoryToolExecutionOptions } from './tools/memory-execution.ts';
+export { createMemoryToolExecution } from './tools/memory-execution.ts';
 export type {
   CredentialQuery,
   McpProtocolVersion,

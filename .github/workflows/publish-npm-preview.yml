@@ -1,0 +1,82 @@
+name: Publish npm preview
+
+# CI calls this after a push to a release branch (named for its version, like 0.3.4) passes,
+# and it publishes all three packages to npm under the `next` tag, so an app can take the change
+# without a release. `latest` moves only when publish-npm.yml publishes a version from main.
+on:
+  workflow_call:
+    secrets:
+      NPM_TOKEN:
+        required: true
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # why: previews publish one at a time, so `next` ends on the latest push.
+    concurrency:
+      group: publish-npm-preview
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      # The preview is a prerelease of the next version: the branch's own version while it is
+      # unpublished, else the patch after it, so a preview never sorts below a release. The run
+      # number orders previews; the commit names the source.
+      - name: Set preview version
+        run: |
+          BASE=$(jq -r '.version' package.json)
+          if [ -n "$(npm view "@theoremjs/agents@$BASE" version 2>/dev/null)" ]; then
+            BASE=$(node -p 'const [a, b, c] = process.argv[1].split("."); `${a}.${b}.${Number(c) + 1}`' "$BASE")
+          fi
+          SHA=$(git rev-parse --short=7 HEAD)
+          VERSION="$BASE-next.$GITHUB_RUN_NUMBER.g$SHA"
+          jq --arg v "$VERSION" '.version = $v' package.json > package.json.next && mv package.json.next package.json
+          jq --arg v "$VERSION" '.version = $v' deno.json > deno.json.next && mv deno.json.next deno.json
+          echo "Preview version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm --prefix react ci
+          npm --prefix studio ci
+
+      - name: Build npm packages
+        run: |
+          npm run build:npm
+          npm run build:npm:react
+          npm run build:npm:studio
+
+      - name: Publish to npm
+        working-directory: npm
+        run: npm publish --access public --provenance --tag next
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish React package to npm
+        working-directory: react/npm
+        run: npm publish --access public --provenance --tag next
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish studio package to npm
+        working-directory: studio/npm
+        run: npm publish --access public --provenance --tag next
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

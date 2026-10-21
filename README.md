@@ -386,6 +386,10 @@ The React server handler creates this service from its atomic session store.
 Use `toolInvocationHash` to compute the same canonical JSON digest as the coordinator.
 Use this evidence to check current resource access before you disclose a cached result.
 For browser effects, `PageToolExecution` issues a dispatch grant only after the claim.
+A page-answered tool needs a claim, so pass `execution` together with `pageExecution`.
+Use `createMemoryToolExecution` when one process serves the whole turn and nothing resumes after a restart.
+It keeps claims and outcomes in memory. Its `MemoryToolExecutionOptions` set `maxOperations` (256 by default), after which it refuses new operations.
+Write your own `ToolExecutionCoordinator` when a turn can resume on another worker.
 `PageToolDispatch` contains the grant ID and a pending `PageAnswer`. Host code supplies result delivery.
 The browser receives the final prepared arguments, then returns a result against that grant.
 Neither profile JSON nor a provider event can supply this service.
@@ -403,7 +407,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 
 | Entrypoint | Purpose |
 | :--- | :--- |
-| `jsr:@theoremjs/agents` / `@theoremjs/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution. |
+| `jsr:@theoremjs/agents` / `@theoremjs/agents` | Main kernel API: profiles, schemas, runner, core types, provider constructors, declarative HTTP/MCP tool execution, `createMemoryToolExecution`. |
 | `jsr:@theoremjs/agents/kernel` / `@theoremjs/agents/kernel` | Profile/turn types, tool catalog, `requireModelBinding`, thinking clamps over host model maps, OAuth 2.1 PKCE helpers (`createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`). |
 | `jsr:@theoremjs/agents/providers` / `@theoremjs/agents/providers` | Protocols, first-party providers, provider definitions, sign-in helpers, and vault contracts. |
 | `jsr:@theoremjs/agents/guardrails` / `@theoremjs/agents/guardrails` | Sanitization, canary/egress gates, public error mapping, inbound injection/sensitive-data primitives. |

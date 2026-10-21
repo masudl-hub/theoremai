@@ -109,3 +109,126 @@ Deno.test('a provider-held conversation is the checkpoint alone; a stateless one
   assertThrows(() => assertHistoryKept({ history: 'stateless' }, undefined, history));
   assertThrows(() => assertHistoryKept({ history: 'stateless' }, checkpoint, []));
 });
+
+/**
+ * A turn on a provider that keeps a cursor: it writes, calls a tool, answers, takes a before_end
+ * inject that the user has `released` characters of the reply for, and answers again.
+ */
+async function continuedTurn(suffix: string, released?: number) {
+  await import('../../fixtures/test-host.ts');
+  const { defaultKernelScope } = await import('../../../src/kernel/scope.ts');
+  const { registerProfile, registerProvider } = await import(
+    '../../../src/kernel/default-scope.ts'
+  );
+  const { defineProfile } = await import('../../../src/kernel/registry/profiles.ts');
+  // What each call after the first sends: the saved state, and the history it does not cover.
+  const sent: { state: unknown; uncovered: TurnHistoryMessage[] }[] = [];
+  let call = 0;
+  const continued = defineProtocol({
+    id: `continuedFixture${suffix}`,
+    name: 'Continued fixture',
+    description:
+      'Writes, calls a tool, answers, and answers again, keeping a cursor between calls.',
+    endpoints: { text: '/turn' },
+    options: z.strictObject({}),
+    continuation: { version: 1, schema: z.strictObject({ cursor: z.string() }) },
+    create: () => ({
+      async *complete(request) {
+        call++;
+        if (call > 1) {
+          sent.push({
+            state: request.state,
+            uncovered: (request.history ?? []).slice(request.stateHistoryLength ?? 0),
+          });
+        }
+        if (call === 1) {
+          yield { type: 'text', text: 'Let me check.' };
+          yield {
+            type: 'tool_call',
+            call: { callId: 'c1', name: 'stub_tool', arguments: { value: 1 } },
+          };
+          yield { type: 'done', stop: { kind: 'tool' }, state: { cursor: 'one' } };
+          return;
+        }
+        yield { type: 'text', text: call === 2 ? 'First answer.' : 'Second answer.' };
+        yield { type: 'done', stop: { kind: 'completed' }, state: { cursor: `c${call}` } };
+      },
+    }),
+  });
+  const deployment = registerProvider(
+    defineProvider({
+      id: `continued-fixture${suffix}`,
+      name: 'Continued fixture',
+      description: 'Serves the continued fixture with no key.',
+      serves: () => [{ protocol: continued, baseUrl: 'https://continued.test' }],
+    }),
+  );
+  registerProfile(
+    defineProfile({
+      id: `continued-worker${suffix}`,
+      type: 'text',
+      identity: { handle: 'Worker' },
+      models: { main: deployment.model(continued, 'model') },
+      maxSteps: 4,
+      tools: { allow: ['stub_tool'] },
+      inputs: { text: true },
+      guardrails: { detect: 'ignore' },
+    }),
+  );
+  let injected = false;
+  const events = await Array.fromAsync(
+    defaultKernelScope.runTurn(
+      {
+        profile: `continued-worker${suffix}`,
+        input: { text: 'check it' },
+        onStage: ({ stage }) => {
+          if (stage !== 'before_end' || injected) return undefined;
+          injected = true;
+          return {
+            inject: [{ role: 'user', content: 'and the fern?' }],
+            injectId: 'late',
+            ...(released === undefined ? {} : { released }),
+          };
+        },
+      },
+      {},
+    ),
+  );
+  return { events, sent };
+}
+
+Deno.test('a turn keeps its checkpoint across a step that wrote text before its calls, and a before_end inject', async () => {
+  const { events, sent } = await continuedTurn('');
+  assertEquals(
+    events.filter((event) => event.type === 'provider_warning'),
+    [],
+  );
+  assertEquals(
+    sent.map(({ state, uncovered }) => [state, uncovered.map((m) => [m.role, m.content])]),
+    [
+      [{ cursor: 'one' }, [['tool', sent[0]?.uncovered[0]?.content]]],
+      [{ cursor: 'c2' }, [['user', 'and the fern?']]],
+    ],
+  );
+});
+
+Deno.test('a turn rebuilds its checkpoint once an inject drops a draft the user does not have', async () => {
+  const { events, sent } = await continuedTurn('2', 'Let me check.\n\n'.length);
+  assertEquals(
+    events.flatMap((event) => (event.type === 'provider_warning' ? [event.warning.reason] : [])),
+    ['history_changed'],
+  );
+  // The last call sends no cursor: its history no longer holds the dropped answer.
+  assertEquals(sent[1]?.state, undefined);
+  assertEquals(
+    sent[1]?.uncovered
+      .slice(1)
+      .filter((m) => m.role !== 'tool')
+      .map((m) => [m.role, m.content ?? null]),
+    [
+      ['assistant', 'Let me check.'],
+      ['assistant', null],
+      ['user', 'and the fern?'],
+    ],
+  );
+});

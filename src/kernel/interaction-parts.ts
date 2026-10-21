@@ -26,8 +26,26 @@ export function historyMessageParts(msg: TurnHistoryMessage): InteractionPart[] 
   return msg.content ? [{ type: 'text', text: msg.content }, ...parts] : [...parts];
 }
 
+/**
+ * One model call's reply as the model reads it back later in its turn: what it
+ * wrote (its structured reply, when it gave one), then the calls it made. Turn
+ * history and a provider checkpoint both build it here, so the checkpoint
+ * covers exactly the history the turn's next call sends.
+ */
+export function stepReplyMessages(reply: {
+  text: string;
+  structured?: unknown;
+  calls: Parameters<typeof historyToolCalls>[0];
+}): TurnHistoryMessage[] {
+  const content = reply.structured !== undefined ? JSON.stringify(reply.structured) : reply.text;
+  return [
+    ...(content ? [{ role: 'assistant' as const, content }] : []),
+    ...(reply.calls.length ? [historyToolCalls(reply.calls)] : []),
+  ];
+}
+
 /** One step's calls as the assistant message that made them, with the reasoning written before them. */
-export function historyToolCalls(
+function historyToolCalls(
   calls: readonly Pick<
     import('./turn-events.ts').ToolCallRequest,
     'callId' | 'name' | 'arguments' | 'reasoning'

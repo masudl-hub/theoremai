@@ -362,7 +362,10 @@ export function createLiveExampleDraft(): StudioDraft {
 
 /** A speech agent that reads a script aloud. */
 export function createNarratorExampleDraft(): StudioDraft {
-  const draft = setProfileType(createBlankDraft(), 'speech', EXAMPLE_PICKS);
+  const draft = includeFacet(
+    setProfileType(createBlankDraft(), 'speech', EXAMPLE_PICKS),
+    'guardrails',
+  );
   return {
     ...draft,
     identity: { ...draft.identity, agentId: 'studio.narrator', handle: 'narrator' },

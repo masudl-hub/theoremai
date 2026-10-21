@@ -1,7 +1,6 @@
 /* The tree map: the lines are one drawing under the tokens (map-token.css), as on the map. */
 .studio-tree-map {
   position: relative;
-  background-color: var(--color-background-surface);
 }
 
 .studio-tree-map-lines {

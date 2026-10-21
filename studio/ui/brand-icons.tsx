@@ -287,12 +287,32 @@ const FAMILY_MARK: Record<string, (props: SVGProps<SVGSVGElement>) => ReactEleme
   openrouter: IconOpenRouter,
 };
 
+/**
+ * The vendor of a model id a provider serves under its own name, with no vendor before it
+ * (`gemini-3.1-flash-lite` on Gemini's API), by the name it starts with.
+ */
+const BARE_FAMILY: Record<string, string> = {
+  gemini: 'google',
+  gemma: 'google',
+  claude: 'anthropic',
+  gpt: 'openai',
+  mistral: 'mistralai',
+  llama: 'meta',
+  qwen: 'qwen',
+  deepseek: 'deepseek',
+  grok: 'x-ai',
+};
+
 /** The family's mark for a model id, or undefined when the family has no mark. */
 export function modelFamilyMark(
   modelId: string,
 ): ((props: SVGProps<SVGSVGElement>) => ReactElement) | undefined {
-  const vendor = modelId.split('/')[0]?.replace(/^~/, '') ?? '';
-  return Object.hasOwn(FAMILY_MARK, vendor) ? FAMILY_MARK[vendor] : undefined;
+  const id = modelId.trim().replace(/^~/, '').toLowerCase();
+  const slash = id.indexOf('/');
+  const bare = id.split(/[-.:\d]/, 1)[0] ?? '';
+  const vendor =
+    slash >= 0 ? id.slice(0, slash) : Object.hasOwn(BARE_FAMILY, bare) ? BARE_FAMILY[bare] : '';
+  return vendor && Object.hasOwn(FAMILY_MARK, vendor) ? FAMILY_MARK[vendor] : undefined;
 }
 
 /** TypeSafe mark, from its vector logo, centred in a square. */

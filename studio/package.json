@@ -41,8 +41,8 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@astryxdesign/core": "0.7.0",
-    "@astryxdesign/theme-neutral": "0.7.0",
+    "@astryxdesign/core": "0.7.1",
+    "@astryxdesign/theme-neutral": "0.7.1",
     "@stylexjs/stylex": "0.19.0",
     "@theoremjs/agents": "file:..",
     "@theoremjs/react": "file:../react",

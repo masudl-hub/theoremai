@@ -132,10 +132,35 @@ function isEmoji(ch: string): boolean {
   return EMOJI_CHAR.test(ch);
 }
 
+const FIRST_FOLDED = 0x80;
+
+/** Where the first code unit `normalizeCodePoint` can change is, or the length when there is none. */
+function foldedFrom(text: string): number {
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charCodeAt(i) >= FIRST_FOLDED) return i;
+  }
+  return text.length;
+}
+
 function normalizeForDetection(text: string): string {
-  let out = '';
-  for (const ch of text) {
-    out += normalizeCodePoint(ch);
+  const from = foldedFrom(text);
+  if (from === text.length) {
+    return text.includes('\\') ? text.replace(BACKSLASH_BEFORE_ALPHA, '') : text;
+  }
+  let out = text.slice(0, from);
+  let at = from;
+  while (at < text.length) {
+    let run = at;
+    while (run < text.length && text.charCodeAt(run) < FIRST_FOLDED) run += 1;
+    if (run > at) {
+      out += text.slice(at, run);
+      at = run;
+      continue;
+    }
+    const code = text.codePointAt(at) ?? 0;
+    const width = code > 0xffff ? 2 : 1;
+    out += normalizeCodePoint(text.slice(at, at + width));
+    at += width;
   }
   return out.replace(EMOJI_BETWEEN, '').replace(BACKSLASH_BEFORE_ALPHA, '');
 }
@@ -150,6 +175,10 @@ interface NormalizedView {
 }
 
 function withoutMatches(view: NormalizedView, pattern: RegExp): NormalizedView {
+  pattern.lastIndex = 0;
+  const found = pattern.test(view.text);
+  pattern.lastIndex = 0;
+  if (!found) return view;
   const kept: NormalizedView = { text: '', start: [], end: [] };
   let last = 0;
   const keep = (to: number): void => {
@@ -170,9 +199,14 @@ function withoutMatches(view: NormalizedView, pattern: RegExp): NormalizedView {
  * text is placed on the characters of `text` it was read from.
  */
 function normalizedView(text: string): NormalizedView {
-  const view: NormalizedView = { text: '', start: [], end: [] };
-  let at = 0;
-  for (const ch of text) {
+  const from = foldedFrom(text);
+  const view: NormalizedView = {
+    text: text.slice(0, from),
+    start: Array.from({ length: from }, (_, i) => i),
+    end: Array.from({ length: from }, (_, i) => i + 1),
+  };
+  let at = from;
+  for (const ch of text.slice(from)) {
     const folded = normalizeCodePoint(ch);
     for (let i = 0; i < folded.length; i += 1) {
       view.start.push(at);

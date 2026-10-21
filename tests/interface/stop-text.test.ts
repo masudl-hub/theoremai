@@ -20,6 +20,19 @@ Deno.test('a whole turn, or one an error already explains, has no stop text', ()
   assertEquals(stopText({ kind: 'provider_error' }, failed), undefined);
 });
 
+Deno.test("a reply Theorem's guardrail stopped is not called a content filter", () => {
+  const refused: TranscriptBlock[] = [
+    { id: 'r', kind: 'text', text: "Sorry, that reply couldn't be shared." },
+  ];
+  for (const native of ['egress', 'canary', 'prompt_echo', 'provider_tool_leak']) {
+    assertEquals(stopText({ kind: 'filtered', native }, refused), undefined, native);
+  }
+  assertEquals(
+    stopText({ kind: 'filtered', native: 'SAFETY' }, REPLY),
+    'stopped by a content filter',
+  );
+});
+
 Deno.test("a profile's stop and picker wording reaches the client and is used", () => {
   for (const kind of WORDED_STOP_KINDS) {
     assertEquals(CLIENT_LABEL_KEYS.includes(`stop.${kind}`), true, kind);

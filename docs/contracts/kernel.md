@@ -53,6 +53,10 @@ Wire shapes are facts, declared once: every turn event is a zod schema in
 `src/kernel/turn-events.ts`, and its TypeScript type is that schema's inferred
 type. Policy modules such as `stop.ts` import those types; they never restate them.
 
+A `filtered` stop comes from the provider's filter or from a Theorem guardrail.
+`isGuardrailStop` in `src/kernel/stop.ts` tells them apart by `native`, so the
+interface never words Theorem's own stop as the provider's.
+
 ## Profiles
 
 A `Profile` is the contract defining an agent’s capabilities and the rules for its interactions. Its type determines which settings it accepts.
@@ -1479,7 +1483,7 @@ re-exports the type and owns only the resume policy below.
 | `length` | Output / budget cut off |
 | `tool` | The model called tools and the turn hands them to the host; `done.tools` is the turn's tool snapshot |
 | `gate` | A `pre_tool` gate (confirm / permission / auth) stopped a call before it ran; `done.tools` is the snapshot. Host resumes via `invokeTool` (live: `executeTool` with a `decision`) |
-| `filtered` | Output blocked: the provider's content filter, or a Theorem guardrail (`native: 'egress'` for a reply a detector or the egress policy stopped, withheld, or replaced by policy copy; `'canary'`, `'prompt_echo'`, or `'provider_tool_leak'` for a leak in an event that is not reply text) |
+| `filtered` | Output blocked: the provider's content filter, or a Theorem guardrail (`native: 'egress'` for a reply a detector or the egress policy stopped, withheld, or replaced by policy copy; `'canary'`, `'prompt_echo'`, or `'provider_tool_leak'` for a leak in an event that is not reply text). Only the provider's filter is worded as a stop: Theorem's own stop already shows its error or refusal |
 | `provider_error` | Upstream failure: a finish reason that says so, or any `error` the provider sent during the call (it outranks the call's own `done`) |
 | `cancelled` | User / host abort |
 | `stream_incomplete` | Stream ended without terminal reason |
@@ -1652,7 +1656,7 @@ fails).
 | Spec | `interfaceFromProfile(profile, tools)` (projects against that tool registry), `clientProfileInterface(profile, tools)` (the same without `identity.system` and `systemByRole`, for a browser), `interfaceFromProjected` (an already projected profile) |
 | Inputs | `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime` |
 | Draft | `sanitizeUserDraft`, `prepareUserTurn` |
-| Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled`, `argumentsSoFar(call)` (a call's arguments as far as the model has written them: the whole fields and the string still being written, to preview it live), `stopText(stop, blocks, labels)` (why a turn ended short, in its `stop.<kind>` label; nothing when it ended whole or an error block says why), `WORDED_STOP_KINDS` |
+| Transcript | `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `streamThoughtsEnabled`, `argumentsSoFar(call)` (a call's arguments as far as the model has written them: the whole fields and the string still being written, to preview it live), `stopText(stop, blocks, labels)` (why a turn ended short, in its `stop.<kind>` label; nothing when it ended whole, when a Theorem guardrail stopped it, or when an error block says why), `WORDED_STOP_KINDS` |
 | History | `appendUserDraftToHistory`, `appendToolExchangeToHistory` (replays `readBack`), `toolReadBack`, `userDraftToSteerInject`, … |
 | Composer intents | `createComposerPendingMessage`, `orderComposerPendingMessages`, `consumeNextComposerSteer` / `Queue`, `convertSteersToFrontQueued`, `resolveComposerPrimary`, `resolveComposerMenuActions` |
 

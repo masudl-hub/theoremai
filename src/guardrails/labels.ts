@@ -840,7 +840,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'stop.interrupted': 'Status on a Live reply the person spoke over.',
   'stop.length': 'Status on a reply the model ended at its output limit.',
   'stop.filtered':
-    "Status on a reply the provider's content filter ended. A reply Theorem's own guardrails stopped shows its error instead.",
+    "Status on a reply the provider's content filter ended. A reply Theorem's own guardrails stopped shows its error or refusal instead.",
   'stop.provider_error': 'Status on a reply the provider ended with an error and no error message.',
   'stop.stream_incomplete': 'Status on a reply whose stream ended before the model finished.',
   'stop.step_limit': 'Status on a turn that made its last allowed model call and got no answer.',

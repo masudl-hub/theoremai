@@ -266,19 +266,7 @@ function useChromeReveal(isNewest: boolean, status?: ChatMessageStatus) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [tapped, setTapped] = useState(false);
-  // why: Only the last prompt carries a status, and it can mount with one when its reply commits.
-  const [fresh, setFresh] = useState(isNewest || status !== undefined);
-  const [seenStatus, setSeenStatus] = useState(status);
-  // why: A message that stops being the last prompt loses its status; only a new one is news.
-  if (status !== seenStatus) {
-    setSeenStatus(status);
-    if (status !== undefined) setFresh(true);
-  }
-  useEffect(() => {
-    if (!fresh) return;
-    const timer = setTimeout(() => setFresh(false), CHROME_FRESH_MS);
-    return () => clearTimeout(timer);
-  }, [fresh, seenStatus]);
+  const fresh = useFresh(isNewest, status);
   // why: A hold opens the context menu and may end in a pointerup; that pointerup must not hide it again.
   const held = useRef(false);
   const handlers = {
@@ -303,6 +291,25 @@ function useChromeReveal(isNewest: boolean, status?: ChatMessageStatus) {
     },
   };
   return { revealed: hovered || focused || tapped || fresh, handlers };
+}
+
+/** Whether a message has just landed, or its status just changed: true for a few seconds after. */
+function useFresh(isNewest: boolean, status?: ChatMessageStatus): boolean {
+  // why: Only the last prompt carries a status, and it can mount with one when its reply commits.
+  // why: A count, so a status that lands while the details already show starts their seconds over.
+  const [fresh, setFresh] = useState(isNewest || status !== undefined ? 1 : 0);
+  const [seenStatus, setSeenStatus] = useState(status);
+  // why: A message that stops being the last prompt loses its status; only a new one is news.
+  if (status !== seenStatus) {
+    setSeenStatus(status);
+    if (status !== undefined) setFresh((count) => count + 1);
+  }
+  useEffect(() => {
+    if (fresh === 0) return;
+    const timer = setTimeout(() => setFresh(0), CHROME_FRESH_MS);
+    return () => clearTimeout(timer);
+  }, [fresh]);
+  return fresh > 0;
 }
 
 /** A message's copy button (outermost), time and status; a failure says why on hovering its status. */

@@ -20,8 +20,15 @@ export interface RankedBar {
   value: number;
   /** Default `clear`. */
   fill?: TraceFill;
+  /** Any CSS colour, in place of `fill`: for a bar shaded by its own value. */
+  color?: string;
   /** A line under the value in the bar's hover card. */
   detail?: string;
+}
+
+/** A bar's paint: its colour, else its fill. */
+export function paintOf(row: RankedBar, fill: TraceFill = 'clear'): string {
+  return row.color ?? traceFill(row.fill ?? fill);
 }
 
 /** Height of one bar's row, in pixels. */
@@ -125,7 +132,7 @@ export function RankedBars({
             }}
           >
             {rows.map((row) => (
-              <Cell key={row.id} fill={traceFill(row.fill ?? 'clear')} />
+              <Cell key={row.id} fill={paintOf(row)} />
             ))}
           </Bar>
         </BarChart>

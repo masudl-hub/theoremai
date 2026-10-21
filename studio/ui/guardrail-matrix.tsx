@@ -81,7 +81,7 @@ function shown(figure: MatrixFigure, value: number): string {
 }
 
 /** Good is blue and bad is grey, each darker the further it is from the middle. */
-function tint(goodness: number): string {
+export function tint(goodness: number): string {
   const ink = goodness >= 0.5 ? 'var(--color-text-blue)' : 'var(--color-text-gray)';
   return `color-mix(in srgb, ${ink} ${String(strengthOf(goodness))}%, var(--color-background-surface))`;
 }

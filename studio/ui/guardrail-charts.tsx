@@ -17,6 +17,7 @@ import {
   pooledTime,
 } from '../guardrail-bench.ts';
 import { PROBE_BOUNDARIES, PROBE_BOUNDARY_NOTES } from '../mod.ts';
+import { tint } from './guardrail-matrix.tsx';
 
 const rate = new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 1 });
 
@@ -37,6 +38,8 @@ type Pool = {
   benign: number;
   fired: number;
   p95?: number;
+  /** The detector whose p95 that is. */
+  slowest?: Detector;
   times: Percentiles[];
   texts: number;
 };
@@ -44,13 +47,16 @@ type Pool = {
 /** Detector scores summed: recall and false alarms over every text they are scored on, and the slowest p95. */
 function pool(scores: readonly DetectorScore[]): Pool {
   const times = scores.flatMap((score) => (score.ms ? [score.ms] : []));
-  const p95s = times.map((time) => time.p95);
+  const slowest = scores.reduce<DetectorScore | undefined>(
+    (worst, score) => ((score.ms?.p95 ?? -1) > (worst?.ms?.p95 ?? -1) ? score : worst),
+    undefined,
+  );
   return {
     attacks: scores.reduce((sum, score) => sum + (score.attacks ?? 0), 0),
     caught: scores.reduce((sum, score) => sum + (score.caught ?? 0), 0),
     benign: scores.reduce((sum, score) => sum + score.benign, 0),
     fired: scores.reduce((sum, score) => sum + score.falseAlarms, 0),
-    ...(p95s.length > 0 && { p95: Math.max(...p95s) }),
+    ...(slowest?.ms && { p95: slowest.ms.p95, slowest: slowest.detector }),
     times,
     texts: 0,
   };
@@ -104,13 +110,14 @@ function shown(value: number | undefined, format: (value: number) => string): st
   return value === undefined ? '—' : format(value);
 }
 
-/** The median and mean of every detector's timing, or why there are none. */
+/** Who the slowest p95 is, and the median and mean of every timing when the run kept them. */
 function timeDetail(now: Pool): string[] {
   const pooled = pooledTime(now.times);
-  if (!pooled) return ['One detector alone, on one dataset', 'Median and mean: from the next run'];
   return [
-    `Median ≈ ${ms(pooled.median)} · mean ${ms(pooled.mean)}`,
-    'Every detector alone, every text',
+    now.slowest ? `${DETECTOR_META[now.slowest].label}, the slowest detector` : '',
+    pooled
+      ? `Median ≈ ${ms(pooled.median)} · mean ${ms(pooled.mean)}`
+      : 'This run kept no median or mean',
   ];
 }
 
@@ -160,7 +167,7 @@ function RunStats({ now, before, datasets }: { now: Pool; before?: Pool; dataset
           since(alarms, before && ratio(before.fired, before.benign)),
         ]}
       />
-      <ChartStat label="Slowest p95" value={shown(now.p95, ms)} detail={timeDetail(now)} />
+      <ChartStat label="Detector time, p95" value={shown(now.p95, ms)} detail={timeDetail(now)} />
       <ChartStat
         label="Texts read"
         value={now.texts.toLocaleString()}
@@ -178,6 +185,8 @@ function RankCard({
   max,
 }: {
   title: string;
+  /** What the first bar is, such as the highest. */
+  lead: string;
   rows: readonly RankedBar[];
   format: (value: number) => string;
   max?: number;
@@ -185,7 +194,7 @@ function RankCard({
   const top = rows[0];
   if (!top) return null;
   return (
-    <ChartCard title={title} value={format(top.value)} note={top.name}>
+    <ChartCard title={title} value={format(top.value)} note={`${top.name}, the ${lead}`}>
       <RankedBars rows={rows} format={format} {...(max !== undefined && { max })} />
     </ChartCard>
   );
@@ -193,17 +202,21 @@ function RankCard({
 
 const percentOf = (value: number) => rate.format(value);
 
-/** Each detector's recall as a ring, the lowest outermost. */
+/** Each detector's recall as a ring, the lowest outermost, shaded as the matrix shades it. */
 function RecallCard({ rows }: { rows: readonly RankedBar[] }) {
   const top = rows[0];
   if (!top) return null;
   return (
     <ChartCard
-      title="Recall by detector, lowest first"
+      title="Recall by detector"
       value={percentOf(top.value)}
-      note={top.name}
+      note={`${top.name}, the lowest`}
     >
-      <RadialBars rows={rows} format={percentOf} max={1} />
+      <RadialBars
+        rows={rows.map((row) => ({ ...row, color: tint(row.value) }))}
+        format={percentOf}
+        max={1}
+      />
     </ChartCard>
   );
 }
@@ -212,51 +225,60 @@ function RecallCard({ rows }: { rows: readonly RankedBar[] }) {
 function TextsCard({ scores }: { scores: readonly DatasetScore[] }) {
   const parts = textParts(scores);
   if (parts.length === 0) return null;
+  const texts = scores.reduce((sum, dataset) => sum + dataset.samples, 0);
   return (
     <ChartCard
-      title="Texts by boundary, then dataset"
-      value={String(parts.length)}
-      note={parts.length === 1 ? 'boundary' : 'boundaries'}
+      title="Where the texts come from"
+      value={texts.toLocaleString()}
+      note={`texts at ${String(parts.length)} ${parts.length === 1 ? 'boundary' : 'boundaries'}`}
     >
       <Sunburst parts={parts} format={count} />
     </ChartCard>
   );
 }
 
+const PAIR = { minWidth: 360, repeat: 'fit' } as const;
+
 /** Each detector's recall, false alarms and p95 time, pooled over the datasets shown. */
 function DetectorCharts({ scores }: { scores: readonly DatasetScore[] }) {
   const detectors = byDetector(scores);
   return (
-    <Grid columns={{ minWidth: 260, repeat: 'fit' }} gap={2}>
-      <RecallCard
-        rows={bars(
-          detectors,
-          (each) => ratio(each.caught, each.attacks),
-          (each) => `${String(each.caught)} of ${String(each.attacks)} attacks`,
-        ).reverse()}
-      />
-      <TextsCard scores={scores} />
-      <RankCard
-        title="False alarms by detector"
-        rows={bars(
-          detectors,
-          (each) => ratio(each.fired, each.benign),
-          (each) => `${String(each.fired)} of ${String(each.benign)} benign texts`,
-          'shade1',
-        )}
-        format={percentOf}
-      />
-      <RankCard
-        title="p95 time by detector"
-        rows={bars(
-          detectors,
-          (each) => each.p95,
-          () => 'Its slowest dataset',
-          'shade2',
-        )}
-        format={ms}
-      />
-    </Grid>
+    <>
+      <Grid columns={PAIR} gap={2}>
+        <RecallCard
+          rows={bars(
+            detectors,
+            (each) => ratio(each.caught, each.attacks),
+            (each) => `${String(each.caught)} of ${String(each.attacks)} attacks`,
+          ).reverse()}
+        />
+        <TextsCard scores={scores} />
+      </Grid>
+      <Grid columns={PAIR} gap={2}>
+        <RankCard
+          title="False alarms by detector"
+          lead="highest"
+          rows={bars(
+            detectors,
+            (each) => ratio(each.fired, each.benign),
+            (each) => `${String(each.fired)} of ${String(each.benign)} benign texts`,
+            'shade1',
+          )}
+          format={percentOf}
+        />
+        <RankCard
+          title="Time by detector, p95"
+          lead="slowest"
+          rows={bars(
+            detectors,
+            (each) => each.p95,
+            () => 'On its slowest dataset',
+            'shade2',
+          )}
+          format={ms}
+        />
+      </Grid>
+    </>
   );
 }
 
@@ -332,6 +354,7 @@ export function CategoryChart({ score, outcome }: { score: DetectorScore; outcom
   return (
     <RankCard
       title={isMissed ? 'Missed, by category' : 'False alarms, by category'}
+      lead="highest"
       rows={rows}
       format={percentOf}
       max={1}

@@ -27,6 +27,8 @@ export interface BenchSample {
   holds?: Detector[];
   /** Detectors this row is left out for, because its label does not mean what the detector means. */
   unscored?: Detector[];
+  /** For a reply labelled by whether it leaks a system prompt: that prompt, the turn's own. */
+  system?: string;
 }
 
 /** Where a dataset's files are: a path under the data root or the guardrail corpus, made whole. */
@@ -744,6 +746,126 @@ const agentDojo: BenchDataset = {
   },
 };
 
+const AGENTLEAK = `${CORPUS}AgentLeak/repo/benchmarks/ieee_repro/results/traces`;
+
+/**
+ * The AgentLeak vault fields that hold what a detector means. The other fields are names, notes
+ * and `CANARY_…` tokens, which no data detector looks for.
+ */
+const AGENTLEAK_LABELS: Readonly<Record<string, Detector>> = {
+  ssn_real: 'ids',
+  credit_card_real: 'financial',
+  phone_real: 'phone',
+  account_number_real: 'bank_account',
+};
+
+/** Where each AgentLeak message crosses: to the user, back from another agent, or out to one or to memory. */
+const AGENTLEAK_PART: Record<string, { boundary: ProbeBoundary; channels: readonly string[] }> = {
+  replies: { boundary: 'reply', channels: ['C1:user'] },
+  'agent-results': { boundary: 'tool_result_remote', channels: ['C2:coordinator'] },
+  'agent-calls': { boundary: 'tool_arguments', channels: ['C2:worker', 'C5:memory'] },
+};
+
+interface AgentLeakMessage {
+  channel?: unknown;
+  target?: unknown;
+  content?: unknown;
+  leaked_fields?: unknown;
+}
+
+/**
+ * AgentLeak's recorded runs of 5 models: each message an agent sent, labelled by AgentLeak's own
+ * match of the vault's values in it. `phone` and `bank_account` were tuned on these runs. A card
+ * that fails its checksum is not a card, so a message whose only card does is left out of `financial`.
+ */
+function agentLeak(part: keyof typeof AGENTLEAK_PART): BenchDataset {
+  const { boundary, channels } = AGENTLEAK_PART[part];
+  return {
+    id: `agentleak-${part}`,
+    role: 'train',
+    boundary,
+    labels: [...new Set(Object.values(AGENTLEAK_LABELS))],
+    license: 'MIT',
+    attribution: `Privatris/AgentLeak (recorded traces, ${channels.join(' and ')})`,
+    source: 'https://github.com/Privatris/AgentLeak',
+    files: [AGENTLEAK],
+    async *read(locate) {
+      const names: string[] = [];
+      for await (const entry of Deno.readDir(locate(AGENTLEAK))) {
+        if (entry.isFile && entry.name.endsWith('.json')) names.push(entry.name);
+      }
+      for (const name of names.sort()) {
+        const trace = JSON.parse(await Deno.readTextFile(`${locate(AGENTLEAK)}/${name}`));
+        const vault: Record<string, unknown> = trace?.input?.vault ?? {};
+        const messages: AgentLeakMessage[] = Array.isArray(trace?.channel_messages)
+          ? trace.channel_messages
+          : [];
+        for (const [n, message] of messages.entries()) {
+          if (!channels.includes(`${String(message.channel)}:${String(message.target)}`)) continue;
+          const body = text(message.content);
+          if (!body) continue;
+          const leaked = Array.isArray(message.leaked_fields) ? message.leaked_fields : [];
+          const holds = new Set<Detector>();
+          let fakeCard = false;
+          for (const field of leaked) {
+            const detector = AGENTLEAK_LABELS[String(field)];
+            if (!detector) continue;
+            if (detector === 'financial' && !passesLuhn(String(vault[String(field)] ?? ''))) {
+              fakeCard = true;
+              continue;
+            }
+            holds.add(detector);
+          }
+          yield {
+            id: `${name.replace(/\.json$/, '')}:${n}`,
+            text: body,
+            attack: holds.size > 0,
+            category: text(trace?.vertical) ?? 'message',
+            holds: [...holds],
+            ...(fakeCard && !holds.has('financial') ? { unscored: ['financial' as const] } : {}),
+          };
+        }
+      }
+    },
+  };
+}
+
+const SPL = `${CORPUS}spl/test.parquet`;
+
+/**
+ * System Prompt Leakage's test split, synthetic: replies that paraphrase their system prompt, and
+ * replies that answer under it. Each is read as the reply of a turn whose system prompt is that one.
+ */
+const spl: BenchDataset = {
+  id: 'spl-test',
+  role: 'test',
+  boundary: 'reply',
+  labels: ['prompt_leak'],
+  license: 'MIT',
+  attribution: 'gabrielchua/system-prompt-leakage (test)',
+  source: 'https://huggingface.co/datasets/gabrielchua/system-prompt-leakage',
+  files: [SPL],
+  async *read(locate) {
+    let n = 0;
+    for await (const row of parquetRows(locate(SPL), ['system_prompt', 'content', 'leakage'])) {
+      const at = n++;
+      const body = text(row.content);
+      const system = text(row.system_prompt);
+      const leakage = Number(row.leakage);
+      if (!body || !system || (leakage !== 0 && leakage !== 1)) continue;
+      const attack = leakage === 1;
+      yield {
+        id: String(at),
+        text: body,
+        attack,
+        category: attack ? 'paraphrase' : 'reply',
+        holds: attack ? ['prompt_leak'] : [],
+        system,
+      };
+    }
+  },
+};
+
 export const DATASETS: readonly BenchDataset[] = [
   sLabs('train', 'train'),
   sLabs('validation', 'validate'),
@@ -777,4 +899,8 @@ export const DATASETS: readonly BenchDataset[] = [
   openThoughts,
   hermesErrors('kimi', 'train'),
   hermesErrors('glm', 'validate'),
+  agentLeak('replies'),
+  agentLeak('agent-results'),
+  agentLeak('agent-calls'),
+  spl,
 ];

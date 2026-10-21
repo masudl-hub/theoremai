@@ -84,10 +84,18 @@ export function benchAgent() {
   return { ...run, profile: { ...run.profile, guardrails: { ...run.profile.guardrails, detect } } };
 }
 
+/** `agent` with `system` as its whole system prompt, all of it private. */
+function withSystem(agent: ReturnType<typeof benchAgent>, system: string) {
+  const { profile } = agent;
+  if (!('identity' in profile)) throw new Error(`${profile.id} takes no system prompt.`);
+  return { ...agent, profile: { ...profile, identity: { ...profile.identity, system } } };
+}
+
 export async function probeOne(
   agent: ReturnType<typeof benchAgent>,
   boundary: ProbeBoundary,
   text: string,
+  system?: string,
 ): Promise<ProbeOutcome> {
   const detectorMs = timeEach(text, boundary);
   if (text.length > PROBE_TEXT_LIMIT) {
@@ -106,7 +114,8 @@ export async function probeOne(
     };
   }
   const start = performance.now();
-  const result = await runGuardrailProbe({ ...agent, probe: { boundary, text } });
+  const turn = system ? withSystem(agent, system) : agent;
+  const result = await runGuardrailProbe({ ...turn, probe: { boundary, text } });
   const ms = performance.now() - start;
   const rules = [
     ...new Set(result.guardrails.flatMap((event) => event.hits.map((hit) => hit.rule))),

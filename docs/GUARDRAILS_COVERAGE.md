@@ -145,7 +145,7 @@ Status as of 20/10/2026.
 
 - **`thought`:** no labelled set of model reasoning. Leaky Thoughts[^leaky-thoughts] releases the privacy tasks but not the reasoning traces. AgentDrift's thoughts are labelled by trajectory, not by what the thought holds.
 - **`tool_shown`:** no set of what a tool shows the person. Tool output can be replayed there.
-- **`tool_arguments`:** AgentDojo runs record the tool calls a model made, and mark whether an injected task succeeded. That labels harmful calls for `guardrails.taint`, not for a detector. There is no set of tool arguments labelled for data or leaks. AgentLeak names tool inputs and outputs as channels, but its released traces hold none.
+- **`tool_arguments`:** AgentDojo runs record the tool calls a model made, and mark whether an injected task succeeded. That labels harmful calls for `guardrails.taint`, not for a detector. There is no set of tool arguments labelled for data or leaks. AgentLeak names tool inputs and outputs as channels, but its released traces hold none. The guardrails bench reads AgentLeak's messages to another agent and its memory writes at `tool_arguments`, as the arguments of a call that sends them. A worker's message back is read at `tool_result_remote`.
 - **`reply_structured`, `live_reply`:** none apart from replaying `reply` data.
 - **`voice`:** nothing is read there, so there is nothing to benchmark yet.
 - **`context`, `slots`, `history`, `repair`, `injected`, `system`, `attachment`:** replay only.

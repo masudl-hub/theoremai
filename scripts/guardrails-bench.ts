@@ -133,7 +133,11 @@ async function benchDataset(
   for await (const samples of batches(dataset)) {
     const batch = n++;
     const task = pool
-      .run({ batch, boundary: dataset.boundary, texts: samples.map((sample) => sample.text) })
+      .run({
+        batch,
+        boundary: dataset.boundary,
+        samples: samples.map(({ text, system }) => ({ text, ...(system ? { system } : {}) })),
+      })
       .then(async (reply) => {
         if ('error' in reply) throw new Error(`${dataset.id} batch ${batch}: ${reply.error}`);
         for (const [i, outcome] of reply.outcomes.entries()) {

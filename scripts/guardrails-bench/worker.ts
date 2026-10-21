@@ -8,7 +8,7 @@ import { benchAgent, probeOne } from './probe.ts';
 export interface BatchRequest {
   batch: number;
   boundary: ProbeBoundary;
-  texts: string[];
+  samples: { text: string; system?: string }[];
 }
 
 export type BatchReply =
@@ -18,10 +18,12 @@ export type BatchReply =
 const agent = benchAgent();
 
 self.onmessage = async (message: MessageEvent<BatchRequest>) => {
-  const { batch, boundary, texts } = message.data;
+  const { batch, boundary, samples } = message.data;
   try {
     const outcomes: ProbeOutcome[] = [];
-    for (const text of texts) outcomes.push(await probeOne(agent, boundary, text));
+    for (const { text, system } of samples) {
+      outcomes.push(await probeOne(agent, boundary, text, system));
+    }
     self.postMessage({ batch, outcomes } satisfies BatchReply);
   } catch (error) {
     self.postMessage({

@@ -5,6 +5,7 @@ import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
 import { HoverCard } from '@astryxdesign/core/HoverCard';
 import { HStack } from '@astryxdesign/core/HStack';
+import { useClipboard } from '@astryxdesign/core/hooks';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout';
@@ -14,7 +15,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { useToast } from '@astryxdesign/core/Toast';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconFiles, IconListDetails } from '@tabler/icons-react';
+import { IconCheck, IconCopy, IconFiles, IconListDetails } from '@tabler/icons-react';
 import {
   createContext,
   type ReactNode,
@@ -48,6 +49,31 @@ function settingAreas(settings: readonly string[], shown = 4): string {
   const named = areas.slice(0, shown).map(([area, count]) => (count > 1 ? `${area} (${count})` : area));
   const more = areas.length - named.length;
   return more > 0 ? `${named.join(', ')}, and ${more} more` : named.join(', ');
+}
+
+/** Every alert as plain text, for pasting into a message: all names, the areas of each difference. */
+function alertsReport(project: ProjectSession, unloaded?: string): string {
+  const { problems, modelProblems, differences, unheld, unregistered } = project;
+  const lines = [`Theorem studio: ${project.name}`];
+  if (unloaded !== undefined) lines.push('', 'The studio cannot load your files:', unloaded.trim());
+  for (const each of problems) lines.push('', `Cannot run ${each.profile}: ${each.message}`);
+  for (const each of modelProblems) {
+    lines.push('', `${each.profile}'s model '${each.model}' cannot run: ${each.message}`);
+  }
+  if (unregistered.length) {
+    lines.push(
+      '',
+      `Defined in files but not registered at start (${String(unregistered.length)}): ${unregistered.map((each) => each.name).join(', ')}`,
+    );
+  }
+  if (unheld.length) lines.push('', `Cannot check against files: ${[...new Set(unheld)].join(' ')}`);
+  for (const each of differences) {
+    lines.push(
+      '',
+      `${each.of} shows ${String(each.settings.length)} settings differently from files: ${settingAreas(each.settings, 12)}`,
+    );
+  }
+  return lines.join('\n');
 }
 
 /** Wide enough for a reason's sentence to read in a few lines. */
@@ -304,6 +330,7 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
     (unheld.length ? 1 : 0) +
     (unregistered.length ? 1 : 0) +
     (unloaded === undefined ? 0 : 1);
+  const { copy, isCopied } = useClipboard();
   if (!count) return null;
   return (
     <HoverCard
@@ -316,6 +343,18 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
           style={{ maxHeight: ALERTS_MAX_HEIGHT }}
         >
           <VStack gap={3}>
+            <HStack hAlign="end">
+              <IconButton
+                label={isCopied ? 'Copied' : 'Copy alerts'}
+                variant="ghost"
+                size="sm"
+                icon={<Icon icon={isCopied ? IconCheck : IconCopy} size="sm" />}
+                tooltip="Copy these alerts to send"
+                onClick={() => {
+                  copy(alertsReport(project, unloaded));
+                }}
+              />
+            </HStack>
             {unloaded !== undefined && (
               <VStack gap={1}>
                 <Text weight="semibold">The studio cannot load your files.</Text>

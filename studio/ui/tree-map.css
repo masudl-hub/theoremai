@@ -2,6 +2,8 @@
    background of its own: it sits on whatever holds it. */
 .studio-tree-map {
   position: relative;
+  /* why: Grown to fit, it eases smaller from its top left, where it stands closed. */
+  transform-origin: 0 0;
 }
 
 .studio-tree-map-lines {

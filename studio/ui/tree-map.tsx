@@ -1,12 +1,12 @@
 /**
  * The workspace's tree, every row open, drawn as the map draws: each row a map token, and a line
  * from each row down and across to each of its children. Beside the tree, what feeds it: the
- * providers that serve each agent's models, and the tools each agent may call, each with a line
- * into its row. It changes nothing and opens nothing: a picture of what a workspace holds, for a
+ * providers that serve each agent's models, and the tool registry its tool policy picks from, each
+ * with a line into its row. It changes nothing and opens nothing: a picture of what a workspace holds, for a
  * page that is not the studio.
  */
 import type { IconType } from '@astryxdesign/core/Icon';
-import { IconCloud } from '@tabler/icons-react';
+import { IconCloud, IconTool } from '@tabler/icons-react';
 import { useRef } from 'react';
 import { mapCurve } from '../map-line.ts';
 import {
@@ -16,7 +16,6 @@ import {
   type StudioWorkspace,
   workspaceTree,
 } from '../mod.ts';
-import { toolTypeIcon } from './lib/type-icons.ts';
 import { MapToken, useTokenWidths } from './map-token.tsx';
 import { nodeIcon } from './node-icon.ts';
 import './tree-map.css';
@@ -47,7 +46,7 @@ interface Row extends Place {
   parent?: Place;
 }
 
-/** A provider or a tool beside the tree, and the rows it feeds. */
+/** A provider or the tool registry beside the tree, and the rows it feeds. */
 interface Feed {
   id: string;
   label: string;
@@ -81,7 +80,7 @@ function rowId(row: Row): string {
 }
 
 /**
- * Each agent's providers, beside its models, and the tools it may call, beside its Tools row. A feed
+ * Each agent's providers, beside its models, and the workspace's tool registry, beside its Tools row. A feed
  * sits level with the middle of the rows it feeds, or under the feed before it when that is lower.
  */
 function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
@@ -103,13 +102,10 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     for (const [provider, into] of providers) {
       add(`${agent.key}/provider:${provider}`, provider, IconCloud, into);
     }
+    // The workspace's tools are one registry that each agent's tool policy picks from.
     const tools = mine.find((row) => row.node.ref.facet === 'tools');
-    if (!tools) continue;
-    for (const key of agent.tools.allow) {
-      const tool = workspace.toolSpecs.find((spec) => spec.key === key);
-      if (tool) {
-        add(`${agent.key}/tool:${key}`, tool.toolName, toolTypeIcon(tool.toolType), [tools]);
-      }
+    if (tools && workspace.toolSpecs.length > 0) {
+      add(`${agent.key}/tools`, 'Tool registry', IconTool, [tools]);
     }
   }
   return feeds;

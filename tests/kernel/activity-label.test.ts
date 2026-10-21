@@ -628,3 +628,22 @@ Deno.test('a tool whose list label cannot work is refused at registration', () =
     'The last line must always fit',
   );
 });
+
+Deno.test('a mistyped list offers the list that is there, its length first when the label ended in one', () => {
+  const output = {
+    type: 'object',
+    properties: {
+      result: {
+        type: 'array',
+        items: { type: 'object', properties: { region_id: { type: 'string' } } },
+      },
+    },
+  };
+  assertEquals(
+    activityLabelProblem('Listed {regions.length} regions', {
+      input: { type: 'object', properties: {} },
+      output,
+    }),
+    "{regions.length} is not a field of this tool's input or output. Try {result.length} or {result.0.region_id}.",
+  );
+});

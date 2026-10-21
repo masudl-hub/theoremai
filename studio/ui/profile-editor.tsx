@@ -150,6 +150,7 @@ import {
 } from '@theoremjs/agents/guardrails';
 import {
   type ContextType,
+  createContext,
   type Dispatch,
   lazy,
   type ReactNode,
@@ -5143,6 +5144,9 @@ function TestConnectionButton({ isLoading, onClick }: { isLoading: boolean; onCl
   );
 }
 
+/** A test already run, which a still preview of the editor shows done. */
+export const ShownProbe = createContext<ProbeResult | undefined>(undefined);
+
 /**
  * Tries the tool's endpoint or MCP server once, from the server, which reaches public hosts only.
  * The sample input and credential live here only: neither is saved to the draft.
@@ -5160,7 +5164,8 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
     setToolCredential(tool.key, value);
   };
   const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<ProbeResult>();
+  const shown = useContext(ShownProbe);
+  const [result, setResult] = useState(shown);
   const http = tool.toolType === 'http';
   const method = tool.method ?? HTTP_METHODS[0];
   // A result answers the request as it was: once what it reaches or sends changes, it's dropped.

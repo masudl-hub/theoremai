@@ -214,10 +214,11 @@ import {
 import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
 import { subscribeToFiles } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
+import type { ProbeResult } from './lib/tool-probe.ts';
 import { runToolProbe } from './lib/tool-probe.ts';
 import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { warmWhenIdle } from './lib/when-idle.ts';
-import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
+import { addToolSpec, ProfileEditor, ShownProbe } from './profile-editor.tsx';
 import { ProviderEditor } from './provider-editor.tsx';
 import { SharedChange } from './shared-change.tsx';
 import { ChooseConflictsContext, FileConflicts } from './studio-conflicts.tsx';
@@ -2322,13 +2323,16 @@ const TreeColumn = memo(function TreeColumn({
  * count, over the inspector, with each issue on its row. Nothing on it changes anything: a picture
  * of the studio for a page that is not the studio, such as a home page. It writes no storage and
  * reports nothing. `on` is where the page's studio runs, so the issues are the ones it would show.
+ * `probe`, on a tool, is a connection test already run: the inspector shows it, scrolled to the end.
  */
 export function StudioEditorPreview({
   workspace,
   on,
+  probe,
 }: {
   workspace: StudioWorkspace;
   on: StudioRunsOn;
+  probe?: ProbeResult;
 }) {
   const selected = workspace.selected;
   const at = workspaceNodeRef(workspace, selected);
@@ -2337,6 +2341,22 @@ export function StudioEditorPreview({
   const compiled = useMemo(() => compileWorkspace(workspace, on), [workspace, on]);
   const editing = innerNodeId(selected, focus) ?? 'identity';
   const still = () => {};
+  const scroller = useRef<HTMLDivElement>(null);
+  // why: A tool's test sits at the foot of its page: the editor stays at its end as the page settles.
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    const content = node?.firstElementChild;
+    if (!probe || !node || !content) return;
+    const toEnd = () => {
+      node.scrollTop = node.scrollHeight;
+    };
+    toEnd();
+    const watch = new ResizeObserver(toEnd);
+    watch.observe(content);
+    return () => {
+      watch.disconnect();
+    };
+  }, [probe]);
   const view: EditorViewState = {
     keysOpen: false,
     setKeysOpen: still,
@@ -2360,15 +2380,19 @@ export function StudioEditorPreview({
         setSheet={still}
       />
       <StackItem size="fill">
-        <RunsOn.Provider value={on}>
-          <ProfileEditor
-            draft={draft}
-            setDraft={still}
-            selectedId={editing}
-            onSelect={still}
-            issues={editorIssuesOf(compiled, focus)}
-          />
-        </RunsOn.Provider>
+        <ScrollableArea label="Editor" height="100%" ref={scroller}>
+          <RunsOn.Provider value={on}>
+            <ShownProbe.Provider value={probe}>
+              <ProfileEditor
+                draft={draft}
+                setDraft={still}
+                selectedId={editing}
+                onSelect={still}
+                issues={editorIssuesOf(compiled, focus)}
+              />
+            </ShownProbe.Provider>
+          </RunsOn.Provider>
+        </ScrollableArea>
       </StackItem>
     </VStack>
   );

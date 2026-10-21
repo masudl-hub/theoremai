@@ -123,71 +123,81 @@ function linesOf(text: string, start: number, end: number): string {
   return text.slice(from, to < 0 ? text.length : to);
 }
 
+/** One state of the keyword automaton. */
+interface KeywordNode {
+  /** The trie's own edges, by code unit. */
+  goto: Map<number, KeywordNode>;
+  /** Every edge, the fail links' folded in: where each code unit leads. */
+  next: Map<number, KeywordNode>;
+  fail: KeywordNode | undefined;
+  /** The keywords that end here, the fail links' too. */
+  ends: string[];
+}
+
+function keywordNode(): KeywordNode {
+  return { goto: new Map(), next: new Map(), fail: undefined, ends: [] };
+}
+
 /** Every keyword of a rule set, read in one pass: an Aho-Corasick automaton over code units. */
 interface KeywordAutomaton {
-  words: readonly string[];
-  next: Map<number, number>[];
-  /** Per node, the words that end there, by index into `words`. */
-  ends: number[][];
+  words: number;
+  root: KeywordNode;
 }
 
 const AUTOMATA = new WeakMap<readonly CredentialRule[], KeywordAutomaton>();
+
+function keywordTrie(words: readonly string[]): KeywordNode {
+  const root = keywordNode();
+  for (const word of words) {
+    let node = root;
+    for (let i = 0; i < word.length; i += 1) {
+      const code = word.charCodeAt(i);
+      const child = node.goto.get(code) ?? keywordNode();
+      node.goto.set(code, child);
+      node = child;
+    }
+    node.ends.push(word);
+  }
+  return root;
+}
+
+/** Links each node of `root`'s trie to its longest proper suffix, breadth first, and folds that in. */
+function linkTrie(root: KeywordNode): void {
+  const queue: KeywordNode[] = [root];
+  for (let head = 0; head < queue.length; head += 1) {
+    const node = queue[head] ?? root;
+    const back = node.fail;
+    if (back) {
+      node.ends.push(...back.ends);
+      for (const [code, target] of back.next) node.next.set(code, target);
+    }
+    for (const [code, child] of node.goto) {
+      node.next.set(code, child);
+      child.fail = back?.next.get(code) ?? root;
+      queue.push(child);
+    }
+  }
+}
 
 function keywordAutomaton(rules: readonly CredentialRule[]): KeywordAutomaton {
   const cached = AUTOMATA.get(rules);
   if (cached) return cached;
   const words = [...new Set(rules.flatMap((rule) => rule.keywords))];
-  const goto: Map<number, number>[] = [new Map()];
-  const ends: number[][] = [[]];
-  for (const [index, word] of words.entries()) {
-    let node = 0;
-    for (let i = 0; i < word.length; i += 1) {
-      const code = word.charCodeAt(i);
-      let child = goto[node]?.get(code);
-      if (child === undefined) {
-        child = goto.length;
-        goto.push(new Map());
-        ends.push([]);
-        goto[node]?.set(code, child);
-      }
-      node = child;
-    }
-    ends[node]?.push(index);
-  }
-  const fail = new Array<number>(goto.length).fill(0);
-  const next = goto.map(() => new Map<number, number>());
-  const queue: number[] = [];
-  for (const [code, child] of goto[0] ?? []) {
-    next[0]?.set(code, child);
-    queue.push(child);
-  }
-  for (let head = 0; head < queue.length; head += 1) {
-    const node = queue[head] as number;
-    const back = fail[node] as number;
-    ends[node]?.push(...(ends[back] ?? []));
-    for (const [code, target] of next[back] ?? []) {
-      if (!goto[node]?.has(code)) next[node]?.set(code, target);
-    }
-    for (const [code, child] of goto[node] ?? []) {
-      next[node]?.set(code, child);
-      fail[child] = node === 0 ? 0 : (next[back]?.get(code) ?? 0);
-      queue.push(child);
-    }
-  }
-  const automaton = { words, next, ends };
+  const root = keywordTrie(words);
+  linkTrie(root);
+  const automaton = { words: words.length, root };
   AUTOMATA.set(rules, automaton);
   return automaton;
 }
 
 /** Where each keyword of `rules` is first in `lower`, by keyword: what `indexOf` finds. */
 function firstKeywords(lower: string, rules: readonly CredentialRule[]): Map<string, number> {
-  const { words, next, ends } = keywordAutomaton(rules);
+  const { words, root } = keywordAutomaton(rules);
   const first = new Map<string, number>();
-  let node = 0;
-  for (let i = 0; i < lower.length && first.size < words.length; i += 1) {
-    node = next[node]?.get(lower.charCodeAt(i)) ?? 0;
-    for (const index of ends[node] ?? []) {
-      const word = words[index] as string;
+  let node = root;
+  for (let i = 0; i < lower.length && first.size < words; i += 1) {
+    node = node.next.get(lower.charCodeAt(i)) ?? root;
+    for (const word of node.ends) {
       if (!first.has(word)) first.set(word, i + 1 - word.length);
     }
   }

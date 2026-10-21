@@ -614,6 +614,9 @@ async function* executeSingleAttemptCycle(args: {
   // invariant: Fresh maxSteps budget per validation/egress attempt. before_end inject
   // re-entry inside this cycle still accumulates stepCount (do not reset there).
   state.stepCount = 0;
+  // invariant: The attempt's reply spans its before_end re-entries; only a new attempt starts it again.
+  state.replyText = '';
+  state.replyMessages = [];
 
   let latestStructured: unknown;
   for (;;) {
@@ -650,6 +653,7 @@ async function* executeSingleAttemptCycle(args: {
       stage: 'before_end',
       step: Math.max(state.stepCount, 1),
       reply: attempt.reply,
+      ...(attempt.replyAt === undefined ? {} : { replyAt: attempt.replyAt }),
       onStage: flow.currentReq.onStage,
       signal: flow.currentReq.signal,
       host: flow.currentGen.host,

@@ -280,7 +280,7 @@ Deno.test('stages: the text a step writes before its calls is in the next step h
       ['tool', read?.[3]?.content ?? null, 0],
     ],
   );
-  assertEquals(replyText(events), 'Let me check.Done.');
+  assertEquals(replyText(events), 'Let me check.\n\nDone.');
 });
 
 Deno.test('stages: before_end inject re-enters the model step under maxSteps', async () => {
@@ -346,8 +346,8 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
   assertEquals(injectedOf(events), [
     { type: 'stage', stage: 'before_end', injected: [{ id: 'steer-4' }] },
   ]);
-  // Both steps reply: the re-entered step's text follows the first.
-  assertEquals(replyText(events), 'first replysecond reply');
+  // Both steps reply: the re-entered step's text follows the first, a blank line apart.
+  assertEquals(replyText(events), 'first reply\n\nsecond reply');
 });
 
 Deno.test('stages: before_end inject cannot exceed maxSteps across re-entry', async () => {

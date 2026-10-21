@@ -51,7 +51,7 @@ import type {
 import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
-import { applyStageInjects } from './stages.ts';
+import { applyStageInjects, recordReply } from './stages.ts';
 import { recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
 import {
@@ -153,6 +153,8 @@ interface StepOutcome {
   reasoning: ReasoningPart[];
   /** The text the call wrote, as its stream guards passed it on. */
   text: string;
+  /** Where that text begins in the attempt's reply, past the break that sets it apart. */
+  replyAt?: number;
   latestStructured?: unknown;
   resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined };
 }
@@ -186,6 +188,8 @@ interface CallTally {
   /** why: A call's failure is the turn's only once the call is not sent again, so it waits for the call's end. */
   failures: TurnEventOf<'error'>[];
   replied: boolean;
+  /** Where the call's text begins in the attempt's reply (`StepExecutionState.replyText`). */
+  replyAt?: number;
 }
 
 /** Takes what an event says about the call itself. True when the event goes no further. */
@@ -206,6 +210,29 @@ function tallyCallEvent(
   return false;
 }
 
+/** What sets one model call's text apart from the reply text before it: a blank line. */
+const CALL_BREAK = '\n\n';
+
+/**
+ * The call's first text, set apart from the attempt's reply before it.
+ *
+ * why: Each model call writes as if it starts the message, so a reply that goes on after tools or
+ * an inject would otherwise run its first word into the last one ("…full picture.Here's").
+ */
+function withCallBreak(
+  event: TurnEventOf<'text'>,
+  tally: CallTally,
+  state: StepExecutionState,
+  generation: ResolvedGeneration,
+): TurnEventOf<'text'> {
+  if (tally.text) return event;
+  const before = state.replyText;
+  const breaks =
+    before && generation.structured === null && !/\s$/.test(before) && !/^\s/.test(event.text);
+  tally.replyAt = before.length + (breaks ? CALL_BREAK.length : 0);
+  return breaks ? { ...event, text: `${CALL_BREAK}${event.text}` } : event;
+}
+
 /** Records an event the call gave. True when the host gets it now. */
 function releasesNow(
   event: TurnEvent,
@@ -220,7 +247,10 @@ function releasesNow(
     state.withheldVisible = true;
     return false;
   }
-  if (event.type === 'text') state.released += event.text;
+  if (event.type === 'text') {
+    state.released += event.text;
+    state.replyText += event.text;
+  }
   // why: Text and media stream via progressive-yield under egress, thoughts
   // stream unguarded; holdLate only buffers non-visible events (e.g.
   // structured) for validation.
@@ -333,9 +363,11 @@ async function* executeAutonomousStep(
         if (!buffer.holdVisible) yield event;
         continue;
       }
+      // why: The model's history keeps what it wrote; only the reply the host gets is set apart.
+      const next = event.type === 'text' ? withCallBreak(event, tally, state, genForStep) : event;
       if (tallyCallEvent(event, tally, call)) continue;
-      if (!releasesNow(event, control, state, buffer)) continue;
-      yield* shown.show(event);
+      if (!releasesNow(next, control, state, buffer)) continue;
+      yield* shown.show(next);
     }
   } catch (err) {
     call.end(
@@ -365,6 +397,7 @@ async function* executeAutonomousStep(
     reasoning: tally.reasoning,
     text: tally.text,
     latestStructured: tally.latestStructured,
+    ...(tally.replyAt === undefined ? {} : { replyAt: tally.replyAt }),
     ...(resume ? { resume } : {}),
   };
 }
@@ -540,7 +573,7 @@ async function* handleModelCalls(
   { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
   const { calls: upstreamCalls, reasoning } = outcome;
-  if (upstreamCalls.length > 0) state.currentHistory.push(...stepReply(outcome));
+  if (upstreamCalls.length > 0) recordReply(state, stepReply(outcome), outcome.replyAt);
   const stepId = crypto.randomUUID();
   const leakScope = {
     canary: generation.canary,
@@ -670,11 +703,15 @@ async function* executeAttempt(args: {
   system: BoundSystem;
   provider: TurnModel;
   state: StepExecutionState;
-}): AsyncGenerator<TurnEvent, { latestStructured?: unknown; reply: TurnHistoryMessage[] }> {
+}): AsyncGenerator<
+  TurnEvent,
+  { latestStructured?: unknown; reply: TurnHistoryMessage[]; replyAt?: number }
+> {
   const { profile, generation, system, provider, state } = args;
   let latestStructured: unknown;
   // why: The answer that ends the attempt is not in turn history; a `before_end` inject puts it there first.
   let reply: TurnHistoryMessage[] = [];
+  let replyAt: number | undefined;
   // why: Text streams via progressive-yield under egress, thoughts unguarded; validation and egress
   // both hold non-visible events (structured) until the attempt gate, so a policy
   // sees the structured payload before any of it reaches the host.
@@ -702,6 +739,7 @@ async function* executeAttempt(args: {
       latestStructured = stepResult.latestStructured;
     }
     reply = stepResult.calls.length > 0 ? [] : stepReply(stepResult);
+    replyAt = stepResult.replyAt;
     const executed = yield* handleModelCalls(
       stepResult,
       generation,
@@ -719,7 +757,7 @@ async function* executeAttempt(args: {
     }
   }
 
-  return { latestStructured, reply };
+  return { latestStructured, reply, ...(replyAt === undefined ? {} : { replyAt }) };
 }
 
 export { executeAttempt };

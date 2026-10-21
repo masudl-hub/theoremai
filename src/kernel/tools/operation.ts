@@ -2,13 +2,13 @@ import { z } from 'zod';
 import { publicError, TheoremError } from '../../guardrails/error.ts';
 import { errorKindSchema, guardrailHit, provenance } from '../../guardrails/event-schemas.ts';
 import { type JsonObject, type JsonValue, jsonObjectSchema, jsonValueSchema } from '../json.ts';
+import type { InjectUnit } from '../stages.ts';
 import type { GateReference, TurnEventOf } from '../turn-events.ts';
 import {
   interactionPartSchema,
   TURN_EVENT_SCHEMAS,
   turnHistoryMessageSchema,
 } from '../turn-events.ts';
-import type { TurnHistoryMessage } from '../types.ts';
 import type { ModelToolResult, PageAnswer, ToolFailure } from './types.ts';
 
 export type TerminalToolEvent = TurnEventOf<'tool'> & {
@@ -56,7 +56,7 @@ export interface ToolOperationOutcome {
     denied?: true;
     callNotStarted?: boolean;
     aborted?: boolean | { reason?: string };
-    pendingInject?: { id?: string; messages: TurnHistoryMessage[] }[];
+    pendingInject?: InjectUnit[];
   };
 }
 
@@ -146,7 +146,11 @@ export const toolOperationOutcomeSchema: z.ZodType<ToolOperationOutcome> = z.str
     aborted: z.union([z.boolean(), z.strictObject({ reason: z.string().optional() })]).optional(),
     pendingInject: z
       .array(
-        z.strictObject({ id: z.string().optional(), messages: z.array(turnHistoryMessageSchema) }),
+        z.strictObject({
+          id: z.string().optional(),
+          messages: z.array(turnHistoryMessageSchema),
+          released: z.number().int().nonnegative().optional(),
+        }),
       )
       .optional(),
   }),

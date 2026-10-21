@@ -48,6 +48,16 @@ interface StepExecutionState {
   withheldVisible?: boolean;
   /** The reply text the stream's gate released this attempt, as it released it. */
   released: string;
+  /**
+   * The attempt's reply text as the host has it, across `before_end` re-entries, less any draft an
+   * inject dropped (`InjectUnit.released`).
+   */
+  replyText: string;
+  /**
+   * The messages in `currentHistory` that hold the model's text of `replyText`, each with where its
+   * text begins there: what an inject's drop cuts.
+   */
+  replyMessages: { message: TurnHistoryMessage; at: number }[];
   /** The canary opening the last provider call ended on, read in front of the next call's reply. */
   canaryCarry?: string;
   /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
@@ -134,6 +144,8 @@ function openTurnState(args: {
     allEmittedEvents: args.allEmittedEvents ?? [],
     attemptEvents: [],
     released: '',
+    replyText: '',
+    replyMessages: [],
     givenUrls: givenUrlSets(),
     destinations: turnDestinations(),
     canaryGiven: false,

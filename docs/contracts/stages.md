@@ -116,6 +116,12 @@ interface StageResult {
   inject?: TurnHistoryMessage[];
   /** Names this inject; the stage event recording it landing carries it in `injected`. */
   injectId?: string;
+  /**
+   * With `inject`, at `post_tool` or `before_end` on text: how many characters of the attempt's
+   * reply text the user already has. The rest is a draft: it leaves the turn history and the
+   * reply when the inject lands. Left out, the user has all of it.
+   */
+  released?: number;
   abort?: boolean | { reason?: string };
   /** pre_tool: refuse the call. post_tool: replace the result with this failure. */
   deny?: { code?: string; message?: string };
@@ -189,13 +195,31 @@ ran; `warnings` lists warning codes. See
    history first, then the inject, and the step loop re-enters subject to
    **maxSteps** (see Budgets), so the model goes on from its answer. On live:
    schedule ingress; does not invent a fake model pull.
+7. `released` on text (`post_tool` / `before_end`): the host says how much of
+   the attempt's reply text the user already has. When that is less than all
+   of it, the rest is a draft the user never got, and it leaves before the
+   inject lands: from the text messages the model wrote this attempt (a message
+   past the count goes; one across it is cut), from the reply the attempt gate
+   reads, and from the reply. The stage event that reports the landing carries
+   `released`, and `keptReply` cuts the reply there, so a host's final text is
+   what the user has plus what the model writes next. Calls and tool results
+   never drop. A value that is not a non-negative whole number warns
+   `inject_released_invalid` and nothing drops. Live speaks as it goes, so it
+   has nothing to drop and does not read `released`.
+
+**Reply text across model calls.** Each model call writes as if it starts the
+message. When a call's first text follows reply text that ends without
+whitespace, and the call itself starts without whitespace, the host gets a
+blank line (`\n\n`) before it. Turn history keeps what the model wrote, so a
+provider checkpoint still covers it. Structured replies get no blank line.
 
 **Reporting a landed inject.** A handler names its inject with `injectId` (a
 non-empty string; anything else refuses the inject whole with an
 `inject_id_invalid` warning, as does an `injectId` without an `inject`). Where
 the messages land in the conversation — not when the handler returns — the
 kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id }] }`
-naming the injects that landed at that stage. An inject that never lands (a
+naming the injects that landed at that stage, and `released` when a draft
+dropped (see 7). An inject that never lands (a
 live cycle that aborts first, a refused live inject) is never reported, so a
 host that sent it knows to send it again. Unnamed injects land unreported.
 

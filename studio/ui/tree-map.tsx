@@ -21,7 +21,7 @@ import {
   IconTimeline,
   IconTool,
 } from '@tabler/icons-react';
-import { type CSSProperties, useRef } from 'react';
+import { useRef } from 'react';
 import { mapCurve } from '../map-line.ts';
 import {
   createBlankDraft,
@@ -63,7 +63,8 @@ interface Place {
 interface Row extends Place {
   node: StudioTreeNode;
   agent: string;
-  parent?: Place;
+  /** The row above it in the tree, by its token id. */
+  parent?: string;
 }
 
 /** A runner, a provider or the tool registry beside the tree, the rows it joins, and the feed above it that it runs. */
@@ -86,7 +87,7 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
       agent,
       x: PAD + depth * INDENT,
       y: PAD + HALF + rows.length * ROW,
-      ...(parent ? { parent: { x: parent.x, y: parent.y } } : {}),
+      ...(parent ? { parent: rowId(parent) } : {}),
     };
     rows.push(row);
     for (const child of node.children) walk(child, agent, depth + 1, row);
@@ -235,165 +236,256 @@ function linePath(from: Place, to: Place): string {
   return `M ${x} ${from.y + HALF} V ${to.y - TURN} Q ${x} ${to.y} ${x + TURN} ${to.y} H ${to.x - LINE_GAP}`;
 }
 
+/**
+ * From under the parent's icon to a child in any column of the rows under it: across just under
+ * the parent to the child's own trunk, a level in from the child, then down it and across. A child
+ * one level in has its trunk under the parent's icon, so it is the tree's line.
+ */
+function underPath(from: Place, to: Place): string {
+  const trunk = to.x - INDENT + TRUNK;
+  const across = from.y + HALF + LINE_GAP;
+  return (
+    `M ${from.x + TRUNK} ${from.y + HALF} V ${across} H ${trunk} V ${to.y - TURN}` +
+    ` Q ${trunk} ${to.y} ${trunk + TURN} ${to.y} H ${to.x - LINE_GAP}`
+  );
+}
+
 export interface StudioTreeMapProps {
   workspace: StudioWorkspace;
   /** The keys of the agents to draw, in the workspace's order; every agent when unset. */
   agents?: readonly string[] | undefined;
   /**
-   * Every tool in the registry, not a few, and each turn runner opened into the steps of a turn. Turned on, what is drawn moves to make room, then each
-   * node it adds draws in after the one before, its line first, as the loader's map draws; turned
-   * off, they leave in the reverse order and the rest moves back.
+   * How far the tree has grown, from 0 to 1. As it grows each section drifts to its own zone: the
+   * providers to a band along the top, each agent's tree apart from the next with its runner level
+   * with it, and the tool registry to a field of its own. What growing adds draws in on the way,
+   * each over its own stretch, its line and then its token: the steps of a turn under each turn
+   * runner, and every tool in the registry. Shrinking takes it all back the same way.
    */
-  detail?: boolean | undefined;
+  grow?: number | undefined;
 }
 
-/** The order an added node draws in, and which end its line starts from: 1 the path's start, -1 its end. */
-const addedStyle = (index: number, from: 1 | -1 = 1) =>
-  ({ '--added-i': index, '--added-from': from }) as CSSProperties;
+/** Grown, a row's height and the room between two agents' trees. */
+const GROWN_ROW = 28;
+const AGENT_GAP = 16;
+/** Grown, the providers' band and the room under it. */
+const BAND = GROWN_ROW + AGENT_GAP;
+/** Grown, a turn's steps in rows under its runner, so many to a row. */
+const STEPS_ACROSS = 3;
+const STEP_SLOT = 160;
+/** Grown, the registry's field: right of the turn's steps, its tools in columns this tall. */
+const REGISTRY_IN = 186;
+const TOOLS_DOWN = 16;
+const TOOL_SLOT = 210;
+/** Over what stretch of growing the added nodes draw, and how long each takes of it. */
+const DRAW_FROM = 0.2;
+const DRAW_TO = 0.95;
+const DRAW_SPAN = 0.1;
 
-/**
- * A line's path as a style too, so a line that moves eases to its new shape where the browser
- * eases `d`; the attribute draws it where it does not.
- */
-const pathStyle = (d: string, style?: CSSProperties) =>
-  ({ ...style, d: `path("${d}")` }) as CSSProperties;
+const clamp = (value: number) => Math.min(Math.max(value, 0), 1);
+const between = (from: number, to: number, at: number) => from + (to - from) * at;
 
-export function StudioTreeMap({ workspace, agents, detail = false }: StudioTreeMapProps) {
+/** Every other one from each list, while both last: the turn's steps and the tools draw by turns. */
+function byTurns<T>(first: T[], second: T[]): T[] {
+  return Array.from({ length: Math.max(first.length, second.length) }, (_, index) =>
+    [first[index], second[index]].filter((each): each is T => each !== undefined),
+  ).flat();
+}
+
+/** Each node's place grown: by its token id, rows and feeds alike. */
+function grownPlaces(
+  rows: Row[],
+  feeds: Feed[],
+  feedX: number,
+  width: (id: string) => number,
+): Map<string, Place> {
+  const places = new Map<string, Place>();
+  const top = PAD + HALF + BAND;
+  let agents = -1;
+  rows.forEach((row, index) => {
+    if (index === 0 || rows[index - 1]?.agent !== row.agent) agents += 1;
+    places.set(rowId(row), { x: row.x, y: top + index * GROWN_ROW + agents * AGENT_GAP });
+  });
+  /** Each provider's place in the band, by name: an agent that has one too shares it. */
+  const band = new Map<string, Place>();
+  let bandX = feedX;
+  const under = new Map<string, number>();
+  let stepsEnd = top;
+  for (const feed of feeds) {
+    const above = feed.under === undefined ? undefined : places.get(feed.under);
+    if (feed.id.includes('/provider:')) {
+      const name = feed.label;
+      if (!band.has(name)) {
+        band.set(name, { x: bandX, y: PAD + HALF });
+        bandX += width(feed.id) + AGENT_GAP;
+      }
+      places.set(feed.id, band.get(name) as Place);
+    } else if (feed.id === REGISTRY) {
+      places.set(feed.id, { x: feedX + REGISTRY_IN, y: stepsEnd + GROWN_ROW * 1.5 });
+    } else if (feed.under === REGISTRY && above && feed.depth > 0) {
+      const index = under.get(REGISTRY) ?? 0;
+      under.set(REGISTRY, index + 1);
+      places.set(feed.id, {
+        x: above.x + INDENT + Math.floor(index / TOOLS_DOWN) * TOOL_SLOT,
+        y: above.y + ((index % TOOLS_DOWN) + 1) * GROWN_ROW,
+      });
+    } else if (feed.under === REGISTRY && above) {
+      const tools = Math.min(under.get(REGISTRY) ?? 0, TOOLS_DOWN);
+      places.set(feed.id, { x: above.x, y: above.y + (tools + 1) * GROWN_ROW });
+    } else if (feed.under !== undefined && above) {
+      const index = under.get(feed.under) ?? 0;
+      under.set(feed.under, index + 1);
+      const y = above.y + (Math.floor(index / STEPS_ACROSS) + 1) * GROWN_ROW;
+      places.set(feed.id, { x: above.x + INDENT + (index % STEPS_ACROSS) * STEP_SLOT, y });
+      stepsEnd = Math.max(stepsEnd, y);
+    } else {
+      const into = places.get(feed.into[0] ?? '');
+      places.set(feed.id, { x: feedX, y: into?.y ?? feed.y });
+    }
+  }
+  return places;
+}
+
+export function StudioTreeMap({ workspace, agents, grow = 0 }: StudioTreeMapProps) {
   const root = useRef<HTMLDivElement>(null);
   const rows = rowsOf(workspace, agents);
   const few = feedsOf(workspace, rows, false);
   const full = feedsOf(workspace, rows, true);
-  const fewIds = new Set(few.map((feed) => feed.id));
-  const addedIndex = new Map(
-    full.filter((feed) => !fewIds.has(feed.id)).map((feed, index) => [feed.id, index]),
-  );
-  /** The feeds laid out; without detail, an added one waits on the feed it comes under. */
-  const feeds = detail ? full : few;
   const widths = useTokenWidths(root, workspace);
+  const width = (id: string) => widths[id] ?? GUESS;
   const drafts = new Map(
     workspace.agents.map((agent) => [
       agent.key,
       libraryDraft(workspace, agent.key) ?? createBlankDraft(),
     ]),
   );
-  const right = (row: Row) => row.x + (widths[rowId(row)] ?? GUESS);
-  const feedX = Math.max(0, ...rows.map(right)) + GAP;
-  const byId = new Map(rows.map((row) => [rowId(row), row]));
-  const feedById = new Map(feeds.map((feed) => [feed.id, feed]));
-  const placed = (feed: Feed): Feed =>
-    feedById.get(feed.id) ?? { ...feed, y: feedById.get(feed.under ?? '')?.y ?? feed.y };
-  const height = PAD * 2 + Math.max(rows.length * ROW, ...feeds.map((feed) => feed.y + HALF - PAD));
-  const feedLeft = (feed: Feed) => feedX + feed.depth * INDENT;
-  const feedRight = (feed: Feed) => feedLeft(feed) + (widths[feed.id] ?? GUESS);
-  /** Right of every feed from `above` down to `feed`. */
-  const railFor = (feed: Feed, above: Feed) =>
-    Math.max(...feeds.filter((each) => each.y >= above.y && each.y <= feed.y).map(feedRight)) +
-    RAIL;
-  const rails = feeds.flatMap((feed) => {
+  const feedX = Math.max(0, ...rows.map((row) => row.x + width(rowId(row)))) + GAP;
+
+  // The tree as it stands: the rows, and the few feeds beside them.
+  const closed = new Map<string, Place>(rows.map((row) => [rowId(row), row]));
+  for (const feed of few) closed.set(feed.id, { x: feedX + feed.depth * INDENT, y: feed.y });
+  const grown = grownPlaces(rows, full, feedX, width);
+  const feedById = new Map(full.map((feed) => [feed.id, feed]));
+  /**
+   * Where a node is, this far grown. One growing adds keeps its place in its zone and rides with
+   * the feed it comes under, so a zone drifts whole.
+   */
+  const at = (id: string): Place => {
+    const to = grown.get(id) ?? closed.get(id) ?? { x: 0, y: 0 };
+    const from = closed.get(id);
+    if (from) return { x: between(from.x, to.x, grow), y: between(from.y, to.y, grow) };
+    const under = feedById.get(id)?.under;
+    const holder = under === undefined ? undefined : grown.get(under);
+    if (under === undefined || holder === undefined) return to;
+    const now = at(under);
+    return { x: to.x + now.x - holder.x, y: to.y + now.y - holder.y };
+  };
+
+  // What growing adds draws in order, the turn's steps and the tools by turns.
+  const fewIds = new Set(few.map((feed) => feed.id));
+  const added = full.filter((feed) => !fewIds.has(feed.id));
+  const order = byTurns(
+    added.filter((feed) => feed.under !== REGISTRY),
+    added.filter((feed) => feed.under === REGISTRY),
+  );
+  /** How far an added node has drawn, 0 to 1: its line in the first half, its token in the second. */
+  const drawn = new Map(
+    order.map((feed, index) => {
+      const start =
+        DRAW_FROM + ((DRAW_TO - DRAW_SPAN - DRAW_FROM) * index) / Math.max(order.length - 1, 1);
+      return [feed.id, clamp((grow - start) / DRAW_SPAN)];
+    }),
+  );
+  const lineDrawn = (id: string) => {
+    const part = drawn.get(id);
+    return part === undefined
+      ? {}
+      : { pathLength: 1, style: { strokeDasharray: 1, strokeDashoffset: 1 - clamp(part * 2) } };
+  };
+  const shown = full.filter((feed) => (drawn.get(feed.id) ?? 1) > 0);
+
+  const right = (id: string) => at(id).x + width(id);
+  /** Right of every feed from `above` down to `feed`, where each stands now. */
+  const railFor = (feed: Feed, above: Feed) => {
+    const [top, bottom] = [at(above.id).y, at(feed.id).y].sort((a, b) => a - b);
+    const lying = shown.filter((each) => {
+      const { y } = at(each.id);
+      return y >= (top ?? 0) && y <= (bottom ?? 0) && each.id !== feed.id;
+    });
+    return Math.max(right(feed.id), ...lying.map((each) => right(each.id))) + RAIL;
+  };
+  const places = [...rows.map(rowId), ...shown.map((feed) => feed.id)];
+  const rails = shown.flatMap((feed) => {
     const above = feed.under === undefined ? undefined : feedById.get(feed.under);
     return above && feed.depth <= above.depth ? [railFor(feed, above)] : [];
   });
-  const width = Math.max(GUESS, ...feeds.map(feedRight), ...rails) + PAD;
-  /** What marks a node or line detail adds: its turn to draw, and the end its line draws from. */
-  const addedProps = (id: string, from: 1 | -1 = 1) => {
-    const index = addedIndex.get(id);
-    return index === undefined ? {} : { 'data-added': '', style: addedStyle(index, from) };
-  };
+  const mapWidth = Math.max(GUESS, ...places.map(right), ...rails) + PAD;
+  const height = Math.max(...places.map((id) => at(id).y)) + HALF + PAD;
+
   return (
-    <div
-      ref={root}
-      className="studio-tree-map"
-      data-detail={detail ? '' : undefined}
-      style={{ width, height, '--added-n': addedIndex.size } as CSSProperties}
-    >
-      <svg className="studio-tree-map-lines" width={width} height={height} aria-hidden="true">
+    <div ref={root} className="studio-tree-map" style={{ width: mapWidth, height }}>
+      <svg className="studio-tree-map-lines" width={mapWidth} height={height} aria-hidden="true">
         {rows.map(
           (row) =>
             row.parent && (
               <path
                 key={rowId(row)}
                 className="map-line"
-                d={linePath(row.parent, row)}
-                style={pathStyle(linePath(row.parent, row))}
+                d={linePath(at(row.parent), at(rowId(row)))}
               />
             ),
         )}
-        {full.flatMap((each) => {
-          const feed = placed(each);
-          return feed.into.map((id) => {
-            const row = byId.get(id);
-            if (!row) return null;
+        {shown.flatMap((feed) =>
+          feed.into.map((id) => {
+            const from = at(feed.id);
             const { d } = mapCurve(
-              { x: feedX - LINE_GAP, y: feed.y },
-              { x: right(row) + LINE_GAP, y: row.y },
+              { x: from.x - LINE_GAP, y: from.y },
+              { x: right(id) + LINE_GAP, y: at(id).y },
             );
-            // The line runs from the feed to the row; it draws from the row.
-            const { style, ...added } = addedProps(feed.id, -1);
-            return (
-              <path
-                key={`${feed.id}>${id}`}
-                className="map-line"
-                d={d}
-                pathLength={1}
-                style={pathStyle(d, style)}
-                {...added}
-              />
-            );
-          });
-        })}
-        {full.map((each) => {
-          const feed = placed(each);
+            return <path key={`${feed.id}>${id}`} className="map-line" d={d} />;
+          }),
+        )}
+        {shown.map((feed) => {
           const above = feed.under === undefined ? undefined : feedById.get(feed.under);
           if (above === undefined) return null;
-          const from = { x: feedLeft(above), y: above.y };
-          // One of its own turns in from the trunk, as a tree row does; one level with it comes round
+          // One of its own comes down from it, as a tree row does; one level with it comes round
           // the right of what lies between, so it reads as joining the feed, not as one of its own.
-          const isOwn = feed.depth > above.depth;
-          const d = isOwn
-            ? linePath(from, { x: feedLeft(feed), y: feed.y })
-            : sidePath(
-                { x: feedRight(feed) + LINE_GAP, y: feed.y },
-                { x: feedRight(above) + LINE_GAP, y: above.y },
-                railFor(feed, above),
-              );
-          // A turn in runs from the feed above; a line round the side runs from this one.
-          const { style, ...added } = addedProps(feed.id, isOwn ? 1 : -1);
-          return (
-            <path
-              key={`${feed.id}^`}
-              className="map-line"
-              d={d}
-              pathLength={1}
-              style={pathStyle(d, style)}
-              {...added}
-            />
-          );
+          const d =
+            feed.depth > above.depth
+              ? underPath(at(above.id), at(feed.id))
+              : sidePath(
+                  { x: right(feed.id) + LINE_GAP, y: at(feed.id).y },
+                  { x: right(above.id) + LINE_GAP, y: at(above.id).y },
+                  railFor(feed, above),
+                );
+          return <path key={`${feed.id}^`} className="map-line" d={d} {...lineDrawn(feed.id)} />;
         })}
       </svg>
       {rows.map((row) => {
         const draft = drafts.get(row.agent) ?? createBlankDraft();
+        const { x, y } = at(rowId(row));
         return (
           <MapToken
             key={rowId(row)}
             id={rowId(row)}
             label={row.node.label}
             icon={nodeIcon(draft, row.node.ref)}
-            x={row.x}
-            y={row.y}
+            x={x}
+            y={y}
           />
         );
       })}
-      {full.map((each) => {
-        const feed = placed(each);
+      {shown.map((feed) => {
+        const { x, y } = at(feed.id);
+        const part = drawn.get(feed.id);
         return (
           <MapToken
             key={feed.id}
             id={feed.id}
             label={feed.label}
             icon={feed.icon}
-            x={feedLeft(feed)}
-            y={feed.y}
-            {...addedProps(feed.id)}
+            x={x}
+            y={y}
+            {...(part === undefined ? {} : { style: { opacity: clamp(part * 2 - 1) } })}
           />
         );
       })}

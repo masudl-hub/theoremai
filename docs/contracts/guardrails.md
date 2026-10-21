@@ -536,8 +536,12 @@ finished and the current one scored on its rows so far.
 To read a run in the studio, start the studio from the folder the bench ran in.
 Test guardrails then shows a Health view. It lists each detector on each
 dataset, with recall, false alarms, and time, and the change since the run
-before. Open a row to see its worst categories and the texts behind each
-figure, with each match marked. **Probe the draft** sends one of those texts
+before. Each dataset's name opens its source page, and its licence sits
+beside it. The Matrix view shades each boundary against each detector by
+recall, false alarms or p95 time, pooled over the datasets that cross there:
+blue where it does well, grey where it does badly, and white where nothing
+scores it. A cell opens its rows in the table. Open a row to see its worst
+categories and the texts behind each figure, with each match marked. **Probe the draft** sends one of those texts
 through the probe again, with the open draft.
 
 A run still going shows as it goes: how many datasets it has finished, the one

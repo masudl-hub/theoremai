@@ -3,6 +3,7 @@ import { Button } from '@astryxdesign/core/Button';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Item } from '@astryxdesign/core/Item';
+import { Link } from '@astryxdesign/core/Link';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
 import { ProgressBar } from '@astryxdesign/core/ProgressBar';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
@@ -28,6 +29,7 @@ import { PaneLayout, PanePanel, PaneState } from '@theoremjs/react/ui';
 import { type ReactNode, useEffect, useState } from 'react';
 import {
   BENCH_OUTCOMES,
+  type BenchDatasetFacts,
   type BenchOutcome,
   type BenchProgress,
   type BenchRow,
@@ -38,7 +40,18 @@ import {
   ROLES,
   type Role,
 } from '../guardrail-bench.ts';
-import { PROBE_BOUNDARY_NOTES, PROBE_TEXT_LIMIT, type StudioRunPayload } from '../mod.ts';
+import {
+  PROBE_BOUNDARY_NOTES,
+  PROBE_TEXT_LIMIT,
+  type ProbeBoundary,
+  type StudioRunPayload,
+} from '../mod.ts';
+import {
+  GuardrailMatrix,
+  MATRIX_FIGURE_LABELS,
+  MATRIX_FIGURES,
+  type MatrixFigure,
+} from './guardrail-matrix.tsx';
 import { GuardrailTester, type Outcome, sendProbe, Verdict } from './guardrail-tester.tsx';
 import { useProject } from './lib/studio-project.ts';
 
@@ -76,6 +89,7 @@ type ScoreRow = {
   id: string;
   dataset: string;
   role: Role;
+  boundary: ProbeBoundary;
   detector: Detector;
   recall?: number;
   falseAlarmRate?: number;
@@ -107,6 +121,7 @@ function scoreRows(
         id,
         dataset: score.dataset,
         role: score.role,
+        boundary: score.boundary,
         detector: score.detector,
         recall: score.recall,
         falseAlarmRate: score.falseAlarmRate,
@@ -119,6 +134,29 @@ function scoreRows(
         score,
       };
     }),
+  );
+}
+
+/** A licence as short as it reads: the upstream's own words after the first are left to its page. */
+function shortLicense(license: string): string {
+  return license.startsWith('other') ? 'Other' : license;
+}
+
+/** A dataset's name, opening its source page, with its licence beside it. */
+function DatasetName({ id, facts }: { id: string; facts: BenchDatasetFacts | undefined }) {
+  return (
+    <HStack gap={1} align="center" wrap="wrap">
+      {facts?.source ? (
+        <Link href={facts.source} isExternalLink label={id} />
+      ) : (
+        <Text type="supporting">{id}</Text>
+      )}
+      {facts?.license && (
+        <Text type="supporting" color="secondary">
+          {shortLicense(facts.license)}
+        </Text>
+      )}
+    </HStack>
   );
 }
 
@@ -136,7 +174,15 @@ function RateCell({ now, before }: { now: number | undefined; before: number | u
   );
 }
 
-function ScoresTable({ rows, onOpen }: { rows: ScoreRow[]; onOpen: (row: ScoreRow) => void }) {
+function ScoresTable({
+  rows,
+  facts,
+  onOpen,
+}: {
+  rows: ScoreRow[];
+  facts: ReadonlyMap<string, BenchDatasetFacts>;
+  onOpen: (row: ScoreRow) => void;
+}) {
   const { sortedData, sortConfig } = useTableSortableState({
     data: rows,
     defaultSort: [{ sortKey: 'falseAlarmRate', direction: 'descending' }],
@@ -170,11 +216,11 @@ function ScoresTable({ rows, onOpen }: { rows: ScoreRow[]; onOpen: (row: ScoreRo
         {
           key: 'dataset',
           header: 'Dataset',
-          width: proportional(1, { minWidth: 140 }),
+          width: proportional(1, { minWidth: 180 }),
           sortable: true,
           renderCell: (row) => (
-            <HStack gap={1} align="center">
-              <Text type="supporting">{row.dataset}</Text>
+            <HStack gap={1} align="center" wrap="wrap">
+              <DatasetName id={row.dataset} facts={facts.get(row.dataset)} />
               {row.running && <Token label="Running" size="sm" color="blue" />}
               {row.thin && !row.running && <Token label="Few rows" size="sm" color="gray" />}
             </HStack>
@@ -235,7 +281,7 @@ function Skipped({ skipped }: { skipped: BenchSummary['skipped'] }) {
 function RunFacts({ summary, previous }: { summary: BenchSummary; previous?: BenchSummary }) {
   return (
     <VStack gap={2}>
-      <MetadataList>
+      <MetadataList columns={2}>
         <MetadataListItem label="Run">{summary.run}</MetadataListItem>
         <MetadataListItem label="Commit">{summary.commit.slice(0, 8)}</MetadataListItem>
         <MetadataListItem label="Took">{duration(summary.seconds)}</MetadataListItem>
@@ -257,7 +303,7 @@ function LiveFacts({ live, previous }: { live: BenchProgress; previous?: BenchSu
         max={live.datasets.length}
         hasValueLabel
       />
-      <MetadataList>
+      <MetadataList columns={2}>
         <MetadataListItem label="Run">{live.run}</MetadataListItem>
         <MetadataListItem label="Now">
           {live.current
@@ -435,6 +481,7 @@ function OutcomeRows({
 /** One detector on one dataset: its figures, its worst categories, and the rows behind them. */
 function ScoreDetail({
   row,
+  facts,
   run,
   endpoint,
   payload,
@@ -442,6 +489,7 @@ function ScoreDetail({
   onBack,
 }: {
   row: ScoreRow;
+  facts: BenchDatasetFacts | undefined;
   run: string;
   endpoint: string;
   payload: StudioRunPayload;
@@ -469,7 +517,9 @@ function ScoreDetail({
         align="start"
       />
       <MetadataList>
-        <MetadataListItem label="Dataset">{score.dataset}</MetadataListItem>
+        <MetadataListItem label="Dataset">
+          <DatasetName id={score.dataset} facts={facts} />
+        </MetadataListItem>
         <MetadataListItem label="Boundary">
           {PROBE_BOUNDARY_NOTES[score.boundary].label}
         </MetadataListItem>
@@ -533,16 +583,21 @@ function rolesIn(scores: readonly DatasetScore[]): Role[] {
  * The guardrails bench's last run: each detector's recall, false alarms and time on each dataset,
  * against the run before; a row opens on the texts behind its figures.
  */
+type HealthView = 'table' | 'matrix';
+type Place = { boundary: ProbeBoundary; detector: Detector };
+
 function GuardrailHealth({
   answer,
   endpoint,
   payload,
   isWide,
+  aside,
 }: {
   answer: BenchRunAnswer;
   endpoint: string;
   payload: StudioRunPayload;
   isWide: boolean;
+  aside: ReactNode;
 }) {
   const { live, summary } = answer;
   // why: A run still going is compared with the last whole run; a finished one with the run before it.
@@ -550,13 +605,26 @@ function GuardrailHealth({
   const scores = live?.scores ?? summary?.scores ?? [];
   const run = live?.run ?? summary?.run ?? '';
   const roles = rolesIn(scores);
+  const facts = new Map(
+    [...(summary?.datasets ?? []), ...(live?.datasets ?? [])].map((each) => [each.id, each]),
+  );
   const [role, setRole] = useState<Role | 'all'>('all');
+  const [view, setView] = useState<HealthView>('table');
+  const [figure, setFigure] = useState<MatrixFigure>('recall');
+  const [place, setPlace] = useState<Place | null>(null);
   const [open, setOpen] = useState<ScoreRow | null>(null);
-  const rows = scoreRows(scores, previous, live?.current?.dataset).filter(
-    (row) => role === 'all' || row.role === role,
+  const inRole = scores.filter((dataset) => role === 'all' || dataset.role === role);
+  const rows = scoreRows(inRole, previous, live?.current?.dataset).filter(
+    (row) => !place || (row.boundary === place.boundary && row.detector === place.detector),
   );
   const overview = (
     <VStack gap={4} padding={4}>
+      <HStack gap={3} align="center">
+        <StackItem size="fill">
+          <Text weight="semibold">Guardrails health</Text>
+        </StackItem>
+        {aside}
+      </HStack>
       {live ? (
         <LiveFacts live={live} previous={previous} />
       ) : (
@@ -575,7 +643,54 @@ function GuardrailHealth({
           <SegmentedControlItem key={each} value={each} label={ROLE_LABELS[each]} />
         ))}
       </SegmentedControl>
-      <ScoresTable rows={rows} onOpen={setOpen} />
+      <HStack gap={2} align="center" wrap="wrap">
+        <SegmentedControl
+          label="View"
+          size="sm"
+          value={view}
+          onChange={(next) => {
+            setView(next === 'matrix' ? 'matrix' : 'table');
+          }}
+        >
+          <SegmentedControlItem value="table" label="Table" />
+          <SegmentedControlItem value="matrix" label="Matrix" />
+        </SegmentedControl>
+        {view === 'matrix' && (
+          <SegmentedControl
+            label="Shaded by"
+            size="sm"
+            value={figure}
+            onChange={(next) => {
+              setFigure(MATRIX_FIGURES.find((each) => each === next) ?? 'recall');
+            }}
+          >
+            {MATRIX_FIGURES.map((each) => (
+              <SegmentedControlItem key={each} value={each} label={MATRIX_FIGURE_LABELS[each]} />
+            ))}
+          </SegmentedControl>
+        )}
+        {view === 'table' && place && (
+          <Token
+            size="sm"
+            label={`${DETECTOR_META[place.detector].label} at ${PROBE_BOUNDARY_NOTES[place.boundary].label}`}
+            onRemove={() => {
+              setPlace(null);
+            }}
+          />
+        )}
+      </HStack>
+      {view === 'matrix' ? (
+        <GuardrailMatrix
+          scores={inRole}
+          figure={figure}
+          onOpen={(boundary, detector) => {
+            setPlace({ boundary, detector });
+            setView('table');
+          }}
+        />
+      ) : (
+        <ScoresTable rows={rows} facts={facts} onOpen={setOpen} />
+      )}
     </VStack>
   );
   return (
@@ -589,6 +704,7 @@ function GuardrailHealth({
           <ScoreDetail
             key={open.id}
             row={open}
+            facts={facts.get(open.dataset)}
             run={run}
             endpoint={endpoint}
             payload={payload}
@@ -660,43 +776,46 @@ export function GuardrailPane({ payload, isWide }: { payload: StudioRunPayload; 
   const bench = useBenchRun(endpoint);
   const [mode, setMode] = useState<'test' | 'health'>('test');
   if (!bench || !endpoint) return <GuardrailTester payload={payload} isWide={isWide} />;
+  const modes = (
+    <SegmentedControl
+      label="Guardrails"
+      size="sm"
+      value={mode}
+      onChange={(next) => {
+        setMode(next === 'health' ? 'health' : 'test');
+      }}
+    >
+      <SegmentedControlItem
+        value="test"
+        label="Test"
+        icon={<Icon icon={IconShieldSearch} size="sm" />}
+      />
+      <SegmentedControlItem
+        value="health"
+        label="Health"
+        icon={<Icon icon={IconHeartbeat} size="sm" />}
+      />
+    </SegmentedControl>
+  );
+  if (mode === 'test') return <GuardrailTester payload={payload} isWide={isWide} aside={modes} />;
+  if ((bench.live?.scores ?? bench.summary?.scores ?? []).length === 0) {
+    return (
+      <VStack gap={4} padding={4}>
+        <HStack hAlign="end">{modes}</HStack>
+        <PaneState
+          icon={<Icon icon={IconHeartbeat} size="lg" color="secondary" />}
+          title={bench.live ? 'The bench run is starting.' : 'The last bench run scored nothing.'}
+        />
+      </VStack>
+    );
+  }
   return (
-    <VStack height="100%">
-      <StackItem size="static">
-        <HStack padding={2}>
-          <SegmentedControl
-            label="Guardrails"
-            size="sm"
-            value={mode}
-            onChange={(next) => {
-              setMode(next === 'health' ? 'health' : 'test');
-            }}
-          >
-            <SegmentedControlItem
-              value="test"
-              label="Test"
-              icon={<Icon icon={IconShieldSearch} size="sm" />}
-            />
-            <SegmentedControlItem
-              value="health"
-              label="Health"
-              icon={<Icon icon={IconHeartbeat} size="sm" />}
-            />
-          </SegmentedControl>
-        </HStack>
-      </StackItem>
-      <StackItem size="fill">
-        {mode === 'test' ? (
-          <GuardrailTester payload={payload} isWide={isWide} />
-        ) : (bench.live?.scores ?? bench.summary?.scores ?? []).length === 0 ? (
-          <PaneState
-            icon={<Icon icon={IconHeartbeat} size="lg" color="secondary" />}
-            title={bench.live ? 'The bench run is starting.' : 'The last bench run scored nothing.'}
-          />
-        ) : (
-          <GuardrailHealth answer={bench} endpoint={endpoint} payload={payload} isWide={isWide} />
-        )}
-      </StackItem>
-    </VStack>
+    <GuardrailHealth
+      answer={bench}
+      endpoint={endpoint}
+      payload={payload}
+      isWide={isWide}
+      aside={modes}
+    />
   );
 }

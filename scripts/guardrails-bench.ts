@@ -14,6 +14,7 @@
 import {
   BENCH_DIR,
   BENCH_PROGRESS_MS,
+  type BenchDatasetFacts,
   type BenchProgress,
   type BenchSummary,
   ROLES,
@@ -188,6 +189,17 @@ const write = async (row: BenchRow) => {
 const chosen = DATASETS.filter(
   (dataset) => (only === undefined || only.includes(dataset.id)) && roles.includes(dataset.role),
 );
+const facts: BenchDatasetFacts[] = chosen.map(
+  ({ id, role, boundary, labels, license, attribution, source }) => ({
+    id,
+    role,
+    boundary,
+    labels,
+    license,
+    attribution,
+    source,
+  }),
+);
 const skipped: { dataset: string; reason: string }[] = [];
 const scores: DatasetScore[] = [];
 const pool = new Pool(workers);
@@ -201,7 +213,7 @@ const tell = (current?: { dataset: BenchDataset; rows: BenchRow[] }, now = false
     run,
     ...(limit === undefined ? {} : { limit }),
     seconds: (told - started) / 1000,
-    datasets: chosen.map(({ id, role, boundary }) => ({ id, role, boundary })),
+    datasets: facts,
     skipped,
     scores: current
       ? [
@@ -251,14 +263,7 @@ const summary: BenchSummary = {
   ...(limit === undefined ? {} : { limit }),
   seconds: (performance.now() - started) / 1000,
   profile: 'the example draft’s travel.concierge, every detector on flag',
-  datasets: chosen.map(({ id, role, boundary, labels, license, attribution }) => ({
-    id,
-    role,
-    boundary,
-    labels,
-    license,
-    attribution,
-  })),
+  datasets: facts,
   skipped,
   scores,
 };

@@ -121,6 +121,18 @@ export interface DatasetScore {
   detectors: DetectorScore[];
 }
 
+/** What a run says of each dataset it read: where it crosses, what it labels, and where it is from. */
+export interface BenchDatasetFacts {
+  id: string;
+  role: Role;
+  boundary: ProbeBoundary;
+  labels: readonly Detector[];
+  license: string;
+  attribution: string;
+  /** The dataset's page. */
+  source: string;
+}
+
 /** A run's `summary.json`. */
 export interface BenchSummary {
   run: string;
@@ -130,14 +142,7 @@ export interface BenchSummary {
   limit?: number;
   seconds: number;
   profile: string;
-  datasets: {
-    id: string;
-    role: Role;
-    boundary: ProbeBoundary;
-    labels: readonly Detector[];
-    license: string;
-    attribution: string;
-  }[];
+  datasets: BenchDatasetFacts[];
   skipped: { dataset: string; reason: string }[];
   scores: DatasetScore[];
 }
@@ -150,7 +155,7 @@ export interface BenchProgress {
   run: string;
   limit?: number;
   seconds: number;
-  datasets: { id: string; role: Role; boundary: ProbeBoundary }[];
+  datasets: BenchDatasetFacts[];
   skipped: { dataset: string; reason: string }[];
   /** The datasets finished, then the current one's rows so far. */
   scores: DatasetScore[];

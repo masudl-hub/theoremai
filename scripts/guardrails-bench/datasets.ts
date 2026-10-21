@@ -48,6 +48,8 @@ export interface BenchDataset {
   labels: readonly Detector[];
   license: string;
   attribution: string;
+  /** Where the data comes from: its page, to read its card and inspect its rows. */
+  source: string;
   /** Paths, under the data root or {@linkcode CORPUS}, that must exist to read it. */
   files: readonly string[];
   read: (locate: Locate) => AsyncIterable<BenchSample>;
@@ -85,6 +87,7 @@ function hermesThoughts(config: 'kimi' | 'glm', role: Role): BenchDataset {
     labels: [],
     license: 'Apache-2.0',
     attribution: `lambda/hermes-agent-reasoning-traces (${config})`,
+    source: 'https://huggingface.co/datasets/lambda/hermes-agent-reasoning-traces',
     files: [HERMES_FILE(config)],
     async *read(locate) {
       const columns = ['id', 'category', 'conversations'];
@@ -113,6 +116,7 @@ function hermesErrors(config: 'kimi' | 'glm', role: Role): BenchDataset {
     labels: [],
     license: 'Apache-2.0',
     attribution: `lambda/hermes-agent-reasoning-traces (${config}, failed tool messages)`,
+    source: 'https://huggingface.co/datasets/lambda/hermes-agent-reasoning-traces',
     files: [HERMES_FILE(config)],
     async *read(locate) {
       const columns = ['id', 'category', 'conversations'];
@@ -141,6 +145,7 @@ const openThoughts: BenchDataset = {
   labels: [],
   license: 'Apache-2.0',
   attribution: 'open-thoughts/OpenThoughts3-1.2M (first shard)',
+  source: 'https://huggingface.co/datasets/open-thoughts/OpenThoughts3-1.2M',
   files: [OPENTHOUGHTS_FILE],
   async *read(locate) {
     let n = 0;
@@ -181,6 +186,7 @@ function sLabs(split: 'train' | 'validation' | 'test', role: Role): BenchDataset
     labels: ['injection'],
     license: 'MIT',
     attribution: `S-Labs/prompt-injection-dataset (${split})`,
+    source: 'https://huggingface.co/datasets/S-Labs/prompt-injection-dataset',
     files: [S_LABS(split), S_LABS('test')],
     async *read(locate) {
       const rows = parseLabelledCsv(await Deno.readTextFile(locate(S_LABS(split))));
@@ -214,6 +220,7 @@ function neuralchemy(split: 'train' | 'validation' | 'test', role: Role): BenchD
     labels: ['injection'],
     license: 'Apache-2.0',
     attribution: `neuralchemy/Prompt-injection-dataset (core, ${split})`,
+    source: 'https://huggingface.co/datasets/neuralchemy/Prompt-injection-dataset',
     files: [NEURALCHEMY(split)],
     async *read(locate) {
       let n = 0;
@@ -244,6 +251,7 @@ const deepset: BenchDataset = {
   labels: ['injection'],
   license: 'Apache-2.0',
   attribution: 'deepset/prompt-injections (train)',
+  source: 'https://huggingface.co/datasets/deepset/prompt-injections',
   files: [DEEPSET],
   async *read(locate) {
     for (const [n, row] of (await hfPageRows(locate(DEEPSET))).entries()) {
@@ -271,6 +279,7 @@ const notInject: BenchDataset = {
   labels: [],
   license: 'MIT',
   attribution: 'leolee99/NotInject (all three splits)',
+  source: 'https://huggingface.co/datasets/leolee99/NotInject',
   files: NOTINJECT,
   async *read(locate) {
     for (const [split, file] of NOTINJECT.entries()) {
@@ -299,6 +308,7 @@ const gandalfIgnore: BenchDataset = {
   labels: ['injection'],
   license: 'MIT',
   attribution: 'Lakera/gandalf_ignore_instructions (test)',
+  source: 'https://huggingface.co/datasets/Lakera/gandalf_ignore_instructions',
   files: [GANDALF_IGNORE],
   async *read(locate) {
     let n = 0;
@@ -318,6 +328,7 @@ const spml: BenchDataset = {
   labels: ['injection'],
   license: 'MIT',
   attribution: 'reshabhs/SPML_Chatbot_Prompt_Injection',
+  source: 'https://huggingface.co/datasets/reshabhs/SPML_Chatbot_Prompt_Injection',
   files: [SPML],
   async *read(locate) {
     for (const [n, row] of (await hfPageRows(locate(SPML))).entries()) {
@@ -342,6 +353,7 @@ const lakeraB3: BenchDataset = {
   labels: ['injection'],
   license: 'other (upstream); read for evaluation only',
   attribution: 'Lakera/b3-agent-security-benchmark-weak (test)',
+  source: 'https://huggingface.co/datasets/Lakera/b3-agent-security-benchmark-weak',
   files: LAKERA_B3,
   async *read(locate) {
     for (const [page, file] of LAKERA_B3.entries()) {
@@ -363,6 +375,7 @@ const multilingual: BenchDataset = {
   labels: ['injection'],
   license: 'Apache-2.0',
   attribution: 'yanismiraoui/prompt_injections',
+  source: 'https://huggingface.co/datasets/yanismiraoui/prompt_injections',
   files: [MULTILINGUAL],
   async *read(locate) {
     for (const [n, row] of parseCsv(await Deno.readTextFile(locate(MULTILINGUAL))).entries()) {
@@ -382,6 +395,7 @@ const repoTexts: BenchDataset = {
   labels: ['injection'],
   license: 'Apache-2.0',
   attribution: 'prodnull/prompt-injection-repo-dataset',
+  source: 'https://huggingface.co/datasets/prodnull/prompt-injection-repo-dataset',
   files: [REPO_TEXTS],
   async *read(locate) {
     let n = 0;
@@ -415,6 +429,7 @@ const wildJailbreak: BenchDataset = {
   labels: [],
   license: 'ODC-BY',
   attribution: 'allenai/wildjailbreak (train, adversarial_benign rows)',
+  source: 'https://huggingface.co/datasets/allenai/wildjailbreak',
   files: WILDJAILBREAK,
   async *read(locate) {
     for (const [page, file] of WILDJAILBREAK.entries()) {
@@ -438,6 +453,7 @@ function aegis(split: 'train' | 'validation' | 'test', role: Role): BenchDataset
     labels: [],
     license: 'CC-BY-4.0',
     attribution: `nvidia/Aegis-AI-Content-Safety-Dataset-2.0 (${split}, prompts labelled safe)`,
+    source: 'https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety-Dataset-2.0',
     files: [AEGIS(split)],
     async *read(locate) {
       const rows = JSON.parse(await Deno.readTextFile(locate(AEGIS(split)))) as Record<
@@ -489,6 +505,7 @@ function gravitee(role: 'train' | 'validate' | 'test'): BenchDataset {
     labels: [...new Set(Object.values(GRAVITEE_LABELS))],
     license: 'Apache-2.0',
     attribution: `gravitee-io/pii-detection-dataset (rows ${from} to ${to === Infinity ? 'the end' : to - 1})`,
+    source: 'https://huggingface.co/datasets/gravitee-io/pii-detection-dataset',
     files: [GRAVITEE],
     async *read(locate) {
       let n = 0;
@@ -594,6 +611,7 @@ function llmail(role: keyof LlmailSplit): BenchDataset {
     labels: ['injection', 'tool_instructions'],
     license: 'MIT',
     attribution: `microsoft/llmail-inject-challenge (${role === 'test' ? 'phase 2, teams new to it' : 'phase 1'})`,
+    source: 'https://huggingface.co/datasets/microsoft/llmail-inject-challenge',
     files: [LLMAIL_1, LLMAIL_2],
     async *read(locate) {
       let n = 0;
@@ -614,6 +632,7 @@ const llmailBenign: BenchDataset = {
   labels: [],
   license: 'MIT',
   attribution: 'microsoft/llmail-inject-challenge (emails for false-alarm tests)',
+  source: 'https://huggingface.co/datasets/microsoft/llmail-inject-challenge',
   files: [LLMAIL_BENIGN],
   async *read(locate) {
     const emails = JSON.parse(await Deno.readTextFile(locate(LLMAIL_BENIGN))) as unknown[];
@@ -637,6 +656,7 @@ const nvidiaIpi: BenchDataset = {
   labels: ['injection', 'tool_instructions'],
   license: 'CC-BY-4.0',
   attribution: 'nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1',
+  source: 'https://huggingface.co/datasets/nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1',
   files: NVIDIA_IPI,
   async *read(locate) {
     for (const file of NVIDIA_IPI) {
@@ -665,6 +685,7 @@ const glaive: BenchDataset = {
   labels: [],
   license: 'Apache-2.0',
   attribution: 'glaiveai/glaive-function-calling-v2 (function responses only)',
+  source: 'https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2',
   files: [GLAIVE],
   async *read(locate) {
     const rows = JSON.parse(await Deno.readTextFile(locate(GLAIVE))) as { chat?: unknown }[];
@@ -695,6 +716,7 @@ const agentDojo: BenchDataset = {
   labels: [],
   license: 'MIT',
   attribution: 'ethz-spylab/agentdojo environment fixtures, from the AgentDyn fork',
+  source: 'https://github.com/SaFo-Lab/AgentDyn',
   files: AGENTDOJO_FIXTURES.map((fixture) => fixture.file),
   async *read(locate) {
     for (const { file, category } of AGENTDOJO_FIXTURES) {

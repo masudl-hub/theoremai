@@ -426,3 +426,37 @@ button.inspector-origin:hover {
   color: inherit;
   border-radius: var(--radius-element);
 }
+
+.studio-bench-matrix-scroll {
+  overflow-x: auto;
+}
+
+.studio-bench-matrix {
+  display: grid;
+  gap: 2px;
+  align-items: center;
+}
+
+.studio-bench-matrix-head {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  justify-self: center;
+  padding-block: 4px;
+}
+
+.studio-bench-cell {
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-element);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.studio-bench-cell-empty {
+  display: block;
+  cursor: default;
+  background: var(--color-background-surface);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}

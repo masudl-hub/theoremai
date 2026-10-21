@@ -497,9 +497,12 @@ function AnswerHead({
 export function GuardrailTester({
   payload,
   isWide,
+  aside,
 }: {
   payload: StudioRunPayload;
   isWide: boolean;
+  /** A control for the title's end, such as a switch to another view. */
+  aside?: ReactNode;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -565,7 +568,12 @@ export function GuardrailTester({
   const probe = text.trim();
   const overview = (
     <VStack gap={5} padding={4}>
-      <Text weight="semibold">Test guardrails</Text>
+      <HStack gap={3} align="center">
+        <StackItem size="fill">
+          <Text weight="semibold">Test guardrails</Text>
+        </StackItem>
+        {aside}
+      </HStack>
       <VStack gap={3}>
         <ExampleRow
           isShown={examples}

@@ -217,7 +217,7 @@ function byTurns<T>(first: T[], second: T[]): T[] {
 }
 
 /** Where a node under a feed sits from it: across, and rows down. */
-interface Slot {
+export interface Slot {
   holder: string;
   across: number;
   down: number;

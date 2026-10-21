@@ -6,6 +6,9 @@ import {
   type BenchRow,
   type BenchRunAnswer,
   type BenchSummary,
+  type Percentiles,
+  pooledTime,
+  timeBucket,
 } from '../../studio/guardrail-bench.ts';
 import { answerBench, BENCH_ROWS_LIMIT } from '../../studio/server/bench.ts';
 
@@ -203,4 +206,26 @@ Deno.test('the last line of a run still writing its rows is left out, not a fail
     (body as { rows: BenchRow[] }).rows.map((each) => each.id),
     ['alarm'],
   );
+});
+
+function timed(values: readonly number[]): Percentiles {
+  const buckets: Record<string, number> = {};
+  for (const value of values) {
+    const bucket = String(timeBucket(value));
+    buckets[bucket] = (buckets[bucket] ?? 0) + 1;
+  }
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return { p50: 0, p95: 0, max: 0, mean, n: values.length, buckets };
+}
+
+Deno.test('timings of several scores pool: the mean exactly, the median within its bucket', () => {
+  const pooled = pooledTime([timed([0.01, 0.01, 0.01]), timed([1, 2])]);
+  assertEquals(pooled?.mean, (0.03 + 3) / 5);
+  const median = pooled?.median ?? 0;
+  assertEquals(median > 0.01 * 0.9 && median < 0.01 * 1.1, true);
+});
+
+Deno.test('a run from before the bench kept counts has no pooled time', () => {
+  assertEquals(pooledTime([{ p50: 1, p95: 2, max: 3 }, timed([1])]), undefined);
+  assertEquals(pooledTime([]), undefined);
 });

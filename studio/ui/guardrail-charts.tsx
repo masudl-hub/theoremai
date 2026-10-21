@@ -1,7 +1,22 @@
 import { Grid } from '@astryxdesign/core/Grid';
 import { DETECTOR_META, DETECTORS, type Detector } from '@theoremjs/agents/guardrails';
-import { ChartCard, ChartStat, type RankedBar, RankedBars } from '@theoremjs/react/ui';
-import type { BenchOutcome, DatasetScore, DetectorScore } from '../guardrail-bench.ts';
+import {
+  ChartCard,
+  ChartStat,
+  RadialBars,
+  type RankedBar,
+  RankedBars,
+  Sunburst,
+  type SunburstNode,
+} from '@theoremjs/react/ui';
+import {
+  type BenchOutcome,
+  type DatasetScore,
+  type DetectorScore,
+  type Percentiles,
+  pooledTime,
+} from '../guardrail-bench.ts';
+import { PROBE_BOUNDARIES, PROBE_BOUNDARY_NOTES } from '../mod.ts';
 
 const rate = new Intl.NumberFormat(undefined, { style: 'percent', maximumFractionDigits: 1 });
 
@@ -22,18 +37,21 @@ type Pool = {
   benign: number;
   fired: number;
   p95?: number;
+  times: Percentiles[];
   texts: number;
 };
 
 /** Detector scores summed: recall and false alarms over every text they are scored on, and the slowest p95. */
 function pool(scores: readonly DetectorScore[]): Pool {
-  const p95s = scores.flatMap((score) => (score.ms ? [score.ms.p95] : []));
+  const times = scores.flatMap((score) => (score.ms ? [score.ms] : []));
+  const p95s = times.map((time) => time.p95);
   return {
     attacks: scores.reduce((sum, score) => sum + (score.attacks ?? 0), 0),
     caught: scores.reduce((sum, score) => sum + (score.caught ?? 0), 0),
     benign: scores.reduce((sum, score) => sum + score.benign, 0),
     fired: scores.reduce((sum, score) => sum + score.falseAlarms, 0),
     ...(p95s.length > 0 && { p95: Math.max(...p95s) }),
+    times,
     texts: 0,
   };
 }
@@ -86,6 +104,40 @@ function shown(value: number | undefined, format: (value: number) => string): st
   return value === undefined ? '—' : format(value);
 }
 
+/** The median and mean of every detector's timing, or why there are none. */
+function timeDetail(now: Pool): string[] {
+  const pooled = pooledTime(now.times);
+  if (!pooled) return ['One detector alone, on one dataset', 'Median and mean: from the next run'];
+  return [
+    `Median ≈ ${ms(pooled.median)} · mean ${ms(pooled.mean)}`,
+    'Every detector alone, every text',
+  ];
+}
+
+/** Texts by the boundary they cross, then by dataset. */
+function textParts(scores: readonly DatasetScore[]): SunburstNode[] {
+  return PROBE_BOUNDARIES.flatMap((boundary) => {
+    const here = scores.filter((dataset) => dataset.boundary === boundary);
+    if (here.length === 0) return [];
+    const texts = here.reduce((sum, dataset) => sum + dataset.samples, 0);
+    return [
+      {
+        id: boundary,
+        name: PROBE_BOUNDARY_NOTES[boundary].label,
+        detail: `${String(here.length)} datasets`,
+        children: here.map((dataset) => ({
+          id: dataset.dataset,
+          name: dataset.dataset,
+          value: dataset.samples,
+          detail: `${rate.format(dataset.samples / texts)} of this boundary`,
+        })),
+      },
+    ];
+  });
+}
+
+const count = (value: number) => `${value.toLocaleString()} texts`;
+
 /** The run in four figures, each pooled over every detector on every dataset shown. */
 function RunStats({ now, before, datasets }: { now: Pool; before?: Pool; datasets: number }) {
   const recall = ratio(now.caught, now.attacks);
@@ -108,11 +160,7 @@ function RunStats({ now, before, datasets }: { now: Pool; before?: Pool; dataset
           since(alarms, before && ratio(before.fired, before.benign)),
         ]}
       />
-      <ChartStat
-        label="Slowest p95"
-        value={shown(now.p95, ms)}
-        detail="One detector alone, on one dataset"
-      />
+      <ChartStat label="Slowest p95" value={shown(now.p95, ms)} detail={timeDetail(now)} />
       <ChartStat
         label="Texts read"
         value={now.texts.toLocaleString()}
@@ -145,21 +193,49 @@ function RankCard({
 
 const percentOf = (value: number) => rate.format(value);
 
+/** Each detector's recall as a ring, the lowest outermost. */
+function RecallCard({ rows }: { rows: readonly RankedBar[] }) {
+  const top = rows[0];
+  if (!top) return null;
+  return (
+    <ChartCard
+      title="Recall by detector, lowest first"
+      value={percentOf(top.value)}
+      note={top.name}
+    >
+      <RadialBars rows={rows} format={percentOf} max={1} />
+    </ChartCard>
+  );
+}
+
+/** Where the texts come from: the boundary each crosses on the inner ring, its dataset outside. */
+function TextsCard({ scores }: { scores: readonly DatasetScore[] }) {
+  const parts = textParts(scores);
+  if (parts.length === 0) return null;
+  return (
+    <ChartCard
+      title="Texts by boundary, then dataset"
+      value={String(parts.length)}
+      note={parts.length === 1 ? 'boundary' : 'boundaries'}
+    >
+      <Sunburst parts={parts} format={count} />
+    </ChartCard>
+  );
+}
+
 /** Each detector's recall, false alarms and p95 time, pooled over the datasets shown. */
 function DetectorCharts({ scores }: { scores: readonly DatasetScore[] }) {
   const detectors = byDetector(scores);
   return (
     <Grid columns={{ minWidth: 260, repeat: 'fit' }} gap={2}>
-      <RankCard
-        title="Recall by detector, lowest first"
+      <RecallCard
         rows={bars(
           detectors,
           (each) => ratio(each.caught, each.attacks),
           (each) => `${String(each.caught)} of ${String(each.attacks)} attacks`,
         ).reverse()}
-        format={percentOf}
-        max={1}
       />
+      <TextsCard scores={scores} />
       <RankCard
         title="False alarms by detector"
         rows={bars(

@@ -8,6 +8,7 @@ import {
   holdsTarget,
   isScoredFor,
   type Percentiles,
+  timeBucket,
 } from '../../studio/guardrail-bench.ts';
 import { PROBE_READS } from '../../studio/guardrail-probe.ts';
 
@@ -19,7 +20,19 @@ export const MEANINGFUL_N = 200;
 function percentiles(values: number[]): Percentiles {
   const sorted = [...values].sort((a, b) => a - b);
   const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] ?? 0;
-  return { p50: at(0.5), p95: at(0.95), max: sorted.at(-1) ?? 0 };
+  const buckets: Record<string, number> = {};
+  for (const value of sorted) {
+    const bucket = String(timeBucket(value));
+    buckets[bucket] = (buckets[bucket] ?? 0) + 1;
+  }
+  return {
+    p50: at(0.5),
+    p95: at(0.95),
+    max: sorted.at(-1) ?? 0,
+    mean: sorted.reduce((sum, value) => sum + value, 0) / Math.max(1, sorted.length),
+    n: sorted.length,
+    buckets,
+  };
 }
 
 function rate(n: number, of: number): number | undefined {

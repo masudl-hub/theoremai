@@ -537,8 +537,10 @@ To read a run in the studio, start the studio from the folder the bench ran in.
 Test guardrails then shows a Health view. It lists each detector on each
 dataset, with recall, false alarms, and time, and the change since the run
 before. Above it, four figures pool every detector on every dataset shown:
-recall, false alarms, the slowest p95, and the texts read. Charts beside them
-rank the detectors by each figure. Each dataset's name opens its source page,
+recall, false alarms, the slowest p95 with the median and mean of every
+timing, and the texts read. Charts beside them rank the detectors by each
+figure, and a sunburst shows where the texts come from: each boundary, then
+each dataset. Each dataset's name opens its source page,
 and its licence sits beside it. The Matrix view lists every boundary against every detector and
 shades each cell by recall, false alarms or p95 time, pooled over the datasets
 that cross there: blue where it does well, grey where it does badly. A strip

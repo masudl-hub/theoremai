@@ -267,6 +267,16 @@ function duration(seconds: number): string {
     : `${seconds.toFixed(0)} s`;
 }
 
+/** Time as a timer shows it: 4:05, or 1:02:33 past an hour. */
+function clock(seconds: number): string {
+  const whole = Math.floor(seconds);
+  const two = (value: number) => String(value).padStart(2, '0');
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const rest = `${two(minutes)}:${two(whole % 60)}`;
+  return hours > 0 ? `${String(hours)}:${rest}` : `${String(minutes)}:${two(whole % 60)}`;
+}
+
 function Skipped({ skipped }: { skipped: BenchSummary['skipped'] }) {
   if (skipped.length === 0) return null;
   return (
@@ -307,22 +317,22 @@ function RunFacts({ summary, previous }: { summary: BenchSummary; previous?: Ben
 /** A run still going: how far through its datasets it is, and the one it is on. */
 function LiveFacts({ live, previous }: { live: BenchProgress; previous?: BenchSummary }) {
   const finished = live.scores.length - (live.current ? 1 : 0) + live.skipped.length;
+  const now = live.current
+    ? ` · currently on ${live.current.dataset} · ${live.current.rows.toLocaleString()} rows`
+    : '';
   return (
     <VStack gap={2}>
       <ProgressBar
-        label={`Running: ${String(finished)} of ${String(live.datasets.length)} datasets`}
+        label={`${String(finished)} of ${String(live.datasets.length)} datasets${now}`}
         value={finished}
         max={live.datasets.length}
         hasValueLabel
+        formatValueLabel={(value, max) =>
+          `${String(Math.round((value / max) * 100))}% · ${clock(live.seconds)}`
+        }
       />
       <MetadataList columns={2}>
         <MetadataListItem label="Run">{runLabel(live.run)}</MetadataListItem>
-        <MetadataListItem label="Now">
-          {live.current
-            ? `${live.current.dataset} · ${live.current.rows.toLocaleString()} rows`
-            : '—'}
-        </MetadataListItem>
-        <MetadataListItem label="Running for">{duration(live.seconds)}</MetadataListItem>
         <MetadataListItem label="Compared with">
           {previous ? runLabel(previous.run) : '—'}
         </MetadataListItem>

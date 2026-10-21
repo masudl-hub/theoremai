@@ -30,7 +30,8 @@ const ROW_PX = 22;
 const NAME_CHARS = 15;
 const TICK = { fill: 'var(--color-text-secondary)', fontSize: 11 } as const;
 
-function RankedTip({
+/** A bar's hover card: its name, its value, and its detail. */
+export function RankedTip({
   active,
   payload,
   format,

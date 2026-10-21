@@ -82,6 +82,53 @@ export interface Percentiles {
   p50: number;
   p95: number;
   max: number;
+  /** Undefined in a run from before the bench kept it. */
+  mean?: number;
+  /** How many timings these are. Undefined in a run from before the bench kept it. */
+  n?: number;
+  /**
+   * The timings counted by `timeBucket`, so timings of several scores can pool. Undefined in a
+   * run from before the bench kept it.
+   */
+  buckets?: Record<string, number>;
+}
+
+/** Buckets in each doubling of time: a bucket is about 9% wide. */
+const BUCKETS_PER_DOUBLING = 8;
+
+/** The bucket a timing in milliseconds falls in; every timing under a microsecond is bucket 0. */
+export function timeBucket(ms: number): number {
+  return Math.floor(Math.log2(Math.max(ms * 1000, 1)) * BUCKETS_PER_DOUBLING);
+}
+
+/** The middle of a bucket, in milliseconds. */
+function bucketMs(bucket: number): number {
+  return 2 ** ((bucket + 0.5) / BUCKETS_PER_DOUBLING) / 1000;
+}
+
+/**
+ * The mean and median of every timing behind `times`, pooled: the mean exactly, the median to its
+ * bucket. Undefined where a score has no counts.
+ */
+export function pooledTime(times: readonly Percentiles[]): { mean: number; median: number } | undefined {
+  let total = 0;
+  let sum = 0;
+  const counts = new Map<number, number>();
+  for (const time of times) {
+    if (time.mean === undefined || time.n === undefined || !time.buckets) return undefined;
+    total += time.n;
+    sum += time.mean * time.n;
+    for (const [bucket, count] of Object.entries(time.buckets)) {
+      counts.set(Number(bucket), (counts.get(Number(bucket)) ?? 0) + count);
+    }
+  }
+  if (total === 0) return undefined;
+  let seen = 0;
+  for (const bucket of [...counts.keys()].sort((a, b) => a - b)) {
+    seen += counts.get(bucket) ?? 0;
+    if (seen * 2 >= total) return { mean: sum / total, median: bucketMs(bucket) };
+  }
+  return undefined;
 }
 
 export interface DetectorScore {

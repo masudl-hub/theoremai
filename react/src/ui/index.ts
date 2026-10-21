@@ -70,6 +70,7 @@ export {
   useLabels,
 } from './labels-provider.tsx';
 export { PaneFailure, PaneLoading, PaneState } from './PaneState.tsx';
+export { RadialBars, Sunburst, type SunburstNode } from './RadialCharts.tsx';
 export { type RankedBar, RankedBars } from './RankedBars.tsx';
 export { InPlace, PaneLayout, PanePanel, Prose, RaisedPane } from './SidePanel.tsx';
 export {

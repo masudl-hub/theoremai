@@ -82,10 +82,109 @@ function bars(
     .sort((a, b) => b.value - a.value);
 }
 
-/**
- * The run in four figures, each pooled over every detector on every dataset shown, and each
- * detector's recall, false alarms and p95 time beside the others.
- */
+function shown(value: number | undefined, format: (value: number) => string): string {
+  return value === undefined ? '—' : format(value);
+}
+
+/** The run in four figures, each pooled over every detector on every dataset shown. */
+function RunStats({ now, before, datasets }: { now: Pool; before?: Pool; datasets: number }) {
+  const recall = ratio(now.caught, now.attacks);
+  const alarms = ratio(now.fired, now.benign);
+  return (
+    <Grid columns={{ minWidth: 140, repeat: 'fit' }} gap={2}>
+      <ChartStat
+        label="Recall"
+        value={shown(recall, (value) => rate.format(value))}
+        detail={[
+          `${now.caught.toLocaleString()} of ${now.attacks.toLocaleString()} attacks`,
+          since(recall, before && ratio(before.caught, before.attacks)),
+        ]}
+      />
+      <ChartStat
+        label="False alarms"
+        value={shown(alarms, (value) => rate.format(value))}
+        detail={[
+          `${now.fired.toLocaleString()} of ${now.benign.toLocaleString()} benign texts`,
+          since(alarms, before && ratio(before.fired, before.benign)),
+        ]}
+      />
+      <ChartStat
+        label="Slowest p95"
+        value={shown(now.p95, ms)}
+        detail="One detector alone, on one dataset"
+      />
+      <ChartStat
+        label="Texts read"
+        value={now.texts.toLocaleString()}
+        detail={`${String(datasets)} datasets`}
+      />
+    </Grid>
+  );
+}
+
+/** A ranking in a card, headed by its first bar; nothing when there is no bar. */
+function RankCard({
+  title,
+  rows,
+  format,
+  max,
+}: {
+  title: string;
+  rows: readonly RankedBar[];
+  format: (value: number) => string;
+  max?: number;
+}) {
+  const top = rows[0];
+  if (!top) return null;
+  return (
+    <ChartCard title={title} value={format(top.value)} note={top.name}>
+      <RankedBars rows={rows} format={format} {...(max !== undefined && { max })} />
+    </ChartCard>
+  );
+}
+
+const percentOf = (value: number) => rate.format(value);
+
+/** Each detector's recall, false alarms and p95 time, pooled over the datasets shown. */
+function DetectorCharts({ scores }: { scores: readonly DatasetScore[] }) {
+  const detectors = byDetector(scores);
+  return (
+    <Grid columns={{ minWidth: 260, repeat: 'fit' }} gap={2}>
+      <RankCard
+        title="Recall by detector, lowest first"
+        rows={bars(
+          detectors,
+          (each) => ratio(each.caught, each.attacks),
+          (each) => `${String(each.caught)} of ${String(each.attacks)} attacks`,
+        ).reverse()}
+        format={percentOf}
+        max={1}
+      />
+      <RankCard
+        title="False alarms by detector"
+        rows={bars(
+          detectors,
+          (each) => ratio(each.fired, each.benign),
+          (each) => `${String(each.fired)} of ${String(each.benign)} benign texts`,
+          'shade1',
+        )}
+        format={percentOf}
+      />
+      <RankCard
+        title="p95 time by detector"
+        rows={bars(
+          detectors,
+          (each) => each.p95,
+          () => 'Its slowest dataset',
+          'shade2',
+        )}
+        format={ms}
+      />
+    </Grid>
+  );
+}
+
+/** The run's figures, then each detector ranked by each of them. */
 export function HealthCharts({
   scores,
   previous,
@@ -93,87 +192,14 @@ export function HealthCharts({
   scores: readonly DatasetScore[];
   previous: readonly DatasetScore[] | undefined;
 }) {
-  const now = poolRun(scores);
-  const before = previous && poolRun(previous);
-  const recall = ratio(now.caught, now.attacks);
-  const alarms = ratio(now.fired, now.benign);
-  const detectors = byDetector(scores);
-  const recallBars = bars(
-    detectors,
-    (each) => ratio(each.caught, each.attacks),
-    (each) => `${String(each.caught)} of ${String(each.attacks)} attacks`,
-  ).reverse();
-  const alarmBars = bars(
-    detectors,
-    (each) => ratio(each.fired, each.benign),
-    (each) => `${String(each.fired)} of ${String(each.benign)} benign texts`,
-    'shade1',
-  );
-  const timeBars = bars(
-    detectors,
-    (each) => each.p95,
-    () => 'Its slowest dataset',
-    'shade2',
-  );
   return (
     <>
-      <Grid columns={{ minWidth: 140, repeat: 'fit' }} gap={2}>
-        <ChartStat
-          label="Recall"
-          value={recall === undefined ? '—' : rate.format(recall)}
-          detail={[
-            `${now.caught.toLocaleString()} of ${now.attacks.toLocaleString()} attacks`,
-            since(recall, before && ratio(before.caught, before.attacks)),
-          ]}
-        />
-        <ChartStat
-          label="False alarms"
-          value={alarms === undefined ? '—' : rate.format(alarms)}
-          detail={[
-            `${now.fired.toLocaleString()} of ${now.benign.toLocaleString()} benign texts`,
-            since(alarms, before && ratio(before.fired, before.benign)),
-          ]}
-        />
-        <ChartStat
-          label="Slowest p95"
-          value={now.p95 === undefined ? '—' : ms(now.p95)}
-          detail="One detector alone, on one dataset"
-        />
-        <ChartStat
-          label="Texts read"
-          value={now.texts.toLocaleString()}
-          detail={`${String(scores.length)} datasets`}
-        />
-      </Grid>
-      <Grid columns={{ minWidth: 260, repeat: 'fit' }} gap={2}>
-        {recallBars.length > 0 && (
-          <ChartCard
-            title="Recall by detector, lowest first"
-            value={rate.format(recallBars[0]?.value ?? 0)}
-            note={recallBars[0]?.name}
-          >
-            <RankedBars rows={recallBars} format={(value) => rate.format(value)} max={1} />
-          </ChartCard>
-        )}
-        {alarmBars.length > 0 && (
-          <ChartCard
-            title="False alarms by detector"
-            value={rate.format(alarmBars[0]?.value ?? 0)}
-            note={alarmBars[0]?.name}
-          >
-            <RankedBars rows={alarmBars} format={(value) => rate.format(value)} />
-          </ChartCard>
-        )}
-        {timeBars.length > 0 && (
-          <ChartCard
-            title="p95 time by detector"
-            value={ms(timeBars[0]?.value ?? 0)}
-            note={timeBars[0]?.name}
-          >
-            <RankedBars rows={timeBars} format={ms} />
-          </ChartCard>
-        )}
-      </Grid>
+      <RunStats
+        now={poolRun(scores)}
+        {...(previous && { before: poolRun(previous) })}
+        datasets={scores.length}
+      />
+      <DetectorCharts scores={scores} />
     </>
   );
 }
@@ -184,7 +210,7 @@ export function ScoreStats({ score }: { score: DetectorScore }) {
     <Grid columns={{ minWidth: 140, repeat: 'fit' }} gap={2}>
       <ChartStat
         label="Recall"
-        value={score.recall === undefined ? '—' : rate.format(score.recall)}
+        value={shown(score.recall, percentOf)}
         detail={
           score.attacks === undefined
             ? 'This dataset does not label what it looks for'
@@ -193,7 +219,7 @@ export function ScoreStats({ score }: { score: DetectorScore }) {
       />
       <ChartStat
         label="False alarms"
-        value={score.falseAlarmRate === undefined ? '—' : rate.format(score.falseAlarmRate)}
+        value={shown(score.falseAlarmRate, percentOf)}
         detail={`${String(score.falseAlarms)} of ${String(score.benign)} benign texts`}
       />
       <ChartStat
@@ -227,15 +253,12 @@ export function CategoryChart({ score, outcome }: { score: DetectorScore; outcom
     }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 8);
-  const top = rows[0];
-  if (!top) return null;
   return (
-    <ChartCard
+    <RankCard
       title={isMissed ? 'Missed, by category' : 'False alarms, by category'}
-      value={rate.format(top.value)}
-      note={top.name}
-    >
-      <RankedBars rows={rows} format={(value) => rate.format(value)} max={1} />
-    </ChartCard>
+      rows={rows}
+      format={percentOf}
+      max={1}
+    />
   );
 }

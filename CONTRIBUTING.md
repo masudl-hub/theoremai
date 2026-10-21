@@ -98,3 +98,11 @@ The rule is: **the host decides, Theorem runs.** The [Package Boundary](README.m
 ## Publish
 
 Only a maintainer publishes. JSR and npm publish from separate commands, and the `npm/` folder is the only folder that goes to npm. A new README appears on npmjs.com only after a new release.
+
+A release is a version bump merged to `main`. The `Publish npm` workflow then publishes all three packages under `latest` and creates the GitHub release `v<version>`, with notes that list the pull requests merged since the previous release.
+
+A preview needs no bump. Name a branch for the version it leads to (`0.3.4`). Each push to it that passes CI publishes all three packages under the `next` tag, as `<version>-next.<run>.g<commit>`. The version is the branch's own while it is unpublished, else the patch after it. An app takes the newest preview with:
+
+```bash
+npm install @theoremjs/agents@next @theoremjs/react@next @theoremjs/studio@next
+```

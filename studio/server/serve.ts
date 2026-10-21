@@ -26,6 +26,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { newConversationKey } from '../conversation-key.ts';
 import { RUNNING_PATH } from '../ports.mjs';
 import { READ_STEPS, type ReadStep } from '../read-steps.ts';
+import { answerBench } from './bench.ts';
 import { createEditedSession } from './edited-session.ts';
 import type { ProjectEdits } from './edits.ts';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
@@ -421,12 +422,20 @@ async function answered(request: Request): Promise<Response | undefined> {
   return 'workspace' in answer ? json(200, answer, cors) : json(answer.status, answer.body, cors);
 }
 
-Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
-  if (isForeign(request, gate)) return json(403, {}, {});
+/** What the studio answers without the project: whether it runs, the watch feed, the project's opening, and the bench's runs. */
+async function own(request: Request): Promise<Response | undefined> {
   return (
     running(request) ??
     watching(request) ??
     openedSaying(request) ??
+    (await answerBench(root, STUDIO_BASE, request, corsHeaders(request, pageOrigins)))
+  );
+}
+
+Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
+  if (isForeign(request, gate)) return json(403, {}, {});
+  return (
+    (await own(request)) ??
     (await answered(request)) ??
     (await answerEdited(request)) ??
     forward(request)

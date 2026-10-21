@@ -11,13 +11,12 @@ import {
   type ResolvedDetect,
   resolveDetect,
 } from '../../src/guardrails/detectors.ts';
-import type { GuardrailEvent } from '../../src/guardrails/event-schemas.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
+import type { ProbeOutcome } from '../../studio/guardrail-bench.ts';
 import {
   PROBE_READS,
   PROBE_TEXT_LIMIT,
   type ProbeBoundary,
-  type ProbeStatus,
   runGuardrailProbe,
 } from '../../studio/guardrail-probe.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
@@ -27,28 +26,6 @@ import {
   workspaceFromDraft,
   workspaceRunAgent,
 } from '../../studio/mod.ts';
-
-/** What one probed text came back with. */
-export interface ProbeOutcome {
-  status: ProbeStatus;
-  /** How it was read: through a whole probe turn, or by the detectors alone when it is over the probe's limit. */
-  via: 'probe' | 'detect';
-  /** Theorem's detectors that matched. */
-  detectors: Detector[];
-  /** Every rule that fired, a detector's or the turn's own, such as a tainted call. */
-  rules: string[];
-  /** The whole probe turn, or the detection alone. */
-  ms: number;
-  /**
-   * The detectors that read the text. Read alone, a text has no turn, so the detectors that read
-   * against the turn's own text (the canary, the system prompt, the tool names) do not read it.
-   */
-  read: Detector[];
-  /** Each detector of `read` but those, timed alone on the text. */
-  detectorMs: Partial<Record<Detector, number>>;
-  /** The guardrail events, when a detector matched. */
-  events?: GuardrailEvent[];
-}
 
 const DETECTOR_OF = new Map<string, Detector>(
   Object.entries(DETECT_RULES).map(([detector, rule]) => [rule, detector as Detector]),

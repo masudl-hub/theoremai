@@ -238,15 +238,15 @@ import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
 import { usePhone } from './use-phone.ts';
 
 // The tester, Settings, the map and the code view load when they first open, or once the page is idle.
-const testerPanel = () => import('./guardrail-tester.tsx');
+const testerPanel = () => import('./guardrail-health.tsx');
 const settingsPanel = () => import('./studio-settings.tsx');
 const mapPanel = () => import('./studio-map.tsx');
 const codePane = () => import('./studio-code-pane.tsx');
 const StudioMap = lazy(() => mapPanel().then((map) => ({ default: map.StudioMap })));
 const CodeBody = lazy(() => codePane().then((code) => ({ default: code.CodeBody })));
 const ProviderCode = lazy(() => codePane().then((code) => ({ default: code.ProviderCode })));
-const GuardrailTester = lazy(() =>
-  testerPanel().then((tester) => ({ default: tester.GuardrailTester })),
+const GuardrailPane = lazy(() =>
+  testerPanel().then((tester) => ({ default: tester.GuardrailPane })),
 );
 const traceReplay = () => import('./studio-trace-replay.tsx');
 const TraceReplay = lazy(() => traceReplay().then((pane) => ({ default: pane.TraceReplay })));
@@ -2932,7 +2932,7 @@ function PreviewBody({
           <RaisedPane>
             {(isWide) => (
               <Suspense fallback={null}>
-                <GuardrailTester payload={payload} isWide={isWide} />
+                <GuardrailPane payload={payload} isWide={isWide} />
               </Suspense>
             )}
           </RaisedPane>

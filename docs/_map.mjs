@@ -385,7 +385,12 @@ const graph = {
         },
         { paths: ['src/guardrails/network.ts'], sections: ['Network'] },
         {
-          paths: ['scripts/guardrails-bench.ts', 'scripts/guardrails-bench/**'],
+          paths: [
+            'scripts/guardrails-bench.ts',
+            'scripts/guardrails-bench/**',
+            'studio/guardrail-bench.ts',
+            'studio/server/bench.ts',
+          ],
           sections: ['Evaluation'],
         },
         {

@@ -67,17 +67,20 @@ const BOUNDARY_ICONS: Record<ProbeBoundary, typeof IconUser> = {
 };
 
 /** One text sent, and what came back: each boundary's answer, or why there is none. */
-type Sent = {
+type Sent = Outcome & {
   id: number;
   text: string;
-  answers?: GuardrailProbeAnswer[];
-  error?: string;
 };
 
-type Outcome = Pick<Sent, 'answers' | 'error'>;
+/** What came back for one text: each boundary's answer, or why there is none. */
+export type Outcome = { answers?: GuardrailProbeAnswer[]; error?: string };
 
 /** Sends `text` across the draft's boundaries; given `only`, read with that detector alone. */
-async function sendProbe(payload: StudioRunPayload, text: string, only?: string): Promise<Outcome> {
+export async function sendProbe(
+  payload: StudioRunPayload,
+  text: string,
+  only?: string,
+): Promise<Outcome> {
   try {
     const response = await fetch(`${screenEndpoint()}/probe`, {
       method: 'POST',
@@ -115,7 +118,7 @@ function StatusToken({ status, count }: { status: ProbeStatus; count?: number })
 }
 
 /** What one boundary's guardrails did, and whether its turn was tainted by what it read. */
-function Verdict({ answer }: { answer: GuardrailProbeAnswer }) {
+export function Verdict({ answer }: { answer: GuardrailProbeAnswer }) {
   return (
     <HStack gap={1} wrap="wrap">
       <StatusToken status={answer.status} />

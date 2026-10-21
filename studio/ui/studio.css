@@ -419,3 +419,10 @@ button.inspector-origin:hover {
   padding-block: var(--spacing-1);
   background: var(--color-background-surface);
 }
+
+/* What a detector matched in a bench row's text. */
+.studio-bench-mark {
+  background: var(--color-background-yellow);
+  color: inherit;
+  border-radius: var(--radius-element);
+}

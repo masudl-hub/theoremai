@@ -1,5 +1,6 @@
 /** labels-exempt-file: benchmark datasets — not runtime user or model copy (P2) */
 import type { Detector } from '../../src/guardrails/detectors.ts';
+import type { Role } from '../../studio/guardrail-bench.ts';
 import type { ProbeBoundary } from '../../studio/guardrail-probe.ts';
 import {
   hfPageRows,
@@ -11,10 +12,6 @@ import {
   recordsFromYaml,
   toolResultsFromChat,
 } from './parse.ts';
-
-/** What a dataset is for. A hold-out is scored only: nothing is tuned on it and no figure from it is published. */
-export const ROLES = ['train', 'validate', 'test', 'holdout'] as const;
-export type Role = (typeof ROLES)[number];
 
 export interface BenchSample {
   /** Unique within its dataset, so a row can be found again. */

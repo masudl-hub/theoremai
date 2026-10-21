@@ -78,7 +78,9 @@
     { "file": "studio/ui/built/theorem-studio.js", "exports": ["themeIcons"] },
     { "file": "react/src/ui/built/theorem.js", "exports": ["themeIcons"] },
     // The guardrails bench sends each text to the kernel boundary the probe would, and scripts/ is ignored.
-    { "file": "studio/guardrail-probe.ts", "exports": ["PROBE_READS"] }
+    { "file": "studio/guardrail-probe.ts", "exports": ["PROBE_READS"] },
+    // The bench scores with the same test of a row the Health view reads rows by.
+    { "file": "studio/guardrail-bench.ts", "exports": ["holdsTarget", "isScoredFor"] }
   ],
   "ignorePatterns": [
     "node_modules/**",

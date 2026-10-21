@@ -531,6 +531,16 @@ Each run writes `.guardrails-bench/<run>/results.jsonl`, one line per text, and
 `summary.json`. `.guardrails-bench/latest` names the last run. A line keeps its
 text only when a detector fired or the text is an attack.
 
+To read a run in the studio, start the studio from the folder the bench ran in.
+Test guardrails then shows a Health view. It lists each detector on each
+dataset, with recall, false alarms, and time, and the change since the run
+before. Open a row to see its worst categories and the texts behind each
+figure, with each match marked. **Probe the draft** sends one of those texts
+through the probe again, with the open draft. The studio server reads the runs
+from `GET /api/studio/bench` and `GET /api/studio/bench/rows`. Where no run
+exists, both answer 404 and the view does not show. `studio/guardrail-bench.ts`
+holds the shapes that the bench writes and the view reads.
+
 `DATASETS` in `scripts/guardrails-bench/datasets.ts` lists every dataset, with
 its boundary, licence, and role. The roles are `train`, `validate`, `test`, and
 `holdout`. `docs/GUARDRAILS_COVERAGE.md` says which set has which role. The data

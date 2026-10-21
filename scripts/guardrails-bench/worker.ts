@@ -1,7 +1,9 @@
 /// <reference lib="deno.worker" />
 /** labels-exempt-file: benchmark runner — not runtime user or model copy (P2) */
+
+import type { ProbeOutcome } from '../../studio/guardrail-bench.ts';
 import type { ProbeBoundary } from '../../studio/guardrail-probe.ts';
-import { benchAgent, type ProbeOutcome, probeOne } from './probe.ts';
+import { benchAgent, probeOne } from './probe.ts';
 
 export interface BatchRequest {
   batch: number;

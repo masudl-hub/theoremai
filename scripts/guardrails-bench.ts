@@ -11,14 +11,13 @@
  * The data root is `--root`, or `GUARDRAIL_DATA`, or the external disk. The guardrail corpus is
  * `--corpus`, or `GUARDRAIL_CORPUS`, or `guardrail-corpus` under the root.
  */
+import { BENCH_DIR, type BenchSummary, ROLES, type Role } from '../studio/guardrail-bench.ts';
 import {
   type BenchDataset,
   type BenchSample,
   CORPUS,
   DATASETS,
   type Locate,
-  ROLES,
-  type Role,
 } from './guardrails-bench/datasets.ts';
 import { detectorsAt } from './guardrails-bench/probe.ts';
 import {
@@ -30,7 +29,7 @@ import {
 import type { BatchReply, BatchRequest } from './guardrails-bench/worker.ts';
 
 const DEFAULT_ROOT = '/Volumes/MLewis/Development/theoremai';
-const OUT = '.guardrails-bench';
+const OUT = BENCH_DIR;
 const BATCH = 50;
 
 function option(name: string): string | undefined {
@@ -208,12 +207,12 @@ try {
   results.close();
 }
 
-const summary = {
+const summary: BenchSummary = {
   run,
   commit: await commit(),
   root,
   corpus,
-  limit,
+  ...(limit === undefined ? {} : { limit }),
   seconds: (performance.now() - started) / 1000,
   profile: 'the example draft’s travel.concierge, every detector on flag',
   datasets: chosen.map(({ id, role, boundary, labels, license, attribution }) => ({

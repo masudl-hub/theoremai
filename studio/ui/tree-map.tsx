@@ -7,7 +7,20 @@
  * page that is not the studio.
  */
 import type { IconType } from '@astryxdesign/core/Icon';
-import { IconCloud, IconEngine, IconSettingsAutomation, IconTool } from '@tabler/icons-react';
+import {
+  IconAdjustments,
+  IconArrowsMinimize,
+  IconChecks,
+  IconCloud,
+  IconEngine,
+  IconFlag,
+  IconKey,
+  IconRepeat,
+  IconSettingsAutomation,
+  IconShieldCheck,
+  IconTimeline,
+  IconTool,
+} from '@tabler/icons-react';
 import { type CSSProperties, useRef } from 'react';
 import { mapCurve } from '../map-line.ts';
 import {
@@ -109,7 +122,27 @@ function runnerLabel(type: string): string | undefined {
   return 'Turn runner';
 }
 
-function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
+/**
+ * What a turn runner does in one turn, in order.
+ * why: The kernel contract's turn lifecycle (docs/contracts/kernel.md, "Turn lifecycle"), step for
+ * step; a decision and a session have no such list there, so their runners open into nothing.
+ */
+const TURN_STEPS: readonly { id: string; label: string; icon: IconType }[] = [
+  { id: 'resolve', label: 'Resolve', icon: IconAdjustments },
+  { id: 'sanitize', label: 'Sanitize', icon: IconShieldCheck },
+  { id: 'compaction', label: 'Compaction', icon: IconArrowsMinimize },
+  { id: 'canary', label: 'Canary bind', icon: IconKey },
+  { id: 'pre_turn', label: 'pre_turn', icon: IconFlag },
+  { id: 'stream', label: 'Provider stream', icon: IconCloud },
+  { id: 'tools', label: 'Tool loop', icon: IconRepeat },
+  { id: 'before_end', label: 'before_end', icon: IconFlag },
+  { id: 'validation', label: 'Validation', icon: IconChecks },
+  { id: 'egress', label: 'Egress', icon: IconShieldCheck },
+  { id: 'trace', label: 'Trace', icon: IconTimeline },
+  { id: 'post_turn', label: 'post_turn', icon: IconFlag },
+];
+
+function feedsOf(workspace: StudioWorkspace, rows: Row[], detail: boolean): Feed[] {
   const feeds: Feed[] = [];
   const add = (
     id: string,
@@ -136,7 +169,12 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     const name = mine.find((row) => row.node.ref.facet === 'identity');
     if (!name) continue;
     const runner = runnerLabel(agent.identity.profileType);
-    if (runner) add(`${agent.key}/runner`, runner, IconEngine, [name]);
+    if (runner) {
+      const id = `${agent.key}/runner`;
+      add(id, runner, IconEngine, [name]);
+      const steps = detail && runner === 'Turn runner' ? TURN_STEPS : [];
+      for (const step of steps) add(`${id}/${step.id}`, step.label, step.icon, [], id, 1);
+    }
     const providers = new Map<string, Row[]>();
     for (const binding of agent.modelBindings) {
       const row = mine.find(
@@ -155,7 +193,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     else if (tools && workspace.toolSpecs.length > 0) {
       const registry = REGISTRY;
       add(registry, 'Tool registry', IconTool, [tools]);
-      for (const tool of shownTools(workspace.toolSpecs)) {
+      for (const tool of listedTools(workspace.toolSpecs, detail)) {
         const icon = toolTypeIcon(tool.toolType);
         add(`${registry}/${tool.key}`, tool.toolName, icon, [], registry, 1);
       }
@@ -165,14 +203,21 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   return feeds;
 }
 
-/** A few of the registry's tools: the first of each type, then the next ones, in the registry's order. */
-function shownTools(tools: StudioWorkspace['toolSpecs']): StudioWorkspace['toolSpecs'] {
+/**
+ * The registry's tools: the first of each type, then the rest in the registry's order. A few of
+ * them, or with `detail` every one.
+ */
+function listedTools(
+  tools: StudioWorkspace['toolSpecs'],
+  detail: boolean,
+): StudioWorkspace['toolSpecs'] {
   const firsts = TOOL_TYPES.flatMap((type) => {
     const tool = tools.find((each) => each.toolType === type);
     return tool ? [tool] : [];
   });
   const rest = tools.filter((tool) => !firsts.includes(tool));
-  return [...firsts, ...rest].slice(0, SHOWN_TOOLS);
+  const listed = [...firsts, ...rest];
+  return detail ? listed : listed.slice(0, SHOWN_TOOLS);
 }
 
 /** Right from `from` to `rail`, up or down it, and back left to `to`, its corners turned. */
@@ -195,21 +240,35 @@ export interface StudioTreeMapProps {
   /** The keys of the agents to draw, in the workspace's order; every agent when unset. */
   agents?: readonly string[] | undefined;
   /**
-   * Whether what feeds the tree is drawn beside it. Turned on, each feed draws in after the one
-   * before, its line from the tree first, as the loader's map draws; turned off, they leave in the
-   * reverse order. Shown when unset.
+   * Every tool in the registry, not a few, and each turn runner opened into the steps of a turn. Turned on, what is drawn moves to make room, then each
+   * node it adds draws in after the one before, its line first, as the loader's map draws; turned
+   * off, they leave in the reverse order and the rest moves back.
    */
-  feeds?: 'shown' | 'hidden' | undefined;
+  detail?: boolean | undefined;
 }
 
-/** The order a feed draws in, and which end its line starts from: 1 the path's start, -1 its end. */
-const feedStyle = (index: number, from: 1 | -1 = 1) =>
-  ({ '--feed-i': index, '--feed-from': from }) as CSSProperties;
+/** The order an added node draws in, and which end its line starts from: 1 the path's start, -1 its end. */
+const addedStyle = (index: number, from: 1 | -1 = 1) =>
+  ({ '--added-i': index, '--added-from': from }) as CSSProperties;
 
-export function StudioTreeMap({ workspace, agents, feeds: shown = 'shown' }: StudioTreeMapProps) {
+/**
+ * A line's path as a style too, so a line that moves eases to its new shape where the browser
+ * eases `d`; the attribute draws it where it does not.
+ */
+const pathStyle = (d: string, style?: CSSProperties) =>
+  ({ ...style, d: `path("${d}")` }) as CSSProperties;
+
+export function StudioTreeMap({ workspace, agents, detail = false }: StudioTreeMapProps) {
   const root = useRef<HTMLDivElement>(null);
   const rows = rowsOf(workspace, agents);
-  const feeds = feedsOf(workspace, rows);
+  const few = feedsOf(workspace, rows, false);
+  const full = feedsOf(workspace, rows, true);
+  const fewIds = new Set(few.map((feed) => feed.id));
+  const addedIndex = new Map(
+    full.filter((feed) => !fewIds.has(feed.id)).map((feed, index) => [feed.id, index]),
+  );
+  /** The feeds laid out; without detail, an added one waits on the feed it comes under. */
+  const feeds = detail ? full : few;
   const widths = useTokenWidths(root, workspace);
   const drafts = new Map(
     workspace.agents.map((agent) => [
@@ -221,6 +280,8 @@ export function StudioTreeMap({ workspace, agents, feeds: shown = 'shown' }: Stu
   const feedX = Math.max(0, ...rows.map(right)) + GAP;
   const byId = new Map(rows.map((row) => [rowId(row), row]));
   const feedById = new Map(feeds.map((feed) => [feed.id, feed]));
+  const placed = (feed: Feed): Feed =>
+    feedById.get(feed.id) ?? { ...feed, y: feedById.get(feed.under ?? '')?.y ?? feed.y };
   const height = PAD * 2 + Math.max(rows.length * ROW, ...feeds.map((feed) => feed.y + HALF - PAD));
   const feedLeft = (feed: Feed) => feedX + feed.depth * INDENT;
   const feedRight = (feed: Feed) => feedLeft(feed) + (widths[feed.id] ?? GUESS);
@@ -233,23 +294,33 @@ export function StudioTreeMap({ workspace, agents, feeds: shown = 'shown' }: Stu
     return above && feed.depth <= above.depth ? [railFor(feed, above)] : [];
   });
   const width = Math.max(GUESS, ...feeds.map(feedRight), ...rails) + PAD;
-  const order = new Map(feeds.map((feed, index) => [feed.id, index]));
+  /** What marks a node or line detail adds: its turn to draw, and the end its line draws from. */
+  const addedProps = (id: string, from: 1 | -1 = 1) => {
+    const index = addedIndex.get(id);
+    return index === undefined ? {} : { 'data-added': '', style: addedStyle(index, from) };
+  };
   return (
     <div
       ref={root}
       className="studio-tree-map"
-      data-feeds={shown}
-      style={{ width, height, '--feed-n': feeds.length } as CSSProperties}
+      data-detail={detail ? '' : undefined}
+      style={{ width, height, '--added-n': addedIndex.size } as CSSProperties}
     >
       <svg className="studio-tree-map-lines" width={width} height={height} aria-hidden="true">
         {rows.map(
           (row) =>
             row.parent && (
-              <path key={rowId(row)} className="map-line" d={linePath(row.parent, row)} />
+              <path
+                key={rowId(row)}
+                className="map-line"
+                d={linePath(row.parent, row)}
+                style={pathStyle(linePath(row.parent, row))}
+              />
             ),
         )}
-        {feeds.flatMap((feed) =>
-          feed.into.map((id) => {
+        {full.flatMap((each) => {
+          const feed = placed(each);
+          return feed.into.map((id) => {
             const row = byId.get(id);
             if (!row) return null;
             const { d } = mapCurve(
@@ -257,41 +328,44 @@ export function StudioTreeMap({ workspace, agents, feeds: shown = 'shown' }: Stu
               { x: right(row) + LINE_GAP, y: row.y },
             );
             // The line runs from the feed to the row; it draws from the row.
+            const { style, ...added } = addedProps(feed.id, -1);
             return (
               <path
                 key={`${feed.id}>${id}`}
                 className="map-line"
                 d={d}
                 pathLength={1}
-                data-feed=""
-                style={feedStyle(order.get(feed.id) ?? 0, -1)}
+                style={pathStyle(d, style)}
+                {...added}
               />
             );
-          }),
-        )}
-        {feeds.map((feed) => {
+          });
+        })}
+        {full.map((each) => {
+          const feed = placed(each);
           const above = feed.under === undefined ? undefined : feedById.get(feed.under);
           if (above === undefined) return null;
           const from = { x: feedLeft(above), y: above.y };
           // One of its own turns in from the trunk, as a tree row does; one level with it comes round
           // the right of what lies between, so it reads as joining the feed, not as one of its own.
-          const d =
-            feed.depth > above.depth
-              ? linePath(from, { x: feedLeft(feed), y: feed.y })
-              : sidePath(
-                  { x: feedRight(feed) + LINE_GAP, y: feed.y },
-                  { x: feedRight(above) + LINE_GAP, y: above.y },
-                  railFor(feed, above),
-                );
+          const isOwn = feed.depth > above.depth;
+          const d = isOwn
+            ? linePath(from, { x: feedLeft(feed), y: feed.y })
+            : sidePath(
+                { x: feedRight(feed) + LINE_GAP, y: feed.y },
+                { x: feedRight(above) + LINE_GAP, y: above.y },
+                railFor(feed, above),
+              );
           // A turn in runs from the feed above; a line round the side runs from this one.
+          const { style, ...added } = addedProps(feed.id, isOwn ? 1 : -1);
           return (
             <path
               key={`${feed.id}^`}
               className="map-line"
               d={d}
               pathLength={1}
-              data-feed=""
-              style={feedStyle(order.get(feed.id) ?? 0, feed.depth > above.depth ? 1 : -1)}
+              style={pathStyle(d, style)}
+              {...added}
             />
           );
         })}
@@ -309,18 +383,20 @@ export function StudioTreeMap({ workspace, agents, feeds: shown = 'shown' }: Stu
           />
         );
       })}
-      {feeds.map((feed) => (
-        <MapToken
-          key={feed.id}
-          id={feed.id}
-          label={feed.label}
-          icon={feed.icon}
-          x={feedLeft(feed)}
-          y={feed.y}
-          data-feed=""
-          style={feedStyle(order.get(feed.id) ?? 0)}
-        />
-      ))}
+      {full.map((each) => {
+        const feed = placed(each);
+        return (
+          <MapToken
+            key={feed.id}
+            id={feed.id}
+            label={feed.label}
+            icon={feed.icon}
+            x={feedLeft(feed)}
+            y={feed.y}
+            {...addedProps(feed.id)}
+          />
+        );
+      })}
     </div>
   );
 }

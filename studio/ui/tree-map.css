@@ -15,44 +15,83 @@
 }
 
 /*
- * Feeds draw in as the loader's map draws (read-map.css), one after another: the line from the
- * tree, then the token at its end. Hidden, they leave in the reverse order.
- * invariant: Transitions, not keyframes, so drawing and leaving both ease, and a turn mid-draw
- * goes back from where it is.
+ * Detail adds nodes. What is drawn moves to make room first, then each added node draws in after
+ * the one before, as the loader's map draws (read-map.css): its line, then its token. Without
+ * detail, the added ones leave in the reverse order, then the rest moves back.
+ * invariant: Transitions, not keyframes, so both ways ease, and a turn mid-way goes back from
+ * where it is. An added node only ever jumps to its place while it is not drawn.
  */
 .studio-tree-map {
-  --feed-step: 70ms;
+  --added-step: 40ms;
+  --added-draw: var(--duration-medium, 240ms);
+  --map-move: var(--duration-slow, 400ms);
+  /* How long the added nodes take to leave, before the rest moves back. */
+  --map-leave: calc(var(--added-n) * var(--added-step) + 2 * var(--added-draw));
+  --map-ease: var(--ease-standard, ease-out);
 }
 
-.studio-tree-map-lines [data-feed] {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 0;
-  transition: stroke-dashoffset var(--duration-medium, 240ms) var(--ease-standard, ease-out)
-    calc(var(--feed-i) * var(--feed-step));
-}
-
-.studio-tree-map > [data-feed] {
-  transition: opacity var(--duration-medium, 240ms) var(--ease-standard, ease-out)
-    calc(var(--feed-i) * var(--feed-step) + var(--duration-medium, 240ms));
-}
-
-.studio-tree-map[data-feeds="hidden"] > [data-feed] {
+.studio-tree-map > [data-added] {
   opacity: 0;
-  transition-delay: calc((var(--feed-n) - var(--feed-i)) * var(--feed-step));
 }
 
-.studio-tree-map[data-feeds="hidden"] .studio-tree-map-lines [data-feed] {
-  stroke-dashoffset: var(--feed-from);
-  transition-delay: calc(
-    (var(--feed-n) - var(--feed-i)) *
-    var(--feed-step) +
-    var(--duration-medium, 240ms)
-  );
+.studio-tree-map-lines [data-added] {
+  stroke-dasharray: 1;
+  stroke-dashoffset: var(--added-from);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .studio-tree-map-lines [data-feed],
-  .studio-tree-map > [data-feed] {
-    transition: none;
+.studio-tree-map[data-detail] > [data-added] {
+  opacity: 1;
+}
+
+.studio-tree-map[data-detail] .studio-tree-map-lines [data-added] {
+  stroke-dashoffset: 0;
+}
+
+/* invariant: With reduced motion, nothing moves: each node is at once where it ends. */
+@media (prefers-reduced-motion: no-preference) {
+  .studio-tree-map > .map-token,
+  .studio-tree-map-lines .map-line {
+    transition:
+      top var(--map-move) var(--map-ease) var(--map-leave),
+      left var(--map-move) var(--map-ease) var(--map-leave),
+      d var(--map-move) var(--map-ease) var(--map-leave);
+  }
+
+  .studio-tree-map > [data-added] {
+    transition:
+      opacity var(--added-draw) var(--map-ease)
+      calc((var(--added-n) - var(--added-i)) * var(--added-step)),
+      top 0s var(--map-leave),
+      left 0s var(--map-leave);
+  }
+
+  .studio-tree-map-lines [data-added] {
+    transition:
+      stroke-dashoffset var(--added-draw) var(--map-ease)
+      calc((var(--added-n) - var(--added-i)) * var(--added-step) + var(--added-draw)),
+      d 0s var(--map-leave);
+  }
+
+  .studio-tree-map[data-detail] > .map-token {
+    transition-delay: 0s;
+  }
+
+  .studio-tree-map[data-detail] > [data-added] {
+    transition:
+      opacity var(--added-draw) var(--map-ease)
+      calc(var(--map-move) + var(--added-i) * var(--added-step) + var(--added-draw)),
+      top 0s,
+      left 0s;
+  }
+
+  .studio-tree-map[data-detail] .studio-tree-map-lines .map-line {
+    transition-delay: 0s;
+  }
+
+  .studio-tree-map[data-detail] .studio-tree-map-lines [data-added] {
+    transition:
+      stroke-dashoffset var(--added-draw) var(--map-ease)
+      calc(var(--map-move) + var(--added-i) * var(--added-step)),
+      d 0s;
   }
 }

@@ -15,7 +15,11 @@ import {
   type TurnEvent,
   traceRecordSchema,
 } from '@theoremjs/agents';
-import { interfaceFromProfile, type ProfileInterface } from '@theoremjs/agents/interface';
+import {
+  interfaceFromProfile,
+  type ProfileInterface,
+  type TranscriptBlock,
+} from '@theoremjs/agents/interface';
 import { createToolRegistry, type Equals } from '@theoremjs/agents/kernel';
 import {
   CHAT_LINES,
@@ -29,6 +33,7 @@ import {
   embeddingInterface,
   fetchConversation,
   fetchRewound,
+  fetchStarted,
   type HostTransport,
   type HttpOptions,
   hostInterface,
@@ -233,6 +238,20 @@ export function createStudioTransport(
     },
     traces,
   };
+}
+
+/** A conversation with the draft that opens on `blocks`, kept in this visitor's session: its ref and view. */
+export function startStudioConversation(
+  payload: StudioRunPayload,
+  blocks: readonly TranscriptBlock[],
+  options: HttpOptions & { signal?: AbortSignal } = {},
+) {
+  const { profile, customTools, structured, dependencies } = payload;
+  return fetchStarted(
+    '/api/studio/conversation/start',
+    { profile, customTools, structured, dependencies, blocks },
+    options,
+  );
 }
 
 /**

@@ -32,6 +32,7 @@ import {
   theoremHostCallRequestSchema,
   theoremInvokeRequestSchema,
   theoremRewindRequestSchema,
+  theoremStartRequestSchema,
   theoremSteerRequestSchema,
   theoremTurnRequestSchema,
 } from '@theoremjs/web/server';
@@ -284,6 +285,16 @@ export function createStudioDraftHandler(
             draftRun(lent, draft, boundary, request),
             conversationsOf(boundary),
             checkRequest(theoremConversationRequestSchema, draft, 'request body'),
+          ),
+        ),
+      ),
+    'conversation/start': (request) =>
+      draftRequest(request, async (draft, boundary) =>
+        Response.json(
+          await startStudioConversation(
+            draftRun(lent, draft, boundary, request),
+            conversationsOf(boundary),
+            checkRequest(theoremStartRequestSchema, draft, 'request body').blocks,
           ),
         ),
       ),

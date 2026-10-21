@@ -18,6 +18,7 @@ export {
   rewindStudio,
   runStudioDecision,
   runStudioEmbedding,
+  startStudioConversation,
   streamStudioCall,
   streamStudioHostInvoke,
   streamStudioInvoke,

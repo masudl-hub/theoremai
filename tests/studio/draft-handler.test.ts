@@ -69,6 +69,7 @@ Deno.test('without lent keys, the handler answers the probe and the tests, and n
     'embedding/embed',
     'page-result',
     'turn/steer',
+    'conversation/start',
   ]) {
     assertEquals((await handler(post(route, run))).status, 404, route);
   }
@@ -120,6 +121,39 @@ Deno.test("on lent keys, a reply that fails keeps the visitor's wording, never t
   const failure = view.transcript.find((block: { kind: string }) => block.kind === 'error');
   assert(failure, JSON.stringify(view));
   assert(!JSON.stringify(view).includes('HTTP 400'), failure.message);
+});
+
+Deno.test('on lent keys, a conversation starts on blocks the page wrote, and its next turn goes on from them', async () => {
+  const handler = createStudioDraftHandler({
+    lent: { ...ON_TEST_KEYS, provider: () => says('Picking up where we were.') },
+  });
+  const blocks = [
+    { id: 'b1', kind: 'user-text', text: 'How far is 10 km in miles?' },
+    { id: 'b2', kind: 'text', text: 'About 6.2 miles.' },
+  ];
+  const started = await handler(post('conversation/start', { ...concierge(), blocks }));
+  assertEquals(started.status, 200);
+  const cookie = started.headers.get('set-cookie')?.split(';')[0] ?? '';
+  const { conversation, view } = await started.json();
+  assert(typeof conversation === 'string');
+  assertEquals(view.transcript, blocks);
+  const turn = await handler(
+    post('turn', { ...concierge(), conversation, input: { text: 'And 20?' } }, { cookie }),
+  );
+  const events = await lines(turn);
+  assert(
+    events.some((event) => event.type === 'done'),
+    JSON.stringify(events),
+  );
+  const next = events.findLast((event) => event.type === 'conversation')?.ref;
+  const read = await handler(
+    post('conversation', { ...concierge(), conversation: next }, { cookie }),
+  );
+  const kinds = (await read.json()).transcript.map((block: { kind: string }) => block.kind);
+  assertEquals(kinds.slice(0, 2), ['user-text', 'text']);
+  assert(kinds.length > 2, kinds.join(', '));
+  const bad = await handler(post('conversation/start', { ...concierge(), blocks: [{ kind: 3 }] }));
+  assertEquals(bad.status, 400);
 });
 
 Deno.test('a draft the kernel refuses is a bad request, not the host', async () => {

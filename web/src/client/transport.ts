@@ -279,7 +279,14 @@ true satisfies Equals<z.infer<typeof theoremRewindRequest>, TheoremRewindRequest
 /** A `/rewind` body as `createTheoremHandler` reads it. */
 export const theoremRewindRequestSchema: z.ZodType<TheoremRewindRequest> = theoremRewindRequest;
 
-/** A rewound conversation: its new ref, and what the browser draws. */
+/** Start a conversation on blocks the host wrote, not ran: a `/conversation/start` body. */
+export type TheoremStartRequest = { blocks: TranscriptBlock[] };
+const theoremStartRequest = z.object({ blocks: z.array(transcriptBlockSchema) });
+true satisfies Equals<z.infer<typeof theoremStartRequest>, TheoremStartRequest>;
+/** A `/conversation/start` body as a host reads it. */
+export const theoremStartRequestSchema: z.ZodType<TheoremStartRequest> = theoremStartRequest;
+
+/** A rewound or started conversation: its new ref, and what the browser draws. */
 export type TheoremRewound = { conversation: string; view: ConversationView };
 const theoremRewound = z.object({ conversation: z.string().min(1), view: conversationView });
 true satisfies Equals<z.infer<typeof theoremRewound>, TheoremRewound>;
@@ -590,6 +597,20 @@ export async function fetchRewound(
     theoremRewound,
     await fetchJson(url, { body, signal }, http),
     'the rewound conversation', // labels-exempt: internal diagnostic; the user reads error.bad_response
+  );
+}
+
+/** POST blocks to start a conversation on to `url`, and check the conversation the host answers. */
+export async function fetchStarted(
+  url: string,
+  body: unknown,
+  options: HttpOptions & { signal?: AbortSignal } = {},
+): Promise<TheoremRewound> {
+  const { signal, ...http } = options;
+  return checkWire(
+    theoremRewound,
+    await fetchJson(url, { body, signal }, http),
+    'the started conversation', // labels-exempt: internal diagnostic; the user reads error.bad_response
   );
 }
 

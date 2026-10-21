@@ -113,6 +113,8 @@ export interface StudioRunnerProps {
    * answers twice while it holds edits the files do not: as the files, and as the edits.
    */
   tested?: StudioWorkspace;
+  /** The feed its trace records land in, when the page reads them too; else its own. */
+  traces?: TraceFeed;
 }
 
 /**
@@ -138,8 +140,10 @@ export function StudioRunner({
   slots,
   context,
   tested,
+  traces: given,
 }: StudioRunnerProps) {
-  const [traces] = useState(createTraceFeed);
+  const [own] = useState(createTraceFeed);
+  const traces = given ?? own;
   const activity = useRef(onActivity);
   activity.current = onActivity;
   const [note] = useState(() => () => activity.current?.());
@@ -316,7 +320,7 @@ function UnsavedActions({ agentId, isNew }: { agentId: string; isNew: boolean })
 }
 
 export type ChatProps = ComponentProps<typeof TheoremChat>;
-type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity'> & {
+type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity' | 'traces'> & {
   traces: TraceFeed;
   note: () => void;
 };

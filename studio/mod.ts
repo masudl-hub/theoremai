@@ -231,6 +231,17 @@ export type {
   ToolRegistration,
 } from './registrations.ts';
 export {
+  createReplay,
+  parseTraceFile,
+  type Replay,
+  type ReplayDivergence,
+  type ReplayScript,
+  type ReplayTurn,
+  recordedPayload,
+  recordedTranscript,
+  replayScript,
+} from './replay.ts';
+export {
   bindingSlots,
   defaultEffortRequired,
   defaultModelRequired,
@@ -314,6 +325,7 @@ export {
   createStudioEmbeddingTransport,
   createStudioHostTransport,
   createStudioTransport,
+  startStudioConversation,
   studioInterface,
   studioRunDefines,
 } from './transport.ts';

@@ -13,6 +13,7 @@ export {
   theoremInvokeRequestSchema,
   theoremReplaySchema,
   theoremRewindRequestSchema,
+  theoremStartRequestSchema,
   theoremSteerRequestSchema,
   theoremTurnRequestSchema,
 } from '../client/transport.ts';

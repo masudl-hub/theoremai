@@ -31,7 +31,9 @@ import {
   IconCode,
   IconCopy,
   IconCopyPlus,
+  IconDownload,
   IconFile,
+  IconFileImport,
   IconFileSmile,
   IconFileZip,
   IconKey,
@@ -140,6 +142,7 @@ import type { StudioActingAs } from '../people.ts';
 import type { OpenAnswer, SettingOrigin } from '../server/save-wire.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import './studio.css';
+import { type ConversationView, createTraceFeed, type TraceFeed } from '@theoremjs/web/client';
 import {
   type CSSProperties,
   type Dispatch,
@@ -180,6 +183,7 @@ import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel } from './lib/panel-motion.ts';
 import { screenEndpoint } from './lib/project-address.ts';
 import { recordsTraces } from './lib/project-traces.ts';
+import { sendWhenReady } from './lib/send-when-ready.ts';
 import {
   type ChatSealer,
   clearConversation,
@@ -245,6 +249,8 @@ const ProviderCode = lazy(() => codePane().then((code) => ({ default: code.Provi
 const GuardrailTester = lazy(() =>
   testerPanel().then((tester) => ({ default: tester.GuardrailTester })),
 );
+const traceReplay = () => import('./studio-trace-replay.tsx');
+const TraceReplay = lazy(() => traceReplay().then((pane) => ({ default: pane.TraceReplay })));
 const StudioSettings = lazy(() =>
   settingsPanel().then((settings) => ({ default: settings.StudioSettings })),
 );
@@ -1882,10 +1888,14 @@ function useConversationRun(
   if (!firstRuns.has(chatKey)) firstRuns.set(chatKey, runKey);
   const isFirstRun = firstRuns.get(chatKey) === runKey;
   const [seeded] = useState(chatWith);
+  /** A conversation started for a chat's next runner: what it resumes and draws at once. */
+  const [resumed, setResumed] = useState<ResumedConversation>();
+  const resumes = resumed?.runKey === runKey ? resumed : undefined;
   const conversation = useMemo(
-    () => (isFirstRun ? restoreConversation(chatKey, sealer) : undefined),
-    [isFirstRun, chatKey, sealer],
+    () => (resumes ? resumes.ref : isFirstRun ? restoreConversation(chatKey, sealer) : undefined),
+    [resumes, isFirstRun, chatKey, sealer],
   );
+  const conversationView = resumes?.view;
   /** A docs seed's question waits in its agent's first composer, when that resumes nothing. */
   const initialText = isFirstRun && chatWith === seeded && !conversation ? question : undefined;
   /**
@@ -1901,6 +1911,7 @@ function useConversationRun(
       generation,
       sealer,
       conversation,
+      conversationView,
       initialText,
       isUsed,
       markUsed: () => {
@@ -1911,13 +1922,31 @@ function useConversationRun(
         clearConversation(chatKey);
         setCleared((counts) => ({ ...counts, [chatKey]: (counts[chatKey] ?? 0) + 1 }));
       },
+      /** Goes on in a new runner with the conversation under `ref`, drawn as `view` at once. */
+      resume: (ref: string, view: ConversationView) => {
+        saveConversation(chatKey, sealer, ref);
+        const next = (cleared[chatKey] ?? 0) + 1;
+        setResumed({ runKey: `${generation}:${chatKey}:${String(next)}`, ref, view });
+        setCleared((counts) => ({ ...counts, [chatKey]: next }));
+      },
       setConversation,
     }),
-    [runKey, chatKey, generation, sealer, conversation, initialText, isUsed],
+    [
+      runKey,
+      chatKey,
+      generation,
+      sealer,
+      conversation,
+      conversationView,
+      initialText,
+      isUsed,
+      cleared,
+    ],
   );
 }
 
 type ConversationRun = ReturnType<typeof useConversationRun>;
+type ResumedConversation = { runKey: string; ref: string; view: ConversationView };
 
 /**
  * Once, on arrival: say when a kept draft was set aside for a docs seed, when a project's files
@@ -2730,6 +2759,30 @@ function ClearHistoryButton({ run }: { run: ConversationRun }) {
   );
 }
 
+/** The types whose conversation a trace can hold, and so open and replay. */
+const NO_CONVERSATION = new Set(['decision', 'host', 'embedding', 'live']);
+
+/** Downloads the records of the conversation on screen, as a trace file the studio opens. */
+function DownloadTraceButton({ feed, name }: { feed: TraceFeed; name: string }) {
+  const records = useSyncExternalStore(feed.subscribe, feed.records, feed.records);
+  return (
+    <IconButton
+      label="Download trace"
+      variant="ghost"
+      tooltip={records.length ? 'Download trace' : 'Nothing recorded yet'}
+      icon={<Icon icon={IconDownload} size="sm" />}
+      isDisabled={records.length === 0}
+      onClick={() => {
+        const stamp = new Date().toISOString().replaceAll(':', '-').slice(0, 19);
+        download(
+          `${name}-${stamp}.trace.json`,
+          new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' }),
+        );
+      }}
+    />
+  );
+}
+
 /** The preview's header: back to the editor, the agent to chat with, history, trace, and Export. */
 function PreviewHeader({
   store,
@@ -2740,6 +2793,9 @@ function PreviewHeader({
   connection,
   trace,
   testing,
+  tracing,
+  feed,
+  profileId,
   copy,
   setSheet,
 }: {
@@ -2751,12 +2807,19 @@ function PreviewHeader({
   connection: StudioConnectionState;
   trace: { open: boolean; toggle: () => void };
   testing: { open: boolean; toggle: () => void };
+  /** The opened trace's pane, over the conversation. */
+  tracing: { open: boolean; toggle: () => void };
+  /** The trace records of the conversation on screen. */
+  feed: TraceFeed;
+  profileId: string | undefined;
   copy: (text: string, what: string) => void;
   setSheet: (sheet: Sheet) => void;
 }) {
   const testLabel = testing.open ? 'Close guardrail test' : 'Test guardrails';
   const traceLabel = trace.open ? 'Hide trace' : 'View trace';
-  const { compiled } = compile;
+  const openLabel = tracing.open ? 'Close trace' : 'Open trace';
+  const { compiled, payload } = compile;
+  const replays = payload != null && !NO_CONVERSATION.has(payload.profile.type);
   return (
     <Section variant="transparent" paddingInline={3} paddingBlock={0}>
       <HStack gap={2} vAlign="center">
@@ -2772,7 +2835,22 @@ function PreviewHeader({
         <StackItem size="static">
           <HStack gap={1} vAlign="center">
             <ActingAsButton />
-            {compile.payload && run.isUsed && !testing.open && <ClearHistoryButton run={run} />}
+            {compile.payload && run.isUsed && !testing.open && !tracing.open && (
+              <ClearHistoryButton run={run} />
+            )}
+            {replays && !testing.open && (
+              <IconButton
+                label={openLabel}
+                variant={tracing.open ? 'secondary' : 'ghost'}
+                tooltip={openLabel}
+                icon={<Icon icon={IconFileImport} size="sm" />}
+                aria-pressed={tracing.open}
+                onClick={tracing.toggle}
+              />
+            )}
+            {compile.payload && !testing.open && !tracing.open && (
+              <DownloadTraceButton feed={feed} name={profileId ?? 'agent'} />
+            )}
             {compile.payload && (
               <IconButton
                 label={testLabel}
@@ -2795,7 +2873,7 @@ function PreviewHeader({
                 localBaseUrl: connection.local.baseUrl,
               }}
             />
-            {compile.traced && !testing.open ? (
+            {(compile.traced || tracing.open) && !testing.open ? (
               <IconButton
                 label={traceLabel}
                 variant={trace.open ? 'secondary' : 'ghost'}
@@ -2871,6 +2949,8 @@ function PreviewBody({
   profileId,
   traceOpen,
   testing,
+  tracing,
+  feedOf,
   onIssue,
 }: {
   compile: WorkspaceCompile;
@@ -2882,6 +2962,10 @@ function PreviewBody({
   profileId: string | undefined;
   traceOpen: boolean;
   testing: boolean;
+  /** The opened trace's pane, shown over the conversation while it is open. */
+  tracing: ReactNode;
+  /** The feed each runner's trace records land in. */
+  feedOf: (runKey: string) => TraceFeed;
   onIssue: (node: string) => void;
 }) {
   const { payload, traced, tested } = compile;
@@ -2899,6 +2983,7 @@ function PreviewBody({
             payload,
             onActivity: run.markUsed,
             conversation: run.conversation,
+            conversationView: run.conversationView,
             initialText: run.initialText,
             onConversationChange: (ref) => {
               if (ref) saveConversation(run.chatKey, run.sealer, ref);
@@ -2930,7 +3015,9 @@ function PreviewBody({
               </Suspense>
             )}
           </RaisedPane>
-        ) : null
+        ) : (
+          tracing
+        )
       }
     >
       <VStack height="100%">
@@ -2947,6 +3034,7 @@ function PreviewBody({
                   runtime={connection.runtime}
                   trace={traced ? traceOpen : undefined}
                   chatRef={isShown ? chatRef : undefined}
+                  traces={feedOf(key)}
                 />
               </div>
             );
@@ -2966,6 +3054,7 @@ type KeptRun = {
     | 'payload'
     | 'onActivity'
     | 'conversation'
+    | 'conversationView'
     | 'initialText'
     | 'onConversationChange'
     | 'slots'
@@ -2987,6 +3076,47 @@ function useKeptRuns(run: ConversationRun, shown: KeptRun | null): [string, Kept
   }
   if (shown) kept.set(run.runKey, shown);
   return [...kept];
+}
+
+/**
+ * The trace feed of each runner, by its run key: the header downloads the one on screen. Another
+ * mode or a restart drops them all, as it drops the runners.
+ */
+function useRunFeeds(generation: string) {
+  const [feeds] = useState(() => new Map<string, TraceFeed>());
+  return useCallback(
+    (runKey: string) => {
+      for (const key of feeds.keys()) if (!key.startsWith(`${generation}:`)) feeds.delete(key);
+      let feed = feeds.get(runKey);
+      if (!feed) {
+        feed = createTraceFeed();
+        feeds.set(runKey, feed);
+      }
+      return feed;
+    },
+    [feeds, generation],
+  );
+}
+
+/** Sends a message once the runner for the next run key is ready: a conversation goes on live. */
+function useSendAfterResume(chatRef: RefObject<TheoremChatHandle | null>, runKey: string) {
+  const [next, setNext] = useState<{ text: string; after: string }>();
+  useEffect(() => {
+    if (!next || next.after === runKey) return;
+    setNext(undefined);
+    if (!next.text) return;
+    const controller = new AbortController();
+    void sendWhenReady(chatRef, next.text, controller.signal);
+    return () => {
+      controller.abort();
+    };
+  }, [next, runKey, chatRef]);
+  return useCallback(
+    (text: string) => {
+      setNext({ text, after: runKey });
+    },
+    [runKey],
+  );
 }
 
 /**
@@ -3019,6 +3149,29 @@ const PreviewPane = memo(function PreviewPane({
 }) {
   const [traceOpen, setTraceOpen] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [tracing, setTracing] = useState(false);
+  const feedOf = useRunFeeds(run.generation);
+  const profileId = chatAgents.find((agent) => agent.value === chatWith)?.label;
+  const sendNext = useSendAfterResume(chatRef, run.runKey);
+  const { payload } = compile;
+  const traceView =
+    tracing && payload ? (
+      <Suspense fallback={null}>
+        <TraceReplay
+          payload={payload}
+          runtime={connection.runtime}
+          trace={traceOpen}
+          onClose={() => {
+            setTracing(false);
+          }}
+          onLive={({ conversation, view, text }) => {
+            run.resume(conversation, view);
+            setTracing(false);
+            sendNext(text);
+          }}
+        />
+      </Suspense>
+    ) : null;
   return (
     <LayoutContent className="studio-preview shell-fade" isScrollable={false} padding={0}>
       <VStack height="100%">
@@ -3039,8 +3192,17 @@ const PreviewPane = memo(function PreviewPane({
             open: testing,
             toggle: () => {
               setTesting((open) => !open);
+              setTracing(false);
             },
           }}
+          tracing={{
+            open: tracing,
+            toggle: () => {
+              setTracing((open) => !open);
+            },
+          }}
+          feed={feedOf(run.runKey)}
+          profileId={profileId}
           copy={copy}
           setSheet={setSheet}
         />
@@ -3051,9 +3213,11 @@ const PreviewPane = memo(function PreviewPane({
             connection={connection}
             chatRef={chatRef}
             chatWith={chatWith}
-            profileId={chatAgents.find((agent) => agent.value === chatWith)?.label}
+            profileId={profileId}
             traceOpen={traceOpen}
             testing={testing}
+            tracing={traceView}
+            feedOf={feedOf}
             onIssue={onIssue}
           />
         </StackItem>
@@ -3710,7 +3874,7 @@ function EditorColumnBody({
 /** The studio, opened on `opened`, with what the page showing it provides. */
 export function StudioScreen({ opened, host }: { opened: StudioOpened; host: StudioHost }) {
   useEffect(() => {
-    warmWhenIdle(testerPanel, mapPanel, codePane, exportKit);
+    warmWhenIdle(testerPanel, traceReplay, mapPanel, codePane, exportKit);
   }, []);
   return (
     <StudioHostContext.Provider value={host}>

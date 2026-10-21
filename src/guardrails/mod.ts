@@ -174,7 +174,6 @@ export {
 } from './rules.ts';
 export type { SanitizedTurnRequest } from './sanitize.ts';
 export {
-  sanitizeHistory,
   sanitizeProjectId,
   sanitizeTurnRequest,
   sanitizeTurnRequestWithEvents,

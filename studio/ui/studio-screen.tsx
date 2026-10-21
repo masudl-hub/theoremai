@@ -112,6 +112,7 @@ import {
   type StudioNodeRef,
   type StudioProvider,
   type StudioRunPayload,
+  type StudioRunsOn,
   type StudioTreeNode,
   type StudioWorkspace,
   sampleToolInput,
@@ -2317,40 +2318,59 @@ const TreeColumn = memo(function TreeColumn({
 });
 
 /**
- * The studio's tree for a workspace, open on its `selected` node, where nothing changes anything:
- * a picture of the studio for a page that is not the studio, such as a home page. It writes no
- * storage and reports nothing.
+ * The studio's editor for a workspace, open on its `selected` node: the toolbar, with the issue
+ * count, over the inspector, with each issue on its row. Nothing on it changes anything: a picture
+ * of the studio for a page that is not the studio, such as a home page. It writes no storage and
+ * reports nothing. `on` is where the page's studio runs, so the issues are the ones it would show.
  */
-export function StudioTreePreview({
+export function StudioEditorPreview({
   workspace,
-  kernelVersion,
+  on,
 }: {
   workspace: StudioWorkspace;
-  kernelVersion: string;
+  on: StudioRunsOn;
 }) {
-  const listRef = useRef<HTMLDivElement>(null);
-  const selectedId = workspace.selected;
-  const at = workspaceNodeRef(workspace, selectedId);
+  const selected = workspace.selected;
+  const at = workspaceNodeRef(workspace, selected);
   const focus = at && 'agent' in at ? at.agent : (workspace.agents[0]?.key ?? '');
   const draft = libraryDraft(workspace, focus) ?? createBlankDraft();
+  const compiled = useMemo(() => compileWorkspace(workspace, on), [workspace, on]);
+  const editing = innerNodeId(selected, focus) ?? 'identity';
   const still = () => {};
-  const tree: WorkspaceTreeState = {
-    workspace,
-    focus,
-    selectedId,
-    list: 'agents',
-    ownsProviders: false,
-    setList: still,
-    onSelect: still,
-    update: still,
-    setDraft: still,
-    reset: () => undefined,
-    keys: null,
+  const view: EditorViewState = {
+    keysOpen: false,
+    setKeysOpen: still,
+    editorView: 'editor',
+    setEditorView: still,
+    mapOpen: false,
+    setMapOpen: still,
+    settingsOpen: false,
+    open: still,
   };
   return (
-    <StudioHostContext.Provider value={{ kernelVersion }}>
-      <TreeColumn tree={tree} draft={draft} onAddAgent={still} listRef={listRef} setSheet={still} />
-    </StudioHostContext.Provider>
+    <VStack height="100%">
+      <EditorToolbar
+        heading={editorTitle(draft, editing)}
+        compiled={compiled}
+        selected={selected}
+        view={view}
+        onIssue={still}
+        getCode={null}
+        project={null}
+        setSheet={still}
+      />
+      <StackItem size="fill">
+        <RunsOn.Provider value={on}>
+          <ProfileEditor
+            draft={draft}
+            setDraft={still}
+            selectedId={editing}
+            onSelect={still}
+            issues={editorIssuesOf(compiled, focus)}
+          />
+        </RunsOn.Provider>
+      </StackItem>
+    </VStack>
   );
 }
 
@@ -2359,15 +2379,14 @@ export function StudioTreePreview({
  * with none. It counts every issue, so what blocks a run or Save always has a way to it.
  */
 function IssueToken({
-  compile,
+  compiled,
   selected,
   onIssue,
 }: {
-  compile: WorkspaceCompile;
+  compiled: WorkspaceCompileResult;
   selected: string;
   onIssue: (node: string) => void;
 }) {
-  const { compiled } = compile;
   if (compiled.ok) return null;
   const issues = issuesLabel(compiled.issues.length);
   if (!issues) return null;
@@ -2471,7 +2490,7 @@ function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
 /** The editor column's header: its title, the next issue, what to start from, Get code, and the view toggle. */
 function EditorToolbar({
   heading,
-  compile,
+  compiled,
   selected,
   view,
   onIssue,
@@ -2480,7 +2499,7 @@ function EditorToolbar({
   setSheet,
 }: {
   heading: string | undefined;
-  compile: WorkspaceCompile;
+  compiled: WorkspaceCompileResult;
   /** Get code, beside the view toggle. */
   getCode: ReactNode;
   /** An open project's tokens: Save, and what the studio cannot run. */
@@ -2505,7 +2524,7 @@ function EditorToolbar({
         </StackItem>
         <StackItem size="static">
           <HStack gap={1} vAlign="center">
-            <IssueToken compile={compile} selected={selected} onIssue={onIssue} />
+            <IssueToken compiled={compiled} selected={selected} onIssue={onIssue} />
             {project}
           </HStack>
         </StackItem>
@@ -3744,7 +3763,7 @@ function EditorColumn({
     <VStack height="100%">
       <EditorToolbar
         heading={heading}
-        compile={compile}
+        compiled={compile.compiled}
         selected={selected}
         view={view}
         onIssue={goToIssue}

@@ -241,9 +241,13 @@ function checkBindingRoute(
   } else if (!servesProfileType(provider, type)) {
     report(nodeId, `${binding.provider} doesn't serve ${type} agents.`, 'provider');
   } else if (!servesProfileType(provider, type, binding.protocol)) {
+    // why: The builder needs the protocol that works, not only the one that doesn't.
+    const served = (servedProtocols(provider, type) ?? []).map((each) => each.id).join(' or ');
     report(
       nodeId,
-      `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`,
+      served
+        ? `${binding.provider} runs ${type} agents on ${served}, not ${binding.protocol}.`
+        : `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`,
       'protocol',
     );
   }

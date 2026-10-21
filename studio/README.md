@@ -173,7 +173,7 @@ Render it in the browser only. `openStudio()` reads the tab's kept workspace, so
 | `mountSurface` | Mounts the screen's surface while the screen is open, and returns the unmount. |
 | `onReport` | Called as what is on screen changes, and with `null` when the screen closes. |
 
-To show a picture of the studio on a page that is not the studio, such as a home page, use `StudioTreePreview` from the same file. It draws the studio's tree for a workspace, open on the workspace's `selected` node. Nothing on it changes anything, it writes no storage, and it reports nothing. It takes `workspace` and `kernelVersion`.
+To show a picture of the studio on a page that is not the studio, such as a home page, use `StudioEditorPreview` from the same file. It draws the studio's editor for a workspace, open on the workspace's `selected` node: the toolbar with the issue count, over the inspector with each issue on its row. Nothing on it changes anything, it writes no storage, and it reports nothing. It takes `workspace`, and `on`, where your page's studio runs, so it shows the issues your studio would.
 
 ### 3. Answer at `/api/studio`
 

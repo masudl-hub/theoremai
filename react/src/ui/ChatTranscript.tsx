@@ -316,14 +316,13 @@ function MessageChrome(props: {
   error?: string;
   /** What the reply used, when the transcript shows usage. */
   usage?: TurnUsage;
-  /** Whether the details show; a failure or a stop always does. */
+  /** Whether the details show; a failure or a stop waits for it too, like any status. */
   revealed: boolean;
 }) {
   const notice = turnNotice(props.error, props.stopped);
-  const isShown = props.revealed || notice !== undefined;
   return (
     <ChatMessageMetadata
-      style={{ opacity: isShown ? 1 : 0, transition: CHROME_FADE }}
+      style={{ opacity: props.revealed ? 1 : 0, transition: CHROME_FADE }}
       // why: The row's first slot is the one nearest the margin.
       timestamp={<CopyAndTime sender={props.sender} at={props.at} copyText={props.copyText} />}
       // why: Astryx's statuses are a closed set, so these ride the footer.

@@ -579,13 +579,106 @@ function rolesIn(scores: readonly DatasetScore[]): Role[] {
   return ROLES.filter((role) => scores.some((score) => score.role === role));
 }
 
+type HealthView = 'table' | 'matrix';
+type Place = { boundary: ProbeBoundary; detector: Detector };
+
+/** What the view shows of an answer: a run still going against the last whole run, or a finished run against the run before it. */
+function shownRun(answer: BenchRunAnswer) {
+  const { live, summary } = answer;
+  return {
+    previous: live ? summary : answer.previous,
+    scores: live?.scores ?? summary?.scores ?? [],
+    run: live?.run ?? summary?.run ?? '',
+    facts: new Map(
+      [...(summary?.datasets ?? []), ...(live?.datasets ?? [])].map((each) => [each.id, each]),
+    ),
+  };
+}
+
+function RolePicker({
+  roles,
+  role,
+  onChange,
+}: {
+  roles: readonly Role[];
+  role: Role | 'all';
+  onChange: (role: Role | 'all') => void;
+}) {
+  return (
+    <SegmentedControl
+      label="Datasets"
+      size="sm"
+      value={role}
+      onChange={(next) => {
+        onChange(roles.find((each) => each === next) ?? 'all');
+      }}
+    >
+      <SegmentedControlItem value="all" label="All" />
+      {roles.map((each) => (
+        <SegmentedControlItem key={each} value={each} label={ROLE_LABELS[each]} />
+      ))}
+    </SegmentedControl>
+  );
+}
+
+/** Table or matrix, what the matrix is shaded by, and the place a matrix cell narrowed the table to. */
+function ViewPicker({
+  view,
+  figure,
+  place,
+  onView,
+  onFigure,
+  onClear,
+}: {
+  view: HealthView;
+  figure: MatrixFigure;
+  place: Place | null;
+  onView: (view: HealthView) => void;
+  onFigure: (figure: MatrixFigure) => void;
+  onClear: () => void;
+}) {
+  return (
+    <HStack gap={2} align="center" wrap="wrap">
+      <SegmentedControl
+        label="View"
+        size="sm"
+        value={view}
+        onChange={(next) => {
+          onView(next === 'matrix' ? 'matrix' : 'table');
+        }}
+      >
+        <SegmentedControlItem value="table" label="Table" />
+        <SegmentedControlItem value="matrix" label="Matrix" />
+      </SegmentedControl>
+      {view === 'matrix' && (
+        <SegmentedControl
+          label="Shaded by"
+          size="sm"
+          value={figure}
+          onChange={(next) => {
+            onFigure(MATRIX_FIGURES.find((each) => each === next) ?? 'recall');
+          }}
+        >
+          {MATRIX_FIGURES.map((each) => (
+            <SegmentedControlItem key={each} value={each} label={MATRIX_FIGURE_LABELS[each]} />
+          ))}
+        </SegmentedControl>
+      )}
+      {view === 'table' && place && (
+        <Token
+          size="sm"
+          label={`${DETECTOR_META[place.detector].label} at ${PROBE_BOUNDARY_NOTES[place.boundary].label}`}
+          onRemove={onClear}
+        />
+      )}
+    </HStack>
+  );
+}
+
 /**
  * The guardrails bench's last run: each detector's recall, false alarms and time on each dataset,
  * against the run before; a row opens on the texts behind its figures.
  */
-type HealthView = 'table' | 'matrix';
-type Place = { boundary: ProbeBoundary; detector: Detector };
-
 function GuardrailHealth({
   answer,
   endpoint,
@@ -599,22 +692,14 @@ function GuardrailHealth({
   isWide: boolean;
   aside: ReactNode;
 }) {
-  const { live, summary } = answer;
-  // why: A run still going is compared with the last whole run; a finished one with the run before it.
-  const previous = live ? summary : answer.previous;
-  const scores = live?.scores ?? summary?.scores ?? [];
-  const run = live?.run ?? summary?.run ?? '';
-  const roles = rolesIn(scores);
-  const facts = new Map(
-    [...(summary?.datasets ?? []), ...(live?.datasets ?? [])].map((each) => [each.id, each]),
-  );
+  const { previous, scores, run, facts } = shownRun(answer);
   const [role, setRole] = useState<Role | 'all'>('all');
   const [view, setView] = useState<HealthView>('table');
   const [figure, setFigure] = useState<MatrixFigure>('recall');
   const [place, setPlace] = useState<Place | null>(null);
   const [open, setOpen] = useState<ScoreRow | null>(null);
   const inRole = scores.filter((dataset) => role === 'all' || dataset.role === role);
-  const rows = scoreRows(inRole, previous, live?.current?.dataset).filter(
+  const rows = scoreRows(inRole, previous, answer.live?.current?.dataset).filter(
     (row) => !place || (row.boundary === place.boundary && row.detector === place.detector),
   );
   const overview = (
@@ -625,60 +710,22 @@ function GuardrailHealth({
         </StackItem>
         {aside}
       </HStack>
-      {live ? (
-        <LiveFacts live={live} previous={previous} />
+      {answer.live ? (
+        <LiveFacts live={answer.live} previous={previous} />
       ) : (
-        summary && <RunFacts summary={summary} previous={previous} />
+        answer.summary && <RunFacts summary={answer.summary} previous={previous} />
       )}
-      <SegmentedControl
-        label="Datasets"
-        size="sm"
-        value={role}
-        onChange={(next) => {
-          setRole(roles.find((each) => each === next) ?? 'all');
+      <RolePicker roles={rolesIn(scores)} role={role} onChange={setRole} />
+      <ViewPicker
+        view={view}
+        figure={figure}
+        place={place}
+        onView={setView}
+        onFigure={setFigure}
+        onClear={() => {
+          setPlace(null);
         }}
-      >
-        <SegmentedControlItem value="all" label="All" />
-        {roles.map((each) => (
-          <SegmentedControlItem key={each} value={each} label={ROLE_LABELS[each]} />
-        ))}
-      </SegmentedControl>
-      <HStack gap={2} align="center" wrap="wrap">
-        <SegmentedControl
-          label="View"
-          size="sm"
-          value={view}
-          onChange={(next) => {
-            setView(next === 'matrix' ? 'matrix' : 'table');
-          }}
-        >
-          <SegmentedControlItem value="table" label="Table" />
-          <SegmentedControlItem value="matrix" label="Matrix" />
-        </SegmentedControl>
-        {view === 'matrix' && (
-          <SegmentedControl
-            label="Shaded by"
-            size="sm"
-            value={figure}
-            onChange={(next) => {
-              setFigure(MATRIX_FIGURES.find((each) => each === next) ?? 'recall');
-            }}
-          >
-            {MATRIX_FIGURES.map((each) => (
-              <SegmentedControlItem key={each} value={each} label={MATRIX_FIGURE_LABELS[each]} />
-            ))}
-          </SegmentedControl>
-        )}
-        {view === 'table' && place && (
-          <Token
-            size="sm"
-            label={`${DETECTOR_META[place.detector].label} at ${PROBE_BOUNDARY_NOTES[place.boundary].label}`}
-            onRemove={() => {
-              setPlace(null);
-            }}
-          />
-        )}
-      </HStack>
+      />
       {view === 'matrix' ? (
         <GuardrailMatrix
           scores={inRole}

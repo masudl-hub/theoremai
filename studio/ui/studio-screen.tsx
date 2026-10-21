@@ -3126,11 +3126,12 @@ function useRunFeeds(generation: string) {
 function useSendAfterResume(chatRef: RefObject<TheoremChatHandle | null>, runKey: string) {
   const [next, setNext] = useState<{ text: string; after: string }>();
   useEffect(() => {
-    if (!next || next.after === runKey) return;
-    setNext(undefined);
-    if (!next.text) return;
+    if (!next?.text || next.after === runKey) return;
     const controller = new AbortController();
-    void sendWhenReady(chatRef, next.text, controller.signal);
+    // why: cleared once sent, not before: clearing re-renders, and the cleanup would abort the send.
+    void sendWhenReady(chatRef, next.text, controller.signal).then(() => {
+      if (!controller.signal.aborted) setNext(undefined);
+    });
     return () => {
       controller.abort();
     };

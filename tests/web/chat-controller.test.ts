@@ -244,6 +244,22 @@ Deno.test('a stash stays put; queued at idle, it sends', async () => {
   assertEquals(chat.getState().pendingMessages, []);
 });
 
+Deno.test('a pending message moves among those of its kind', () => {
+  const host = heldHost();
+  const queued = (text: string) =>
+    createComposerPendingMessage({ kind: 'queue', draft: { text }, id: text });
+  const chat = createChatController({
+    transport: host.transport,
+    iface: textInterface(),
+    initialPending: [queued('a'), queued('b')],
+  });
+  chat.movePending('b', 'up');
+  assertEquals(
+    chat.getState().pendingMessages.map((m) => m.id),
+    ['b', 'a'],
+  );
+});
+
 Deno.test('restoring a pending message stashes what the composer holds first', async () => {
   const host = heldHost();
   const chat = createChatController({ transport: host.transport, iface: textInterface() });

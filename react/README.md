@@ -431,6 +431,8 @@ function MyChat() {
 
 `chat.phase` is `'idle'`, `'streaming'`, or `'gated'`. The actions are `handleSubmit`, `handleStop`, `handleSendNow`, and `handleToolDecision`.
 
+`handlePendingMove(id, direction)` moves a pending message among those of its kind. `ChatComposerBar` draws a move only when `composerPendingMoves` from `@theoremjs/agents/interface` says the message can go that way: a message alone in its kind has none.
+
 To show the transcript and the composer, use `ChatTranscript` and `ChatComposerBar` from `/ui`. You can also draw your own from `chat.blocks`.
 
 The hooks and the client write no English text. They return kinds, codes, and states. You write the words.

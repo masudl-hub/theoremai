@@ -66,6 +66,7 @@ export type {
 export {
   COMPOSER_PENDING_KINDS,
   cloneUserTurnDraft,
+  composerPendingMoves,
   composerPendingPreview,
   consumeNextComposerQueue,
   consumeNextComposerSteer,

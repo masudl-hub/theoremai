@@ -12,6 +12,7 @@ import {
   defaultInterfaceEffort,
   emptyInterfaceTurnSession,
   type InterfaceTurnSession,
+  moveComposerPendingWithinKind,
   orderComposerPendingMessages,
   promoteComposerPendingKind,
   removeComposerPendingMessage,
@@ -183,6 +184,8 @@ export type ChatController = {
   restorePending(id: string): Promise<void>;
   /** Moves a stashed message into the queue. At idle, the queue starts sending. */
   queuePending(id: string): void;
+  /** Moves a pending message one place up or down among those of its kind; `composerPendingMoves` says which ways it can go. */
+  movePending(id: string, direction: 'up' | 'down'): void;
   /** Answers the gate the reply waits on. */
   decide(action: ToolDecisionAction): Promise<void>;
   /** The visitor signed in for the gated call, or gave its secret. */
@@ -508,6 +511,12 @@ class Chat implements ChatController {
     if (this.#state.phase === 'idle') this.#drainArmed = true;
     this.#set({
       pendingMessages: promoteComposerPendingKind(this.#state.pendingMessages, id, 'queue'),
+    });
+  };
+
+  movePending = (id: string, direction: 'up' | 'down'): void => {
+    this.#set({
+      pendingMessages: moveComposerPendingWithinKind(this.#state.pendingMessages, id, direction),
     });
   };
 

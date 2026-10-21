@@ -189,6 +189,7 @@ await chat.submit();
 | `enqueue('queue')` | Keeps the draft to send after the reply. When the reply ends without a failure and no gate waits, the first queued message is sent. |
 | `enqueue('stash')` | Keeps the draft without sending it. `queuePending(id)` moves it to the queue. |
 | `sendNow(message?)` | Sends a pending message, or the draft, at once. A streaming reply is stopped first, as `stop()` stops it. A reply that waits on gates is left. |
+| `movePending(id, direction)` | Moves a pending message one place `'up'` or `'down'` among the messages of its kind. `composerPendingMoves(messages, id)` from `@theoremjs/agents/interface` says which ways it can go, so a control that can do nothing is not drawn. |
 | `restorePending(id)` | Puts a pending message back in the composer. The draft that was there is stashed first, so the user loses nothing. |
 | `stop()` | Stops the streaming reply with `transport.stop`. What the reply said before the stop stays in the transcript and the history, closed as cancelled. A queued message stays queued. When the host refuses the stop, the controller drops the stream instead, and a host that keeps the conversation keeps the stopped reply where the page can't read it. |
 | `decide(action)`, `authenticate(secret?)` | Answer the gate that the reply waits on. |

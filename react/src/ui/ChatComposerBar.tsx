@@ -44,6 +44,7 @@ import {
   type ComposerPendingMessage,
   type ComposerProfileInterface,
   type ComposerRunPhase,
+  composerPendingMoves,
   composerPendingPreview,
   effortSelectEnabled,
   interfaceEffortOptions,
@@ -173,6 +174,7 @@ const SEND_ICON: Record<ComposerMenuAction, typeof IconX> = {
 
 function PendingRow(props: {
   message: ComposerPendingMessage;
+  moves: { up: boolean; down: boolean };
   onMove: ChatComposerBarProps['onPendingMove'];
   onRemove: ChatComposerBarProps['onPendingRemove'];
   onQueue: ChatComposerBarProps['onPendingQueue'];
@@ -232,22 +234,26 @@ function PendingRow(props: {
           icon={icon(IconSend)}
           onClick={() => props.onSendNow(message.id)}
         />
-        <IconButton
-          label={moveUp}
-          tooltip={moveUp}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconArrowUp)}
-          onClick={() => props.onMove(message.id, 'up')}
-        />
-        <IconButton
-          label={moveDown}
-          tooltip={moveDown}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconArrowDown)}
-          onClick={() => props.onMove(message.id, 'down')}
-        />
+        {props.moves.up ? (
+          <IconButton
+            label={moveUp}
+            tooltip={moveUp}
+            size="sm"
+            variant="ghost"
+            icon={icon(IconArrowUp)}
+            onClick={() => props.onMove(message.id, 'up')}
+          />
+        ) : null}
+        {props.moves.down ? (
+          <IconButton
+            label={moveDown}
+            tooltip={moveDown}
+            size="sm"
+            variant="ghost"
+            icon={icon(IconArrowDown)}
+            onClick={() => props.onMove(message.id, 'down')}
+          />
+        ) : null}
         <IconButton
           label={remove}
           tooltip={remove}
@@ -406,7 +412,7 @@ function PendingDrawer(props: {
   otherFiles: readonly StagedFile[];
   voiceFiles: readonly File[];
   voiceUrls: readonly (string | undefined)[];
-  pendingActions: Omit<Parameters<typeof PendingRow>[0], 'message'>;
+  pendingActions: Omit<Parameters<typeof PendingRow>[0], 'message' | 'moves'>;
   onAttachmentRemove: (index: number) => void;
   onVoiceRemove: () => void;
 }) {
@@ -415,7 +421,12 @@ function PendingDrawer(props: {
     <ChatComposerDrawer count={props.summary.count} label={composerDrawerLabel(t, props.summary)}>
       <VStack gap={2} width="100%">
         {props.messages.map((message) => (
-          <PendingRow key={message.id} message={message} {...props.pendingActions} />
+          <PendingRow
+            key={message.id}
+            message={message}
+            moves={composerPendingMoves(props.messages, message.id)}
+            {...props.pendingActions}
+          />
         ))}
         {props.imageFiles.length + props.voiceFiles.length > 0 ? (
           <HStack gap={2} wrap="wrap" vAlign="center">

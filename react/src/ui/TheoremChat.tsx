@@ -8,7 +8,6 @@ import { VStack } from '@astryxdesign/core/VStack';
 import {
   type ComposerPendingMessage,
   type ComposerProfileInterface,
-  moveComposerPendingWithinKind,
   removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
 import type { PageTools } from '@theoremjs/web/client';
@@ -239,9 +238,7 @@ function ChatComposerForChat({
       onMenuAction={chat.handleMenuAction}
       onGenerationChange={chat.handleGenerationChange}
       slotChoices={chat.slotChoices}
-      onPendingMove={(id, direction) => {
-        chat.setPendingMessages((prev) => moveComposerPendingWithinKind(prev, id, direction));
-      }}
+      onPendingMove={chat.handlePendingMove}
       onPendingRemove={(id) => {
         chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
       }}

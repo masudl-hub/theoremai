@@ -235,3 +235,36 @@ Deno.test('a request text over a million characters is refused before any detect
     );
   }
 });
+
+Deno.test('a text file a turn sends is read at the attachment boundary', () => {
+  const profile = {
+    id: 'files',
+    type: 'text',
+    inputs: {
+      text: true,
+      attachments: { accept: ['text/plain'] },
+      maxFiles: 1,
+      maxBytes: 1000,
+      maxTurnBytes: 1000,
+    },
+  } as unknown as Profile;
+  const { events, request } = sanitizeTurnRequestWithEvents(
+    {
+      profile: 'files',
+      input: {
+        text: 'read this',
+        attachments: [{ mimeType: 'text/plain', data: btoa(INJECTION) }],
+      },
+    },
+    profile,
+  );
+  const [file] = request.input.attachments ?? [];
+  assertEquals(atob((file as { data: string }).data).includes(INJECTION), false);
+  const guardrails = events.flatMap((event) =>
+    event.type === 'guardrail' ? [event.guardrail] : [],
+  );
+  assertEquals(
+    guardrails.map((g) => [g.boundary, g.action, g.hits[0]?.rule]),
+    [['attachment', 'redact', 'detect.injection']],
+  );
+});

@@ -81,6 +81,32 @@ Deno.test("sensitiveSpans finds the vendor keys and the key assignments gitleaks
   }
 });
 
+Deno.test('sensitiveSpans finds the vendor formats gitleaks has no rule for, each whole', () => {
+  const body = 'q7RkT2mZx9LpW4vYc1NbH8sDf3GjK6aEu0XoR2tW';
+  for (const value of [
+    ['apify', 'api', body.slice(0, 36)].join('_'),
+    ['flb', 'live', body.slice(0, 20)].join('_'),
+    ['NF', body.slice(0, 32)].join('-'),
+    `tkn.v1_${body}${body.slice(0, 31)}=`,
+    ['BBFF', body.slice(0, 30)].join('-'),
+    'https://hooks.zapier.com/hooks/catch/1234567/abcdef1/',
+    ['sk', 'live', body].join('_'),
+  ]) {
+    const text = `see ${value} `;
+    assertEquals(
+      [value, sensitiveSpans(text)],
+      [value, [{ start: 4, end: 4 + value.length, kind: 'sensitive' }]],
+    );
+  }
+  for (const value of [
+    ['apify', 'api', body.slice(0, 35)].join('_'),
+    ['NF', body.slice(0, 31)].join('-'),
+    'https://hooks.zapier.com/hooks/',
+  ]) {
+    assertEquals([value, sensitiveSpans(`see ${value} `)], [value, []]);
+  }
+});
+
 Deno.test('a key assignment is redacted at its value, the name left to read', () => {
   const value = 'q7RkT2mZx9LpW4vYc1NbH8sDf3GjK6aE';
   const text = `api_key = "${value}"`;
@@ -287,4 +313,82 @@ Deno.test('sensitiveSpans finds every PEM private key kind', () => {
   }
   const pgp = '-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOY\n-----END PGP PRIVATE KEY BLOCK-----';
   assertEquals(sensitiveSpans(pgp).length > 0, true);
+});
+
+const ONLY = (group: string) => ({
+  ids: false,
+  financial: false,
+  network: false,
+  credentials: false,
+  email: false,
+  phone: false,
+  bank_account: false,
+  [group]: true,
+});
+const found = (text: string, group: string) =>
+  sensitiveSpans(text, ONLY(group)).map((s) => text.slice(s.start, s.end));
+
+Deno.test('sensitiveSpans finds an email address, whole', () => {
+  assertEquals(found('write to jane.doe+news@mail.example.co.uk today', 'email'), [
+    'jane.doe+news@mail.example.co.uk',
+  ]);
+  assertEquals(found('@jane said hi; a@b is no address', 'email'), []);
+});
+
+Deno.test('sensitiveSpans reads a long run of letters with no @ once', () => {
+  const started = performance.now();
+  sensitiveSpans(`${'a'.repeat(16000)} ${'a.'.repeat(8000)}`, ONLY('email'));
+  assertEquals(performance.now() - started < 50, true);
+});
+
+Deno.test('sensitiveSpans finds a phone number in each shape', () => {
+  for (const phone of [
+    '+44 20 7946 0958',
+    '+1-345-762-5577x017',
+    '(555) 123-4567',
+    '555.123.4567',
+    '001-201-951-5325x94795',
+    '06 65 34 23 12',
+    '(02) 2746 1945',
+  ]) {
+    assertEquals({ phone, found: found(`call ${phone} now`, 'phone') }, { phone, found: [phone] });
+  }
+  assertEquals(found('Phone: 9922221610', 'phone').length, 1);
+});
+
+Deno.test('sensitiveSpans leaves an SSN, a date, a card tail, and a sum as they are for phone', () => {
+  for (const text of [
+    'SSN 123-45-6789',
+    'on 2024-03-15',
+    'card 4111 1111 1111 1111',
+    'x = 1 + 0.003333',
+    'Henry Purcell 1659',
+  ]) {
+    assertEquals({ text, found: found(text, 'phone') }, { text, found: [] });
+  }
+});
+
+Deno.test('sensitiveSpans finds an account number only after its label', () => {
+  for (const text of [
+    'Bank Account Number: 0789765432',
+    'Account Number (Real): `PWPP30316787192615`',
+    'Routing Number: 026009593',
+    'Sort Code: 11-11-11',
+    'my account number is 123456-ABC',
+    'Kontonummer 1234567890',
+  ]) {
+    assertEquals({ text, found: found(text, 'bank_account').length }, { text, found: 1 });
+  }
+  for (const text of [
+    'order 0789765432 shipped',
+    'Account Number: DE89370400440532013000',
+    'account no. 1234',
+    ':50A/CDE\n:57A20220512',
+  ]) {
+    assertEquals({ text, found: found(text, 'bank_account') }, { text, found: [] });
+  }
+});
+
+Deno.test('sensitiveSpans leaves a package version for email', () => {
+  assertEquals(found('"typescript@4.4.4": and "@types/jest@27.0.1"', 'email'), []);
 });

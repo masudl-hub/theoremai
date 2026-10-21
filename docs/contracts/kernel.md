@@ -668,7 +668,9 @@ A `complete` or `error` tool event carries `readBack`: the text the model read
 for that call, after guardrails. History replays it (`appendToolExchangeToHistory`),
 so a continued turn sends the provider exactly what `runTurn` / `invokeTool` sent,
 and a live session sends Gemini the same text. Replaying a settled call without
-one throws.
+one throws. A host that formats a result without `modelText` through
+`formatToolResult` has no profile in hand. The matches of every detector are
+replaced, except those of `email`, `phone`, and `bank_account`.
 Its `output` (and an `error`'s message) is what the person is shown, read at
 `tool_shown_<kind>` apart from `readBack`; neither read changes the other.
 

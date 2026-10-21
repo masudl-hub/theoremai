@@ -21,10 +21,10 @@ import {
   matchersOf,
   patternsProblem,
 } from './host-patterns.ts';
-import { SENSITIVE_GROUPS } from './sensitive-groups.ts';
+import { SENSITIVE_GROUPS, WORKING_GROUPS } from './sensitive-groups.ts';
 
 /**
- * What the kernel finds in text: the four families of sensitive data, prompt-injection phrasing,
+ * What the kernel finds in text: the families of sensitive data, prompt-injection phrasing,
  * a tool's text that instructs the agent, and what is the profile's own on its way out (the canary token, the system instruction, the
  * kernel's markers, an image or link to an address the model was not given, and the names of its
  * tools).
@@ -42,6 +42,11 @@ const DETECTORS = [
 ] as const;
 /** A detector recognizes a particular kind of content in text. Its configured action determines what happens when it finds a match. */
 type Detector = (typeof DETECTORS)[number];
+
+/** The detectors a text is cleaned with when no profile says how: every one but the working groups (`WORKING_GROUPS`). */
+const UNPROFILED_DETECTORS: readonly Detector[] = DETECTORS.filter(
+  (detector) => !(WORKING_GROUPS as readonly string[]).includes(detector),
+);
 
 /**
  * What the kernel does with a match, the same at every boundary:
@@ -288,6 +293,17 @@ function returned(remote: DetectAction, local: DetectAction): BoundaryActions {
   );
 }
 
+/** Where `everywhere` reads, each match only flagged: nothing the agent works with is taken out. */
+function flagged(): BoundaryActions {
+  return {
+    ...recordOf(INBOUND_BOUNDARIES, () => 'flag' as const),
+    ...recordOf(TOOL_BOUNDARIES, () => 'flag' as const),
+    ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => 'flag' as const),
+    ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'ignore' as const),
+    ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
+  };
+}
+
 /** What the model says or thinks: a reply of any kind takes `said`, a thought `thought`. */
 function shown(said: DetectAction, thought: DetectAction): BoundaryActions {
   return { reply: said, reply_structured: said, live_reply: said, thought };
@@ -329,6 +345,27 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
       reply: 'redact',
       reply_structured: 'redact',
     },
+    patterns: true,
+  },
+  email: {
+    label: 'Email',
+    doc: 'Email addresses.',
+    group: 'data',
+    defaults: flagged(),
+    patterns: true,
+  },
+  phone: {
+    label: 'Phone',
+    doc: 'Phone numbers: international, North American, and national, or any number after a phone label.',
+    group: 'data',
+    defaults: flagged(),
+    patterns: true,
+  },
+  bank_account: {
+    label: 'Bank account',
+    doc: 'Account, routing, and sort-code numbers after a label that names them. IBANs are `financial`.',
+    group: 'data',
+    defaults: flagged(),
     patterns: true,
   },
   injection: {
@@ -800,4 +837,5 @@ export {
   PATTERN_DETECTORS,
   resolveAllow,
   resolveDetect,
+  UNPROFILED_DETECTORS,
 };

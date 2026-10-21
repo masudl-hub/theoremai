@@ -67,7 +67,8 @@
  ],
  "outcome": {
   "guardrails": [
-   "tool_result flag detect.tool_instructions:tool_name+detect.tool_instructions:order",
+   "tool_result flag detect.email+detect.tool_instructions:tool_name+detect.tool_instructions:order",
+   "tool_call flag detect.email",
    "tool_call flag tool_call.steered-turn",
    "tool_call flag tool_call.remote-destination"
   ],

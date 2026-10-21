@@ -9,7 +9,7 @@ Edit, run, and test Theorem agents in a studio: on your own project with one com
 
 ## The idea
 
-The **studio** is a screen for one agent **profile** (see [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents)) at a time. You edit the profile as a form or as code, run it in a chat beside the editor, and probe its guardrails.
+The **studio** is a screen for one agent **profile** (see [`@theoremjs/agents`](https://www.npmjs.com/package/@theoremjs/agents)) at a time. You edit the profile as a form or as code, run it in a chat beside the editor, and probe its guardrails. The form has a row for every profile field, except the ones only code can set: functions, and the patterns a detector compiles where the agent runs.
 
 The screen keeps the profile it edits in the browser, as a **draft**. It sends the draft with every request to a server under `/api/studio`. You choose which server answers:
 

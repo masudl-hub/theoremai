@@ -6,7 +6,6 @@ import { type ReactNode, useMemo } from 'react';
 import {
   Bar,
   BarChart,
-  Cell,
   ResponsiveContainer,
   Tooltip,
   type TooltipContentProps,
@@ -20,6 +19,7 @@ import {
   traceActor,
 } from '../client/trace-story.ts';
 import { type TraceNode, traceSpans } from '../client/trace-view.ts';
+import { type RankedBar, RankedBars } from './RankedBars.tsx';
 import { ChartFrame, ChartTip, FIRST_WIDTH_PX } from './TraceOverview.tsx';
 import { useTraceFormat } from './TraceValues.tsx';
 import {
@@ -36,8 +36,6 @@ import {
 const CHART_PX = 120;
 /** Height of a share bar, in pixels. */
 const SHARE_PX = 12;
-/** Height of one row of the slowest-steps chart, in pixels. */
-const SLOW_ROW_PX = 22;
 /** Most steps the slowest-steps chart ranks. */
 const SLOWEST = 5;
 const TICK = { fill: 'var(--color-text-secondary)', fontSize: 11 } as const;
@@ -358,107 +356,45 @@ function useCallRows(root: TraceNode, onSelect: (node: TraceNode) => void): Toke
   );
 }
 
-type SlowRow = { id: string; node: TraceNode; name: string; ms: number };
-
-function SlowTip({ active, payload }: TooltipContentProps) {
-  const format = useTraceFormat();
-  const row = payload?.[0]?.payload as SlowRow | undefined;
-  if (!active || !row) return null;
-  return (
-    <ChartTip>
-      <VStack gap={0}>
-        <Text weight="medium">{row.name}</Text>
-        <Text type="supporting" hasTabularNumbers>
-          {format.duration(row.ms)}
-        </Text>
-      </VStack>
-    </ChartTip>
-  );
-}
-
 /** The steps that took longest, longest first, filled by who acted. A bar opens its step. */
 function SlowestCard({ root, onSelect }: { root: TraceNode; onSelect: (node: TraceNode) => void }) {
   const format = useTraceFormat();
   const { t } = format;
-  const rows = useMemo<SlowRow[]>(() => {
+  const slowest = useMemo(() => {
     const calls = modelCalls(root);
     return traceSpans(root.children)
       .filter((node) => node.meta.type === 'tool' || MODEL_CALLS.has(node.meta.type))
       .sort((a, b) => b.durationMs - a.durationMs)
       .slice(0, SLOWEST)
       .map((node) => ({
-        id: node.id,
         node,
-        name:
-          node.meta.type === 'tool'
-            ? (node.meta.subject ?? node.meta.label)
-            : t('@theorem.panel.trace.charts.call', { index: calls.indexOf(node) + 1 }),
-        ms: node.durationMs,
+        bar: {
+          id: node.id,
+          name:
+            node.meta.type === 'tool'
+              ? (node.meta.subject ?? node.meta.label)
+              : t('@theorem.panel.trace.charts.call', { index: calls.indexOf(node) + 1 }),
+          value: node.durationMs,
+          fill: ACTOR_FILL[traceActor(node)],
+        } satisfies RankedBar,
       }));
   }, [root, t]);
-  const top = rows[0];
+  const top = slowest[0];
   if (!top) return null;
-  const height = rows.length * SLOW_ROW_PX;
   return (
     <ChartCard
       title={t('@theorem.panel.trace.charts.slowest')}
-      value={format.duration(top.ms)}
-      note={top.name}
+      value={format.duration(top.bar.value)}
+      note={top.bar.name}
     >
-      <ChartFrame>
-        <ResponsiveContainer
-          width="100%"
-          height={height}
-          initialDimension={{ width: FIRST_WIDTH_PX, height }}
-        >
-          <BarChart
-            data={rows}
-            layout="vertical"
-            margin={{ top: 0, right: 48, bottom: 0, left: 0 }}
-            accessibilityLayer={false}
-            barCategoryGap={5}
-            onClick={(state) => {
-              const row = rows[Number(state?.activeIndex)];
-              if (row) onSelect(row.node);
-            }}
-            style={{ cursor: 'pointer' }}
-          >
-            <XAxis type="number" hide />
-            <YAxis
-              type="category"
-              dataKey="id"
-              width={104}
-              tick={TICK}
-              tickLine={false}
-              axisLine={false}
-              interval={0}
-              tickFormatter={(id: string) => {
-                const name = rows.find((row) => row.id === id)?.name ?? '';
-                return name.length > 15 ? `${name.slice(0, 14)}…` : name;
-              }}
-            />
-            <Tooltip
-              content={(props) => <SlowTip {...props} />}
-              cursor={false}
-              isAnimationActive={false}
-            />
-            <Bar
-              dataKey="ms"
-              {...BAR}
-              label={{
-                position: 'right',
-                fill: 'var(--color-text-secondary)',
-                fontSize: 11,
-                formatter: (value) => format.duration(Number(value)),
-              }}
-            >
-              {rows.map((row) => (
-                <Cell key={row.id} fill={traceFill(ACTOR_FILL[traceActor(row.node)])} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartFrame>
+      <RankedBars
+        rows={slowest.map(({ bar }) => bar)}
+        format={format.duration}
+        onSelect={(bar) => {
+          const step = slowest.find((each) => each.bar.id === bar.id);
+          if (step) onSelect(step.node);
+        }}
+      />
     </ChartCard>
   );
 }

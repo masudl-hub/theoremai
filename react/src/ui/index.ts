@@ -70,6 +70,7 @@ export {
   useLabels,
 } from './labels-provider.tsx';
 export { PaneFailure, PaneLoading, PaneState } from './PaneState.tsx';
+export { type RankedBar, RankedBars } from './RankedBars.tsx';
 export { InPlace, PaneLayout, PanePanel, Prose, RaisedPane } from './SidePanel.tsx';
 export {
   DEFAULT_CHAT_MAX_WIDTH,
@@ -89,4 +90,6 @@ export {
 } from './ToolGateCard.tsx';
 export { ToolResult } from './ToolResult.tsx';
 export { TraceGuardrailsView, TracePlacement, useTraceInspector } from './TraceInspectorPanel.tsx';
+export { ChartStat } from './TraceOverview.tsx';
 export { TheoremThemeProvider, type TheoremThemeProviderProps } from './theme.tsx';
+export { ChartCard, type TraceFill } from './trace-patterns.tsx';

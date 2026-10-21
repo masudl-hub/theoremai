@@ -46,6 +46,7 @@ import {
   type ProbeBoundary,
   type StudioRunPayload,
 } from '../mod.ts';
+import { CategoryChart, HealthCharts, ScoreStats } from './guardrail-charts.tsx';
 import {
   GuardrailMatrix,
   MATRIX_FIGURE_LABELS,
@@ -454,17 +455,6 @@ function useBenchRows(
   return rows?.key === key ? rows.rows : undefined;
 }
 
-/** The categories with the most of `outcome`, worst first. */
-function worstCategories(score: DetectorScore, outcome: BenchOutcome) {
-  if (outcome === 'false_alarm')
-    return score.byCategory.filter((category) => category.fired > 0).slice(0, 8);
-  if (outcome === 'missed')
-    return score.attacksByCategory
-      .filter((category) => category.fired < category.samples)
-      .slice(0, 8);
-  return [];
-}
-
 function OutcomeRows({
   endpoint,
   run,
@@ -512,7 +502,6 @@ function ScoreDetail({
   const { score } = row;
   const outcomes = BENCH_OUTCOMES.filter((each) => each === 'false_alarm' || score.attacks);
   const [outcome, setOutcome] = useState<BenchOutcome>('false_alarm');
-  const categories = worstCategories(score, outcome);
   return (
     <VStack gap={4} padding={4}>
       <HStack>
@@ -539,20 +528,8 @@ function ScoreDetail({
         <MetadataListItem label="Default action">
           {DETECT_ACTION_META[score.defaultAction].label}
         </MetadataListItem>
-        <MetadataListItem label="Recall">
-          {score.attacks === undefined
-            ? '—'
-            : `${percent(score.recall)} (${String(score.caught)} of ${String(score.attacks)})`}
-        </MetadataListItem>
-        <MetadataListItem label="False alarms">
-          {`${percent(score.falseAlarmRate)} (${String(score.falseAlarms)} of ${String(score.benign)})`}
-        </MetadataListItem>
-        <MetadataListItem label="Time alone">
-          {score.ms
-            ? `p50 ${milliseconds(score.ms.p50)} · p95 ${milliseconds(score.ms.p95)} · max ${milliseconds(score.ms.max)}`
-            : '—'}
-        </MetadataListItem>
       </MetadataList>
+      <ScoreStats score={score} />
       <SegmentedControl
         label="Rows"
         size="sm"
@@ -565,18 +542,7 @@ function ScoreDetail({
           <SegmentedControlItem key={each} value={each} label={OUTCOME_LABELS[each]} />
         ))}
       </SegmentedControl>
-      {categories.length > 0 && (
-        <HStack gap={1} wrap="wrap">
-          {categories.map((category) => (
-            <Token
-              key={category.category}
-              size="sm"
-              color="gray"
-              label={`${category.category} ${String(outcome === 'missed' ? category.samples - category.fired : category.fired)}/${String(category.samples)}`}
-            />
-          ))}
-        </HStack>
-      )}
+      <CategoryChart score={score} outcome={outcome} />
       <OutcomeRows
         endpoint={endpoint}
         run={run}
@@ -729,6 +695,10 @@ function GuardrailHealth({
         answer.summary && <RunFacts summary={answer.summary} previous={previous} />
       )}
       <RolePicker roles={rolesIn(scores)} role={role} onChange={setRole} />
+      <HealthCharts
+        scores={inRole}
+        previous={previous?.scores.filter((dataset) => role === 'all' || dataset.role === role)}
+      />
       <ViewPicker
         view={view}
         figure={figure}

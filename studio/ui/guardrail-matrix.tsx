@@ -3,7 +3,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
-  DETECT_DEFAULTS,
+  DETECTOR_BOUNDARIES,
   DETECTOR_META,
   DETECTORS,
   type Detector,
@@ -98,9 +98,9 @@ function shade(goodness: number): CSSProperties {
   };
 }
 
-/** Whether `detector` reads `boundary` when a profile sets nothing. */
-function runsByDefault(boundary: ProbeBoundary, detector: Detector): boolean {
-  return DETECT_DEFAULTS[detector][PROBE_READS[boundary]] !== 'ignore';
+/** Whether `detector` can read `boundary` at all: a profile may set it there. */
+function readsAt(boundary: ProbeBoundary, detector: Detector): boolean {
+  return DETECTOR_BOUNDARIES[detector].includes(PROBE_READS[boundary]);
 }
 
 function MatrixCell({
@@ -119,10 +119,10 @@ function MatrixCell({
   const cell = cellOf(scores, boundary, detector, figure);
   const name = `${DETECTOR_META[detector].label} at ${PROBE_BOUNDARY_NOTES[boundary].label}`;
   if (!cell) {
-    const isOff = !runsByDefault(boundary, detector);
+    const isOff = !readsAt(boundary, detector);
     return (
       <Tooltip
-        content={`${name}: ${isOff ? 'does not run here unless a profile turns it on' : 'no dataset scores it here'}`}
+        content={`${name}: ${isOff ? 'it does not read this boundary' : 'no dataset scores it here'}`}
       >
         <span
           className={`studio-bench-cell ${isOff ? 'studio-bench-cell-off' : 'studio-bench-cell-empty'}`}
@@ -179,7 +179,7 @@ function ScaleStrip({ figure }: { figure: MatrixFigure }) {
         <HStack gap={1} align="center">
           <span className="studio-bench-cell studio-bench-cell-off studio-bench-key" />
           <Text type="supporting" color="secondary">
-            Off by default
+            Does not read here
           </Text>
         </HStack>
         {note && (

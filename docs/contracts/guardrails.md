@@ -536,14 +536,18 @@ finished and the current one scored on its rows so far.
 To read a run in the studio, start the studio from the folder the bench ran in.
 Test guardrails then shows a Health view. It lists each detector on each
 dataset, with recall, false alarms, and time, and the change since the run
-before. Each dataset's name opens its source page, and its licence sits
-beside it. The Matrix view lists every boundary against every detector and
+before. Above it, four figures pool every detector on every dataset shown:
+recall, false alarms, the slowest p95, and the texts read. Charts beside them
+rank the detectors by each figure. Each dataset's name opens its source page,
+and its licence sits beside it. The Matrix view lists every boundary against every detector and
 shades each cell by recall, false alarms or p95 time, pooled over the datasets
 that cross there: blue where it does well, grey where it does badly. A strip
 under it shows the scale. A white cell has no dataset that scores it. A hatched
-cell is a detector that does not run at that boundary under `DETECT_DEFAULTS`.
-A cell opens its rows in the table. Open a row to see its worst
-categories and the texts behind each figure, with each match marked. **Probe the draft** sends one of those texts
+cell is a detector that cannot read that boundary (`DETECTOR_BOUNDARIES`). The
+bench sets every detector to flag wherever it can read, so a white cell is a
+gap in the data, never a detector left off.
+A cell opens its rows in the table. Open a row to see its figures, a chart of its worst
+categories, and the texts behind each figure, with each match marked. **Probe the draft** sends one of those texts
 through the probe again, with the open draft.
 
 A run still going shows as it goes: how many datasets it has finished, the one

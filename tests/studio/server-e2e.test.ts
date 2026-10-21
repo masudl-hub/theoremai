@@ -681,28 +681,39 @@ Deno.test(
           });
           assertEquals(swapped.body.reason, 'stale');
           assertSameFiles(snapshot(studio.root), original);
-          const [a, b] = await Promise.all([
-            studio.post<SaveDone | SaveRefusal>(SAVE, {
-              workspace: first,
-              stamp: firstReview.stamp,
-            }),
-            studio.post<SaveDone | SaveRefusal>(SAVE, {
-              workspace: second,
-              stamp: secondReview.stamp,
-            }),
-          ]);
-          assertEquals([a.body.ok, b.body.ok], [true, false], JSON.stringify([a.body, b.body]));
-          assertEquals((b.body as SaveRefusal).reason, 'stale');
-          const afterFirst = snapshot(studio.root);
+          // Both stamps were read from the same files, so exactly one of the two raced writes lands.
+          // Which one is the server's order, not the order the requests were sent in.
+          const contenders = [
+            { handle: 'First', workspace: first, stamp: firstReview.stamp },
+            { handle: 'Second', workspace: second, stamp: secondReview.stamp },
+          ];
+          const raced = await Promise.all(
+            contenders.map(({ workspace, stamp }) =>
+              studio.post<SaveDone | SaveRefusal>(SAVE, { workspace, stamp }),
+            ),
+          );
+          const landed = raced.map((reply) => reply.body.ok);
+          assertEquals(
+            landed.filter(Boolean).length,
+            1,
+            JSON.stringify(raced.map((reply) => reply.body)),
+          );
+          const winner = contenders[landed.indexOf(true)];
+          const loser = raced[landed.indexOf(false)];
+          assert(winner && loser);
+          assertEquals((loser.body as SaveRefusal).reason, 'stale');
+          const afterWin = snapshot(studio.root);
           assert(
-            new TextDecoder().decode(afterFirst.get('agents/desk.ts')).includes("handle: 'First'"),
+            new TextDecoder()
+              .decode(afterWin.get('agents/desk.ts'))
+              .includes(`handle: '${winner.handle}'`),
           );
           const replay = await studio.post<SaveRefusal>(SAVE, {
-            workspace: first,
-            stamp: firstReview.stamp,
+            workspace: winner.workspace,
+            stamp: winner.stamp,
           });
           assertEquals(replay.body.ok, false);
-          assertSameFiles(snapshot(studio.root), afterFirst);
+          assertSameFiles(snapshot(studio.root), afterWin);
           assertEquals((await studio.post(`${SAVE}/undo`, {})).body, {
             ok: true,
             written: ['agents/desk.ts'],

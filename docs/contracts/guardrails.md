@@ -524,7 +524,7 @@ rows that each path read.
 | `--limit=N` | Reads at most N texts from each dataset |
 | `--workers=N` | Runs N probe workers. Absent: one less than the CPU count |
 | `--holdout` | Allows the hold-out datasets |
-| `--root=DIR` | The data root. Absent: `GUARDRAIL_DATA`, then the external disk |
+| `--root=DIR` | The data root. Absent: `GUARDRAIL_DATA`, then `~/Development/.guardrail-data` |
 | `--corpus=DIR` | The guardrail corpus. Absent: `GUARDRAIL_CORPUS`, then `guardrail-corpus` under the root |
 
 Each run writes `.guardrails-bench/<run>/results.jsonl`, one line per text, and

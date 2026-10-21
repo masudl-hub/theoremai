@@ -8,8 +8,8 @@
  *   deno task bench:guardrails [--dataset=a,b] [--role=train,test] [--limit=N] [--workers=N]
  *                              [--holdout] [--root=DIR] [--corpus=DIR]
  *
- * The data root is `--root`, or `GUARDRAIL_DATA`, or the external disk. The guardrail corpus is
- * `--corpus`, or `GUARDRAIL_CORPUS`, or `guardrail-corpus` under the root.
+ * The data root is `--root`, or `GUARDRAIL_DATA`, or `~/Development/.guardrail-data`. The guardrail
+ * corpus is `--corpus`, or `GUARDRAIL_CORPUS`, or `guardrail-corpus` under the root.
  */
 import { BENCH_DIR, type BenchSummary, ROLES, type Role } from '../studio/guardrail-bench.ts';
 import {
@@ -28,7 +28,7 @@ import {
 } from './guardrails-bench/score.ts';
 import type { BatchReply, BatchRequest } from './guardrails-bench/worker.ts';
 
-const DEFAULT_ROOT = '/Volumes/MLewis/Development/theoremai';
+const DEFAULT_ROOT = `${Deno.env.get('HOME')}/Development/.guardrail-data`;
 const OUT = BENCH_DIR;
 const BATCH = 50;
 

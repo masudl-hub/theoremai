@@ -87,15 +87,16 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # The release on GitHub names the commit that went out; its notes list the pull requests
-      # merged since the previous release.
+      # The release on GitHub names the commit that went out, and its notes are the version's
+      # docs/releases file, which lint:docs requires before the bump can merge.
       - name: Create GitHub release
         run: |
           TAG="v${{ needs.check-version.outputs.version }}"
+          NOTES="docs/releases/$TAG.md"
           if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "$TAG already has a release"
+            gh release edit "$TAG" --title "$TAG" --notes-file "$NOTES"
           else
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file "$NOTES"
           fi
         env:
           GH_TOKEN: ${{ github.token }}

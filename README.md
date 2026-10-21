@@ -426,6 +426,8 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 
 The studio is a separate package, `@theoremjs/studio`. It is never part of the kernel package. Install it beside the kernel to open your project's agents in a local studio: `npm install -D @theoremjs/studio`, then `npx theorem-studio`. It needs Deno. The same package shows the studio as a screen in your own app, with one server handler. Its README has both.
 
+`@theoremjs/agents`, `@theoremjs/react`, and `@theoremjs/studio` ship together at one version. Install all three at the same version. Each version's changes, including what breaks and how to upgrade, are in [docs/releases](https://github.com/masudl-hub/theoremai/tree/main/docs/releases).
+
 Internal files stay in the source for maintainability. Package consumers should use the public entrypoints above.
 
 

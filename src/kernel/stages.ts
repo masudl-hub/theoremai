@@ -8,7 +8,12 @@ import { guardrailAttributes } from './engine/turn-trace.ts';
 import type { StageApplyWarningCode, TurnStage } from './schema.ts';
 import type { TurnStop } from './stop.ts';
 import type { ModelToolResult, ToolFailure, ToolGate } from './tools/types.ts';
-import type { AwaitingUserInput, StageApplyWarning, TurnEventOf } from './turn-events.ts';
+import type {
+  AwaitingUserInput,
+  InjectedMessages,
+  StageApplyWarning,
+  TurnEventOf,
+} from './turn-events.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from './types.ts';
 import { isRecord } from './util/record.ts';
 
@@ -584,7 +589,7 @@ export type StageEventExtra = {
   awaiting?: boolean;
   gate?: ToolGate;
   stop?: TurnStop;
-  injected?: { id: string }[];
+  injected?: InjectedMessages[];
   released?: number;
 };
 
@@ -612,7 +617,7 @@ export function injectMessages(units: readonly InjectUnit[]): TurnHistoryMessage
 
 /**
  * The `stage` event recording that `units` landed, naming the ones the host
- * named, and the reply text the user has when they dropped a draft (`released`);
+ * named with the messages they put in the conversation, and the reply text the user has when they dropped a draft (`released`);
  * `undefined` when there is neither. Emit it where the messages land, never
  * before: an inject that never lands is never reported.
  */
@@ -621,7 +626,9 @@ export function injectedStageEvent(
   units: readonly InjectUnit[],
   extra?: Pick<StageEventExtra, 'callId' | 'toolName' | 'released'>,
 ): TurnEventOf<'stage'> | undefined {
-  const injected = units.flatMap((unit) => (unit.id === undefined ? [] : [{ id: unit.id }]));
+  const injected = units.flatMap((unit) =>
+    unit.id === undefined ? [] : [{ id: unit.id, messages: unit.messages }],
+  );
   if (injected.length === 0 && extra?.released === undefined) return undefined;
   return stageEventFields(stage, { ...extra, ...(injected.length > 0 ? { injected } : {}) });
 }

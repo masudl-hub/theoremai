@@ -114,7 +114,7 @@ interface StageContext {
 
 interface StageResult {
   inject?: TurnHistoryMessage[];
-  /** Names this inject; the stage event recording it landing carries it in `injected`. */
+  /** Names this inject; the stage event recording it landing carries it, with its messages, in `injected`. */
   injectId?: string;
   /**
    * With `inject`, at `post_tool` or `before_end` on text: how many characters of the attempt's
@@ -217,8 +217,9 @@ provider checkpoint still covers it. Structured replies get no blank line.
 non-empty string; anything else refuses the inject whole with an
 `inject_id_invalid` warning, as does an `injectId` without an `inject`). Where
 the messages land in the conversation — not when the handler returns — the
-kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id }] }`
-naming the injects that landed at that stage, and `released` when a draft
+kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages }] }`
+naming the injects that landed at that stage, each with the messages it added as the model reads
+them (after the `injected` guardrails), and `released` when a draft
 dropped (see 7). An inject that never lands (a
 live cycle that aborts first, a refused live inject) is never reported, so a
 host that sent it knows to send it again. Unnamed injects land unreported.

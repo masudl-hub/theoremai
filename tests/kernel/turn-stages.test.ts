@@ -140,7 +140,11 @@ Deno.test('stages: onStage inject at pre_turn reaches the provider history', asy
   );
 
   assertEquals(injectedOf(events), [
-    { type: 'stage', stage: 'pre_turn', injected: [{ id: 'steer-1' }] },
+    {
+      type: 'stage',
+      stage: 'pre_turn',
+      injected: [{ id: 'steer-1', messages: [{ role: 'user', content: 'follow-up absorbed' }] }],
+    },
   ]);
 
   assertEquals(
@@ -232,7 +236,7 @@ Deno.test('stages: post_tool inject after tools before next model step', async (
       stage: 'post_tool',
       callId: stubCall?.callId,
       toolName: 'stub_tool',
-      injected: [{ id: 'steer-2' }],
+      injected: [{ id: 'steer-2', messages: [{ role: 'user', content: 'also do this' }] }],
     },
   ]);
 });
@@ -344,7 +348,11 @@ Deno.test('stages: before_end inject re-enters the model step under maxSteps', a
   assertEquals(call, 2);
   assertEquals(beforeEndCount >= 2, true);
   assertEquals(injectedOf(events), [
-    { type: 'stage', stage: 'before_end', injected: [{ id: 'steer-4' }] },
+    {
+      type: 'stage',
+      stage: 'before_end',
+      injected: [{ id: 'steer-4', messages: [{ role: 'user', content: 'extend please' }] }],
+    },
   ]);
   // Both steps reply: the re-entered step's text follows the first, a blank line apart.
   assertEquals(replyText(events), 'first reply\n\nsecond reply');

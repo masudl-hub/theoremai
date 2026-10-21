@@ -185,7 +185,7 @@ await chat.submit();
 | Method | What it does |
 | --- | --- |
 | `submit()` | At `idle`, sends the draft. Otherwise, queues it. |
-| `enqueue('steer')` | Sends the draft to the running turn with `transport.steer`. The steer leaves `pendingMessages` when the turn's `stage` event names it in `injected`. A steer the turn never takes waits at the front of the queue. |
+| `enqueue('steer')` | Sends the draft to the running turn with `transport.steer`. The steer leaves `pendingMessages` when the turn's `stage` event names it in `injected`, and joins the transcript there, between the reply before it and the reply after. A steer the turn never takes waits at the front of the queue. |
 | `enqueue('queue')` | Keeps the draft to send after the reply. When the reply ends without a failure and no gate waits, the first queued message is sent. |
 | `enqueue('stash')` | Keeps the draft without sending it. `queuePending(id)` moves it to the queue. |
 | `sendNow(message?)` | Sends a pending message, or the draft, at once. A streaming reply is stopped first. A reply that waits on gates is left. |

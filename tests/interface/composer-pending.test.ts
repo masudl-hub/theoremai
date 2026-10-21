@@ -187,7 +187,10 @@ Deno.test('removeLandedSteers drops only the steers the stage event names', () =
   const next = removeLandedSteers(pending, {
     type: 'stage',
     stage: 'post_tool',
-    injected: [{ id: 'a' }, { id: 'a2' }],
+    injected: [
+      { id: 'a', messages: [] },
+      { id: 'a2', messages: [] },
+    ],
   });
   assertEquals(
     next.map((m) => m.id),

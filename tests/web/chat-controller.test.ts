@@ -102,7 +102,7 @@ Deno.test('a draft sent at idle joins the transcript with its reply, and the com
   assert(state.blocks.some((b) => b.kind === 'text'));
 });
 
-Deno.test("a steer goes to the running turn by its id, and leaves once the turn's stage lands it", async () => {
+Deno.test("a steer goes to the running turn by its id, and shows where the turn's stage lands it", async () => {
   const host = heldHost();
   const chat = createChatController({ transport: host.transport, iface: textInterface() });
   chat.setDraftText('First');
@@ -116,12 +116,30 @@ Deno.test("a steer goes to the running turn by its id, and leaves once the turn'
   assertEquals(host.steers[0].turnId, host.turns[0].request.turnId);
   assertEquals(host.steers[0].id, steer.id);
   assert(host.steers[0].inject.length > 0);
-  host.turns[0].line({ type: 'stage', stage: 'post_tool', injected: [{ id: steer.id }] });
+  host.turns[0].line({ type: 'text', text: 'Looking' });
+  host.turns[0].line({
+    type: 'stage',
+    stage: 'post_tool',
+    injected: [{ id: steer.id, messages: host.steers[0].inject }],
+  });
   assertEquals(chat.getState().pendingMessages, []);
   reply(host.turns[0], 'Noted');
   await sent;
   await settle();
   assertEquals(host.turns.length, 1);
+  assertEquals(
+    chat
+      .getState()
+      .blocks.flatMap((b) =>
+        b.kind === 'user-text' || b.kind === 'text' ? [[b.kind, b.text]] : [],
+      ),
+    [
+      ['user-text', 'First'],
+      ['text', 'Looking'],
+      ['user-text', 'Also the fern'],
+      ['text', 'Noted'],
+    ],
+  );
 });
 
 Deno.test('a steer the turn never took is the next message sent', async () => {

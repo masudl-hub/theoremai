@@ -1238,7 +1238,7 @@ On text turns the runner always yields `{ type: 'stage', stage }`:
 
 Inject applies only when `profileAllowsInject(profile)` (text + live when
 `allowSteering !== false`). Where a named inject lands, the runner yields
-`{ type: 'stage', stage, injected: [{ id }] }` (see [stages.md](stages.md)).
+`{ type: 'stage', stage, injected: [{ id, messages }] }` (see [stages.md](stages.md)).
 
 A text turn's opening input (`input.text`, attachments, voice) has one owner:
 turn history. It becomes the last user message of history when the turn opens,
@@ -1692,7 +1692,7 @@ Headless contract for stash / queue / steer (Seance-aligned). Kernel owns stages
 
 Primary matrix: idle+payload → Send; streaming+empty → Stop; streaming/gated+payload → Queue.
 Enter matches primary. Menu offers Queue / Steer / Send now / Stash as applicable.
-The run names each steer it took in on a `stage` event's `injected` (by the steer's id); the client drops those from pending, and the steers still undelivered convert to the front of the queue when the run ends.
+The run names each steer it took in on a `stage` event's `injected`, by the steer's id and with the messages it added (after the `injected` guardrails). The client drops those from pending; the transcript shows the steer's user messages where the reply took them in, and the history keeps them there, after what the reply said and did before. The steers still undelivered convert to the front of the queue when the run ends.
 Tool **gate** does not drain the queue and does not offer Steer (not an inject stage).
 Send now while gated walks away from every waiting gate in the message's own
 request (`abandon` on the turn request, `walkAway` in `@theoremjs/react`): the

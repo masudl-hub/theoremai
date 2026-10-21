@@ -414,7 +414,7 @@ Deno.test("steer reaches only this session's running turn, and only while it run
   // The turn names the steer it took in, so the client does not send it again.
   assertEquals(
     eventsOf(events, 'stage').flatMap((event) => event.injected ?? []),
-    [{ id: 'steer-1' }],
+    [{ id: 'steer-1', messages: [{ role: 'user', content: 'steered' }] }],
   );
   await assertRefused(
     () =>

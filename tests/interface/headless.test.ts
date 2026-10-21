@@ -773,6 +773,42 @@ Deno.test('appendAssistantEventsToHistory folds text and completed tools', () =>
   assertEquals(history[2]?.role, 'tool');
   assertEquals(history[2]?.content, '{"finding":"ok"}');
 });
+Deno.test('a steer lands in history and the transcript after what the reply said and did before it', () => {
+  const events: TurnEvent[] = [
+    { type: 'text', text: 'Looking' },
+    ...callEvents(
+      { name: 'lookup', callId: 'c1' },
+      {},
+      { phase: 'complete', output: { finding: 'ok' }, readBack: '{"finding":"ok"}' },
+    ),
+    {
+      type: 'stage',
+      stage: 'post_tool',
+      injected: [{ id: 's1', messages: [{ role: 'user', content: 'Also the fern' }] }],
+    },
+    { type: 'text', text: 'Noted' },
+  ];
+  assertEquals(
+    appendAssistantEventsToHistory([], events).map((m) => [m.role, m.content ?? null]),
+    [
+      ['assistant', 'Looking'],
+      ['assistant', null],
+      ['tool', '{"finding":"ok"}'],
+      ['user', 'Also the fern'],
+      ['assistant', 'Noted'],
+    ],
+  );
+  assertEquals(
+    foldTurnEvents(events).flatMap((b) =>
+      b.kind === 'tool' ? [] : [[b.kind, 'text' in b ? b.text : null]],
+    ),
+    [
+      ['text', 'Looking'],
+      ['user-text', 'Also the fern'],
+      ['text', 'Noted'],
+    ],
+  );
+});
 Deno.test('appendAssistantEventsToHistory refuses a settled tool with no readBack', () => {
   const failure = { code: 'denied', kind: 'declined', message: 'not allowed' } as const;
   for (const settled of [

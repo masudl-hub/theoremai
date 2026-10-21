@@ -1,5 +1,11 @@
 import { keptReply } from '../kernel/turn-events.ts';
-import type { Source, ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
+import type {
+  InjectedMessages,
+  Source,
+  ToolCallEvent,
+  TurnEvent,
+  TurnEventOf,
+} from '../kernel/types.ts';
 import { partialJsonObject } from '../kernel/util/partial-json.ts';
 import { applyToolDraft, applyToolEvent } from './tool-calls.ts';
 import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
@@ -192,6 +198,38 @@ function appendPromotedToolMedia(
   }
 }
 
+/**
+ * A named inject's user messages as the user's own blocks, where the reply took them in: its
+ * text, then a block per file. A message from anyone else (a host's note) is not the user's to show.
+ */
+function injectedBlocks(inject: InjectedMessages, idPrefix: string): TranscriptBlock[] {
+  return inject.messages.flatMap((message) => {
+    if (message.role !== 'user') return [];
+    const parts = message.parts ?? [];
+    const text = [message.content ?? '', ...parts.map((part) => ('text' in part ? part.text : ''))]
+      .join('')
+      .trim();
+    return [
+      ...(text ? [{ id: nextBlockId(idPrefix), kind: 'user-text' as const, text }] : []),
+      ...parts.flatMap((part): TranscriptBlock[] =>
+        'text' in part
+          ? []
+          : [
+              {
+                id: nextBlockId(idPrefix),
+                kind: part.type === 'audio' ? 'user-voice' : 'user-attachment',
+                name: part.mimeType,
+                mimeType: part.mimeType,
+                ...('data' in part
+                  ? { sizeBytes: Math.floor((part.data.length * 3) / 4), data: part.data }
+                  : { sizeBytes: 0 }),
+              },
+            ],
+      ),
+    ];
+  });
+}
+
 /** Turns a user draft into transcript blocks: a `user-text` block for the trimmed text, then one block per attachment and per voice clip. */
 function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
@@ -305,6 +343,9 @@ function foldTurnEvents(
             message: event.error,
           });
         }
+        break;
+      case 'stage':
+        for (const steer of event.injected ?? []) blocks.push(...injectedBlocks(steer, idPrefix));
         break;
       case 'done':
         blocks.push({

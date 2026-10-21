@@ -291,6 +291,81 @@ function byTurns<T>(first: T[], second: T[]): T[] {
   ).flat();
 }
 
+/** The rows grown: restacked, each agent apart from the next, under the providers' band. */
+function grownRows(rows: Row[]): Map<string, Place> {
+  const places = new Map<string, Place>();
+  let agents = -1;
+  rows.forEach((row, index) => {
+    if (index === 0 || rows[index - 1]?.agent !== row.agent) agents += 1;
+    places.set(rowId(row), {
+      x: row.x,
+      y: PAD + HALF + BAND + index * GROWN_ROW + agents * AGENT_GAP,
+    });
+  });
+  return places;
+}
+
+/** What placing the feeds one by one keeps: the band so far, each holder's count, the steps' end. */
+interface Growing {
+  places: Map<string, Place>;
+  band: Map<string, Place>;
+  bandX: number;
+  under: Map<string, number>;
+  stepsEnd: number;
+  feedX: number;
+  width: (id: string) => number;
+}
+
+/** The next place under a holder, counting it. */
+function nextUnder(growing: Growing, holder: string): number {
+  const index = growing.under.get(holder) ?? 0;
+  growing.under.set(holder, index + 1);
+  return index;
+}
+
+/** A provider's place in the band, by name: an agent that has one too shares it. */
+function bandPlace(growing: Growing, feed: Feed): Place {
+  const held = growing.band.get(feed.label);
+  if (held) return held;
+  const place = { x: growing.bandX, y: PAD + HALF };
+  growing.band.set(feed.label, place);
+  growing.bandX += growing.width(feed.id) + AGENT_GAP;
+  return place;
+}
+
+/** Under the registry: its tools in columns, then the tool runner below them. */
+function registryPlace(growing: Growing, feed: Feed, above: Place): Place {
+  if (feed.depth === 0) {
+    const tools = Math.min(growing.under.get(REGISTRY) ?? 0, TOOLS_DOWN);
+    return { x: above.x, y: above.y + (tools + 1) * GROWN_ROW };
+  }
+  const index = nextUnder(growing, REGISTRY);
+  return {
+    x: above.x + INDENT + Math.floor(index / TOOLS_DOWN) * TOOL_SLOT,
+    y: above.y + ((index % TOOLS_DOWN) + 1) * GROWN_ROW,
+  };
+}
+
+/** A step under its runner, in rows so many across. */
+function stepPlace(growing: Growing, holder: string, above: Place): Place {
+  const index = nextUnder(growing, holder);
+  const y = above.y + (Math.floor(index / STEPS_ACROSS) + 1) * GROWN_ROW;
+  growing.stepsEnd = Math.max(growing.stepsEnd, y);
+  return { x: above.x + INDENT + (index % STEPS_ACROSS) * STEP_SLOT, y };
+}
+
+function feedPlace(growing: Growing, feed: Feed): Place {
+  if (feed.id.includes('/provider:')) return bandPlace(growing, feed);
+  if (feed.id === REGISTRY) {
+    return { x: growing.feedX + REGISTRY_IN, y: growing.stepsEnd + GROWN_ROW * 1.5 };
+  }
+  const above = feed.under === undefined ? undefined : growing.places.get(feed.under);
+  if (feed.under === REGISTRY && above) return registryPlace(growing, feed, above);
+  if (feed.under !== undefined && above) return stepPlace(growing, feed.under, above);
+  const into = growing.places.get(feed.into[0] ?? '');
+  return { x: growing.feedX, y: into?.y ?? feed.y };
+}
+
 /** Each node's place grown: by its token id, rows and feeds alike. */
 function grownPlaces(
   rows: Row[],
@@ -298,51 +373,17 @@ function grownPlaces(
   feedX: number,
   width: (id: string) => number,
 ): Map<string, Place> {
-  const places = new Map<string, Place>();
-  const top = PAD + HALF + BAND;
-  let agents = -1;
-  rows.forEach((row, index) => {
-    if (index === 0 || rows[index - 1]?.agent !== row.agent) agents += 1;
-    places.set(rowId(row), { x: row.x, y: top + index * GROWN_ROW + agents * AGENT_GAP });
-  });
-  /** Each provider's place in the band, by name: an agent that has one too shares it. */
-  const band = new Map<string, Place>();
-  let bandX = feedX;
-  const under = new Map<string, number>();
-  let stepsEnd = top;
-  for (const feed of feeds) {
-    const above = feed.under === undefined ? undefined : places.get(feed.under);
-    if (feed.id.includes('/provider:')) {
-      const name = feed.label;
-      if (!band.has(name)) {
-        band.set(name, { x: bandX, y: PAD + HALF });
-        bandX += width(feed.id) + AGENT_GAP;
-      }
-      places.set(feed.id, band.get(name) as Place);
-    } else if (feed.id === REGISTRY) {
-      places.set(feed.id, { x: feedX + REGISTRY_IN, y: stepsEnd + GROWN_ROW * 1.5 });
-    } else if (feed.under === REGISTRY && above && feed.depth > 0) {
-      const index = under.get(REGISTRY) ?? 0;
-      under.set(REGISTRY, index + 1);
-      places.set(feed.id, {
-        x: above.x + INDENT + Math.floor(index / TOOLS_DOWN) * TOOL_SLOT,
-        y: above.y + ((index % TOOLS_DOWN) + 1) * GROWN_ROW,
-      });
-    } else if (feed.under === REGISTRY && above) {
-      const tools = Math.min(under.get(REGISTRY) ?? 0, TOOLS_DOWN);
-      places.set(feed.id, { x: above.x, y: above.y + (tools + 1) * GROWN_ROW });
-    } else if (feed.under !== undefined && above) {
-      const index = under.get(feed.under) ?? 0;
-      under.set(feed.under, index + 1);
-      const y = above.y + (Math.floor(index / STEPS_ACROSS) + 1) * GROWN_ROW;
-      places.set(feed.id, { x: above.x + INDENT + (index % STEPS_ACROSS) * STEP_SLOT, y });
-      stepsEnd = Math.max(stepsEnd, y);
-    } else {
-      const into = places.get(feed.into[0] ?? '');
-      places.set(feed.id, { x: feedX, y: into?.y ?? feed.y });
-    }
-  }
-  return places;
+  const growing: Growing = {
+    places: grownRows(rows),
+    band: new Map(),
+    bandX: feedX,
+    under: new Map(),
+    stepsEnd: PAD + HALF + BAND,
+    feedX,
+    width,
+  };
+  for (const feed of feeds) growing.places.set(feed.id, feedPlace(growing, feed));
+  return growing.places;
 }
 
 export function StudioTreeMap({ workspace, agents, grow = 0 }: StudioTreeMapProps) {

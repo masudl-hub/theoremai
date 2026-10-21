@@ -289,13 +289,15 @@ Deno.test('a host that keeps the conversation is drawn from its ref once the rep
   await settle();
   host.turns[0].line({ type: 'conversation', ref: 'ref-1', posted: true });
   assertEquals(chat.getState().delivery, 'sent');
+  const shownId = chat.getState().blocks[0]?.id;
   reply(host.turns[0], 'Hi');
   await sent;
   assertEquals(refs, ['ref-1']);
   assertEquals(asked, ['ref-1']);
+  // invariant: The host's blocks take the ids already on screen, so nothing shown remounts.
   assertEquals(
-    chat.getState().blocks.map((b) => b.id),
-    ['u1'],
+    chat.getState().blocks.map((b) => [b.id, b.kind]),
+    [[shownId, 'user-text']],
   );
 });
 

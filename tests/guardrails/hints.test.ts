@@ -45,12 +45,12 @@ Deno.test("a detector of the host's own gives its hint, or the labels' with its 
   );
 });
 
-Deno.test('what is ours is never quoted back, and a long match is cut', () => {
+Deno.test('the canary is never quoted back, a repeated passage is, and a long match is cut', () => {
   const detect = resolveDetect();
   const leak = retryRejection(
     [
       { rule: 'detect.canary_leak', severity: 'high', match: '[canary]' },
-      { rule: 'detect.prompt_leak', severity: 'high' },
+      { rule: 'detect.prompt_leak', severity: 'high', match: 'the easiest cheat code here' },
       { rule: EGRESS_RULES.unscannable, severity: 'high' },
     ],
     detect,
@@ -60,7 +60,10 @@ Deno.test('what is ours is never quoted back, and a long match is cut', () => {
     labelDefault('egress.rejection', {
       found: [
         labelDefault('detect.hint.canary_leak'),
-        labelDefault('detect.hint.prompt_leak'),
+        labelDefault('egress.rejection_found', {
+          hint: labelDefault('detect.hint.prompt_leak'),
+          matches: '"the easiest cheat code here"',
+        }),
         labelDefault('egress.hint_unscannable'),
       ].join('\n'),
     }),

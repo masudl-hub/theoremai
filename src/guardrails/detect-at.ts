@@ -21,7 +21,7 @@ import { boundaryNote, type LeakScope } from './egress.ts';
 import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
 import type { GuardrailEvent, GuardrailHit } from './event-schemas.ts';
-import { CANARY_HIT, hitFromSpan, PROMPT_ECHO_HIT } from './hits.ts';
+import { CANARY_HIT, hitFromSpan, promptEchoHit } from './hits.ts';
 import type { HostMatcher } from './host-patterns.ts';
 import { injectionSpans } from './injection.ts';
 import { promptEchoRanges } from './prompt-echo.ts';
@@ -207,11 +207,11 @@ function theoremSpans(
   return sensitiveSpans(text, ONLY[detector]);
 }
 
-/** The hit for a match of `detector`. One of ours never carries what it matched. */
+/** The hit for a match of `detector`. A canary leak never carries the token. */
 function hitOf(detector: Detector, text: string, span: RedactSpan): GuardrailHit {
   const { start, end } = span;
   if (detector === 'canary_leak') return { ...CANARY_HIT, span: { start, end } };
-  if (detector === 'prompt_leak') return { ...PROMPT_ECHO_HIT, span: { start, end } };
+  if (detector === 'prompt_leak') return promptEchoHit(text, start, end);
   if (detector === 'tool_instructions' && span.signal) {
     const severity = span.signal === 'order' || span.signal === 'authority' ? 'medium' : 'high';
     return { ...hitFromSpan(text, span, DETECT_RULES[detector], severity), signal: span.signal };

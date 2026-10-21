@@ -617,6 +617,8 @@ async function* executeSingleAttemptCycle(args: {
   // invariant: The attempt's reply spans its before_end re-entries; only a new attempt starts it again.
   state.replyText = '';
   state.replyMessages = [];
+  // invariant: The leak check's carry is the end of this attempt's reply; a retry's is read on its own.
+  state.canaryCarry = undefined;
 
   let latestStructured: unknown;
   for (;;) {

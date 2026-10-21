@@ -565,7 +565,7 @@ export interface PrivateSystemPart {
   private: string;
 }
 
-/** One part of a system prompt: plain text or a part kept out of traces. */
+/** One part of a system prompt: shareable text, or private text a reply may not repeat. */
 export type SystemPart = string | PrivateSystemPart;
 
 /**

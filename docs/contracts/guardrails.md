@@ -176,8 +176,9 @@ The reason the model reads on a rewrite is the labels' `egress.rejection`,
 with a line for each detector that matched (`retryRejection`). The line is the
 detector's hint, which says what to leave out, followed by up to three of the
 texts it matched, each cut to 120 characters (`egress.rejection_found`).
-`canary_leak` and `prompt_leak` give their hint alone: what they match is never
-repeated. A Theorem detector's hint is the labels' `detect.hint.<detector>`;
+`canary_leak` gives its hint alone: the canary is never repeated. `prompt_leak`
+quotes the passages the reply repeated, since the model already holds them and
+must know which to leave out. A Theorem detector's hint is the labels' `detect.hint.<detector>`;
 one the profile adds patterns to may set its own `hint` beside them. A detector
 of the host's own sets `hint`, or gets `detect.hint.own`, which names its
 label. A hint is one line of at most 300 characters. The rewrite request is

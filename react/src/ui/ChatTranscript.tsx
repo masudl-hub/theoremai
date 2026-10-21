@@ -715,6 +715,12 @@ const THOUGHT_MARKDOWN: Partial<MarkdownComponents> = {
   ),
 };
 
+// why: Lists and other blocks Markdown draws itself take no `components`; the thought's tokens quiet them too.
+const THOUGHT_TEXT = {
+  '--text-body-size': 'var(--text-supporting-size)',
+  '--color-text-primary': 'var(--color-text-secondary)',
+} as CSSProperties;
+
 function TraceList({ items, streaming }: { items: readonly TraceItem[]; streaming: boolean }) {
   const t = useLabels();
   const showUsage = useContext(ShowUsage);
@@ -732,13 +738,14 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
     }
     flush();
     rows.push(
-      <StreamedMarkdown
-        key={item.id}
-        text={item.text}
-        streaming={streaming && i === items.length - 1}
-        density="compact"
-        components={THOUGHT_MARKDOWN}
-      />,
+      <div key={item.id} style={THOUGHT_TEXT}>
+        <StreamedMarkdown
+          text={item.text}
+          streaming={streaming && i === items.length - 1}
+          density="compact"
+          components={THOUGHT_MARKDOWN}
+        />
+      </div>,
     );
   }
   flush();

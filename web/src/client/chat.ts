@@ -232,6 +232,20 @@ function deliveryOf(line: ChatLine): MessageDelivery | undefined {
 }
 
 /** The streamed blocks, ending on the turn's error unless the stream already carried it. */
+/**
+ * `next` with the ids `shown` gave the blocks in the same places. The host mints its own ids, so a
+ * redraw from it would otherwise remount every message on screen, and cut short what eases there.
+ */
+function keepIds(
+  shown: readonly TranscriptBlock[],
+  next: readonly TranscriptBlock[],
+): TranscriptBlock[] {
+  return next.map((block, index) => {
+    const was = shown[index];
+    return was && was.kind === block.kind && was.id !== block.id ? { ...block, id: was.id } : block;
+  });
+}
+
 function withTurnError(blocks: TranscriptBlock[], error: string): TranscriptBlock[] {
   if (blocks.some((block) => block.kind === 'error')) return blocks;
   return [...blocks, { id: crypto.randomUUID(), kind: 'error', message: error }];
@@ -588,9 +602,11 @@ class Chat implements ChatController {
 
   /** Draws the conversation as the host shows it: its transcript, and the reply that waits on gates. */
   #draw(view: ConversationView, session: InterfaceTurnSession, events: readonly TurnEvent[]): void {
+    const shown = [...this.#state.blocks, ...this.#state.streamBlocks];
+    const blocks = keepIds(shown, view.transcript);
     this.#set({
-      blocks: view.transcript,
-      streamBlocks: view.paused?.blocks ?? [],
+      blocks,
+      streamBlocks: keepIds(shown.slice(blocks.length), view.paused?.blocks ?? []),
       // why: A reply at rest leaves the run's own events (tokens, an ask); a paused one, the host's.
       session: sessionAfter(session, view.paused?.events ?? events),
       chatStarted: view.transcript.length > 0 || view.paused !== undefined,

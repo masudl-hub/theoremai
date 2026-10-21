@@ -21,7 +21,7 @@ import {
 } from '@theoremjs/agents';
 import { caughtStatus, clientError } from '@theoremjs/agents/host';
 import type { HttpMethod } from '@theoremjs/agents/schema';
-import { readBody } from '@theoremjs/react/server';
+import { readBody } from '@theoremjs/web/server';
 
 /** What a test's request is checked against: the network guardrail it keeps to, and the resolver that finds where a name points. */
 type ProbeGuard = { policy?: NetworkGuardrailSpec; resolveHost?: ResolveHost };

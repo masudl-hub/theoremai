@@ -1,4 +1,4 @@
-import { type JsonSchema, sampleFromSchema } from '@theoremjs/react/client';
+import { type JsonSchema, sampleFromSchema } from '@theoremjs/web/client';
 import { type ZodType, z } from 'zod';
 
 export const DEFAULT_TOOL_INPUT_SCHEMA = `{

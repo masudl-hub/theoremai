@@ -14,6 +14,7 @@ import type {
   DecisionJson,
   DecisionResult,
 } from '@theoremjs/agents';
+import type { DecisionInterface, DecisionQuestionView } from '@theoremjs/web/client';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   boxSource,
@@ -23,7 +24,6 @@ import {
   imageSrc,
   markedBox,
 } from '../client/decision-images.ts';
-import type { DecisionInterface, DecisionQuestionView } from '../client/decision-transport.ts';
 import { Arrive, Stream } from './arrive.tsx';
 import { CardWall } from './CardWall.tsx';
 import { resultMeta } from './labels.ts';

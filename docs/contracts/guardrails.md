@@ -1692,9 +1692,10 @@ placeholder, or a placeholder the key never fills in.
 | Sign-in | `sign_in.link` (the channel line with `{link}`), `sign_in.pending`, `sign_in.done`, `sign_in.declined`, `sign_in.expired`, `sign_in.out_of_scope` — each names `{service}` | labels |
 
 The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
-`src/kernel`, `src/guardrails`, and `src/interface` trees, and the headless
-React directories (`react/src/client`, `components`, `hooks`, `server`; the
-default UI in `react/src/ui` words its own chrome). Only
+`src/kernel`, `src/guardrails`, and `src/interface` trees, the headless
+React directories (`react/src/client`, `components`, `hooks`; the default UI
+in `react/src/ui` words its own chrome), and `web/src/client` and
+`web/src/server`. Only
 `src/guardrails/labels.ts` is auto-skipped. Everything else must either live
 in the labels or carry an explicit reason:
 

@@ -1,4 +1,12 @@
 import { type LabelOverrides, type SessionEventOf, TheoremError } from '@theoremjs/agents';
+import type {
+  LiveConnectPhase,
+  LiveGateAnswer,
+  LiveSessionStatus,
+  LiveToolGatePrompt,
+  ToolGateResolution,
+} from '@theoremjs/web/client';
+import { type ClientFailure, clientFailure } from '@theoremjs/web/client';
 import {
   type Dispatch,
   type SetStateAction,
@@ -7,7 +15,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { type ClientFailure, clientFailure } from '../../client/failure.ts';
 import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event.ts';
 import {
   applyLiveTurnEvent,
@@ -15,10 +22,7 @@ import {
   emptyLiveCaptionState,
   type LiveCaptionState,
 } from '../../client/live/live-captions.ts';
-import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
-import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool.ts';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video.ts';
-import type { ToolGateResolution } from '../../client/tool-resume.ts';
 
 /** UI + media state bag for the live runner. `labels` is the interface's: the profile's wording. */
 export function useLiveRunnerUiState(labels: LabelOverrides) {

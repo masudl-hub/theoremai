@@ -65,6 +65,13 @@ const graph = {
       validates: ['tests/react/', 'scripts/docs-truth/graph.test.mjs'],
     },
 
+    'web-package': {
+      export: '_internal/web-package',
+      doc: 'web/README.md',
+      owns: ['web/src/', 'web/package.json'],
+      validates: ['tests/web/', 'scripts/docs-truth/graph.test.mjs'],
+    },
+
     'studio-package': {
       export: '_internal/studio-package',
       doc: 'studio/README.md',
@@ -175,6 +182,7 @@ const graph = {
             'scripts/verify-publish-bundle.ts',
             'scripts/build-npm.ts',
             'scripts/build-npm-react.ts',
+            'scripts/build-npm-web.ts',
           ],
           sections: ['Package vs repo documentation'],
         },

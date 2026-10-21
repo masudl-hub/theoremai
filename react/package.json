@@ -40,6 +40,7 @@
     "@astryxdesign/core": "0.7.0",
     "@astryxdesign/theme-neutral": "0.7.0",
     "@theoremjs/agents": "file:..",
+    "@theoremjs/web": "file:../web",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",

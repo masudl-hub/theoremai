@@ -6,7 +6,7 @@
  * @module
  */
 import { type ProfileDefinition, z } from '@theoremjs/agents';
-import { readBody } from '@theoremjs/react/server';
+import { readBody } from '@theoremjs/web/server';
 import {
   type GuardrailProbeAnswer,
   PROBE_TEXT_LIMIT,

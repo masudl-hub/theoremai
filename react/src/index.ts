@@ -3,13 +3,12 @@
  *
  * - `@theoremjs/react`         hooks + transport (this entry)
  * - `@theoremjs/react/ui`      Astryx chat UI built on these hooks
- * - `@theoremjs/react/server`  `createTheoremHandler` (and `createTheoremDecisionHandler`, `createTheoremEmbeddingHandler`, `createTheoremHostHandler`) for the host side
+ * - `@theoremjs/react/server`  `@theoremjs/web/server`: `createTheoremHandler` (and `createTheoremDecisionHandler`, `createTheoremEmbeddingHandler`, `createTheoremHostHandler`) for the host side
  *
  * @module
  */
 
-export * from './client/index.ts';
-export { type PageDispatchResult, withPageToolDispatch } from './client/page-dispatch.ts';
+export * from '@theoremjs/web/client';
 export {
   type EmbeddingIndex,
   type IndexProgress,

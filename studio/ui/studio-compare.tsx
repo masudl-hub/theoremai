@@ -7,7 +7,6 @@ import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tabler/icons-react';
-import { createHttpTransport, createTraceFeed, type TraceFeed } from '@theoremjs/react/client';
 import {
   ChatComposerBar,
   InPlace,
@@ -16,6 +15,7 @@ import {
   TheoremChat,
   type TheoremChatHandle,
 } from '@theoremjs/react/ui';
+import { createHttpTransport, createTraceFeed, type TraceFeed } from '@theoremjs/web/client';
 import {
   type ReactNode,
   type Ref,

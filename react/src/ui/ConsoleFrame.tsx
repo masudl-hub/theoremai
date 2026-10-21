@@ -10,6 +10,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
+import type { HttpOptions } from '@theoremjs/web/client';
 import {
   Children,
   type CSSProperties,
@@ -22,7 +23,6 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import type { HttpOptions } from '../client/transport.ts';
 import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
 import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';

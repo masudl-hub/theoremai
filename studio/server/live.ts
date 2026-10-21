@@ -21,7 +21,7 @@ import {
   createTheoremSessionBoundary,
   parseLiveOpenMessage,
   type TheoremSessionBoundary,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 import { attachStudioLiveSession } from '../live-session-bridge.ts';
 import { STUDIO_READER } from '../reader.ts';
 import type { StudioTraceLine } from '../traces.ts';

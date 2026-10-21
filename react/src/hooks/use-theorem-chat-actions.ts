@@ -17,22 +17,23 @@ import {
   userDraftHasPayload,
   userDraftToSteerInject,
 } from '@theoremjs/agents/interface';
-import { type MutableRefObject, useCallback } from 'react';
-import { type ClientFailure, clientFailure } from '../client/failure.ts';
+import type { RunOutcome, TheoremTransport } from '@theoremjs/web/client';
 import {
   type AnsweringGate,
+  type ClientFailure,
+  clientFailure,
   composerFieldsFromDraft,
   encodeComposerDraft,
+  issuedOperationId,
+  type RunScope,
   resumeInterfaceTool,
   type StreamView,
   streamInterfaceDraftTurn,
   streamInterfaceTurn,
   type ToolDecisionAction,
   type ToolGateResolution,
-} from '../client/index.ts';
-import type { RunOutcome } from '../client/run-session.ts';
-import type { TheoremTransport } from '../client/transport.ts';
-import { issuedOperationId, type RunScope } from '../client/turn-client.ts';
+} from '@theoremjs/web/client';
+import { type MutableRefObject, useCallback } from 'react';
 import type { MessageDelivery } from './use-theorem-chat-state.ts';
 
 function composerFieldsPayload(

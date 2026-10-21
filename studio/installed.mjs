@@ -19,8 +19,8 @@ export const builtPage = existsSync(path.join(here, BUILT_PAGE, 'index.html'));
 const NEEDED = [
   'zod',
   '@theoremjs/agents',
-  '@theoremjs/react',
-  ...(builtPage ? [] : ['react', 'react-dom', '@astryxdesign/core', 'vite']),
+  '@theoremjs/web',
+  ...(builtPage ? [] : ['@theoremjs/react', 'react', 'react-dom', '@astryxdesign/core', 'vite']),
 ];
 
 /** Whether `name` is installed where Node would look for it from here; its exports need not list its manifest. */

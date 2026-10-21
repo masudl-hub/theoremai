@@ -102,7 +102,7 @@ build a custom relay still may call `processLiveOutboundBatch` /
 `finalizeLiveOutboundTurn` directly — prefer `runSession` when possible.
 
 A relay reads each text frame from the live client with `parseLiveClientMessage`
-(`@theoremjs/react/server`): JSON that passes the live client's schema, else a
+(`@theoremjs/web/server`): JSON that passes the live client's schema, else a
 `request` error the relay sends back as an `error` envelope,
 `{ type: 'error', error, errorKind }`. The live client reads every envelope
 against its own schema: a kind it does not know reaches `onTurnEvent` as

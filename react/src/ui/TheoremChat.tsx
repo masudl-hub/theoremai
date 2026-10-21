@@ -10,6 +10,13 @@ import {
   moveComposerPendingWithinKind,
   removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
+import type { PageTools } from '@theoremjs/web/client';
+import {
+  type ConversationView,
+  createHttpTransport,
+  type HttpTransportOptions,
+  type TheoremTransport,
+} from '@theoremjs/web/client';
 import {
   type ReactNode,
   type Ref,
@@ -19,13 +26,6 @@ import {
   useRef,
 } from 'react';
 import { parseAspectRatio } from '../client/image-output.ts';
-import type { PageTools } from '../client/live/live-page-tool.ts';
-import {
-  type ConversationView,
-  createHttpTransport,
-  type HttpTransportOptions,
-  type TheoremTransport,
-} from '../client/transport.ts';
 import {
   type SentTurn,
   type UseTheoremChatOptions,

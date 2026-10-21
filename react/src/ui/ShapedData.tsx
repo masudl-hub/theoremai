@@ -11,7 +11,6 @@ import { Table, type TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
-import { Component, type CSSProperties, type ReactNode, useMemo, useState } from 'react';
 import {
   fieldLabel,
   fieldReading,
@@ -31,7 +30,8 @@ import {
   splitFields,
   unpacked,
   withUnit,
-} from '../client/shaped-data.ts';
+} from '@theoremjs/web/client';
+import { Component, type CSSProperties, type ReactNode, useMemo, useState } from 'react';
 import { Arrive, useArrive } from './arrive.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { useMarkdownPlugins } from './markdown-plugins.tsx';

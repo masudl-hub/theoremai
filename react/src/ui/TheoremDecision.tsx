@@ -1,5 +1,10 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import type { DecisionJson } from '@theoremjs/agents';
+import {
+  createDecisionTransport,
+  type DecisionInterface,
+  type DecisionTransport,
+} from '@theoremjs/web/client';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
 import {
   type DecisionImages,
@@ -7,11 +12,6 @@ import {
   namedImages,
   stateFields,
 } from '../client/decision-images.ts';
-import {
-  createDecisionTransport,
-  type DecisionInterface,
-  type DecisionTransport,
-} from '../client/decision-transport.ts';
 import { useTheoremDecision } from '../hooks/use-theorem-decision.ts';
 import {
   ConsoleFrame,

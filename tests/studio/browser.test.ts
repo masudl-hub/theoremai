@@ -1,10 +1,5 @@
 import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { type ModelEvent, TheoremError, type TurnModel } from '../../mod.ts';
-import { withPageToolDispatch } from '../../react/src/client/page-dispatch.ts';
-import type { ChatLine, ClientTurnEvent } from '../../react/src/client/transport.ts';
-import { issuedOperationId } from '../../react/src/client/turn-client.ts';
-import { createSealedConversationStore } from '../../react/src/server/conversation-store.ts';
-import { createMemorySteerInbox } from '../../react/src/server/steer-inbox.ts';
 import { TEST_GOOGLE_KEY, TEST_OPENROUTER_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import {
   createBrowserStudioTransport,
@@ -17,6 +12,11 @@ import { newConversationKey } from '../../studio/conversation-key.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { compileStudio, createExampleDraft, createStudioTransport } from '../../studio/mod.ts';
 import { streamStudioTurn } from '../../studio/runtime.ts';
+import { withPageToolDispatch } from '../../web/src/client/page-dispatch.ts';
+import type { ChatLine, ClientTurnEvent } from '../../web/src/client/transport.ts';
+import { issuedOperationId } from '../../web/src/client/turn-client.ts';
+import { createSealedConversationStore } from '../../web/src/server/conversation-store.ts';
+import { createMemorySteerInbox } from '../../web/src/server/steer-inbox.ts';
 import { replyText } from '../fixtures/reply.ts';
 
 function payload() {
@@ -506,7 +506,7 @@ Deno.test('a decision on the builder own keys says why it failed and keeps its t
   if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
   const transport = createBrowserStudioDecisionTransport(compiled, { mode: 'byok', decision: {} });
   const failure = await assertRejects(() => transport.decide({ action: 'delete' }));
-  const { clientFailure } = await import('../../react/src/client/failure.ts');
+  const { clientFailure } = await import('../../web/src/client/failure.ts');
   assertEquals(clientFailure(failure).errorKind, 'auth');
   assert(clientFailure(failure).error.includes('has no credential in slot'));
   assertEquals(failedDecisionTraces(failure).length, 1);

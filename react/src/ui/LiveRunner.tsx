@@ -24,6 +24,12 @@ import {
   IconVideoOff,
 } from '@tabler/icons-react';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
+import type {
+  LiveCallOptions,
+  LiveConnection,
+  LiveToolGatePrompt,
+  ToolGateResolution,
+} from '@theoremjs/web/client';
 import {
   type CSSProperties,
   Fragment,
@@ -32,11 +38,7 @@ import {
   useLayoutEffect,
   useRef,
 } from 'react';
-import type { LiveCallOptions } from '../client/live/live-page-tool.ts';
-import type { LiveToolGatePrompt } from '../client/live/live-tool.ts';
 import type { LiveFacingMode } from '../client/live/live-video.ts';
-import type { LiveConnection } from '../client/live-client.ts';
-import type { ToolGateResolution } from '../client/tool-resume.ts';
 import { InkWaveform } from '../components/InkWaveform.tsx';
 import { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
 import { LiveCaptionsPanel } from './LiveCaptionsPanel.tsx';

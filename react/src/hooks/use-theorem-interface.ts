@@ -1,7 +1,6 @@
 import type { ProfileInterface } from '@theoremjs/agents/interface';
+import type { ClientFailure, TheoremTransport } from '@theoremjs/web/client';
 import { useMemo } from 'react';
-import type { ClientFailure } from '../client/failure.ts';
-import type { TheoremTransport } from '../client/transport.ts';
 import { useDescribed } from './use-described.ts';
 
 /** `failure` is worded with the default labels: the profile's is not known until it loads. */

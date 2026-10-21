@@ -14,23 +14,30 @@ import {
   removeLandedSteers,
   type TranscriptBlock,
 } from '@theoremjs/agents/interface';
-import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { clientFailure, type TurnFailure, turnFailure } from '../client/failure.ts';
-import { followGenerationDefaults } from '../client/generation-selection.ts';
-import type { PageTools } from '../client/live/live-page-tool.ts';
-import { withPageToolDispatch } from '../client/page-dispatch.ts';
-import { sessionAfter, stampWorked } from '../client/run-commit.ts';
-import { keepsConversation, type RunOutcome, type StreamView } from '../client/run-session.ts';
-import type { ToolGateResolution } from '../client/tool-resume.ts';
 import type {
   ChatLine,
   ChatLineSink,
   ConversationView,
+  PageTools,
   TheoremTransport,
   TheoremTurnRequest,
+  ToolGateResolution,
   TurnEventSink,
-} from '../client/transport.ts';
-import { foldAssistantTurn } from '../client/turn-client.ts';
+} from '@theoremjs/web/client';
+import {
+  clientFailure,
+  foldAssistantTurn,
+  followGenerationDefaults,
+  keepsConversation,
+  type RunOutcome,
+  type StreamView,
+  sessionAfter,
+  stampWorked,
+  type TurnFailure,
+  turnFailure,
+  withPageToolDispatch,
+} from '@theoremjs/web/client';
+import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePageToolWarnings } from './use-page-tool-warnings.ts';
 import { type RunTurnStream, useTheoremChatActions } from './use-theorem-chat-actions.ts';
 import {

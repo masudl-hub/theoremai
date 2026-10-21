@@ -38,15 +38,15 @@ The screen keeps the profile it edits in the browser, as a **draft**. It sends t
 ## Install
 
 ```bash
-npm install -D @theoremjs/studio @theoremjs/agents @theoremjs/react
+npm install -D @theoremjs/studio @theoremjs/agents @theoremjs/web
 ```
 
-The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents`, and `@theoremjs/react` versions must match exactly.
+The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents`, and `@theoremjs/web` versions must match exactly. The command does not need React, so it installs beside any React version, or none.
 
-To show the screen in your app, also install the peers at the versions this package lists in `peerDependencies`:
+To show the screen in your app, also install `@theoremjs/react` at the same version, and React 19 and the design packages at the versions `@theoremjs/react` lists in `peerDependencies`:
 
 ```bash
-npm install react react-dom zod @astryxdesign/core@0.7.0 @astryxdesign/theme-neutral@0.7.0 @stylexjs/stylex@0.19.0
+npm install @theoremjs/react react react-dom @astryxdesign/core@0.7.0 @astryxdesign/theme-neutral@0.7.0 @stylexjs/stylex@0.19.0
 ```
 
 ## Open your project
@@ -252,7 +252,7 @@ With `lent`, the handler also runs chats, calls, decisions, and embeddings. A dr
 | `conversationKey` | The key chat conversations are sealed with. Default: a new one for this handler's lifetime. A restart, or another isolate, then cannot open a chat, and the chat continues from the page's transcript. Pass one key to every isolate to keep each conversation on the server. |
 | `draftNetwork` | True only when the handler serves the builder alone, on their own machine, as the command's does. A connection test then keeps to the draft's network guardrail. Otherwise it reaches public hosts only. |
 
-Live calls on lent keys open a WebSocket to `/api/live/relay`, not `/api/studio`. This package does not ship that relay. Build it on your server with `attachStudioLiveSession` from `@theoremjs/studio/browser`, and see the relay section of [`@theoremjs/react`](https://www.npmjs.com/package/@theoremjs/react).
+Live calls on lent keys open a WebSocket to `/api/live/relay`, not `/api/studio`. This package does not ship that relay. Build it on your server with `attachStudioLiveSession` from `@theoremjs/studio/browser`, and see the relay section of [`@theoremjs/web`](https://www.npmjs.com/package/@theoremjs/web).
 
 ## Entry points
 

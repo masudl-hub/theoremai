@@ -1,7 +1,4 @@
 import { assertEquals } from '@std/assert';
-import { parseLiveServerEnvelope } from '../../react/src/client/live-messages.ts';
-import { createTraceFeed } from '../../react/src/client/trace-feed.ts';
-import type { ChatLine } from '../../react/src/client/transport.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
@@ -12,6 +9,9 @@ import {
   createStudioTransport,
   STUDIO_RUN_METADATA_KEY,
 } from '../../studio/mod.ts';
+import { parseLiveServerEnvelope } from '../../web/src/client/live-messages.ts';
+import { createTraceFeed } from '../../web/src/client/trace-feed.ts';
+import type { ChatLine } from '../../web/src/client/transport.ts';
 import { assertMalformed } from '../fixtures/malformed.ts';
 import { STUB_WRITE, stubRecord, stubSpan } from '../fixtures/trace-record.ts';
 

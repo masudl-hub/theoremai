@@ -1,5 +1,5 @@
+import { type PageTools, pageToolMismatch } from '@theoremjs/web/client';
 import { useEffect } from 'react';
-import { type PageTools, pageToolMismatch } from '../client/live/live-page-tool.ts';
 
 /**
  * Says in the console, once, where the page's tools and the profile's disagree. A wrong name is

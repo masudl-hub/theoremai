@@ -1167,7 +1167,7 @@ never recorded. A `resume` sets `theorem.tool.approved` to the answer it
 carried. See [observability.md](./observability.md#trace-records).
 
 A browser reaches a host through `createTheoremHostHandler`
-(`@theoremjs/react/server`) and `<TheoremHost />`. For a host the tools are the
+(`@theoremjs/web/server`) and `<TheoremHost />`. For a host the tools are the
 interface, so its `describe` is the one exception to tool ids only: each
 allowed tool's name, description, kind, access, permission, and input and
 output JSON Schema (`hostInterface`), never its endpoint, headers or
@@ -1836,7 +1836,7 @@ offered one.
         { "kind": "source", "path": "src/interface/composer-actions.ts" },
         { "kind": "contract_test", "path": "tests/interface/headless.test.ts" },
         { "kind": "contract_test", "path": "tests/interface/composer-pending.test.ts" },
-        { "kind": "contract_test", "path": "tests/react/gate-resume.test.ts" }
+        { "kind": "contract_test", "path": "tests/web/gate-resume.test.ts" }
       ]
     },
     "Exported API": {

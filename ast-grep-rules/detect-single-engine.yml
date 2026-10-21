@@ -8,6 +8,7 @@ message: >-
 files:
   - 'src/**/*.ts'
   - 'studio/**/*.ts'
+  - 'web/src/**/*.ts'
   - 'react/src/**/*.ts'
   - 'react/src/**/*.tsx'
 ignores:

@@ -34,7 +34,7 @@ import {
   theoremRewindRequestSchema,
   theoremSteerRequestSchema,
   theoremTurnRequestSchema,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 import { newConversationKey } from '../conversation-key.ts';
 import type { LentKeys } from '../lent-keys.ts';
 import type { StructuredRegistration, ToolRegistration } from '../registrations.ts';

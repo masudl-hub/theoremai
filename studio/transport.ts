@@ -42,7 +42,7 @@ import {
   type TurnEventSink,
   type UnsupportedEvent,
   type WireLines,
-} from '@theoremjs/react/client';
+} from '@theoremjs/web/client';
 import { z } from 'zod';
 import { uncompiled } from './compile.ts';
 import {

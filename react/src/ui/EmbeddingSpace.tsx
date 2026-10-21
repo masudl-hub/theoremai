@@ -1,7 +1,6 @@
 import { Text } from '@astryxdesign/core/Text';
+import type { EmbeddingSpace, QueryMatch, SpacePoint } from '@theoremjs/web/client';
 import { type PointerEvent, useEffect, useRef, useState } from 'react';
-import type { EmbeddingSpace, SpacePoint } from '../client/embedding-space.ts';
-import type { QueryMatch } from '../client/space-geometry.ts';
 import { createSpaceRenderer, type SpaceRenderer } from './embedding-space-gl.ts';
 
 /** Times the GPU may drop the space before it is listed instead. */

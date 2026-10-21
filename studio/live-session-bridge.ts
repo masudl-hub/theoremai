@@ -7,8 +7,8 @@ import {
   forClientEvents,
 } from '@theoremjs/agents/host';
 import { bytesToBase64 } from '@theoremjs/agents/kernel';
-import { issuedOperationId as requiredOperationId } from '@theoremjs/react/client';
-import { type PageToolResult, parseLiveClientMessage } from '@theoremjs/react/server';
+import { issuedOperationId as requiredOperationId } from '@theoremjs/web/client';
+import { type PageToolResult, parseLiveClientMessage } from '@theoremjs/web/server';
 import type { StudioTraceRoute } from './traces.ts';
 
 export type StudioLiveSocket = Pick<WebSocket, 'send' | 'close' | 'addEventListener'>;

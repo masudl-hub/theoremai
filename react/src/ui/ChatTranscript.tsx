@@ -29,6 +29,8 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import type { LabelOverrides } from '@theoremjs/agents';
 import { stopText, type TranscriptBlock } from '@theoremjs/agents/interface';
+import type { AnsweringGate } from '@theoremjs/web/client';
+import { citationsFromBlock, type SourceCitationBlock } from '@theoremjs/web/client';
 import {
   type CSSProperties,
   createContext,
@@ -39,8 +41,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations.ts';
-import type { AnsweringGate } from '../client/tool-resume.ts';
 import {
   assistantTurnCopyText,
   assistantTurnTiming,

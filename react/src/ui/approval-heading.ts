@@ -1,5 +1,5 @@
 import type { ToolGate } from '@theoremjs/agents/kernel';
-import { humanize } from '../client/shaped-data.ts';
+import { humanize } from '@theoremjs/web/client';
 import type { LabelText } from './labels.ts';
 
 /** "@concierge wants to check the weather": the tool's `labels.request`, else its name in words. */

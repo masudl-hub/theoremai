@@ -2,6 +2,7 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { IconActivity } from '@tabler/icons-react';
 import type { TraceRecord } from '@theoremjs/agents';
 import type { ProfileObservabilityView } from '@theoremjs/agents/interface';
+import type { TraceFeed } from '@theoremjs/web/client';
 import {
   cloneElement,
   createContext,
@@ -17,7 +18,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { TraceFeed } from '../client/trace-feed.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import {
   InPlace,

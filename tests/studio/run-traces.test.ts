@@ -13,11 +13,6 @@ import {
   registerTraceDestination,
   type TraceRecord,
 } from '../../mod.ts';
-import {
-  createDecisionTransport,
-  failedDecisionTraces,
-} from '../../react/src/client/decision-transport.ts';
-import { createEmbeddingTransport } from '../../react/src/client/embedding-transport.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import {
   createStudioHandler,
@@ -29,6 +24,11 @@ import {
   withJsonTraces,
   withRunTraces,
 } from '../../studio/server/run-traces.ts';
+import {
+  createDecisionTransport,
+  failedDecisionTraces,
+} from '../../web/src/client/decision-transport.ts';
+import { createEmbeddingTransport } from '../../web/src/client/embedding-transport.ts';
 
 const HOST = '127.0.0.1:4983';
 const BASE = `http://${HOST}/api/studio`;

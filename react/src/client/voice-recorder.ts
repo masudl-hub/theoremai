@@ -1,6 +1,6 @@
 import { describeError } from '@theoremjs/agents';
 import { pickMediaRecorderMime } from '@theoremjs/agents/interface';
-import { timeDomainBytesToLevel } from './audio-level.ts';
+import { timeDomainBytesToLevel } from '@theoremjs/web/client';
 
 /** Why recording failed; the user reads labels `voice.<code>`. */
 export type VoiceRecorderFailureCode =

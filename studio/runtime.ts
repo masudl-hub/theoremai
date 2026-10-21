@@ -39,7 +39,7 @@ import {
   type TheoremRewound,
   type TheoremTurnRequest,
   withFailedTraces,
-} from '@theoremjs/react/client';
+} from '@theoremjs/web/client';
 import {
   answerReply,
   checkRequest,
@@ -58,7 +58,7 @@ import {
   steerStage,
   type TheoremConversationStore,
   waitingCalls,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 import { STUDIO_TRACE_DESTINATION } from './policy.ts';
 import { studioReader } from './reader.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
@@ -620,6 +620,6 @@ export async function runStudioEmbedding(
   }
 }
 
-export { failedDecisionTraces, withFailedTraces } from '@theoremjs/react/client';
+export { failedDecisionTraces, withFailedTraces } from '@theoremjs/web/client';
 
 export { studioKeySlots } from './browser-connection.ts';

@@ -10,6 +10,7 @@ import {
 
 const PACKAGES = [
   '@theoremjs/agents',
+  '@theoremjs/web',
   '@theoremjs/react',
   'zod',
   'react',
@@ -99,7 +100,7 @@ function serverFile(
   return {
     path: 'route.ts',
     code: `${[
-      `import { ${factory} } from '@theoremjs/react/server';`,
+      `import { ${factory} } from '@theoremjs/web/server';`,
       "import './theorem';",
       `import { ${moduleNames(agent).join(', ')} } from '${module}';`,
       '',
@@ -441,7 +442,7 @@ ${
   turns
     ? `Install only what my answer about the UI needs:
 - No UI: \`npm install @theoremjs/agents zod\`
-- My own UI: \`npm install @theoremjs/agents @theoremjs/react zod react react-dom\`
+- My own UI: \`npm install @theoremjs/agents @theoremjs/web @theoremjs/react zod react react-dom\`
 - The package-prepared user interface: \`${INSTALL}\``
     : `\`\`\`bash
 ${INSTALL}

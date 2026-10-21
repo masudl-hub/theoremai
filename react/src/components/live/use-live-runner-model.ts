@@ -1,15 +1,13 @@
 import { liveIngressEnabledFromSpec } from '@theoremjs/agents';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
+import type { LiveCallOptions, LiveConnection } from '@theoremjs/web/client';
+import { createTraceFeed, liveState } from '@theoremjs/web/client';
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type LiveCaptionState,
   type LiveCaptionTurn,
   stashLiveCaptionCall,
 } from '../../client/live/live-captions.ts';
-import type { LiveCallOptions } from '../../client/live/live-page-tool.ts';
-import { liveState } from '../../client/live/live-state.ts';
-import type { LiveConnection } from '../../client/live-client.ts';
-import { createTraceFeed } from '../../client/trace-feed.ts';
 import { usePageToolWarnings } from '../../hooks/use-page-tool-warnings.ts';
 import { useLiveRunnerControls } from './use-live-runner-controls.ts';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui.ts';

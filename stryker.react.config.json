@@ -2,9 +2,9 @@
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
   "testRunner": "command",
   "commandRunner": {
-    "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/react"
+    "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/web tests/react"
   },
-  "mutate": ["react/src/**/*.ts", "react/src/**/*.tsx"],
+  "mutate": ["web/src/**/*.ts", "react/src/**/*.ts", "react/src/**/*.tsx"],
   "ignorePatterns": [
     "coverage",
     "npm",

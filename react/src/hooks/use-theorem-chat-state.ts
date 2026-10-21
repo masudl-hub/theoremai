@@ -5,9 +5,8 @@ import {
   type InterfaceTurnSession,
   type TranscriptBlock,
 } from '@theoremjs/agents/interface';
+import type { AnsweringGate, ClientFailure } from '@theoremjs/web/client';
 import { useCallback, useRef, useState } from 'react';
-import type { ClientFailure } from '../client/failure.ts';
-import type { AnsweringGate } from '../client/tool-resume.ts';
 
 type SetSession = (
   value: InterfaceTurnSession | ((prev: InterfaceTurnSession) => InterfaceTurnSession),

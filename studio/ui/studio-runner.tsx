@@ -3,6 +3,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
 import { IconKey } from '@tabler/icons-react';
+import { PaneLoading, PaneState, TheoremChat, useLabels } from '@theoremjs/react/ui';
 import {
   createDecisionTransport,
   createEmbeddingTransport,
@@ -10,8 +11,7 @@ import {
   createHttpTransport,
   createTraceFeed,
   type TraceFeed,
-} from '@theoremjs/react/client';
-import { PaneLoading, PaneState, TheoremChat, useLabels } from '@theoremjs/react/ui';
+} from '@theoremjs/web/client';
 import {
   type ComponentProps,
   lazy,

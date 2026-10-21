@@ -49,12 +49,12 @@ The package has three parts:
 
 - A ready-made chat, voice call, host console, and decision form. They are built on [Astryx](https://www.npmjs.com/package/@astryxdesign/core).
 - Hooks and a transport, for your own UI.
-- A server handler. It takes a Web `Request` and returns a `Response`.
+- The server handler and the client of [`@theoremjs/web`](https://www.npmjs.com/package/@theoremjs/web), as `/server` and `/client`.
 
 ## Install
 
 ```bash
-npm install @theoremjs/react @theoremjs/agents zod react react-dom
+npm install @theoremjs/react @theoremjs/web @theoremjs/agents zod react react-dom
 ```
 
 For the ready-made UI (`/ui` and `/live`), also install Astryx and StyleX:
@@ -65,7 +65,7 @@ npm install @astryxdesign/core @stylexjs/stylex
 
 To build your own theme from the Theorem theme (`/ui/theme`), also install `@astryxdesign/theme-neutral`.
 
-Use the versions that this package lists in `peerDependencies`. The Astryx and StyleX peers are optional. The hooks, the client, and the server handler work without them.
+Use the versions that this package lists in `peerDependencies`. Install `@theoremjs/react`, `@theoremjs/web`, and `@theoremjs/agents` at the same version. The Astryx and StyleX peers are optional. The hooks work without them.
 
 When a chat turn, a call, a host request, or a decision fails, the ready-made UI shows the error in a banner that screen readers announce at once. The end of a live call is announced when the reader is next idle.
 
@@ -88,7 +88,7 @@ Replacing the registration affects later runs. An active run keeps the registrat
 
 ```ts
 import { defineProfile, geminiProvider, registerProvider } from '@theoremjs/agents';
-import { createMemoryConversationStore, createTheoremHandler } from '@theoremjs/react/server';
+import { createMemoryConversationStore, createTheoremHandler } from '@theoremjs/web/server';
 
 const gemini = registerProvider(geminiProvider, { keySlot: 'main' });
 
@@ -111,7 +111,7 @@ export const theorem = createTheoremHandler({
 });
 ```
 
-The memory store keeps each conversation in process memory. For other stores, see [Keep the conversation](#keep-the-conversation).
+The memory store keeps each conversation in process memory. For other stores, see [Keep the conversation](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#keep-the-conversation).
 
 ### 2. Mount the handler
 
@@ -148,10 +148,10 @@ The profile, the keys, and the system prompt stay on the server. The browser rec
 | `@theoremjs/react` | Hooks, transports, and client logic |
 | `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision`, `TheoremEmbedding`, and their parts |
 | `@theoremjs/react/live` | `LiveRunner`, the voice and video call UI |
-| `@theoremjs/react/server` | The handlers and the stores they use |
+| `@theoremjs/react/server` | `@theoremjs/web/server`: the handlers and the stores they use |
 | `@theoremjs/react/ui/theme` | `theoremTheme`, the base for your own Astryx theme |
 | `@theoremjs/react/ui/icons` | The icon set of the theme |
-| `@theoremjs/react/client` | The client logic, without the hooks |
+| `@theoremjs/react/client` | `@theoremjs/web/client`: the client logic, without the hooks |
 
 ## Chat
 
@@ -232,7 +232,7 @@ Each profile type has a handler and a component. Mount the handler. Point the co
 A `host` profile does not run a model. The page calls the tools of the profile directly. Each call passes through the gates and the guardrails of the kernel.
 
 ```ts
-import { createTheoremHostHandler } from '@theoremjs/react/server';
+import { createTheoremHostHandler } from '@theoremjs/web/server';
 
 export const host = createTheoremHostHandler({ profile: opsConsole }); // mount at /api/host
 ```
@@ -253,27 +253,14 @@ The console builds a form from the input schema. It shows the result as figures,
 
 #### Serve a host profile over MCP
 
-`createTheoremMcpHandler` serves the same profile to MCP clients, such as coding agents and chat apps, at one endpoint. It answers MCP clients of the current revision and clients that still open with `initialize`, and it keeps no session between requests.
-
-```ts
-import { createTheoremMcpHandler } from '@theoremjs/react/server';
-
-export const mcp = createTheoremMcpHandler({ profile: docsTools, version: '1.0.0' }); // mount at /mcp
-```
-
-- `tools/list` gives each allowed tool with its input schema. A tool's `access` becomes the read-only and destructive hints of MCP.
-- Clients of the current revision may cache the tool list for 5 minutes and the discovery result for an hour. Neither holds anything about the caller, so a shared cache may keep them.
-- `tools/call` runs the tool through the gates, the guardrails, and the trace of the kernel. The client receives the text a model would read, not the raw output.
-- A tool that fails returns a result marked `isError`, so the model can read it and try again.
-- No one can approve a call over MCP. The handler refuses a profile when an allowed tool has a permission other than `auto`.
-- A browser page on another origin is refused unless `origins` lists it.
+`createTheoremMcpHandler` from `@theoremjs/web/server` serves the same profile to MCP clients, such as coding agents and chat apps. See [Serve a host profile over MCP](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#serve-a-host-profile-over-mcp).
 
 ### Decision
 
 A `decision` profile has no conversation. You give it a JSON state and questions. It answers the questions about the state.
 
 ```ts
-import { createTheoremDecisionHandler } from '@theoremjs/react/server';
+import { createTheoremDecisionHandler } from '@theoremjs/web/server';
 
 export const decide = createTheoremDecisionHandler({ profile, questions, vault }); // mount at /api/decision
 ```
@@ -308,7 +295,7 @@ For your own UI, use `useTheoremDecision`. Its `decide(state, assets)` takes the
 An `embedding` profile turns inputs into vectors. Each input is text, or an object with `parts`: text and files.
 
 ```ts
-import { createTheoremEmbeddingHandler } from '@theoremjs/react/server';
+import { createTheoremEmbeddingHandler } from '@theoremjs/web/server';
 
 export const embed = createTheoremEmbeddingHandler({ profile, vault }); // mount at /api/embedding
 ```
@@ -323,9 +310,9 @@ import { TheoremEmbedding } from '@theoremjs/react/ui';
 
 Each request is held to the `inputs` of the profile before it is sent, and each shows as JSON and in the trace.
 
-For your own UI, use `useTheoremEmbedding` for one request, and `embed(inputs, { task })` to set the task. Use `useEmbeddingIndex` to embed many documents in batches. `splitText`, `embeddingBatches`, and `rankMatches` from `@theoremjs/react/client` split, batch, and rank as the bench does.
+For your own UI, use `useTheoremEmbedding` for one request, and `embed(inputs, { task })` to set the task. Use `useEmbeddingIndex` to embed many documents in batches. `splitText`, `embeddingBatches`, and `rankMatches` from `@theoremjs/web/client` split, batch, and rank as the bench does.
 
-**Index** also draws the documents as a space: each a dot in a ball, placed by the three directions their vectors differ most along, and joined to its nearest neighbour when that pair is far more alike than the typical pair. A query is a white dot joined to its matches. Drag to turn it; point at a dot to name its document. For your own UI, `EmbeddingSpaceView` from `@theoremjs/react/ui` draws a space from `layoutSpace(vectors)`, or from `layoutSpaceSoon(vectors, signal)`, which lays it out in slices so the page stays responsive, and places a query with `placeQuery(space, vector)`, all from `@theoremjs/react/client`. Where the browser cannot draw it, the view calls `onUnavailable`, and the bench lists the vectors instead.
+**Index** also draws the documents as a space: each a dot in a ball, placed by the three directions their vectors differ most along, and joined to its nearest neighbour when that pair is far more alike than the typical pair. A query is a white dot joined to its matches. Drag to turn it; point at a dot to name its document. For your own UI, `EmbeddingSpaceView` from `@theoremjs/react/ui` draws a space from `layoutSpace(vectors)`, or from `layoutSpaceSoon(vectors, signal)`, which lays it out in slices so the page stays responsive, and places a query with `placeQuery(space, vector)`, all from `@theoremjs/web/client`. Where the browser cannot draw it, the view calls `onUnavailable`, and the bench lists the vectors instead.
 
 ### Live
 
@@ -398,324 +385,22 @@ A failed call does not reconnect. Without `live.sessionResumption`, a provider-e
 
 ### Your relay
 
-Use a session boundary to authenticate the conversation before you open the upstream session.
-Use the same authenticated session resolver and atomic session store for chat and live requests.
-The boundary rejects native state that this conversation did not save.
-Saved ownership also covers the operation state. An older live checkpoint cannot revive a completed action.
-
-```ts
-import { runSession } from '@theoremjs/agents';
-import {
-  createTheoremSessionBoundary,
-  parseLiveOpenMessage,
-} from '@theoremjs/react/server';
-
-const boundary = await createTheoremSessionBoundary({
-  request,
-  session: authenticatedConversation,
-  sessionStore: sharedSessionStore,
-});
-const open = parseLiveOpenMessage(firstFrame);
-const session = await runSession(
-  { profile, ...await boundary.prepareLiveOpen(open, hostContext) },
-  { vault: hostKeyVault, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
-);
-for await (const event of session.events()) {
-  if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState) {
-    await boundary.recordCheckpoint(event.providerState);
-  }
-  sendToBrowser(event);
-}
-```
-
-- `prepareLiveOpen` returns validated history, slots, context, native state, and absence duration. It removes system-role history.
-- Its second argument supplies server context. Browser context stays under `client`.
-- Save checkpoint ownership before you send the event. If storage fails, close the session without advertising that checkpoint.
-- The boundary refuses native resumption while a saved operation is ready, running, or uncertain. It does not repeat the operation.
-- Without a session resolver, the boundary uses an anonymous cookie. Forward its `setCookie` value in the upgrade response.
-- `open.host` is the `openMessage` that your `connection` returned.
-- Read later messages with `parseLiveClientMessage`. Give context messages to `session.sendContext({ client: message.context })`.
+The relay is server code. To authenticate the conversation and resume a call in your relay, see [Your relay](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#your-relay).
 
 To build your own call view, use `useLiveRunnerModel(iface, connection, { slots, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions, and its controls. `LiveCaptionsPanel` draws the captions.
 
 ### A custom browser transport
 
-Use `withPageToolDispatch` when your screen consumes turn events through a custom transport.
-The helper runs callbacks only for dispatch grants received on the active stream.
-It never reads a saved transcript to authorize callback execution.
-Implement the transport's `pageResult` method to return the result to your authenticated server.
-`createHttpTransport` and `createHostTransport` post that result to `/page-result`.
-The built-in chat and host console apply this helper for their `pageTools`.
-For a custom host view, pass callbacks as the second argument to `useTheoremHost`.
+Use `withPageToolDispatch` when your screen reads turn events through a custom transport. See [A custom browser transport](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#a-custom-browser-transport).
 
-```ts
-import { createHttpTransport, withPageToolDispatch } from '@theoremjs/react';
+## Server
 
-const transport = withPageToolDispatch(
-  createHttpTransport({ endpoint: '/api/theorem' }),
-  { highlight: async argumentsFromServer => ({ output: { shown: argumentsFromServer.id } }) },
-);
-```
+The handlers, the stores, and the client come from [`@theoremjs/web`](https://www.npmjs.com/package/@theoremjs/web). This package re-exports them as `@theoremjs/react/server` and `@theoremjs/react/client`. In the `@theoremjs/web` README:
 
-## Server options
-
-`createTheoremHandler` requires `profile` and `provider`. All other options are optional.
-
-| Option | Use |
-| --- | --- |
-| `profile` | The profile to serve. The kernel registers it when you create the handler. |
-| `provider` | Host options, including the credential vault. A function can return these options per request, for example for tenant-specific credentials. |
-| `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie that lasts 30 days. |
-| `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
-| `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
-| `conversationStore` | Where the conversation is kept. Required, except for a stateless profile, which must not have one. See [Keep the conversation](#keep-the-conversation). |
-| `sessionStore`, `steerInbox` | Where open gates and queued steers are kept. Default: process memory. |
-| `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
-| `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
-| `gateTtlMs` | How long a gate waits for an answer. Default: 30 minutes. A later answer fails with `session.gate_expired`. |
-| `clientEvents` | Options for `forClient` and `clientError`, which prepare each event and each caught failure for the browser. `reader: 'builder'` sends the raw reason in place of the wording of the profile. Use it only in a development tool on your own machine. |
-| `onError` | Receives each error that the handler catches. A visitor sees the wording of the profile for that kind of error, never the error. |
-
-### Start a conversation with content
-
-`startConversation` stores a conversation that opens on blocks you wrote, and returns its ref and its view. The model reads the blocks as history, so the user's next message is a follow-up.
-
-```ts
-import { startConversation, theoremSession } from '@theoremjs/react/server';
-
-const session = theoremSession(request);
-const { ref } = await startConversation({ sessionId: session.id, store: conversationStore }, profile, [
-  { id: 'ask', kind: 'user-text', text: 'Two days in Lisbon. Where should I stay?' },
-  { id: 'reply', kind: 'text', text: 'Stay in Chiado.' },
-  { id: 'done', kind: 'turn-done' },
-]);
-// Send session.setCookie as Set-Cookie when it is set, and give the page the ref and view.
-```
-
-Pass the ref as `conversation` and the view as `conversationView`. The chat draws the view at once, and does not read the conversation from the server again.
-
-```tsx
-<TheoremChat endpoint="/api/theorem" conversation={ref} conversationView={view} />
-```
-
-- The store is the one you pass to the handler as `conversationStore`, and the session is the one the chat's requests carry. `theoremSession(request)` is the handler's cookie session: its `id`, and a `setCookie` header when the request had none. With your own `session` resolver, pass the id it returns.
-- The profile's guardrails read the history first, at the `history` boundary, as they read every turn's history. A detector set to `redact` changes what the model reads; the transcript keeps your text. A detector set to `block` throws `detect.blocked`, and nothing is stored.
-- The result's `events` are the guardrail events for what matched.
-
-### Keep the conversation
-
-The conversation store keeps the transcript, the history that the model reads, the provider's native state, and a reply that waits for a gate.
-The session store keeps gates, permissions, and operations. The two stores are separate.
-
-| Store | Where the conversation is kept |
-| --- | --- |
-| `createMemoryConversationStore()` | Process memory, for one server instance. A conversation that is not saved for 24 hours expires. At most 10,000 conversations are kept; the one saved longest ago goes first. Set `ttlMs` and `maxSessions` to change these limits. |
-| `createSealedConversationStore({ keys, keyVersion })` | Nowhere on the server. The ref is the conversation itself, encrypted and signed with your key, and bound to the session. The browser cannot read it or change it. |
-| Your own `TheoremConversationStore` | Your database. |
-
-A ref that the store cannot open fails with `session.conversation_unknown`. This includes a ref from another session.
-
-The sealed store:
-
-- Each key is at least 32 bytes. Keep the keys on the server.
-- `keyVersion` names the key that seals new writes. Keep an older key in `keys` while its refs must still open.
-- Each save issues a new ref. An older ref of the same conversation still opens, as a rewind does.
-- If the user stops a reply, or the browser leaves while a reply runs, the server saves the result under a new ref that the browser never receives. The browser keeps the ref from when its message reached the server. The reply, and any tool call it settled, is lost to the browser. With the memory store or your own store, the ref does not change, and the chat shows what the server saved.
-- The ref holds the whole conversation, including the bytes of each attachment. Every request sends it, so the conversation must stay under `maxRequestBytes`.
-
-To keep conversations in your own database, implement these two methods:
-
-```ts
-import type {
-  ConversationSnapshot,
-  ConversationWriteResult,
-  StoredConversation,
-} from '@theoremjs/react/server';
-
-interface ConversationDatabase {
-  read(sessionId: string, ref: string): Promise<ConversationSnapshot | undefined>;
-  write(
-    sessionId: string,
-    ref: string | null,
-    expectedRevision: string | null,
-    next: StoredConversation,
-  ): Promise<ConversationWriteResult>;
-}
-```
-
-- Every read and write names the session. For a ref that this session did not write, `read` returns `undefined` and `write` returns `{ written: false }`.
-- A null `ref` creates a conversation. Return a new opaque `ref` and `revision`.
-- Otherwise, write only while the stored revision is still `expectedRevision`, as one atomic operation. Return `{ written: false }` on a conflict.
-- Check what you read back with `storedConversationSchema`.
-
-### Share session authority
-
-Use one shared `TheoremSessionStore` when requests can reach several server instances.
-New execution claims retain accepted request data and final prepared input under `operation.invocation`.
-Use this data in `authorizeToolReplay` to check current access to the affected resource.
-Older records can lack this evidence. Refuse disclosure if your access check needs it.
-It holds approvals and provider checkpoint ownership. Tool credentials use the separate `credentialStore`.
-
-```ts
-import type {
-  SessionSnapshot,
-  SessionWriteResult,
-  TheoremSessionState,
-} from '@theoremjs/react/server';
-
-interface SharedSessionStore {
-  load(sessionId: string): Promise<SessionSnapshot | undefined>;
-  compareAndSwap(
-    sessionId: string,
-    expectedRevision: string | null,
-    next: TheoremSessionState,
-  ): Promise<SessionWriteResult>;
-}
-```
-
-Implement `compareAndSwap` as one atomic database operation. A separate read followed by a write is unsafe.
-A null revision creates an absent session. A matching revision replaces the current state.
-Return `{ written: false }` on a conflict. On success, return `{ written: true, revision }` with a new opaque revision.
-Never reuse a revision, including after expiration. Return detached state from `load`.
-Return write success only after the store meets its promised durability.
-
-Each tool action has a kernel-issued `operationId`. The provider's `callId` identifies the upstream call.
-An approval must carry both values. A new action receives a new operation ID even if its provider reuses a call ID.
-A settled replay can omit input. If it supplies input, that input must match the accepted invocation.
-The built-in clients copy this reference from the gate event. Custom clients must preserve it.
-Historical events can omit operation IDs for display. They cannot authorize a new action.
-
-The handler validates versioned state and retries a conflicting transition at most eight times.
-It does not run tools inside this retry loop. Invalid state fails; it does not become an empty session.
-The previous session `load`/`save` contract is not supported. Existing unversioned state and versions 1 or 2 require an explicit host migration.
-An older pending gate does not prove that its body never ran. Verify the destination before restoring execution authority.
-The current session state uses version 3. Gates and operation records use operation IDs as keys.
-Each operation record contains its retained outcome. There is no separate outcome cache.
-A gate belongs to the profile that issued it. Another profile cannot consume it through shared session storage.
-The handler saves an accepted answer as ready before it invokes the kernel.
-A retry before dispatch must repeat that accepted answer. It cannot change the input or decision.
-Immediately before the tool body, an atomic claim changes ready to running.
-The kernel saves the terminal outcome before it sends completion to the client.
-A later answer receives that outcome without executing the tool or preparation hooks again.
-The handler checks current tool registration and profile allowlisting before disclosing the outcome.
-The handler checks current output rules before replay. Required redaction or refusal withholds the saved result.
-Supply `authorizeToolReplay` for current role or resource access checks. This read-only callback can withhold a result without reopening the action.
-If execution ends without a saved outcome, the claim remains running or becomes uncertain.
-The handler never restores that operation as an approval. The host must check the destination before any new action.
-Saved outcomes include guarded model read-back, media, provenance, and suspicious content signals.
-The handler retains settled operations for 24 hours from settlement by default. Set `operationRetentionMs` to change this window.
-Each saved outcome records its absolute retention deadline. Changing a handler's policy does not shorten that deadline.
-Each issued gate records its absolute expiry. Changing `gateTtlMs` does not extend an issued gate.
-Ready, running, and uncertain operations do not expire.
-
-Use `sessionLimits` when your storage budget requires different finite limits. The defaults are:
-
-| Limit | Default |
-| --- | --- |
-| `maxGates` | 32 |
-| `maxOperations` | 128 |
-| `maxCheckpoints` | 256 |
-| `maxPermissions` | 2,048 |
-| `maxStateBytes` | 32 MiB |
-| `maxInvocationBytes` | 256 KiB |
-| `maxOutcomeBytes` | 256 KiB |
-
-Set `maxRequestBytes` to bound browser JSON before parsing. Its default is 16 MiB.
-The handler rejects oversized requests before provider access or tool preparation.
-Provider host options also accept `limits` for deadlines and upstream output.
-Byte limits measure UTF-8 JSON. The handler reserves one maximum outcome for each gate and unresolved operation.
-A new claim fails before dispatch when it cannot reserve that space.
-An oversized result after dispatch leaves an uncertain claim. It does not restore an approval.
-Limits never remove unresolved authority or shorten retained settlements. The host must reconcile and archive unresolved actions.
-The memory store accepts the same `sessionLimits` options. Shared stores receive checked states through the handler.
-
-The default memory store coordinates handlers that share the same store object.
-It retains unexpired gates, unresolved operations, and unexpired outcomes during idle and capacity eviction.
-It refuses a new session when every stored session has protected authority.
-Separate memory stores and process restarts do not retain shared authority.
-Atomic updates prevent two workers from dispatching the same operation. A process crash leaves its running claim protected.
-These claims do not provide exactly-once effects at the destination. Use the operation ID with destination idempotency when available.
-Concurrent pending attempts can reach preparation before one claims the body.
-Permission checks and pre-body hooks must be read-only or independently idempotent. The kernel cannot prove hook purity.
-A live session does not restore a dispatched call after an unexpected failure. It retains an uncertain call on that connection.
-To retain execution claims across connections, supply a durable coordinator through `RunSessionOptions.execution`.
-Browser dispatch uses a host-owned `PageToolExecution` service beside the execution coordinator.
-`createTheoremHandler` supplies both services. Live relays pass the session boundary's `pageExecution` and `toolExecution` to `runSession`.
-Forward live page results to `answerPageResult`. Preserve checkpoint ownership through `beforeEvent` when using the Studio bridge.
-The default `PageToolBroker` keeps active result waiters in process memory. Several workers need a shared broker or request affinity.
-Use `pageToolBroker` to supply that broker. It carries results; the atomic session store retains execution authority.
-Lost result delivery does not permit another dispatch. The operation retains its claim or an uncertain outcome.
-The default result deadline is 20 seconds. An expired or interrupted result cannot reopen approval.
-
-## Build your own server
-
-`createTheoremHandler` runs each chat reply through a small loop that `@theoremjs/react/server` exports. Use the loop when your server is not a `fetch` handler, or when your routes differ from the handler's. The conversation store, the guardrails, and the wire stay the same, so `TheoremChat` and the hooks work with your server unchanged.
-
-| Function | Use |
-| --- | --- |
-| `readerConversationHost({ sessionId, store, profile, clientEvents })` | The conversation of one session, and how its events reach the browser (`forClient`). |
-| `openConversation(host, ref, use)` | Reads the conversation under `ref`, or starts one when `ref` is `undefined`. It refuses a request that `use` does not allow, before anything runs. |
-| `postedMessage(iface, input, context?)` | Checks the person's message against the profile's inputs. `iface` is `interfaceFromProfile(profile, defaultKernelScope.tools)` from `@theoremjs/agents/interface`. |
-| `messageReply({ host, opened, message, walkAway?, runner })` | Posts the message, runs the reply and writes it back. Returns the lines to stream. |
-| `answerReply({ host, opened, call, settling, runner })` | Continues a reply after one of its calls was answered. `settling` is the call's events from the kernel's `invokeTool`. |
-| `rewindConversation({ host, opened, at, walkAway? })` | Cuts the conversation after transcript block `at`. `-1` empties it. |
-| `conversationView(host, conversation)` | The conversation as the chat draws it. |
-| `waitingCalls(conversation)` | The calls a paused reply waits on. A message or a rewind walks away from exactly these. |
-
-`use` says what the request opens the conversation for: `{ kind: 'read' }`, `{ kind: 'message', abandon? }`, `{ kind: 'answer', call }`, or `{ kind: 'rewind', at }`.
-
-The runner is how your server runs the model for a reply. This server answers a message for `support`, the profile from the [Quick start](#quick-start):
-
-```ts
-import { compactHistory, defaultKernelScope, runTurn } from '@theoremjs/agents';
-import { interfaceFromProfile } from '@theoremjs/agents/interface';
-import {
-  createMemoryConversationStore,
-  messageReply,
-  openConversation,
-  postedMessage,
-  type ReplyRunner,
-  readerConversationHost,
-  theoremTurnRequestSchema,
-} from '@theoremjs/react/server';
-
-const provider = { vault: { main: process.env.GEMINI_API_KEY } };
-const conversations = createMemoryConversationStore();
-
-async function* send(sessionId: string, body: unknown, signal: AbortSignal) {
-  const request = theoremTurnRequestSchema.parse(body);
-  const host = readerConversationHost({ sessionId, store: conversations, profile: support, clientEvents: undefined });
-  const runner: ReplyRunner = {
-    run: (turn) => runTurn({ profile: support.id, ...turn, signal }, provider),
-    async compact(history, tokens, model) {
-      const compacted = await compactHistory({ profile: support.id, history, tokens, signal, ...(model ? { model } : {}) }, provider);
-      return compacted?.history;
-    },
-    signal,
-  };
-  const message = postedMessage(interfaceFromProfile(support, defaultKernelScope.tools), request.input);
-  const opened = await openConversation(host, request.conversation, { kind: 'message' });
-  yield* messageReply({ host, opened, message, runner });
-}
-```
-
-Write each line as one JSON line of an `application/x-ndjson` response. The reply's events come first, then a `conversation` line with the ref the store issued. When the run fails, its error line comes last.
-
-What the loop leaves to you:
-
-- The session. Every read and write names it, and the store refuses a ref from another session.
-- Gates. A profile whose tools wait for approval needs a session store that issues each gate and checks its answer. `createTheoremHandler` keeps one. With your own server, check the answer, run the call with `invokeTool`, and pass its events to `answerReply`.
-- Walking away. A message to a reply that waits on gates must name exactly `waitingCalls(conversation)` as `abandon`, and pass each call's cancelled run as `walkAway`.
-
-On the browser side, `@theoremjs/react/client` reads what your server sends:
-
-| Export | Use |
-| --- | --- |
-| `CHAT_LINES` | The schemas of a reply's lines: each turn event, and the `conversation` line. |
-| `ChatLine`, `ChatLineSink` | A checked line, and the callback that receives each one. |
-| `fetchConversation(url, body, options?)` | POSTs a conversation read, and checks the view your server answers. |
-| `fetchRewound(url, body, options?)` | POSTs a rewind, and checks the rewound conversation. |
-| `failedDecisionTraces(err)` | The trace records that a failed decision left, for the trace inspector. |
+- [Server options](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#server-options): what `createTheoremHandler` takes.
+- [Keep the conversation](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#keep-the-conversation): the conversation stores, and your own database.
+- [Share session authority](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#share-session-authority): one session store for several server instances.
+- [Build your own server](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#build-your-own-server): the reply loop, for a server that is not a `fetch` handler.
 
 ## Build your own UI
 

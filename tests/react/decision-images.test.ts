@@ -10,7 +10,7 @@ import {
   readImage,
   stateFields,
 } from '../../react/src/client/decision-images.ts';
-import { decisionInterface } from '../../react/src/client/decision-transport.ts';
+import { decisionInterface } from '../../web/src/client/decision-transport.ts';
 
 const shelf = { mimeType: 'image/png', data: 'AAAA' } as const;
 const lemon = { mimeType: 'image/png', data: 'BBBB' } as const;

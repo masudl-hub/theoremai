@@ -17,8 +17,8 @@ import {
   type TraceFeed,
   type TurnEventSink,
   withFailedTraces,
-} from '@theoremjs/react/client';
-import type { ReplyLine } from '@theoremjs/react/server';
+} from '@theoremjs/web/client';
+import type { ReplyLine } from '@theoremjs/web/server';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import type { StudioRuntimeBase } from './runtime-scope.ts';
@@ -94,7 +94,7 @@ function localPageResult(
 ) {
   return runtime.execution
     ? undefined
-    : async (result: import('@theoremjs/react/client').PageDispatchResult) => {
+    : async (result: import('@theoremjs/web/client').PageDispatchResult) => {
         await (await local())?.pageResult(result);
       };
 }

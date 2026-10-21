@@ -47,6 +47,7 @@ import {
   type LiveProfileInterface,
   modelSelectEnabled,
 } from '@theoremjs/agents/interface';
+import type { ClientFailure } from '@theoremjs/web/client';
 import {
   type ChangeEvent,
   type ReactNode,
@@ -65,7 +66,6 @@ import {
   STASH_SHORTCUT,
 } from '../client/composer-hints.ts';
 import { composerActionState } from '../client/composer-primary.ts';
-import type { ClientFailure } from '../client/failure.ts';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
 import { useEditorSelection } from '../components/use-editor-selection.ts';
 import { composerDrawerLabel } from './labels.ts';

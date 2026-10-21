@@ -1,7 +1,10 @@
-import type { ExecuteToolOnRelay } from '../live-messages.ts';
-import { continueGatedToolInvocation } from '../tool-resume.ts';
-import type { PageTools } from './live-page-tool.ts';
-import type { LiveGateAnswer, LiveToolGatePrompt } from './live-tool.ts';
+import type {
+  ExecuteToolOnRelay,
+  LiveGateAnswer,
+  LiveToolGatePrompt,
+  PageTools,
+} from '@theoremjs/web/client';
+import { continueGatedToolInvocation } from '@theoremjs/web/client';
 
 /**
  * Live provider tool-call handler: the page answers the call if it is the

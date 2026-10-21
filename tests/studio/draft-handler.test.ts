@@ -69,6 +69,7 @@ Deno.test('without lent keys, the handler answers the probe and the tests, and n
     'embedding/embed',
     'page-result',
     'turn/steer',
+    'turn/stop',
     'conversation/start',
   ]) {
     assertEquals((await handler(post(route, run))).status, 404, route);
@@ -154,6 +155,54 @@ Deno.test('on lent keys, a conversation starts on blocks the page wrote, and its
   assert(kinds.length > 2, kinds.join(', '));
   const bad = await handler(post('conversation/start', { ...concierge(), blocks: [{ kind: 3 }] }));
   assertEquals(bad.status, 400);
+});
+
+Deno.test('on lent keys, a stopped turn ends its stream and keeps what the reply said', async () => {
+  const held = Promise.withResolvers<void>();
+  const handler = createStudioDraftHandler({
+    lent: {
+      ...ON_TEST_KEYS,
+      provider: () => ({
+        async *complete() {
+          yield { type: 'text', text: 'Day one' };
+          await held.promise;
+        },
+      }),
+    },
+  });
+  const response = await handler(post('turn', { ...concierge(), input: { text: 'Plan a trip' } }));
+  const cookie = response.headers.get('set-cookie')?.split(';')[0] ?? '';
+  const events: { type: string; [key: string]: unknown }[] = [];
+  const decoder = new TextDecoder();
+  let buffered = '';
+  let stopped: Response | undefined;
+  for await (const chunk of response.body ?? []) {
+    buffered += decoder.decode(chunk, { stream: true });
+    const complete = buffered.split('\n');
+    buffered = complete.pop() ?? '';
+    for (const line of complete.filter(Boolean)) events.push(JSON.parse(line));
+    const inbox = events.find((event) => event.type === 'steer_inbox')?.inbox;
+    if (!stopped && events.some((event) => event.type === 'text')) {
+      stopped = await handler(post('turn/stop', { turnId: inbox }, { cookie }));
+    }
+  }
+  held.resolve();
+  assertEquals(stopped?.status, 200);
+  const done = events.findLast((event) => event.type === 'done');
+  assertEquals(done?.stop, { kind: 'cancelled' });
+  assert(!events.some((event) => event.type === 'error'), JSON.stringify(events));
+  const ref = events.findLast((event) => event.type === 'conversation')?.ref;
+  const read = await handler(
+    post('conversation', { ...concierge(), conversation: ref }, { cookie }),
+  );
+  const said = (await read.json()).transcript.flatMap((block: { kind: string; text?: string }) =>
+    block.kind === 'text' ? [block.text] : [],
+  );
+  // The reply keeps what the visitor saw before the stop, as it streamed.
+  const streamed = events.flatMap((event) => (event.type === 'text' ? [event.text] : []));
+  assertEquals(said, [streamed.join('')]);
+  const again = await handler(post('turn/stop', { turnId: 'not-running' }, { cookie }));
+  assertEquals(again.status, 400);
 });
 
 Deno.test('a draft the kernel refuses is a bad request, not the host', async () => {

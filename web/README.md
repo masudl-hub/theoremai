@@ -188,14 +188,14 @@ await chat.submit();
 | `enqueue('steer')` | Sends the draft to the running turn with `transport.steer`. The steer leaves `pendingMessages` when the turn's `stage` event names it in `injected`, and joins the transcript there, between the reply before it and the reply after. A steer the turn never takes waits at the front of the queue. |
 | `enqueue('queue')` | Keeps the draft to send after the reply. When the reply ends without a failure and no gate waits, the first queued message is sent. |
 | `enqueue('stash')` | Keeps the draft without sending it. `queuePending(id)` moves it to the queue. |
-| `sendNow(message?)` | Sends a pending message, or the draft, at once. A streaming reply is stopped first. A reply that waits on gates is left. |
+| `sendNow(message?)` | Sends a pending message, or the draft, at once. A streaming reply is stopped first, as `stop()` stops it. A reply that waits on gates is left. |
 | `restorePending(id)` | Puts a pending message back in the composer. The draft that was there is stashed first, so the user loses nothing. |
-| `stop()` | Stops the streaming reply. |
+| `stop()` | Stops the streaming reply with `transport.stop`. What the reply said before the stop stays in the transcript and the history, closed as cancelled. A queued message stays queued. When the host refuses the stop, the controller drops the stream instead, and a host that keeps the conversation keeps the stopped reply where the page can't read it. |
 | `decide(action)`, `authenticate(secret?)` | Answer the gate that the reply waits on. |
 | `branch(index)` | Cuts the conversation after transcript block `index`. |
 | `sendText(text, files?)` | Sends a message from your code. It resolves with the blocks the turn added, or `null` when the chat cannot take a message now. |
 
-The controller uses these methods of the transport: `turn`, `invoke` (to answer a gate), `steer`, `conversation`, and `rewind`. `conversation` and `rewind` are called only for a profile whose host keeps the conversation. `pageResult` is called when the reply hands a tool to the page.
+The controller uses these methods of the transport: `turn`, `invoke` (to answer a gate), `steer`, `stop`, `conversation`, and `rewind`. `conversation` and `rewind` are called only for a profile whose host keeps the conversation. `pageResult` is called when the reply hands a tool to the page.
 
 The controller writes no English text. The helpers below give the composer's controls as values, and you choose the words:
 
@@ -237,7 +237,7 @@ const transport = withPageToolDispatch(
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
 | `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
 | `conversationStore` | Where the conversation is kept. Required, except for a stateless profile, which must not have one. See [Keep the conversation](#keep-the-conversation). |
-| `sessionStore`, `steerInbox` | Where open gates and queued steers are kept. Default: process memory. |
+| `sessionStore`, `steerInbox` | Where open gates are kept, and where steers and stops reach a running turn. Default: process memory, which reaches only turns this process runs. On more than one instance, give a shared `SteerInbox`. |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
 | `gateTtlMs` | How long a gate waits for an answer. Default: 30 minutes. A later answer fails with `session.gate_expired`. |

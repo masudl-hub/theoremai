@@ -224,6 +224,13 @@ true satisfies Equals<z.infer<typeof theoremSteerRequest>, TheoremSteerRequest>;
 /** A `/steer` body as `createTheoremHandler` reads it. */
 export const theoremSteerRequestSchema: z.ZodType<TheoremSteerRequest> = theoremSteerRequest;
 
+/** Stop an in-flight turn where it stands; its stream ends with what the reply left. */
+export type TheoremStopRequest = { turnId: string };
+const theoremStopRequest = z.object({ turnId: clientId });
+true satisfies Equals<z.infer<typeof theoremStopRequest>, TheoremStopRequest>;
+/** A `/stop` body as `createTheoremHandler` reads it. */
+export const theoremStopRequestSchema: z.ZodType<TheoremStopRequest> = theoremStopRequest;
+
 /**
  * The ref the store issued for the conversation a run wrote: the client sends
  * it with its next request. It comes before the run's error, which ends the stream.
@@ -307,6 +314,8 @@ export interface TheoremTransport {
   turn(request: TheoremTurnRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   invoke(request: TheoremInvokeRequest, onLine: ChatLineSink, signal?: AbortSignal): Promise<void>;
   steer(request: TheoremSteerRequest): Promise<void>;
+  /** Stops the turn; refused (`session.turn_ended`) when this host is not running it. */
+  stop(request: TheoremStopRequest): Promise<void>;
   /** The conversation under `ref`, as the host shows it. */
   conversation(
     request: TheoremConversationRequest,
@@ -654,5 +663,6 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
     rewind: (body, signal) => fetchRewound(`${base}/rewind`, body, { ...options, signal }),
     pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
     steer: (body) => postJson(`${base}/steer`, body, options),
+    stop: (body) => postJson(`${base}/stop`, body, options),
   };
 }

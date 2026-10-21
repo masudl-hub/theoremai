@@ -48,7 +48,7 @@ import {
   type UserTurnHistoryMedia,
 } from '@theoremjs/agents/interface';
 import { base64ToBytes } from '@theoremjs/agents/kernel';
-import { stampWorked } from '../client/run-commit.ts';
+import { stampWorked, stoppedReply } from '../client/run-commit.ts';
 import type {
   ConversationLine,
   ConversationView,
@@ -319,8 +319,6 @@ type Reply = {
   events: TurnEvent[];
   /** How many of `events` `base` already holds. */
   baseEvents: number;
-  /** How many of `events` came before this run: the settled calls a continuing reply answers. */
-  seed: number;
   workedMs: number;
 };
 
@@ -347,11 +345,12 @@ function metered(conversation: StoredConversation, events: readonly TurnEvent[])
   };
 }
 
-/** The reply is over: its blocks join the transcript and its events the history. */
+/** The reply is over: its blocks, as `closing` ends them, join the transcript and its events the history. */
 function committed(
   host: ConversationHost,
   conversation: StoredConversation,
   reply: Reply,
+  closing: (blocks: TranscriptBlock[]) => TranscriptBlock[] = (blocks) => blocks,
 ): StoredConversation {
   const { paused: _paused, providerState: _state, ...rest } = conversation;
   return {
@@ -359,7 +358,7 @@ function committed(
     ...metered(conversation, reply.events),
     transcript: [
       ...conversation.transcript,
-      ...stampWorked(foldedFor(host, reply.events), {
+      ...stampWorked(closing(foldedFor(host, reply.events)), {
         workedMs: reply.workedMs,
         endedAt: Date.now(),
       }),
@@ -407,22 +406,15 @@ function failed(
 }
 
 /**
- * The person stopped the reply: it leaves the transcript, and the history
- * keeps what came before this run, the calls it settled included.
+ * The person stopped the reply: what they saw of it stays, in the transcript and the history
+ * alike, closed as cancelled. A call still running when it stopped enters neither.
  */
-function stopped(conversation: StoredConversation, reply: Reply): StoredConversation {
-  const { paused: _paused, ...rest } = conversation;
-  return {
-    ...rest,
-    transcript: [
-      ...conversation.transcript,
-      { id: crypto.randomUUID(), kind: 'turn-done', stop: { kind: 'cancelled' } },
-    ],
-    history: appendAssistantEventsToHistory(
-      reply.base,
-      reply.events.slice(reply.baseEvents, Math.max(reply.baseEvents, reply.seed)),
-    ),
-  };
+function stopped(
+  host: ConversationHost,
+  conversation: StoredConversation,
+  reply: Reply,
+): StoredConversation {
+  return committed(host, conversation, reply, stoppedReply);
 }
 
 /** A line of a reply's stream: an event, or the ref of what the store wrote. */
@@ -471,15 +463,17 @@ async function* runReply(
       host,
       current,
       runner.signal.aborted
-        ? stopped(conversation, worked())
+        ? stopped(host, conversation, worked())
         : failed(host, conversation, worked(), toErrorEvent(err)),
     );
     yield* refLine(current);
-    throw err;
+    // why: A stopped reply is no failure; the browser draws what it left from the ref.
+    if (!runner.signal.aborted) throw err;
+    return;
   }
   const settled = worked();
   if (runner.signal.aborted) {
-    current = await save(host, current, stopped(conversation, settled));
+    current = await save(host, current, stopped(host, conversation, settled));
   } else if (errorEvent) {
     current = await save(host, current, failed(host, conversation, settled, errorEvent));
   } else if (gatedToolsFromEvents(settled.events).length) {
@@ -641,7 +635,6 @@ function pausedReply(paused: PausedReply): Reply {
     base: paused.base,
     events: [...paused.events],
     baseEvents: paused.baseEvents,
-    seed: paused.events.length,
     workedMs: paused.workedMs,
   };
 }
@@ -698,7 +691,6 @@ export async function* messageReply(args: {
     base: withMessage(conversation.history),
     events: [],
     baseEvents: 0,
-    seed: 0,
     workedMs: 0,
   };
   yield* runReply(
@@ -747,7 +739,6 @@ export async function* answerReply(args: {
     yield event;
   }
   reply.workedMs += Date.now() - startedAt;
-  reply.seed = reply.events.length;
   if (error || gatedToolsFromEvents(reply.events).length) {
     // why: An answer that failed before its call settled leaves the reply as it was, to answer again.
     const settledCall = reply.events.some((event) => settlesToolCall(event, args.call.callId));

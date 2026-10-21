@@ -95,6 +95,7 @@ import {
   theoremInvokeRequestSchema,
   theoremRewindRequestSchema,
   theoremSteerRequestSchema,
+  theoremStopRequestSchema,
   theoremTurnRequestSchema,
 } from '../client/transport.ts';
 import {
@@ -138,7 +139,13 @@ import {
   type TheoremSessionState,
   type TheoremSessionStore,
 } from './session-store.ts';
-import { createMemorySteerInbox, type SteerInbox, steerStage, steerUnitOf } from './steer-inbox.ts';
+import {
+  createMemorySteerInbox,
+  type SteerInbox,
+  steerStage,
+  steerUnitOf,
+  stopOnRequest,
+} from './steer-inbox.ts';
 import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
 
 export type TheoremRequestContext = {
@@ -283,6 +290,7 @@ function routeOf(request: Request): string {
   return last === 'turn' ||
     last === 'invoke' ||
     last === 'steer' ||
+    last === 'stop' ||
     last === 'conversation' ||
     last === 'rewind' ||
     last === 'call' ||
@@ -709,13 +717,16 @@ async function* chatTurn(
   request: Request,
   session: Session,
   turn: ReplyTurn,
-  turnId: string | undefined,
+  key: string | undefined,
+  stop: AbortController,
 ): AsyncGenerator<TurnEvent> {
   const state = await ctx.sessions.read(session.id);
   const provider = await providerFor(ctx, request, turn.model);
   const host = await ctx.options.host?.(request);
-  const key = turnId ? inboxKey(session.id, turnId) : undefined;
-  if (key) await ctx.inbox.open(key);
+  if (key) {
+    await ctx.inbox.open(key);
+    stopOnRequest(ctx.inbox, key, stop);
+  }
   try {
     const events = runTurn(
       {
@@ -726,7 +737,7 @@ async function* chatTurn(
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
         credentials: sessionCredentials(ctx, session.id),
-        signal: request.signal,
+        signal: AbortSignal.any([request.signal, stop.signal]),
         host,
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.effort ? { effort: turn.effort } : {}),
@@ -749,15 +760,18 @@ async function* chatTurn(
   }
 }
 
-/** How this request runs the model for a reply: its generation, and the request's abort. */
+/** How this request runs the model for a reply: its generation, and its abort (the request's, or a stop). */
 function chatRunner(
   ctx: HandlerContext,
   request: Request,
   session: Session,
   generation: { model?: string; effort?: string; turnId?: string },
 ): ReplyRunner {
+  const key = generation.turnId ? inboxKey(session.id, generation.turnId) : undefined;
+  const stop = new AbortController();
+  const signal = AbortSignal.any([request.signal, stop.signal]);
   return {
-    run: (turn) => chatTurn(ctx, request, session, turn, generation.turnId),
+    run: (turn) => chatTurn(ctx, request, session, turn, key, stop),
     async compact(history, tokens, model) {
       const provider = await providerFor(ctx, request, model);
       const compacted = await compactHistory(
@@ -765,7 +779,7 @@ function chatRunner(
           profile: ctx.profile.id,
           history,
           tokens,
-          signal: request.signal,
+          signal,
           ...(model ? { model } : {}),
         },
         provider,
@@ -774,7 +788,7 @@ function chatRunner(
     },
     ...(generation.model ? { model: generation.model } : {}),
     ...(generation.effort ? { effort: generation.effort } : {}),
-    signal: request.signal,
+    signal,
   };
 }
 
@@ -904,6 +918,18 @@ async function* invokeEvents(
 async function steer(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
   const body = await readBody(request, theoremSteerRequestSchema, ctx.options.maxRequestBytes);
   if (!(await ctx.inbox.enqueue(inboxKey(session.id, body.turnId), steerUnitOf(body)))) {
+    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
+    throw new TheoremError('request', `turn ${body.turnId} is not running`, {
+      copy: { key: 'session.turn_ended' },
+    });
+  }
+  return jsonResponse(200, { ok: true });
+}
+
+/** Stops a running turn where it stands; its stream goes on to save and send what the reply left. */
+async function stop(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
+  const body = await readBody(request, theoremStopRequestSchema, ctx.options.maxRequestBytes);
+  if (!(await ctx.inbox.stop(inboxKey(session.id, body.turnId)))) {
     // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
     throw new TheoremError('request', `turn ${body.turnId} is not running`, {
       copy: { key: 'session.turn_ended' },
@@ -1092,6 +1118,7 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
   if (target === 'invoke') return invoke(ctx, request, session);
   if (target === 'conversation') return conversation(ctx, request, session);
   if (target === 'rewind') return rewind(ctx, request, session);
+  if (target === 'stop') return stop(ctx, request, session);
   return steer(ctx, request, session);
 }
 

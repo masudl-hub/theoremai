@@ -11,6 +11,7 @@ import {
   type ChatLineSink,
   type TheoremInvokeRequest,
   type TheoremSteerRequest,
+  type TheoremStopRequest,
   TheoremStreamError,
   type TheoremTransport,
   type TheoremTurnRequest,
@@ -49,6 +50,7 @@ type OpenTurn = {
 function heldHost() {
   const turns: OpenTurn[] = [];
   const steers: TheoremSteerRequest[] = [];
+  const stops: TheoremStopRequest[] = [];
   const transport: TheoremTransport = {
     turn: (request, onLine, signal) =>
       new Promise<void>((resolve, reject) => {
@@ -61,12 +63,20 @@ function heldHost() {
       steers.push(request);
       return Promise.resolve();
     },
+    // The host stops the turn where it stands: its stream ends cancelled.
+    stop: (request) => {
+      stops.push(request);
+      const turn = turns.find((open) => open.request.turnId === request.turnId);
+      turn?.line({ type: 'done', stop: { kind: 'cancelled' } });
+      turn?.end();
+      return Promise.resolve();
+    },
     invoke: () => Promise.reject(new Error('unused')),
     describe: () => Promise.reject(new Error('unused')),
     conversation: () => Promise.reject(new Error('unused')),
     rewind: () => Promise.reject(new Error('unused')),
   };
-  return { transport, turns, steers };
+  return { transport, turns, steers, stops };
 }
 
 /** Lets every pending promise and microtask run. */
@@ -81,6 +91,13 @@ function reply(turn: OpenTurn, text: string): void {
   turn.line({ type: 'text', text });
   turn.line({ type: 'done', stop: { kind: 'completed' } });
   turn.end();
+}
+
+/** The transcript's messages and replies, in order. */
+function said(blocks: readonly { kind: string; text?: string }[]): [string, string | undefined][] {
+  return blocks.flatMap((b) =>
+    b.kind === 'user-text' || b.kind === 'text' ? [[b.kind, b.text]] : [],
+  );
 }
 
 Deno.test('a draft sent at idle joins the transcript with its reply, and the composer empties', async () => {
@@ -127,19 +144,12 @@ Deno.test("a steer goes to the running turn by its id, and shows where the turn'
   await sent;
   await settle();
   assertEquals(host.turns.length, 1);
-  assertEquals(
-    chat
-      .getState()
-      .blocks.flatMap((b) =>
-        b.kind === 'user-text' || b.kind === 'text' ? [[b.kind, b.text]] : [],
-      ),
-    [
-      ['user-text', 'First'],
-      ['text', 'Looking'],
-      ['user-text', 'Also the fern'],
-      ['text', 'Noted'],
-    ],
-  );
+  assertEquals(said(chat.getState().blocks), [
+    ['user-text', 'First'],
+    ['text', 'Looking'],
+    ['user-text', 'Also the fern'],
+    ['text', 'Noted'],
+  ]);
 });
 
 Deno.test('a steer the turn never took is the next message sent', async () => {
@@ -226,24 +236,59 @@ Deno.test('restoring a pending message stashes what the composer holds first', a
   );
 });
 
-Deno.test('send now stops the streaming reply, then sends, and leaves the queue', async () => {
+Deno.test('send now stops the streaming reply where it stands, keeps what it said, then sends', async () => {
   const host = heldHost();
   const chat = createChatController({ transport: host.transport, iface: textInterface() });
   chat.setDraftText('Long question');
   void chat.submit();
   await settle();
+  host.turns[0].line({ type: 'text', text: 'The long answer starts' });
   chat.setDraftText('Never mind, this');
   await chat.enqueue('queue');
   const [queued] = chat.getState().pendingMessages;
   const now = chat.sendNow(queued);
   await settle();
-  assertEquals(host.turns[0].signal?.aborted, true);
+  assertEquals(host.stops, [{ turnId: host.turns[0].request.turnId as string }]);
+  assertEquals(host.turns[0].signal?.aborted, false);
   assertEquals(host.turns.length, 2);
   assertEquals(textOf(host.turns[1].request), 'Never mind, this');
   assertEquals(chat.getState().pendingMessages, []);
   reply(host.turns[1], 'Sure');
   await now;
-  assert(chat.getState().blocks.some((b) => b.kind === 'turn-done'));
+  const { blocks } = chat.getState();
+  assertEquals(said(blocks), [
+    ['user-text', 'Long question'],
+    ['text', 'The long answer starts'],
+    ['user-text', 'Never mind, this'],
+    ['text', 'Sure'],
+  ]);
+  assertEquals(
+    blocks.flatMap((b) => (b.kind === 'turn-done' ? [b.stop?.kind] : [])),
+    ['cancelled', 'completed'],
+  );
+});
+
+Deno.test('a stop keeps what the reply said, and a queued message stays queued', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  chat.setDraftText('Plan a trip');
+  const sent = chat.submit();
+  await settle();
+  host.turns[0].line({ type: 'text', text: 'Day one' });
+  chat.setDraftText('Then the coast');
+  await chat.enqueue('queue');
+  chat.stop();
+  await sent;
+  await settle();
+  assertEquals(host.turns.length, 1);
+  assertEquals(
+    chat.getState().pendingMessages.map((m) => [m.kind, m.draft.text]),
+    [['queue', 'Then the coast']],
+  );
+  assertEquals(said(chat.getState().blocks), [
+    ['user-text', 'Plan a trip'],
+    ['text', 'Day one'],
+  ]);
 });
 
 Deno.test('each turn carries the slots and context as they are when it is sent', async () => {

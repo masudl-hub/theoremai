@@ -76,3 +76,12 @@ export function stampWorked(
   if (last < 0) return blocks;
   return blocks.map((block, index) => (index === last ? { ...block, ...worked } : block));
 }
+
+/**
+ * A reply the person stopped, as far as it went: what they saw stays, and it closes as cancelled
+ * unless the stream already closed it.
+ */
+export function stoppedReply(blocks: TranscriptBlock[]): TranscriptBlock[] {
+  if (blocks.some((block) => block.kind === 'turn-done')) return blocks;
+  return [...blocks, { id: crypto.randomUUID(), kind: 'turn-done', stop: { kind: 'cancelled' } }];
+}

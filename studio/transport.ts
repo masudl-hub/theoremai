@@ -236,6 +236,16 @@ export function createStudioTransport(
       // The server's inbox is the turn it steers, so the body is a `TheoremSteerRequest`.
       await postJson('/api/studio/turn/steer', { turnId: inbox, id, inject }, options);
     },
+    async stop({ turnId }) {
+      const inbox = inboxes.get(turnId);
+      if (!inbox) {
+        // labels-exempt: internal diagnostic; the user reads session.turn_ended
+        throw new TheoremError('request', 'stop: the turn has not opened its inbox', {
+          copy: { key: 'session.turn_ended' },
+        });
+      }
+      await postJson('/api/studio/turn/stop', { turnId: inbox }, options);
+    },
     traces,
   };
 }

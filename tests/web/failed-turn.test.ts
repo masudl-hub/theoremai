@@ -43,6 +43,7 @@ function hostTransport(turn: TheoremTransport['turn']): TheoremTransport {
     describe: () => Promise.reject(new Error('unused')),
     conversation: () => Promise.reject(new Error('unused')),
     rewind: () => Promise.reject(new Error('unused')),
+    stop: () => Promise.reject(new Error('unused')),
   };
 }
 /** Posts the message, streams the start of a reply, then fails the way a provider does mid-stream. */

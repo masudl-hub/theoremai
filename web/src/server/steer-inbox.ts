@@ -1,6 +1,7 @@
 /**
  * Mid-turn steer inbox — the client posts user messages while a turn streams;
- * the turn's stage handler drains one unit per inject-capable stage.
+ * the turn's stage handler drains one unit per inject-capable stage. The
+ * client's stop reaches the turn through it too.
  *
  * @module
  */
@@ -37,8 +38,8 @@ export function steerStage(inbox: SteerInbox, key: string): StageHandler {
 
 /**
  * Keyed by client turn id. The default lives in process memory, which is only
- * correct when steer POSTs reach the same process as the turn — swap in a
- * shared store (KV, Redis, Durable Object) for multi-instance hosts.
+ * correct when steer and stop POSTs reach the same process as the turn — swap
+ * in a shared store (KV, Redis, Durable Object) for multi-instance hosts.
  */
 export interface SteerInbox {
   open(turnId: string): void | Promise<void>;
@@ -46,26 +47,59 @@ export interface SteerInbox {
   enqueue(turnId: string, unit: SteerUnit): boolean | Promise<boolean>;
   /** Next unit, FIFO, or `undefined`. */
   consume(turnId: string): SteerUnit | undefined | Promise<SteerUnit | undefined>;
+  /** Stops the turn. Returns `false` when no turn with this id is open. */
+  stop(turnId: string): boolean | Promise<boolean>;
+  /** Settles `true` once the turn is stopped (at once if it already is), `false` once it closes. */
+  stopped(turnId: string): Promise<boolean>;
   close(turnId: string): void | Promise<void>;
 }
 
+type MemoryTurn = { queue: SteerUnit[]; stopped: boolean; settle: Set<(stopped: boolean) => void> };
+
 export function createMemorySteerInbox(): SteerInbox {
-  const queues = new Map<string, SteerUnit[]>();
+  const turns = new Map<string, MemoryTurn>();
   return {
     open(turnId) {
-      if (!queues.has(turnId)) queues.set(turnId, []);
+      if (!turns.has(turnId)) turns.set(turnId, { queue: [], stopped: false, settle: new Set() });
     },
     enqueue(turnId, unit) {
-      const queue = queues.get(turnId);
-      if (!queue) return false;
-      queue.push(structuredClone(unit));
+      const turn = turns.get(turnId);
+      if (!turn) return false;
+      turn.queue.push(structuredClone(unit));
       return true;
     },
     consume(turnId) {
-      return queues.get(turnId)?.shift();
+      return turns.get(turnId)?.queue.shift();
+    },
+    stop(turnId) {
+      const turn = turns.get(turnId);
+      if (!turn) return false;
+      turn.stopped = true;
+      for (const settle of turn.settle) settle(true);
+      turn.settle.clear();
+      return true;
+    },
+    stopped(turnId) {
+      const turn = turns.get(turnId);
+      if (!turn) return Promise.resolve(false);
+      if (turn.stopped) return Promise.resolve(true);
+      return new Promise((resolve) => turn.settle.add(resolve));
     },
     close(turnId) {
-      queues.delete(turnId);
+      const turn = turns.get(turnId);
+      for (const settle of turn?.settle ?? []) settle(false);
+      turns.delete(turnId);
     },
   };
+}
+
+/** Aborts `stop` once the inbox's turn is stopped. */
+export function stopOnRequest(inbox: SteerInbox, turnId: string, stop: AbortController): void {
+  inbox.stopped(turnId).then(
+    (stopped) => {
+      if (stopped) stop.abort();
+    },
+    // why: An inbox that can't say leaves the turn to run; the browser's fallback drops the stream.
+    () => {},
+  );
 }

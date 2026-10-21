@@ -28,7 +28,7 @@ import { type ClientFailure, clientFailure, type TurnFailure, turnFailure } from
 import { followGenerationDefaults } from './generation-selection.ts';
 import { type PageTools, warnPageToolMismatch } from './live/live-page-tool.ts';
 import { withPageToolDispatch } from './page-dispatch.ts';
-import { sessionAfter, stampWorked } from './run-commit.ts';
+import { sessionAfter, stampWorked, stoppedReply } from './run-commit.ts';
 import {
   keepsConversation,
   type RunOutcome,
@@ -310,6 +310,8 @@ class Chat implements ChatController {
   #busy = false;
   #abort: AbortController | null = null;
   #turnId: string | null = null;
+  /** The visitor stopped the run in flight, so the queue waits. */
+  #stopped = false;
   /** The run in flight; it settles, never rejects. */
   #run: Promise<void> | null = null;
   // why: A stateless reply's work across its runs: a gate splits a reply into runs, and the wait between doesn't count.
@@ -396,8 +398,26 @@ class Chat implements ChatController {
   };
 
   stop = (): void => {
-    this.#abort?.abort();
+    void this.#stop();
   };
+
+  /** Asks the host to stop the turn, so the reply it leaves comes back; a host that can't drops the stream. */
+  async #stop(): Promise<void> {
+    const abort = this.#abort;
+    const turnId = this.#turnId;
+    if (!abort) return;
+    this.#stopped = true;
+    if (!turnId) {
+      abort.abort();
+      return;
+    }
+    try {
+      await this.#options.transport.stop({ turnId });
+    } catch {
+      // why: The host isn't running the turn here (it ended, or another instance runs it); the stream is dropped instead.
+      abort.abort();
+    }
+  }
 
   enqueue = async (kind: 'queue' | 'steer' | 'stash'): Promise<void> => {
     const { draftText, pendingFiles, pendingVoice } = this.#state;
@@ -429,7 +449,7 @@ class Chat implements ChatController {
     const draft = source ? source.draft : await this.#composerDraft();
     if (!draft) return;
     if (this.#busy) {
-      this.#abort?.abort();
+      await this.#stop();
       await this.#run;
     }
     this.#set({ pendingMessages: convertSteersToFrontQueued(this.#state.pendingMessages) });
@@ -910,6 +930,7 @@ class Chat implements ChatController {
     this.#busy = true;
     this.#abort = abort;
     this.#turnId = turnId ?? null;
+    this.#stopped = false;
     this.#drainArmed = false;
     // why: A message streams once it posts, so the previous reply never shows as streaming before it.
     this.#set({ failure: null, ...(message ? {} : { streaming: true }) });
@@ -947,7 +968,7 @@ class Chat implements ChatController {
         } else {
           waits = this.#settleLocal(iface, outcome, { workedMs: this.#replyWorkedMs, endedAt });
         }
-        this.#runEnded(!outcome.failure && !waits);
+        this.#runEnded(!outcome.failure && !waits && !this.#stopped);
       } catch (err) {
         // why: The run left no view to draw; the composer says so, and the chat stays as it stood.
         this.#endRun();
@@ -1038,8 +1059,8 @@ class Chat implements ChatController {
       return false;
     }
     this.#setDelivery(null);
-    const closing: TranscriptBlock[] = failure.aborted
-      ? [{ id: crypto.randomUUID(), kind: 'turn-done', stop: { kind: 'cancelled' } }]
+    const closing = failure.aborted
+      ? stampWorked(stoppedReply(reply), worked)
       : withTurnError(reply, failure.error);
     this.#set({
       session,

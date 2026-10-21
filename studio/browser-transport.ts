@@ -258,6 +258,15 @@ export function createBrowserStudioTransport(
         }); // labels-exempt: internal diagnostic
       }
     },
+    async stop({ turnId }) {
+      const inbox = inboxes.get(turnId);
+      const { steer } = await session;
+      if (!inbox || !(await steer.stop(inbox))) {
+        throw new TheoremError('request', 'The turn has ended', {
+          copy: { key: 'session.turn_ended' },
+        }); // labels-exempt: internal diagnostic
+      }
+    },
     traces,
   };
 }

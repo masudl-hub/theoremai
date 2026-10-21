@@ -34,6 +34,7 @@ import {
   theoremRewindRequestSchema,
   theoremStartRequestSchema,
   theoremSteerRequestSchema,
+  theoremStopRequestSchema,
   theoremTurnRequestSchema,
 } from '@theoremjs/web/server';
 import { newConversationKey } from '../conversation-key.ts';
@@ -337,6 +338,25 @@ export function createStudioDraftHandler(
         if (!(await steer.enqueue(asked.turnId, steerUnitOf(asked)))) {
           // labels-exempt: internal diagnostic; the user reads session.turn_ended
           throw new TheoremError('request', 'steer: no open run has this inbox', {
+            copy: { key: 'session.turn_ended' },
+          });
+        }
+        return Response.json({ ok: true });
+      } catch (err) {
+        return errorJson(err);
+      }
+    },
+    'turn/stop': async (request) => {
+      try {
+        // The inbox the server opened for the turn is the turn id the browser stops.
+        const asked = checkRequest(
+          theoremStopRequestSchema,
+          await readBody(request, z.unknown()),
+          'request body',
+        );
+        if (!(await steer.stop(asked.turnId))) {
+          // labels-exempt: internal diagnostic; the user reads session.turn_ended
+          throw new TheoremError('request', 'stop: no open run has this inbox', {
             copy: { key: 'session.turn_ended' },
           });
         }

@@ -1979,46 +1979,38 @@ Deno.test('a stateless chat keeps nothing: no ref, and a ref is refused', async 
   );
   await assertRefused(() => chat.conversation({ conversation: 'any' }), 'error.request');
 });
-Deno.test('a sealed reply the person stops saves under a ref the browser never hears', async () => {
+Deno.test('a sealed reply the person stops keeps what it said, under the ref the browser hears', async () => {
   const held = Promise.withResolvers<void>();
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
-  const { store, saved } = savedWith(
-    createSealedConversationStore({
-      keys: { 1: 'handler-sealing-key-0123456789abcdef' },
-      keyVersion: 1,
-    }),
-    'cancelled',
-  );
   let turns = 0;
   const handler = createTheoremHandler({
     profile: profile('handler-sealed-stop'),
     provider: () =>
       fixtureHostOptions(turns++ === 0 ? heldReply(held.promise) : echoProvider(seen)),
-    conversationStore: store,
+    conversationStore: createSealedConversationStore({
+      keys: { 1: 'handler-sealing-key-0123456789abcdef' },
+      keyVersion: 1,
+    }),
   });
   const chat = transportFor(handler);
-  const stop = new AbortController();
-  await chat
-    .turn(
-      { input: { text: 'tell me' } },
-      (line) => {
-        if (line.type === 'text') stop.abort();
-      },
-      stop.signal,
-    )
-    .catch((err: unknown) => {
-      if (!stop.signal.aborted) throw err;
-    });
+  const turnId = 'turn-stopped';
+  const stopped: Promise<void>[] = [];
+  await chat.turn({ input: { text: 'tell me' }, turnId }, (line) => {
+    if (line.type === 'text') stopped.push(chat.stop({ turnId }));
+  });
+  await Promise.all(stopped);
   held.resolve();
-  await saved;
   const view = await chat.conversation({ conversation: refOf(chat) });
   assertEquals(
-    view.transcript.map((block) => block.kind),
-    ['user-text'],
+    view.transcript.map((block) => (block.kind === 'text' ? block.text : block.kind)),
+    ['user-text', 'first half, ', 'turn-done'],
   );
-  await collect((onLine) => chat.turn({ input: { text: 'again' } }, onLine));
+  await assertRefused(() => chat.stop({ turnId }), 'session.turn_ended');
+  await collect((onLine) =>
+    chat.turn({ input: { text: 'again' }, conversation: refOf(chat) }, onLine),
+  );
   assertEquals(
     seen[0]?.map((message) => message.role),
-    ['user', 'user'],
+    ['user', 'assistant', 'user'],
   );
 });

@@ -58,6 +58,7 @@ function hostTransport(runs: {
     turn: runs.turn ?? unused,
     invoke: runs.invoke ?? unused,
     steer: unused,
+    stop: unused,
     describe: unused,
     conversation: unused,
     rewind: unused,

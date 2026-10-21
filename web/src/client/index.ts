@@ -220,6 +220,7 @@ export {
   type TheoremRewound,
   type TheoremStartRequest,
   type TheoremSteerRequest,
+  type TheoremStopRequest,
   TheoremStreamError,
   type TheoremTransport,
   type TheoremTurnInput,

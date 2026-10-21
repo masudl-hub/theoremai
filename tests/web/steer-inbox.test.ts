@@ -68,3 +68,19 @@ Deno.test('steerStage lands one steer per steerable stage, named by its id', asy
   });
   assertEquals(await stage({ stage: 'post_tool', step: 0, history: [] }), undefined);
 });
+
+Deno.test('a stop reaches the open turn, even one that asks after it came', async () => {
+  const inbox = createMemorySteerInbox();
+  assertEquals(await inbox.stop('turn-1'), false);
+  assertEquals(await inbox.stopped('turn-1'), false);
+  inbox.open('turn-1');
+  const waiting = inbox.stopped('turn-1');
+  assertEquals(await inbox.stop('turn-1'), true);
+  assertEquals(await waiting, true);
+  assertEquals(await inbox.stopped('turn-1'), true);
+  inbox.open('turn-2');
+  const closed = inbox.stopped('turn-2');
+  inbox.close('turn-2');
+  assertEquals(await closed, false);
+  assertEquals(await inbox.stop('turn-2'), false);
+});

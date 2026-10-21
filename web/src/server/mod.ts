@@ -15,6 +15,7 @@ export {
   theoremRewindRequestSchema,
   theoremStartRequestSchema,
   theoremSteerRequestSchema,
+  theoremStopRequestSchema,
   theoremTurnRequestSchema,
 } from '../client/transport.ts';
 export {
@@ -112,6 +113,7 @@ export {
   type SteerUnit,
   steerStage,
   steerUnitOf,
+  stopOnRequest,
 } from './steer-inbox.ts';
 export { sessionToolCoordinator } from './tool-operations.ts';
 export { kernelTurnInput, liveSessionOpen } from './turn-input.ts';

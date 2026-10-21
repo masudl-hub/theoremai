@@ -13,6 +13,7 @@ import {
 import { decisionRequestSchema } from '../../studio/server/draft-decide.ts';
 import { errorJson, ndjsonEventStream } from '../../studio/server/draft-replies.ts';
 import { createStudioHandler } from '../../studio/server/handler.ts';
+import { testConnection } from '../../studio/server/test-connection.ts';
 import {
   createStudioDraftHandler,
   type ProbeEntry,
@@ -623,4 +624,40 @@ Deno.test('a lent decision with too many images spends nothing', async () => {
   const many = Object.fromEntries([1, 2, 3, 4].map((n) => [`p${String(n)}`, png]));
   assertEquals((await handler(post('decide', boxRequest(many)))).status, 400);
   assertEquals(spent, []);
+});
+
+Deno.test("an MCP connection test sends the client's revision and capabilities, as a stateless server asks", async () => {
+  const originalFetch = globalThis.fetch;
+  let sent: { method?: string; params?: { _meta?: Record<string, unknown> } } = {};
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    sent = JSON.parse(String(init?.body));
+    return Promise.resolve(
+      Response.json({
+        jsonrpc: '2.0',
+        id: 'test-ping-1',
+        result: { tools: [{ name: 'web_search_exa' }] },
+      }),
+    );
+  }) as typeof fetch;
+  try {
+    const answer = await testConnection(
+      new Request('http://studio.test/api/studio/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'mcp',
+          serverUrl: 'https://93.184.216.34/mcp',
+          mcpToolName: 'web_search_exa',
+        }),
+      }),
+    );
+    assertEquals((await answer.json()).targetToolFound, true);
+    assertEquals(sent.method, 'tools/list');
+    assertEquals(sent.params?._meta, {
+      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+      'io.modelcontextprotocol/clientCapabilities': {},
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

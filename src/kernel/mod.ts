@@ -325,6 +325,7 @@ export {
   isUnsupportedMcpProtocolError,
   leanToolResultData,
   MCP_PROTOCOL_VERSIONS,
+  mcpRequestMeta,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   projectForModel,

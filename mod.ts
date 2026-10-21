@@ -440,6 +440,7 @@ export {
   formatToolResult,
   isUnsupportedMcpProtocolError,
   MCP_PROTOCOL_VERSIONS,
+  mcpRequestMeta,
   parseMcpRpcResponse,
   prepareTurnToolSnapshot,
   registerHarnessTools,

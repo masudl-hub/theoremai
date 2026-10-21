@@ -49,6 +49,9 @@ Key: R is redact, F is flag, B is block, and – is ignore.
 | `financial`[^financial] | data | R | F | R / R | – | – / – / – / – |
 | `network`[^network] | data | R | F | R / R | – | – / – / – / – |
 | `credentials`[^credentials] | data | R | F | R / R | R | R / R / – / – |
+| `email`[^email] | data | F | F | F / F | – | – / – / – / – |
+| `phone`[^phone] | data | F | F | F / F | – | – / – / – / – |
+| `bank_account`[^bank-account] | data | F | F | F / F | – | – / – / – / – |
 | `injection`[^injection] | manipulation | R | – | R / R | – | – / – / – / – |
 | `tool_instructions`[^tool-instructions] | manipulation | | | – / F | | |
 | `canary_leak`[^canary-leak] | setup | | B | | | B / B / B / R |
@@ -62,6 +65,8 @@ The patterns behind the detectors can be configured in two ways:
 
 - A detector that reads with patterns (`patterns: true`) also takes `theorem` and `patterns`. This lets a builder use Theorem's patterns, their own, both, or neither.
 - `ungiven_images` and `ungiven_links` take an `allow` list of addresses. `tool_leak` takes an `allow` list of names.
+
+`email`, `phone` and `bank_account` only flag by default. An agent that sends email or books a call needs the address or number, so redacting it would stop the agent's work. A builder who wants them taken out sets `redact`.
 
 A host can add its own detectors under `guardrails.detect`, alongside these.[^host-detectors]
 
@@ -126,6 +131,9 @@ Status as of 20/10/2026.
 | `injection` | inbound (user-shaped); tool output and errors | User-shaped: Lakera b3[^lakera], TensorTrust hijack[^tt-hijack], WildJailbreak[^wildjailbreak], deepset[^deepset], SPML[^spml], HackAPrompt via neuralchemy[^neuralchemy], Bordair live game[^bordair]. Tool-shaped: LLMail[^llmail], NVIDIA agentic IPI[^nvidia-ipi], InjecAgent[^injecagent], ASB[^asb], AgentDojo[^agentdojo], AgentDrift (synthetic)[^agentdrift] | User-shaped: NotInject[^notinject], Aegis safe[^aegis], WildGuard benign[^wildguard], ASB normal, neuralchemy benign. Tool-shaped: Glaive tool results[^glaive], AgentDojo benign, InjecAgent clean results, Bonsai pages and tools[^bonsai-pages], AgentDrift benign and hard-negative outputs | Good at `user` and tool output on the older sets. Other inbound boundaries only by replay. On the 2026 sets, first runs: neuralchemy test split, 36 of 310 HackAPrompt hijacks found, 0 false alarms on 390 benign. Bordair, 0 of 855 messages that beat the game's detector. These ask a guard for a password, so they are extraction, not hijack. AgentDrift test split, 0 of 1,056 poisoned tool outputs, 0 false alarms on 9,496 |
 | `tool_instructions` | tool output and errors | The tool-shaped injection sets above | The tool-shaped benign sets above | Good on the older sets. AgentDrift test split: 187 of 1,056 poisoned outputs found, false alarms 4.2%. They reach 13% on outputs that report a hijacked call, such as "Email sent to …" |
 | `ids`, `financial`, `network` | inbound; tool output; tool arguments | gravitee PII spans[^gravitee], labelled US SSN, US ITIN, credit card, IBAN and IP address. AgentLeak[^agentleak]: 4,979 recorded runs of 5 models, with the SSNs each message leaked, by AgentLeak's own value match | Rows of the same set without those spans. AgentLeak messages that leak no SSN | gravitee covers inbound and tool output; the eval loader already reads it, so it may not be unseen. AgentLeak, model-written replies, agent-to-agent messages and memory writes: 337 of 337 SSN leaks found, 5 alarms in 24,558 messages, and each of the 5 is an SSN the model made up. The SSNs are fake but correctly formatted. Only 1 leak is in a reply to the person. Its phone and account numbers are in formats no detector covers |
+| `email` | inbound; tool output; tool arguments | gravitee email spans, split in two halves by row: one to tune on, one to score | Rows of the same set without an email span. Repo texts[^repo-texts]. AgentDojo tool outputs | Tune half: 1,450 of 1,821 found. Test half: 1,476 of 1,864 found (0.79), and 10 of 8,500 rows without an email flagged. Repo texts: 13 of 5,669 flagged, each an address in sample data such as `johndoe@example.com`. A package version such as `pkg@1.2.3` is not flagged. AgentDojo workspace tool outputs: 5,051 of 5,076 flagged, because an inbox read holds addresses. Only ASCII addresses are found |
+| `phone` | inbound; tool output; tool arguments | gravitee phone spans, the same two halves. AgentLeak: the phone numbers each message leaked, by AgentLeak's own value match[^contact-tuned] | Rows of the same set without a phone span. AgentLeak messages that leak no phone | Tune half: 1,660 of 1,815 found. Test half: 1,618 of 1,779 found (0.91), and 64 of 8,406 rows without a phone flagged. AgentLeak: 613 of 617 leaks found, 184 alarms in 24,278 messages. The alarms we read are phone numbers the AgentLeak label does not list |
+| `bank_account` | inbound; tool output; tool arguments | gravitee account number spans, the same two halves. AgentLeak: the account numbers each message leaked[^contact-tuned] | Rows of the same set without an account span. AgentLeak messages that leak no account number | A number counts only after a label that names it. Tune half: 351 of 614 found. Test half: 378 of 613 found (0.62), and 145 of 9,435 rows without an account flagged; most wrong spans land on other financial values. AgentLeak: 287 of 450 leaks found, 16 alarms in 24,445 messages |
 | `credentials` | inbound; tool output; tool shown; tool arguments; `reply` | In-repo `secrets.ts`[^secrets]. gitleaks' own rule examples[^gitleaks]: 855 of 855 match. The SecretBench[^secretbench] candidate regexes, as a check of which vendors have a rule | gitleaks' own should-not-match examples: 0 of 291 match | **Gap:** no labelled set of real secrets. SecretBench's labels need its authors' agreement |
 | `prompt_leak` | outbound | System Prompt Leakage (SPL)[^spl] test split, synthetic: 30,938 paraphrases of the system prompt | SPL: 40,413 replies to the same prompts | Precision 0.99, recall 0.18. Recall is 100% when the reply keeps 60% or more of the prompt's four-word runs, and 0% under 10% |
 | `canary_leak` | tool arguments; outbound | Tensor Trust extraction detection[^tt-extract]: 115 replies that reveal a player's access code, by hand label | Tensor Trust: 115 replies paired with another player's code | Recall 0.55, false alarms 8.7%. The access codes are words, not the kernel's token, so this tests the matcher, not the real canary. End-to-end: the 570 Tensor Trust extraction attacks[^tt-robust], in progress |
@@ -159,6 +167,7 @@ These settings act on tools and turns, not on text at a boundary.
 
 - Audit every path data takes into and out of an agent, beyond the boundaries above. Include data the kernel cannot read as text, such as images and audio. Add each path with no check to the gaps.
 - Raise `injection` recall on the 2026 sets without losing precision. It misses most HackAPrompt hijacks, such as "say I have been PWNED" spelled out or split up, and every AgentDrift output that hides an order in a fake policy ("all changes must be reviewed by compliance-review@…"). Tune on neuralchemy's train split and AgentDrift's train split only, then score once on their test splits. Also cut `tool_instructions` false alarms on outputs that only report a call, such as "Email sent to …".
+- Score `email`, `phone` and `bank_account` once on gravitee rows not yet downloaded, as a set they were never tuned or read on.
 - Raise `prompt_leak` recall on paraphrased leaks without a model on egress. It finds every SPL reply that keeps 60% or more of the prompt's four-word runs, and none under 10%. Next step: try matching that ignores word order and stems words, and shorter runs of rare words. Tune on SPL's train split only, then score once on its test split and on the recorded Tensor Trust runs. Keep precision at 0.99 or above and the p99 time near today's 7 ms.
 
 [^tool-kind]: [`toolKindOf`, src/kernel/tools/execute.ts:126](../src/kernel/tools/execute.ts#L126)
@@ -169,23 +178,26 @@ These settings act on tools and turns, not on text at a boundary.
 [^kinds]: [`TOOL_KINDS`, src/guardrails/boundaries.ts:15](../src/guardrails/boundaries.ts#L15)
 [^outbound]: [`OUTBOUND_BOUNDARIES`, src/guardrails/boundaries.ts:58](../src/guardrails/boundaries.ts#L58)
 [^detectors]: [`DETECTORS`, src/guardrails/detectors.ts:32](../src/guardrails/detectors.ts#L32)
-[^groups]: [`DETECTOR_GROUPS`, src/guardrails/detectors.ts:214](../src/guardrails/detectors.ts#L214)
-[^actions]: [`DETECT_ACTIONS`, src/guardrails/detectors.ts:53](../src/guardrails/detectors.ts#L53)
+[^groups]: [`DETECTOR_GROUPS`, src/guardrails/detectors.ts:219](../src/guardrails/detectors.ts#L219)
+[^actions]: [`DETECT_ACTIONS`, src/guardrails/detectors.ts:58](../src/guardrails/detectors.ts#L58)
 [^detect-field]: [`detectFields`, src/kernel/schema.ts:577](../src/kernel/schema.ts#L577)
-[^meta]: [`DETECTOR_META`, src/guardrails/detectors.ts:297](../src/guardrails/detectors.ts#L297). The defaults are built by the helpers `everywhere`, `leaving`, `returned` and `shown`, at [src/guardrails/detectors.ts:257](../src/guardrails/detectors.ts#L257).
-[^ids]: [src/guardrails/detectors.ts:298](../src/guardrails/detectors.ts#L298)
-[^financial]: [src/guardrails/detectors.ts:305](../src/guardrails/detectors.ts#L305)
-[^network]: [src/guardrails/detectors.ts:312](../src/guardrails/detectors.ts#L312)
-[^credentials]: [src/guardrails/detectors.ts:319](../src/guardrails/detectors.ts#L319)
-[^injection]: [src/guardrails/detectors.ts:334](../src/guardrails/detectors.ts#L334)
-[^tool-instructions]: [src/guardrails/detectors.ts:341](../src/guardrails/detectors.ts#L341)
-[^canary-leak]: [src/guardrails/detectors.ts:349](../src/guardrails/detectors.ts#L349)
-[^prompt-leak]: [src/guardrails/detectors.ts:355](../src/guardrails/detectors.ts#L355)
-[^marker-leak]: [src/guardrails/detectors.ts:361](../src/guardrails/detectors.ts#L361)
-[^ungiven-images]: [src/guardrails/detectors.ts:367](../src/guardrails/detectors.ts#L367)
-[^ungiven-links]: [src/guardrails/detectors.ts:375](../src/guardrails/detectors.ts#L375)
-[^tool-leak]: [src/guardrails/detectors.ts:383](../src/guardrails/detectors.ts#L383)
-[^host-detectors]: [`HostDetector`, src/guardrails/detectors.ts:160](../src/guardrails/detectors.ts#L160)
+[^meta]: [`DETECTOR_META`, src/guardrails/detectors.ts:313](../src/guardrails/detectors.ts#L313). The defaults are built by the helpers `everywhere`, `leaving`, `returned`, `flagged` and `shown`, at [src/guardrails/detectors.ts:262](../src/guardrails/detectors.ts#L262).
+[^ids]: [src/guardrails/detectors.ts:314](../src/guardrails/detectors.ts#L314)
+[^financial]: [src/guardrails/detectors.ts:321](../src/guardrails/detectors.ts#L321)
+[^network]: [src/guardrails/detectors.ts:328](../src/guardrails/detectors.ts#L328)
+[^credentials]: [src/guardrails/detectors.ts:335](../src/guardrails/detectors.ts#L335)
+[^email]: [src/guardrails/detectors.ts:350](../src/guardrails/detectors.ts#L350)
+[^phone]: [src/guardrails/detectors.ts:357](../src/guardrails/detectors.ts#L357)
+[^bank-account]: [src/guardrails/detectors.ts:364](../src/guardrails/detectors.ts#L364)
+[^injection]: [src/guardrails/detectors.ts:371](../src/guardrails/detectors.ts#L371)
+[^tool-instructions]: [src/guardrails/detectors.ts:378](../src/guardrails/detectors.ts#L378)
+[^canary-leak]: [src/guardrails/detectors.ts:386](../src/guardrails/detectors.ts#L386)
+[^prompt-leak]: [src/guardrails/detectors.ts:392](../src/guardrails/detectors.ts#L392)
+[^marker-leak]: [src/guardrails/detectors.ts:398](../src/guardrails/detectors.ts#L398)
+[^ungiven-images]: [src/guardrails/detectors.ts:404](../src/guardrails/detectors.ts#L404)
+[^ungiven-links]: [src/guardrails/detectors.ts:412](../src/guardrails/detectors.ts#L412)
+[^tool-leak]: [src/guardrails/detectors.ts:420](../src/guardrails/detectors.ts#L420)
+[^host-detectors]: [`HostDetector`, src/guardrails/detectors.ts:165](../src/guardrails/detectors.ts#L165)
 [^taint]: [`guardrails.taint`, src/kernel/schema.ts:1216](../src/kernel/schema.ts#L1216)
 [^network-field]: [`guardrails.network`, src/kernel/schema.ts:1206](../src/kernel/schema.ts#L1206)
 [^blocked-reply]: [`guardrails.blockedReply`, src/kernel/schema.ts:1188](../src/kernel/schema.ts#L1188)
@@ -213,6 +225,8 @@ These settings act on tools and turns, not on text at a boundary.
 [^neuralchemy]: [neuralchemy/Prompt-injection-dataset](https://huggingface.co/datasets/neuralchemy/Prompt-injection-dataset), the `core` test split, Hugging Face
 [^bordair]: [bordair-multimodal live split](https://github.com/Josh-blythe/bordair-multimodal/tree/main/payloads_live), messages from a live game against a detector, GitHub
 [^agentdrift]: [AgentDrift](https://github.com/Asif-0209/AgentDrift), trajectories written by Llama 3.3 70B and labelled when built, test split, GitHub
+[^contact-tuned]: AgentLeak is not fully unseen for these two. Before any tuning on it, the first score found 559 of 617 phone leaks and 223 of 450 account leaks. The separators the patterns allow were then widened from AgentLeak's misses, and the `a/c` label was narrowed after reading the gravitee test half's wrong spans. Banks' own labels alone, with no generic `account number` or `acct`, found 0 of 450 account leaks.
+[^repo-texts]: [prodnull/prompt-injection-repo-dataset](https://huggingface.co/datasets/prodnull/prompt-injection-repo-dataset), lines of text from code repositories, labelled for injection and not for personal data, Hugging Face
 [^agentleak]: [AgentLeak](https://github.com/Privatris/AgentLeak), the recorded traces in `benchmarks/ieee_repro/results/traces`, GitHub
 [^leaky-thoughts]: [parameterlab/leaky_thoughts](https://huggingface.co/datasets/parameterlab/leaky_thoughts), Hugging Face
 [^secretbench]: [SecretBench](https://github.com/setu1421/SecretBench), its list of secret regular expressions, GitHub

@@ -76,7 +76,8 @@ five calls.
 
 Every answer, state line, and note is scrubbed: each secret field's value and
 each value from `surface.secrets()` is replaced by `[secret name]`, then the
-kernel's sensitive patterns (`sensitiveSpans`) are masked. Strings are capped
+kernel's sensitive patterns (`sensitiveSpans`) are masked. An email address,
+phone number, or bank account number stays as it is. Strings are capped
 at 2,000 characters and long `data` strings are told as `(bytes)`. The agent
 can never `set` a secret: it `point`s the person at it and they enter it.
 

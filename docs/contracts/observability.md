@@ -114,7 +114,7 @@ debug-off switch.
 
 | Switch | Cleans with |
 | --- | --- |
-| `sensitive` | `ids`, `financial`, `network`, `credentials`, and every detector of the host's own |
+| `sensitive` | `ids`, `financial`, `network`, `credentials`, and every detector of the host's own; not `email`, `phone`, or `bank_account`, which a turn flags by default and a trace keeps |
 | `injection` | `injection` and `tool_instructions` |
 | `canary` | The canaries bound in the record |
 
@@ -233,6 +233,8 @@ carry text inline: `buildRecord` resolves every content marker once, under
   (the turn's and any nested turn's) is removed from stored text.
 - A hash identifies the text *after* scrub, so original bytes are unrecoverable
   when scrub is on.
+- Scrub leaves email addresses, phone numbers, and bank account numbers in
+  stored text ([Scrub](#scrub)).
 - The root records the policy it was written under:
   `theorem.record.include` and `theorem.record.scrub` list the enabled flags,
   so a missing field reads as "not recorded", never as "did not happen".
@@ -295,7 +297,7 @@ A reference says how to read it:
 
 | Key | Names | In `content` |
 | --- | --- | --- |
-| `content_sha256` on a text reference | Scrubbed text | Yes |
+| `content_sha256` on a text reference | Scrubbed text, with any email address, phone number, or bank account number kept | Yes |
 | `json_sha256` | Scrubbed JSON, its own strings interned as text references | Yes, as JSON text |
 | `content_sha256` on a blob (beside `bytes`) | The raw bytes | No — bytes are never stored |
 

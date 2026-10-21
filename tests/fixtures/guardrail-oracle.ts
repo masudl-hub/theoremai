@@ -9,6 +9,7 @@ import {
   scanTextForCanaryLeak,
   sensitiveSpans,
 } from '../../src/guardrails/mod.ts';
+import { WORKING_GROUPS } from '../../src/guardrails/sensitive-groups.ts';
 import type { LiveAttack } from '../../src/guardrails/testing.ts';
 import type { Profile, TurnEvent, TurnRequest } from '../../src/kernel/types.ts';
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
@@ -73,8 +74,12 @@ export function leaksIn(
       (canary) => wire.includes(canary) || scanTextForCanaryLeak(shown, canary),
     ),
     // Thoughts are not checked for sensitive spans, only for what they would load or mark.
+    // An email, phone, or account number is flagged, never taken out, so showing one is no miss.
     sensitive:
-      sensitiveSpans(shownText(events, ['text', 'transcript']), { network: false }).length > 0,
+      sensitiveSpans(shownText(events, ['text', 'transcript']), {
+        network: false,
+        ...Object.fromEntries(WORKING_GROUPS.map((group) => [group, false])),
+      }).length > 0,
     forbidden: forbidden.some((re) => re.test(shown) || re.test(wire)),
   };
 }

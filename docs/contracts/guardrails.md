@@ -776,7 +776,7 @@ looks, and what it does: a detector, a boundary, an action.
 
 | API | Role |
 | --- | --- |
-| `DETECTORS` | `ids`, `financial`, `network`, `credentials` (the `SENSITIVE_GROUPS`), `injection`, `tool_instructions`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
+| `DETECTORS` | `ids`, `financial`, `network`, `credentials`, `email`, `phone`, `bank_account` (the `SENSITIVE_GROUPS`), `injection`, `tool_instructions`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
 | `BOUNDARIES` | Every place the kernel reads text as it crosses; `BOUNDARY_META` labels each |
 | `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output`, `tool_failure`, and `tool_shown`, for each of `TOOL_KINDS` |
 | `recordOf` | One value for each of a list of keys, by key: `recordOf(BOUNDARIES, () => 'ignore')` |
@@ -841,8 +841,8 @@ sensitive detectors do. A profile with no tools has nothing to find.
 
 ### Whose patterns
 
-`ids`, `financial`, `network`, `credentials`, and `injection` read with
-patterns, and a host chooses whose:
+`ids`, `financial`, `network`, `credentials`, `email`, `phone`, `bank_account`,
+and `injection` read with patterns, and a host chooses whose:
 
 | `theorem` | `patterns` | The detector reads with |
 | --- | --- | --- |
@@ -967,15 +967,19 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 `id`, `label`, `actions`, the `names` of the patterns, and whether there is a
 `find`. A client never runs them; `sanitizeUserDraft` leaves them to the kernel.
 
-| Boundaries | Sensitive detectors | `injection` | `tool_instructions` |
-| --- | --- | --- | --- |
-| `user` … `live_user` | `redact` | `redact` | — |
-| `tool_output_function`, `tool_failure_function` | `redact` | `redact` | `ignore` |
-| `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `redact` | `redact` | `flag` |
-| `tool_arguments_*` | `flag` | `ignore` | — |
-| `tool_shown_*` | `ignore`; `credentials` `redact` | `ignore` | — |
-| `reply`, `reply_structured` | `ignore`; `credentials` `redact` | `ignore` | — |
-| `live_reply`, `thought` | `ignore` | `ignore` | — |
+| Boundaries | `ids`, `financial`, `network`, `credentials` | `email`, `phone`, `bank_account` | `injection` | `tool_instructions` |
+| --- | --- | --- | --- | --- |
+| `user` … `live_user` | `redact` | `flag` | `redact` | — |
+| `tool_output_function`, `tool_failure_function` | `redact` | `flag` | `redact` | `ignore` |
+| `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `redact` | `flag` | `redact` | `flag` |
+| `tool_arguments_*` | `flag` | `flag` | `ignore` | — |
+| `tool_shown_*` | `ignore`; `credentials` `redact` | `ignore` | `ignore` | — |
+| `reply`, `reply_structured` | `ignore`; `credentials` `redact` | `ignore` | `ignore` | — |
+| `live_reply`, `thought` | `ignore` | `ignore` | `ignore` | — |
+
+`email`, `phone`, and `bank_account` only flag by default. An agent that sends
+email or books a call needs the address or number in its text, so a redact
+default would stop the work the agent is there to do.
 
 | Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1035,7 +1039,9 @@ A reply is read as it streams, so no character of a match is shown before its ac
 
 Text with no profile in hand — a host replaying a transcript through
 `formatToolResult`, a trace being written — has every match of the detectors
-in question replaced, whatever any profile sets.
+in question replaced, whatever any profile sets. `email`, `phone`, and
+`bank_account` are not among them (`WORKING_GROUPS` in `sensitive-groups.ts`):
+no profile asked for their matches to be taken out.
 
 ## Sanitization
 
@@ -1127,6 +1133,9 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | `ids` | SSNs (bare and in context), ITINs, EINs |
 | `financial` | IBANs, and card numbers a card network issues that pass the Luhn check |
 | `network` | IPv4 and IPv6 addresses |
+| `email` | Email addresses with an ASCII local part and domain, whose top-level domain starts with a letter (`typescript@4.4.4` is not one) |
+| `phone` | International numbers with `+`, North American numbers, national numbers with a leading 0, and any number after a phone label in English, French, German, Spanish, Italian, or Portuguese; each has 7 to 15 digits and is not shaped like an SSN or a date |
+| `bank_account` | Account, routing, and sort-code numbers of 5 or more digits, only after a label that names them (`Account Number`, `acct`, `a/c`, `routing number`, `sort code`, and their German, Italian, Portuguese, French, Spanish, and Dutch names); an IBAN is `financial` |
 | `credentials` | Every credential the gitleaks rules find (vendor API keys and tokens, key and password assignments, JWTs, private keys), plus Theorem's own rules: short or spaced `sk-` keys, OpenRouter keys, short GitHub and Slack tokens, `Bearer` tokens, short PEM private keys, and Apify, FleetBase, Nightfall, Teamwork and Ubidots keys and Zapier webhook URLs |
 
 ### Credential rules
@@ -1559,7 +1568,7 @@ reports `detect.<key>` (`detectRule`), and its hit carries the detector's
 
 | Group | Rules |
 | --- | --- |
-| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.injection`, `detect.tool_instructions`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links`, `detect.tool_leak` |
+| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.email`, `detect.phone`, `detect.bank_account`, `detect.injection`, `detect.tool_instructions`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links`, `detect.tool_leak` |
 | `EGRESS_RULES` | `egress.provider-tool-leak`, `egress.unscannable` |
 | `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn`, `tool_call.remote-destination` |
 | `NETWORK_RULES` | `network.blocked` |
@@ -1693,6 +1702,11 @@ placeholder, or a placeholder the key never fills in.
 | Composer | `composer.model`, `composer.effort` (the pickers' titles) | labels |
 | Tools | `tool.*` (model-facing), `tool.completed_hidden` | labels |
 | Sign-in | `sign_in.link` (the channel line with `{link}`), `sign_in.pending`, `sign_in.done`, `sign_in.declined`, `sign_in.expired`, `sign_in.out_of_scope` — each names `{service}` | labels |
+
+Every detector of Theorem's has a `detect.hint.<detector>` key, such as
+`detect.hint.email`. A detector of the host's own uses `detect.hint.own`. The
+hint is what the model is told when that detector stops a reply that is then
+retried.
 
 The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
 `src/kernel`, `src/guardrails`, and `src/interface` trees, and the headless

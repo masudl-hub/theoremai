@@ -404,6 +404,18 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
     label: 'Credentials',
     doc: 'An API key, token, password assignment, or private key. The decision names the boundary it was crossing and what was done with it.',
   },
+  'detect.email': {
+    label: 'Email',
+    doc: 'An email address. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.phone': {
+    label: 'Phone',
+    doc: 'A phone number. The decision names the boundary it was crossing and what was done with it.',
+  },
+  'detect.bank_account': {
+    label: 'Bank account',
+    doc: 'An account, routing, or sort-code number after a label that names it. The decision names the boundary it was crossing and what was done with it.',
+  },
   'detect.injection': {
     label: 'Injection',
     doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". The decision names the boundary it was crossing and what was done with it.',

@@ -19,6 +19,7 @@ import {
   detectProblem,
 } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
+import { WORKING_GROUPS } from '../../src/guardrails/sensitive-groups.ts';
 import type { ProfileGuardrailsSpec } from '../../src/guardrails/types.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -136,12 +137,21 @@ Deno.test('a credential is redacted from a reply by default, and not read in a t
 });
 
 Deno.test('what comes in is redacted by default, and nothing the model writes is read for it', () => {
-  const others = [...LEAKS, ...SHOWN, 'tool_instructions', 'credentials'];
+  const others = [...LEAKS, ...SHOWN, ...WORKING_GROUPS, 'tool_instructions', 'credentials'];
   for (const detector of DETECTORS.filter((d) => !others.includes(d))) {
     assertEquals(where(undefined, detector, 'block'), []);
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     assertEquals(where(undefined, detector, 'ignore').includes('thought'), true);
     for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'redact');
+  }
+});
+
+Deno.test('an email, phone, or account number is flagged where it comes in, and never taken out by default', () => {
+  for (const detector of WORKING_GROUPS) {
+    assertEquals(where(undefined, detector, 'block'), []);
+    assertEquals(where(undefined, detector, 'redact'), []);
+    assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
+    for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'flag');
   }
 });
 

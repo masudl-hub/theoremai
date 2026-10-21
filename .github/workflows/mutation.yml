@@ -154,9 +154,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: guardrails-eval
-            config: guardrails
-            mutate: 'src/guardrails/eval/**/*.ts'
           - shard: guardrails-inbound
             config: guardrails
             mutate: 'src/guardrails/injection.ts,src/guardrails/tool-result.ts,src/guardrails/types.ts,src/guardrails/tool-directives.ts,src/guardrails/normalize.ts'
@@ -166,7 +163,7 @@ jobs:
           # Everything else the config covers, so new guardrails files land here.
           - shard: guardrails-rest
             config: guardrails
-            mutate: 'src/guardrails/**/*.ts,!src/guardrails/corpus/**,!src/guardrails/testing.ts,!src/guardrails/mod.ts,!src/guardrails/eval/**,!src/guardrails/injection.ts,!src/guardrails/tool-result.ts,!src/guardrails/types.ts,!src/guardrails/tool-directives.ts,!src/guardrails/normalize.ts,!src/guardrails/live-outbound-gate.ts,!src/guardrails/sanitize.ts,!src/guardrails/network.ts,!src/guardrails/error.ts,!src/guardrails/progressive-yield.ts'
+            mutate: 'src/guardrails/**/*.ts,!src/guardrails/corpus/**,!src/guardrails/testing.ts,!src/guardrails/mod.ts,!src/guardrails/injection.ts,!src/guardrails/tool-result.ts,!src/guardrails/types.ts,!src/guardrails/tool-directives.ts,!src/guardrails/normalize.ts,!src/guardrails/live-outbound-gate.ts,!src/guardrails/sanitize.ts,!src/guardrails/network.ts,!src/guardrails/error.ts,!src/guardrails/progressive-yield.ts'
           - shard: tools
             config: tools
             mutate: ''

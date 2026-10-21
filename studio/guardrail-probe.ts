@@ -53,7 +53,7 @@ export const PROBE_BOUNDARIES = [
 export type ProbeBoundary = (typeof PROBE_BOUNDARIES)[number];
 
 /** The kernel boundary a probe's text crosses. */
-const PROBE_READS: Record<ProbeBoundary, Boundary> = {
+export const PROBE_READS: Record<ProbeBoundary, Boundary> = {
   user: 'user',
   history: 'history',
   system: 'system',

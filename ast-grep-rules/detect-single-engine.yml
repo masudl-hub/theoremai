@@ -15,9 +15,8 @@ ignores:
   - 'src/guardrails/sensitive.ts'
   - 'src/guardrails/injection.ts'
   - 'src/guardrails/detect-at.ts'
-  # The corpus and eval measure the scanners themselves.
+  # The corpus measures the scanners themselves.
   - 'src/guardrails/corpus/**/*.ts'
-  - 'src/guardrails/eval/**/*.ts'
 rule:
   any:
     - pattern: sensitiveSpans($$$ARGS)

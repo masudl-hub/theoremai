@@ -50,3 +50,4 @@ tmp/
 
 # Local agent sessions and worktrees
 .claude/
+.guardrails-bench/

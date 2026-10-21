@@ -68,7 +68,6 @@
       "scripts/",
       "react/",
       "web/",
-      "src/guardrails/eval/",
       "sgconfig.yml",
       "snyk",
       ".snyk",
@@ -79,6 +78,8 @@
   "imports": {
     "@eslint-community/regexpp": "npm:@eslint-community/regexpp@4.12.2",
     "intl-messageformat": "npm:intl-messageformat@^11.2.9",
+    "hyparquet": "npm:hyparquet@1.31.2",
+    "hyparquet-compressors": "npm:hyparquet-compressors@1.1.2",
     "refa": "npm:refa@0.12.1",
     "scslre": "npm:scslre@0.3.0",
     "zod": "npm:zod@^4.6.5",
@@ -92,12 +93,12 @@
     "@deno/dnt": "jsr:@deno/dnt@0.43.2"
   },
   "tasks": {
-    "guardrails:eval": "deno run --allow-net --allow-read --allow-write --allow-env scripts/guardrails-eval.ts",
     "agents": "deno run --allow-read --allow-write --allow-net src/cli/bin.ts",
     "fuzz": "deno run --allow-read --allow-write --allow-net src/cli/bin.ts fuzz",
     "fuzz-canary": "deno run --allow-read --allow-write --allow-net src/cli/bin.ts fuzz-canary",
     "test:guardrails": "deno test --allow-read --allow-write --allow-net --allow-env --allow-sys tests/guardrails/ tests/cli/fuzz-guardrails.test.ts && deno run --allow-read --allow-write --allow-net src/cli/bin.ts fuzz-canary",
     "test": "deno test --parallel --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
+    "bench:guardrails": "deno run --allow-read --allow-write --allow-env --allow-sys --allow-run=git scripts/guardrails-bench.ts",
     "check": "deno check mod.ts",
     "verify:publish": "deno run --allow-read scripts/verify-publish-bundle.ts",
     "lint": "node --run lint",

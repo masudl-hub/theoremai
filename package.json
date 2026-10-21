@@ -89,6 +89,8 @@
     "@stryker-mutator/core": "^10.0.0",
     "@types/node": "^20.19.43",
     "fallow": "3.17.0",
+    "hyparquet": "1.31.2",
+    "hyparquet-compressors": "1.1.2",
     "intl-messageformat": "^11.2.9",
     "typescript": "^6.0.3"
   }

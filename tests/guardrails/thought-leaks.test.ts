@@ -1,5 +1,10 @@
 import { mintCanary } from '../../src/guardrails/canary.ts';
-import { DETECTORS, type Detector, type DetectSpec } from '../../src/guardrails/detectors.ts';
+import {
+  DETECTORS,
+  type Detector,
+  type DetectorRule,
+  type DetectSpec,
+} from '../../src/guardrails/detectors.ts';
 import { loadEgressAutomata } from '../../src/guardrails/egress-stream.ts';
 import { labelDefault } from '../../src/guardrails/labels.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
@@ -42,11 +47,14 @@ const LEAKS: Record<Leaked, { text: string; omitted?: string }> = {
 };
 
 /** A matrix that reads only `detector` at `thought`, at `action`. */
-function only(detector: Detector, action: 'ignore' | 'flag' | 'redact' | 'block'): DetectSpec {
-  const spec: Record<string, unknown> = {};
+function only(
+  detector: Detector,
+  action: 'ignore' | 'flag' | 'redact' | 'block',
+): Partial<Record<Detector, DetectorRule>> {
+  const spec: Partial<Record<Detector, DetectorRule>> = {};
   for (const other of DETECTORS) spec[other] = { at: { thought: 'ignore' } };
   spec[detector] = { at: { thought: action } };
-  return spec as DetectSpec;
+  return spec;
 }
 
 /** A thought streamed through the guard a profile with `detect` gets: what is shown, the rules found, and the guard. */

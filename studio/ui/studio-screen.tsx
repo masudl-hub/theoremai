@@ -2783,7 +2783,7 @@ function DownloadTraceButton({ feed, name }: { feed: TraceFeed; name: string }) 
   );
 }
 
-/** Open trace, for a type whose conversation a trace holds, and Download trace, outside an opened one. */
+/** Import trace, for a type whose conversation a trace holds, and Download trace, outside an imported one. */
 function TraceFileButtons({
   payload,
   tracing,
@@ -2796,14 +2796,14 @@ function TraceFileButtons({
   profileId: string | undefined;
 }) {
   if (payload == null) return null;
-  const openLabel = tracing.open ? 'Close trace' : 'Open trace';
+  const importLabel = tracing.open ? 'Close imported trace' : 'Import trace';
   return (
     <>
       {!NO_CONVERSATION.has(payload.profile.type) && (
         <IconButton
-          label={openLabel}
+          label={importLabel}
           variant={tracing.open ? 'secondary' : 'ghost'}
-          tooltip={openLabel}
+          tooltip={importLabel}
           icon={<Icon icon={IconFileImport} size="sm" />}
           aria-pressed={tracing.open}
           onClick={tracing.toggle}
@@ -2838,7 +2838,7 @@ function PreviewHeader({
   connection: StudioConnectionState;
   trace: { open: boolean; toggle: () => void };
   testing: { open: boolean; toggle: () => void };
-  /** The opened trace's pane, over the conversation. */
+  /** The imported trace's console, over the conversation. */
   tracing: { open: boolean; toggle: () => void };
   /** The trace records of the conversation on screen. */
   feed: TraceFeed;
@@ -2986,7 +2986,7 @@ function PreviewBody({
   profileId: string | undefined;
   traceOpen: boolean;
   testing: boolean;
-  /** The opened trace's pane, shown over the conversation while it is open. */
+  /** The imported trace's console, shown over the conversation while it is open. */
   tracing: ReactNode;
   /** The feed each runner's trace records land in. */
   feedOf: (runKey: string) => TraceFeed;
@@ -3186,9 +3186,6 @@ const PreviewPane = memo(function PreviewPane({
           payload={payload}
           runtime={connection.runtime}
           trace={traceOpen}
-          onClose={() => {
-            setTracing(false);
-          }}
           onLive={({ conversation, view, text }) => {
             run.resume(conversation, view);
             setTracing(false);

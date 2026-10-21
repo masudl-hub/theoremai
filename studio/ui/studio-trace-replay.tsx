@@ -1,5 +1,5 @@
 /**
- * An opened trace: the conversation it recorded, as the person saw it, and a replay of it through
+ * An imported trace: the conversation it recorded, as the person saw it, and a replay of it through
  * the profile as it is now. A replay reaches no model and, unless Live tools is on, no tool: the
  * recording answers both. Where the profile asks for something the recording does not hold, the
  * replay stops and says why; Continue live goes on from there with the real model.
@@ -9,26 +9,30 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { FileInput } from '@astryxdesign/core/FileInput';
-import { HStack } from '@astryxdesign/core/HStack';
-import { Icon } from '@astryxdesign/core/Icon';
-import { IconButton } from '@astryxdesign/core/IconButton';
-import { Section } from '@astryxdesign/core/Section';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
-import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconFileImport, IconPlayerPlay, IconX } from '@tabler/icons-react';
-import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type {
+  ComposerProfileInterface,
+  ProfileInterface,
+  TranscriptBlock,
+} from '@theoremjs/agents/interface';
 import type { TraceRecord } from '@theoremjs/agents/observability';
-import { PaneState, TheoremChat, type TheoremChatHandle } from '@theoremjs/react/ui';
+import { useTheoremChat } from '@theoremjs/react';
 import {
-  type ConversationView,
-  createTraceFeed,
-  type TheoremTransport,
-  type TraceFeed,
-} from '@theoremjs/web/client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+  ChatTranscript,
+  ConsoleFrame,
+  RequestCard,
+  ResponseColumn,
+  RunBar,
+  TheoremLabelsProvider,
+  TheoremThemeProvider,
+  useLabels,
+  useTraceInspector,
+} from '@theoremjs/react/ui';
+import { type ConversationView, createTraceFeed, type TraceFeed } from '@theoremjs/web/client';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createBrowserStudioTransport,
   type StudioBrowserRuntime,
@@ -47,11 +51,10 @@ import {
   studioInterface,
   studioPageTools,
 } from '../mod.ts';
-import { sendWhenReady } from './lib/send-when-ready.ts';
 import { pageConversationKey } from './lib/studio-conversation.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 
-/** A trace file the builder opened. */
+/** A trace file the builder imported. */
 export interface OpenedTrace {
   name: string;
   records: TraceRecord[];
@@ -91,29 +94,71 @@ type ReplayStatus =
 
 const ordinal = (turn: number) => `turn ${String(turn + 1)}`;
 
-/** A chat that only shows: the conversation a trace recorded, and its records beside it. */
-function recordedTransport(
-  payload: StudioRunPayload,
-  transcript: TranscriptBlock[],
-  traces: TraceFeed,
-) {
-  const refused = () =>
-    Promise.reject(
-      new Error('A recorded conversation cannot change. Replay it, then continue live.'),
-    );
-  return {
-    describe: () => Promise.resolve(studioInterface(payload)),
-    turn: refused,
-    invoke: refused,
-    steer: refused,
-    rewind: refused,
-    conversation: () => Promise.resolve({ transcript }),
-    traces,
-  } satisfies TheoremTransport;
+/** The console's frame, as a decision and a host have it: the trace card, then the conversation. */
+function TraceFrame({
+  iface,
+  feed,
+  trace,
+  card,
+  conversation,
+}: {
+  iface: ProfileInterface;
+  feed: TraceFeed;
+  trace: boolean | undefined;
+  card: ReactNode;
+  conversation: ReactNode;
+}) {
+  const inspector = useTraceInspector(iface, feed, trace);
+  return (
+    <ConsoleFrame inspector={inspector} maxWidth="960px" requestLabel="Trace">
+      {card}
+      {conversation}
+    </ConsoleFrame>
+  );
 }
 
-/** The pane to open a trace in: a place to drop it, and why the last one did not open. */
-function OpenTrace({ onOpen }: { onOpen: (trace: OpenedTrace) => void }) {
+/** The conversation's card: where the replay stands, then the transcript. */
+function Conversation({
+  iface,
+  blocks,
+  banner,
+  chat,
+}: {
+  iface: ProfileInterface;
+  blocks: readonly TranscriptBlock[];
+  banner?: ReactNode;
+  chat?: ReturnType<typeof useTheoremChat>;
+}) {
+  const t = useLabels();
+  return (
+    <ResponseColumn label="Conversation">
+      {banner}
+      <ChatTranscript
+        blocks={blocks}
+        handle={t('@theorem.agent.handle', { handle: iface.identity.handle })}
+        labels={iface.labels}
+        streaming={chat?.streaming}
+        delivery={chat?.delivery}
+        answering={chat?.answering}
+        onToolDecision={
+          chat &&
+          ((index, action) => {
+            void chat.handleToolDecision(index, action);
+          })
+        }
+        onAuthenticated={
+          chat &&
+          ((index, secret) => {
+            void chat.handleAuthenticated(index, secret);
+          })
+        }
+      />
+    </ResponseColumn>
+  );
+}
+
+/** A trace file to import, and why the last one did not import. */
+function TraceFileInput({ onImport }: { onImport: (trace: OpenedTrace) => void }) {
   const [problem, setProblem] = useState<string>();
   const [reading, setReading] = useState(false);
   const changeAction = async (files: File | File[] | null) => {
@@ -121,7 +166,7 @@ function OpenTrace({ onOpen }: { onOpen: (trace: OpenedTrace) => void }) {
     if (!file) return;
     setReading(true);
     try {
-      onOpen({ name: file.name, records: parseTraceFile(await file.text()) });
+      onImport({ name: file.name, records: parseTraceFile(await file.text()) });
       setProblem(undefined);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -130,26 +175,133 @@ function OpenTrace({ onOpen }: { onOpen: (trace: OpenedTrace) => void }) {
     }
   };
   return (
-    <PaneState
-      icon={<Icon icon={IconFileImport} size="lg" color="secondary" />}
-      title="Open a trace"
-      description="See how a conversation went, then replay it through this profile as it is now. A replay answers from the recording, so it needs no keys."
+    <VStack gap={2}>
+      <FileInput
+        label="Trace file"
+        isLabelHidden
+        mode="dropzone"
+        accept="application/json,.json"
+        isLoading={reading}
+        placeholder="Drop a trace (.json) or choose a file"
+        value={null}
+        changeAction={changeAction}
+        onChange={() => undefined}
+      />
+      {problem ? <Banner status="error" title={problem} /> : null}
+    </VStack>
+  );
+}
+
+type Shown = 'recorded' | 'replayed';
+
+/** What the trace card holds besides its file: the imported trace, and how its replay runs. */
+interface TraceControls {
+  opened: OpenedTrace;
+  script: ReplayScript;
+  payload: StudioRunPayload;
+  shown: Shown | null;
+  onShown: (next: Shown) => void;
+  liveTools: boolean;
+  onLiveTools: (next: boolean) => void;
+  isRunning: boolean;
+  onReplay: () => void;
+  onStop: () => void;
+}
+
+const recordedAt = (script: ReplayScript) =>
+  script.recordedAt === undefined
+    ? undefined
+    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+        script.recordedAt,
+      );
+
+/** Recorded / Replayed: which run the conversation and the inspector show. */
+function ShownControl({ shown, onShown }: { shown: Shown; onShown: (next: Shown) => void }) {
+  return (
+    <SegmentedControl
+      label="Show"
+      size="sm"
+      value={shown}
+      onChange={(next) => {
+        onShown(next === 'replayed' ? 'replayed' : 'recorded');
+      }}
     >
-      <VStack gap={2}>
-        <FileInput
-          label="Trace file"
-          isLabelHidden
-          mode="dropzone"
-          accept="application/json,.json"
-          isLoading={reading}
-          placeholder="Drop a trace (.json) or choose a file"
-          value={null}
-          changeAction={changeAction}
-          onChange={() => undefined}
-        />
-        {problem ? <Banner status="error" title={problem} /> : null}
+      <SegmentedControlItem value="recorded" label="Recorded" />
+      <SegmentedControlItem value="replayed" label="Replayed" />
+    </SegmentedControl>
+  );
+}
+
+/** What the imported file recorded, and how a replay answers its tools. */
+function TraceFacts({ controls }: { controls: TraceControls }) {
+  const { script, payload } = controls;
+  const turns = script.turns.length;
+  const facts = [
+    script.agent || 'No agent',
+    `${String(turns)} ${turns === 1 ? 'turn' : 'turns'}`,
+    recordedAt(script),
+  ];
+  return (
+    <>
+      <VStack gap={0}>
+        <Text type="label" maxLines={1}>
+          {controls.opened.name}
+        </Text>
+        <Text type="supporting" color="secondary" maxLines={1}>
+          {facts.filter(Boolean).join(' · ')}
+        </Text>
       </VStack>
-    </PaneState>
+      {script.agent && script.agent !== payload.profile.id ? (
+        <Banner
+          status="info"
+          title={`Recorded with ${script.agent}; a replay runs through ${payload.profile.id}.`}
+        />
+      ) : null}
+      {turns === 0 ? (
+        <Banner status="info" title="This trace holds no conversation to replay." />
+      ) : null}
+      <Switch
+        label="Live tools"
+        description="Run the profile's tools instead of answering them from the recording."
+        value={controls.liveTools}
+        onChange={controls.onLiveTools}
+      />
+    </>
+  );
+}
+
+const idle = () => undefined;
+
+/** The trace card: the file, what it recorded, and Replay. */
+function TraceCard({
+  onImport,
+  controls,
+}: {
+  onImport: (trace: OpenedTrace) => void;
+  controls?: TraceControls;
+}) {
+  const replay = controls?.onReplay ?? idle;
+  return (
+    <RequestCard
+      title="Trace"
+      onRun={replay}
+      actions={
+        controls?.shown ? <ShownControl shown={controls.shown} onShown={controls.onShown} /> : null
+      }
+    >
+      <TraceFileInput onImport={onImport} />
+      {controls ? <TraceFacts controls={controls} /> : null}
+      <RunBar
+        note={controls ? 'Answers each model call from the recording, so it needs no keys.' : null}
+        isReady={(controls?.script.turns.length ?? 0) > 0}
+        isRunning={controls?.isRunning ?? false}
+        runLabel={controls?.shown ? 'Replay again' : 'Replay'}
+        runningLabel="Replaying"
+        stopLabel="Stop"
+        onRun={replay}
+        onStop={controls?.onStop ?? idle}
+      />
+    </RequestCard>
   );
 }
 
@@ -256,26 +408,44 @@ function StatusBanner({
   );
 }
 
-/** The replay of `script`: the chat it runs in, driven turn by turn, and where it stands. */
-function ReplayRun({
+/** The recording's own records, in a feed the trace inspector reads. */
+function recordedFeed(records: readonly TraceRecord[]): TraceFeed {
+  const feed = createTraceFeed();
+  for (const record of records) feed.push(record);
+  return feed;
+}
+
+type ConsoleProps = {
+  payload: StudioRunPayload;
+  iface: ComposerProfileInterface;
+  trace: boolean | undefined;
+  card: (controls: Pick<TraceControls, 'isRunning' | 'onStop'>) => ReactNode;
+  opened: OpenedTrace;
+  script: ReplayScript;
+};
+
+/** A replay of the imported trace: driven turn by turn, beside what the trace recorded. */
+function ReplayConsole({
   payload,
-  script,
-  liveTools,
+  iface,
   trace,
+  card,
+  opened,
+  script,
+  shown,
+  liveTools,
   runtime,
   onLive,
-}: {
-  payload: StudioRunPayload;
-  script: ReplayScript;
+}: ConsoleProps & {
+  shown: Shown;
   liveTools: boolean;
-  trace: boolean | undefined;
   runtime: StudioBrowserRuntime | null;
   onLive: (start: LiveStart) => void;
 }) {
-  const chatRef = useRef<TheoremChatHandle | null>(null);
   const diverged = useRef<ReplayDivergence>(undefined);
   const [status, setStatus] = useState<ReplayStatus>({ kind: 'running', turn: 0 });
   const [traces] = useState(createTraceFeed);
+  const recorded = useMemo(() => recordedFeed(opened.records), [opened.records]);
   const replay = useMemo(
     () =>
       createReplay(script, payload.profile.id, (divergence) => {
@@ -283,15 +453,10 @@ function ReplayRun({
       }),
     [script, payload.profile.id],
   );
-  const ran = useMemo(() => (liveTools ? payload : recordedPayload(payload)), [liveTools, payload]);
-  const pageTools = useMemo(
-    () => (liveTools ? studioPageTools(payload) : undefined),
-    [liveTools, payload],
-  );
   const transport = useMemo(
     () =>
       createBrowserStudioTransport(
-        ran,
+        liveTools ? payload : recordedPayload(payload),
         {
           mode: 'byok',
           provider: replay.provider,
@@ -299,33 +464,44 @@ function ReplayRun({
         },
         { conversationKey: pageConversationKey(), traces },
       ),
-    [ran, replay, liveTools, traces],
+    [payload, replay, liveTools, traces],
   );
+  const pageTools = useMemo(
+    () => (liveTools ? studioPageTools(payload) : undefined),
+    [liveTools, payload],
+  );
+  const chat = useTheoremChat({ transport, iface, pageTools });
+  const { sendText, handleStop } = chat;
+  const phase = useRef(chat.phase);
+  phase.current = chat.phase;
   const [from, setFrom] = useState(0);
   useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
+    let stopped = false;
+    /** Until a reply still streaming (one a stop is ending) has ended. */
+    const settled = async () => {
+      while (!stopped && phase.current === 'streaming')
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+    };
     void (async () => {
       for (let turn = from; turn < script.turns.length; turn += 1) {
-        if (signal.aborted) return;
+        await settled();
+        if (stopped) return;
+        if (phase.current === 'gated') {
+          // The turn before waits on a gate: its reply goes on with the calls it has left.
+          replay.startTurn(turn - 1);
+          return setStatus({ kind: 'waiting', turn });
+        }
         const { text, attachments } = script.turns[turn];
         if (attachments > 0) return setStatus({ kind: 'missing', turn });
         replay.startTurn(turn);
         setStatus({ kind: 'running', turn });
         try {
-          // why: The chat takes nothing until it has described its agent; later turns find it ready.
-          const sent =
-            turn === 0
-              ? await sendWhenReady(chatRef, text, signal)
-              : ((await chatRef.current?.send(text)) ?? null);
-          if (signal.aborted) return;
+          const sent = await sendText(text);
+          if (stopped) return;
           if (diverged.current)
             return setStatus({ kind: 'diverged', divergence: diverged.current });
-          if (!sent) {
-            // The turn before waits on a gate: its reply goes on with the calls it has left.
-            replay.startTurn(turn - 1);
-            return setStatus({ kind: 'waiting', turn });
-          }
+          // The chat took nothing: it was not idle yet. Settle, then send this turn again.
+          if (!sent) turn -= 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return setStatus({ kind: 'failed', turn, message });
@@ -334,199 +510,142 @@ function ReplayRun({
       setStatus({ kind: 'done' });
     })();
     return () => {
-      controller.abort();
-      chatRef.current?.stop();
+      stopped = true;
+      handleStop();
     };
-  }, [from, replay, script]);
+  }, [from, replay, script, sendText, handleStop]);
   const live = async (turn: number) => {
     const blocks = script.turns.slice(0, turn).flatMap((each) => each.blocks);
     const started = await startLive(payload, runtime, blocks);
     onLive({ ...started, text: script.turns[turn]?.text ?? '' });
   };
+  const replayed = shown === 'replayed';
   return (
-    <VStack height="100%">
-      <Section variant="transparent" paddingInline={3} paddingBlock={2}>
-        <StatusBanner
-          status={status}
-          turns={script.turns.length}
-          onContinue={setFrom}
-          onLive={live}
+    <TraceFrame
+      iface={iface}
+      feed={replayed ? traces : recorded}
+      trace={trace}
+      card={card({
+        isRunning: status.kind === 'running',
+        onStop: () => {
+          handleStop();
+          setStatus({ kind: 'done' });
+        },
+      })}
+      conversation={
+        <Conversation
+          iface={iface}
+          blocks={replayed ? [...chat.blocks, ...chat.streamBlocks] : recordedTranscript(script)}
+          chat={replayed ? chat : undefined}
+          banner={
+            replayed ? (
+              <StatusBanner
+                status={status}
+                turns={script.turns.length}
+                onContinue={setFrom}
+                onLive={live}
+              />
+            ) : undefined
+          }
         />
-      </Section>
-      <StackItem size="fill">
-        <TheoremChat
-          detectCodeLanguage
-          labels={STUDIO_LABELS}
-          transport={transport}
-          trace={trace}
-          composer={false}
-          chatRef={chatRef}
-          pageTools={pageTools}
-        />
-      </StackItem>
-    </VStack>
+      }
+    />
   );
 }
 
-const recordedAt = (script: ReplayScript) =>
-  script.recordedAt === undefined
-    ? undefined
-    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
-        script.recordedAt,
-      );
-
-/** An opened trace: its recorded conversation, or a replay of it, and the controls between them. */
-function OpenedTraceView({
-  payload,
-  opened,
-  trace,
-  runtime,
-  onClose,
-  onLive,
-}: {
+export type TraceReplayProps = {
   payload: StudioRunPayload;
-  opened: OpenedTrace;
   trace: boolean | undefined;
-  onClose: () => void;
   runtime: StudioBrowserRuntime | null;
   onLive: (start: LiveStart) => void;
-}) {
-  const script = useMemo(() => replayScript(opened.records), [opened.records]);
-  const [view, setView] = useState<'recorded' | 'replayed'>('recorded');
+};
+
+/**
+ * The trace console, in the frame a decision and a host use: the trace card, then the
+ * conversation it recorded or its replay through the profile as it is now.
+ */
+export function TraceReplay(props: TraceReplayProps) {
+  return (
+    <TheoremThemeProvider>
+      <TheoremLabelsProvider labels={STUDIO_LABELS}>
+        <TraceConsole {...props} />
+      </TheoremLabelsProvider>
+    </TheoremThemeProvider>
+  );
+}
+
+function TraceConsole({ payload, trace, runtime, onLive }: TraceReplayProps) {
+  const iface = useMemo(() => studioInterface(payload), [payload]);
+  const [opened, setOpened] = useState<OpenedTrace>();
+  const script = useMemo(() => opened && replayScript(opened.records), [opened]);
+  const recorded = useMemo(() => recordedFeed(opened?.records ?? []), [opened]);
   const [attempt, setAttempt] = useState(0);
+  const [shown, setShown] = useState<Shown>('recorded');
   const [liveTools, setLiveTools] = useState(false);
-  const recorded = useMemo(() => {
-    const traces = createTraceFeed();
-    for (const record of opened.records) traces.push(record);
-    return recordedTransport(payload, recordedTranscript(script), traces);
-  }, [payload, opened.records, script]);
-  const turns = script.turns.length;
-  const facts = [
-    script.agent || 'No agent',
-    `${String(turns)} ${turns === 1 ? 'turn' : 'turns'}`,
-    recordedAt(script),
-  ].filter(Boolean);
+  const imported = (next: OpenedTrace) => {
+    setOpened(next);
+    setAttempt(0);
+    setShown('recorded');
+  };
   const replayOnce = () => {
     setAttempt((count) => count + 1);
-    setView('replayed');
+    setShown('replayed');
   };
-  return (
-    <VStack height="100%">
-      <Section variant="transparent" paddingInline={3} paddingBlock={2}>
-        <VStack gap={2}>
-          <HStack gap={2} vAlign="center">
-            <StackItem size="fill">
-              <VStack gap={0}>
-                <Text type="label" maxLines={1}>
-                  {opened.name}
-                </Text>
-                <Text type="supporting" color="secondary" maxLines={1}>
-                  {facts.join(' · ')}
-                </Text>
-              </VStack>
-            </StackItem>
-            {attempt > 0 ? (
-              <SegmentedControl
-                label="Show"
-                size="sm"
-                value={view}
-                onChange={(next) => {
-                  setView(next === 'replayed' ? 'replayed' : 'recorded');
-                }}
-              >
-                <SegmentedControlItem value="recorded" label="Recorded" />
-                <SegmentedControlItem value="replayed" label="Replayed" />
-              </SegmentedControl>
-            ) : null}
-            <Switch
-              label="Live tools"
-              size="sm"
-              value={liveTools}
-              onChange={(next) => {
-                setLiveTools(next);
-                if (attempt > 0) replayOnce();
-              }}
-            />
-            <Button
-              label={attempt > 0 ? 'Replay again' : 'Replay'}
-              variant="primary"
-              size="sm"
-              icon={<Icon icon={IconPlayerPlay} size="sm" />}
-              isDisabled={turns === 0}
-              onClick={replayOnce}
-            />
-            <IconButton
-              label="Close trace"
-              variant="ghost"
-              tooltip="Close trace"
-              icon={<Icon icon={IconX} size="sm" />}
-              onClick={onClose}
-            />
-          </HStack>
-          {script.agent && script.agent !== payload.profile.id ? (
-            <Banner
-              status="info"
-              title={`Recorded with ${script.agent}; a replay runs through ${payload.profile.id}.`}
-            />
-          ) : null}
-          {turns === 0 ? (
-            <Banner status="info" title="This trace holds no conversation to replay." />
-          ) : null}
-        </VStack>
-      </Section>
-      <StackItem size="fill">
-        {view === 'replayed' && attempt > 0 ? (
-          <ReplayRun
-            key={attempt}
-            payload={payload}
-            script={script}
-            liveTools={liveTools}
-            trace={trace}
-            runtime={runtime}
-            onLive={onLive}
-          />
-        ) : (
-          <TheoremChat
-            key={opened.name}
-            detectCodeLanguage
-            labels={STUDIO_LABELS}
-            transport={recorded}
-            trace={trace}
-            composer={false}
-            conversation="recorded"
-            conversationView={{ transcript: recordedTranscript(script) }}
-          />
-        )}
-      </StackItem>
-    </VStack>
+  // invariant: the header offers an import only for a type whose conversation a trace holds.
+  if (iface.type === 'live') return null;
+  if (!opened || !script)
+    return (
+      <TraceFrame
+        iface={iface}
+        feed={recorded}
+        trace={trace}
+        card={<TraceCard onImport={imported} />}
+        conversation={null}
+      />
+    );
+  const card = ({ isRunning, onStop }: Pick<TraceControls, 'isRunning' | 'onStop'>) => (
+    <TraceCard
+      onImport={imported}
+      controls={{
+        opened,
+        script,
+        payload,
+        shown: attempt > 0 ? shown : null,
+        onShown: setShown,
+        liveTools,
+        onLiveTools: (next) => {
+          setLiveTools(next);
+          if (attempt > 0) replayOnce();
+        },
+        isRunning,
+        onReplay: replayOnce,
+        onStop,
+      }}
+    />
   );
-}
-
-/** The trace pane: a place to open one, then what it recorded and its replay. */
-export function TraceReplay({
-  payload,
-  trace,
-  runtime,
-  onClose,
-  onLive,
-}: {
-  payload: StudioRunPayload;
-  trace: boolean | undefined;
-  onClose: () => void;
-  runtime: StudioBrowserRuntime | null;
-  onLive: (start: LiveStart) => void;
-}) {
-  const [opened, setOpened] = useState<OpenedTrace>();
-  return opened ? (
-    <OpenedTraceView
+  if (attempt === 0)
+    return (
+      <TraceFrame
+        iface={iface}
+        feed={recorded}
+        trace={trace}
+        card={card({ isRunning: false, onStop: () => undefined })}
+        conversation={<Conversation iface={iface} blocks={recordedTranscript(script)} />}
+      />
+    );
+  return (
+    <ReplayConsole
+      key={attempt}
       payload={payload}
-      opened={opened}
+      iface={iface}
       trace={trace}
+      card={card}
+      opened={opened}
+      script={script}
+      shown={shown}
+      liveTools={liveTools}
       runtime={runtime}
-      onClose={onClose}
       onLive={onLive}
     />
-  ) : (
-    <OpenTrace onOpen={setOpened} />
   );
 }

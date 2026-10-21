@@ -1,14 +1,14 @@
-# Studio: open and replay a trace
+# Studio: import and replay a trace
 
 Status: built. Studio only; evals and the kernel are unchanged.
 
 **Reader:** a Theorem maintainer, and Masud.
-**Job:** say how the studio opens a recorded conversation, and how it runs one again through the profile as it is now.
+**Job:** say how the studio imports a recorded conversation, and how it runs one again through the profile as it is now.
 **After reading:** you know what a builder gets, where it stops, and every part of the code it touches.
 
 ## 1. What a builder gets
 
-1. **Open a trace.** **Open trace** in the chat pane header takes a `TraceRecord` file (`.json`, one record or an array). The pane draws the conversation as the person received it, and its records go into the pane's trace feed, so the inspector shows every guardrail hit, gate and stop as it happened. Nothing runs. It answers "what happened, and why".
+1. **Import a trace.** **Import trace** in the chat pane header opens the trace console, in the frame a decision and a host use. Its trace card takes a `TraceRecord` file (`.json`, one record or an array). The conversation card draws the conversation as the person received it, and its records go into the pane's trace feed, so the inspector shows every guardrail hit, gate and stop as it happened. Nothing runs. It answers "what happened, and why".
 2. **Replay it.** **Replay** runs the trace's user turns again through the profile in the editor: its guardrails, stages, gates and UI all run. The model's replies, and by default the tools' results, come from the recording. It answers "what would happen now". Change a guardrail or the instructions, press **Replay again**, compare with **Recorded / Replayed**.
 3. **Divergence stops and says so (decision d).** When the profile asks for something the recording does not hold, the replay stops there with a banner that says why, and a **Continue live** button.
 4. **Download a trace.** **Download trace** beside View trace writes the run's `TraceRecord`s as `<agent>-<time>.trace.json`. A hosted app's traces (a `TraceSink`) open the same way.
@@ -18,7 +18,7 @@ Status: built. Studio only; evals and the kernel are unchanged.
 `TraceRecord` (`src/observability/trace-schema.ts`, checked by `traceRecordSchema`) is already the standard: evals grade it and the studio shows it. Replay reads from it:
 
 - **Each user turn:** the root `invoke_agent` span's input.
-- **What the person received:** the same span's output, used to draw an opened trace.
+- **What the person received:** the same span's output, used to draw an imported trace.
 - **Each model call, in order:** `chat` spans with `gen_ai.output.messages`, and the stop in `theorem.stop.kind`.
 - **Each tool result:** `execute_tool <name>` spans with `gen_ai.tool.call.result`.
 - **Guardrail decisions:** the events the inspector already reads.
@@ -63,10 +63,10 @@ Compaction calls and sub-agent turns go through the same `provider`. One the rec
 
 ## 5. Studio UI
 
-- **Chat pane header:** **Open trace** / **Close trace** for chat profiles, and **Download trace** beside View trace (hidden while testing or tracing).
-- **An opened trace** replaces the chat, read-only: the file name, the agent, turns and calls, when it was recorded, **Replay**, **Live tools**, and **Close**. A banner says when the trace's agent is not the one selected, or when it holds no turns.
-- **A replay** runs in the same view with a status banner: running, waiting on a gate, stopped on missing files, diverged or failed (with **Continue live**), done.
-- **Compare:** after a replay, **Recorded / Replayed** switches the view between the two. Side by side is later.
+- **Chat pane header:** **Import trace** for chat profiles, pressed while its console is open, and **Download trace** beside View trace (hidden while testing or importing). View trace drives the console's inspector, as it does a decision's.
+- **The trace console** replaces the chat, on `ConsoleFrame` as a decision and a host are: a **Trace** card (`RequestCard`: the file drop, the file name, agent, turns and when it was recorded, **Live tools**, and a `RunBar` with **Replay**), then a **Conversation** card (`ResponseColumn` with `ChatTranscript`). A banner in the trace card says when the trace's agent is not the one selected, or when it holds no turns.
+- **A replay** runs in the conversation card, under a status banner: running, waiting on a gate, stopped on missing files, diverged or failed (with **Continue live**), done.
+- **Compare:** after a replay, **Recorded / Replayed** in the trace card's heading switches the conversation, and the inspector's records, between the two. Side by side is later.
 
 The view is loaded lazily (`studio/ui/studio-trace-replay.tsx`). All of it uses Astryx and the existing chat and trace components.
 
@@ -84,4 +84,4 @@ The site's dev-only model tape, and its uses in the site's studio turn.
 ## 8. Verification
 
 - **Tests:** `tests/studio/replay.test.ts` (readback, same-profile replay, a removed tool, more calls than recorded, files, missing content, a failed turn, recorded tools, `parseTraceFile`, turn resume); `tests/studio/draft-handler.test.ts` (the start route on lent keys, and 404 without).
-- **Studio, in the browser:** download a run's trace and open it; replay it unchanged; turn Live tools on; remove a tool the recording calls and Continue live; dark and light.
+- **Studio, in the browser:** download a run’s trace and import it; replay it unchanged; turn Live tools on; remove a tool the recording calls and Continue live; dark and light.

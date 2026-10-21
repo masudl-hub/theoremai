@@ -338,17 +338,28 @@ export type ConsoleView = 'fields' | 'json';
 
 export type RequestCardProps = {
   title: string;
-  /** The view shown: fields only while the request parses. */
-  view: ConsoleView;
-  hasFields: boolean;
-  onView: (next: ConsoleView) => void;
   /** Runs on ⌘/Ctrl+Enter anywhere in the card. */
   onRun: () => void;
   children: ReactNode;
-};
+} & (
+  | {
+      /** The view shown: fields only while the request parses. */
+      view: ConsoleView;
+      hasFields: boolean;
+      onView: (next: ConsoleView) => void;
+      actions?: never;
+    }
+  | {
+      view?: never;
+      hasFields?: never;
+      onView?: never;
+      /** In the Fields/JSON switch's place, for a request that has no JSON of its own. */
+      actions?: ReactNode;
+    }
+);
 
 /** The request's card: its heading with the Fields/JSON switch, then the request and its run bar. */
-export function RequestCard({ title, view, hasFields, onView, onRun, children }: RequestCardProps) {
+export function RequestCard({ title, onRun, children, ...heading }: RequestCardProps) {
   const t = useLabels();
   const framed = use(ConsoleChrome);
   const body = (
@@ -357,21 +368,25 @@ export function RequestCard({ title, view, hasFields, onView, onRun, children }:
         <Text type="supporting" color="secondary" as="h3">
           {title}
         </Text>
-        <SegmentedControl
-          label={t('@theorem.decision.view')}
-          size="sm"
-          value={view}
-          onChange={(next) => {
-            onView(next === 'json' ? 'json' : 'fields');
-          }}
-        >
-          <SegmentedControlItem
-            value="fields"
-            label={t('@theorem.decision.fields')}
-            isDisabled={!hasFields}
-          />
-          <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
-        </SegmentedControl>
+        {heading.onView ? (
+          <SegmentedControl
+            label={t('@theorem.decision.view')}
+            size="sm"
+            value={heading.view}
+            onChange={(next) => {
+              heading.onView(next === 'json' ? 'json' : 'fields');
+            }}
+          >
+            <SegmentedControlItem
+              value="fields"
+              label={t('@theorem.decision.fields')}
+              isDisabled={!heading.hasFields}
+            />
+            <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
+          </SegmentedControl>
+        ) : (
+          heading.actions
+        )}
       </HStack>
       {children}
     </VStack>

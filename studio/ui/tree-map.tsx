@@ -8,7 +8,7 @@
  */
 import type { IconType } from '@astryxdesign/core/Icon';
 import { IconCloud, IconEngine, IconSettingsAutomation, IconTool } from '@tabler/icons-react';
-import { useRef } from 'react';
+import { type CSSProperties, useRef } from 'react';
 import { mapCurve } from '../map-line.ts';
 import {
   createBlankDraft,
@@ -194,9 +194,19 @@ export interface StudioTreeMapProps {
   workspace: StudioWorkspace;
   /** The keys of the agents to draw, in the workspace's order; every agent when unset. */
   agents?: readonly string[] | undefined;
+  /**
+   * Whether what feeds the tree is drawn beside it. Turned on, each feed draws in after the one
+   * before, its line from the tree first, as the loader's map draws; turned off, they leave in the
+   * reverse order. Shown when unset.
+   */
+  feeds?: 'shown' | 'hidden' | undefined;
 }
 
-export function StudioTreeMap({ workspace, agents }: StudioTreeMapProps) {
+/** The order a feed draws in, and which end its line starts from: 1 the path's start, -1 its end. */
+const feedStyle = (index: number, from: 1 | -1 = 1) =>
+  ({ '--feed-i': index, '--feed-from': from }) as CSSProperties;
+
+export function StudioTreeMap({ workspace, agents, feeds: shown = 'shown' }: StudioTreeMapProps) {
   const root = useRef<HTMLDivElement>(null);
   const rows = rowsOf(workspace, agents);
   const feeds = feedsOf(workspace, rows);
@@ -223,8 +233,14 @@ export function StudioTreeMap({ workspace, agents }: StudioTreeMapProps) {
     return above && feed.depth <= above.depth ? [railFor(feed, above)] : [];
   });
   const width = Math.max(GUESS, ...feeds.map(feedRight), ...rails) + PAD;
+  const order = new Map(feeds.map((feed, index) => [feed.id, index]));
   return (
-    <div ref={root} className="studio-tree-map" style={{ width, height }}>
+    <div
+      ref={root}
+      className="studio-tree-map"
+      data-feeds={shown}
+      style={{ width, height, '--feed-n': feeds.length } as CSSProperties}
+    >
       <svg className="studio-tree-map-lines" width={width} height={height} aria-hidden="true">
         {rows.map(
           (row) =>
@@ -240,7 +256,17 @@ export function StudioTreeMap({ workspace, agents }: StudioTreeMapProps) {
               { x: feedX - LINE_GAP, y: feed.y },
               { x: right(row) + LINE_GAP, y: row.y },
             );
-            return <path key={`${feed.id}>${id}`} className="map-line" d={d} />;
+            // The line runs from the feed to the row; it draws from the row.
+            return (
+              <path
+                key={`${feed.id}>${id}`}
+                className="map-line"
+                d={d}
+                pathLength={1}
+                data-feed=""
+                style={feedStyle(order.get(feed.id) ?? 0, -1)}
+              />
+            );
           }),
         )}
         {feeds.map((feed) => {
@@ -257,7 +283,17 @@ export function StudioTreeMap({ workspace, agents }: StudioTreeMapProps) {
                   { x: feedRight(above) + LINE_GAP, y: above.y },
                   railFor(feed, above),
                 );
-          return <path key={`${feed.id}^`} className="map-line" d={d} />;
+          // A turn in runs from the feed above; a line round the side runs from this one.
+          return (
+            <path
+              key={`${feed.id}^`}
+              className="map-line"
+              d={d}
+              pathLength={1}
+              data-feed=""
+              style={feedStyle(order.get(feed.id) ?? 0, feed.depth > above.depth ? 1 : -1)}
+            />
+          );
         })}
       </svg>
       {rows.map((row) => {
@@ -281,6 +317,8 @@ export function StudioTreeMap({ workspace, agents }: StudioTreeMapProps) {
           icon={feed.icon}
           x={feedLeft(feed)}
           y={feed.y}
+          data-feed=""
+          style={feedStyle(order.get(feed.id) ?? 0)}
         />
       ))}
     </div>

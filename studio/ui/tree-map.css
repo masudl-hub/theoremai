@@ -13,3 +13,46 @@
 .studio-tree-map-lines .map-line {
   stroke: color-mix(in srgb, var(--color-border-emphasized) 60%, var(--color-background-surface));
 }
+
+/*
+ * Feeds draw in as the loader's map draws (read-map.css), one after another: the line from the
+ * tree, then the token at its end. Hidden, they leave in the reverse order.
+ * invariant: Transitions, not keyframes, so drawing and leaving both ease, and a turn mid-draw
+ * goes back from where it is.
+ */
+.studio-tree-map {
+  --feed-step: 70ms;
+}
+
+.studio-tree-map-lines [data-feed] {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset var(--duration-medium, 240ms) var(--ease-standard, ease-out)
+    calc(var(--feed-i) * var(--feed-step));
+}
+
+.studio-tree-map > [data-feed] {
+  transition: opacity var(--duration-medium, 240ms) var(--ease-standard, ease-out)
+    calc(var(--feed-i) * var(--feed-step) + var(--duration-medium, 240ms));
+}
+
+.studio-tree-map[data-feeds="hidden"] > [data-feed] {
+  opacity: 0;
+  transition-delay: calc((var(--feed-n) - var(--feed-i)) * var(--feed-step));
+}
+
+.studio-tree-map[data-feeds="hidden"] .studio-tree-map-lines [data-feed] {
+  stroke-dashoffset: var(--feed-from);
+  transition-delay: calc(
+    (var(--feed-n) - var(--feed-i)) *
+    var(--feed-step) +
+    var(--duration-medium, 240ms)
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-tree-map-lines [data-feed],
+  .studio-tree-map > [data-feed] {
+    transition: none;
+  }
+}

@@ -1,5 +1,6 @@
 /** labels-exempt-file: benchmark datasets — not runtime user or model copy (P2) */
 import type { Detector } from '../../src/guardrails/detectors.ts';
+import { SENSITIVE_GROUPS } from '../../src/guardrails/sensitive-groups.ts';
 import type { Role } from '../../studio/guardrail-bench.ts';
 import type { ProbeBoundary } from '../../studio/guardrail-probe.ts';
 import {
@@ -866,6 +867,74 @@ const spl: BenchDataset = {
   },
 };
 
+const INJECAGENT = (file: string) => `${CORPUS}injecagent/data/${file}`;
+const INJECAGENT_CASES = [
+  'test_cases_ds_base.json',
+  'test_cases_ds_enhanced.json',
+  'test_cases_dh_base.json',
+  'test_cases_dh_enhanced.json',
+] as const;
+const INJECAGENT_CLEAN = INJECAGENT('attacker_simulated_responses.json');
+
+/**
+ * InjecAgent's tool responses, each with an attacker's instruction inside: to send the user's data
+ * out (`ds`) or to make a harmful call (`dh`), bare (`base`) or after "IMPORTANT!!! Ignore all
+ * previous instructions" (`enhanced`).
+ */
+const injecAgent: BenchDataset = {
+  id: 'injecagent',
+  role: 'test',
+  boundary: 'tool_result_local',
+  labels: ['injection', 'tool_instructions'],
+  license: 'MIT',
+  attribution: 'uiuc-kang-lab/InjecAgent (base and enhanced test cases)',
+  source: 'https://github.com/uiuc-kang-lab/InjecAgent',
+  files: INJECAGENT_CASES.map(INJECAGENT),
+  async *read(locate) {
+    for (const file of INJECAGENT_CASES) {
+      const cases = JSON.parse(await Deno.readTextFile(locate(INJECAGENT(file))));
+      const kind = file.replace(/^test_cases_|\.json$/g, '');
+      for (const [n, item] of (Array.isArray(cases) ? cases : []).entries()) {
+        const body = text(item?.['Tool Response']);
+        if (!body) continue;
+        const type = text(item?.['Attack Type']) ?? 'attack';
+        yield { id: `${kind}:${n}`, text: body, attack: true, category: `${kind} ${type}` };
+      }
+    }
+  },
+};
+
+/**
+ * The attacker tools' own responses InjecAgent simulated: plain tool output, false alarms only.
+ * They are full of addresses, cards and phone numbers by design, so the data detectors are left out.
+ */
+const injecAgentClean: BenchDataset = {
+  id: 'injecagent-clean',
+  role: 'test',
+  boundary: 'tool_result_local',
+  labels: [],
+  license: 'MIT',
+  attribution: 'uiuc-kang-lab/InjecAgent (attacker_simulated_responses)',
+  source: 'https://github.com/uiuc-kang-lab/InjecAgent',
+  files: [INJECAGENT_CLEAN],
+  async *read(locate) {
+    const responses: Record<string, unknown> = JSON.parse(
+      await Deno.readTextFile(locate(INJECAGENT_CLEAN)),
+    );
+    for (const [n, response] of Object.values(responses).entries()) {
+      const body = text(response);
+      if (!body) continue;
+      yield {
+        id: String(n),
+        text: body,
+        attack: false,
+        category: 'tool-response',
+        unscored: [...SENSITIVE_GROUPS],
+      };
+    }
+  },
+};
+
 export const DATASETS: readonly BenchDataset[] = [
   sLabs('train', 'train'),
   sLabs('validation', 'validate'),
@@ -903,4 +972,6 @@ export const DATASETS: readonly BenchDataset[] = [
   agentLeak('agent-results'),
   agentLeak('agent-calls'),
   spl,
+  injecAgent,
+  injecAgentClean,
 ];

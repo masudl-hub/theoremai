@@ -46,7 +46,9 @@ function settingAreas(settings: readonly string[], shown = 4): string {
     counts.set(area, (counts.get(area) ?? 0) + 1);
   }
   const areas = [...counts].sort((a, b) => b[1] - a[1]);
-  const named = areas.slice(0, shown).map(([area, count]) => (count > 1 ? `${area} (${count})` : area));
+  const named = areas
+    .slice(0, shown)
+    .map(([area, count]) => (count > 1 ? `${area} (${count})` : area));
   const more = areas.length - named.length;
   return more > 0 ? `${named.join(', ')}, and ${more} more` : named.join(', ');
 }
@@ -66,7 +68,8 @@ function alertsReport(project: ProjectSession, unloaded?: string): string {
       `Defined in files but not registered at start (${String(unregistered.length)}): ${unregistered.map((each) => each.name).join(', ')}`,
     );
   }
-  if (unheld.length) lines.push('', `Cannot check against files: ${[...new Set(unheld)].join(' ')}`);
+  if (unheld.length)
+    lines.push('', `Cannot check against files: ${[...new Set(unheld)].join(' ')}`);
   for (const each of differences) {
     lines.push(
       '',
@@ -387,9 +390,11 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
                 </Text>
                 <Text type="supporting" color="secondary">
                   {`${unregistered.length} defined in your files but not registered when the project started, so the studio cannot show them: ${unregistered
-              .slice(0, 5)
-              .map((each) => each.name)
-              .join(', ')}${unregistered.length > 5 ? `, and ${unregistered.length - 5} more` : ''}. A run and Save still use your files. If none of them load, the studio is probably reading a second copy of the Theorem package.`}
+                    .slice(0, 5)
+                    .map((each) => each.name)
+                    .join(
+                      ', ',
+                    )}${unregistered.length > 5 ? `, and ${unregistered.length - 5} more` : ''}. A run and Save still use your files. If none of them load, the studio is probably reading a second copy of the Theorem package.`}
                 </Text>
               </VStack>
             )}

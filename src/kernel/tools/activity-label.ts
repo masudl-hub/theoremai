@@ -318,7 +318,8 @@ function placeholderProblem(
     // why: What the builder ended the path with (a length, a name) says which of the fields they meant.
     const last = route.keys.at(-1);
     const tail = (candidate: string) => (candidate.split('.').at(-1) === last ? 0 : 1);
-    const ranked = (near.length ? near : all).toSorted((a, b) => tail(a) - tail(b));
+    // why: Not `toSorted`: the studio's declaration build targets a lib before ES2023.
+    const ranked = [...(near.length ? near : all)].sort((a, b) => tail(a) - tail(b));
     return `{${path}} ${reason}${tryInstead(ranked)}`;
   }
   return undefined;

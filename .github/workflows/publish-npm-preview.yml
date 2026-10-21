@@ -1,35 +1,29 @@
 name: Publish npm preview
 
-# A release branch (named for its version, like 0.3.4) that passes CI publishes all three
-# packages to npm under the `next` tag, so an app can take the change without a release.
-# `latest` moves only when publish-npm.yml publishes a version from main.
+# CI calls this after a push to a release branch (named for its version, like 0.3.4) passes,
+# and it publishes all three packages to npm under the `next` tag, so an app can take the change
+# without a release. `latest` moves only when publish-npm.yml publishes a version from main.
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  workflow_call:
+    secrets:
+      NPM_TOKEN:
+        required: true
   workflow_dispatch:
 
 permissions:
   contents: read
   id-token: write
 
-concurrency:
-  group: publish-npm-preview
-  cancel-in-progress: false
-
 jobs:
   publish:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch != 'main')
     runs-on: ubuntu-latest
+    # why: previews publish one at a time, so `next` ends on the latest push.
+    concurrency:
+      group: publish-npm-preview
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Deno
         uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed

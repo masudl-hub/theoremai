@@ -1,5 +1,17 @@
-import { type ChatOptions, createChatController, type SentTurn } from '@theoremjs/web/client';
-import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  type ChatOptions,
+  createChatController,
+  type SentTurn,
+  type ToolDecisionAction,
+} from '@theoremjs/web/client';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 export type { SentTurn };
 
@@ -22,6 +34,15 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     () => (state.slots ? { ...state.slots, onChange: chat.pickSlot } : undefined),
     [chat, state.slots],
   );
+  // why: The transcript draws each gate by its index; the chat answers the one gate that waits.
+  const handleAuthenticated = useCallback(
+    (_index: number, secret?: string) => chat.authenticate(secret),
+    [chat],
+  );
+  const handleToolDecision = useCallback(
+    (_index: number, action: ToolDecisionAction) => chat.decide(action),
+    [chat],
+  );
   return {
     ...state,
     slotChoices,
@@ -30,7 +51,7 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     setPendingVoice: chat.setPendingVoice,
     setPendingMessages: chat.setPendingMessages,
     setIssues: chat.setIssues,
-    handleAuthenticated: (_index: number, secret?: string) => chat.authenticate(secret),
+    handleAuthenticated,
     handleBranch: chat.branch,
     handleSubmit: chat.submit,
     handleStop: chat.stop,
@@ -38,7 +59,7 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     handlePendingQueue: chat.queuePending,
     handlePendingRestore: chat.restorePending,
     handleSendNow: chat.sendNow,
-    handleToolDecision: (_index: number, action: 'allow' | 'deny') => chat.decide(action),
+    handleToolDecision,
     handleGenerationChange: chat.setGeneration,
     sendText: chat.sendText,
   };

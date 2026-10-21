@@ -176,7 +176,7 @@ await chat.submit();
 ```
 
 - `getState()` returns a `ChatState`. It is a new object after each change, and the same object between changes. So you can compare it by reference, as React's `useSyncExternalStore` does.
-- `subscribe(listener)` calls the listener once for each group of changes, after the code that made them has run. It returns the function that unsubscribes.
+- `subscribe(listener)` calls the listener once for each group of changes, after the code that made them has run. It returns the function that unsubscribes. Until the first subscribe or send, the chat asks nothing of the host. Then it reads a resumed conversation that came without its `conversationView`, and answers a restored page gate as unanswered.
 - `update(options)` gives the controller your latest options, such as a new `context`, `slots`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, and `initialText` are read only when the controller is created.
 - Each method is bound to the controller. Pass it as a callback as it is.
 

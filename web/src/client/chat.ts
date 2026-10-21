@@ -73,8 +73,8 @@ export type ChatOptions = {
   onConversationChange?: (ref: string) => void;
   /**
    * The value chosen for each of the profile's `inputs.slots`. Sent with every turn. A slot you
-   * name here is fixed to that value; one you leave out is chosen with `pickSlot`, starting at
-   * its first allowed value.
+   * name here is fixed to that value; one you leave out is the visitor's to pick (the chat's
+   * `pickSlot`), starting at its first allowed value.
    */
   slots?: Record<string, string>;
   /** Told each time the visitor picks a slot, with every slot's value. */
@@ -144,8 +144,9 @@ export type ChatUpdate<T> = T | ((prev: T) => T);
 export type ChatController = {
   getState(): ChatState;
   /**
-   * Called after each change, once per batch of changes. Returns the unsubscribe. A conversation
-   * resumed without its `conversationView` is read from the host once the first listener subscribes.
+   * Called after each change, once per batch of changes. Returns the unsubscribe. Until the first
+   * subscribe or send, the chat asks nothing of the host: a conversation resumed without its
+   * `conversationView` is read then, and a restored page gate answered then.
    */
   subscribe(listener: () => void): () => void;
   /** The latest options. `conversation`, `conversationView` and `initialText` are read only at creation. */
@@ -305,6 +306,8 @@ class Chat implements ChatController {
   #delivery: { status: MessageDelivery } | null = null;
   #picked: Record<string, string> = {};
   #resumed = false;
+  // why: A chat no one uses yet (one React's strict mode builds and drops) asks nothing of the host.
+  #live = false;
   #defaultsFrom: ComposerProfileInterface | undefined;
   #answeredPage: string | null = null;
   #pageToolsWarned: string | undefined;
@@ -341,7 +344,10 @@ class Chat implements ChatController {
 
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
-    if (this.#listeners.size === 1) this.#settle();
+    if (!this.#live) {
+      this.#live = true;
+      this.#settle();
+    }
     return () => this.#listeners.delete(listener);
   };
 
@@ -612,8 +618,7 @@ class Chat implements ChatController {
     if (this.#resumed) return;
     const ref = this.#conversation;
     const shown = this.#options.conversationView;
-    // why: A chat no one follows yet (one React's strict mode builds and drops) reads nothing from the host.
-    if (ref !== undefined && !shown && this.#listeners.size === 0) return;
+    if (ref !== undefined && !shown && !this.#live) return;
     this.#resumed = true;
     if (ref === undefined || !keepsConversation(iface)) return;
     if (shown) {
@@ -636,6 +641,7 @@ class Chat implements ChatController {
    * invariant: A restored page gate cannot authorize callback execution. Only active dispatch grants do.
    */
   #answerPageGate(): void {
+    if (!this.#live) return;
     const gated = this.#state.phase === 'gated' ? this.#state.session.gatedTool : null;
     if (gated?.gateKind !== 'page' || !gated.operationId) return;
     if (this.#answeredPage === gated.operationId) return;
@@ -872,6 +878,7 @@ class Chat implements ChatController {
   ): Promise<void> {
     const { iface } = this.#options;
     if (!iface || this.#busy) return;
+    this.#live = true;
     const { message } = options;
     const priorDelivery = this.#delivery;
     const abort = options.turn ? new AbortController() : null;

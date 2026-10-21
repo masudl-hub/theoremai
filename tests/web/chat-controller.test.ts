@@ -3,14 +3,18 @@ import type { ComposerProfileInterface } from '../../src/interface/mod.ts';
 import { interfaceFromProfile } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { failureEvent } from '../../src/kernel/tools/events.ts';
+import type { TurnEvent } from '../../src/kernel/turn-events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { createChatController } from '../../web/src/client/chat.ts';
 import type {
   ChatLineSink,
+  TheoremInvokeRequest,
   TheoremSteerRequest,
   TheoremTransport,
   TheoremTurnRequest,
 } from '../../web/src/client/transport.ts';
+import { toolSnapshot } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
 
 registerGooglePreset();
@@ -336,4 +340,106 @@ Deno.test('a resumed conversation is read from the host once someone follows the
     chat.getState().blocks.map((b) => b.id),
     ['u5'],
   );
+});
+
+/** A call to `lookup` that waits on the page, or on the visitor's permission. */
+function gated(callId: string, kind: 'page' | 'permission'): TurnEvent[] {
+  return [
+    {
+      type: 'tool',
+      tool: { name: 'lookup', callId, operationId: callId, arguments: {}, stepId: 'step-1' },
+    },
+    {
+      type: 'tool',
+      tool: {
+        name: 'lookup',
+        callId,
+        operationId: callId,
+        at: 0,
+        phase: 'gate',
+        gate:
+          kind === 'page'
+            ? { kind: 'page', tool: 'lookup' }
+            : { kind: 'permission', tool: 'lookup', permission: 'always_confirm' },
+      },
+    },
+    { type: 'done', stop: { kind: 'gate' }, tools: toolSnapshot('lookup') },
+  ];
+}
+
+Deno.test('a message sent now while the reply waits on a gate walks away from it in its own request', async () => {
+  const host = heldHost();
+  const transport: TheoremTransport = {
+    ...host.transport,
+    // The host keeps the reply paused on the gate until the walk-away settles it.
+    conversation: () =>
+      Promise.resolve({
+        transcript: [{ id: 'u2', kind: 'user-text', text: 'Look it up' }],
+        ...(host.turns.length === 1
+          ? { paused: { events: gated('call-1', 'permission'), blocks: [] } }
+          : {}),
+      }),
+  };
+  const chat = createChatController({ transport, iface: hostedInterface() });
+  const asked = chat.sendText('Look it up');
+  await settle();
+  host.turns[0].line({ type: 'conversation', ref: 'ref-2', posted: true });
+  for (const line of gated('call-1', 'permission')) host.turns[0].line(line);
+  host.turns[0].end();
+  await asked;
+  assertEquals(chat.getState().phase, 'gated');
+  chat.setDraftText('Never mind');
+  const sent = chat.sendNow();
+  await settle();
+  assertEquals(host.turns[1].request.conversation, 'ref-2');
+  assertEquals(host.turns[1].request.abandon, [{ callId: 'call-1', operationId: 'call-1' }]);
+  assertEquals(textOf(host.turns[1].request), 'Never mind');
+  reply(host.turns[1], 'Sure.');
+  await sent;
+  assertEquals(chat.getState().phase, 'idle');
+});
+
+Deno.test('a restored page gate is answered unanswered once someone follows the chat, and only once', async () => {
+  const host = heldHost();
+  const invokes: TheoremInvokeRequest[] = [];
+  const transport: TheoremTransport = {
+    ...host.transport,
+    invoke: (request, onLine) => {
+      invokes.push(request);
+      onLine(
+        failureEvent(
+          { name: 'lookup', callId: request.gateId, operationId: request.operationId },
+          { code: 'unanswered', kind: 'declined', message: 'The page did not answer.' },
+        ),
+      );
+      onLine({ type: 'done', stop: { kind: 'completed' } });
+      return Promise.resolve();
+    },
+    conversation: () =>
+      Promise.resolve({ transcript: [{ id: 'u3', kind: 'user-text', text: 'Use the page' }] }),
+  };
+  const options = {
+    transport,
+    iface: hostedInterface(),
+    conversation: 'ref-3',
+    conversationView: {
+      transcript: [{ id: 'u3', kind: 'user-text' as const, text: 'Use the page' }],
+      paused: { events: gated('call-3', 'page'), blocks: [] },
+    },
+  };
+  // A chat built and dropped, as React's strict mode does, asks nothing of the host.
+  createChatController(options);
+  const chat = createChatController(options);
+  await settle();
+  assertEquals(chat.getState().phase, 'gated');
+  assertEquals(invokes, []);
+  chat.subscribe(() => {});
+  await settle();
+  chat.subscribe(() => {});
+  await settle();
+  assertEquals(invokes.length, 1);
+  assertEquals(invokes[0].gateId, 'call-3');
+  assertEquals(invokes[0].operationId, 'call-3');
+  assertEquals(invokes[0].page, { unanswered: true });
+  assertEquals(chat.getState().phase, 'idle');
 });

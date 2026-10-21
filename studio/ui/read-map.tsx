@@ -5,13 +5,13 @@
  */
 import type { IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
-import { IconFileCode, IconFileSmile, IconFolder } from '@tabler/icons-react';
+import { IconFileCode, IconFolder } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { mapCurve } from '../map-line.ts';
 import type { ReadStep } from '../read-steps.ts';
 import { type ReadNode, type ReadNodeKind, readMap } from './lib/read-map.ts';
 import type { Reading } from './lib/read-progress.ts';
-import { profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
+import { AGENT_ICON, profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
 import { MapToken, useTokenWidths } from './map-token.tsx';
 import './read-map.css';
 
@@ -37,7 +37,7 @@ const LABEL = 30;
 const NODE_ICON: Record<ReadNodeKind, IconType | undefined> = {
   entry: IconFileCode,
   folder: IconFolder,
-  profile: IconFileSmile,
+  profile: AGENT_ICON,
   tool: undefined,
   more: undefined,
 };

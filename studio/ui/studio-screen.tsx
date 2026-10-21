@@ -33,7 +33,6 @@ import {
   IconCopyPlus,
   IconFile,
   IconFileImport,
-  IconFileSmile,
   IconFileZip,
   IconKey,
   IconMenu2,
@@ -216,7 +215,7 @@ import { subscribeToFiles } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
 import type { ProbeResult } from './lib/tool-probe.ts';
 import { runToolProbe } from './lib/tool-probe.ts';
-import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import { AGENT_ICON, PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { warmWhenIdle } from './lib/when-idle.ts';
 import { addToolSpec, ProfileEditor, ShownProbe } from './profile-editor.tsx';
 import { ProviderEditor } from './provider-editor.tsx';
@@ -639,7 +638,7 @@ function WorkspaceListToggle({
 
 /** The sidebar's lists, as icons: a name and its count would not fit the nav's width. */
 const WORKSPACE_LISTS: readonly { value: WorkspaceList; name: string; icon: IconType }[] = [
-  { value: 'agents', name: 'Agents', icon: IconFileSmile },
+  { value: 'agents', name: 'Agents', icon: AGENT_ICON },
   { value: 'tools', name: 'Tools', icon: IconTool },
   { value: 'providers', name: 'Providers', icon: IconCloud },
 ];

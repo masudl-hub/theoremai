@@ -180,7 +180,8 @@ function PendingRow(props: {
         variant={message.kind === 'steer' ? 'info' : 'neutral'}
         label={t(`@theorem.composer.pending.${message.kind}`)}
       />
-      <StackItem size="fill">
+      {/* why: A zero basis keeps the text out of the row's width, so it truncates before the actions instead of widening the drawer. */}
+      <StackItem size="fill" style={{ width: 0 }}>
         <Text size="sm" maxLines={1} hasTruncateTooltip>
           {composerPendingPreview(message)}
         </Text>

@@ -55,7 +55,6 @@ import {
   RaisedPane,
   type TheoremChatHandle,
   useDisclosureMotion,
-  useLabels,
 } from '@theoremjs/react/ui';
 import { canonical } from '../canonical.ts';
 import {
@@ -2756,8 +2755,7 @@ function PreviewHeader({
   setSheet: (sheet: Sheet) => void;
 }) {
   const testLabel = testing.open ? 'Close guardrail test' : 'Test guardrails';
-  const t = useLabels();
-  const traceLabel = t(trace.open ? '@theorem.panel.trace.hide' : '@theorem.panel.trace.show');
+  const traceLabel = trace.open ? 'Hide trace' : 'View trace';
   const { compiled } = compile;
   return (
     <Section variant="transparent" paddingInline={3} paddingBlock={0}>

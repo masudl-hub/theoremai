@@ -644,7 +644,10 @@ function llmail(role: keyof LlmailSplit): BenchDataset {
 
 const LLMAIL_BENIGN = LLMAIL('emails_for_fp_tests.json');
 
-/** The emails LLMail's organisers wrote to test false alarms. */
+/**
+ * The emails LLMail's organisers wrote to test false alarms. Nothing in them is labelled as data,
+ * so the data detectors are left out.
+ */
 const llmailBenign: BenchDataset = {
   id: 'llmail-benign',
   role: 'test',
@@ -658,7 +661,14 @@ const llmailBenign: BenchDataset = {
     const emails = JSON.parse(await Deno.readTextFile(locate(LLMAIL_BENIGN))) as unknown[];
     for (const [n, email] of emails.entries()) {
       const body = text(email);
-      if (body) yield { id: String(n), text: body, attack: false, category: 'email' };
+      if (!body) continue;
+      yield {
+        id: String(n),
+        text: body,
+        attack: false,
+        category: 'email',
+        unscored: [...SENSITIVE_GROUPS],
+      };
     }
   },
 };
@@ -697,7 +707,10 @@ const nvidiaIpi: BenchDataset = {
 
 const GLAIVE = 'glaive-fc-dl/g.json';
 
-/** The function responses in Glaive's function-calling chats. False alarms only. */
+/**
+ * The function responses in Glaive's function-calling chats. False alarms only. They hold sample
+ * addresses and phone numbers that nothing labels, so the data detectors are left out.
+ */
 const glaive: BenchDataset = {
   id: 'glaive-tool-results',
   role: 'test',
@@ -712,7 +725,13 @@ const glaive: BenchDataset = {
     for (const [n, row] of rows.entries()) {
       if (typeof row.chat !== 'string') continue;
       for (const [k, body] of toolResultsFromChat(row.chat).entries()) {
-        yield { id: `${n}:${k}`, text: body, attack: false, category: 'tool-result' };
+        yield {
+          id: `${n}:${k}`,
+          text: body,
+          attack: false,
+          category: 'tool-result',
+          unscored: [...SENSITIVE_GROUPS],
+        };
       }
     }
   },
@@ -728,7 +747,10 @@ const AGENTDOJO_FIXTURES: readonly { file: string; category: string }[] = [
   { file: `${SUITES}/travel/environment.yaml`, category: 'travel' },
 ];
 
-/** The records of AgentDojo's four suites, as a tool returns them. False alarms only. */
+/**
+ * The records of AgentDojo's four suites, as a tool returns them. False alarms only. They hold
+ * contacts and account numbers that nothing labels, so the data detectors are left out.
+ */
 const agentDojo: BenchDataset = {
   id: 'agentdojo-records',
   role: 'test',
@@ -741,7 +763,13 @@ const agentDojo: BenchDataset = {
   async *read(locate) {
     for (const { file, category } of AGENTDOJO_FIXTURES) {
       for (const [n, body] of recordsFromYaml(await Deno.readTextFile(locate(file))).entries()) {
-        yield { id: `${category}:${n}`, text: body, attack: false, category };
+        yield {
+          id: `${category}:${n}`,
+          text: body,
+          attack: false,
+          category,
+          unscored: [...SENSITIVE_GROUPS],
+        };
       }
     }
   },

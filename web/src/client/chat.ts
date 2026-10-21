@@ -69,6 +69,8 @@ export type ChatOptions = {
   initialText?: string;
   /** The files the composer starts with, staged to send. Read once, when the chat is created. */
   initialFiles?: readonly File[];
+  /** The voice notes the composer starts with, staged to send. Read once, when the chat is created. */
+  initialVoice?: readonly File[];
   /**
    * The messages the composer starts with set aside: queued, stashed or steering. Read once, when
    * the chat is created.
@@ -349,7 +351,7 @@ class Chat implements ChatController {
       chatStarted: false,
       draftText: options.initialText ?? '',
       pendingFiles: [...(options.initialFiles ?? [])],
-      pendingVoice: [],
+      pendingVoice: [...(options.initialVoice ?? [])],
       pendingMessages: orderComposerPendingMessages([...(options.initialPending ?? [])]),
       issues: [],
       failure: null,

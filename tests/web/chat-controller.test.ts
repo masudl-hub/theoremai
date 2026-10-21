@@ -100,9 +100,10 @@ function said(blocks: readonly { kind: string; text?: string }[]): [string, stri
   );
 }
 
-Deno.test('a chat starts with the text, files and set-aside messages it is given', () => {
+Deno.test('a chat starts with the text, files, voice notes and set-aside messages it is given', () => {
   const host = heldHost();
   const file = new File(['%PDF'], 'pass.pdf', { type: 'application/pdf' });
+  const note = new File(['voice'], 'note.m4a', { type: 'audio/mp4' });
   const later = createComposerPendingMessage({ kind: 'stash', draft: { text: 'Later' }, now: 2 });
   const next = createComposerPendingMessage({ kind: 'queue', draft: { text: 'Next' }, now: 1 });
   const chat = createChatController({
@@ -110,11 +111,13 @@ Deno.test('a chat starts with the text, files and set-aside messages it is given
     iface: textInterface(),
     initialText: 'Now',
     initialFiles: [file],
+    initialVoice: [note],
     initialPending: [later, next],
   });
   const state = chat.getState();
   assertEquals(state.draftText, 'Now');
   assertEquals(state.pendingFiles, [file]);
+  assertEquals(state.pendingVoice, [note]);
   assertEquals(
     state.pendingMessages.map((message) => message.kind),
     ['queue', 'stash'],

@@ -126,6 +126,8 @@ export type TheoremChatProps = {
   initialText?: string;
   /** The files the composer starts with, staged to send. Read once, when the chat mounts. */
   initialFiles?: readonly File[];
+  /** The voice notes the composer starts with, staged to send. Read once, when the chat mounts. */
+  initialVoice?: readonly File[];
   /**
    * The messages the composer starts with set aside: queued, stashed or steering, as
    * `createComposerPendingMessage` makes them. Read once, when the chat mounts.
@@ -271,6 +273,7 @@ function ChatBody({
   conversationView,
   initialText,
   initialFiles,
+  initialVoice,
   initialPending,
   onConversationChange,
   chatRef,
@@ -289,6 +292,7 @@ function ChatBody({
     conversationView,
     initialText,
     initialFiles,
+    initialVoice,
     initialPending,
     onConversationChange,
     slots,

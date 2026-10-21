@@ -170,6 +170,7 @@ The profile, the keys, and the system prompt stay on the server. The browser rec
 | `conversation`, `conversationView`, `onConversationChange` | Resume a conversation that the server keeps, or open one you started. See below. |
 | `initialText` | The text that the composer starts with. The user can send it or change it. The component reads it once, when it mounts. |
 | `initialFiles` | The files that the composer starts with, staged to send. The component reads them once, when it mounts. |
+| `initialVoice` | The voice notes that the composer starts with, staged to send. The component reads them once, when it mounts. |
 | `initialPending` | The messages that the composer starts with set aside: queued, stashed, or steering, as `createComposerPendingMessage` from `@theoremjs/agents/interface` makes them. The component reads them once, when it mounts. |
 | `chatRef` | Sends a message from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |

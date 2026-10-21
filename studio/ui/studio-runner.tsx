@@ -104,6 +104,8 @@ export interface StudioRunnerProps {
   initialText?: ChatProps['initialText'];
   /** The files a chat's composer starts with, staged. */
   initialFiles?: ChatProps['initialFiles'];
+  /** The voice notes a chat's composer starts with, staged. */
+  initialVoice?: ChatProps['initialVoice'];
   /** The messages a chat's composer starts with set aside. */
   initialPending?: ChatProps['initialPending'];
   onConversationChange?: ChatProps['onConversationChange'];
@@ -140,6 +142,7 @@ export function StudioRunner({
   conversationView,
   initialText,
   initialFiles,
+  initialVoice,
   initialPending,
   onConversationChange,
   chatRef,
@@ -171,6 +174,7 @@ export function StudioRunner({
         conversationView={conversationView}
         initialText={initialText}
         initialFiles={initialFiles}
+        initialVoice={initialVoice}
         initialPending={initialPending}
         onConversationChange={onConversationChange}
         chatRef={chatRef}
@@ -197,6 +201,7 @@ function Run({
   conversationView,
   initialText,
   initialFiles,
+  initialVoice,
   initialPending,
   onConversationChange,
   chatRef,
@@ -283,6 +288,7 @@ function Run({
       conversationView={conversationView}
       initialText={initialText}
       initialFiles={initialFiles}
+      initialVoice={initialVoice}
       initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
@@ -589,6 +595,7 @@ function TurnRun({
   conversationView,
   initialText,
   initialFiles,
+  initialVoice,
   initialPending,
   onConversationChange,
   chatRef,
@@ -631,6 +638,7 @@ function TurnRun({
       conversationView={conversationView}
       initialText={initialText}
       initialFiles={initialFiles}
+      initialVoice={initialVoice}
       initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}

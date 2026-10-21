@@ -120,6 +120,13 @@ Deno.test('the call after a remote read is reported, and alone is no hit', async
   assertEquals(result.status, 'passed');
 });
 
+Deno.test('a tool error is redacted before the model reads it', async () => {
+  const failed = await probe('tool_failure', INJECTION);
+  assertEquals(failed.status, 'redacted');
+  assertEquals(rules(failed), ['tool_result/detect.injection']);
+  assertEquals(failed.passed?.includes('ignore all previous'), false);
+});
+
 Deno.test('a credential in tool arguments is flagged and the call still runs', async () => {
   const result = await probe('tool_arguments', KEY);
   assertEquals(rules(result), ['tool_call/detect.credentials']);
@@ -144,6 +151,7 @@ Deno.test('one text is answered at every boundary, each by its own turn', async 
       ['system', 'redacted'],
       ['tool_result_local', 'redacted'],
       ['tool_result_remote', 'redacted'],
+      ['tool_failure', 'redacted'],
       ['tool_arguments', 'flagged'],
       ['reply', 'blocked'],
       ['thought', 'passed'],
@@ -211,7 +219,7 @@ Deno.test('a host agent is probed at the tools it runs, on no model', async () =
   const all = await runGuardrailProbes({ ...run, text: INJECTION });
   assertEquals(
     all.map((answer) => answer.boundary),
-    ['tool_result_local', 'tool_result_remote', 'tool_arguments'],
+    ['tool_result_local', 'tool_result_remote', 'tool_failure', 'tool_arguments'],
   );
 });
 
@@ -245,6 +253,7 @@ const BATTERY_GAPS: ReadonlySet<string> = new Set([
   'thought.key',
   'tool_arguments.base64_key',
   'tool_result_remote.action_only',
+  'tool_result_remote.benign_support',
   'tool_result_remote.comment',
   'user.benign_quote',
   'user.german',

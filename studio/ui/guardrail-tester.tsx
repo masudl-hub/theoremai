@@ -14,6 +14,7 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconBiohazard,
   IconBraces,
@@ -59,6 +60,7 @@ const BOUNDARY_ICONS: Record<ProbeBoundary, typeof IconUser> = {
   system: IconFileText,
   tool_result_local: IconTool,
   tool_result_remote: IconWorld,
+  tool_failure: IconAlertTriangle,
   tool_arguments: IconBraces,
   reply: IconMessage,
   thought: IconBrain,

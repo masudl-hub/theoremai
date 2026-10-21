@@ -531,6 +531,7 @@ Deno.test("a probed text a boundary lets through is kept as sent, with every bou
     system: 'redacted',
     tool_result_local: 'redacted',
     tool_result_remote: 'redacted',
+    tool_failure: 'redacted',
     tool_arguments: 'passed',
     reply: 'blocked',
     thought: 'passed',

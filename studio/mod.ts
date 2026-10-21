@@ -369,6 +369,7 @@ export {
   renameProvider,
   reopened,
   resetAgent,
+  resetAgentNode,
   resetAll,
   resetLibraryTool,
   resetProvider,

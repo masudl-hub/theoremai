@@ -8,10 +8,10 @@ Status: built. Studio only; evals and the kernel are unchanged.
 
 ## 1. What a builder gets
 
-1. **Import a trace.** **Import trace** in the chat pane header opens the trace console, in the frame a decision and a host use. Its trace card takes a `TraceRecord` file (`.json`, one record or an array). The conversation card draws the conversation as the person received it, and its records go into the pane's trace feed, so the inspector shows every guardrail hit, gate and stop as it happened. Nothing runs. It answers "what happened, and why".
+1. **Import a trace.** **Replay exchange** in the chat pane header opens the trace console, in the frame a decision and a host use. Its trace card takes a `TraceRecord` file (`.json`, one record or an array). The conversation card draws the conversation as the person received it, and its records go into the pane's trace feed, so the inspector shows every guardrail hit, gate and stop as it happened. Nothing runs. It answers "what happened, and why".
 2. **Replay it.** **Replay** runs the trace's user turns again through the profile in the editor: its guardrails, stages, gates and UI all run. The model's replies, and by default the tools' results, come from the recording. It answers "what would happen now". Change a guardrail or the instructions, press **Replay again**, compare with **Recorded / Replayed**.
 3. **Divergence stops and says so (decision d).** When the profile asks for something the recording does not hold, the replay stops there with a banner that says why, and a **Continue live** button.
-4. **Download a trace.** **Download trace** beside View trace writes the run's `TraceRecord`s as `<agent>-<time>.trace.json`. A hosted app's traces (a `TraceSink`) open the same way.
+4. **Download a trace.** **Download trace** at the top right of the trace panel writes the run's `TraceRecord`s as `<agent>-<time>.trace.json`. A hosted app's traces (a `TraceSink`) open the same way.
 
 ## 2. The format: `TraceRecord`, nothing new
 
@@ -63,7 +63,7 @@ Compaction calls and sub-agent turns go through the same `provider`. One the rec
 
 ## 5. Studio UI
 
-- **Chat pane header:** **Import trace** for chat profiles, pressed while its console is open, and **Download trace** beside View trace (hidden while testing or importing). View trace drives the console's inspector, as it does a decision's.
+- **Chat pane header:** **Replay exchange** for chat profiles, pressed while its console is open, then **View trace**, then **Open in a new tab**, each with its name. View trace drives the console's inspector, as it does a decision's. **Download trace** sits at the top right of the trace panel.
 - **The trace console** replaces the chat, on `ConsoleFrame` as a decision and a host are: a **Trace** card (`RequestCard`: the file drop, the file name, agent, turns and when it was recorded, **Live tools**, and a `RunBar` with **Replay**), then a **Conversation** card (`ResponseColumn` with `ChatTranscript`). A banner in the trace card says when the trace's agent is not the one selected, or when it holds no turns.
 - **A replay** runs in the conversation card, under a status banner: running, waiting on a gate, stopped on missing files, diverged or failed (with **Continue live**), done.
 - **Compare:** after a replay, **Recorded / Replayed** in the trace card's heading switches the conversation, and the inspector's records, between the two. Side by side is later.

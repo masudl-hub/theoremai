@@ -169,7 +169,7 @@ Render it in the browser only. `openStudio()` reads the tab's kept workspace, so
 | `kernelVersion` | The `@theoremjs/agents` version, shown under the studio's title. Required. |
 | `lentKeys` | Keys your page lends to whoever opens the studio. See [Lend your keys](#lend-your-keys). |
 | `toolHandlers` | Handlers for your page's own function tools, by name. A tool with none answers with its sample reply or a stub. |
-| `hasSettings` | True when your page has a door to Settings. Keys then show in Settings, not in the editor's header. |
+| `hasSettings` | True when your page has a door to Settings. Keys then show in Settings, not above the providers list. |
 | `mountSurface` | Mounts the screen's surface while the screen is open, and returns the unmount. |
 | `onReport` | Called as what is on screen changes, and with `null` when the screen closes. |
 

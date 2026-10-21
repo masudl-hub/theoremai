@@ -31,7 +31,6 @@ import {
   IconCode,
   IconCopy,
   IconCopyPlus,
-  IconDownload,
   IconFile,
   IconFileImport,
   IconFileSmile,
@@ -41,10 +40,8 @@ import {
   IconPlayerPlay,
   IconPlaylistX,
   IconPlus,
-  IconRestore,
   IconRotateClockwise,
   IconSearch,
-  IconShieldSearch,
   IconSitemap,
   IconSparkles,
   IconTool,
@@ -106,7 +103,7 @@ import {
   renameProvider,
   reopened,
   resetAgent,
-  resetAll,
+  resetAgentNode,
   resetLibraryTool,
   resetProvider,
   type SharedEntry,
@@ -167,6 +164,7 @@ import { IconTypeSafe, modelFamilyMark } from './brand-icons.tsx';
 import { useConfirmWrite } from './confirm-write.tsx';
 import {
   ConfirmWrite,
+  GuardrailTest,
   ISSUE_ROW_ATTRIBUTE,
   LeavePage,
   ListBadges,
@@ -237,6 +235,7 @@ import {
 import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
+import { usePhone } from './use-phone.ts';
 
 // The tester, Settings, the map and the code view load when they first open, or once the page is idle.
 const testerPanel = () => import('./guardrail-tester.tsx');
@@ -281,12 +280,15 @@ interface TreeState {
   selectedId: string;
   onSelect: (id: string) => void;
   setDraft: (next: StudioDraft | ((draft: StudioDraft) => StudioDraft)) => void;
+  /** Puts the row `ref` names back to its start; undefined while it is at its start. */
+  resetOf: (ref: StudioNodeRef, label: string) => (() => void) | undefined;
 }
 
 /** A row's hover action: stops at the button so the row itself isn't selected. */
 function actionButton(label: string, icon: IconType, onPress: () => void) {
   return (
     <IconButton
+      key={label}
       label={label}
       variant="ghost"
       size="sm"
@@ -304,21 +306,35 @@ function rowAction(label: string, icon: IconType, onPress: () => void) {
   return <span className="studio-tree-action">{actionButton(label, icon, onPress)}</span>;
 }
 
+/** A row's hover actions: Reset, while it differs from its start, then the others, the x last. */
+function rowActions(
+  label: string,
+  reset: (() => void) | undefined,
+  ...actions: ReactNode[]
+): ReactNode {
+  const shown = [reset && actionButton(`Reset ${label}`, IconRotateClockwise, reset), ...actions];
+  return shown.some(Boolean) ? <span className="studio-tree-action">{shown}</span> : undefined;
+}
+
 function treeItem(tree: TreeState, node: StudioTreeNode, isTop = false): TreeListItemData {
   const { draft, scope, selectedId, onSelect, setDraft } = tree;
   const facet = node.ref.facet;
   const id = scope(node.id);
   const isOptional = isTop && facet !== 'toolSpec' && profileGraphFacet(facet)?.optional === true;
+  const actions = rowActions(
+    node.label,
+    tree.resetOf(node.ref, node.label),
+    isOptional &&
+      actionButton(`Remove ${node.label}`, IconX, () => {
+        setDraft((current) => excludeFacet(current, facet));
+      }),
+  );
   return {
     id,
     label: node.label,
     startContent: <Icon icon={nodeIcon(draft, node.ref)} size="sm" color="secondary" />,
-    endContent: isOptional
-      ? rowAction(`Remove ${node.label}`, IconX, () => {
-          setDraft((current) => excludeFacet(current, facet));
-        })
-      : undefined,
-    className: isOptional ? 'studio-tree-row' : undefined,
+    endContent: actions,
+    className: actions ? 'studio-tree-row' : undefined,
     isSelected: id === selectedId,
     isExpanded: node.children.length > 0,
     onClick: () => {
@@ -395,10 +411,14 @@ interface WorkspaceTreeState {
   onSelect: (id: string) => void;
   update: (change: (workspace: StudioWorkspace) => StudioWorkspace) => void;
   setDraft: TreeState['setDraft'];
+  /** Puts the workspace as `to` holds it, with a toast that can undo it; undefined when `to` is the workspace. */
+  reset: (to: StudioWorkspace, body: string) => (() => void) | undefined;
+  /** The Keys page, opened from the providers list. Null where the host keeps keys in its Settings. */
+  keys: { open: boolean; toggle: () => void } | null;
 }
 
 function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
-  const { workspace, focus, selectedId, onSelect, update, setDraft } = state;
+  const { workspace, focus, selectedId, onSelect, update, setDraft, reset } = state;
   const isOnly = workspace.agents.length === 1;
   return workspace.agents.map((agent) => {
     const draft = libraryDraft(workspace, agent.key) ?? createBlankDraft();
@@ -410,23 +430,30 @@ function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
         selectedId,
         onSelect,
         setDraft,
+        resetOf: (ref, label) =>
+          reset(resetAgentNode(workspace, agent.key, ref), `Reset ${label} to how it started.`),
       },
       agent.key === focus,
-      <span className="studio-tree-action">
-        {actionButton(`Duplicate ${name}`, IconCopyPlus, () => {
+      rowActions(
+        name,
+        reset(resetAgent(workspace, agent.key), `Reset ${name} to how it started.`),
+        actionButton(`Duplicate ${name}`, IconCopyPlus, () => {
           update((current) => duplicateAgent(current, agent.key));
-        })}
-        {!isOnly &&
+        }),
+        !isOnly &&
           actionButton(`Remove ${name}`, IconX, () => {
             update((current) => removeAgent(current, agent.key));
-          })}
-      </span>,
+          }),
+      ),
     );
   });
 }
 
 /** The tool library, every agent picks its tools from these: those whose name or description holds `query`. */
-function toolItems({ workspace, selectedId, onSelect, update }: WorkspaceTreeState, query: string) {
+function toolItems(
+  { workspace, selectedId, onSelect, update, reset }: WorkspaceTreeState,
+  query: string,
+) {
   const needle = query.trim().toLowerCase();
   return workspaceTree(workspace).tools.flatMap((node): TreeListItemData[] => {
     const tool = workspace.toolSpecs.find((spec) => spec.key === toolSpecKeyOf(node.id));
@@ -439,9 +466,14 @@ function toolItems({ workspace, selectedId, onSelect, update }: WorkspaceTreeSta
         startContent: (
           <Icon icon={tool ? toolTypeIcon(tool.toolType) : IconTool} size="sm" color="secondary" />
         ),
-        endContent: rowAction(`Remove ${node.label}`, IconX, () => {
-          if (tool) update((current) => removeLibraryTool(current, tool.key));
-        }),
+        endContent: rowActions(
+          node.label,
+          tool &&
+            reset(resetLibraryTool(workspace, tool.key), `Reset ${node.label} to how it started.`),
+          actionButton(`Remove ${node.label}`, IconX, () => {
+            if (tool) update((current) => removeLibraryTool(current, tool.key));
+          }),
+        ),
         className: 'studio-tree-row',
         isSelected: node.id === selectedId,
         onClick: () => {
@@ -463,7 +495,7 @@ function declaredAt({ setting }: SharedEntry): string {
  * provider's row opens its own settings; an agent's opens its first model there.
  */
 function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
-  const { workspace, selectedId, onSelect, update, ownsProviders } = tree;
+  const { workspace, selectedId, onSelect, update, ownsProviders, reset } = tree;
   return workspace.providers.map((provider) => {
     const id = providerNodeId(provider.id);
     // One a model runs on stays: its row lists the agents to move first.
@@ -488,18 +520,22 @@ function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
         },
       ];
     });
+    const actions = rowActions(
+      provider.id,
+      reset(resetProvider(workspace, provider.id), `Reset ${provider.id} to how it started.`),
+      isFree &&
+        actionButton(`Remove ${provider.id}`, IconX, () => {
+          update((current) => removeProvider(current, provider.id));
+          const [first] = workspace.agents;
+          if (selectedId === id && first) onSelect(agentNodeId(first.key));
+        }),
+    );
     return {
       id,
       label: provider.id,
       startContent: <Icon icon={IconCloud} size="sm" color="secondary" />,
-      endContent: isFree
-        ? rowAction(`Remove ${provider.id}`, IconX, () => {
-            update((current) => removeProvider(current, provider.id));
-            const [first] = workspace.agents;
-            if (selectedId === id && first) onSelect(agentNodeId(first.key));
-          })
-        : undefined,
-      className: isFree ? 'studio-tree-row' : undefined,
+      endContent: actions,
+      className: actions ? 'studio-tree-row' : undefined,
       isSelected: selectedId === id,
       onClick: () => {
         onSelect(id);
@@ -822,6 +858,7 @@ function WorkspaceTreeLists({
         />
       )}
       {list === 'tools' ? <AddToolButton tree={tree} draft={draft} /> : null}
+      {list === 'providers' && tree.keys ? <ManageKeysButton keys={tree.keys} /> : null}
       {list === 'providers' && tree.ownsProviders ? (
         <AddProviderButton
           taken={tree.workspace.providers.map((provider) => provider.id)}
@@ -1356,60 +1393,54 @@ function useLeftIssues(issues: readonly StudioIssue[], page: string, revealed: u
   return { shown, leavePage };
 }
 
-/** Get code (a .zip, or copied) and open in a new tab, for the agent being chatted with; off while the workspace has issues. */
-function ExportActions({
-  store,
+/** Open in a new tab, for the agent being chatted with; off while the workspace has issues. */
+function OpenInNewTabButton({
   compiled,
-  chatted,
   chattedId,
   blocked,
-  copy,
   connection,
 }: {
-  store: StudioStore;
   compiled: CompiledWorkspace | undefined;
-  chatted: CompiledStudio | undefined;
   chattedId: string;
   blocked: string | undefined;
-  copy: (text: string, what: string) => void;
   connection: Pick<StudioRunPayload, 'connectionMode' | 'localBaseUrl'>;
 }) {
   const project = useProject();
+  const phone = usePhone();
   return (
-    <>
-      <IconButton
-        label="Open in a new tab"
-        variant="ghost"
-        icon={<Icon icon={IconBrowserShare} size="sm" />}
-        isDisabled={!compiled}
-        tooltip={blocked ?? 'Open this agent on its own full page, in a new tab'}
-        onClick={() => {
-          const run = compiled && workspaceRunAgent(compiled, chattedId);
-          if (run) openInNewTab({ ...runPayload(run), ...connection }, project);
-        }}
-      />
-      <ExportMenu
-        code={() => projectCode(project, store.getWorkspace())}
-        compiled={compiled}
-        chatted={chatted}
-        blocked={blocked}
-        copy={copy}
-      />
-    </>
+    <Button
+      label="Open in a new tab"
+      isIconOnly={phone}
+      variant="ghost"
+      icon={<Icon icon={IconBrowserShare} size="sm" />}
+      isDisabled={!compiled}
+      tooltip={
+        blocked ??
+        'Run this agent on a full page of its own, in a new tab, the way a person using it would see it'
+      }
+      onClick={() => {
+        const run = compiled && workspaceRunAgent(compiled, chattedId);
+        if (run) openInNewTab({ ...runPayload(run), ...connection }, project);
+      }}
+    />
   );
 }
 
-/** Get code: a .zip, Copy, or Copy for LLM. */
+/** Get code: a .zip, Copy, or Copy for LLM, for every agent; off while the workspace has issues. */
 function ExportMenu({
-  code,
-  compiled,
-  chatted,
-  blocked,
+  store,
+  compile,
   copy,
-}: Omit<Parameters<typeof ExportActions>[0], 'chattedId' | 'connection' | 'store'> & {
-  /** What the project's files hold that the code names, read when the builder asks for the code. */
-  code: () => ProjectCode | undefined;
+}: {
+  store: StudioStore;
+  compile: WorkspaceCompile;
+  copy: (text: string, what: string) => void;
 }) {
+  const project = useProject();
+  const compiled = compile.compiled.ok ? compile.compiled : undefined;
+  const { chatted, blocked } = compile;
+  /** What the project's files hold that the code names, read when the builder asks for the code. */
+  const code = (): ProjectCode | undefined => projectCode(project, store.getWorkspace());
   return (
     <DropdownMenu
       button={{
@@ -2365,53 +2396,6 @@ function ViewToggleButton({ view }: { view: EditorViewState }) {
   );
 }
 
-/**
- * Reset for what is open: a library tool, a provider, or else the agent. It goes back to how it joined the
- * workspace, and nothing else changes. `run` is absent while it is still as it started. `all` does
- * it for everything: every agent and tool back to its start, or on a project every unsaved edit
- * gone once the builder says yes. It is absent while there is nothing to put back.
- */
-function useReset({ workspace, focus, update }: StudioWorkspaceState) {
-  const toast = useToast();
-  const save = useProjectSave();
-  const toolKey = toolSpecKeyOf(workspace.selected);
-  const provider = providerIdOf(workspace.selected);
-  const what = provider !== undefined ? 'provider' : toolKey === undefined ? 'agent' : 'tool';
-  const next = useMemo(() => {
-    if (provider !== undefined) return resetProvider(workspace, provider);
-    return toolKey === undefined
-      ? resetAgent(workspace, focus)
-      : resetLibraryTool(workspace, toolKey);
-  }, [workspace, focus, toolKey, provider]);
-  const everything = useMemo(() => resetAll(workspace), [workspace]);
-  const put = (to: StudioWorkspace, body: string) =>
-    to === workspace
-      ? undefined
-      : () => {
-          update(() => to);
-          const dismiss = toast({
-            body,
-            endContent: (
-              <Button
-                label="Undo"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  update(() => workspace);
-                  dismiss();
-                }}
-              />
-            ),
-          });
-        };
-  return {
-    what,
-    run: put(next, `Reset the ${what} to how it started.`),
-    all: save ? save.discard : put(everything, 'Reset every agent and tool to how it started.'),
-    inProject: save !== null,
-  };
-}
-
 /** Opens the project's files again in place of every unsaved edit. Undo brings the edits back. */
 function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
   const toast = useToast();
@@ -2446,25 +2430,26 @@ function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
   }, [store, filesChanged, toast]);
 }
 
-/** The editor column's header: its title, the next issue, Keys, what to start from, and the view toggle. */
+/** The editor column's header: its title, the next issue, what to start from, Get code, and the view toggle. */
 function EditorToolbar({
   heading,
   compile,
   selected,
   view,
   onIssue,
-  reset,
   project,
+  getCode,
   setSheet,
 }: {
   heading: string | undefined;
   compile: WorkspaceCompile;
+  /** Get code, beside the view toggle. */
+  getCode: ReactNode;
   /** An open project's tokens: Save, and what the studio cannot run. */
   project: ReactNode;
   selected: string;
   view: EditorViewState;
   onIssue: (node: string) => void;
-  reset: ReturnType<typeof useReset>;
   setSheet: (sheet: Sheet) => void;
 }) {
   return (
@@ -2486,46 +2471,7 @@ function EditorToolbar({
             {project}
           </HStack>
         </StackItem>
-        <KeysButton view={view} />
-        <DropdownMenu
-          button={{
-            label: 'Reset',
-            variant: 'ghost',
-            isIconOnly: true,
-            icon: <Icon icon={IconRotateClockwise} size="sm" />,
-            tooltip:
-              reset.run || reset.all
-                ? `Reset this ${reset.what}, or everything`
-                : 'Everything is as it started',
-            isDisabled: !reset.run && !reset.all,
-          }}
-          menuWidth="15rem"
-          hasChevron={false}
-          placement="below"
-          alignment="end"
-          items={[
-            {
-              id: 'this',
-              label: `Reset this ${reset.what}`,
-              description: oneLine('Back to how it started. Undo brings your changes back.'),
-              icon: <Icon icon={IconRotateClockwise} size="sm" />,
-              isDisabled: !reset.run,
-              onClick: reset.run,
-            },
-            {
-              id: 'all',
-              label: reset.inProject ? 'Discard all edits' : 'Reset everything',
-              description: oneLine(
-                reset.inProject
-                  ? 'Every unsaved edit goes, and the studio opens your files as they are.'
-                  : 'Every agent and tool, back to how it started.',
-              ),
-              icon: <Icon icon={IconRestore} size="sm" />,
-              isDisabled: !reset.all,
-              onClick: reset.all,
-            },
-          ]}
-        />
+        {getCode}
         <ViewToggleButton view={view} />
         <SheetButton label="Preview" icon={IconPlayerPlay} sheet="preview" setSheet={setSheet} />
       </HStack>
@@ -2533,21 +2479,18 @@ function EditorToolbar({
   );
 }
 
-/** The door to the Keys panel in the editor's header. A host with Settings keeps Keys there, so it has none. */
-function KeysButton({ view }: { view: EditorViewState }) {
-  const { hasSettings } = useStudioHost();
-  if (hasSettings) return null;
+/** Opens the Keys page, above the providers list, in the same form as Add provider. */
+function ManageKeysButton({ keys }: { keys: NonNullable<WorkspaceTreeState['keys']> }) {
   return (
-    <IconButton
-      label="Keys"
+    <Button
+      label="Manage keys"
       variant="ghost"
+      size="sm"
+      width="100%"
       icon={<Icon icon={IconKey} size="sm" />}
-      aria-pressed={view.keysOpen}
-      tooltip="Add your own model keys to run this agent with"
-      onClick={() => {
-        view.setKeysOpen((open) => !open);
-        view.setEditorView('editor');
-      }}
+      style={{ height: 'calc(var(--size-element-sm) - 4px)' }}
+      aria-pressed={keys.open}
+      onClick={keys.toggle}
     />
   );
 }
@@ -2644,7 +2587,7 @@ function SettingsPane({
 }) {
   const { kernelVersion } = useStudioHost();
   const { store } = state;
-  const reset = useReset(state);
+  const save = useProjectSave();
   const toast = useToast();
   const quiet = useSyncExternalStore(store.subscribe, store.isQuiet, store.isQuiet);
   const shared = useMemo(
@@ -2668,7 +2611,7 @@ function SettingsPane({
         version={kernelVersion}
         watch={state.watchFiles}
         shared={shared}
-        actions={{ clearChats, discard: reset.inProject ? reset.all : undefined }}
+        actions={{ clearChats, discard: save?.discard }}
         keys={<KeySlots connection={connection} state={state} />}
       />
     </Suspense>
@@ -2762,55 +2705,30 @@ function ClearHistoryButton({ run }: { run: ConversationRun }) {
 /** The types whose conversation a trace can hold, and so open and replay. */
 const NO_CONVERSATION = new Set(['decision', 'host', 'embedding', 'live']);
 
-/** Downloads the records of the conversation on screen, as a trace file the studio opens. */
-function DownloadTraceButton({ feed, name }: { feed: TraceFeed; name: string }) {
-  const records = useSyncExternalStore(feed.subscribe, feed.records, feed.records);
-  return (
-    <IconButton
-      label="Download trace"
-      variant="ghost"
-      tooltip={records.length ? 'Download trace' : 'Nothing recorded yet'}
-      icon={<Icon icon={IconDownload} size="sm" />}
-      isDisabled={records.length === 0}
-      onClick={() => {
-        const stamp = new Date().toISOString().replaceAll(':', '-').slice(0, 19);
-        download(
-          `${name}-${stamp}.trace.json`,
-          new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' }),
-        );
-      }}
-    />
-  );
-}
-
-/** Import trace, for a type whose conversation a trace holds, and Download trace, outside an imported one. */
-function TraceFileButtons({
+/** Replay exchange, for a type whose conversation a trace holds. */
+function ReplayExchangeButton({
   payload,
   tracing,
-  feed,
-  profileId,
 }: {
   payload: WorkspaceCompile['payload'];
   tracing: { open: boolean; toggle: () => void };
-  feed: TraceFeed;
-  profileId: string | undefined;
 }) {
-  if (payload == null) return null;
-  const importLabel = tracing.open ? 'Close imported trace' : 'Import trace';
+  const phone = usePhone();
+  if (payload == null || NO_CONVERSATION.has(payload.profile.type)) return null;
   return (
-    <>
-      {!NO_CONVERSATION.has(payload.profile.type) && (
-        <IconButton
-          label={importLabel}
-          variant={tracing.open ? 'secondary' : 'ghost'}
-          tooltip={importLabel}
-          icon={<Icon icon={IconFileImport} size="sm" />}
-          aria-pressed={tracing.open}
-          onClick={tracing.toggle}
-        />
-      )}
-      {!tracing.open && <DownloadTraceButton feed={feed} name={profileId ?? 'agent'} />}
-    </>
+    <Button
+      label={tracing.open ? 'Close replay' : 'Replay exchange'}
+      isIconOnly={phone}
+      variant={tracing.open ? 'secondary' : 'ghost'}
+      tooltip={
+        tracing.open
+          ? 'Back to the live conversation'
+          : 'Open a recorded conversation (a .trace.json file) to see what happened, then replay its messages through this agent as it is now and compare'
+      }
+      icon={<Icon icon={IconFileImport} size="sm" />}
+      aria-pressed={tracing.open}
+      onClick={tracing.toggle}
+    />
   );
 }
 
@@ -2825,9 +2743,6 @@ function PreviewHeader({
   trace,
   testing,
   tracing,
-  feed,
-  profileId,
-  copy,
   setSheet,
 }: {
   store: StudioStore;
@@ -2837,17 +2752,14 @@ function PreviewHeader({
   run: ConversationRun;
   connection: StudioConnectionState;
   trace: { open: boolean; toggle: () => void };
-  testing: { open: boolean; toggle: () => void };
+  /** The guardrail test is open in the conversation's place. */
+  testing: boolean;
   /** The imported trace's console, over the conversation. */
   tracing: { open: boolean; toggle: () => void };
-  /** The trace records of the conversation on screen. */
-  feed: TraceFeed;
-  profileId: string | undefined;
-  copy: (text: string, what: string) => void;
   setSheet: (sheet: Sheet) => void;
 }) {
-  const testLabel = testing.open ? 'Close guardrail test' : 'Test guardrails';
   const traceLabel = trace.open ? 'Hide trace' : 'View trace';
+  const phone = usePhone();
   const { compiled } = compile;
   return (
     <Section variant="transparent" paddingInline={3} paddingBlock={0}>
@@ -2864,49 +2776,34 @@ function PreviewHeader({
         <StackItem size="static">
           <HStack gap={1} vAlign="center">
             <ActingAsButton />
-            {compile.payload && run.isUsed && !testing.open && !tracing.open && (
+            {compile.payload && run.isUsed && !testing && !tracing.open && (
               <ClearHistoryButton run={run} />
             )}
-            {!testing.open && (
-              <TraceFileButtons
-                payload={compile.payload}
-                tracing={tracing}
-                feed={feed}
-                profileId={profileId}
-              />
-            )}
-            {compile.payload && (
-              <IconButton
-                label={testLabel}
-                variant="ghost"
-                tooltip={testLabel}
-                icon={<Icon icon={IconShieldSearch} size="sm" />}
-                aria-pressed={testing.open}
-                onClick={testing.toggle}
-              />
-            )}
-            <ExportActions
-              store={store}
-              compiled={compiled.ok ? compiled : undefined}
-              chatted={compile.chatted}
-              chattedId={compile.chattedId}
-              blocked={compile.blocked}
-              copy={copy}
-              connection={{
-                connectionMode: connection.mode,
-                localBaseUrl: connection.local.baseUrl,
-              }}
-            />
-            {(compile.traced || tracing.open) && !testing.open ? (
-              <IconButton
+            {!testing && <ReplayExchangeButton payload={compile.payload} tracing={tracing} />}
+            {(compile.traced || tracing.open) && !testing ? (
+              <Button
                 label={traceLabel}
+                isIconOnly={phone}
                 variant={trace.open ? 'secondary' : 'ghost'}
-                tooltip={traceLabel}
+                tooltip={
+                  trace.open
+                    ? 'Close the trace'
+                    : 'See how each reply was made, step by step: every model and tool call, guardrail check and gate, with its timing'
+                }
                 icon={<Icon icon={IconActivity} size="sm" />}
                 aria-pressed={trace.open}
                 onClick={trace.toggle}
               />
             ) : null}
+            <OpenInNewTabButton
+              compiled={compiled.ok ? compiled : undefined}
+              chattedId={compile.chattedId}
+              blocked={compile.blocked}
+              connection={{
+                connectionMode: connection.mode,
+                localBaseUrl: connection.local.baseUrl,
+              }}
+            />
           </HStack>
         </StackItem>
       </HStack>
@@ -3156,9 +3053,9 @@ const PreviewPane = memo(function PreviewPane({
   run,
   connection,
   chatRef,
-  copy,
   setSheet,
   onIssue,
+  testing,
 }: {
   store: StudioStore;
   chatAgents: ChatAgent[];
@@ -3167,14 +3064,16 @@ const PreviewPane = memo(function PreviewPane({
   run: ConversationRun;
   connection: StudioConnectionState;
   chatRef: RefObject<TheoremChatHandle | null>;
-  copy: (text: string, what: string) => void;
   setSheet: (sheet: Sheet) => void;
   /** Opens the node an issue is on, in the editor. */
   onIssue: (node: string) => void;
+  /** The guardrail test, opened from the Guardrails page, takes the conversation's place. */
+  testing: boolean;
 }) {
   const [traceOpen, setTraceOpen] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [tracing, setTracing] = useState(false);
+  const [imported, setTracing] = useState(false);
+  // why: The guardrail test covers an imported trace too; closing the test shows it again.
+  const tracing = imported && !testing;
   const feedOf = useRunFeeds(run.generation);
   const profileId = chatAgents.find((agent) => agent.value === chatWith)?.label;
   const sendNext = useSendAfterResume(chatRef, run.runKey);
@@ -3210,22 +3109,13 @@ const PreviewPane = memo(function PreviewPane({
               setTraceOpen((open) => !open);
             },
           }}
-          testing={{
-            open: testing,
-            toggle: () => {
-              setTesting((open) => !open);
-              setTracing(false);
-            },
-          }}
+          testing={testing}
           tracing={{
             open: tracing,
             toggle: () => {
               setTracing((open) => !open);
             },
           }}
-          feed={feedOf(run.runKey)}
-          profileId={profileId}
-          copy={copy}
           setSheet={setSheet}
         />
         <StackItem size="fill">
@@ -3383,6 +3273,21 @@ function Studio({ opened }: { opened: StudioOpened }) {
   const closeMap = useCallback(() => {
     setMapOpen(false);
   }, [setMapOpen]);
+  const [testing, setTesting] = useState(false);
+  const guardrailTest = useMemo(
+    () =>
+      compile.payload
+        ? {
+            open: testing,
+            toggle: () => {
+              // why: On a phone the test shows in the preview sheet, so opening it goes there.
+              if (!testing) setSheet('preview');
+              setTesting(!testing);
+            },
+          }
+        : null,
+    [compile.payload, testing, setSheet],
+  );
 
   return (
     <ProjectContext.Provider value={project}>
@@ -3393,72 +3298,75 @@ function Studio({ opened }: { opened: StudioOpened }) {
             <SharedChange store={state.store} />
             <SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
               <QuestionLink value={questionLink}>
-                <Layout
-                  ref={frame.layoutCallbackRef}
-                  className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
-                  padding={0}
-                  start={
-                    <SidePanel
-                      frame={frame}
-                      tree={tree}
-                      draft={draft}
-                      onAddAgent={addAgentFrom}
-                      setSheet={setSheet}
-                      settings={
-                        view.settingsOpen &&
-                        project && (
-                          <SettingsPane
-                            state={state}
-                            connection={connection}
-                            project={project}
-                            setConversation={run.setConversation}
-                          />
-                        )
-                      }
-                      map={
-                        view.mapOpen && (
-                          <Suspense fallback={null}>
-                            <StudioMap
-                              workspace={state.workspace}
-                              shared={state.shared}
-                              selected={view.keysOpen ? '' : selected}
-                              onOpen={view.open}
-                              onClose={closeMap}
-                            />
-                          </Suspense>
-                        )
-                      }
-                    >
-                      <EditorColumn
-                        heading={view.keysOpen ? 'Keys' : headingOf(tree.list, editing, title)}
-                        state={state}
-                        connection={connection}
-                        view={view}
-                        compile={compile}
-                        selected={selected}
-                        editing={editing}
+                <GuardrailTest.Provider value={guardrailTest}>
+                  <Layout
+                    ref={frame.layoutCallbackRef}
+                    className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
+                    padding={0}
+                    start={
+                      <SidePanel
                         frame={frame}
-                        issueReveal={issueReveal}
-                        goToIssue={goToIssue}
+                        tree={tree}
+                        draft={draft}
+                        onAddAgent={addAgentFrom}
                         setSheet={setSheet}
+                        settings={
+                          view.settingsOpen &&
+                          project && (
+                            <SettingsPane
+                              state={state}
+                              connection={connection}
+                              project={project}
+                              setConversation={run.setConversation}
+                            />
+                          )
+                        }
+                        map={
+                          view.mapOpen && (
+                            <Suspense fallback={null}>
+                              <StudioMap
+                                workspace={state.workspace}
+                                shared={state.shared}
+                                selected={view.keysOpen ? '' : selected}
+                                onOpen={view.open}
+                                onClose={closeMap}
+                              />
+                            </Suspense>
+                          )
+                        }
+                      >
+                        <EditorColumn
+                          heading={view.keysOpen ? 'Keys' : headingOf(tree.list, editing, title)}
+                          state={state}
+                          connection={connection}
+                          view={view}
+                          compile={compile}
+                          selected={selected}
+                          editing={editing}
+                          frame={frame}
+                          issueReveal={issueReveal}
+                          goToIssue={goToIssue}
+                          copy={copy}
+                          setSheet={setSheet}
+                        />
+                      </SidePanel>
+                    }
+                    content={
+                      <PreviewPane
+                        store={store}
+                        chatAgents={chatAgents}
+                        chatWith={state.workspace.chatWith}
+                        compile={compile}
+                        run={run}
+                        connection={connection}
+                        chatRef={chatRef}
+                        setSheet={setSheet}
+                        onIssue={goToIssue}
+                        testing={testing && Boolean(compile.payload)}
                       />
-                    </SidePanel>
-                  }
-                  content={
-                    <PreviewPane
-                      store={store}
-                      chatAgents={chatAgents}
-                      chatWith={state.workspace.chatWith}
-                      compile={compile}
-                      run={run}
-                      connection={connection}
-                      chatRef={chatRef}
-                      copy={copy}
-                      setSheet={setSheet}
-                      onIssue={goToIssue}
-                    />
-                  }
-                />
+                    }
+                  />
+                </GuardrailTest.Provider>
               </QuestionLink>
             </SaveScope>
           </ProjectAsks>
@@ -3536,10 +3444,49 @@ function useWorkspaceTree(
   setSheet: (sheet: Sheet) => void,
 ): WorkspaceTreeState {
   const { workspace, focus, update, setDraft } = state;
-  const { open } = view;
-  const selectedId = view.keysOpen ? '' : selected;
+  const { open, keysOpen, setKeysOpen, setEditorView } = view;
+  const selectedId = keysOpen ? '' : selected;
   const { list, setList } = useListShown(selectedId);
   const ownsProviders = useProject() !== null;
+  const { hasSettings } = useStudioHost();
+  const toast = useToast();
+  const reset = useCallback(
+    (to: StudioWorkspace, body: string) =>
+      to === workspace
+        ? undefined
+        : () => {
+            update(() => to);
+            const dismiss = toast({
+              body,
+              endContent: (
+                <Button
+                  label="Undo"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    update(() => workspace);
+                    dismiss();
+                  }}
+                />
+              ),
+            });
+          },
+    [workspace, update, toast],
+  );
+  const keys = useMemo(
+    () =>
+      hasSettings
+        ? null
+        : {
+            open: keysOpen,
+            toggle: () => {
+              setKeysOpen((was) => !was);
+              setEditorView('editor');
+              setSheet(null);
+            },
+          },
+    [hasSettings, keysOpen, setKeysOpen, setEditorView, setSheet],
+  );
   return useMemo(
     () => ({
       workspace,
@@ -3554,8 +3501,23 @@ function useWorkspaceTree(
       },
       update,
       setDraft,
+      reset,
+      keys,
     }),
-    [workspace, focus, selectedId, list, ownsProviders, setList, open, setSheet, update, setDraft],
+    [
+      workspace,
+      focus,
+      selectedId,
+      list,
+      ownsProviders,
+      setList,
+      open,
+      setSheet,
+      update,
+      setDraft,
+      reset,
+      keys,
+    ],
   );
 }
 
@@ -3711,6 +3673,7 @@ function EditorColumn({
   frame,
   issueReveal,
   goToIssue,
+  copy,
   setSheet,
 }: {
   heading: string | undefined;
@@ -3723,6 +3686,7 @@ function EditorColumn({
   frame: ReturnType<typeof useStudioFrame>;
   issueReveal: ReturnType<typeof useIssueReveal>;
   goToIssue: (node: string) => void;
+  copy: (text: string, what: string) => void;
   setSheet: (sheet: Sheet) => void;
 }) {
   const { editorRef, revealed } = issueReveal;
@@ -3730,7 +3694,6 @@ function EditorColumn({
   const over = view.keysOpen;
   const shared = over ? undefined : sharedAt(state.shared, selected);
   const { shown, leavePage } = useLeftIssues(compile.editorIssues, selected, revealed);
-  const reset = useReset(state);
   const project = useProject();
   const openOrigin = useOpenOrigin(project);
   const rowOrigins = useMemo(() => {
@@ -3747,7 +3710,7 @@ function EditorColumn({
         selected={selected}
         view={view}
         onIssue={goToIssue}
-        reset={reset}
+        getCode={<ExportMenu store={state.store} compile={compile} copy={copy} />}
         project={
           project && (
             <>

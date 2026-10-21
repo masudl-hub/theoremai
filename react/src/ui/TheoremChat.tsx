@@ -317,7 +317,8 @@ function ChatBody({
         style={{ position: 'relative', ...style }}
         header={header}
         content={
-          <LayoutContent padding={0}>
+          // why: Once there are messages ChatLayout is the scroller; a second one around it moved the docked composer.
+          <LayoutContent padding={0} isScrollable={landing}>
             {landing ? (
               <ChatLanding {...docked} handle={handle} emptyState={emptyState} />
             ) : (
@@ -338,6 +339,8 @@ function ChatBody({
     </WithTrace>
   );
 }
+
+const CHAT_SCROLL = { overscrollBehavior: 'none' } as const;
 
 /** Where the composer sits, and how wide the chat's column is. */
 type DockedComposer = {
@@ -409,6 +412,8 @@ function ChatThread({
       <ChatLayout
         density={density}
         scrollRef={scrollRef}
+        // why: Scrolling past either end does not bounce the transcript and its docked composer.
+        style={CHAT_SCROLL}
         composer={
           composer && (
             <VStack paddingBlockEnd={3}>

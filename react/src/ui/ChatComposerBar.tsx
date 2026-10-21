@@ -1,4 +1,3 @@
-import { Badge } from '@astryxdesign/core/Badge';
 import { Button } from '@astryxdesign/core/Button';
 import {
   ChatComposer,
@@ -17,20 +16,25 @@ import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
+import { Tooltip as HoverTip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
   IconAdjustmentsHorizontal,
+  IconArchive,
+  IconArrowBigRightLines,
   IconArrowDown,
   IconArrowUp,
   IconBrain,
   IconCornerDownLeft,
   IconInputAi,
+  IconListNumbers,
   IconMicrophone,
   IconPaperclip,
   IconPencil,
   IconPlayerRecordFilled,
   IconSend,
   IconStack2,
+  IconSteeringWheel,
   IconX,
 } from '@tabler/icons-react';
 import { attachmentIssueText, type LabelOverrides, labelText } from '@theoremjs/agents';
@@ -157,6 +161,14 @@ function useObjectUrls(
   return urls;
 }
 
+/** Each way to send, by the same icon in the send menu and on a waiting message. */
+const SEND_ICON: Record<ComposerMenuAction, typeof IconX> = {
+  queue: IconListNumbers,
+  steer: IconSteeringWheel,
+  send_now: IconArrowBigRightLines,
+  stash: IconArchive,
+};
+
 function PendingRow(props: {
   message: ComposerPendingMessage;
   onMove: ChatComposerBarProps['onPendingMove'];
@@ -174,12 +186,17 @@ function PendingRow(props: {
   const moveUp = t('@theorem.composer.pending.move_up');
   const moveDown = t('@theorem.composer.pending.move_down');
   const remove = t('@theorem.composer.pending.remove');
+  const Kind = SEND_ICON[message.kind];
   return (
     <HStack gap={1} align="center" width="100%">
-      <Badge
-        variant={message.kind === 'steer' ? 'info' : 'neutral'}
-        label={t(`@theorem.composer.pending.${message.kind}`)}
-      />
+      <HoverTip content={t(`@theorem.composer.pending.${message.kind}.description`)}>
+        <Token
+          label={t(`@theorem.composer.pending.${message.kind}`)}
+          isLabelHidden
+          color={message.kind === 'steer' ? 'blue' : 'default'}
+          icon={<Kind size={14} />}
+        />
+      </HoverTip>
       {/* why: A zero basis keeps the text out of the row's width, so it truncates before the actions instead of widening the drawer. */}
       <StackItem size="fill" style={{ width: 0 }}>
         <Text size="sm" maxLines={1} hasTruncateTooltip>
@@ -493,13 +510,17 @@ function SendMenu({
       }}
       hasChevron={false}
       placement="above"
-      items={actions.map((action) => ({
-        id: action,
-        label: t(`@theorem.composer.menu.${action}`),
-        description: t(`@theorem.composer.menu.${action}.description`),
-        ...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
-        onClick: () => onAction(action),
-      }))}
+      items={actions.map((action) => {
+        const Glyph = SEND_ICON[action];
+        return {
+          id: action,
+          label: t(`@theorem.composer.menu.${action}`),
+          description: t(`@theorem.composer.menu.${action}.description`),
+          icon: <Glyph size={16} />,
+          ...(action === 'stash' ? { endContent: <Kbd keys={STASH_SHORTCUT} /> } : {}),
+          onClick: () => onAction(action),
+        };
+      })}
     />
   );
 }

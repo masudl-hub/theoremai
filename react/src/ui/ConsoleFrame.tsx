@@ -25,7 +25,15 @@ import {
 } from 'react';
 import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
-import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';
+import {
+  PANEL_EDGE,
+  PanelBody,
+  PanelScroll,
+  paneEdge,
+  RAISED,
+  SidePanel,
+  SidePanelHeader,
+} from './SidePanel.tsx';
 import { textRows } from './StateFields.tsx';
 import { type TraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 import { CONSOLE_CARD } from './trace-patterns.tsx';
@@ -122,7 +130,11 @@ function ConsoleSingle({
   children: ReactNode;
 }) {
   return (
-    <VStack height="100%" paddingInline={3} style={flush ? FLUSH_CARD : undefined}>
+    <VStack
+      height="100%"
+      paddingInlineStart={PANEL_EDGE}
+      style={{ ...(flush ? FLUSH_CARD : undefined), paddingInlineEnd: paneEdge(PANEL_EDGE) }}
+    >
       <Card
         variant="transparent"
         height="100%"
@@ -166,15 +178,18 @@ export function ConsoleFrame({
         }
         content={
           <LayoutContent padding={0} isScrollable={false}>
-            <ConsoleBody
-              layoutRef={layoutRef}
-              flush={flush}
-              columns={columns}
-              maxWidth={maxWidth}
-              requestLabel={requestLabel}
-            >
-              {children}
-            </ConsoleBody>
+            {/* why: The same 12px off the row above as a raised pane, so a console and the trace sit alike. */}
+            <VStack height="100%" paddingBlockStart={PANEL_EDGE}>
+              <ConsoleBody
+                layoutRef={layoutRef}
+                flush={flush}
+                columns={columns}
+                maxWidth={maxWidth}
+                requestLabel={requestLabel}
+              >
+                {children}
+              </ConsoleBody>
+            </VStack>
           </LayoutContent>
         }
       />

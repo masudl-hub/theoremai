@@ -13,7 +13,6 @@ import { Citation } from '@astryxdesign/core/Citation';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
-import { useStreamingText } from '@astryxdesign/core/hooks';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { useLocale } from '@astryxdesign/core/i18n';
@@ -551,10 +550,9 @@ function Sources({ block }: { block: SourceCitationBlock }) {
 }
 
 /**
- * Streamed text (the reply, or the latest thought). Guardrails release text in batches (the last one when
- * the stream closes), and Astryx's reveal snaps to the full text once
- * `isStreaming` goes false — so keep the reveal on until Astryx's own
- * `useStreamingText` has caught up with everything received.
+ * Streamed text (the reply, or the latest thought). Astryx reveals it while
+ * the stream is open, and shows it whole once it closes: the reveal never
+ * holds back text that has arrived.
  */
 function StreamedMarkdown({
   text,
@@ -567,15 +565,9 @@ function StreamedMarkdown({
   density?: 'compact';
   components?: Partial<MarkdownComponents>;
 }) {
-  const [revealing, setRevealing] = useState(streaming);
-  if (streaming && !revealing) setRevealing(true);
   const plugins = useMarkdownPlugins();
-  const shown = useStreamingText(text, revealing);
-  useEffect(() => {
-    if (!streaming && shown.length >= text.length) setRevealing(false);
-  }, [streaming, shown, text]);
   return (
-    <Markdown isStreaming={revealing} density={density} components={components} plugins={plugins}>
+    <Markdown isStreaming={streaming} density={density} components={components} plugins={plugins}>
       {text}
     </Markdown>
   );

@@ -89,6 +89,7 @@ import {
   IconServer,
   IconShieldLock,
   IconShieldOff,
+  IconShieldSearch,
   IconSquareRoundedNumber0,
   IconSquareRoundedNumber2,
   IconTool,
@@ -259,6 +260,7 @@ import {
 } from './inspector.tsx';
 import {
   ConfirmWrite,
+  GuardrailTest,
   LeavePage,
   ListBadges,
   LocalConnection,
@@ -4436,6 +4438,24 @@ function PageFrame({
   );
 }
 
+/** Opens the guardrail test in the preview's place, or closes it; there while an agent compiles. */
+function GuardrailTestButton() {
+  const test = useContext(GuardrailTest);
+  if (!test) return null;
+  return (
+    <Section variant="transparent" paddingInline={3} paddingBlockStart={3}>
+      <Button
+        label={test.open ? 'Close guardrail test' : 'Test guardrails'}
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={IconShieldSearch} size="sm" />}
+        aria-pressed={test.open}
+        onClick={test.toggle}
+      />
+    </Section>
+  );
+}
+
 function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { guardrails } = draft;
   const set = patch(setDraft, 'guardrails');
@@ -4449,6 +4469,7 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
   return frame(
     'list',
     <>
+      <GuardrailTestButton />
       <DetectSection guardrails={guardrails} boundaries={boundaries} set={set} onOpen={show} />
       {draftAllows(draft, 'guardrails.blockedReply') && (
         <BlockedReplySection

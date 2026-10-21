@@ -134,15 +134,27 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.composer.pending.steer': {
     defaultMessage: 'Steering',
-    description: 'Badge on a waiting steering message.',
+    description: 'Name of a waiting steering message, read by screen readers on its icon.',
+  },
+  '@theorem.composer.pending.steer.description': {
+    defaultMessage: 'Steering: the agent reads it at its next step.',
+    description: 'Tooltip on a waiting steering message.',
   },
   '@theorem.composer.pending.queue': {
     defaultMessage: 'Queued',
-    description: 'Badge on a waiting queued message.',
+    description: 'Name of a waiting queued message, read by screen readers on its icon.',
+  },
+  '@theorem.composer.pending.queue.description': {
+    defaultMessage: 'Queued: it sends once this reply finishes.',
+    description: 'Tooltip on a waiting queued message.',
   },
   '@theorem.composer.pending.stash': {
     defaultMessage: 'Stashed',
-    description: 'Badge on a waiting stashed message.',
+    description: 'Name of a waiting stashed message, read by screen readers on its icon.',
+  },
+  '@theorem.composer.pending.stash.description': {
+    defaultMessage: 'Stashed: it waits here until you send it.',
+    description: 'Tooltip on a waiting stashed message.',
   },
   '@theorem.composer.pending.edit': {
     defaultMessage: 'Edit',
@@ -938,6 +950,10 @@ export const THEOREM_UI_CATALOG = {
   '@theorem.panel.trace.no_match': {
     defaultMessage: 'No spans match',
     description: 'Trace panel, when the search matches nothing.',
+  },
+  '@theorem.panel.trace.download': {
+    defaultMessage: 'Download trace',
+    description: "Saves the trace's records as a file.",
   },
   '@theorem.panel.trace.back': {
     defaultMessage: 'Back',

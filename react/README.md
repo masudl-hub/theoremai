@@ -477,3 +477,5 @@ Use `labels` to replace any message, for each locale:
 License: MIT.
 
 Set `--theorem-pane-background` on a containing element to change the fill of raised panes within it. The default is `--color-background-card`.
+
+Set `--theorem-pane-edge` on a containing element to change the gap its raised panes keep from the page's end and bottom edges, for example `0px` where the page around them is already inset. The default is 12px at the end and 12px or 16px at the bottom.

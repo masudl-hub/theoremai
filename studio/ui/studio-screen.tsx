@@ -2317,6 +2317,44 @@ const TreeColumn = memo(function TreeColumn({
 });
 
 /**
+ * The studio's tree for a workspace, open on its `selected` node, where nothing changes anything:
+ * a picture of the studio for a page that is not the studio, such as a home page. It writes no
+ * storage and reports nothing.
+ */
+export function StudioTreePreview({
+  workspace,
+  kernelVersion,
+}: {
+  workspace: StudioWorkspace;
+  kernelVersion: string;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const selectedId = workspace.selected;
+  const at = workspaceNodeRef(workspace, selectedId);
+  const focus = at && 'agent' in at ? at.agent : (workspace.agents[0]?.key ?? '');
+  const draft = libraryDraft(workspace, focus) ?? createBlankDraft();
+  const still = () => {};
+  const tree: WorkspaceTreeState = {
+    workspace,
+    focus,
+    selectedId,
+    list: 'agents',
+    ownsProviders: false,
+    setList: still,
+    onSelect: still,
+    update: still,
+    setDraft: still,
+    reset: () => undefined,
+    keys: null,
+  };
+  return (
+    <StudioHostContext.Provider value={{ kernelVersion }}>
+      <TreeColumn tree={tree} draft={draft} onAddAgent={still} listRef={listRef} setSheet={still} />
+    </StudioHostContext.Provider>
+  );
+}
+
+/**
  * The issue count, which goes to the next issue after the selected node and shows it there. Hidden
  * with none. It counts every issue, so what blocks a run or Save always has a way to it.
  */

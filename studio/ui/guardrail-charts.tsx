@@ -180,6 +180,7 @@ function RunStats({ now, before, datasets }: { now: Pool; before?: Pool; dataset
 /** A ranking in a card, headed by its first bar; nothing when there is no bar. */
 function RankCard({
   title,
+  lead,
   rows,
   format,
   max,

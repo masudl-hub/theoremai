@@ -277,15 +277,26 @@ function Skipped({ skipped }: { skipped: BenchSummary['skipped'] }) {
   );
 }
 
+const RUN_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+/** A run's name, the UTC time it started as a folder name, as a local date and time. */
+function runLabel(run: string): string {
+  const [day = '', time = ''] = run.split('T');
+  const started = new Date(`${day}T${time.replace(/-/g, ':')}`);
+  return Number.isNaN(started.getTime()) ? run : RUN_TIME.format(started);
+}
+
 /** The run in short: what it ran, on which commit, and what it could not read. */
 function RunFacts({ summary, previous }: { summary: BenchSummary; previous?: BenchSummary }) {
   return (
     <VStack gap={2}>
       <MetadataList columns={2}>
-        <MetadataListItem label="Run">{summary.run}</MetadataListItem>
+        <MetadataListItem label="Run">{runLabel(summary.run)}</MetadataListItem>
         <MetadataListItem label="Commit">{summary.commit.slice(0, 8)}</MetadataListItem>
         <MetadataListItem label="Took">{duration(summary.seconds)}</MetadataListItem>
-        <MetadataListItem label="Compared with">{previous?.run ?? '—'}</MetadataListItem>
+        <MetadataListItem label="Compared with">
+          {previous ? runLabel(previous.run) : '—'}
+        </MetadataListItem>
       </MetadataList>
       <Skipped skipped={summary.skipped} />
     </VStack>
@@ -304,14 +315,16 @@ function LiveFacts({ live, previous }: { live: BenchProgress; previous?: BenchSu
         hasValueLabel
       />
       <MetadataList columns={2}>
-        <MetadataListItem label="Run">{live.run}</MetadataListItem>
+        <MetadataListItem label="Run">{runLabel(live.run)}</MetadataListItem>
         <MetadataListItem label="Now">
           {live.current
             ? `${live.current.dataset} · ${live.current.rows.toLocaleString()} rows`
             : '—'}
         </MetadataListItem>
         <MetadataListItem label="Running for">{duration(live.seconds)}</MetadataListItem>
-        <MetadataListItem label="Compared with">{previous?.run ?? '—'}</MetadataListItem>
+        <MetadataListItem label="Compared with">
+          {previous ? runLabel(previous.run) : '—'}
+        </MetadataListItem>
       </MetadataList>
       <Skipped skipped={live.skipped} />
     </VStack>

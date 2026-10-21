@@ -2,9 +2,15 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Text } from '@astryxdesign/core/Text';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
-import { DETECTOR_META, DETECTORS, type Detector } from '@theoremjs/agents/guardrails';
+import {
+  DETECT_DEFAULTS,
+  DETECTOR_META,
+  DETECTORS,
+  type Detector,
+} from '@theoremjs/agents/guardrails';
 import type { CSSProperties } from 'react';
 import type { DatasetScore } from '../guardrail-bench.ts';
+import { PROBE_READS } from '../guardrail-probe.ts';
 import { PROBE_BOUNDARIES, PROBE_BOUNDARY_NOTES, type ProbeBoundary } from '../mod.ts';
 
 export const MATRIX_FIGURES = ['recall', 'falseAlarms', 'p95'] as const;
@@ -16,16 +22,17 @@ export const MATRIX_FIGURE_LABELS: Record<MatrixFigure, string> = {
   p95: 'p95 time',
 };
 
-/** Where each figure's shade turns from good to bad, and where it is at its darkest bad. */
-const SCALE: Record<MatrixFigure, { worst: number; note: string }> = {
-  recall: { worst: 0, note: 'Recall: 100% is the darkest blue, 50% white, 0% the darkest grey.' },
-  falseAlarms: {
-    worst: 0.1,
-    note: 'False alarms: 0% is the darkest blue, 5% white, 10% or more the darkest grey.',
-  },
+/** Each figure's scale, from its worst (the darkest grey) through the middle (white) to its best (the darkest blue). */
+const SCALE: Record<
+  MatrixFigure,
+  { worst: number; ends: [string, string, string]; note?: string }
+> = {
+  recall: { worst: 0, ends: ['0%', '50%', '100%'] },
+  falseAlarms: { worst: 0.1, ends: ['10% or more', '5%', '0%'] },
   p95: {
     worst: 10,
-    note: 'p95 time: 0 ms is the darkest blue, 5 ms white, 10 ms or more the darkest grey. Each cell is its slowest dataset.',
+    ends: ['10 ms or more', '5 ms', '0 ms'],
+    note: 'Each cell is its slowest dataset.',
   },
 };
 
@@ -74,13 +81,115 @@ function shown(figure: MatrixFigure, value: number): string {
 }
 
 /** Good is blue and bad is grey, each darker the further it is from the middle. */
-function shade(goodness: number): CSSProperties {
-  const strength = Math.round(Math.abs(goodness - 0.5) * 2 * 85);
+function tint(goodness: number): string {
   const ink = goodness >= 0.5 ? 'var(--color-text-blue)' : 'var(--color-text-gray)';
+  return `color-mix(in srgb, ${ink} ${String(strengthOf(goodness))}%, var(--color-background-surface))`;
+}
+
+function strengthOf(goodness: number): number {
+  return Math.round(Math.abs(goodness - 0.5) * 2 * 85);
+}
+
+function shade(goodness: number): CSSProperties {
   return {
-    background: `color-mix(in srgb, ${ink} ${String(strength)}%, var(--color-background-surface))`,
-    color: strength > 50 ? 'var(--color-background-surface)' : 'var(--color-text-primary)',
+    background: tint(goodness),
+    color:
+      strengthOf(goodness) > 50 ? 'var(--color-background-surface)' : 'var(--color-text-primary)',
   };
+}
+
+/** Whether `detector` reads `boundary` when a profile sets nothing. */
+function runsByDefault(boundary: ProbeBoundary, detector: Detector): boolean {
+  return DETECT_DEFAULTS[detector][PROBE_READS[boundary]] !== 'ignore';
+}
+
+function MatrixCell({
+  scores,
+  boundary,
+  detector,
+  figure,
+  onOpen,
+}: {
+  scores: readonly DatasetScore[];
+  boundary: ProbeBoundary;
+  detector: Detector;
+  figure: MatrixFigure;
+  onOpen: (boundary: ProbeBoundary, detector: Detector) => void;
+}) {
+  const cell = cellOf(scores, boundary, detector, figure);
+  const name = `${DETECTOR_META[detector].label} at ${PROBE_BOUNDARY_NOTES[boundary].label}`;
+  if (!cell) {
+    const isOff = !runsByDefault(boundary, detector);
+    return (
+      <Tooltip
+        content={`${name}: ${isOff ? 'does not run here unless a profile turns it on' : 'no dataset scores it here'}`}
+      >
+        <span
+          className={`studio-bench-cell ${isOff ? 'studio-bench-cell-off' : 'studio-bench-cell-empty'}`}
+        />
+      </Tooltip>
+    );
+  }
+  return (
+    <Tooltip
+      content={`${name}: ${shown(figure, cell.value)}${figure === 'p95' ? ' ms' : '%'}, ${cell.of}, over ${String(cell.datasets)} datasets`}
+    >
+      <button
+        type="button"
+        className="studio-bench-cell"
+        style={shade(cell.goodness)}
+        onClick={() => {
+          onOpen(boundary, detector);
+        }}
+      >
+        {shown(figure, cell.value)}
+      </button>
+    </Tooltip>
+  );
+}
+
+/** The figure's scale as a strip from grey through white to blue, with its ends and middle named. */
+function ScaleStrip({ figure }: { figure: MatrixFigure }) {
+  const { ends, note } = SCALE[figure];
+  const label = MATRIX_FIGURE_LABELS[figure];
+  return (
+    <VStack gap={1}>
+      <div
+        role="img"
+        aria-label={`${label} scale: ${ends[0]} is the darkest grey, ${ends[1]} white, ${ends[2]} the darkest blue.`}
+        className="studio-bench-strip"
+        style={{
+          background: `linear-gradient(to right, ${tint(0)}, ${tint(0.5)}, ${tint(1)})`,
+        }}
+      />
+      <HStack justify="between">
+        {ends.map((end) => (
+          <Text key={end} type="supporting" color="secondary">
+            {end}
+          </Text>
+        ))}
+      </HStack>
+      <HStack gap={3} align="center" wrap="wrap">
+        <HStack gap={1} align="center">
+          <span className="studio-bench-cell studio-bench-cell-empty studio-bench-key" />
+          <Text type="supporting" color="secondary">
+            No dataset scores it
+          </Text>
+        </HStack>
+        <HStack gap={1} align="center">
+          <span className="studio-bench-cell studio-bench-cell-off studio-bench-key" />
+          <Text type="supporting" color="secondary">
+            Off by default
+          </Text>
+        </HStack>
+        {note && (
+          <Text type="supporting" color="secondary">
+            {note}
+          </Text>
+        )}
+      </HStack>
+    </VStack>
+  );
 }
 
 /**
@@ -96,67 +205,41 @@ export function GuardrailMatrix({
   figure: MatrixFigure;
   onOpen: (boundary: ProbeBoundary, detector: Detector) => void;
 }) {
-  const boundaries = PROBE_BOUNDARIES.filter((boundary) =>
-    scores.some((dataset) => dataset.boundary === boundary),
-  );
-  const detectors = DETECTORS.filter((detector) =>
-    scores.some((dataset) => dataset.detectors.some((score) => score.detector === detector)),
-  );
   return (
-    <VStack gap={2}>
+    <VStack gap={3}>
       <div className="studio-bench-matrix-scroll">
         <div
           className="studio-bench-matrix"
-          style={{ gridTemplateColumns: `max-content repeat(${String(detectors.length)}, 44px)` }}
+          style={{ gridTemplateColumns: `max-content repeat(${String(DETECTORS.length)}, 44px)` }}
         >
           <span />
-          {detectors.map((detector) => (
+          {DETECTORS.map((detector) => (
             <span key={detector} className="studio-bench-matrix-head">
               <Text type="supporting" color="secondary">
                 {DETECTOR_META[detector].label}
               </Text>
             </span>
           ))}
-          {boundaries.map((boundary) => [
+          {PROBE_BOUNDARIES.map((boundary) => [
             <Text key={boundary} type="supporting">
               {PROBE_BOUNDARY_NOTES[boundary].label}
             </Text>,
-            ...detectors.map((detector) => {
-              const cell = cellOf(scores, boundary, detector, figure);
-              const name = `${DETECTOR_META[detector].label} at ${PROBE_BOUNDARY_NOTES[boundary].label}`;
-              if (!cell) {
-                return (
-                  <Tooltip key={detector} content={`${name}: not scored`}>
-                    <span className="studio-bench-cell studio-bench-cell-empty" />
-                  </Tooltip>
-                );
-              }
-              return (
-                <Tooltip
-                  key={detector}
-                  content={`${name}: ${shown(figure, cell.value)}${figure === 'p95' ? ' ms' : '%'}, ${cell.of}, over ${String(cell.datasets)} datasets`}
-                >
-                  <button
-                    type="button"
-                    className="studio-bench-cell"
-                    style={shade(cell.goodness)}
-                    onClick={() => {
-                      onOpen(boundary, detector);
-                    }}
-                  >
-                    {shown(figure, cell.value)}
-                  </button>
-                </Tooltip>
-              );
-            }),
+            ...DETECTORS.map((detector) => (
+              <MatrixCell
+                key={detector}
+                scores={scores}
+                boundary={boundary}
+                detector={detector}
+                figure={figure}
+                onOpen={onOpen}
+              />
+            )),
           ])}
         </div>
       </div>
-      <HStack>
-        <Text type="supporting" color="secondary">
-          {SCALE[figure].note}
-        </Text>
-      </HStack>
+      <div className="studio-bench-legend">
+        <ScaleStrip figure={figure} />
+      </div>
     </VStack>
   );
 }

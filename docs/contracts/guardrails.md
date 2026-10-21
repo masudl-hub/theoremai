@@ -537,10 +537,12 @@ To read a run in the studio, start the studio from the folder the bench ran in.
 Test guardrails then shows a Health view. It lists each detector on each
 dataset, with recall, false alarms, and time, and the change since the run
 before. Each dataset's name opens its source page, and its licence sits
-beside it. The Matrix view shades each boundary against each detector by
-recall, false alarms or p95 time, pooled over the datasets that cross there:
-blue where it does well, grey where it does badly, and white where nothing
-scores it. A cell opens its rows in the table. Open a row to see its worst
+beside it. The Matrix view lists every boundary against every detector and
+shades each cell by recall, false alarms or p95 time, pooled over the datasets
+that cross there: blue where it does well, grey where it does badly. A strip
+under it shows the scale. A white cell has no dataset that scores it. A hatched
+cell is a detector that does not run at that boundary under `DETECT_DEFAULTS`.
+A cell opens its rows in the table. Open a row to see its worst
 categories and the texts behind each figure, with each match marked. **Probe the draft** sends one of those texts
 through the probe again, with the open draft.
 

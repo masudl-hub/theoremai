@@ -178,7 +178,7 @@ export function Sunburst({
         <SunburstChart
           width={RADIAL_PX}
           height={RADIAL_PX}
-          data={{ name: '', children: top }}
+          data={{ name: '', value: total(top), children: top }}
           innerRadius={RADIAL_PX * 0.11}
           ringPadding={2}
           stroke={TRACE_GAP}

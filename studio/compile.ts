@@ -2045,7 +2045,14 @@ function compileHost(
   agentInputOf: AgentToolInputOf,
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
-  const { customTools, tools } = compileTools(draft, false, false, report, agentIdOf, agentInputOf);
+  const { customTools, tools } = compileTools(
+    draft,
+    draftAllows(draft, 'tools.t2Loader'),
+    draftAllows(draft, 'tools.parallel'),
+    report,
+    agentIdOf,
+    agentInputOf,
+  );
   if (!customTools.length) {
     report('tools', 'Add at least one tool: a host runs only its tools.');
   }

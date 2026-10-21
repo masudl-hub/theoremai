@@ -369,7 +369,11 @@ const PROFILES = [
     inputs: { state: 'json', maxStateBytes: 1000 },
     decision: { contract: 'every.v1' },
   } as never),
-  defineProfile({ type: 'host', id: 'every-host', tools: { allow: ['every_fetch'] } }),
+  defineProfile({
+    type: 'host',
+    id: 'every-host',
+    tools: { allow: ['every_fetch'], parallel: true },
+  }),
 ];
 for (const profile of PROFILES) registerProfile(profile);
 

@@ -2,11 +2,12 @@
  * The workspace's tree, every row open, drawn as the map draws: each row a map token, and a line
  * from each row down and across to each of its children. Beside the tree, what feeds it: the
  * runner that runs each agent's turns, the providers that serve its models, and the tool registry its
- * tool policy picks from, with the tool runner under it, each with a line into its row. It changes nothing and opens nothing: a picture of what a workspace holds, for a
+ * tool policy picks from, a few of its tools nested under it and the tool runner under those, each
+ * with a line into its row. It changes nothing and opens nothing: a picture of what a workspace holds, for a
  * page that is not the studio.
  */
 import type { IconType } from '@astryxdesign/core/Icon';
-import { IconBolt, IconCloud, IconPlayerPlay, IconTool } from '@tabler/icons-react';
+import { IconCloud, IconEngine, IconSettingsAutomation, IconTool } from '@tabler/icons-react';
 import { useRef } from 'react';
 import { mapCurve } from '../map-line.ts';
 import {
@@ -16,6 +17,7 @@ import {
   type StudioWorkspace,
   workspaceTree,
 } from '../mod.ts';
+import { toolTypeIcon } from './lib/type-icons.ts';
 import { MapToken, useTokenWidths } from './map-token.tsx';
 import { nodeIcon } from './node-icon.ts';
 import './tree-map.css';
@@ -30,8 +32,11 @@ const HALF = 11;
 const TURN = 8;
 const PAD = 16;
 /** Between the tree's widest row and the feeds, and between a token's side and its line. */
-const GAP = 56;
+const GAP = 72;
 const LINE_GAP = 4;
+/** How many of the registry's tools sit under it: one of each type first. */
+const SHOWN_TOOLS = 4;
+const TOOL_TYPES = ['function', 'http', 'mcp', 'agent'];
 /** A token's width until it is measured. */
 const GUESS = 120;
 
@@ -53,7 +58,9 @@ interface Feed {
   icon: IconType;
   y: number;
   into: string[];
+  /** Under another feed: a level in when it is one of that feed's own, else level with it. */
   under?: string;
+  depth: number;
 }
 
 function rowsOf(workspace: StudioWorkspace, only?: string): Row[] {
@@ -88,7 +95,14 @@ function rowId(row: Row): string {
  */
 function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const feeds: Feed[] = [];
-  const add = (id: string, label: string, icon: IconType, into: Row[], under?: string) => {
+  const add = (
+    id: string,
+    label: string,
+    icon: IconType,
+    into: Row[],
+    under?: string,
+    depth = 0,
+  ) => {
     const below = (feeds.at(-1)?.y ?? Number.NEGATIVE_INFINITY) + ROW;
     const middle = into.length ? into.reduce((sum, row) => sum + row.y, 0) / into.length : below;
     feeds.push({
@@ -98,13 +112,14 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       y: Math.max(middle, below),
       into: into.map(rowId),
       ...(under ? { under } : {}),
+      depth,
     });
   };
   for (const agent of workspace.agents) {
     const mine = rows.filter((row) => row.agent === agent.key);
     const name = mine.find((row) => row.node.ref.facet === 'identity');
     if (!name) continue;
-    add(`${agent.key}/runner`, 'Agent runner', IconPlayerPlay, [name]);
+    add(`${agent.key}/runner`, 'Agent runner', IconEngine, [name]);
     const providers = new Map<string, Row[]>();
     for (const binding of agent.modelBindings) {
       const row = mine.find(
@@ -118,11 +133,26 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     // The workspace's tools are one registry that each agent's tool policy picks from.
     const tools = mine.find((row) => row.node.ref.facet === 'tools');
     if (tools && workspace.toolSpecs.length > 0) {
-      add(`${agent.key}/tools`, 'Tool registry', IconTool, [tools]);
-      add(`${agent.key}/tool-runner`, 'Tool runner', IconBolt, [], `${agent.key}/tools`);
+      const registry = `${agent.key}/tools`;
+      add(registry, 'Tool registry', IconTool, [tools]);
+      for (const tool of shownTools(workspace.toolSpecs)) {
+        const icon = toolTypeIcon(tool.toolType);
+        add(`${registry}/${tool.key}`, tool.toolName, icon, [], registry, 1);
+      }
+      add(`${agent.key}/tool-runner`, 'Tool runner', IconSettingsAutomation, [], registry);
     }
   }
   return feeds;
+}
+
+/** A few of the registry's tools: the first of each type, then the next ones, in the registry's order. */
+function shownTools(tools: StudioWorkspace['toolSpecs']): StudioWorkspace['toolSpecs'] {
+  const firsts = TOOL_TYPES.flatMap((type) => {
+    const tool = tools.find((each) => each.toolType === type);
+    return tool ? [tool] : [];
+  });
+  const rest = tools.filter((tool) => !firsts.includes(tool));
+  return [...firsts, ...rest].slice(0, SHOWN_TOOLS);
 }
 
 /** Down from under the parent's icon, then a turn across to the child. */
@@ -151,9 +181,11 @@ export function StudioTreeMap({ workspace, agent }: StudioTreeMapProps) {
   const right = (row: Row) => row.x + (widths[rowId(row)] ?? GUESS);
   const feedX = Math.max(0, ...rows.map(right)) + GAP;
   const byId = new Map(rows.map((row) => [rowId(row), row]));
-  const feedY = new Map(feeds.map((feed) => [feed.id, feed.y]));
+  const feedById = new Map(feeds.map((feed) => [feed.id, feed]));
   const height = PAD * 2 + Math.max(rows.length * ROW, ...feeds.map((feed) => feed.y + HALF - PAD));
-  const width = feedX + Math.max(GUESS, ...feeds.map((feed) => widths[feed.id] ?? GUESS)) + PAD;
+  const feedLeft = (feed: Feed) => feedX + feed.depth * INDENT;
+  const width =
+    Math.max(GUESS, ...feeds.map((feed) => feedLeft(feed) + (widths[feed.id] ?? GUESS))) + PAD;
   return (
     <div ref={root} className="studio-tree-map" style={{ width, height }}>
       <svg className="studio-tree-map-lines" width={width} height={height} aria-hidden="true">
@@ -175,17 +207,15 @@ export function StudioTreeMap({ workspace, agent }: StudioTreeMapProps) {
           }),
         )}
         {feeds.map((feed) => {
-          const above = feed.under === undefined ? undefined : feedY.get(feed.under);
+          const above = feed.under === undefined ? undefined : feedById.get(feed.under);
           if (above === undefined) return null;
-          // Straight up from under its icon into the feed it runs.
-          const x = feedX + TRUNK;
-          return (
-            <path
-              key={`${feed.id}^`}
-              className="map-line"
-              d={`M ${x} ${feed.y - HALF} V ${above + HALF}`}
-            />
-          );
+          const from = { x: feedLeft(above), y: above.y };
+          // One of its own turns in from the trunk, as a tree row does; one level with it runs straight up.
+          const d =
+            feed.depth > above.depth
+              ? linePath(from, { x: feedLeft(feed), y: feed.y })
+              : `M ${from.x + TRUNK} ${feed.y - HALF} V ${above.y + HALF}`;
+          return <path key={`${feed.id}^`} className="map-line" d={d} />;
         })}
       </svg>
       {rows.map((row) => {
@@ -207,7 +237,7 @@ export function StudioTreeMap({ workspace, agent }: StudioTreeMapProps) {
           id={feed.id}
           label={feed.label}
           icon={feed.icon}
-          x={feedX}
+          x={feedLeft(feed)}
           y={feed.y}
         />
       ))}

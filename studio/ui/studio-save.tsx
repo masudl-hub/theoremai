@@ -36,6 +36,20 @@ import type {
 import { type ProjectSession, reviewSave, undoSave, writeSave } from './lib/studio-project.ts';
 import { RefusalDetail } from './refusal-detail.tsx';
 
+/** The areas `settings` fall in, most first: `guardrails.detect (310)`, not every dotted path. */
+function settingAreas(settings: readonly string[], shown = 4): string {
+  const counts = new Map<string, number>();
+  for (const setting of settings) {
+    const parts = setting.split('.');
+    const area = parts.length > 2 ? parts.slice(0, 2).join('.') : parts[0];
+    counts.set(area, (counts.get(area) ?? 0) + 1);
+  }
+  const areas = [...counts].sort((a, b) => b[1] - a[1]);
+  const named = areas.slice(0, shown).map(([area, count]) => (count > 1 ? `${area} (${count})` : area));
+  const more = areas.length - named.length;
+  return more > 0 ? `${named.join(', ')}, and ${more} more` : named.join(', ');
+}
+
 /** Wide enough for a reason's sentence to read in a few lines. */
 const ALERTS_WIDTH = 320;
 /** The most of the alerts a hover shows before it scrolls: a project can have one for every agent. */
@@ -333,7 +347,10 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
                   Your project did not register everything its files define.
                 </Text>
                 <Text type="supporting" color="secondary">
-                  {`Not loaded, so not shown: ${unregistered.map((each) => each.name).join(', ')}. The studio shows what your project registers when it starts.`}
+                  {`${unregistered.length} defined in your files but not registered when the project started, so the studio cannot show them: ${unregistered
+              .slice(0, 5)
+              .map((each) => each.name)
+              .join(', ')}${unregistered.length > 5 ? `, and ${unregistered.length - 5} more` : ''}. A run and Save still use your files. If none of them load, the studio is probably reading a second copy of the Theorem package.`}
                 </Text>
               </VStack>
             )}
@@ -343,7 +360,7 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
                   The studio cannot check what it shows against your files.
                 </Text>
                 <Text type="supporting" color="secondary">
-                  {`A run and Save still use your files. ${unheld.join(' ')}`}
+                  {`A run and Save still use your files. ${[...new Set(unheld)].join(' ')}${unregistered.length > 0 ? ' This usually follows from the profiles above not loading.' : ''}`}
                 </Text>
               </VStack>
             )}
@@ -351,7 +368,7 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
               <VStack key={`${difference.kind}:${difference.of}`} gap={1}>
                 <Text weight="semibold">{`The studio shows ${difference.of} differently from your files.`}</Text>
                 <Text type="supporting" color="secondary">
-                  {`A run and Save still use your files for: ${difference.settings.join(', ')}.`}
+                  {`${difference.settings.length} ${difference.settings.length === 1 ? 'setting differs' : 'settings differ'}: ${settingAreas(difference.settings)}. A run and Save still use your files.`}
                 </Text>
               </VStack>
             ))}

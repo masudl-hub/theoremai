@@ -95,6 +95,20 @@ function rowId(row: Row): string {
  * workspace's tool registry, beside its Tools row, with the tool runner under it. A feed sits level
  * with the middle of the rows it joins, or under the feed before it when that is lower.
  */
+const REGISTRY = 'tool-registry';
+
+/**
+ * What runs a profile of this type: `runDecision`, `runSession`, `runEmbedding`, else `runTurn`. A
+ * host has none of its own: the tool runner runs its calls.
+ */
+function runnerLabel(type: string): string | undefined {
+  if (type === 'host') return undefined;
+  if (type === 'decision') return 'Decision runner';
+  if (type === 'live') return 'Session runner';
+  if (type === 'embedding') return 'Embedding runner';
+  return 'Turn runner';
+}
+
 function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const feeds: Feed[] = [];
   const add = (
@@ -121,9 +135,8 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     const mine = rows.filter((row) => row.agent === agent.key);
     const name = mine.find((row) => row.node.ref.facet === 'identity');
     if (!name) continue;
-    // A decision runs through `runDecision`, every other profile through `runTurn`.
-    const runner = agent.identity.profileType === 'decision' ? 'Decision runner' : 'Turn runner';
-    add(`${agent.key}/runner`, runner, IconEngine, [name]);
+    const runner = runnerLabel(agent.identity.profileType);
+    if (runner) add(`${agent.key}/runner`, runner, IconEngine, [name]);
     const providers = new Map<string, Row[]>();
     for (const binding of agent.modelBindings) {
       const row = mine.find(
@@ -134,16 +147,19 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     for (const [provider, into] of providers) {
       add(`${agent.key}/provider:${provider}`, provider, IconCloud, into);
     }
-    // The workspace's tools are one registry that each agent's tool policy picks from.
+    // The workspace's tools are one registry that each agent's tool policy picks from: drawn once,
+    // beside the first Tools row, with a line into every other.
     const tools = mine.find((row) => row.node.ref.facet === 'tools');
-    if (tools && workspace.toolSpecs.length > 0) {
-      const registry = `${agent.key}/tools`;
+    const drawn = feeds.find((feed) => feed.id === REGISTRY);
+    if (tools && drawn) drawn.into.push(rowId(tools));
+    else if (tools && workspace.toolSpecs.length > 0) {
+      const registry = REGISTRY;
       add(registry, 'Tool registry', IconTool, [tools]);
       for (const tool of shownTools(workspace.toolSpecs)) {
         const icon = toolTypeIcon(tool.toolType);
         add(`${registry}/${tool.key}`, tool.toolName, icon, [], registry, 1);
       }
-      add(`${agent.key}/tool-runner`, 'Tool runner', IconSettingsAutomation, [], registry);
+      add('tool-runner', 'Tool runner', IconSettingsAutomation, [], registry);
     }
   }
   return feeds;

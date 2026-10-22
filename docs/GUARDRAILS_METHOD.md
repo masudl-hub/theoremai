@@ -126,6 +126,7 @@ Each line is an experiment ID, a date, a config, and a result. Recall and false 
 | A18 | 21/10 | Feature ablations on A15, one feature out at a time. | Only exfil_target matters: without it, llmail-validate falls to 85.6%. Without second_person, injecagent rises to 63.0% and gravitee-validate falls to 2.1%, but llmail-validate falls to 90.7%. Without the three bare signals, llmail-validate falls to 65.2%. The version-2 features add nothing here either. |
 | A19 | 21/10 | Score a text by its highest-scoring window of 400 or 1,000 characters, not by the whole text. A8 and A15. | Rejected. llmail-validate falls from 92% to 80%–83%, and gravitee-validate false alarms rise to 3.0%. An llmail attack spreads its signals over more than one window. |
 | F1 | 21/10 | Test score, once: A8 against A15, both at 2%. | llmail-test recall goes from 43.0% to 73.7%. nvidia-agentic-ipi recall goes from 98.6% to 15.2%. injecagent (rows not in the corpus) stays at 72.7%. False alarms: gravitee-test 1.8% to 2.4%, agentdojo-records 5.8% to 16.1%. A15 is rejected. It learned llmail, the source it trained on, and lost the only tool-shaped source that no version trained on. Validation warned of this: wildjailbreak attack recall fell to 0.4%. From now on, nvidia figures have been seen. |
+| R1 | 21/10 | Ruling on the budget. | A budget of 5% validation false alarms is not acceptable. Versions are compared at 1% and 2%. No version is locked, A8 included. |
 
 ### Speed
 

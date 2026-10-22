@@ -176,7 +176,7 @@ Use the `type` field to choose what the agent does. The type sets the shape of t
 | `speech` | `runTurn` | text | audio (WAV, or MP3 on OpenRouter) | `geminiInteractions`, `openRouterOpenAi`, `openAi` |
 | `live` | `runSession` | realtime mic audio, camera frames, typed text | streamed audio, transcripts, tool calls | `geminiLive` |
 | `host` | `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep` | tool calls from your own code, one at a time or as a step; the `run` pair gives how each call ended | guarded tool results | none; it never calls a model |
-| `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, or `noul` | `systemOne`, `openRouterDecisions` |
+| `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, boxes, or `noul` | `systemOne`, `openRouterDecisions` |
 | `embedding` | `runEmbedding` | text, or text and media parts | one vector for each input | `geminiEmbedding`, `openRouterEmbedding`, `ollamaEmbedding` |
 
 A protocol that you define can serve the same profile types. Its `endpoints` name the profile types that it serves.

@@ -182,7 +182,7 @@ The profile has these fields:
 | `models` | One or more model bindings; registration fills `defaultModel` |
 | `allowModelSelect` | Allows the request to select a named embedding model |
 | `inputs` | Text and media kinds, accepted MIME patterns, and byte/file limits |
-| `guardrails` | Input and network policy that the embedding request can use |
+| `guardrails` | Takes no field today: each `guardrails.*` field is scoped to other profile types, and `defineProfile` refuses it with a `config` error. The trace record is scrubbed with the default detectors |
 | `observability` | Trace destination, sampling, scrubbing, and usage inclusion |
 | `labels` | Host-owned wording for errors and other exposed text |
 

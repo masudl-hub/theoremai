@@ -143,7 +143,7 @@ grading the same records twice is byte-identical.
 
 A trial's graders run at once, so its judges answer in parallel; the judge
 records they hand back are written in grader order once every grader is done,
-whichever answered first.
+whichever answered first, each under the trial span it graded.
 
 | Grader | Reads | Passes when |
 | --- | --- | --- |
@@ -270,8 +270,8 @@ Every judge call is stamped `metadata.eval = { suite, case, trial, judge:
 { grader } }`, runs under the trial span (`EvalGradeContext.traceparent`), so
 it lands in the judged trace beneath the trial it graded (an `invoke_agent`
 turn or a `decide` decision), and goes to the run's sink under the judge
-profile's observability policy. The result names each judge call's root in
-`judgeTraceparents`.
+profile's observability policy. The result names each judge call's root (`recordRoot` of its
+first record) in `judgeTraceparents`.
 
 The variables are Phoenix's names, so its prompts read the trace unchanged:
 
@@ -494,7 +494,8 @@ run of provider errors is not read as a run of wrong answers), and the median
 and 90th percentile of turn time, model calls, and tool calls. Percentiles are nearest-rank, so each is a value some trial had.
 Caseless trials belong to no group.
 
-`run.costUsd` sums only the costs providers reported; `run.unpriced` counts
+`run.costUsd` sums only the costs providers reported, read from each record's
+`recordRoot`; `run.unpriced` counts
 the agent turns and judge calls whose cost went unreported, in whole or part,
 and `run.priced` those that reported one, `$0` included (the summary carries
 both).

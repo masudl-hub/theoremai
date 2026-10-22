@@ -14,6 +14,7 @@ import { foldConversationTurn, type TranscriptBlock } from '@theoremjs/agents/in
 import type { ModelEvent, ModelRequest, TurnEvent, TurnModel } from '@theoremjs/agents/kernel';
 import {
   inlineContent,
+  recordRoot,
   type TraceAttributeValue,
   type TraceRecord,
   type TraceSpan,
@@ -287,9 +288,6 @@ function parsed(text: string): unknown {
   }
 }
 
-const rootOf = (record: TraceRecord): TraceSpan | undefined =>
-  record.spans.find((span) => !span.parentSpanId);
-
 /**
  * The replay a run's records stand for. Each record whose root is a turn of the conversation's
  * agent is a turn; a record of another agent's turn (an agent tool's) adds its calls to the turn
@@ -300,7 +298,7 @@ export function replayScript(records: readonly TraceRecord[]): ReplayScript {
   let recordedAt: number | undefined;
   const turns: ReplayTurn[] = [];
   records.forEach((record, index) => {
-    const root = rootOf(record);
+    const root = recordRoot(record);
     if (!root || operation(root) !== 'invoke_agent') return;
     const name = stringAttribute(root, 'gen_ai.agent.name') ?? '';
     agent ||= name;

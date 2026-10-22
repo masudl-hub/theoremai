@@ -7,6 +7,7 @@ import { isRecord } from '../kernel/util/record.ts';
 import type {
   TraceAttributes,
   TraceAttributeValue,
+  TraceRecord,
   TraceSpan,
   TraceSpanEvent,
   TraceSpanKind,
@@ -321,6 +322,17 @@ function startTrace(
   };
 }
 
+/**
+ * The record's root: the span no other span in it parents. It may hang under a span that lives
+ * elsewhere: a host's own span over the turn, or an eval's trial span over a judge call.
+ */
+function recordRoot(record: TraceRecord): TraceSpan | undefined {
+  const ids = new Set(record.spans.map((span) => span.spanId));
+  return record.spans.find(
+    (span) => span.parentSpanId === undefined || !ids.has(span.parentSpanId),
+  );
+}
+
 export type {
   SpanHandle,
   SpanLinkInput,
@@ -345,6 +357,7 @@ export {
   isTraceJson,
   parseTraceparent,
   readTraceparent,
+  recordRoot,
   startTrace,
   traceBytes,
   traceContent,

@@ -65,6 +65,7 @@ export type {
 } from './trace-span.ts';
 export {
   readTraceparent,
+  recordRoot,
   startTrace,
   traceBytes,
   traceContent,

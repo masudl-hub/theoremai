@@ -21,12 +21,14 @@ export const PAD = 16;
 const GAP = 72;
 const LEAST_GAP = 56;
 const MOST_GAP = 160;
+/** The least room between two lanes. */
+const LANE = 9;
 /** The tools beside a Tools row: the first of each type. */
 const TOOL_TYPES = ['function', 'http', 'mcp', 'agent'];
 /** The tools a remote call reaches the network for. */
 const REMOTE_TYPES = ['http', 'mcp'];
 /** By how far grown every node has reached its zone; the rest is for drawing in. */
-const MOVE_TO = 0.7;
+export const MOVE_TO = 0.7;
 /** Over what stretch of growing the added nodes draw, and how long each takes of it. */
 const DRAW_FROM = 0.2;
 const DRAW_TO = 0.95;
@@ -403,13 +405,21 @@ function grownPlaces(
     );
   const [first, second, third] = [columnWidth(1), columnWidth(2), columnWidth(3)];
   const taken = treeRight - PAD + first + second + third;
-  const spare = box ? (box.width - 2 * PAD - taken) / 3 : LEAST_GAP;
-  const gap = Math.min(Math.max(spare, LEAST_GAP), MOST_GAP);
+  // A gap is wide enough for a lane into each feed of the column after it, and the spare is shared.
+  const gaps = ([1, 2, 3] as const).map((column) => {
+    const lanes = feeds.filter(
+      (feed) => feed.column === column && feed.from.length + (feed.late?.length ?? 0) > 0,
+    ).length;
+    return Math.max(LEAST_GAP, (lanes + 1) * LANE);
+  });
+  const [one = 0, two = 0, three = 0] = gaps;
+  const spare = box ? Math.max(0, box.width - 2 * PAD - taken - one - two - three) / 3 : 0;
+  const widen = (gap: number) => Math.max(gap, Math.min(gap + spare, MOST_GAP));
   const lefts = [
     0,
-    treeRight + gap,
-    treeRight + 2 * gap + first,
-    treeRight + 3 * gap + first + second,
+    treeRight + widen(one),
+    treeRight + widen(one) + first + widen(two),
+    treeRight + widen(one) + first + widen(two) + second + widen(three),
   ];
 
   const places = new Map<string, Place>();
@@ -492,6 +502,16 @@ export interface TreeMapLayout {
   slots: Map<string, Slot>;
   /** When each node growing adds starts to draw. */
   starts: Map<string, number>;
+  /** Grown, where the lines into each feed run down to it. */
+  lanes: Map<string, Lane>;
+  /** Grown, where a line steps aside to pass between rows, by its key. */
+  jogs: Map<string, Jog[]>;
+}
+
+/** A feed's lane: `by` left of the column it stands in, which starts at the feed `of`. */
+export interface Lane {
+  of: string;
+  by: number;
 }
 
 /** Where a node stands this far grown: a node under a feed keeps its slot under it on the way. */
@@ -516,6 +536,190 @@ export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place 
 export function drawnAt(layout: TreeMapLayout, id: string, grow: number): number | undefined {
   const start = layout.starts.get(id);
   return start === undefined ? undefined : clamp((grow - start) / DRAW_SPAN);
+}
+
+/** A line's three runs: level from its source, down its lane, level into its feed. */
+interface Run {
+  from: Place;
+  to: Place;
+  lane: number;
+}
+
+/** Where two lines' runs cross, one's level runs over the other's lane. */
+function crossings(a: Run[], b: Run[]): number {
+  const across = (level: Run[], down: Run[]) =>
+    level.reduce(
+      (count, line) =>
+        count +
+        down.filter((other) =>
+          [
+            [line.from.y, line.from.x, line.lane],
+            [line.to.y, line.lane, line.to.x],
+          ].some(
+            ([y = 0, left = 0, right = 0]) =>
+              other.lane > Math.min(left, right) &&
+              other.lane < Math.max(left, right) &&
+              y > Math.min(other.from.y, other.to.y) &&
+              y < Math.max(other.from.y, other.to.y),
+          ),
+        ).length,
+      0,
+    );
+  return across(a, b) + across(b, a);
+}
+
+/**
+ * Each feed's lane, in the gap left of its column: lines into one feed share it, and the lanes go
+ * in the order that crosses fewest.
+ */
+function lanesOf(
+  layout: TreeMapLayout,
+  width: (id: string) => number,
+): Pick<TreeMapLayout, 'lanes' | 'jogs'> {
+  const lanes = new Map<string, Lane>();
+  /** Per column, where a line steps aside in the gap before it: left of every lane there. */
+  const steps = new Map<number, Lane>();
+  const grown = (id: string) => placeAt(layout, id, 1);
+  const root = (id: string): string => {
+    const slot = layout.slots.get(id);
+    return slot ? root(slot.holder) : id;
+  };
+  const rights = (ids: string[]) => Math.max(0, ...ids.map((id) => grown(id).x + width(id)));
+  ([1, 2, 3] as const).forEach((column) => {
+    const inColumn = layout.feeds.filter((feed) => feed.column === column);
+    const head = inColumn.find((feed) => !layout.slots.has(feed.id));
+    if (!head) return;
+    const left = grown(head.id).x;
+    const before =
+      column === 1
+        ? layout.rows.map(rowId)
+        : layout.feeds.filter((feed) => feed.column === column - 1).map((feed) => feed.id);
+    const space = left - rights(before);
+    const targets = inColumn.filter((feed) => feed.from.length + (feed.late?.length ?? 0) > 0);
+    const runs = (feed: Feed, lane: number): Run[] =>
+      [...feed.from, ...(feed.late ?? [])].map((source) => ({
+        from: { x: grown(source).x + width(source), y: grown(source).y },
+        to: grown(feed.id),
+        lane,
+      }));
+    // The first lane is the nearest its column; to start, the top feed's.
+    const order = targets.toSorted((a, b) => grown(a.id).y - grown(b.id).y);
+    const laneAt = (index: number) => left - (space * (index + 1)) / (order.length + 1);
+    const cost = () =>
+      order.reduce(
+        (sum, feed, index) =>
+          sum +
+          order
+            .slice(index + 1)
+            .reduce(
+              (more, other, offset) =>
+                more +
+                crossings(runs(feed, laneAt(index)), runs(other, laneAt(index + 1 + offset))),
+              0,
+            ),
+        0,
+      );
+    let best = cost();
+    for (let pass = 0, swapped = true; swapped && pass < order.length; pass += 1) {
+      swapped = false;
+      for (let index = 0; index + 1 < order.length; index += 1) {
+        const [a, b] = [order[index], order[index + 1]];
+        if (!a || !b) continue;
+        order[index] = b;
+        order[index + 1] = a;
+        const next = cost();
+        if (next < best) {
+          best = next;
+          swapped = true;
+        } else {
+          order[index] = a;
+          order[index + 1] = b;
+        }
+      }
+    }
+    order.forEach((feed, index) => {
+      lanes.set(feed.id, { of: root(feed.id), by: left - laneAt(index) });
+    });
+    steps.set(column, { of: head.id, by: space - space / (order.length + 1) / 2 });
+  });
+  return { lanes, jogs: jogsOf(layout, width, lanes, steps) };
+}
+
+/** A line's step aside: in the gap at `lane`, to half a row above (-1) or below (1) `near`. */
+export interface Jog {
+  lane: Lane;
+  near: string;
+  side: 1 | -1;
+}
+
+/** The key of the line from `source` into `feed`. */
+export const lineKey = (source: string, feed: string) => `${source}>${feed}`;
+
+/**
+ * Where a line would run level behind a token, or along another feed's last run, it steps half a
+ * row aside in the gap before it and runs on between the rows.
+ */
+function jogsOf(
+  layout: TreeMapLayout,
+  width: (id: string) => number,
+  lanes: Map<string, Lane>,
+  steps: Map<number, Lane>,
+): Map<string, Jog[]> {
+  const grown = (id: string) => placeAt(layout, id, 1);
+  const laneX = (lane: Lane) => grown(lane.of).x - lane.by;
+  const columnOf = new Map(layout.feeds.map((feed) => [feed.id, feed.column]));
+  const band = HALF + CLEAR;
+  const nodes = [...layout.rows.map(rowId), ...layout.feeds.map((feed) => feed.id)];
+  const jogs = new Map<string, Jog[]>();
+  for (const feed of layout.feeds) {
+    const lane = lanes.get(feed.id);
+    if (!lane) continue;
+    const rail = laneX(lane);
+    const end = grown(feed.id);
+    // What a level run can't pass: other tokens, and the last runs into the feeds beside this one.
+    const blocks = [
+      ...nodes.map((id) => ({
+        id,
+        left: grown(id).x,
+        right: grown(id).x + width(id),
+        reach: band,
+      })),
+      ...layout.feeds
+        .filter((other) => other.column === feed.column && other.id !== feed.id)
+        .flatMap((other) => {
+          const its = lanes.get(other.id);
+          return its
+            ? [{ id: other.id, left: laneX(its), right: grown(other.id).x, reach: HALF }]
+            : [];
+        }),
+    ];
+    for (const source of [...feed.from, ...(feed.late ?? [])]) {
+      const aside: Jog[] = [];
+      let x = grown(source).x + width(source);
+      let y = grown(source).y;
+      for (let tries = 0; tries < 3; tries += 1) {
+        const hit = blocks
+          .filter(
+            (block) =>
+              block.id !== source &&
+              block.id !== feed.id &&
+              block.right > x &&
+              block.left < rail &&
+              Math.abs(grown(block.id).y - y) < block.reach,
+          )
+          .toSorted((a, b) => a.left - b.left)[0];
+        if (!hit) break;
+        const step = steps.get(columnOf.get(hit.id) ?? 0);
+        if (!step || laneX(step) <= x) break;
+        const side = end.y >= grown(hit.id).y ? 1 : -1;
+        aside.push({ lane: step, near: hit.id, side });
+        x = laneX(step);
+        y = grown(hit.id).y + (side * layout.row) / 2;
+      }
+      if (aside.length > 0) jogs.set(lineKey(source, feed.id), aside);
+    }
+  }
+  return jogs;
 }
 
 /** Whether two tokens, at their left sides and middles, touch. */
@@ -588,7 +792,10 @@ export function treeMapLayout(
     row,
     slots,
     starts: new Map(),
+    lanes: new Map(),
+    jogs: new Map(),
   };
+  Object.assign(layout, lanesOf(layout, width));
   // What growing adds draws in its columns' order, each once it stands clear.
   const order = feeds.filter((feed) => !few.has(feed.id));
   const ids = [...rows.map(rowId), ...feeds.map((feed) => feed.id)];

@@ -11,6 +11,7 @@ import {
   type Box,
   drawnAt,
   HALF,
+  lineKey,
   placeAt,
   RUNNER,
   rowId,
@@ -185,4 +186,42 @@ Deno.test('grown into a box, the tree map fills it', () => {
   assert(Math.abs(BOX.height - 16 - bottom) <= 1, `the map ends at ${bottom}`);
   assert(top >= 16 - 1 && top <= 16 + 1, `the map starts at ${top}`);
   assert(BOX.width - 16 - right <= 2, `the map ends ${BOX.width - 16 - right} short of the box`);
+});
+
+Deno.test('grown into a box, each line runs level clear of every token, down its own lane', () => {
+  const layout = picture(BOX);
+  const at = (id: string) => placeAt(layout, id, 1);
+  const ids = [...layout.rows.map(rowId), ...layout.feeds.map((feed) => feed.id)];
+  const rails = new Set<number>();
+  for (const feed of layout.feeds) {
+    const lane = layout.lanes.get(feed.id);
+    const sources = [...feed.from, ...(feed.late ?? [])];
+    if (sources.length === 0) continue;
+    assert(lane, `${feed.id} has no lane`);
+    const rail = at(lane.of).x - lane.by;
+    assert(!rails.has(rail), `${feed.id} shares its lane`);
+    rails.add(rail);
+    for (const source of sources) {
+      let x = at(source).x + width(layout, source);
+      let y = at(source).y;
+      const level: [number, number, number][] = [];
+      for (const jog of layout.jogs.get(lineKey(source, feed.id)) ?? []) {
+        const next = at(jog.lane.of).x - jog.lane.by;
+        level.push([y, x, next]);
+        x = next;
+        y = at(jog.near).y + (jog.side * layout.row) / 2;
+      }
+      level.push([y, x, rail], [at(feed.id).y, rail, at(feed.id).x]);
+      for (const [runY, left, right] of level) {
+        for (const id of ids.filter((each) => each !== source && each !== feed.id)) {
+          const token = at(id);
+          const behind =
+            token.x < right &&
+            token.x + width(layout, id) > left &&
+            Math.abs(token.y - runY) < HALF;
+          assert(!behind, `${source} to ${feed.id} runs behind ${id}`);
+        }
+      }
+    }
+  }
 });

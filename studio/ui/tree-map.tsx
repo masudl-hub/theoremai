@@ -27,7 +27,7 @@ import {
   IconWorldCheck,
 } from '@tabler/icons-react';
 import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
-import { mapCurve } from '../map-line.ts';
+import { mapRoute } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
 import {
   type Box,
@@ -35,6 +35,8 @@ import {
   type Feed,
   HALF,
   INDENT,
+  lineKey,
+  MOVE_TO,
   PAD,
   type Place,
   placeAt,
@@ -196,6 +198,8 @@ export function StudioTreeMap({
     if (feed.under !== undefined && !firstUnder.has(feed.under))
       firstUnder.set(feed.under, feed.id);
   }
+  // why: Closed, a line is the still's curve; grown, it runs down its feed's lane like the tree's.
+  const square = clamp(grow / MOVE_TO);
   const lines = feeds.flatMap((feed) => {
     if (!feed.closedUnder && (drawn(feed.id) ?? 1) <= 0) return [];
     const late = (feed.late ?? []).map((source) => ({ source, late: true }));
@@ -203,16 +207,20 @@ export function StudioTreeMap({
       ({ source, late }) => {
         if (!isRow.has(source) && (drawn(source) ?? 1) <= 0) return [];
         const end = endOf(feed);
-        const { d } = mapCurve(
-          { x: right(source) + LINE_GAP, y: at(source).y },
-          { x: end.x - LINE_GAP, y: end.y },
-        );
+        const start = { x: right(source) + LINE_GAP, y: at(source).y };
+        const lane = layout.lanes.get(feed.id);
+        const rail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;
+        const steps = (layout.jogs.get(lineKey(source, feed.id)) ?? []).map((jog) => ({
+          x: at(jog.lane.of).x - jog.lane.by,
+          y: at(jog.near).y + (jog.side * layout.row) / 2,
+        }));
+        const d = mapRoute(start, { x: end.x - LINE_GAP, y: end.y }, steps, rail, TURN, square);
         const draws = late
           ? [firstUnder.get(feed.id) ?? feed.id]
           : feed.closedUnder
             ? []
             : [feed.id, ...(isRow.has(source) ? [] : [source])];
-        return [{ key: `${source}>${feed.id}`, d, draws }];
+        return [{ key: lineKey(source, feed.id), d, draws }];
       },
     );
   });

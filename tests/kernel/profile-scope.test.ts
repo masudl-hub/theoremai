@@ -74,6 +74,21 @@ Deno.test("a scoped field's types are a subset of its ancestor's", () => {
   }
 });
 
+Deno.test("a scope's reason names each type it refuses, or says which types it is only for", () => {
+  for (const [path, scope] of Object.entries(PROFILE_FIELD_SCOPE)) {
+    if (/\bonly\b/.test(scope.reason)) continue;
+    const parent = ancestorScope(path);
+    for (const type of ALL_PROFILE_TYPES) {
+      if (scope.profileTypes.includes(type)) continue;
+      if (parent && !parent.profileTypes.includes(type)) continue;
+      assert(
+        scope.reason.includes(type),
+        `${path} refuses ${type}, and its reason doesn't say why`,
+      );
+    }
+  }
+});
+
 Deno.test('defineProfile rejects each scoped field on a type outside its scope', () => {
   for (const [path, scope] of Object.entries(PROFILE_FIELD_SCOPE)) {
     const parent = ancestorScope(path);

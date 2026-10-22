@@ -38,7 +38,7 @@ export function splitReferences(
 }
 
 /** Every string value in a JSON value, keys left out: the only places a reference is read. */
-export function* stringValues(value: unknown): Generator<string> {
+function* stringValues(value: unknown): Generator<string> {
   if (typeof value === 'string') yield value;
   else if (Array.isArray(value)) for (const item of value) yield* stringValues(item);
   else if (value !== null && typeof value === 'object')

@@ -331,7 +331,9 @@ function slotsOf(feeds: Feed[]): Map<string, Slot> {
     if (feed.under === undefined) continue;
     const index = counts.get(feed.under) ?? 0;
     counts.set(feed.under, index + 1);
-    slots.set(feed.id, { holder: feed.under, across: INDENT, down: index + 1 });
+    // why: Tools stand as one straight list, so a tool under a tool is not set in from it.
+    const across = feed.column === 1 ? 0 : INDENT;
+    slots.set(feed.id, { holder: feed.under, across, down: index + 1 });
   }
   return slots;
 }

@@ -54,7 +54,7 @@ import {
   type WorkspaceMap,
   workspaceMap,
 } from '../mod.ts';
-import { IconTypeSafe, modelFamilyMark } from './brand-icons.tsx';
+import { modelFamilyMark } from './brand-icons.tsx';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { type KeptMap, type MapPlaces, readKeptMap, writeKeptMap } from './lib/studio-map-kept.ts';
 import { useProject } from './lib/studio-project.ts';
@@ -90,7 +90,6 @@ function nodeIcon({ kind, type, note }: MapNode): IconType {
   if (agent) return agent;
   if (kind === 'tool') return toolTypeIcon(type ?? '');
   // A model's note is its API model id, which names the family.
-  if (kind === 'model' && type === 'typesafe') return IconTypeSafe;
   if (kind === 'model') return modelFamilyMark(note) ?? FACET_ICON.modelBinding;
   if (kind === 'provider') return IconCloud;
   if (kind === 'shared' && type && Object.hasOwn(FACET_ICON, type)) {

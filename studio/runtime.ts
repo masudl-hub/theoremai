@@ -624,6 +624,6 @@ export async function runStudioEmbedding(
   }
 }
 
-export { failedDecisionTraces, withFailedTraces } from '@theoremjs/web/client';
+export { failedTraces, withFailedTraces } from '@theoremjs/web/client';
 
 export { studioKeySlots } from './browser-connection.ts';

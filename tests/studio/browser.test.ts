@@ -498,18 +498,24 @@ Deno.test('browser host retains dispatch authority and refuses a changed replay 
 
 Deno.test('a decision on the builder own keys says why it failed and keeps its trace', async () => {
   const { createBrowserStudioDecisionTransport } = await import('../../studio/browser.ts');
-  const { compileStudio: compile, createDecisionExampleDraft } = await import(
-    '../../studio/mod.ts'
-  );
-  const { failedDecisionTraces } = await import('../../studio/runtime.ts');
+  const {
+    compileStudio: compile,
+    createDecisionExampleDraft,
+    decisionExampleAssets,
+    DECISION_EXAMPLE_STATE,
+  } = await import('../../studio/mod.ts');
+  const { failedTraces } = await import('../../studio/runtime.ts');
   const compiled = compile(await createDecisionExampleDraft(), ON_OWN_KEYS);
   if (!compiled.ok) throw new Error(JSON.stringify(compiled.issues));
   const transport = createBrowserStudioDecisionTransport(compiled, { mode: 'byok', decision: {} });
-  const failure = await assertRejects(() => transport.decide({ action: 'delete' }));
+  const assets = await decisionExampleAssets();
+  const failure = await assertRejects(() =>
+    transport.decide(JSON.parse(DECISION_EXAMPLE_STATE), undefined, assets),
+  );
   const { clientFailure } = await import('../../web/src/client/failure.ts');
   assertEquals(clientFailure(failure).errorKind, 'auth');
   assert(clientFailure(failure).error.includes('has no credential in slot'));
-  assertEquals(failedDecisionTraces(failure).length, 1);
+  assertEquals(failedTraces(failure).length, 1);
 });
 
 Deno.test('the decision example sends its pictures from the browser and returns boxes', async () => {

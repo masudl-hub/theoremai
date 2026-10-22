@@ -26,7 +26,7 @@ import {
 } from '../../studio/server/run-traces.ts';
 import {
   createDecisionTransport,
-  failedDecisionTraces,
+  failedTraces,
 } from '../../web/src/client/decision-transport.ts';
 import { createEmbeddingTransport } from '../../web/src/client/embedding-transport.ts';
 
@@ -250,8 +250,8 @@ Deno.test("a failed decision's trace reaches the page on the failure thrown for 
     fetch: (input, init) => serve(new Request(input, init)),
   });
   const failure = await assertRejects(() => transport.decide({ note: 'one' }));
-  assertEquals(failedDecisionTraces(failure), [record]);
-  assertEquals(failedDecisionTraces(new Error('unrelated')), []);
+  assertEquals(failedTraces(failure), [record]);
+  assertEquals(failedTraces(new Error('unrelated')), []);
 });
 
 Deno.test("a failed embedding's trace reaches the page on the failure thrown for it", async () => {
@@ -266,5 +266,5 @@ Deno.test("a failed embedding's trace reaches the page on the failure thrown for
     fetch: (input, init) => serve(new Request(input, init)),
   });
   const failure = await assertRejects(() => transport.embed(['one']));
-  assertEquals(failedDecisionTraces(failure), [record]);
+  assertEquals(failedTraces(failure), [record]);
 });

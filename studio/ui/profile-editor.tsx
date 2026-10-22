@@ -6931,7 +6931,7 @@ function DecisionImageRow({
   );
 }
 
-/** The pictures every decision sends, each under the name its questions write, and a drop to add more. */
+/** The pictures a decision can send, each under the name its questions write, and a drop to add more. */
 function DecisionImagesSection({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const keys = useLentKeys();
   const { reading, changeAction } = useFilesRead(async (picked) => {

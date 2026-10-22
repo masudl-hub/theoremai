@@ -159,7 +159,7 @@ export interface CompiledStudio {
   structured?: StructuredRegistration;
   /** A decision's questions, by id. */
   questions?: Record<string, DecisionQuestion>;
-  /** The pictures every decision sends, by the reference its questions write. */
+  /** The pictures a decision can send, by the reference its questions write. A decision sends only those its state or questions name. */
   images?: Record<string, DecisionAsset>;
   /** The providers its models can name, each with its adapter. */
   providers: readonly StudioProvider[];

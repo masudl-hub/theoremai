@@ -138,7 +138,7 @@ export function decisionExampleDraft(images: DecisionImageDraft[] = []): StudioD
       ...draft.decision,
       contract: 'pantry.v1',
       questions: [
-        exampleQuestion('Ginger', 'box', 'Where is <ginger> in `photo`?'),
+        { ...exampleQuestion('Ginger', 'box', 'Where is <ginger> in `photo`?'), image: 'photo' },
         exampleQuestion('Something to drink', 'noul', "There's something to drink in `photo`."),
         exampleQuestion('Fruit salad', 'noul', 'Do we have what we need for a fruit salad?'),
         {
@@ -150,7 +150,10 @@ export function decisionExampleDraft(images: DecisionImageDraft[] = []): StudioD
           image: '<apple_ripeness>',
         },
         exampleQuestion('Bread on the shelf', 'noul', 'Does the shelf have bread?'),
-        exampleQuestion('Union Jack', 'box', 'Which jar in `photo` matches <union_jack>?'),
+        {
+          ...exampleQuestion('Union Jack', 'box', 'Which jar in `photo` matches <union_jack>?'),
+          image: 'photo',
+        },
         exampleQuestion('Brunch', 'choice', 'What can we make for brunch from `photo`?', [
           ['toast', 'Toast with a spread.'],
           ['fruit', 'A bowl of fruit.'],

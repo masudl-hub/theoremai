@@ -370,7 +370,7 @@ export interface DecisionQuestionDraft {
   image?: string;
 }
 
-/** A picture every decision sends, which the questions write as its name in angle brackets. */
+/** A picture a decision can send, which the questions write as its name in angle brackets. */
 export interface DecisionImageDraft {
   key: string;
   /** The reference without its brackets: `ghs02` is written `<ghs02>`. */

@@ -45,6 +45,8 @@ function pictureWorkspace(): { workspace: StudioWorkspace; agents: string[] } {
       ...binding,
       provider: 'openrouter',
       protocol: 'openRouterDecisions',
+      apiId: 'typesafe/jev-1.14',
+      options: {},
     })),
   };
   const both = addAgent(addAgent(trimmed, throughOpenRouter), createExampleDraft());

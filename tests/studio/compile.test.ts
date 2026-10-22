@@ -331,7 +331,7 @@ Deno.test('an option its protocol does not take is an issue at that option', () 
   const [fast, ...rest] = draft.modelBindings;
   const routed = {
     ...fast,
-    protocol: 'openRouter',
+    protocol: 'openRouterOpenAi',
     provider: 'openrouter',
     apiId: 'openrouter/free',
     options: { store: true },
@@ -719,7 +719,7 @@ Deno.test('studioSource registers each provider from its definition, and says wh
         providers: [{ id: provider, definition, ...slots }],
         modelBindings: draft.modelBindings.map((binding) => ({
           ...binding,
-          protocol: 'openRouter',
+          protocol: 'openRouterOpenAi',
           provider,
           apiId: 'openrouter/free',
         })),
@@ -1371,7 +1371,7 @@ Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () =
     updateModelBinding(draft, draft.modelBindings[index].key, {
       options: { cache: { mode: 'system', ttl: '1h' } },
     });
-  assertEquals(draft.modelBindings[2].protocol, 'openRouter');
+  assertEquals(draft.modelBindings[2].protocol, 'openRouterOpenAi');
   const { profile } = compiled(withCache(2));
   assertEquals(profile.models.open.options, { cache: { mode: 'system', ttl: '1h' } });
   assertEquals(profile.models.fast.options, undefined);

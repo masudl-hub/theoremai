@@ -100,7 +100,7 @@ const gemini31FlashLive: ModelBinding = {
 };
 const sonar: ModelBinding = {
   keySlot: 'slot_a',
-  protocol: 'openRouter',
+  protocol: 'openRouterOpenAi',
   provider: 'openrouter',
   apiId: 'perplexity/sonar',
   efforts: { normal: 'low', high: 'high' },

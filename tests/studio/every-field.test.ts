@@ -236,7 +236,7 @@ const PROFILES = [
         },
       },
       cached: {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'anthropic/claude-sonnet-4.5',
         options: { cache: { mode: 'system', ttl: '1h' } },

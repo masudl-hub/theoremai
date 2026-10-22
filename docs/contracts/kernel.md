@@ -103,7 +103,7 @@ facet kinds. Drift is gated by `tests/kernel/profile-graph.test.ts` and
 ### Decision profile
 
 A `decision` profile is a separate, bounded execution path for typed decisions.
-Its `models` map binds exactly one model: the `systemOne` protocol, a registered provider ID, and upstream `apiId`.
+Its `models` map binds exactly one model: a decision protocol (`systemOne`, or `openRouterDecisions` on OpenRouter), a registered provider ID, and upstream `apiId`.
 Credentials inherit the provider registration's slots unless the model overrides them.
 The profile's `decision.contract` is the host's stable id for the decision it
 makes. The id names the decision on its trace (`theorem.decision.contract`);
@@ -306,7 +306,7 @@ documents `application/pdf`, `text/plain`, `text/html`, `text/css`,
 `text/x-python`/`application/x-python`, `application/json`), verified
 2026-09-12, plus
 provider alias essences (`image/jpg`, `audio/x-wav`, `video/x-ms-wmv`, …). The
-The `openAi`, `openRouter`, and `openRouterImages` protocols forward a part's MIME verbatim on every `MediaInputKind`,
+The `openAi`, `openRouterOpenAi`, and `openRouterImages` protocols forward a part's MIME verbatim on every `MediaInputKind`,
 so their accepted set is open-ended and contributes no additional rows; what
 they cannot carry — a `uri` reference part — is refused at request time with
 `TheoremError` rather than by a second MIME table (see
@@ -346,7 +346,7 @@ provider file reference:
 `wireInteractionPart` emits `{ type, mimeType, uri }` for a reference part; the
 `geminiInteractions` protocol snake-cases it to the documented Files input
 `{ "type": "video", "uri": "files/<id>", "mime_type": "video/mp4" }`. The `openAi`,
-`openRouter`, `openRouterImages`, and `geminiLive` protocols throw `TheoremError` for reference
+`openRouterOpenAi`, `openRouterImages`, and `geminiLive` protocols throw `TheoremError` for reference
 parts — see `docs/contracts/providers.md`.
 
 `ModelBinding` contains `protocol`, registered `provider`, and upstream `apiId` strings,
@@ -618,7 +618,7 @@ the raw reason instead ([host](host.md)). Pass a trace sink (`memorySink`, `json
 `content` and `parts` are sent together, never one instead of the other:
 `historyMessageParts` (`src/kernel/interaction-parts.ts`) puts `content` first as a
 text part, then `parts`. Every first-party protocol (`geminiInteractions`, `geminiLive`,
-`openAi`, `openRouter`, `openRouterImages`) builds history content from it, so a host that stores a text projection
+`openAi`, `openRouterOpenAi`, `openRouterImages`) builds history content from it, so a host that stores a text projection
 alongside media does not lose either one.
 
 Google Interactions code execution (`codeExecution` builtin) is a server-side
@@ -1455,7 +1455,7 @@ compaction profile registered first and a text profile that takes text.
 
 ## Prompt cache (OpenRouter)
 
-The `openRouter` protocol validates per-model `options.cache`:
+The `openRouterOpenAi` protocol validates per-model `options.cache`:
 
 ```ts
 options: { cache: { mode: "automatic" | "system", ttl?: "5m" | "1h" } }

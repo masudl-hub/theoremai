@@ -433,7 +433,7 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
   return {
     key: draftKey('model'),
     modelId: 'fast',
-    protocol: 'openRouter',
+    protocol: 'openRouterOpenAi',
     provider: 'openrouter',
     apiId: '',
     options: {},

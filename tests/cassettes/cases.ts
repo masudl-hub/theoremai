@@ -17,7 +17,7 @@ import { canariesSent, inboundMisses, leaksIn, shownText } from '../fixtures/gua
 import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
 export interface CassetteModel {
   apiId: string;
-  protocol: 'geminiInteractions' | 'openRouter' | 'geminiLive';
+  protocol: 'geminiInteractions' | 'openRouterOpenAi' | 'geminiLive';
   /** A thinking level the model requires; unset leaves it to the provider. */
   effort?: 'low';
 }
@@ -26,7 +26,7 @@ export const CASSETTE_MODELS: CassetteModel[] = [
   { apiId: 'gemini-3.5-flash-lite', protocol: 'geminiInteractions' },
   { apiId: 'gemma-4-26b-a4b-it', protocol: 'geminiInteractions' },
   { apiId: 'gemma-4-31b-it', protocol: 'geminiInteractions' },
-  { apiId: 'openrouter/free', protocol: 'openRouter' },
+  { apiId: 'openrouter/free', protocol: 'openRouterOpenAi' },
   { apiId: 'gemini-3.1-flash-live-preview', protocol: 'geminiLive' },
   { apiId: 'gemini-3.8-live', protocol: 'geminiLive' },
   { apiId: 'gemini-3.8-live-extended-thinking', protocol: 'geminiLive', effort: 'low' },
@@ -250,8 +250,13 @@ function registerTools(scope: KernelScope, effects: () => RemoteEffects): void {
   });
 }
 function textBinding(model: CassetteModel) {
-  return model.protocol === 'openRouter'
-    ? { protocol: 'openRouter', provider: 'openrouter', apiId: model.apiId, keySlot: 'openrouter' }
+  return model.protocol === 'openRouterOpenAi'
+    ? {
+        protocol: 'openRouterOpenAi',
+        provider: 'openrouter',
+        apiId: model.apiId,
+        keySlot: 'openrouter',
+      }
     : {
         protocol: 'geminiInteractions',
         provider: 'gemini',

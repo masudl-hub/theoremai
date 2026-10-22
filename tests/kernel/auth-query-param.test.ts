@@ -21,7 +21,7 @@ const profile: Profile = {
   id: 'query-key',
   type: 'text',
   identity: { handle: 'query-key' },
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test' } },
   defaultModel: 'm',
   tools: { allow: ['weather'] },
   inputs: { text: true },

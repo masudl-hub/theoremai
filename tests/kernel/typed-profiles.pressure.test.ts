@@ -16,7 +16,9 @@ Deno.test('pressure-test: registration rejects unsupported provider operations',
           id: 'invalid_live',
           type: 'live',
           identity: { handle: 'Live' },
-          models: { main: { protocol: 'openRouter', provider: 'openrouter', apiId: 'model' } },
+          models: {
+            main: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'model' },
+          },
           tools: { allow: [] },
           live: { voice: 'Aoede' },
         }),
@@ -286,7 +288,7 @@ Deno.test('pressure-test: turnBehaviour.resumption rejects non-ContinueStopKind'
         identity: { handle: 't', system: 's' },
         models: {
           'openai/gpt-4o-mini': {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId: 'openai/gpt-4o-mini',
             efforts: { normal: 'minimal' },

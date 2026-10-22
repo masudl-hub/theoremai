@@ -15,7 +15,7 @@ const profile: Profile = {
   id: 'http-draft',
   type: 'text',
   identity: { handle: 'http-draft' },
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test' } },
   defaultModel: 'm',
   tools: { allow: ['report'] },
   inputs: { text: true },

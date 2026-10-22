@@ -32,14 +32,14 @@ const decisionProfile = (over: Loose = {}): Loose => ({
   id: 'd',
   type: 'decision',
   identity: { handle: 'd' },
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y' } },
   inputs: { state: 'json' },
   decision: { contract: 'decide' },
   ...over,
 });
-const DECISION_BINDING = { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' };
+const DECISION_BINDING = { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y' };
 const decisionModel = (over: Loose): Loose => ({
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y', ...over } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y', ...over } },
 });
 /** The message, with its kind when that is not `config`: every profile error is a config error. */
 function refusal(err: TheoremError): string {
@@ -253,7 +253,7 @@ Deno.test("a protocol's settings go in options, never on the binding itself", ()
     said(
       textProfile(
         modelWith({
-          protocol: 'openRouter',
+          protocol: 'openRouterOpenAi',
           provider: 'openrouter',
           options: { cache: { mode: 'automatic' } },
         }),

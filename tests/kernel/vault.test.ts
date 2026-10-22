@@ -7,7 +7,7 @@ Deno.test('bindings and registrations validate slot names', () => {
   assertThrows(
     () =>
       modelBindingSchema.parse({
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'model',
         keySlot: 'bad slot',

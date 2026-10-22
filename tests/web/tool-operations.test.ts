@@ -549,7 +549,7 @@ Deno.test('promotion refusal is saved as not started before its terminal event',
     type: 'text',
     id: name,
     identity: { handle: 'Promotion test' },
-    models: { default: { protocol: 'openRouter', provider: 'openrouter', apiId: 'mock' } },
+    models: { default: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'mock' } },
     inputs: { text: true },
     tools: { allow: [name] },
   });

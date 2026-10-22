@@ -5,10 +5,10 @@ import {
   endpointUrlSchema,
   type Provider,
 } from '../../kernel/protocols/provider.ts';
-import { systemOne } from '../system-one/protocol.ts';
+import { openRouterDecisions } from './decisions-protocol.ts';
 import { openRouterEmbedding } from './embedding-protocol.ts';
 import { openRouterImages } from './images-protocol.ts';
-import { openRouter } from './protocol.ts';
+import { openRouterOpenAi } from './protocol.ts';
 
 const connection = z.strictObject({
   baseUrl: endpointUrlSchema
@@ -54,10 +54,10 @@ export const openRouterProvider: Provider<OpenRouterConnection, string> = define
     if (at.siteName) headers['X-Title'] = at.siteName;
     const decisionUrl = at.decisionUrl ?? 'https://openrouter.ai/api/alpha/decisions';
     return [
-      { protocol: openRouter, baseUrl, headers },
+      { protocol: openRouterOpenAi, baseUrl, headers },
       { protocol: openRouterEmbedding, baseUrl, headers },
       { protocol: openRouterImages, baseUrl, headers },
-      { protocol: systemOne, baseUrl: decisionUrl, url: () => decisionUrl, headers },
+      { protocol: openRouterDecisions, baseUrl: decisionUrl, url: () => decisionUrl, headers },
     ];
   },
 });

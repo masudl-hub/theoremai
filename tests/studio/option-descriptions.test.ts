@@ -3,8 +3,8 @@ import {
   geminiEmbedding,
   geminiInteractions,
   ollamaEmbedding,
-  openRouter,
   openRouterEmbedding,
+  openRouterOpenAi,
 } from '../../src/providers/mod.ts';
 import { protocolOptionFields } from '../../studio/providers.ts';
 
@@ -13,7 +13,7 @@ Deno.test('every protocol option says what it does', () => {
     geminiEmbedding,
     geminiInteractions,
     ollamaEmbedding,
-    openRouter,
+    openRouterOpenAi,
     openRouterEmbedding,
   ]) {
     for (const option of protocolOptionFields(protocol)) {

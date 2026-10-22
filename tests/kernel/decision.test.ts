@@ -127,7 +127,7 @@ Deno.test('OpenRouter decisions use their binding, provider cost, and trace iden
       ...profile('openrouter-decision'),
       models: {
         span: {
-          protocol: 'systemOne',
+          protocol: 'openRouterDecisions',
           provider: 'openrouter',
           apiId: 'respan/span-01-lite:free',
         },

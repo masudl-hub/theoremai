@@ -100,7 +100,6 @@ Deno.test('OpenRouter serves chat, images, and decisions at its defaults, signed
       'openRouterEmbedding',
       'openRouterImages',
       'openRouterOpenAi',
-      'systemOne',
     ],
   );
   const sent = await chat(registry, 'openrouter', 'openRouterOpenAi', { main: 'k-main' });

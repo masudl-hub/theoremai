@@ -57,7 +57,7 @@ Defining or registering a provider does not open HTTP or WebSocket transport.
 First-party providers do not read environment variables for credentials or endpoints.
 The host supplies a vault. It can also supply fetch, waits, and a WebSocket opener.
 A protocol never holds a key, a key slot, or a base URL.
-A protocol that extends another has its own id, as `openRouterDecisions` extends `systemOne`. A binding names the protocol its provider serves.
+A protocol that extends another has its own id, as `openRouterOpenAi` extends `openAi`. A binding names the protocol its provider serves.
 
 ## Registered providers
 
@@ -400,7 +400,11 @@ It decodes text, reasoning, fragmented tool arguments, structured output, citati
 It writes reasoning details as `reasoning` parts and sends them back with the history on the next request.
 It writes the `webSearch` built-in as `web_search_options`.
 
-`openRouterDecisions` extends `systemOne`: the same questions and answers, sent to OpenRouter's decision API.
+`openRouterDecisions` sends the same questions and reads the same answers as `systemOne`, but it takes no options.
+OpenRouter needs no opt-in for images or `box` questions, and runs every request with an image in long-context mode.
+It ignores an `assets` map, so the protocol puts each image where its reference is: the reference string becomes the reference followed by an `image_url` part with a `data:` URL.
+It does this in `state`, in instructions, and in criteria. Model ids carry the vendor, such as `typesafe/jev-1.14`.
+A model that cannot read an image somewhere, or cannot answer a `box`, refuses with OpenRouter's own error.
 
 Set chat caching in `options.cache`. Native image and speech operations reject client tools, structured output, and chat-only settings.
 The kernel controls transient retries and quota fallback for every protocol.

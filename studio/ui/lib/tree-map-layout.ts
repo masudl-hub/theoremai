@@ -119,7 +119,7 @@ export const TOOL_CHECKS: readonly { id: string; label: string }[] = [
 ];
 
 /** Closed, the map shows only these heads beside the tree, in this order. */
-const CLOSED: readonly FeedKind[] = ['provider', 'runner', 'tool'];
+const CLOSED: readonly FeedKind[] = ['provider', 'tool', 'runner'];
 
 /** A row's token id: the tree's ids repeat from one agent to the next. */
 export function rowId(row: Row): string {
@@ -414,18 +414,66 @@ function grownPlaces(
 
   const places = new Map<string, Place>();
   const tree = new Map(rows.map((each) => [rowId(each), each]));
-  columns.forEach((stack, column) => {
-    const free = height - (stack.rows - 1) * row;
-    // Past a group, the next stands a row and its share of what is free further down.
-    const extra = stack.ids.length > 1 ? free / (stack.ids.length - 1) : 0;
-    // why: A column of one group has no gap to widen, so it stands in the middle of the map.
-    let y = PAD + HALF + (stack.ids.length > 1 ? 0 : free / 2);
-    for (const group of stack.ids) {
+  const start = PAD + HALF;
+  // The tree: its agents spread down the map, the gaps between them widened to fill it.
+  const [agents] = columns;
+  const free = height - ((agents?.rows ?? 1) - 1) * row;
+  const extra = (agents?.ids.length ?? 0) > 1 ? free / ((agents?.ids.length ?? 1) - 1) : free / 2;
+  let y = start + ((agents?.ids.length ?? 0) > 1 ? 0 : free / 2);
+  for (const group of agents?.ids ?? []) {
+    for (const id of group) {
+      places.set(id, { x: tree.get(id)?.x ?? 0, y });
+      y += row;
+    }
+    y += extra;
+  }
+  const yOf = (id: string): number | undefined => {
+    const slot = slots.get(id);
+    if (!slot) return places.get(id)?.y;
+    const holder = yOf(slot.holder);
+    return holder === undefined ? undefined : holder + slot.down * row;
+  };
+  // invariant: Every line runs from a column left of its feed, so each column's sources stand
+  // before it is placed.
+  columns.slice(1).forEach((stack, index) => {
+    const blocks = stack.ids.map((group) => {
+      const offsets = new Map<string, number>();
+      let size = 0;
       for (const id of group) {
-        places.set(id, { x: tree.get(id)?.x ?? lefts[column] ?? 0, y });
-        y += row * (1 + (held.get(id) ?? 0));
+        offsets.set(id, size);
+        for (const [nested, slot] of slots) {
+          if (slot.holder === id) offsets.set(nested, size + slot.down * row);
+        }
+        size += row * (1 + (held.get(id) ?? 0));
       }
-      y += extra;
+      // Level with what it has lines from: each line pulls its feed toward its source's row.
+      const pulls = feeds
+        .filter((feed) => offsets.has(feed.id))
+        .flatMap((feed) =>
+          [...feed.from, ...(feed.late ?? [])].flatMap((source) => {
+            const at = yOf(source);
+            return at === undefined ? [] : [at - (offsets.get(feed.id) ?? 0)];
+          }),
+        );
+      const want =
+        pulls.length > 0 ? pulls.reduce((sum, each) => sum + each, 0) / pulls.length : start;
+      return { group, offsets, want, size: size - row, top: want };
+    });
+    // Groups keep their order a row apart, inside the map.
+    let floor = start;
+    for (const block of blocks) {
+      block.top = Math.max(block.want, floor);
+      floor = block.top + block.size + 2 * row;
+    }
+    let ceiling = start + height;
+    for (const block of blocks.toReversed()) {
+      block.top = Math.max(Math.min(block.top, ceiling - block.size), start);
+      ceiling = block.top - 2 * row;
+    }
+    for (const block of blocks) {
+      for (const id of block.group) {
+        places.set(id, { x: lefts[index + 1] ?? 0, y: block.top + (block.offsets.get(id) ?? 0) });
+      }
     }
   });
   return { places, row };
@@ -457,7 +505,11 @@ export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place 
   }
   const to = layout.grown.get(id) ?? { x: 0, y: 0 };
   const from = layout.closed.get(id) ?? to;
-  return { x: between(from.x, to.x, moved), y: between(from.y, to.y, moved) };
+  // why: Across into its column first, then up or down it: heads bound for different columns are
+  // apart before any passes another's row.
+  const across = clamp(grow / (MOVE_TO / 2));
+  const down = clamp((grow - MOVE_TO / 2) / (MOVE_TO / 2));
+  return { x: between(from.x, to.x, across), y: between(from.y, to.y, down) };
 }
 
 /** How far a node growing adds has drawn, 0 to 1; undefined for one the map shows closed. */
@@ -506,7 +558,7 @@ export function treeMapLayout(
 ): TreeMapLayout {
   const rows = rowsOf(workspace, agents);
   const feeds = feedsOf(workspace, rows);
-  // Closed, the providers, the runner and the tools stand beside the tree, each level with the first
+  // Closed, the providers, the tools and the runner stand beside the tree, each level with the first
   // row it or a feed closed under it has a line from, or under the one before.
   const fewFeeds = CLOSED.flatMap((kind) =>
     feeds.filter((feed) => feed.kind === kind && feed.under === undefined),

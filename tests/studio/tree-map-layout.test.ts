@@ -15,7 +15,9 @@ import {
   RUNNER,
   rowId,
   TOOL_RUNNER,
+  TRACE_DESTINATIONS,
   type TreeMapLayout,
+  TURN_STEPS,
   treeMapLayout,
 } from '../../studio/ui/lib/tree-map-layout.ts';
 
@@ -119,32 +121,54 @@ for (const box of [undefined, BOX]) {
 }
 
 Deno.test('what feeds the tree is shared: one runner, each provider once, its protocols under it', () => {
-  const { feeds } = picture();
-  const under = (id: string) => feeds.filter((feed) => feed.under === id).map((feed) => feed.label);
-  const runner = feeds.find((feed) => feed.id === RUNNER);
-  assertEquals(runner?.into.length, 2);
-  assertEquals(under(RUNNER).length, 8);
+  const { feeds, rows } = picture();
+  const feed = (id: string) => feeds.find((each) => each.id === id);
+  const under = (id: string) => feeds.filter((each) => each.under === id).map((each) => each.label);
+  const label = (id: string) =>
+    rows.find((row) => rowId(row) === id)?.node.label ?? feed(id)?.label ?? id;
+  const from = (id: string) => (feed(id)?.from ?? []).map(label);
+  assertEquals(
+    under(RUNNER),
+    TURN_STEPS.map((step) => step.label),
+  );
+  assertEquals(
+    new Set(feeds.filter((each) => each.under === RUNNER).map((each) => each.column)).size,
+    1,
+  );
   assertEquals(under('provider:gemini'), ['geminiInteractions']);
   assertEquals(under('provider:openrouter').sort(), ['openRouterDecisions', 'openRouterOpenAi']);
-  const tools = feeds.filter((feed) => feed.kind === 'tool');
+  assertEquals(from('provider:openrouter'), ['Provider stream']);
+  const tools = feeds.filter((each) => each.kind === 'tool');
   assertEquals(
     tools.map((tool) => tool.of),
     ['function', 'http', 'mcp', 'agent'],
   );
   const mcp = tools.find((tool) => tool.of === 'mcp');
-  assertEquals(under(mcp?.id ?? ''), ['MCP sessions']);
+  assertEquals(under(mcp?.id ?? ''), []);
+  assertEquals(from(`${TOOL_RUNNER}/sessions`), [mcp?.label]);
+  const remote = tools.filter((tool) => tool.of === 'http' || tool.of === 'mcp');
+  assertEquals(from(`${TOOL_RUNNER}/network`), [...remote.map((tool) => tool.label), 'Guardrails']);
+  assertEquals(from(`${TOOL_RUNNER}/sign-in`), []);
   const agent = tools.find((tool) => tool.of === 'agent');
-  const subagent = feeds.find((feed) => feed.under === agent?.id);
-  assertEquals([subagent?.label, subagent?.joins], ['travel.concierge', RUNNER]);
-  assertEquals(feeds.find((feed) => feed.of === 'tools')?.joins, TOOL_RUNNER);
-  assertEquals(under(TOOL_RUNNER).length, 4);
+  const subagent = feeds.find((each) => each.under === agent?.id);
+  assertEquals(subagent?.label, 'travel.concierge');
+  assert(feed(RUNNER)?.from.includes(subagent?.id ?? ''));
+  assertEquals(from(TOOL_RUNNER), ['Tool loop', ...tools.map((tool) => tool.label)]);
+  assertEquals(under(TOOL_RUNNER).length, 5);
+  assertEquals(from(TRACE_DESTINATIONS), ['Trace']);
+  assertEquals(from(`${RUNNER}/tools`), ['Tools']);
+  assertEquals(from(`${RUNNER}/trace`), ['Observability', 'Observability']);
+  assertEquals(
+    feeds.map((each) => each.column),
+    [...feeds.map((each) => each.column)].sort(),
+  );
 });
 
 Deno.test('closed the tree map is as it was, and grown every node growing adds has drawn', () => {
   const layout = picture(BOX);
   for (const [id, { x, y }] of layout.closed) assertEquals(placeAt(layout, id, 0), { x, y });
   const added = layout.feeds.filter((feed) => !layout.few.has(feed.id));
-  assertEquals(added.length, 18);
+  assertEquals(added.length, 19);
   for (const feed of added) {
     assertEquals(drawnAt(layout, feed.id, 0), 0);
     assertEquals(drawnAt(layout, feed.id, 1), 1);

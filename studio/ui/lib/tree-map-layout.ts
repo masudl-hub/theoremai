@@ -23,9 +23,8 @@ const LEAST_GAP = 56;
 const MOST_GAP = 160;
 /** The tools beside a Tools row: the first of each type. */
 const TOOL_TYPES = ['function', 'http', 'mcp', 'agent'];
-/** Grown, the runner's steps two across, down one column and then the next. */
-const STEPS_DOWN = 4;
-const STEP_GAP = 24;
+/** The tools a remote call reaches the network for. */
+const REMOTE_TYPES = ['http', 'mcp'];
 /** By how far grown every node has reached its zone; the rest is for drawing in. */
 const MOVE_TO = 0.7;
 /** Over what stretch of growing the added nodes draw, and how long each takes of it. */
@@ -39,6 +38,7 @@ const CLEAR = 2;
 
 export const RUNNER = 'runner';
 export const TOOL_RUNNER = 'tool-runner';
+export const TRACE_DESTINATIONS = 'trace-destinations';
 
 export interface Place {
   x: number;
@@ -61,54 +61,65 @@ export type FeedKind =
   | 'branch'
   | 'subagent'
   | 'tool-runner'
-  | 'check';
+  | 'check'
+  | 'destinations';
 
-/** What feeds the tree: a runner, a provider, a tool, or one of their own nested under them. */
+/** What feeds the tree: a tool, the runner, a provider, the tool runner, or one of their own nested under them. */
 export interface Feed {
   id: string;
   label: string;
   kind: FeedKind;
   /** A tool's type, a subagent's profile type, or a step's or a check's id: what its icon is. */
   of?: string;
-  /** The tree rows it has a line into. */
-  into: string[];
+  /** What it has a line from: tree rows, and feeds in a column left of it. */
+  from: string[];
+  /** Tree rows it has a line from that draw in with the first feed under it. */
+  late?: string[];
   /** The feed it is one of, a level in under it. */
   under?: string;
-  /** Another feed it has a line to: a subagent to the runner that runs it, the tool loop to the tool runner. */
-  joins?: string;
-  /** The column it stands in beside the tree, first or second. */
-  column: 1 | 2;
+  /** Until it draws, its lines run to the feed it is under, and move to it as it draws. */
+  closedUnder?: boolean;
+  /** The column it stands in beside the tree: the tools, the runner, or what they share underneath. */
+  column: 1 | 2 | 3;
   /** Feeds that stand together, with a gap before the next group. */
   group: string;
 }
 
 /**
  * What the runner does in a turn, in order: the steps of the kernel contract's turn lifecycle
- * (docs/contracts/kernel.md, "Turn lifecycle") that do work.
+ * (docs/contracts/kernel.md, "Turn lifecycle") that do work, and the profile sections each reads.
  * why: The canary bind runs only while a canary detector is on, and pre_turn, before_end and
  * post_turn are hooks for the host's stages, so the map leaves those four out.
  */
-export const TURN_STEPS: readonly { id: string; label: string }[] = [
-  { id: 'resolve', label: 'Resolve' },
-  { id: 'sanitize', label: 'Sanitize' },
-  { id: 'compaction', label: 'Compaction' },
-  { id: 'stream', label: 'Provider stream' },
-  { id: 'tools', label: 'Tool loop' },
-  { id: 'validation', label: 'Validation' },
-  { id: 'egress', label: 'Egress' },
-  { id: 'trace', label: 'Trace' },
+export const TURN_STEPS: readonly { id: string; label: string; reads: readonly string[] }[] = [
+  { id: 'resolve', label: 'Resolve', reads: ['inputs', 'models'] },
+  { id: 'sanitize', label: 'Sanitize', reads: ['guardrails'] },
+  { id: 'compaction', label: 'Compaction', reads: ['models'] },
+  { id: 'stream', label: 'Provider stream', reads: [] },
+  { id: 'tools', label: 'Tool loop', reads: ['tools'] },
+  { id: 'validation', label: 'Validation', reads: ['outputs'] },
+  { id: 'egress', label: 'Egress', reads: ['guardrails'] },
+  { id: 'trace', label: 'Trace', reads: ['observability'] },
 ];
 
+/** The profile sections the runner reads whole, not at one step. */
+const RUNNER_READS = ['turnBehaviour', 'decision', 'labels'];
+
 /**
- * What the tool runner checks of every call, in order (`executeRegisteredTool`): its permission,
- * its sign-in, the network a remote call reaches, and the guard on its result.
+ * What the tool runner does with every call, in order (`executeRegisteredTool`): its permission,
+ * its sign-in, the network a remote call reaches, the MCP session an MCP call runs in, and the
+ * guard on its result.
  */
 export const TOOL_CHECKS: readonly { id: string; label: string }[] = [
   { id: 'permission', label: 'Permission gate' },
   { id: 'sign-in', label: 'Sign-in' },
   { id: 'network', label: 'Network check' },
+  { id: 'sessions', label: 'MCP sessions' },
   { id: 'result', label: 'Result guard' },
 ];
+
+/** Closed, the map shows only these heads beside the tree, in this order. */
+const CLOSED: readonly FeedKind[] = ['provider', 'runner', 'tool'];
 
 /** A row's token id: the tree's ids repeat from one agent to the next. */
 export function rowId(row: Row): string {
@@ -136,12 +147,14 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
 }
 
 /**
- * Beside the tree, shared by every agent drawn: the providers, each with the protocols the models
- * it serves speak, and a line into each of those models; the first tool of each type the agents
- * allow, with a line into each Tools row that allows it, an MCP tool's sessions under it and an
- * agent tool's agent under it, joined to the runner; and the one runner, with a line into each
- * agent but a host (whose calls the tool runner runs) and its steps under it. Past them, the tool
- * runner the tool loop calls, its checks under it.
+ * Beside the tree, shared by every agent drawn, three columns. First, the first tool of each type
+ * the agents allow, with a line from each Tools row that allows it, and an agent tool's agent under
+ * it. Then the one runner, with a line from each agent but a host (whose calls the tool runner
+ * runs), from an agent tool's agent and from the sections it reads whole; its steps one list under
+ * it, each with a line from the sections it reads. Last, what they share underneath: each provider
+ * with a line from the provider stream, the protocols its models speak under it, each with a line
+ * from those models; the tool runner, with a line from the tool loop and each tool, what it does
+ * with each call under it; and the trace's destinations.
  */
 function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const drawn = workspace.agents.filter((agent) => rows.some((row) => row.agent === agent.key));
@@ -152,99 +165,149 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
         row.node.ref.facet === facet &&
         (key === undefined || ('key' in row.node.ref && row.node.ref.key === key)),
     );
+  const sections = (facets: readonly string[]) =>
+    rows.filter((row) => facets.includes(row.node.ref.facet)).map(rowId);
   const feeds: Feed[] = [];
-
-  const providers = new Map<string, { into: string[]; protocols: Set<string> }>();
-  for (const agent of drawn) {
-    for (const binding of agent.modelBindings) {
-      const row = rowOf(agent.key, 'modelBinding', binding.key);
-      if (!row) continue;
-      const provider = providers.get(binding.provider) ?? { into: [], protocols: new Set() };
-      provider.into.push(rowId(row));
-      provider.protocols.add(binding.protocol);
-      providers.set(binding.provider, provider);
-    }
-  }
-  for (const [provider, { into, protocols }] of providers) {
-    const id = `provider:${provider}`;
-    feeds.push({ id, label: provider, kind: 'provider', into, column: 1, group: 'providers' });
-    for (const protocol of protocols) {
-      const nested = { id: `${id}/${protocol}`, label: protocol, kind: 'protocol' as const };
-      feeds.push({ ...nested, into: [], under: id, column: 1, group: 'providers' });
-    }
-  }
 
   const allowing = (key: string) =>
     drawn.flatMap((agent) => {
       const row = agent.tools.allow.includes(key) ? rowOf(agent.key, 'tools') : undefined;
       return row ? [rowId(row)] : [];
     });
+  const tools: { id: string; spec: StudioWorkspace['toolSpecs'][number] }[] = [];
+  const subagents: string[] = [];
   for (const type of TOOL_TYPES) {
-    const tool = workspace.toolSpecs.find(
+    const spec = workspace.toolSpecs.find(
       (each) => each.toolType === type && allowing(each.key).length > 0,
     );
-    if (!tool) continue;
-    const id = `tool:${tool.key}`;
-    const into = allowing(tool.key);
+    if (!spec) continue;
+    const id = `tool:${spec.key}`;
+    tools.push({ id, spec });
+    const from = allowing(spec.key);
     feeds.push({
       id,
-      label: tool.toolName,
+      label: spec.toolName,
       kind: 'tool',
       of: type,
-      into,
+      from,
       column: 1,
       group: 'tools',
     });
-    const nested = { into: [], under: id, column: 1 as const, group: 'tools' };
-    if (type === 'mcp') {
-      feeds.push({ ...nested, id: `${id}/sessions`, label: 'MCP sessions', kind: 'branch' });
-    }
-    const agent = workspace.agents.find((each) => each.key === tool.agentKey);
+    const agent = workspace.agents.find((each) => each.key === spec.agentKey);
     if (type === 'agent' && agent) {
       const label = agent.identity.agentId || agent.identity.handle;
+      subagents.push(`${id}/agent`);
       feeds.push({
-        ...nested,
         id: `${id}/agent`,
         label,
         kind: 'subagent',
         of: agent.identity.profileType,
-        joins: RUNNER,
+        from: [],
+        under: id,
+        column: 1,
+        group: 'tools',
       });
     }
   }
 
-  const runs = drawn.filter((agent) => agent.identity.profileType !== 'host');
-  const into = runs.flatMap((agent) => {
-    const row = rowOf(agent.key, 'identity');
+  const runs = drawn.flatMap((agent) => {
+    const row = agent.identity.profileType === 'host' ? undefined : rowOf(agent.key, 'identity');
     return row ? [rowId(row)] : [];
   });
-  feeds.push({ id: RUNNER, label: 'Runner', kind: 'runner', into, column: 1, group: 'runner' });
+  feeds.push({
+    id: RUNNER,
+    label: 'Runner',
+    kind: 'runner',
+    from: [...runs, ...subagents],
+    late: sections(RUNNER_READS),
+    column: 2,
+    group: 'runner',
+  });
   for (const step of TURN_STEPS) {
     feeds.push({
       id: `${RUNNER}/${step.id}`,
       label: step.label,
       kind: 'step',
       of: step.id,
-      into: [],
+      from: sections(step.reads),
       under: RUNNER,
-      column: 1,
+      column: 2,
       group: 'runner',
-      ...(step.id === 'tools' ? { joins: TOOL_RUNNER } : {}),
     });
   }
-  const runner = { id: TOOL_RUNNER, label: 'Tool runner', kind: 'tool-runner' as const };
-  feeds.push({ ...runner, into: [], column: 2, group: 'tool-runner' });
-  for (const check of TOOL_CHECKS) {
-    const nested = { id: `${TOOL_RUNNER}/${check.id}`, label: check.label, of: check.id };
+
+  const providers = new Map<string, Map<string, string[]>>();
+  for (const agent of drawn) {
+    for (const binding of agent.modelBindings) {
+      const row = rowOf(agent.key, 'modelBinding', binding.key);
+      if (!row) continue;
+      const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
+      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), rowId(row)]);
+      providers.set(binding.provider, protocols);
+    }
+  }
+  for (const [provider, protocols] of providers) {
+    const id = `provider:${provider}`;
+    const stream = `${RUNNER}/stream`;
     feeds.push({
-      ...nested,
-      kind: 'check',
-      into: [],
+      id,
+      label: provider,
+      kind: 'provider',
+      from: [stream],
+      column: 3,
+      group: 'providers',
+    });
+    for (const [protocol, models] of protocols) {
+      feeds.push({
+        id: `${id}/${protocol}`,
+        label: protocol,
+        kind: 'protocol',
+        from: models,
+        under: id,
+        closedUnder: true,
+        column: 3,
+        group: 'providers',
+      });
+    }
+  }
+
+  const toolsOf = (types: readonly string[]) =>
+    tools.filter(({ spec }) => types.includes(spec.toolType)).map(({ id }) => id);
+  const guardrails = sections(['guardrails']);
+  const checkFrom: Record<string, string[]> = {
+    'sign-in': tools.filter(({ spec }) => (spec.authType ?? 'none') !== 'none').map(({ id }) => id),
+    network: [...toolsOf(REMOTE_TYPES), ...guardrails],
+    sessions: toolsOf(['mcp']),
+    result: guardrails,
+  };
+  feeds.push({
+    id: TOOL_RUNNER,
+    label: 'Tool runner',
+    kind: 'tool-runner',
+    from: [`${RUNNER}/tools`, ...tools.map(({ id }) => id)],
+    column: 3,
+    group: 'tool-runner',
+  });
+  for (const check of TOOL_CHECKS) {
+    feeds.push({
+      id: `${TOOL_RUNNER}/${check.id}`,
+      label: check.label,
+      kind: check.id === 'sessions' ? 'branch' : 'check',
+      of: check.id,
+      from: checkFrom[check.id] ?? [],
       under: TOOL_RUNNER,
-      column: 2,
+      column: 3,
       group: 'tool-runner',
     });
   }
+  feeds.push({
+    id: TRACE_DESTINATIONS,
+    label: 'Trace destinations',
+    kind: 'destinations',
+    from: [`${RUNNER}/trace`],
+    column: 3,
+    group: 'trace',
+  });
   return feeds;
 }
 
@@ -258,21 +321,15 @@ export interface Slot {
   down: number;
 }
 
-/** A step under the runner two across, down one column and then the next; any other a level in. */
-function slotsOf(feeds: Feed[], width: (id: string) => number): Map<string, Slot> {
+/** A node under a feed a level in, a row down for each before it. */
+function slotsOf(feeds: Feed[]): Map<string, Slot> {
   const slots = new Map<string, Slot>();
-  const steps = feeds.filter((feed) => feed.kind === 'step');
-  const stepColumn = Math.max(0, ...steps.map((step) => width(step.id))) + STEP_GAP;
   const counts = new Map<string, number>();
   for (const feed of feeds) {
     if (feed.under === undefined) continue;
     const index = counts.get(feed.under) ?? 0;
     counts.set(feed.under, index + 1);
-    const slot =
-      feed.kind === 'step'
-        ? { across: Math.floor(index / STEPS_DOWN) * stepColumn, down: (index % STEPS_DOWN) + 1 }
-        : { across: 0, down: index + 1 };
-    slots.set(feed.id, { holder: feed.under, across: INDENT + slot.across, down: slot.down });
+    slots.set(feed.id, { holder: feed.under, across: INDENT, down: index + 1 });
   }
   return slots;
 }
@@ -296,7 +353,7 @@ function stacksOf(rows: Row[], feeds: Feed[], slots: Map<string, Slot>) {
   };
   const tree = new Map<string, string[]>();
   for (const row of rows) tree.set(row.agent, [...(tree.get(row.agent) ?? []), rowId(row)]);
-  const columns = ([1, 2] as const).map((column) => {
+  const columns = ([1, 2, 3] as const).map((column) => {
     const groups = new Map<string, string[]>();
     for (const feed of feeds) {
       if (feed.column !== column || feed.under !== undefined) continue;
@@ -314,8 +371,8 @@ export interface Box {
 }
 
 /**
- * The map grown: the tree, each agent a zone of its own; beside it the providers, the tools and the
- * runner; past them the tool runner. Rows stretch, up to a most, and the gaps between columns and
+ * The map grown: the tree, each agent a zone of its own; beside it the tools, then the runner, then
+ * what they share underneath. Rows stretch, up to a most, and the gaps between columns and
  * between groups widen, so the map fills `box`; without one, rows and gaps are at their least.
  */
 function grownPlaces(
@@ -334,7 +391,7 @@ function grownPlaces(
 
   const right = (id: string, x: number) => x + width(id);
   const treeRight = Math.max(0, ...rows.map((each) => right(rowId(each), each.x)));
-  const columnWidth = (column: 1 | 2) =>
+  const columnWidth = (column: 1 | 2 | 3) =>
     Math.max(
       0,
       ...feeds
@@ -344,10 +401,16 @@ function grownPlaces(
           return right(feed.id, slot ? slot.across : 0);
         }),
     );
-  const [first, second] = [columnWidth(1), columnWidth(2)];
-  const spare = box ? (box.width - 2 * PAD - (treeRight - PAD) - first - second) / 2 : LEAST_GAP;
+  const [first, second, third] = [columnWidth(1), columnWidth(2), columnWidth(3)];
+  const taken = treeRight - PAD + first + second + third;
+  const spare = box ? (box.width - 2 * PAD - taken) / 3 : LEAST_GAP;
   const gap = Math.min(Math.max(spare, LEAST_GAP), MOST_GAP);
-  const lefts = [0, treeRight + gap, treeRight + gap + first + gap];
+  const lefts = [
+    0,
+    treeRight + gap,
+    treeRight + 2 * gap + first,
+    treeRight + 3 * gap + first + second,
+  ];
 
   const places = new Map<string, Place>();
   const tree = new Map(rows.map((each) => [rowId(each), each]));
@@ -443,20 +506,26 @@ export function treeMapLayout(
 ): TreeMapLayout {
   const rows = rowsOf(workspace, agents);
   const feeds = feedsOf(workspace, rows);
-  // Closed, the first column's heads stand beside the tree, each level with the first row it
-  // joins or under the one before.
-  const fewFeeds = feeds.filter((feed) => feed.column === 1 && feed.under === undefined);
+  // Closed, the providers, the runner and the tools stand beside the tree, each level with the first
+  // row it or a feed closed under it has a line from, or under the one before.
+  const fewFeeds = CLOSED.flatMap((kind) =>
+    feeds.filter((feed) => feed.kind === kind && feed.under === undefined),
+  );
   const few = new Set(fewFeeds.map((feed) => feed.id));
   const feedX = Math.max(0, ...rows.map((row) => row.x + width(rowId(row)))) + GAP;
   const closed = new Map<string, Place>(rows.map((row) => [rowId(row), row]));
   const rowY = new Map(rows.map((row) => [rowId(row), row.y]));
+  const firstRow = (feed: Feed) =>
+    [feed, ...feeds.filter((each) => each.closedUnder && each.under === feed.id)]
+      .flatMap((each) => each.from)
+      .find((id) => rowY.has(id));
   let below = Number.NEGATIVE_INFINITY;
   for (const feed of fewFeeds) {
-    const y = Math.max(rowY.get(feed.into[0] ?? '') ?? below, below);
+    const y = Math.max(rowY.get(firstRow(feed) ?? '') ?? below, below);
     closed.set(feed.id, { x: feedX, y });
     below = y + ROW;
   }
-  const slots = slotsOf(feeds, width);
+  const slots = slotsOf(feeds);
   const { places, row } = grownPlaces(rows, feeds, slots, width, box);
   const layout: TreeMapLayout = {
     rows,

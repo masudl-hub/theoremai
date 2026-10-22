@@ -1,11 +1,12 @@
 /**
  * The workspace's tree, every row open, drawn as the map draws: each row a map token, and a line
  * from each row down and across to each of its children. Beside the tree, what feeds it, shared by
- * every agent drawn: the providers that serve its models, the protocols they speak under them; the
- * first tool of each type its Tools rows allow, an MCP tool's sessions and an agent tool's agent
- * under them; and the one runner that runs every agent, its steps under it. Past those, the tool
- * runner its tool loop calls, with what it checks of each call. It changes nothing and opens
- * nothing: a picture of what a workspace holds, for a page that is not the studio.
+ * every agent drawn, in three columns: the first tool of each type its Tools rows allow, an agent
+ * tool's agent under it; the one runner that runs every agent, its steps one list under it, each
+ * with a line from the profile sections it reads; and what they share underneath: the providers,
+ * with the protocols their models speak under them, the tool runner the tool loop and each tool
+ * reach, with what it does with each call, and the trace's destinations. It changes nothing and
+ * opens nothing: a picture of what a workspace holds, for a page that is not the studio.
  */
 import type { IconType } from '@astryxdesign/core/Icon';
 import {
@@ -13,6 +14,7 @@ import {
   IconArrowsMinimize,
   IconChecks,
   IconCloud,
+  IconDatabase,
   IconEngine,
   IconKey,
   IconLock,
@@ -51,8 +53,6 @@ const TRUNK = 13;
 const TURN = 8;
 /** Between a token's side and its line. */
 const LINE_GAP = 4;
-/** How far right of what it passes a line coming round a column runs. */
-const RAIL = 20;
 /** A token's width until it is measured. */
 const GUESS = 120;
 
@@ -84,16 +84,8 @@ function feedIcon(feed: Feed): IconType {
   if (feed.kind === 'branch') return IconStack2;
   if (feed.kind === 'subagent') return profileTypeIcon(of) ?? AGENT_ICON;
   if (feed.kind === 'tool-runner') return IconSettingsAutomation;
+  if (feed.kind === 'destinations') return IconDatabase;
   return CHECK_ICONS[of] ?? IconShieldCheck;
-}
-
-/** Right from `from` to `rail`, up or down it, and back left to `to`, its corners turned. */
-function sidePath(from: Place, to: Place, rail: number): string {
-  const up = Math.sign(to.y - from.y);
-  return (
-    `M ${from.x} ${from.y} H ${rail - TURN} Q ${rail} ${from.y} ${rail} ${from.y + up * TURN}` +
-    ` V ${to.y - up * TURN} Q ${rail} ${to.y} ${rail - TURN} ${to.y} H ${to.x}`
-  );
 }
 
 /** Down from under the parent's icon, then a turn across to the child. */
@@ -125,8 +117,9 @@ export interface StudioTreeMapProps {
   /**
    * How far the tree has grown, from 0 to 1. As it grows each agent drifts into a zone of its own
    * and what feeds the tree spreads into its columns. What growing adds draws in as its room opens,
-   * its line and then its token: the protocols under each provider, what branches off a tool, the
-   * runner's steps, and the tool runner with its checks. Shrinking takes it all back the same way.
+   * its line and then its token: the protocols under each provider, an agent tool's agent, the
+   * runner's steps, the tool runner with what it does with each call, and the trace's destinations.
+   * Shrinking takes it all back the same way.
    */
   grow?: number | undefined;
   /**
@@ -179,7 +172,6 @@ export function StudioTreeMap({
     return { ...place, x: place.x + by.x, y: place.y + by.y };
   };
   const drawn = (id: string) => drawnAt(layout, id, grow);
-  const feedById = new Map(feeds.map((feed) => [feed.id, feed]));
   /** A line draws in its first half of the later of its two ends drawing, its token in the second. */
   const lineDrawn = (...ids: string[]) => {
     const parts = ids.flatMap((id) => drawn(id) ?? []);
@@ -190,32 +182,42 @@ export function StudioTreeMap({
   const shown = feeds.filter((feed) => (drawn(feed.id) ?? 1) > 0);
 
   const right = (id: string) => at(id).x + width(id);
-  /** Right of every feed in its column from `to` to `feed`, where each stands now. */
-  const railFor = (feed: Feed, to: Feed) => {
-    const [top, bottom] = [at(to.id).y, at(feed.id).y].sort((a, b) => a - b);
-    const lying = shown.filter((each) => {
-      const { y } = at(each.id);
-      return each.column === feed.column && y >= (top ?? 0) && y <= (bottom ?? 0);
-    });
-    return Math.max(...lying.map((each) => right(each.id))) + RAIL;
+  const isRow = new Set(rows.map(rowId));
+  /** Where a feed's lines end: a feed closed under another, at that one until it draws. */
+  const endOf = (feed: Feed) => {
+    const place = at(feed.id);
+    if (!feed.closedUnder || feed.under === undefined) return place;
+    const holder = at(feed.under);
+    const part = clamp((drawn(feed.id) ?? 1) * 2);
+    return { x: holder.x + (place.x - holder.x) * part, y: holder.y + (place.y - holder.y) * part };
   };
-  const joins = shown.flatMap((feed) => {
-    const to = feed.joins === undefined ? undefined : feedById.get(feed.joins);
-    return to && (drawn(to.id) ?? 1) > 0 ? [{ feed, to }] : [];
+  const firstUnder = new Map<string, string>();
+  for (const feed of feeds) {
+    if (feed.under !== undefined && !firstUnder.has(feed.under))
+      firstUnder.set(feed.under, feed.id);
+  }
+  const lines = feeds.flatMap((feed) => {
+    if (!feed.closedUnder && (drawn(feed.id) ?? 1) <= 0) return [];
+    const late = (feed.late ?? []).map((source) => ({ source, late: true }));
+    return [...feed.from.map((source) => ({ source, late: false })), ...late].flatMap(
+      ({ source, late }) => {
+        if (!isRow.has(source) && (drawn(source) ?? 1) <= 0) return [];
+        const end = endOf(feed);
+        const { d } = mapCurve(
+          { x: right(source) + LINE_GAP, y: at(source).y },
+          { x: end.x - LINE_GAP, y: end.y },
+        );
+        const draws = late
+          ? [firstUnder.get(feed.id) ?? feed.id]
+          : feed.closedUnder
+            ? []
+            : [feed.id, ...(isRow.has(source) ? [] : [source])];
+        return [{ key: `${source}>${feed.id}`, d, draws }];
+      },
+    );
   });
-  /** A join to a feed further right runs across to it; to one in its own column, round their right. */
-  const joinPath = (feed: Feed, to: Feed) => {
-    const from = { x: right(feed.id) + LINE_GAP, y: at(feed.id).y };
-    if (to.column > feed.column) {
-      return mapCurve(from, { x: at(to.id).x - LINE_GAP, y: at(to.id).y }).d;
-    }
-    return sidePath(from, { x: right(to.id) + LINE_GAP, y: at(to.id).y }, railFor(feed, to));
-  };
   const places = [...rows.map(rowId), ...shown.map((feed) => feed.id)];
-  const rails = joins.flatMap(({ feed, to }) =>
-    to.column === feed.column ? [railFor(feed, to)] : [],
-  );
-  const mapWidth = Math.max(GUESS, ...places.map(right), ...rails) + PAD;
+  const mapWidth = Math.max(GUESS, ...places.map(right)) + PAD;
   const height = Math.max(...places.map((id) => at(id).y)) + HALF + PAD;
   const grown = useMemo(() => {
     const ids = [...layout.rows.map(rowId), ...layout.feeds.map((feed) => feed.id)];
@@ -288,16 +290,9 @@ export function StudioTreeMap({
               />
             ),
         )}
-        {shown.flatMap((feed) =>
-          feed.into.map((id) => {
-            const from = at(feed.id);
-            const { d } = mapCurve(
-              { x: from.x - LINE_GAP, y: from.y },
-              { x: right(id) + LINE_GAP, y: at(id).y },
-            );
-            return <path key={`${feed.id}>${id}`} className="map-line" d={d} />;
-          }),
-        )}
+        {lines.map(({ key, d, draws }) => (
+          <path key={key} className="map-line" d={d} {...lineDrawn(...draws)} />
+        ))}
         {shown.map(
           (feed) =>
             feed.under !== undefined && (
@@ -309,14 +304,6 @@ export function StudioTreeMap({
               />
             ),
         )}
-        {joins.map(({ feed, to }) => (
-          <path
-            key={`${feed.id}~${to.id}`}
-            className="map-line"
-            d={joinPath(feed, to)}
-            {...lineDrawn(feed.id, to.id)}
-          />
-        ))}
       </svg>
       {rows.map((row) => {
         const draft = drafts.get(row.agent) ?? createBlankDraft();

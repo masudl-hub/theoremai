@@ -484,6 +484,7 @@ from that table, not from a span's `llm.cost.total`.
 | `JsonlSinkOptions` (from `@theoremjs/agents/observability/jsonl`) | type |
 | `writeTrace` | function |
 | `buildRecord`, `contentOf`, `inlineContent` | function |
+| `traceRecordSchema` | const |
 | `toOtlpJson` | function |
 | `withOpenInference` (from `@theoremjs/agents/observability/openinference`) | function |
 | `phoenixAnnotations` (from `@theoremjs/agents/observability/phoenix`) | function |

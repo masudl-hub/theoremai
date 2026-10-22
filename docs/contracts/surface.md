@@ -92,7 +92,7 @@ can never `set` a secret: it `point`s the person at it and they enter it.
 | `secretCard`, `maskUrl`, `maskHeaders`, `scrubText`, `scrubDeep`, `knownSecrets` | The projections, for pages that store or show values themselves |
 | `MASK`, `unmaskUrl`, `unmaskHeaders` | The mask itself, and a masked URL or headers filled back in from the value they were masked from, for the side that holds it |
 | `isCredentialName(name)` | Whether a header or query parameter's name says it carries a credential: the names `maskHeaders` masks |
-| Types | `Surface`, `SurfaceNode`, `SurfaceField`, `SurfaceFieldFormat`, `SurfaceAction`, `SurfaceActionContext`, `SurfaceActionOutcome`, `SurfaceAuthor`, `SurfaceChange`, `SurfaceEffect`, `SurfaceIssue`, `SurfaceRejection`, `SecretCard`, `SurfaceRuntime`, `SurfaceRuntimeOptions`, `SurfaceLedgerEntry`, `SurfaceToolsOptions` |
+| `Surface`, `SurfaceNode`, `SurfaceField`, `SurfaceFieldFormat`, `SurfaceAction`, `SurfaceActionContext`, `SurfaceActionOutcome`, `SurfaceAuthor`, `SurfaceChange`, `SurfaceEffect`, `SurfaceIssue`, `SurfaceRejection`, `SecretCard`, `SurfaceRuntime`, `SurfaceRuntimeOptions`, `SurfaceLedgerEntry`, `SurfaceToolsOptions` | Types |
 
 ```theorem-evidence
 {

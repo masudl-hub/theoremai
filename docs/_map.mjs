@@ -37,7 +37,11 @@ const graph = {
           sections: ['Public Entrypoints'],
         },
       ],
-      validates: ['tests/kernel/theorem.test.ts', 'scripts/docs-truth/graph.test.mjs'],
+      validates: [
+        'tests/kernel/theorem.test.ts',
+        'scripts/docs-truth/graph.test.mjs',
+        'tests/docs/readme.test.ts',
+      ],
       required_sections: ['Architecture', 'Public Entrypoints', 'Package Boundary'],
     },
 

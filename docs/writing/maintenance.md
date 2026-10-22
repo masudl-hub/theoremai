@@ -16,7 +16,8 @@ The repo has ownership and freshness checks for contracts, the root README, and 
 - `npm run lint:docs` is the check. It runs in pre-commit and CI. It fails when:
   - an owned file changes and its owning doc is not in the diff (freshness);
   - a watched section does not change when its watched files do;
-  - a barrel export is missing from the owning contract (export drift);
+  - an entry point's export is missing from the Exported API table of its owning doc, the table names a name that nothing exports, or the README's Public Entrypoints table differs from `deno.json` (export drift);
+  - a README table, field path or example no longer matches the code (`tests/docs/readme.test.ts`);
   - a user-facing string in the kernel, guardrails, interface, or headless react code is not in the labels (copy lint).
 - `docs/DOCS_TRUTH.md` describes the rules. Read it before you add or move a doc.
 

@@ -110,8 +110,11 @@ selected model's `builtInTools` include `googleSearch` / `googleMaps`.
 
 ## Exported API
 
-The entry module exports `main(args?)`, which reads the process arguments by
-default; `src/cli/bin.ts` runs it as the `agents` binary. It runs on Node
+| Export | Role |
+| --- | --- |
+| `main(args?)` | Runs one command. It reads the process arguments by default. |
+
+`src/cli/bin.ts` runs `main` as the `agents` binary. It runs on Node
 (20 and up), Deno, and Bun.
 
 Prefer `deno task agents` / `npx @theoremjs/agents` over importing commands in

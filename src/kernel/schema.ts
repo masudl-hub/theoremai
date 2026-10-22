@@ -1382,7 +1382,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   'decision.questions.instructions': field(
     'DecisionEntry',
-    "What to ask about the state. Name a state field in backticks, such as `photo`, and one of the decision's images by its reference, such as <ginger>. A box looks in its In image, else in the image of the first field it names.",
+    "What to ask about the state. Name a state field in backticks, such as `photo`, and one of the decision's images by its reference, such as <ginger>. A box names what to find and the image it is in, such as the ginger in `photo`.",
   ),
   'decision.questions.image': {
     ...field(
@@ -1393,7 +1393,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   },
   'decision.images': field(
     'Record<string, DecisionAsset>',
-    'Pictures sent with every decision, beside the state. A question names one by its reference, such as <ghs02>. A PNG or JPEG.',
+    "Pictures a decision can send. Write one's reference, such as <ghs02>, in the state or a question, and the model reads the picture there; a picture nothing references is not sent. A PNG or JPEG.",
   ),
   'decision.images.name': field(
     'string',

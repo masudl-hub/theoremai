@@ -375,6 +375,7 @@ Pin the versioned id when a decision must not change under you.
 | `longContext` | `TypeSafe-Danger-Zone-Long-Context: true` | The context window grows from 64k to 262k tokens, with less speed and accuracy |
 
 `systemOne` sends each image in the `assets` map as `data_base64` with its format. It does not send multipart bodies.
+TypeSafe reads a reference anywhere in a string, as the whole string or inside it, and puts the image there once for each use.
 Without `images`, a request that holds images or a `box` question fails before it leaves the process.
 A `box` question also fails on a pinned `jev-1.13.*` id.
 
@@ -402,8 +403,9 @@ It writes the `webSearch` built-in as `web_search_options`.
 
 `openRouterDecisions` sends the same questions and reads the same answers as `systemOne`, but it takes no options.
 OpenRouter needs no opt-in for images or `box` questions, and runs every request with an image in long-context mode.
-It ignores an `assets` map, so the protocol puts each image where its reference is: the reference string becomes the reference followed by an `image_url` part with a `data:` URL.
-It does this in `state`, in instructions, and in criteria. Model ids carry the vendor, such as `typesafe/jev-1.14`.
+It ignores an `assets` map, so the protocol puts each image where its reference is, as an `image_url` part with a `data:` URL.
+It reads references as TypeSafe does, in `state`, instructions, and criteria: a string that is one reference becomes the image part, and a longer string becomes an array of its text and images in order.
+Model ids carry the vendor, such as `typesafe/jev-1.14`.
 A model that cannot read an image somewhere, or cannot answer a `box`, refuses with OpenRouter's own error.
 
 Set chat caching in `options.cache`. Native image and speech operations reject client tools, structured output, and chat-only settings.

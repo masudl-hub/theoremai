@@ -386,7 +386,7 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
     [
       'decision retry',
       decisionProfile(decisionModel({ retry: { maxAttempts: 2 } })),
-      `${at}: decision retry configuration is unsupported; POSTs are never retried`,
+      `${at}: a decision binding takes no retry; a decision retries only a transient failure, by the kernel's rule`,
     ],
     [
       'decision timeout 0',

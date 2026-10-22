@@ -63,7 +63,7 @@ Deno.test('openRouterDecisions puts each image where its reference is, and sends
       pick: {
         type: 'choice',
         instructions: 'Which?',
-        criteria: { first: '<shot>', none: 'Neither.' },
+        criteria: { first: '<shot>', '<shot>': 'Keys stay text.' },
       },
     },
     assets: { '<shot>': shot },
@@ -76,14 +76,14 @@ Deno.test('openRouterDecisions puts each image where its reference is, and sends
   );
   assertEquals(sent[0].body, {
     model: 'typesafe/jev-1.14',
-    state: { listing: { title: 'Sticker', photo: ['<shot>', part] } },
+    state: { listing: { title: 'Sticker', photo: part } },
     questions: {
-      red: { type: 'noul', instructions: 'Is there a red square in <shot>?' },
-      where: { type: 'box', instructions: ['<shot>', part] },
+      red: { type: 'noul', instructions: ['Is there a red square in ', part, '?'] },
+      where: { type: 'box', instructions: part },
       pick: {
         type: 'choice',
         instructions: 'Which?',
-        criteria: { first: ['<shot>', part], none: 'Neither.' },
+        criteria: { first: part, '<shot>': 'Keys stay text.' },
       },
     },
   });

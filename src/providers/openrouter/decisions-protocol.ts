@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { splitReferences } from '../../kernel/engine/decision-references.ts';
 import { type JsonObject, type JsonValue, jsonObjectSchema } from '../../kernel/json.ts';
 import { defineProtocol, type Protocol } from '../../kernel/protocols/mod.ts';
 import type { DecisionCall } from '../../kernel/protocols/protocol.ts';
+import type { DecisionAsset } from '../../kernel/types.ts';
 import { decisionAnswered } from '../system-one/protocol.ts';
 
 type Assets = NonNullable<DecisionCall['assets']>;
@@ -43,18 +45,18 @@ export const openRouterDecisions: Protocol<Record<string, never>> = defineProtoc
 });
 
 /**
- * Each reference becomes the reference followed by its image, where the reference was.
+ * Each reference becomes its image, where the reference was, as TypeSafe reads references. A string
+ * that is one reference becomes the image part; a longer one becomes its text and images in order.
  * why: OpenRouter ignores an `assets` map; it reads image parts in place.
  */
 function withImages(value: JsonValue, assets: Assets): JsonValue {
   if (typeof value === 'string') {
-    const asset = assets[value];
-    return asset
-      ? [
-          value,
-          { type: 'image_url', image_url: { url: `data:${asset.mimeType};base64,${asset.data}` } },
-        ]
-      : value;
+    const pieces = splitReferences(value, assets);
+    if (pieces.every((piece) => typeof piece === 'string')) return value;
+    const parts = pieces.map((piece) =>
+      typeof piece === 'string' ? piece : imagePart(piece.asset),
+    );
+    return parts.length === 1 ? (parts[0] as JsonValue) : parts;
   }
   if (Array.isArray(value)) return value.map((item) => withImages(item, assets));
   if (value !== null && typeof value === 'object')
@@ -62,4 +64,8 @@ function withImages(value: JsonValue, assets: Assets): JsonValue {
       Object.entries(value).map(([key, item]) => [key, withImages(item, assets)]),
     ) as JsonObject;
   return value;
+}
+
+function imagePart({ mimeType, data }: DecisionAsset): JsonObject {
+  return { type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } };
 }

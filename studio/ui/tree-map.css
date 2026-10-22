@@ -15,3 +15,13 @@
 .studio-tree-map-lines .map-line {
   stroke: color-mix(in srgb, var(--color-border-emphasized) 60%, var(--color-background-surface));
 }
+
+.studio-tree-map[data-draggable] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.studio-tree-map[data-dragging] {
+  cursor: grabbing;
+}

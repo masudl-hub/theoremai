@@ -21,7 +21,7 @@ import {
   IconTimeline,
   IconTool,
 } from '@tabler/icons-react';
-import { useMemo, useRef } from 'react';
+import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
 import { mapCurve } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
 import {
@@ -38,6 +38,7 @@ import {
 import { toolTypeIcon } from './lib/type-icons.ts';
 import { MapToken, useTokenWidths } from './map-token.tsx';
 import { nodeIcon } from './node-icon.ts';
+import { drags, follow } from './pan.ts';
 import './tree-map.css';
 
 /** Where under a token its children's line runs: the middle of its icon. */
@@ -119,10 +120,24 @@ export interface StudioTreeMapProps {
   grow?: number | undefined;
   /** The box the map fits grown: growing, it eases smaller until all of it fits. */
   fit?: { width: number; height: number } | undefined;
+  /** A token dragged moves to where it is dropped, its lines with it; the field dragged moves the whole map. */
+  draggable?: boolean | undefined;
 }
 
-export function StudioTreeMap({ workspace, agents, grow = 0, fit }: StudioTreeMapProps) {
+type Shift = { x: number; y: number };
+const NONE: Shift = { x: 0, y: 0 };
+
+export function StudioTreeMap({
+  workspace,
+  agents,
+  grow = 0,
+  fit,
+  draggable = false,
+}: StudioTreeMapProps) {
   const root = useRef<HTMLDivElement>(null);
+  const [moved, setMoved] = useState<Record<string, Shift>>({});
+  const [field, setField] = useState<Shift>(NONE);
+  const [dragging, setDragging] = useState(false);
   // why: Every token is drawn from the start, the undrawn ones unseen, so each is measured before it shows.
   const widths = useTokenWidths(root, workspace);
   const layout = useMemo(
@@ -137,7 +152,11 @@ export function StudioTreeMap({ workspace, agents, grow = 0, fit }: StudioTreeMa
     ]),
   );
   const { rows, feeds } = layout;
-  const at = (id: string) => placeAt(layout, id, grow);
+  const at = (id: string) => {
+    const place = placeAt(layout, id, grow);
+    const by = moved[id] ?? NONE;
+    return { ...place, x: place.x + by.x, y: place.y + by.y };
+  };
   const drawn = (id: string) => drawnAt(layout, id, grow);
   const feedById = new Map(feeds.map((feed) => [feed.id, feed]));
   const lineDrawn = (id: string) => {
@@ -175,12 +194,48 @@ export function StudioTreeMap({ workspace, agents, grow = 0, fit }: StudioTreeMa
   }, [layout, widths]);
   const fits = fit ? Math.min(1, fit.width / grown.width, fit.height / grown.height) : 1;
   const scale = 1 + (fits - 1) * clamp(grow);
+  // why: The pointer moves in the page's pixels; the map is scaled, so a move is divided back into its own.
+  const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!draggable || !drags(event)) return;
+    event.preventDefault();
+    const token = (event.target as Element).closest<HTMLElement>('[data-map-token]')?.dataset[
+      'mapToken'
+    ];
+    const from = token === undefined ? field : (moved[token] ?? NONE);
+    const put = (to: Shift) => {
+      if (token === undefined) setField(to);
+      else setMoved((last) => ({ ...last, [token]: to }));
+    };
+    setDragging(true);
+    follow(
+      event,
+      (x, y) => {
+        put(
+          token === undefined
+            ? { x: from.x + x, y: from.y + y }
+            : { x: from.x + x / scale, y: from.y + y / scale },
+        );
+      },
+      () => {
+        setDragging(false);
+      },
+    );
+  };
+  const translate = field.x || field.y ? { translate: `${field.x}px ${field.y}px` } : {};
 
   return (
     <div
       ref={root}
       className="studio-tree-map"
-      style={{ width: mapWidth, height, ...(scale < 1 ? { scale: String(scale) } : {}) }}
+      style={{
+        width: mapWidth,
+        height,
+        ...translate,
+        ...(scale < 1 ? { scale: String(scale) } : {}),
+      }}
+      data-draggable={draggable ? '' : undefined}
+      data-dragging={dragging ? '' : undefined}
+      onPointerDown={drag}
     >
       <svg className="studio-tree-map-lines" width={mapWidth} height={height} aria-hidden="true">
         {rows.map(

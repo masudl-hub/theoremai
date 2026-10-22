@@ -72,6 +72,13 @@ The design rows for a hijack feature are these:
 
 `llmail-train` has the `train` role, but 0.5.1 never trained on llmail. So we keep it out of the design rows, as an unseen set.
 
+From A12 on, we pick between versions on the **selection rows** only:
+
+- Recall on `llmail-validate`, and on the rebuilt corpus's validation rows of llmail (2,384) and injecagent (211). A corpus source that the head never trained on also counts its unused train split as validation.
+- False alarms on `gravitee-validate`, `hermes-glm-tool-errors`, the corpus's validation rows of the threshold pool, and the corpus's validation rows of wildjailbreak-benign.
+
+`llmail-validate` breaks rule 2: it is an unseen set, and we pick on it. We chose this on 21/10 because no other validation set holds enough tool-shaped attacks. The figures we report stay `llmail-test`, `nvidia-agentic-ipi` and the new half of `injecagent` (see [Assumptions and known threats](#assumptions-and-known-threats)). We score them once, on the chosen version.
+
 ## Assumptions and known threats
 
 Each item is a reason a figure can mislead. A figure that one of these touches says so.
@@ -79,6 +86,8 @@ Each item is a reason a figure can mislead. A figure that one of these touches s
 - **The rebuilt corpus is not the original.** Its hash differs, and its seed draws different rows. A refit on it is not 0.5.1 refitted. For example, refit A scores 23.8% recall on asb-instr where 0.5.1 scores 80.6%.
 - **Threshold pool contamination.** glaive-tool and agentdojo set 0.5.1's hijack threshold. Their false alarm rates are not unseen figures.
 - **Seen origins.** The bench's injecagent, s-labs, spml, deepset, repo-texts, wildjailbreak-benign and aegis sets share a source with 0.5.1's training data. They show fit, not generalisation.
+- **Corpus texts inside bench test sets.** All 1,054 distinct injecagent texts in the rebuilt corpus are also in the bench's `injecagent` set, which has 2,108. 0.5.1 and the refits train on 60% of the corpus's injecagent rows. All 676 corpus nvidia-ipi texts are the bench's `nvidia-agentic-ipi` texts. No corpus llmail text is in a bench llmail set. From A12 on, we report `injecagent` recall on the 1,054 rows that are not in the corpus, and we do not pick on corpus nvidia-ipi rows.
+- **Selection on llmail-validate runs high.** Its attacks look like `llmail-train`, not like `llmail-test` (see the shift item below). A version can rank higher on it than it does on `llmail-test`.
 - **No tool-shaped attacks to design on.** The design rows hold 632 tool-shaped attacks, all from injecagent, against 20,833 tool-shaped benign rows.
 - **AgentLeak has no held-out split.** Both of its sets are `train`. Once we fit on them, their false alarm rates are in-sample.
 - **Shift inside llmail.** 43% of `llmail-test` attacks contain `---`. In `llmail-train` it is 6%, and in `llmail-validate` 7%. A feature that reads markdown changes `llmail-test` recall far more than the other two splits.
@@ -108,6 +117,8 @@ Each line is an experiment ID, a date, a config, and a result. Recall and false 
 | M2 | 21/10 | Method change. A refit's threshold comes from all validation benign: the rebuilt corpus's tool validation rows plus `gravitee-validate` and `hermes-glm-tool-errors`, 24,062 rows. Before, it came from 509 rows, so 2% rested on about 10 texts. | Applies to A10 on. |
 | A10 | 21/10 | A2, A4 and A8 at budgets of 0.5%, 1%, 2% and 5% validation false alarms (M2). | At 2%: llmail-test recall 7.2%, 22.7% and 43.0%; injecagent 0.0%, 25.9% and 58.4%; gravitee-test false alarms 0.8%, 1.8% and 1.8%. A8 needs the 5% budget to reach 82.9% llmail-test recall, at 4.2% gravitee-test false alarms. |
 | A11 | 21/10 | A8 without tool_verbs, without exfil_target, without authority, and without all three (M2). | Without all three, at 2%: llmail-test 55.2%, injecagent 66.9%, gravitee-test false alarms 1.1%, agentdojo-records 0.0%. But llmail-validate recall falls from 92.2% (A8) to 64.3%. Validation and test disagree on which version is better. |
+| A12 | 21/10 | A2, A8 and A11 without all three, on the selection rows at a 2% budget. | llmail-validate recall 24.8%, 92.2% and 64.3%. Corpus validation llmail 23.6%, 76.7% and 56.8%. Corpus validation injecagent 0.0%, 40.8% and 31.3% (of 211). wildjailbreak-benign false alarms 0.0%, 5.1% and 44.4% (of 39,352). A8 is chosen. A11's gain on test came with a 44% false alarm rate on hard benign that no test set held. |
+| A13 | 21/10 | Version 2: A8 plus address_sent (a sending verb, then to, at or with, then an address), authority_to_reader (an authority word in the same sentence as you), and false_authority. Each alone was also left out. | On design rows, address_sent fires on 44.6% of injecagent attacks and 0.0% to 0.1% of tool benign. But the fit gives it a weight of 0.06, because verb_to_target already separates the corpus rows. At 2%: corpus validation injecagent 40.8% to 45.0% (of 211), wildjailbreak-benign false alarms 5.1% to 5.6%, other selection figures within 1 point. Not chosen: the change is inside chance for 211 rows. Refit A trains on no tool benign, so a feature that marks tool benign as benign cannot get a weight. |
 
 ### Speed
 

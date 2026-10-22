@@ -485,7 +485,7 @@ On the browser side, `@theoremjs/web/client` reads what your server sends:
 | `fetchConversation(url, body, options?)` | POSTs a conversation read, and checks the view your server answers. |
 | `fetchRewound(url, body, options?)` | POSTs a rewind, and checks the rewound conversation. |
 | `fetchStarted(url, body, options?)` | POSTs blocks to start a conversation on, and checks the started conversation. |
-| `failedDecisionTraces(err)` | The trace records that a failed decision left, for the trace inspector. |
+| `failedTraces(err)` | The trace records that a failed decision left, for the trace inspector. |
 
 ## More documentation
 

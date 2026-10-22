@@ -1713,13 +1713,13 @@ It does not suggest an automatic retry of the unresolved operation.
 ## Decision disclosure
 
 Decision profiles do not run the turn egress lifecycle. Their only active
-guardrail is `guardrails.disclosure.enforce`, a host pre-dispatch check over the
-JSON state that would leave the process for TypeSafe Jev. It returns only
+guardrail is `guardrails.disclosure.enforce`, a host check before dispatch. It gets the
+JSON state that would leave the process for the decision provider, and the images that
+would go with it (`assets`). It returns only
 `allow` or `block`; a block prevents the request and surfaces a `DecisionError`
-with code `disclosure_blocked` (kind `blocked`). The registry rejects the inherited shared
-guardrail fields (quota, sanitization, redaction, canary, egress, network, and
-taint) on decision profiles because none have meaningful semantics on this
-bounded request path.
+with code `disclosure_blocked` (kind `blocked`). The registry refuses every other
+guardrail field (`quota`, `detect`, `blockedReply`, `network`, and `taint`) on a
+decision profile, because none has an effect on this bounded request path.
 
 ## Exported API
 
@@ -1729,8 +1729,8 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicLabels`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
-| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
+| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `detects`, `resolveAllow`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |
 | Policy | `resolveGuardrailPolicy` |
 | Rule ids | `DETECT_RULES`, `detectRule`, `EGRESS_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `checkDestinationGate`, `turnDestinations`, `addGivenDestinations`, `addHistoryDestinations`, `addRequestDestinations`, `addResultDestinations`, `TurnDestinations`, `DestinationVerdict`, `DESTINATION_GATES`, `DestinationGate`, `directives`, `DIRECTIVE_SIGNALS`, `Directive`, `DirectiveSignal`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |

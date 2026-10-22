@@ -29,11 +29,8 @@ export type DecisionQuestionView = {
   type: DecisionQuestion['type'];
   /** A choice's labels, a score's levels from 0 up; empty for a number. */
   labels: string[];
-  /**
-   * A box's image: the one its question gives, a reference or a state field, else the field its
-   * instructions first name in backticks.
-   */
-  field?: string;
+  /** A box's image, as its question gives it: a reference, or the state field that holds one. */
+  image?: string;
 };
 
 /** What a decision profile shows the page. */
@@ -53,21 +50,6 @@ function entryLabel(entry: DecisionEntry, fallback: string): string {
   if (typeof entry === 'string') return entry;
   const entries = Array.isArray(entry) ? entry : Object.keys(entry);
   return entries.length ? entryLabel(entries[0], fallback) : fallback;
-}
-
-function withField(field: string | undefined): { field?: string } {
-  return field === undefined ? {} : { field };
-}
-
-/** The first field an entry names in backticks, as in "the mug in `photo`". */
-function namedField(entry: DecisionEntry): string | undefined {
-  if (typeof entry === 'string') return /\x60([^\x60\s]+)\x60/.exec(entry)?.[1];
-  const entries = Array.isArray(entry) ? entry : Object.values(entry);
-  for (const each of entries) {
-    const field = namedField(each);
-    if (field !== undefined) return field;
-  }
-  return undefined;
 }
 
 /** The page's view of a decision profile, the questions its host asks, and the host's own images. */
@@ -92,9 +74,7 @@ export function decisionInterface(
           : question.type === 'score'
             ? question.criteria.map((entry, level) => entryLabel(entry, String(level)))
             : [],
-      ...(question.type === 'box'
-        ? withField(question.image ?? namedField(question.instructions))
-        : {}),
+      ...(question.type === 'box' && question.image !== undefined ? { image: question.image } : {}),
     })),
     ...(images && Object.keys(images).length > 0 ? { images } : {}),
     ...(profile.observability
@@ -137,12 +117,9 @@ export interface DecisionTransport {
   traces?: TraceFeed;
 }
 
+// why: The host's kernel checks each answer against its question; the page checks only the shape it draws.
 const probability = z.number().min(0).max(1);
-const probabilities = z
-  .record(z.string(), probability)
-  .refine(
-    (record) => Math.abs(Object.values(record).reduce((sum, value) => sum + value, 0) - 1) <= 0.001,
-  );
+const probabilities = z.record(z.string(), probability);
 const answerSchema: z.ZodType<DecisionAnswer> = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('choice'),
@@ -193,8 +170,6 @@ export function failedTraces(err: unknown): readonly TraceRecord[] {
   return (typeof err === 'object' && err !== null && traceFailures.get(err)) || [];
 }
 
-export const failedDecisionTraces = failedTraces;
-
 const failedBody = z.object({ traces: z.array(traceRecordSchema) });
 
 /** POSTs `body` and reads its reply with `read`; a failure keeps the trace records its body carried. */
@@ -243,7 +218,7 @@ const describedSchema = z.object({
         id: z.string(),
         type: z.enum(['choice', 'noul', 'score', 'box']),
         labels: z.array(z.string()),
-        field: z.string().optional(),
+        image: z.string().optional(),
       }),
     ),
     images: z

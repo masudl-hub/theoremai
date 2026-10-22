@@ -38,7 +38,6 @@ export {
   type DecisionTransport,
   decisionAssets,
   decisionInterface,
-  failedDecisionTraces,
   failedTraces,
   postDecision,
   readDecisionReply,

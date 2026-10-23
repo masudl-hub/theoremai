@@ -26,21 +26,15 @@ import {
   IconVault,
   IconWorldCheck,
 } from '@tabler/icons-react';
-import {
-  type PointerEvent as ReactPointerEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
 import { mapBracket, mapRoute } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
 import { modelFamilyMark } from './brand-icons.tsx';
 import {
+  atRest,
   type Box,
   beside,
-  DRAW_FROM,
-  drawOrder,
+  drawnAt,
   ease,
   type Feed,
   goneAt,
@@ -71,8 +65,6 @@ const LINE_GAP = 4;
 const BOW = 16;
 /** How far a feed going drifts off. */
 const DRIFT = 8;
-/** The slowest the map draws, as the loader's map does: one node in this long. */
-const STEP_MS = 70;
 /** A token's width until it is measured. */
 const GUESS = 120;
 
@@ -135,18 +127,21 @@ export interface StudioTreeMapProps {
   agents?: readonly string[] | undefined;
   /**
    * How far the tree has grown, from 0 to 1. As it grows each agent drifts into a zone of its own
-   * and what feeds the tree spreads into its columns. What growing adds draws in as its room opens,
-   * its line and then its token: the protocols under each provider, an agent tool's agent, the
-   * runner's steps, the tool runner with what it does with each call, and the trace's destinations.
-   * Shrinking takes it all back the same way.
+   * and what feeds the tree spreads into its columns. What growing adds comes out from under the
+   * node it grows from as the pull goes, its lines with it: the providers over their models, the
+   * protocols, the runner's steps, the tool runner with what it does with each call, and the
+   * trace's destinations. Shrinking takes it all back the same way.
    */
   grow?: number | undefined;
   /**
    * The box the map fills grown: its rows and gaps stretch to fill it, and it stands in the middle
-   * of it. When the map cannot fit, it eases smaller as it grows until all of it does.
+   * of it.
    */
   fit?: Box | undefined;
-  /** The box the map stands in now, when it changes as the map grows: grown, the map fits it. `fit` by default. */
+  /**
+   * The box the map stands in now, when it changes as the map grows: closed and grown, the map
+   * stands in the middle of it, eased smaller where it would not fit. `fit` by default.
+   */
   room?: Box | undefined;
   /**
    * The keys of the agents the map shows closed, when not `agents`. Growing takes away what the
@@ -159,30 +154,6 @@ export interface StudioTreeMapProps {
 
 type Shift = { x: number; y: number };
 const NONE: Shift = { x: 0, y: 0 };
-
-/** How many of the map's draws have played: it counts up one node a step while on, and back down while off. */
-function useDrawn(total: number, on: boolean): number {
-  const [count, setCount] = useState(0);
-  const cursor = useRef(0);
-  useEffect(() => {
-    const target = on ? total : 0;
-    let frame = 0;
-    let at = performance.now();
-    const tick = (now: number) => {
-      const step = (now - at) / STEP_MS;
-      at = now;
-      cursor.current =
-        target > cursor.current
-          ? Math.min(target, cursor.current + step)
-          : Math.max(target, cursor.current - step);
-      setCount(Math.ceil(cursor.current));
-      if (cursor.current !== target) frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [total, on]);
-  return count;
-}
 
 export function StudioTreeMap({
   workspace,
@@ -225,32 +196,28 @@ export function StudioTreeMap({
     const by = moved[id] ?? NONE;
     return { ...place, x: place.x + by.x, y: place.y + by.y };
   };
-  // why: The map draws as the loader's map draws: growing past where drawing starts sets it going,
-  // and it then draws node after node in order at its own pace, whatever the pull does; drawn back
-  // above that, it takes them away the same way.
-  const order = useMemo(() => drawOrder(layout), [layout]);
-  const count = useDrawn(order.length, grow >= DRAW_FROM);
-  const rank = useMemo(() => new Map(order.map((id, index) => [id, index])), [order]);
-  const drawn = (id: string) => {
-    const index = rank.get(id);
-    return index === undefined ? undefined : Number(index < count);
-  };
+  // why: What growing adds comes out as the pull goes, and goes back as it comes back: no clock of its own.
+  const drawn = (id: string) => drawnAt(layout, id, grow);
   const on = (id: string) => (drawn(id) ?? 1) > 0;
-  /** A line that draws in, once every end it waits on has started: none undrawn, and drawing if any draws. */
+  /** How solid what comes out is: whole by a third of the way out, so its move does the showing. */
+  const solid = (out: number) => Math.min(1, out * 3);
+  /** A line, as solid as the least come out of what it waits on. */
   const lineDrawn = (...ids: string[]) => {
-    const draws = ids.filter((id) => drawn(id) !== undefined);
-    if (!draws.every(on)) return undefined;
-    return draws.length > 0
-      ? { className: 'map-line map-line-drawing', pathLength: 1 }
+    const out = Math.min(1, ...ids.map((id) => drawn(id) ?? 1));
+    if (out <= 0) return undefined;
+    return out < 1
+      ? { className: 'map-line', style: { opacity: solid(out) } }
       : { className: 'map-line' };
   };
-  /** A token that draws in: unseen until it starts, so it is measured, then drawing. */
-  const tokenDrawn = (id: string) =>
-    drawn(id) === undefined
-      ? {}
-      : on(id)
-        ? { className: 'map-token-drawing' }
-        : { style: { visibility: 'hidden' as const } };
+  /**
+   * A token, as solid as it has come out. why: A token on its way stands under those at rest, so it
+   * slides out from under the node it grows from, and passes under what it crosses.
+   */
+  const tokenDrawn = (id: string) => {
+    const out = drawn(id) ?? 1;
+    const zIndex = atRest(layout, id, grow) ? 2 : 1;
+    return { style: out < 1 ? { opacity: solid(out), zIndex } : { zIndex } };
+  };
   const shown = feeds.filter((feed) => on(feed.id));
 
   const right = (id: string) => at(id).x + width(id);
@@ -258,12 +225,6 @@ export function StudioTreeMap({
   // why: A model wears its family's mark, the Gemini sparkle or the provider's, as the editor's tree does.
   const iconOf = (feed: Feed) =>
     (feed.kind === 'model' && feed.of !== undefined && modelFamilyMark(feed.of)) || feedIcon(feed);
-  /** Where a feed's lines end: a feed closed under another, at that one until it draws. */
-  const endOf = (feed: Feed) => {
-    const place = at(feed.id);
-    if (!feed.closedUnder || feed.under === undefined) return place;
-    return on(feed.id) ? place : at(feed.under);
-  };
   const firstUnder = new Map<string, string>();
   for (const feed of feeds) {
     if (feed.under !== undefined && !firstUnder.has(feed.under))
@@ -274,11 +235,11 @@ export function StudioTreeMap({
    * token they pass, and one for all of them, so they leave the source as one line.
    */
   const railOf = (source: string) => {
-    const ends = shown.filter((feed) => feed.from.includes(source) && beside(layout, source, feed));
-    const ys = [at(source).y, ...ends.map((feed) => endOf(feed).y)];
+    const ends = feeds.filter((feed) => feed.from.includes(source) && beside(layout, source, feed));
+    const ys = [at(source).y, ...ends.map((feed) => at(feed.id).y)];
     const [top, bottom] = [Math.min(...ys), Math.max(...ys)];
     const column = ends[0]?.column;
-    const passed = shown
+    const passed = feeds
       .filter((each) => each.column === column)
       .filter((each) => at(each.id).y >= top && at(each.id).y <= bottom)
       .map((each) => right(each.id) + LINE_GAP);
@@ -287,20 +248,18 @@ export function StudioTreeMap({
   // why: Closed, a line is the still's curve; grown, it runs down its feed's lane like the tree's.
   const square = ease(grow / MOVE_TO);
   const lines = feeds.flatMap((feed) => {
-    if (!feed.closedUnder && !on(feed.id)) return [];
+    if (!on(feed.id)) return [];
     const late = (feed.late ?? []).map((source) => ({ source, late: true }));
     return [...feed.from.map((source) => ({ source, late: false })), ...late].flatMap(
       ({ source, late }) => {
         if (!isRow.has(source) && !on(source)) return [];
-        const end = endOf(feed);
+        const end = at(feed.id);
         const start = { x: right(source) + LINE_GAP, y: at(source).y };
         const draws = [lineKey(source, feed.id)];
         draws.push(
           ...(late
             ? [firstUnder.get(feed.id) ?? feed.id]
-            : feed.closedUnder
-              ? []
-              : [feed.id, ...(isRow.has(source) ? [] : [source])]),
+            : [feed.id, ...(isRow.has(source) ? [] : [source])]),
         );
         if (beside(layout, source, feed)) {
           const into = { x: end.x + width(feed.id) + LINE_GAP, y: end.y };
@@ -323,14 +282,13 @@ export function StudioTreeMap({
       },
     );
   });
-  // What growing takes away fades: a row folding into its agent, a feed drifting off.
+  // What growing takes away goes under the rest: a row folding into its agent, a feed drifting off.
   const going = gone < 1;
-  const leavingStyle = { opacity: 1 - gone };
+  const leavingStyle = { opacity: 1 - gone, zIndex: 0 };
   const parentOf = (id: string) => layout.becomes.get(id) ?? id;
   const leavingLines = going
     ? leaving.lines.map(({ source, feed }) => {
-        const each = [...feeds, ...leaving.feeds].find((one) => one.id === feed);
-        const end = at(each?.closedUnder && each.under !== undefined ? each.under : feed);
+        const end = at(feed);
         const start = { x: right(source) + LINE_GAP, y: at(source).y };
         return {
           key: lineKey(source, feed),
@@ -351,16 +309,28 @@ export function StudioTreeMap({
   }, [layout, widths]);
   // why: The map eases to the size of the box it stands in with its nodes' move, so it never
   // outgrows it, and grows with it after.
-  const fits = room ? Math.min(1, room.width / grown.width, room.height / grown.height) : 1;
+  const closedSize = useMemo(() => {
+    const ends = [...layout.closed];
+    return {
+      width: Math.max(...ends.map(([id, end]) => end.x + (widths[id] ?? GUESS))) + PAD,
+      height: Math.max(...ends.map(([, end]) => end.y)) + HALF + PAD,
+    };
+  }, [layout, widths]);
+  // why: Closed and grown alike, the map fits the box it stands in, never larger than itself, and
+  // stands in the middle of it; it eases from the one to the other with its nodes' move.
   const settled = ease(grow / MOVE_TO);
-  const scale = 1 + (fits - 1) * settled;
-  // why: Grown, the map stands in the middle of the box it fills; closed, at its top left.
-  const centre = room
-    ? {
-        x: (Math.max(0, room.width - grown.width * fits) / 2) * settled,
-        y: (Math.max(0, room.height - grown.height * fits) / 2) * settled,
-      }
-    : NONE;
+  const fitting = (size: Box) =>
+    room ? Math.min(1, room.width / size.width, room.height / size.height) : 1;
+  const scale = fitting(closedSize) + (fitting(grown) - fitting(closedSize)) * settled;
+  const middle = (size: Box) =>
+    room
+      ? {
+          x: Math.max(0, room.width - size.width * fitting(size)) / 2,
+          y: Math.max(0, room.height - size.height * fitting(size)) / 2,
+        }
+      : NONE;
+  const [from, to] = [middle(closedSize), middle(grown)];
+  const centre = { x: from.x + (to.x - from.x) * settled, y: from.y + (to.y - from.y) * settled };
   // why: The pointer moves in the page's pixels; the map is scaled, so a move is divided back into its own.
   const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!draggable || !drags(event)) return;
@@ -447,13 +417,13 @@ export function StudioTreeMap({
           );
         })}
       </svg>
-      {/* The column headings draw in as the map starts to draw. */}
-      {count > 0 &&
+      {/* The column headings show as the map moves into its columns. */}
+      {settled > 0 &&
         layout.headings.map(({ label, note, x, y }) => (
           <div
             key={label}
-            className="studio-tree-map-heading map-token-drawing"
-            style={{ left: x, top: y }}
+            className="studio-tree-map-heading"
+            style={{ left: x, top: y, opacity: settled }}
           >
             <Text type="supporting" color="secondary" weight="semibold">
               {label}

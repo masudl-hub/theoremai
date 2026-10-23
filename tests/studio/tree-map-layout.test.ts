@@ -8,6 +8,7 @@ import {
   type StudioWorkspace,
 } from '../../studio/mod.ts';
 import {
+  atRest,
   type Box,
   beside,
   drawnAt,
@@ -16,6 +17,7 @@ import {
   HALF,
   HEADING,
   KEY_VAULT,
+  LEAVE_TO,
   lineKey,
   PROVIDER_STREAM,
   placeAt,
@@ -107,24 +109,30 @@ const width = (layout: TreeMapLayout, id: string) => {
 
 const BOX: Box = { width: 860, height: 1010 };
 
-for (const box of [undefined, BOX]) {
-  Deno.test(`growing, no token of the tree map stands on another${box ? ', filling a box' : ''}`, () => {
-    const layout = picture(box);
-    const ids = [...layout.rows.map(rowId), ...layout.feeds.map((feed) => feed.id)];
-    for (let step = 0; step <= 200; step += 1) {
-      const grow = step / 200;
-      const seen = ids.filter((id) => (drawnAt(layout, id, grow) ?? 1) > 0);
-      for (const [index, a] of seen.entries()) {
-        for (const b of seen.slice(index + 1)) {
-          const [p, q] = [placeAt(layout, a, grow), placeAt(layout, b, grow)];
-          const apart =
-            p.x + width(layout, a) <= q.x ||
-            q.x + width(layout, b) <= p.x ||
-            Math.abs(p.y - q.y) >= 2 * HALF;
-          assert(apart, `${a} and ${b} meet at ${grow}`);
-        }
+/**
+ * Growing, no two tokens at rest meet: a token passes another only on its way, out from under the
+ * node it grows from or into its zone.
+ */
+function assertApartAtRest(layout: TreeMapLayout, ids: string[], wide: (id: string) => number) {
+  for (let step = 0; step <= 200; step += 1) {
+    const grow = step / 200;
+    const still = ids.filter((id) => atRest(layout, id, grow));
+    for (const [index, a] of still.entries()) {
+      for (const b of still.slice(index + 1)) {
+        const [p, q] = [placeAt(layout, a, grow), placeAt(layout, b, grow)];
+        const apart =
+          p.x + wide(a) <= q.x || q.x + wide(b) <= p.x || Math.abs(p.y - q.y) >= 2 * HALF;
+        assert(apart, `${a} and ${b} meet at ${grow}`);
       }
     }
+  }
+}
+
+for (const box of [undefined, BOX]) {
+  Deno.test(`growing, no token of the tree map at rest stands on another${box ? ', filling a box' : ''}`, () => {
+    const layout = picture(box);
+    const ids = [...layout.rows.map(rowId), ...layout.feeds.map((feed) => feed.id)];
+    assertApartAtRest(layout, ids, (id) => width(layout, id));
   });
 }
 
@@ -227,8 +235,11 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
 Deno.test('closed the tree map is as it was, and grown every node growing adds has drawn', () => {
   const layout = picture(BOX);
   for (const [id, { x, y }] of layout.closed) assertEquals(placeAt(layout, id, 0), { x, y });
+  // Closed, the models with a line from a row and the tools show; the providers come out over them.
   const added = layout.feeds.filter((feed) => !layout.few.has(feed.id));
-  assertEquals(added.length, 25);
+  assertEquals(added.length, 23);
+  for (const feed of layout.feeds.filter((each) => each.kind === 'provider'))
+    assert(!layout.few.has(feed.id), feed.id);
   for (const feed of added) {
     assertEquals(drawnAt(layout, feed.id, 0), 0);
     assertEquals(drawnAt(layout, feed.id, 1), 1);
@@ -400,7 +411,7 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
   for (const row of layout.leaving.rows) assert(layout.closed.has(rowId(row)));
   assert(layout.leaving.rows.some((row) => row.node.label === 'Models'));
   assertEquals(goneAt(0), 0);
-  assertEquals(goneAt(0.3), 1);
+  assertEquals(goneAt(LEAVE_TO), 1);
   // Closed, every agent shows its whole profile: the architect's rows all stand in the still, and
   // the others' go with them.
   for (const row of layout.rows)
@@ -411,7 +422,7 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
   // The line into the decision agent draws in.
   assertEquals(drawnAt(layout, underKey(feed), 0), 0);
   assertEquals(drawnAt(layout, underKey(feed), 1), 1);
-  // Growing, nothing seen passes over another, but rows folding into their own agent.
+  // Growing, no two tokens at rest meet.
   const leavingIds = new Set([
     ...layout.leaving.rows.map(rowId),
     ...layout.leaving.feeds.map((each) => each.id),
@@ -422,25 +433,5 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
     [...layout.feeds, ...layout.leaving.feeds].find((each) => each.id === id)?.label ??
     '';
   const wide = (id: string) => 40 + 7 * label(id).length;
-  const agentOf = (id: string): string => {
-    const row = layout.leaving.rows.find((each) => rowId(each) === id);
-    return row?.parent === undefined ? id : agentOf(layout.becomes.get(row.parent) ?? row.parent);
-  };
-  const folds = (a: string, b: string) =>
-    leavingIds.has(a) && (agentOf(a) === b || (leavingIds.has(b) && agentOf(a) === agentOf(b)));
-  for (let step = 0; step <= 200; step += 1) {
-    const grow = step / 200;
-    const seen = ids.filter((id) =>
-      leavingIds.has(id) ? goneAt(grow) < 0.5 : (drawnAt(layout, id, grow) ?? 1) > 0.5,
-    );
-    for (const [index, a] of seen.entries()) {
-      for (const b of seen.slice(index + 1)) {
-        if (folds(a, b) || folds(b, a)) continue;
-        const [p, q] = [placeAt(layout, a, grow), placeAt(layout, b, grow)];
-        const apart =
-          p.x + wide(a) <= q.x || q.x + wide(b) <= p.x || Math.abs(p.y - q.y) >= 2 * HALF;
-        assert(apart, `${label(a)} and ${label(b)} meet at ${grow}`);
-      }
-    }
-  }
+  assertApartAtRest(layout, ids, wide);
 });

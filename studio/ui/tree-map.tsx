@@ -45,7 +45,6 @@ import {
   type Place,
   placeAt,
   rowId,
-  type TreeMapStill,
   treeMapLayout,
   underKey,
 } from './lib/tree-map-layout.ts';
@@ -63,8 +62,10 @@ const TURN = 8;
 const LINE_GAP = 4;
 /** How far right of the feeds it passes a line between two feeds of one column runs. */
 const BOW = 16;
-/** How far a token drawing drifts into place. */
+/** How far a feed going drifts off. */
 const DRIFT = 8;
+/** How far grown the column headings draw in. */
+const HEADINGS_AT = 0.5;
 /** A token's width until it is measured. */
 const GUESS = 120;
 
@@ -141,11 +142,10 @@ export interface StudioTreeMapProps {
   /** The box the map stands in now, when it changes as the map grows: grown, the map fits it. `fit` by default. */
   room?: Box | undefined;
   /**
-   * What the map shows closed, when not the tree: these agents, each with only these rows. Growing
-   * takes away what the tree does not draw, and an agent the tree draws as an agent tool's agent
-   * glides into it.
+   * The keys of the agents the map shows closed, when not `agents`. Growing takes away what the
+   * tree does not draw, and an agent the tree draws as an agent tool's agent glides into it.
    */
-  still?: TreeMapStill | undefined;
+  still?: readonly string[] | undefined;
   /** A token dragged moves to where it is dropped, its lines with it; the field dragged moves the whole map. */
   draggable?: boolean | undefined;
 }
@@ -195,14 +195,25 @@ export function StudioTreeMap({
     return { ...place, x: place.x + by.x, y: place.y + by.y };
   };
   const drawn = (id: string) => drawnAt(layout, id, grow);
-  /** A line draws in its first half of the later of its two ends drawing, its token in the second. */
+  // why: Growing past where a node draws starts its draw, which then plays at its own pace as the
+  // loader's map draws; the pull only says when, never how far.
+  const on = (id: string) => (drawn(id) ?? 1) > 0;
+  /** A line that draws in, once every end it waits on has started: none undrawn, and drawing if any draws. */
   const lineDrawn = (...ids: string[]) => {
-    const parts = ids.flatMap((id) => drawn(id) ?? []);
-    if (parts.length === 0) return {};
-    const part = Math.min(...parts);
-    return { pathLength: 1, style: { strokeDasharray: 1, strokeDashoffset: 1 - ease(part * 2) } };
+    const draws = ids.filter((id) => drawn(id) !== undefined);
+    if (!draws.every(on)) return undefined;
+    return draws.length > 0
+      ? { className: 'map-line map-line-drawing', pathLength: 1 }
+      : { className: 'map-line' };
   };
-  const shown = feeds.filter((feed) => (drawn(feed.id) ?? 1) > 0);
+  /** A token that draws in: unseen until it starts, so it is measured, then drawing. */
+  const tokenDrawn = (id: string) =>
+    drawn(id) === undefined
+      ? {}
+      : on(id)
+        ? { className: 'map-token-drawing' }
+        : { style: { visibility: 'hidden' as const } };
+  const shown = feeds.filter((feed) => on(feed.id));
 
   const right = (id: string) => at(id).x + width(id);
   const isRow = new Set(rows.map(rowId));
@@ -213,9 +224,7 @@ export function StudioTreeMap({
   const endOf = (feed: Feed) => {
     const place = at(feed.id);
     if (!feed.closedUnder || feed.under === undefined) return place;
-    const holder = at(feed.under);
-    const part = ease((drawn(feed.id) ?? 1) * 2);
-    return { x: holder.x + (place.x - holder.x) * part, y: holder.y + (place.y - holder.y) * part };
+    return on(feed.id) ? place : at(feed.under);
   };
   const firstUnder = new Map<string, string>();
   for (const feed of feeds) {
@@ -240,11 +249,11 @@ export function StudioTreeMap({
   // why: Closed, a line is the still's curve; grown, it runs down its feed's lane like the tree's.
   const square = ease(grow / MOVE_TO);
   const lines = feeds.flatMap((feed) => {
-    if (!feed.closedUnder && (drawn(feed.id) ?? 1) <= 0) return [];
+    if (!feed.closedUnder && !on(feed.id)) return [];
     const late = (feed.late ?? []).map((source) => ({ source, late: true }));
     return [...feed.from.map((source) => ({ source, late: false })), ...late].flatMap(
       ({ source, late }) => {
-        if (!isRow.has(source) && (drawn(source) ?? 1) <= 0) return [];
+        if (!isRow.has(source) && !on(source)) return [];
         const end = endOf(feed);
         const start = { x: right(source) + LINE_GAP, y: at(source).y };
         const draws = [lineKey(source, feed.id)];
@@ -358,17 +367,15 @@ export function StudioTreeMap({
       onPointerDown={drag}
     >
       <svg className="studio-tree-map-lines" width={mapWidth} height={height} aria-hidden="true">
-        {rows.map(
-          (row) =>
-            row.parent && (
-              <path
-                key={rowId(row)}
-                className="map-line"
-                d={linePath(at(row.parent), at(rowId(row)))}
-                {...lineDrawn(rowId(row))}
-              />
-            ),
-        )}
+        {rows.map((row) => {
+          const drawing = row.parent && lineDrawn(rowId(row));
+          return (
+            row.parent &&
+            drawing && (
+              <path key={rowId(row)} d={linePath(at(row.parent), at(rowId(row)))} {...drawing} />
+            )
+          );
+        })}
         {going &&
           leaving.rows.map(
             (row) =>
@@ -384,49 +391,52 @@ export function StudioTreeMap({
         {leavingLines.map(({ key, d }) => (
           <path key={key} className="map-line" d={d} style={leavingStyle} />
         ))}
-        {lines.map(({ key, d, draws }) => (
-          <path key={key} className="map-line" d={d} {...lineDrawn(...draws)} />
-        ))}
-        {shown.map(
-          (feed) =>
-            feed.under !== undefined && (
+        {lines.map(({ key, d, draws }) => {
+          const drawing = lineDrawn(...draws);
+          return drawing && <path key={key} d={d} {...drawing} />;
+        })}
+        {shown.map((feed) => {
+          const drawing = feed.under !== undefined && lineDrawn(feed.id, underKey(feed.id));
+          return (
+            feed.under !== undefined &&
+            drawing && (
               <path
                 key={underKey(feed.id)}
-                className="map-line"
                 d={underPath(at(feed.under), at(feed.id))}
-                {...lineDrawn(feed.id, underKey(feed.id))}
+                {...drawing}
               />
-            ),
-        )}
+            )
+          );
+        })}
       </svg>
-      {layout.headings.map(({ label, note, x, y }) => (
-        <div
-          key={label}
-          className="studio-tree-map-heading"
-          style={{ left: x, top: y, opacity: ease(grow * 2 - 1) }}
-        >
-          <Text type="supporting" color="secondary" weight="semibold">
-            {label}
-          </Text>
-          <Text type="supporting" color="placeholder">
-            {note}
-          </Text>
-        </div>
-      ))}
+      {/* The column headings draw in with the map, once it is half grown. */}
+      {grow > HEADINGS_AT &&
+        layout.headings.map(({ label, note, x, y }) => (
+          <div
+            key={label}
+            className="studio-tree-map-heading map-token-drawing"
+            style={{ left: x, top: y }}
+          >
+            <Text type="supporting" color="secondary" weight="semibold">
+              {label}
+            </Text>
+            <Text type="supporting" color="placeholder">
+              {note}
+            </Text>
+          </div>
+        ))}
       {rows.map((row) => {
         const draft = drafts.get(row.agent) ?? createBlankDraft();
         const { x, y } = at(rowId(row));
-        const part = drawn(rowId(row));
-        const seen = part === undefined ? 1 : ease(part * 2 - 1);
         return (
           <MapToken
             key={rowId(row)}
             id={rowId(row)}
             label={row.node.label}
             icon={nodeIcon(draft, row.node.ref)}
-            x={x - DRIFT * (1 - seen)}
+            x={x}
             y={y}
-            {...(part === undefined ? {} : { style: { opacity: seen } })}
+            {...tokenDrawn(rowId(row))}
           />
         );
       })}
@@ -463,19 +473,15 @@ export function StudioTreeMap({
         })}
       {feeds.map((feed) => {
         const { x, y } = at(feed.id);
-        const part = drawn(feed.id);
-        const unseen = part === 0 ? { visibility: 'hidden' as const } : {};
-        // why: A token drawing drifts the last few pixels into the end of its line as it fades in.
-        const seen = part === undefined ? 1 : ease(part * 2 - 1);
         return (
           <MapToken
             key={feed.id}
             id={feed.id}
             label={feed.label}
             icon={iconOf(feed)}
-            x={x - DRIFT * (1 - seen)}
+            x={x}
             y={y}
-            {...(part === undefined ? {} : { style: { ...unseen, opacity: seen } })}
+            {...tokenDrawn(feed.id)}
           />
         );
       })}

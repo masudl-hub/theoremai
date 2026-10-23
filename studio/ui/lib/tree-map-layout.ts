@@ -42,7 +42,7 @@ const REMOTE_TYPES = ['http', 'mcp'];
 export const MOVE_TO = 0.8;
 /** Over what stretch of growing the added nodes draw, and how long each takes of it. */
 const DRAW_FROM = 0.15;
-/** Of a row's glide into a slot, the share it falls before it starts across, and goes across after it lands. */
+/** Of a row's glide into a slot, the share it goes across before it starts to its slot, and the share it has left to go there after it is across. */
 const SINK = 0.45;
 /** What the still shows and growing takes away is gone by this far grown. */
 export const LEAVE_TO = 0.3;
@@ -166,11 +166,7 @@ export function rowId(row: Row): string {
   return `${row.agent}/${row.node.id}`;
 }
 
-function rowsOf(
-  workspace: StudioWorkspace,
-  only?: readonly string[],
-  facets?: readonly string[],
-): Row[] {
+function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
   const rows: Row[] = [];
   const walk = (node: StudioTreeNode, agent: string, depth: number, parent?: Row) => {
     const row: Row = {
@@ -184,11 +180,7 @@ function rowsOf(
     // why: The models are named once, under their providers beside the tree; the Models row links to
     // them. Observability comes last, level with the trace destinations and the trace exporter at
     // the foot of the map.
-    const children = node.children.filter(
-      (child) =>
-        child.ref.facet !== 'modelBinding' &&
-        (facets === undefined || facets.includes(child.ref.facet)),
-    );
+    const children = node.children.filter((child) => child.ref.facet !== 'modelBinding');
     const rank = (child: StudioTreeNode) =>
       child.ref.facet === 'observability'
         ? ROW_ORDER.length + 1
@@ -870,12 +862,6 @@ export function goneAt(grow: number): number {
 /** The key under which the line into a feed under another draws, for a feed that was a row. */
 export const underKey = (feed: string) => `${feed}^`;
 
-/** What the map shows closed: these agents, each with only these rows under it. */
-export interface TreeMapStill {
-  agents: readonly string[];
-  facets: readonly string[];
-}
-
 /** A feed's lane: `by` left of the column it stands in, which starts at the feed `of`. */
 export interface Lane {
   of: string;
@@ -896,14 +882,14 @@ export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place 
     const holder = placeAt(layout, slot.holder, grow);
     const row = between(ROW, layout.row, moved);
     const to = { x: holder.x + slot.across, y: holder.y + slot.down * row };
-    // why: A row of the still that grows into a node under a feed glides down the tree's side first
-    // and then across under its holder, so it passes no column's tokens.
+    // why: A row of the still that grows into a node under a feed glides across out of the tree's
+    // way first and then to its slot; across, it never stands above its slot, so its holder carries
+    // it down rather than passing through it.
     const from = layout.closed.get(id);
     if (!from) return to;
-    return {
-      x: between(from.x, to.x, ease((t - SINK) / (1 - SINK))),
-      y: between(from.y, to.y, ease(t / (1 - SINK))),
-    };
+    const [first, second] = [ease(t / (1 - SINK)), ease((t - SINK) / (1 - SINK))];
+    const y = between(from.y, to.y, second);
+    return { x: between(from.x, to.x, first), y: y + Math.max(0, to.y - y) * first };
   }
   // A row of the still that growing takes away folds into its agent as it goes, and an agent going
   // is carried down with the tree's last row above it, so no row passes through it.
@@ -1239,12 +1225,13 @@ export function treeMapLayout(
   agents: readonly string[] | undefined,
   width: (id: string) => number,
   box?: Box,
-  still?: TreeMapStill,
+  /** The agents the map shows closed, when not the tree's. */
+  still?: readonly string[],
 ): TreeMapLayout {
   const rows = rowsOf(workspace, agents);
   const feeds = feedsOf(workspace, rows);
   // Closed, the still: its own agents and rows, or the tree's, and what feeds them.
-  const stillRows = still ? rowsOf(workspace, still.agents, still.facets) : rows;
+  const stillRows = still ? rowsOf(workspace, still) : rows;
   const stillFeeds = still ? feedsOf(workspace, stillRows) : feeds;
   const grownRows = new Set(rows.map(rowId));
   const grownFeeds = new Set(feeds.map((feed) => feed.id));

@@ -200,7 +200,7 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
           const line = lineTo(from, width, to, Math.min(DOTS, to.node.own.length));
           return (
             <g key={to.node.id}>
-              <path className="map-line read-map-line" d={line.d} pathLength={1} />
+              <path className="map-line map-line-drawing" d={line.d} pathLength={1} />
               {line.dots.slice(0, dots).map(({ x, y }, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: a dot is its place along the line.
                 <circle key={index} className="read-map-dot" cx={x} cy={y} r={2.5} />
@@ -212,7 +212,7 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
       {placed.map(({ node, x, y }) => (
         <MapToken
           key={node.id}
-          className="read-map-node"
+          className="map-token-drawing"
           id={node.id}
           label={short(node.label)}
           icon={nodeIcon(node)}

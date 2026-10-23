@@ -350,7 +350,12 @@ function stillPicture(): TreeMapLayout {
     })),
     toolSpecs: base.toolSpecs.filter((tool) => tool !== narrate),
   };
-  const added = addAgent(trimmed, decisionExampleDraft());
+  // As on the site, the decision agent runs through OpenRouter, the architect's provider.
+  const jev = decisionExampleDraft();
+  const added = addAgent(trimmed, {
+    ...jev,
+    modelBindings: jev.modelBindings.map((binding) => ({ ...binding, provider: 'openrouter' })),
+  });
   const [architect, narrator, decision] = added.agents;
   const ask = defaultToolSpec({
     toolName: 'make_decision',
@@ -368,10 +373,7 @@ function stillPicture(): TreeMapLayout {
     ),
     toolSpecs: [...added.toolSpecs, ask],
   };
-  const still = {
-    agents: [architect?.key ?? '', decision?.key ?? '', narrator?.key ?? ''],
-    facets: ['models', 'tools'],
-  };
+  const still = [architect?.key ?? '', narrator?.key ?? '', decision?.key ?? ''];
   const agents = [architect?.key ?? ''];
   const named = treeMapLayout(workspace, agents, () => 0, undefined, still);
   const labels = new Map<string, string>([
@@ -382,7 +384,7 @@ function stillPicture(): TreeMapLayout {
   return treeMapLayout(workspace, agents, wide, BOX, still);
 }
 
-Deno.test('closed, the still shows its agents with their models and tools; grown, the tree alone', () => {
+Deno.test('closed, the still shows each of its agents whole; grown, the tree alone', () => {
   const layout = stillPicture();
   const roots = layout.rows.filter((row) => row.parent === undefined);
   assertEquals(roots.length, 1);
@@ -399,28 +401,17 @@ Deno.test('closed, the still shows its agents with their models and tools; grown
   assert(layout.leaving.rows.some((row) => row.node.label === 'Models'));
   assertEquals(goneAt(0), 0);
   assertEquals(goneAt(0.3), 1);
-  // Closed, each agent shows only its models and tools; grown, the architect every row.
-  const stillFacets = layout.leaving.rows.flatMap((row) =>
-    row.parent ? [row.node.ref.facet] : [],
-  );
-  for (const facet of stillFacets) assert(['models', 'tools'].includes(facet));
-  // What the tree adds to the still unfolds from the row above it and draws in, and the line into
-  // the decision agent draws in.
-  const added = layout.rows.map(rowId).filter((id) => layout.starts.has(id));
-  assertEquals(added.length, 6);
-  for (const id of added) {
-    const row = layout.rows.findIndex((each) => rowId(each) === id);
-    const above = layout.rows.slice(0, row).findLast((each) => !layout.starts.has(rowId(each)));
-    const from = above && layout.closed.get(rowId(above));
-    assertEquals(placeAt(layout, id, 0), from && { x: from.x, y: from.y });
-  }
-  for (const id of added) {
-    assertEquals(drawnAt(layout, id, 0), 0);
-    assertEquals(drawnAt(layout, id, 1), 1);
-  }
+  // Closed, every agent shows its whole profile: the architect's rows all stand in the still, and
+  // the others' go with them.
+  for (const row of layout.rows)
+    assert(layout.closed.has(rowId(row)) && !layout.starts.has(rowId(row)));
+  const going = new Set(layout.leaving.rows.map((row) => row.node.label));
+  for (const label of ['Speech', 'Guardrails', 'Labels', 'Observability', 'Decision'])
+    assert(going.has(label), label);
+  // The line into the decision agent draws in.
   assertEquals(drawnAt(layout, underKey(feed), 0), 0);
   assertEquals(drawnAt(layout, underKey(feed), 1), 1);
-  // Growing, nothing seen passes over another, but a row folding into its own agent.
+  // Growing, nothing seen passes over another, but rows folding into their own agent.
   const leavingIds = new Set([
     ...layout.leaving.rows.map(rowId),
     ...layout.leaving.feeds.map((each) => each.id),
@@ -431,10 +422,12 @@ Deno.test('closed, the still shows its agents with their models and tools; grown
     [...layout.feeds, ...layout.leaving.feeds].find((each) => each.id === id)?.label ??
     '';
   const wide = (id: string) => 40 + 7 * label(id).length;
-  const folds = (child: string, parent: string) => {
-    const row = layout.leaving.rows.find((each) => rowId(each) === child);
-    return row?.parent !== undefined && (layout.becomes.get(row.parent) ?? row.parent) === parent;
+  const agentOf = (id: string): string => {
+    const row = layout.leaving.rows.find((each) => rowId(each) === id);
+    return row?.parent === undefined ? id : agentOf(layout.becomes.get(row.parent) ?? row.parent);
   };
+  const folds = (a: string, b: string) =>
+    leavingIds.has(a) && (agentOf(a) === b || (leavingIds.has(b) && agentOf(a) === agentOf(b)));
   for (let step = 0; step <= 200; step += 1) {
     const grow = step / 200;
     const seen = ids.filter((id) =>

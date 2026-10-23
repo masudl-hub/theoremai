@@ -10,7 +10,6 @@
 import type { IconType } from '@astryxdesign/core/Icon';
 import {
   IconArrowsMinimize,
-  IconChecks,
   IconCloud,
   IconCpu,
   IconDatabase,
@@ -25,11 +24,12 @@ import {
   IconWorldCheck,
 } from '@tabler/icons-react';
 import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
-import { mapRoute } from '../map-line.ts';
+import { mapCurve, mapRoute } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
 import { modelFamilyMark } from './brand-icons.tsx';
 import {
   type Box,
+  beside,
   drawnAt,
   type Feed,
   HALF,
@@ -54,6 +54,8 @@ const TRUNK = 13;
 const TURN = 8;
 /** Between a token's side and its line. */
 const LINE_GAP = 4;
+/** How far past its column a line between two of its feeds bows out. */
+const BOW = 16;
 /** A token's width until it is measured. */
 const GUESS = 120;
 
@@ -62,7 +64,6 @@ const STEP_ICONS: Record<string, IconType> = {
   compaction: IconArrowsMinimize,
   stream: IconCloud,
   tools: IconRepeat,
-  validation: IconChecks,
   egress: IconShieldCheck,
   trace: IconTimeline,
 };
@@ -210,6 +211,19 @@ export function StudioTreeMap({
         if (!isRow.has(source) && (drawn(source) ?? 1) <= 0) return [];
         const end = endOf(feed);
         const start = { x: right(source) + LINE_GAP, y: at(source).y };
+        const draws = late
+          ? [firstUnder.get(feed.id) ?? feed.id]
+          : feed.closedUnder
+            ? []
+            : [feed.id, ...(isRow.has(source) ? [] : [source])];
+        if (beside(layout, source, feed)) {
+          const into = { x: end.x + width(feed.id) + LINE_GAP, y: end.y };
+          const column = shown
+            .filter((each) => each.column === feed.column)
+            .map((each) => right(each.id));
+          const bow = Math.max(start.x, into.x, ...column) + BOW;
+          return [{ key: lineKey(source, feed.id), d: mapCurve(start, into, bow).d, draws }];
+        }
         const lane = layout.lanes.get(lineKey(source, feed.id));
         const rail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;
         const steps = (layout.jogs.get(lineKey(source, feed.id)) ?? []).map((jog) => ({
@@ -217,11 +231,6 @@ export function StudioTreeMap({
           y: at(jog.near).y + (jog.side * layout.row) / 2,
         }));
         const d = mapRoute(start, { x: end.x - LINE_GAP, y: end.y }, steps, rail, TURN, square);
-        const draws = late
-          ? [firstUnder.get(feed.id) ?? feed.id]
-          : feed.closedUnder
-            ? []
-            : [feed.id, ...(isRow.has(source) ? [] : [source])];
         return [{ key: lineKey(source, feed.id), d, draws }];
       },
     );

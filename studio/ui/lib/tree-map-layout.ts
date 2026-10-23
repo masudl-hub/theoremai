@@ -96,12 +96,13 @@ export interface Feed {
  * What the runner does in a turn, in order: the steps of the kernel contract's turn lifecycle
  * (docs/contracts/kernel.md, "Turn lifecycle") that do work, and the profile sections each reads.
  * why: The canary bind runs only while a canary detector is on, and pre_turn, before_end and
- * post_turn are hooks for the host's stages, so the map leaves those four out.
+ * post_turn are hooks for the host's stages, so the map leaves those four out; the structured
+ * reply's validation is the outputs' own, not a story of the runner's, so it is left out too.
+ * Sanitize and egress are named for what they read: the input, and the reply.
  */
 export const TURN_STEPS: readonly { id: string; label: string; reads: readonly string[] }[] = [
-  { id: 'sanitize', label: 'Sanitize', reads: ['guardrails'] },
-  { id: 'validation', label: 'Validation', reads: ['outputs'] },
-  { id: 'egress', label: 'Egress', reads: ['guardrails'] },
+  { id: 'sanitize', label: 'Input guard', reads: ['guardrails'] },
+  { id: 'egress', label: 'Reply guard', reads: ['guardrails'] },
   { id: 'trace', label: 'Telemetry engine', reads: ['observability'] },
 ];
 
@@ -117,8 +118,8 @@ export const TOOL_CHECKS: readonly { id: string; label: string }[] = [
 
 /** What the guardrail runtime does with a call: the network a remote call reaches, and the guard on its result. */
 const GUARDRAIL_CHECKS: readonly { id: string; label: string }[] = [
-  { id: 'network', label: 'Network check' },
-  { id: 'result', label: 'Result guard' },
+  { id: 'network', label: 'Network guard' },
+  { id: 'result', label: 'Tool result guard' },
 ];
 
 /** Closed, the map shows only these heads beside the tree, in this order. */
@@ -184,21 +185,34 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       const row = agent.tools.allow.includes(key) ? rowOf(agent.key, 'tools') : undefined;
       return row ? [rowId(row)] : [];
     });
+  const firstOf = (type: string) =>
+    workspace.toolSpecs.find((each) => each.toolType === type && allowing(each.key).length > 0);
+  // why: An agent tool's agent runs on a model of its own, so its models stand under their
+  // providers too, each with a line from the agent under the tool, when the tree does not draw it.
+  const asked = firstOf('agent');
+  const askedAgent = drawn.some((agent) => agent.key === asked?.agentKey)
+    ? undefined
+    : workspace.agents.find((agent) => agent.key === asked?.agentKey);
+  const modelled = [
+    ...drawn.flatMap((agent) => {
+      const section = rowOf(agent.key, 'models');
+      return section ? [{ agent, source: rowId(section) }] : [];
+    }),
+    ...(asked && askedAgent ? [{ agent: askedAgent, source: `tool:${asked.key}/agent` }] : []),
+  ];
   const providers = new Map<string, Map<string, string[]>>();
   const models: Feed[] = [];
-  for (const agent of drawn) {
-    const section = rowOf(agent.key, 'models');
-    if (!section) continue;
+  for (const { agent, source } of modelled) {
     for (const binding of agent.modelBindings) {
       const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
-      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), rowId(section)]);
+      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), source]);
       providers.set(binding.provider, protocols);
       models.push({
         id: `model:${agent.key}/${binding.key}`,
         label: binding.modelId,
         kind: 'model',
         of: binding.apiId,
-        from: [rowId(section)],
+        from: [source],
         under: `provider:${binding.provider}`,
         closedUnder: true,
         column: 1,
@@ -232,9 +246,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   }
   const tools: { id: string; spec: StudioWorkspace['toolSpecs'][number] }[] = [];
   for (const type of TOOL_TYPES) {
-    const spec = workspace.toolSpecs.find(
-      (each) => each.toolType === type && allowing(each.key).length > 0,
-    );
+    const spec = firstOf(type);
     if (!spec) continue;
     const id = `tool:${spec.key}`;
     tools.push({ id, spec });
@@ -321,16 +333,6 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       group: 'tool-runtime',
     });
   }
-  feeds.push({
-    id: `${TOOL_RUNTIME}/validation`,
-    label: stepOf('validation').label,
-    kind: 'step',
-    of: 'validation',
-    from: sections(stepOf('validation').reads),
-    under: TOOL_RUNTIME,
-    column: 2,
-    group: 'tool-runtime',
-  });
   feeds.push({
     id: GUARDRAIL_RUNTIME,
     label: 'Guardrail runtime',
@@ -748,7 +750,9 @@ function lanesOf(
     // why: As in the studio's map, the lines that share an end run as one: the end most lines share
     // takes them as its hub, then the end most of the rest share, a feed before a source when even.
     const links = inColumn.flatMap((feed) =>
-      [...feed.from, ...(feed.late ?? [])].map((source) => ({ source, feed: feed.id })),
+      [...feed.from, ...(feed.late ?? [])]
+        .filter((source) => !beside(layout, source, feed))
+        .map((source) => ({ source, feed: feed.id })),
     );
     const hubs = new Map<string, typeof links>();
     let open = links;
@@ -830,6 +834,11 @@ export interface Jog {
   side: 1 | -1;
 }
 
+/** Whether `source` stands in `feed`'s own column: its line bows out to the right, as in the studio's map. */
+export function beside(layout: TreeMapLayout, source: string, feed: Feed): boolean {
+  return layout.feeds.some((each) => each.id === source && each.column === feed.column);
+}
+
 /** The key of the line from `source` into `feed`. */
 export const lineKey = (source: string, feed: string) => `${source}>${feed}`;
 
@@ -871,6 +880,7 @@ function jogsOf(
         ),
     ];
     for (const source of [...feed.from, ...(feed.late ?? [])]) {
+      if (beside(layout, source, feed)) continue;
       const lane = lanes.get(lineKey(source, feed.id));
       if (!lane) continue;
       const rail = laneX(lane);

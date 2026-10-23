@@ -9,6 +9,7 @@ import {
 } from '../../studio/mod.ts';
 import {
   type Box,
+  beside,
   drawnAt,
   GUARDRAIL_RUNTIME,
   HALF,
@@ -99,7 +100,7 @@ const width = (layout: TreeMapLayout, id: string) => {
   return 40 + 7 * label.length;
 };
 
-const BOX: Box = { width: 860, height: 740 };
+const BOX: Box = { width: 860, height: 820 };
 
 for (const box of [undefined, BOX]) {
   Deno.test(`growing, no token of the tree map stands on another${box ? ', filling a box' : ''}`, () => {
@@ -151,8 +152,12 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   );
 
   assertEquals(from('provider:openrouter'), []);
+  const asked = tools.find((tool) => tool.of === 'agent');
+  const subagent = feeds.find((each) => each.under === asked?.id);
+  // The agent tool's agent's models stand under their providers, each from the agent under the tool.
   for (const model of feeds.filter((each) => each.kind === 'model'))
-    assertEquals(from(model.id), ['Models'], model.id);
+    assert(model.from[0] === subagent?.id || from(model.id)[0] === 'Models', model.id);
+  assert(feeds.some((each) => each.kind === 'model' && each.from[0] === subagent?.id));
   assertEquals(
     rows.filter((row) => row.node.ref.facet === 'modelBinding'),
     [],
@@ -179,16 +184,15 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
     from(TOOL_RUNTIME),
     tools.map((tool) => tool.label),
   );
-  assertEquals(under(TOOL_RUNTIME), [
-    'Permission gate',
-    'Authentication',
-    'MCP sessions',
-    'Validation',
-  ]);
-  assertEquals(from(`${TOOL_RUNTIME}/validation`), ['Outputs']);
+  assertEquals(under(TOOL_RUNTIME), ['Permission gate', 'Authentication', 'MCP sessions']);
 
   assertEquals(from(GUARDRAIL_RUNTIME), ['Guardrails']);
-  assertEquals(under(GUARDRAIL_RUNTIME), ['Sanitize', 'Egress', 'Network check', 'Result guard']);
+  assertEquals(under(GUARDRAIL_RUNTIME), [
+    'Input guard',
+    'Reply guard',
+    'Network guard',
+    'Tool result guard',
+  ]);
   assertEquals(under(PROVIDER_STREAM), [
     'geminiInteractions',
     'openRouterOpenAi',
@@ -200,14 +204,13 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
     ['Telemetry engine'],
   );
 
-  const agent = tools.find((tool) => tool.of === 'agent');
-  const subagent = feeds.find((each) => each.under === agent?.id);
   assertEquals(subagent?.label, 'travel.concierge');
-  // Every line runs from a column left of the feed it draws into.
+  // Every line runs from a column left of the feed it draws into, or from the agent under its tool.
   for (const each of feeds) {
     for (const source of each.from) {
       const sourceFeed = feed(source);
-      if (sourceFeed) assert(sourceFeed.column < each.column, `${source} runs to ${each.id}`);
+      if (sourceFeed && source !== subagent?.id)
+        assert(sourceFeed.column < each.column, `${source} runs to ${each.id}`);
     }
   }
 });
@@ -216,7 +219,7 @@ Deno.test('closed the tree map is as it was, and grown every node growing adds h
   const layout = picture(BOX);
   for (const [id, { x, y }] of layout.closed) assertEquals(placeAt(layout, id, 0), { x, y });
   const added = layout.feeds.filter((feed) => !layout.few.has(feed.id));
-  assertEquals(added.length, 20);
+  assertEquals(added.length, 22);
   for (const feed of added) {
     assertEquals(drawnAt(layout, feed.id, 0), 0);
     assertEquals(drawnAt(layout, feed.id, 1), 1);
@@ -247,6 +250,7 @@ Deno.test('grown into a box, each line runs level clear of every token, lines sh
   const rails = new Map<number, { source: string; feed: string }[]>();
   for (const feed of layout.feeds) {
     for (const source of [...feed.from, ...(feed.late ?? [])]) {
+      if (beside(layout, source, feed)) continue;
       const rail = railOf(source, feed.id);
       rails.set(rail, [...(rails.get(rail) ?? []), { source, feed: feed.id }]);
       let x = at(source).x + width(layout, source);

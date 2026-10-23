@@ -87,8 +87,8 @@ const GROUP_PATTERNS: Readonly<Record<Exclude<SensitiveGroup, 'credentials'>, re
 interface SensitivePattern {
   group: SensitiveGroup;
   pattern: RegExp;
-  /** Whether a match at `at` of `text` counts. */
-  hit?: (match: string, text: string, at: number) => boolean;
+  /** Whether a match at `at` of `text` counts; `lower` is `text` in lower case. */
+  hit?: (match: string, text: string, at: number, lower?: () => string) => boolean;
 }
 
 /** Every pattern, with its group. */
@@ -99,8 +99,8 @@ const SENSITIVE_PATTERNS: readonly SensitivePattern[] = [
   ...CREDENTIALS.map((rule) => ({
     group: 'credentials' as const,
     pattern: new RegExp(rule.pattern.source, `${rule.pattern.flags}g`),
-    hit: (match: string, text: string, at: number) =>
-      credentialHit(rule, GLOBAL_ALLOWLIST, match, text, at),
+    hit: (match: string, text: string, at: number, lower?: () => string) =>
+      credentialHit(rule, GLOBAL_ALLOWLIST, match, text, at, lower?.()),
   })),
 ];
 

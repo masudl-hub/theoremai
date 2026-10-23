@@ -179,26 +179,6 @@ Deno.test('runEmbedding holds each input to what its model takes', async () => {
   );
 });
 
-Deno.test('runEmbedding refuses text over the inbound cap before any provider call', async () => {
-  let called = false;
-  const refused = await assertRejects(
-    () =>
-      scope().runEmbedding(
-        { profile: 'local-embeddings', input: ['short', 'z'.repeat(1_000_001)] },
-        {
-          fetch: () => {
-            called = true;
-            return Promise.reject(new Error('unreachable'));
-          },
-        },
-      ),
-    TheoremError,
-    'over 1000000',
-  );
-  assertEquals(refused.kind, 'input');
-  assertEquals(called, false);
-});
-
 Deno.test('runEmbedding refuses a task that is not query or document', async () => {
   await assertRejects(
     () =>

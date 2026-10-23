@@ -2,7 +2,7 @@
 // else reads the matrix to decide what a match does.
 
 import { applySpans, type RedactSpan, spansFromPatterns } from '../observability/spans.ts';
-import { type Boundary, INBOUND_BOUNDARIES, recordOf, TOOL_BOUNDARIES } from './boundaries.ts';
+import { type Boundary, recordOf, TOOL_BOUNDARIES } from './boundaries.ts';
 import { canaryLeakRanges } from './canary.ts';
 import {
   actionAt,
@@ -28,7 +28,6 @@ import { promptEchoRanges } from './prompt-echo.ts';
 import { DETECT_RULES, detectRule } from './rules.ts';
 import { sensitiveSpans } from './sensitive.ts';
 import { SENSITIVE_GROUPS, type SensitiveGroups } from './sensitive-groups.ts';
-import { TheoremError } from './theorem-error.ts';
 import { directives, mergedRanges } from './tool-directives.ts';
 import { ownToolsWithout, toolLeakSpans } from './tool-leak.ts';
 import type {
@@ -324,26 +323,6 @@ function failedHit(
   };
 }
 
-/**
- * The longest single text the person or host may send, in characters: far over any model's
- * context, and under what the detectors read safely.
- */
-const MAX_INBOUND_CHARS = 1_000_000;
-const INBOUND: ReadonlySet<Boundary> = new Set(INBOUND_BOUNDARIES);
-
-/** Refuses a text the person or host sent that is over `MAX_INBOUND_CHARS`; `where` names it for the log. */
-function refuseOverlong(text: string, where: string): void {
-  if (text.length <= MAX_INBOUND_CHARS) return;
-  // labels-exempt: internal diagnostic; the person reads `input.too_long`
-  throw new TheoremError(
-    'input',
-    `${where} text of ${text.length} characters is over ${MAX_INBOUND_CHARS}`,
-    {
-      copy: { key: 'input.too_long', params: { maxChars: MAX_INBOUND_CHARS } },
-    },
-  );
-}
-
 /** Reads `text` as it crosses `boundary` under the profile's resolved matrix. */
 function detectAt(
   text: string,
@@ -351,7 +330,6 @@ function detectAt(
   detect: ResolvedDetect,
   scope: DetectScope = NO_SCOPE,
 ): Detection {
-  if (INBOUND.has(boundary)) refuseOverlong(text, boundary);
   const hits: GuardrailHit[] = [];
   const redact: RedactSpan[] = [];
   let action: DetectOutcome = 'allow';
@@ -364,7 +342,7 @@ function detectAt(
     }
     if (spans.length === 0) continue;
     for (const span of spans) hits.push(reader.hit(text, span));
-    if (reader.chosen === 'redact') redact.push(...spans);
+    if (reader.chosen === 'redact') for (const span of spans) redact.push(span);
     action = stronger(action, reader.chosen);
   }
   if (action === 'block') return { action, hits };
@@ -561,7 +539,7 @@ function boundaryReader(boundary: Boundary, detect: ResolvedDetect): BoundaryRea
   return {
     read(text) {
       const detected = detectAt(text, boundary, detect);
-      hits.push(...detected.hits);
+      for (const hit of detected.hits) hits.push(hit);
       action = stronger(action, detected.action);
       return detected.text ?? '';
     },
@@ -642,7 +620,6 @@ export {
   isScoped,
   leakScopeOf,
   redactDetectors,
-  refuseOverlong,
   scopeOf,
   storedHostSpans,
   storedSpans,

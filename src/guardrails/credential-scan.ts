@@ -103,24 +103,47 @@ function sha256Hex(text: string): string {
   return [...h].map((x) => x.toString(16).padStart(8, '0')).join('');
 }
 
-function allowed(
-  list: CredentialAllowlist,
-  read: { secret: string; match: string; line: string },
-): boolean {
-  const target = read[list.target];
-  const lower = read.secret.toLowerCase();
+/** One text being read, and each `line` allowlist's answer for each stretch of lines, so a line of many matches is read once. */
+interface Scan {
+  text: string;
+  lines: Map<CredentialAllowlist, Map<string, boolean>>;
+}
+
+function scanOf(text: string): Scan {
+  return { text, lines: new Map() };
+}
+
+function targetAllowed(list: CredentialAllowlist, target: string): boolean {
   return (
-    (target !== '' && list.regexes.some((regex) => regex.test(target))) ||
-    (target !== '' && list.hashes.length > 0 && list.hashes.includes(sha256Hex(target))) ||
-    (lower !== '' && list.stopwords.some((word) => lower.includes(word)))
+    target !== '' &&
+    (list.regexes.some((regex) => regex.test(target)) ||
+      (list.hashes.length > 0 && list.hashes.includes(sha256Hex(target))))
   );
 }
 
-/** The lines of `text` the stretch [start, end) is on. */
-function linesOf(text: string, start: number, end: number): string {
-  const from = text.lastIndexOf('\n', start - 1) + 1;
-  const to = text.indexOf('\n', end);
-  return text.slice(from, to < 0 ? text.length : to);
+function allowed(
+  list: CredentialAllowlist,
+  read: { secret: string; match: string; start: number; end: number },
+  scan: Scan,
+): boolean {
+  const lower = read.secret.toLowerCase();
+  if (lower !== '' && list.stopwords.some((word) => lower.includes(word))) return true;
+  if (list.target !== 'line') return targetAllowed(list, read[list.target]);
+  const from = scan.text.lastIndexOf('\n', read.start - 1) + 1;
+  const found = scan.text.indexOf('\n', read.end);
+  const to = found < 0 ? scan.text.length : found;
+  let answers = scan.lines.get(list);
+  if (!answers) {
+    answers = new Map();
+    scan.lines.set(list, answers);
+  }
+  const key = `${from}:${to}`;
+  let answer = answers.get(key);
+  if (answer === undefined) {
+    answer = targetAllowed(list, scan.text.slice(from, to));
+    answers.set(key, answer);
+  }
+  return answer;
 }
 
 /** Whether one of `rule`'s keywords is in `lower`, the text in lower case, by `end`. */
@@ -156,6 +179,7 @@ function credentialSecret(
   text: string,
   match: string,
   at: number,
+  scan: Scan = scanOf(text),
 ): { start: number; end: number } | undefined {
   let lead = 0;
   while (match[lead] === '\n') lead++;
@@ -177,10 +201,11 @@ function credentialSecret(
   const read = {
     secret: text.slice(secret.start, secret.end),
     match: trimmed,
-    line: linesOf(text, start, start + trimmed.length),
+    start,
+    end: start + trimmed.length,
   };
   if (rule.entropy !== undefined && shannonEntropy(read.secret) <= rule.entropy) return undefined;
-  if (allowed(global, read) || rule.allowlists.some((list) => allowed(list, read))) {
+  if (allowed(global, read, scan) || rule.allowlists.some((list) => allowed(list, read, scan))) {
     return undefined;
   }
   return secret.end > secret.start ? secret : { start, end: start + trimmed.length };
@@ -193,13 +218,14 @@ function credentialSpans(
   global: CredentialAllowlist,
 ): RedactSpan[] {
   const lower = text.toLowerCase();
+  const scan = scanOf(text);
   const spans: RedactSpan[] = [];
   for (const rule of rules) {
     if (!keywordsIn(rule, lower)) continue;
     const pattern = new RegExp(rule.pattern.source, `${rule.pattern.flags}g`);
     for (const match of text.matchAll(pattern)) {
       if (match[0] === '' || !keywordsIn(rule, lower, match.index + match[0].length)) continue;
-      const secret = credentialSecret(rule, global, text, match[0], match.index);
+      const secret = credentialSecret(rule, global, text, match[0], match.index, scan);
       if (secret) spans.push({ ...secret, kind: 'sensitive' });
     }
   }
@@ -213,11 +239,15 @@ function credentialHit(
   match: string,
   text: string,
   at: number,
+  lower?: string,
 ): boolean {
-  return (
-    keywordsIn(rule, text.slice(0, at + match.length).toLowerCase()) &&
-    credentialSecret(rule, global, text, match, at) !== undefined
-  );
+  const end = at + match.length;
+  // why: Keywords are ASCII, and only `İ` changes length when lowered, so a lowering as long as the text keeps every index.
+  const said =
+    lower?.length === text.length
+      ? keywordsIn(rule, lower, end)
+      : keywordsIn(rule, text.slice(0, end).toLowerCase());
+  return said && credentialSecret(rule, global, text, match, at) !== undefined;
 }
 
 export type { CredentialAllowlist, CredentialRule };

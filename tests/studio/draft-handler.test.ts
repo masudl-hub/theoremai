@@ -297,19 +297,6 @@ Deno.test('a binding option the protocol does not take is a bad request, and nev
   );
 });
 
-Deno.test('a message far over the length the detectors read is the sender’s error, not the host’s', async () => {
-  const handler = createStudioDraftHandler({ lent: ON_TEST_KEYS });
-  const response = await handler(
-    post('turn', { ...concierge(), input: { text: 'a'.repeat(8_000_000) } }),
-  );
-  assertEquals(
-    (await lines(response))
-      .filter((event) => event.type === 'error')
-      .map((event) => event.errorKind),
-    ['input'],
-  );
-});
-
 Deno.test('a refused spend refuses the call before it runs', async () => {
   const spent: StudioSpend[] = [];
   const handler = createStudioDraftHandler({

@@ -533,7 +533,9 @@ function inlineLeaks(
     while (next < openers.length && (openers[next] as Inline).open < end) {
       inside.push(openers[next++] as Inline);
     }
-    if (inside.length > 0) spans.push(...paragraphLeaks(text, start, end, inside, scope, meter));
+    if (inside.length > 0) {
+      for (const span of paragraphLeaks(text, start, end, inside, scope, meter)) spans.push(span);
+    }
   }
   return spans;
 }

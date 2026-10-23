@@ -1159,7 +1159,7 @@ is not what the generator writes.
 | Keywords | The rule runs only when the text holds one of its keywords, in any case |
 | Secret | The rule's `secretGroup`, else its first non-empty group, else the whole match. Only the secret is redacted |
 | Entropy | The match is dropped when the secret's Shannon entropy is at or under the rule's floor |
-| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match, or its lines, or when the secret holds a stopword |
+| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match, or the lines the match is on, or when the secret holds a stopword. A line that holds many matches is read once for each allowlist |
 
 Three differences from gitleaks are deliberate:
 

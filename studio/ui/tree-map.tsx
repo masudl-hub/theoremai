@@ -3,7 +3,7 @@
  * from each row down and across to each of its children. Beside the tree, what feeds it, shared by
  * every agent drawn, in two columns beside it. The registries: the first tool of each type its Tools
  * rows allow, an agent tool's agent under it; the providers; and the trace destinations. The runner:
- * each provider's protocols under the model gateway; the tool runner, with what it does with each
+ * the provider protocols, each provider's under one head; the tool runner, with what it does with each
  * call; and the guard runner, with what it does under it, and the trace exporter. It changes
  * nothing and opens nothing: a picture of what a workspace holds, for a page that is not the studio.
  */

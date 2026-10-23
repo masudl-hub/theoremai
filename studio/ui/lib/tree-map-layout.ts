@@ -195,8 +195,8 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
  * Beside the tree, shared by every agent drawn, two columns. First, the registries: the first tool of
  * each type the agents allow, with a line from each Tools row that allows it, and an agent tool's
  * agent under it; each provider, with its models under it, each with a line from its Models row; and the trace
- * destinations, with a line from the observability rows. Then the runner: the model gateway, over
- * each provider's protocols, each with a line from its provider; the tool runner, with a line from
+ * destinations, with a line from the observability rows. Then the runner: the provider protocols, a
+ * head over each provider's protocols, each with a line from its provider; the tool runner, with a line from
  * each tool, and what it does with each call under it; the guard runner, with a line from the
  * guardrails, and what it does under it; and the trace exporter, with a line from the trace
  * destinations.
@@ -326,12 +326,12 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     group: 'destinations',
   });
 
-  // The runner: the model gateway over each protocol, then the tool runner and the guard
+  // The runner: the provider protocols, one under another, then the tool runner and the guard
   // runner with what each does under it, then the trace exporter.
   if (protocols.length > 0) {
     feeds.push({
       id: PROVIDER_STREAM,
-      label: 'Model gateway',
+      label: 'Provider protocols',
       kind: 'stream',
       from: [],
       column: 2,

@@ -15,7 +15,6 @@ import {
   IconChecks,
   IconCloud,
   IconDatabase,
-  IconEngine,
   IconKey,
   IconLock,
   IconPlugConnected,
@@ -78,14 +77,14 @@ const CHECK_ICONS: Record<string, IconType> = {
 
 function feedIcon(feed: Feed): IconType {
   const of = feed.of ?? '';
-  if (feed.kind === 'runner') return IconEngine;
   if (feed.kind === 'step') return STEP_ICONS[of] ?? IconRepeat;
   if (feed.kind === 'provider') return IconCloud;
   if (feed.kind === 'protocol') return IconPlugConnected;
   if (feed.kind === 'tool') return toolTypeIcon(of);
   if (feed.kind === 'branch') return IconStack2;
   if (feed.kind === 'subagent') return profileTypeIcon(of) ?? AGENT_ICON;
-  if (feed.kind === 'tool-runner') return IconSettingsAutomation;
+  if (feed.kind === 'tool-runtime') return IconSettingsAutomation;
+  if (feed.kind === 'guardrail-runtime') return IconShieldCheck;
   if (feed.kind === 'destinations') return IconDatabase;
   return CHECK_ICONS[of] ?? IconShieldCheck;
 }

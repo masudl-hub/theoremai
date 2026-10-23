@@ -38,8 +38,8 @@ const SAMPLES = 100;
 /** Space kept clear round a token. */
 const CLEAR = 2;
 
-export const RUNNER = 'runner';
-export const TOOL_RUNNER = 'tool-runner';
+export const TOOL_RUNTIME = 'tool-runtime';
+export const GUARDRAIL_RUNTIME = 'guardrail-runtime';
 export const TRACE_DESTINATIONS = 'trace-destinations';
 
 export interface Place {
@@ -55,14 +55,14 @@ export interface Row extends Place {
 }
 
 export type FeedKind =
-  | 'runner'
   | 'step'
   | 'provider'
   | 'protocol'
   | 'tool'
   | 'branch'
   | 'subagent'
-  | 'tool-runner'
+  | 'tool-runtime'
+  | 'guardrail-runtime'
   | 'check'
   | 'destinations';
 
@@ -96,15 +96,10 @@ export interface Feed {
 export const TURN_STEPS: readonly { id: string; label: string; reads: readonly string[] }[] = [
   { id: 'resolve', label: 'Setup', reads: ['inputs', 'models'] },
   { id: 'sanitize', label: 'Sanitize', reads: ['guardrails'] },
-  { id: 'stream', label: 'Provider stream', reads: [] },
-  { id: 'tools', label: 'Tool loop', reads: ['tools'] },
   { id: 'validation', label: 'Validation', reads: ['outputs'] },
   { id: 'egress', label: 'Egress', reads: ['guardrails'] },
   { id: 'trace', label: 'Telemetry', reads: ['observability'] },
 ];
-
-/** The profile sections the runner reads whole, not at one step. */
-const RUNNER_READS = ['turnBehaviour', 'decision', 'labels'];
 
 /**
  * What the tool runner does with every call, in order (`executeRegisteredTool`): its permission,
@@ -120,7 +115,7 @@ export const TOOL_CHECKS: readonly { id: string; label: string }[] = [
 ];
 
 /** Closed, the map shows only these heads beside the tree, in this order. */
-const CLOSED: readonly FeedKind[] = ['provider', 'tool', 'runner'];
+const CLOSED: readonly FeedKind[] = ['provider', 'tool', 'tool-runtime'];
 
 /** A row's token id: the tree's ids repeat from one agent to the next. */
 export function rowId(row: Row): string {
@@ -150,12 +145,11 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
 /**
  * Beside the tree, shared by every agent drawn, three columns. First, the first tool of each type
  * the agents allow, with a line from each Tools row that allows it, and an agent tool's agent under
- * it. Then the one runner, with a line from each agent but a host (whose calls the tool runner
- * runs), from an agent tool's agent and from the sections it reads whole; its steps one list under
- * it, each with a line from the sections it reads. Last, what they share underneath: each provider
- * with a line from the provider stream, the protocols its models speak under it, each with a line
- * from those models; the tool runner, with a line from the tool loop and each tool, what it does
- * with each call under it; and the trace's destinations.
+ * it. Then the registries: each provider, with a line from the model rows that bind it, and the
+ * trace destinations, with a line from the observability rows. Last, the runtime: each protocol
+ * with a line from its provider; the tool runtime, with a line from each tool, what it does with
+ * each call under it and validation; the guardrail runtime, with a line from the guardrails, its
+ * sanitize and egress under it; setup; and telemetry.
  */
 function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const drawn = workspace.agents.filter((agent) => rows.some((row) => row.agent === agent.key));
@@ -176,7 +170,6 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       return row ? [rowId(row)] : [];
     });
   const tools: { id: string; spec: StudioWorkspace['toolSpecs'][number] }[] = [];
-  const subagents: string[] = [];
   for (const type of TOOL_TYPES) {
     const spec = workspace.toolSpecs.find(
       (each) => each.toolType === type && allowing(each.key).length > 0,
@@ -197,7 +190,6 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     const agent = workspace.agents.find((each) => each.key === spec.agentKey);
     if (type === 'agent' && agent) {
       const label = agent.identity.agentId || agent.identity.handle;
-      subagents.push(`${id}/agent`);
       feeds.push({
         id: `${id}/agent`,
         label,
@@ -211,32 +203,12 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     }
   }
 
-  const runs = drawn.flatMap((agent) => {
-    const row = agent.identity.profileType === 'host' ? undefined : rowOf(agent.key, 'identity');
-    return row ? [rowId(row)] : [];
-  });
-  feeds.push({
-    id: RUNNER,
-    label: 'Runner',
-    kind: 'runner',
-    from: [...runs, ...subagents],
-    late: sections(RUNNER_READS),
-    column: 2,
-    group: 'runner',
-  });
-  for (const step of TURN_STEPS) {
-    feeds.push({
-      id: `${RUNNER}/${step.id}`,
-      label: step.label,
-      kind: 'step',
-      of: step.id,
-      from: sections(step.reads),
-      under: RUNNER,
-      column: 2,
-      group: 'runner',
-    });
-  }
+  const stepOf = (id: string) =>
+    TURN_STEPS.find((step) => step.id === id) ?? { id, label: id, reads: [] as string[] };
+  const guardrails = sections(['guardrails']);
+  const observability = sections(['observability']);
 
+  // Registries: each provider, with a line from the model rows that bind it, and the trace destinations.
   const providers = new Map<string, Map<string, string[]>>();
   for (const agent of drawn) {
     for (const binding of agent.modelBindings) {
@@ -247,34 +219,42 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       providers.set(binding.provider, protocols);
     }
   }
-  for (const [provider, protocols] of providers) {
+  const protocols: Feed[] = [];
+  for (const [provider, byProtocol] of providers) {
     const id = `provider:${provider}`;
-    const stream = `${RUNNER}/stream`;
     feeds.push({
       id,
       label: provider,
       kind: 'provider',
-      from: [stream],
-      column: 3,
+      from: [...byProtocol.values()].flat(),
+      column: 2,
       group: 'providers',
     });
-    for (const [protocol, models] of protocols) {
-      feeds.push({
+    for (const protocol of byProtocol.keys()) {
+      protocols.push({
         id: `${id}/${protocol}`,
         label: protocol,
         kind: 'protocol',
-        from: models,
-        under: id,
-        closedUnder: true,
+        from: [id],
         column: 3,
-        group: 'providers',
+        group: 'protocols',
       });
     }
   }
+  feeds.push({
+    id: TRACE_DESTINATIONS,
+    label: 'Trace destinations',
+    kind: 'destinations',
+    from: observability,
+    column: 2,
+    group: 'destinations',
+  });
 
+  // The runtime: each protocol, then the tool runtime and the guardrail runtime with what each does
+  // under it, then setup and telemetry.
+  feeds.push(...protocols);
   const toolsOf = (types: readonly string[]) =>
     tools.filter(({ spec }) => types.includes(spec.toolType)).map(({ id }) => id);
-  const guardrails = sections(['guardrails']);
   const checkFrom: Record<string, string[]> = {
     'sign-in': tools.filter(({ spec }) => (spec.authType ?? 'none') !== 'none').map(({ id }) => id),
     network: [...toolsOf(REMOTE_TYPES), ...guardrails],
@@ -282,33 +262,68 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     result: guardrails,
   };
   feeds.push({
-    id: TOOL_RUNNER,
-    label: 'Tool runner',
-    kind: 'tool-runner',
-    from: [`${RUNNER}/tools`, ...tools.map(({ id }) => id)],
+    id: TOOL_RUNTIME,
+    label: 'Tool runtime',
+    kind: 'tool-runtime',
+    from: tools.map(({ id }) => id),
     column: 3,
-    group: 'tool-runner',
+    group: 'tool-runtime',
   });
   for (const check of TOOL_CHECKS) {
     feeds.push({
-      id: `${TOOL_RUNNER}/${check.id}`,
+      id: `${TOOL_RUNTIME}/${check.id}`,
       label: check.label,
       kind: check.id === 'sessions' ? 'branch' : 'check',
       of: check.id,
       from: checkFrom[check.id] ?? [],
-      under: TOOL_RUNNER,
+      under: TOOL_RUNTIME,
       column: 3,
-      group: 'tool-runner',
+      group: 'tool-runtime',
     });
   }
   feeds.push({
-    id: TRACE_DESTINATIONS,
-    label: 'Trace destinations',
-    kind: 'destinations',
-    from: [`${RUNNER}/trace`],
+    id: `${TOOL_RUNTIME}/validation`,
+    label: stepOf('validation').label,
+    kind: 'step',
+    of: 'validation',
+    from: sections(stepOf('validation').reads),
+    under: TOOL_RUNTIME,
     column: 3,
-    group: 'trace',
+    group: 'tool-runtime',
   });
+  feeds.push({
+    id: GUARDRAIL_RUNTIME,
+    label: 'Guardrail runtime',
+    kind: 'guardrail-runtime',
+    from: guardrails,
+    column: 3,
+    group: 'guardrail-runtime',
+  });
+  for (const id of ['sanitize', 'egress']) {
+    const step = stepOf(id);
+    feeds.push({
+      id: `${GUARDRAIL_RUNTIME}/${id}`,
+      label: step.label,
+      kind: 'step',
+      of: id,
+      from: sections(step.reads),
+      under: GUARDRAIL_RUNTIME,
+      column: 3,
+      group: 'guardrail-runtime',
+    });
+  }
+  for (const id of ['resolve', 'trace'] as const) {
+    const step = stepOf(id);
+    feeds.push({
+      id: id === 'resolve' ? 'setup' : 'telemetry',
+      label: step.label,
+      kind: 'step',
+      of: id,
+      from: sections(step.reads),
+      column: 3,
+      group: id === 'resolve' ? 'setup' : 'telemetry',
+    });
+  }
   return feeds;
 }
 

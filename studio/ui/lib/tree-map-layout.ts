@@ -379,9 +379,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       // why: A tool's sign-in reads its key or its resolver from the vault.
       ...(tools.length > 0 ? [KEY_VAULT] : []),
     ],
-    // why: The tool runner checks the address of each remote call with the network guard, so one
-    // line from it says so, not one from every remote tool.
-    network: toolsOf(REMOTE_TYPES).length > 0 ? [TOOL_RUNTIME] : [],
+    network: toolsOf(REMOTE_TYPES),
     sessions: toolsOf(['mcp']),
     // why: The tool runner hands each result to its guard before it goes back to the model.
     result: tools.length > 0 ? [TOOL_RUNTIME] : [],
@@ -883,28 +881,49 @@ export function drawnAt(layout: TreeMapLayout, id: string, grow: number): number
 
 /** A line's three runs: level from its source, down its lane, level into its feed. */
 interface Run {
+  source: string;
   from: Place;
   to: Place;
   lane: number;
 }
 
-/** Where two lines' runs cross, one's level runs over the other's lane. */
+/** At most this many lanes are tried in every order. */
+const EVERY_ORDER = 7;
+
+/** Every order of `items`, the given one first. */
+function* orders<T>(items: T[]): Generator<T[]> {
+  if (items.length <= 1) {
+    yield items;
+    return;
+  }
+  for (const [index, first] of items.entries()) {
+    const rest = items.filter((_, other) => other !== index);
+    for (const tail of orders(rest)) yield [first as T, ...tail];
+  }
+}
+
+/**
+ * Where two lines' runs cross, one's level runs over the other's lane. A line whose source has a
+ * line down the other lane meets it there, where its own line joins, so it does not cross it.
+ */
 function crossings(a: Run[], b: Run[]): number {
   const across = (level: Run[], down: Run[]) =>
     level.reduce(
       (count, line) =>
         count +
-        down.filter((other) =>
-          [
-            [line.from.y, line.from.x, line.lane],
-            [line.to.y, line.lane, line.to.x],
-          ].some(
-            ([y = 0, left = 0, right = 0]) =>
-              other.lane > Math.min(left, right) &&
-              other.lane < Math.max(left, right) &&
-              y > Math.min(other.from.y, other.to.y) &&
-              y < Math.max(other.from.y, other.to.y),
-          ),
+        down.filter(
+          (other) =>
+            !down.some((each) => each.source === line.source) &&
+            [
+              [line.from.y, line.from.x, line.lane],
+              [line.to.y, line.lane, line.to.x],
+            ].some(
+              ([y = 0, left = 0, right = 0]) =>
+                other.lane > Math.min(left, right) &&
+                other.lane < Math.max(left, right) &&
+                y > Math.min(other.from.y, other.to.y) &&
+                y < Math.max(other.from.y, other.to.y),
+            ),
         ).length,
       0,
     );
@@ -943,6 +962,8 @@ function lanesOf(
     const links = inColumn.flatMap((feed) =>
       [...feed.from, ...(feed.late ?? [])]
         .filter((source) => !beside(layout, source, feed))
+        // why: A line level with its feed runs straight across and needs no lane of its own.
+        .filter((source) => Math.abs(grown(source).y - grown(feed.id).y) >= 1)
         .map((source) => ({ source, feed: feed.id })),
     );
     const hubs = new Map<string, typeof links>();
@@ -968,6 +989,7 @@ function lanesOf(
       group.reduce((sum, link) => sum + grown(link.feed).y, 0) / group.length;
     const runs = (group: typeof links, lane: number): Run[] =>
       group.map(({ source, feed }) => ({
+        source,
         from: { x: grown(source).x + width(source), y: grown(source).y },
         to: grown(feed),
         lane,
@@ -990,6 +1012,20 @@ function lanesOf(
         0,
       );
     let best = cost();
+    // why: Few lanes are tried in every order, since swapping neighbours stops where a lane must
+    // pass two others to cross fewer; many, by swapping neighbours.
+    if (order.length <= EVERY_ORDER) {
+      const start = [...order];
+      for (const each of orders(start)) {
+        order.splice(0, order.length, ...each);
+        const next = cost();
+        if (next < best) {
+          best = next;
+          start.splice(0, start.length, ...each);
+        }
+      }
+      order.splice(0, order.length, ...start);
+    }
     for (let pass = 0, swapped = true; swapped && pass < order.length; pass += 1) {
       swapped = false;
       for (let index = 0; index + 1 < order.length; index += 1) {

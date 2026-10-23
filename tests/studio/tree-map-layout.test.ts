@@ -171,7 +171,10 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
 
   const mcp = tools.find((tool) => tool.of === 'mcp');
   assertEquals(from(`${TOOL_RUNTIME}/sessions`), [mcp?.label]);
-  assertEquals(from(`${GUARDRAIL_RUNTIME}/network`), ['Tool runner']);
+  assertEquals(
+    from(`${GUARDRAIL_RUNTIME}/network`),
+    tools.filter((tool) => tool.of === 'http' || tool.of === 'mcp').map((tool) => tool.label),
+  );
   assertEquals(new Set(from(`${GUARDRAIL_RUNTIME}/sanitize`)), new Set(['Inputs']));
   assertEquals(new Set(from(`${GUARDRAIL_RUNTIME}/egress`)), new Set(['Outputs']));
   assertEquals(from(`${GUARDRAIL_RUNTIME}/result`), ['Tool runner']);
@@ -275,6 +278,20 @@ Deno.test('grown into a box, each line runs level clear of every token, lines sh
   for (const feed of layout.feeds) {
     for (const source of [...feed.from, ...(feed.late ?? [])]) {
       if (beside(layout, source, feed)) continue;
+      // A line level with its feed runs straight across, with no lane.
+      if (at(source).y === at(feed.id).y) {
+        assertEquals(layout.lanes.get(lineKey(source, feed.id)), undefined);
+        const [left, right] = [at(source).x + width(layout, source), at(feed.id).x];
+        for (const id of ids.filter((each) => each !== source && each !== feed.id)) {
+          const token = at(id);
+          const behind =
+            token.x < right &&
+            token.x + width(layout, id) > left &&
+            Math.abs(token.y - at(source).y) < HALF;
+          assert(!behind, `${source} to ${feed.id} runs behind ${id}`);
+        }
+        continue;
+      }
       const rail = railOf(source, feed.id);
       rails.set(rail, [...(rails.get(rail) ?? []), { source, feed: feed.id }]);
       let x = at(source).x + width(layout, source);
@@ -309,7 +326,9 @@ Deno.test('grown into a box, each line runs level clear of every token, lines sh
   }
   const tools = layout.feeds.filter((feed) => feed.kind === 'tool' && feed.from.length > 0);
   const [source = ''] = tools[0]?.from ?? [];
-  const fromTools = tools.filter((tool) => tool.from.includes(source));
+  const fromTools = tools.filter(
+    (tool) => tool.from.includes(source) && at(tool.id).y !== at(source).y,
+  );
   assert(fromTools.length > 1);
   assertEquals(new Set(fromTools.map((tool) => railOf(source, tool.id))).size, 1);
 });

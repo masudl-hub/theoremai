@@ -138,6 +138,8 @@ export interface StudioTreeMapProps {
    * of it. When the map cannot fit, it eases smaller as it grows until all of it does.
    */
   fit?: Box | undefined;
+  /** The box the map stands in now, when it changes as the map grows: grown, the map fits it. `fit` by default. */
+  room?: Box | undefined;
   /**
    * What the map shows closed, when not the tree: these agents, each with only these rows. Growing
    * takes away what the tree does not draw, and an agent the tree draws as an agent tool's agent
@@ -156,6 +158,7 @@ export function StudioTreeMap({
   agents,
   grow = 0,
   fit,
+  room = fit,
   still,
   draggable = false,
 }: StudioTreeMapProps) {
@@ -299,13 +302,16 @@ export function StudioTreeMap({
       height: Math.max(...ends.map((end) => end.y)) + HALF + PAD,
     };
   }, [layout, widths]);
-  const fits = fit ? Math.min(1, fit.width / grown.width, fit.height / grown.height) : 1;
-  const scale = 1 + (fits - 1) * ease(grow);
+  // why: The map eases to the size of the box it stands in with its nodes' move, so it never
+  // outgrows it, and grows with it after.
+  const fits = room ? Math.min(1, room.width / grown.width, room.height / grown.height) : 1;
+  const settled = ease(grow / MOVE_TO);
+  const scale = 1 + (fits - 1) * settled;
   // why: Grown, the map stands in the middle of the box it fills; closed, at its top left.
-  const centre = fit
+  const centre = room
     ? {
-        x: (Math.max(0, fit.width - grown.width * fits) / 2) * ease(grow),
-        y: (Math.max(0, fit.height - grown.height * fits) / 2) * ease(grow),
+        x: (Math.max(0, room.width - grown.width * fits) / 2) * settled,
+        y: (Math.max(0, room.height - grown.height * fits) / 2) * settled,
       }
     : NONE;
   // why: The pointer moves in the page's pixels; the map is scaled, so a move is divided back into its own.

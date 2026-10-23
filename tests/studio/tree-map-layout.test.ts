@@ -228,7 +228,7 @@ Deno.test('closed the tree map is as it was, and grown every node growing adds h
   const layout = picture(BOX);
   for (const [id, { x, y }] of layout.closed) assertEquals(placeAt(layout, id, 0), { x, y });
   const added = layout.feeds.filter((feed) => !layout.few.has(feed.id));
-  assertEquals(added.length, 24);
+  assertEquals(added.length, 25);
   for (const feed of added) {
     assertEquals(drawnAt(layout, feed.id, 0), 0);
     assertEquals(drawnAt(layout, feed.id, 1), 1);
@@ -404,9 +404,16 @@ Deno.test('closed, the still shows its agents with their models and tools; grown
     row.parent ? [row.node.ref.facet] : [],
   );
   for (const facet of stillFacets) assert(['models', 'tools'].includes(facet));
-  // What the tree adds to the still draws in: its new rows, and the line into the decision agent.
-  const added = layout.rows.map(rowId).filter((id) => !layout.closed.has(id));
-  assert(added.length > 0);
+  // What the tree adds to the still unfolds from the row above it and draws in, and the line into
+  // the decision agent draws in.
+  const added = layout.rows.map(rowId).filter((id) => layout.starts.has(id));
+  assertEquals(added.length, 6);
+  for (const id of added) {
+    const row = layout.rows.findIndex((each) => rowId(each) === id);
+    const above = layout.rows.slice(0, row).findLast((each) => !layout.starts.has(rowId(each)));
+    const from = above && layout.closed.get(rowId(above));
+    assertEquals(placeAt(layout, id, 0), from && { x: from.x, y: from.y });
+  }
   for (const id of added) {
     assertEquals(drawnAt(layout, id, 0), 0);
     assertEquals(drawnAt(layout, id, 1), 1);

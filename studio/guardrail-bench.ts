@@ -110,7 +110,9 @@ function bucketMs(bucket: number): number {
  * The mean and median of every timing behind `times`, pooled: the mean exactly, the median to its
  * bucket. Undefined where a score has no counts.
  */
-export function pooledTime(times: readonly Percentiles[]): { mean: number; median: number } | undefined {
+export function pooledTime(
+  times: readonly Percentiles[],
+): { mean: number; median: number } | undefined {
   let total = 0;
   let sum = 0;
   const counts = new Map<number, number>();

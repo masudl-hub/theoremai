@@ -176,7 +176,7 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   );
   assertEquals(new Set(from(`${GUARDRAIL_RUNTIME}/sanitize`)), new Set(['Inputs']));
   assertEquals(new Set(from(`${GUARDRAIL_RUNTIME}/egress`)), new Set(['Outputs']));
-  assertEquals(from(`${GUARDRAIL_RUNTIME}/result`), ['Tool runtime']);
+  assertEquals(from(`${GUARDRAIL_RUNTIME}/result`), ['Tool runner']);
   const models = feeds.filter((each) => each.kind === 'model');
   assert(models.length > 0);
   for (const model of models) assert(model.under?.startsWith('provider:'), model.id);
@@ -202,8 +202,8 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   ]);
   assertEquals(from('telemetry'), ['Trace destinations']);
   assertEquals(
-    TURN_STEPS.map((step) => step.label).filter((label) => label === 'Telemetry engine'),
-    ['Telemetry engine'],
+    TURN_STEPS.map((step) => step.label).filter((label) => label === 'Trace exporter'),
+    ['Trace exporter'],
   );
 
   assertEquals(subagent?.label, 'travel.concierge');

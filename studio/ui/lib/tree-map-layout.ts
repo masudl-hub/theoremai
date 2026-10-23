@@ -112,11 +112,11 @@ export interface Feed {
 export const TURN_STEPS: readonly { id: string; label: string; reads: readonly string[] }[] = [
   { id: 'sanitize', label: 'Input guard', reads: ['inputs'] },
   { id: 'egress', label: 'Reply guard', reads: ['outputs'] },
-  { id: 'trace', label: 'Telemetry engine', reads: ['observability'] },
+  { id: 'trace', label: 'Trace exporter', reads: ['observability'] },
 ];
 
 /**
- * What the tool runtime does with every call (`executeRegisteredTool`): its permission, the MCP
+ * What the tool runner does with every call (`executeRegisteredTool`): its permission, the MCP
  * session an MCP call runs in, and its sign-in.
  * why: The sessions stand before the sign-in, level with the third tool, so an MCP tool there has a
  * straight line to them.
@@ -127,7 +127,7 @@ export const TOOL_CHECKS: readonly { id: string; label: string }[] = [
   { id: 'sign-in', label: 'Authentication' },
 ];
 
-/** What the guardrail runtime does with a call: the network a remote call reaches, and the guard on its result. */
+/** What the guard runner does with a call: the network a remote call reaches, and the guard on its result. */
 const GUARDRAIL_CHECKS: readonly { id: string; label: string }[] = [
   { id: 'network', label: 'Network guard' },
   { id: 'result', label: 'Tool result guard' },
@@ -171,7 +171,7 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
     };
     rows.push(row);
     // why: The models are named once, under their providers beside the tree; the Models row links to
-    // them. Observability comes last, level with the trace destinations and the telemetry engine at
+    // them. Observability comes last, level with the trace destinations and the trace exporter at
     // the foot of the map.
     const children = node.children.filter((child) => child.ref.facet !== 'modelBinding');
     const rank = (child: StudioTreeNode) =>
@@ -195,10 +195,10 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
  * Beside the tree, shared by every agent drawn, two columns. First, the registries: the first tool of
  * each type the agents allow, with a line from each Tools row that allows it, and an agent tool's
  * agent under it; each provider, with its models under it, each with a line from its Models row; and the trace
- * destinations, with a line from the observability rows. Then the runner: the provider stream, over
- * each provider's protocols, each with a line from its provider; the tool runtime, with a line from
- * each tool, and what it does with each call under it; the guardrail runtime, with a line from the
- * guardrails, and what it does under it; and the telemetry engine, with a line from the trace
+ * destinations, with a line from the observability rows. Then the runner: the model gateway, over
+ * each provider's protocols, each with a line from its provider; the tool runner, with a line from
+ * each tool, and what it does with each call under it; the guard runner, with a line from the
+ * guardrails, and what it does under it; and the trace exporter, with a line from the trace
  * destinations.
  */
 function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
@@ -326,12 +326,12 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     group: 'destinations',
   });
 
-  // The runner: the provider stream over each protocol, then the tool runtime and the guardrail
-  // runtime with what each does under it, then the telemetry engine.
+  // The runner: the model gateway over each protocol, then the tool runner and the guard
+  // runner with what each does under it, then the trace exporter.
   if (protocols.length > 0) {
     feeds.push({
       id: PROVIDER_STREAM,
-      label: 'Provider stream',
+      label: 'Model gateway',
       kind: 'stream',
       from: [],
       column: 2,
@@ -345,12 +345,12 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     'sign-in': tools.filter(({ spec }) => (spec.authType ?? 'none') !== 'none').map(({ id }) => id),
     network: toolsOf(REMOTE_TYPES),
     sessions: toolsOf(['mcp']),
-    // why: The tool runtime hands each result to its guard before it goes back to the model.
+    // why: The tool runner hands each result to its guard before it goes back to the model.
     result: tools.length > 0 ? [TOOL_RUNTIME] : [],
   };
   feeds.push({
     id: TOOL_RUNTIME,
-    label: 'Tool runtime',
+    label: 'Tool runner',
     kind: 'tool-runtime',
     from: tools.map(({ id }) => id),
     column: 2,
@@ -370,7 +370,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   }
   feeds.push({
     id: GUARDRAIL_RUNTIME,
-    label: 'Guardrail runtime',
+    label: 'Guard runner',
     kind: 'guardrail-runtime',
     from: guardrails,
     column: 2,
@@ -489,7 +489,10 @@ function fittingRow(fits: (step: number) => boolean): number {
   return GROWN_ROW;
 }
 
-/** Moves the last row, the rows before it with no line of their own, and `foot` down by `shift`. */
+/**
+ * Moves the last row and `foot` down by `shift`, and the rows before it with no line of their own
+ * to stand a `step` apart over it.
+ */
 function liftTail(
   rows: Row[],
   lined: Set<string>,
@@ -497,15 +500,16 @@ function liftTail(
   ys: Map<string, number>,
   foot: Block[],
   shift: number,
+  step: number,
 ): void {
   const tail = [lastRow];
   for (const each of rows.toReversed().slice(1)) {
     if (lined.has(rowId(each)) || each.agent !== lastRow.agent) break;
     tail.push(each);
   }
-  if (shift <= 0) return;
-  for (const each of tail) ys.set(rowId(each), (ys.get(rowId(each)) ?? 0) + shift);
-  for (const block of foot) block.top += shift;
+  const last = (ys.get(rowId(lastRow)) ?? 0) + Math.max(0, shift);
+  tail.forEach((each, index) => ys.set(rowId(each), last - index * step));
+  if (shift > 0) for (const block of foot) block.top += shift;
 }
 
 /** Opens `spare` room between the agents, each a zone of its own. */
@@ -642,9 +646,10 @@ function grownPlaces(
   /**
    * The tree and the registries, together down the map: a row with lines into a registry block is
    * level with the first feed it has a line to, and the row after it stands a row below that block.
-   * `extra` opens above each run of rows with lines into the runner.
+   * `extra` opens above each run of rows with lines into the runner; `reserving`, the foot keeps
+   * clear of the runner block each run feeds.
    */
-  const lay = (step: number, extra = 0) => {
+  const lay = (step: number, extra = 0, reserving = true) => {
     const ys = new Map<string, number>();
     const blocks = blocksOf(registries, step);
     const runs = blocksOf(runner, step);
@@ -661,7 +666,7 @@ function grownPlaces(
         reserve = start;
       }
       if (opens.has(id)) y += extra;
-      if (!toRunner.has(id)) y = Math.max(y, reserve);
+      if (reserving && lined.has(id) && !toRunner.has(id)) y = Math.max(y, reserve);
       if (opens.has(id)) {
         for (const run of runs) {
           const fed = [...run.offsets].find(([feed]) => sourcesOf(feed).includes(id));
@@ -697,20 +702,23 @@ function grownPlaces(
   const height = Math.max(room, plain.bottom - start, runnerRows * row);
   // why: The last row's registry stands at the foot of the map, with the rows before it that have
   // no line of their own; the map's spare room is shared between the gap above them and the gap
-  // above each run of rows into the runner, so the rows into the registries stay close.
+  // above each run of rows into the runner, so the rows into the registries stay close. A run goes
+  // no lower than keeps its runner block clear of the foot's.
   const lastRow = rows.at(-1);
   const atFoot = (block: (typeof plain.blocks)[number]) =>
     lastRow !== undefined && block.anchor?.row === rowId(lastRow);
   const breaks = opens.size + 1;
   const footOf = (blocks: typeof plain.blocks) =>
     Math.max(...blocks.filter(atFoot).map((block) => block.top + block.size));
-  const { ys, blocks, bottom } = plain.blocks.some(atFoot)
-    ? lay(row, Math.max(0, start + height - footOf(plain.blocks)) / breaks)
-    : plain;
+  const share = Math.min(
+    Math.max(0, start + height - footOf(lay(row, 0, false).blocks)) / breaks,
+    Math.max(0, start + height - footOf(plain.blocks)) / Math.max(1, opens.size),
+  );
+  const { ys, blocks, bottom } = plain.blocks.some(atFoot) ? lay(row, share) : plain;
   const end = start + height;
   const foot = blocks.filter(atFoot);
   if (lastRow && foot.length > 0) {
-    liftTail(rows, lined, lastRow, ys, foot, end - footOf(foot));
+    liftTail(rows, lined, lastRow, ys, foot, end - footOf(foot), row);
   } else {
     spreadAgents(rows, tree, ys, blocks, end - bottom);
   }

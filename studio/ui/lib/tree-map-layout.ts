@@ -444,7 +444,12 @@ function grownPlaces(
   const height = Math.max(room, span * row);
 
   const right = (id: string, x: number) => x + width(id);
-  const treeRight = Math.max(0, ...rows.map((each) => right(rowId(each), each.x)));
+  const treeRight = Math.max(
+    0,
+    ...rows
+      .filter((each) => each.node.ref.facet !== 'modelBinding')
+      .map((each) => right(rowId(each), each.x)),
+  );
   const columnWidth = (column: 1 | 2) =>
     Math.max(
       0,

@@ -183,6 +183,8 @@ export function StudioTreeMap({
 
   const right = (id: string) => at(id).x + width(id);
   const isRow = new Set(rows.map(rowId));
+  // why: A model's row stays in the tree's data, so the providers keep their place, but its token is the model under its provider.
+  const hidden = new Set(rows.filter((row) => row.node.ref.facet === 'modelBinding').map(rowId));
   /** Where a feed's lines end: a feed closed under another, at that one until it draws. */
   const endOf = (feed: Feed) => {
     const place = at(feed.id);
@@ -203,6 +205,7 @@ export function StudioTreeMap({
     const late = (feed.late ?? []).map((source) => ({ source, late: true }));
     return [...feed.from.map((source) => ({ source, late: false })), ...late].flatMap(
       ({ source, late }) => {
+        if (hidden.has(source)) return [];
         if (!isRow.has(source) && (drawn(source) ?? 1) <= 0) return [];
         const end = endOf(feed);
         const start = { x: right(source) + LINE_GAP, y: at(source).y };
@@ -288,7 +291,9 @@ export function StudioTreeMap({
       <svg className="studio-tree-map-lines" width={mapWidth} height={height} aria-hidden="true">
         {rows.map(
           (row) =>
-            row.parent && (
+            row.parent &&
+            !hidden.has(rowId(row)) &&
+            !hidden.has(row.parent) && (
               <path
                 key={rowId(row)}
                 className="map-line"
@@ -311,20 +316,22 @@ export function StudioTreeMap({
             ),
         )}
       </svg>
-      {rows.map((row) => {
-        const draft = drafts.get(row.agent) ?? createBlankDraft();
-        const { x, y } = at(rowId(row));
-        return (
-          <MapToken
-            key={rowId(row)}
-            id={rowId(row)}
-            label={row.node.label}
-            icon={nodeIcon(draft, row.node.ref)}
-            x={x}
-            y={y}
-          />
-        );
-      })}
+      {rows
+        .filter((row) => !hidden.has(rowId(row)))
+        .map((row) => {
+          const draft = drafts.get(row.agent) ?? createBlankDraft();
+          const { x, y } = at(rowId(row));
+          return (
+            <MapToken
+              key={rowId(row)}
+              id={rowId(row)}
+              label={row.node.label}
+              icon={nodeIcon(draft, row.node.ref)}
+              x={x}
+              y={y}
+            />
+          );
+        })}
       {feeds.map((feed) => {
         const { x, y } = at(feed.id);
         const part = drawn(feed.id);

@@ -16,6 +16,15 @@
   stroke: color-mix(in srgb, var(--color-border-emphasized) 60%, var(--color-background-surface));
 }
 
+/* Grown, a title over each column, and what the column is under it. */
+.studio-tree-map-heading {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .studio-tree-map[data-draggable] {
   cursor: grab;
   touch-action: none;

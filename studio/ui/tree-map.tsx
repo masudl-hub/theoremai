@@ -8,6 +8,7 @@
  * nothing and opens nothing: a picture of what a workspace holds, for a page that is not the studio.
  */
 import type { IconType } from '@astryxdesign/core/Icon';
+import { Text } from '@astryxdesign/core/Text';
 import {
   IconArrowsMinimize,
   IconCloud,
@@ -326,6 +327,20 @@ export function StudioTreeMap({
             ),
         )}
       </svg>
+      {layout.headings.map(({ label, note, x, y }) => (
+        <div
+          key={label}
+          className="studio-tree-map-heading"
+          style={{ left: x, top: y, opacity: clamp(grow * 2 - 1) }}
+        >
+          <Text type="supporting" color="secondary" weight="semibold">
+            {label}
+          </Text>
+          <Text type="supporting" color="placeholder">
+            {note}
+          </Text>
+        </div>
+      ))}
       {rows.map((row) => {
         const draft = drafts.get(row.agent) ?? createBlankDraft();
         const { x, y } = at(rowId(row));

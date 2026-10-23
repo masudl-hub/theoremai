@@ -13,6 +13,7 @@ import {
   drawnAt,
   GUARDRAIL_RUNTIME,
   HALF,
+  HEADING,
   lineKey,
   PROVIDER_STREAM,
   placeAt,
@@ -100,7 +101,7 @@ const width = (layout: TreeMapLayout, id: string) => {
   return 40 + 7 * label.length;
 };
 
-const BOX: Box = { width: 860, height: 820 };
+const BOX: Box = { width: 860, height: 860 };
 
 for (const box of [undefined, BOX]) {
   Deno.test(`growing, no token of the tree map stands on another${box ? ', filling a box' : ''}`, () => {
@@ -235,7 +236,8 @@ Deno.test('grown into a box, the tree map fills it', () => {
   const bottom = Math.max(...ends.map((end) => end.y)) + HALF;
   const top = Math.min(...ends.map((end) => end.y)) - HALF;
   assert(Math.abs(BOX.height - 32 - bottom) <= 1, `the map ends at ${bottom}`);
-  assert(top >= 32 - 1 && top <= 32 + 1, `the map starts at ${top}`);
+  assert(top >= 32 + HEADING - 1 && top <= 32 + HEADING + 1, `the map starts at ${top}`);
+  for (const heading of layout.headings) assertEquals(heading.y, 32);
   assert(BOX.width - 32 - right <= 2, `the map ends ${BOX.width - 32 - right} short of the box`);
 });
 

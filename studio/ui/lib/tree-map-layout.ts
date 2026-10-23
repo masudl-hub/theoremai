@@ -19,6 +19,15 @@ export const HALF = 11;
 export const PAD = 16;
 /** Grown, how much further in from the box's edges the map stands. */
 const INSET = 16;
+/** Grown, the room over the columns their headings take: a title, the line under it, and a gap. */
+export const HEADING = 56;
+
+/** Grown, each column's heading, in order: the tree, the registries, the runner. */
+export const HEADINGS: readonly { label: string; note: string }[] = [
+  { label: 'Profile', note: 'The contract you define' },
+  { label: 'Registry', note: 'The pieces you provide' },
+  { label: 'Runner', note: 'What runs your contract' },
+];
 /** Closed, between the tree's widest row and the feeds; grown, the least and most between columns. */
 const GAP = 72;
 const LEAST_GAP = 56;
@@ -476,8 +485,8 @@ function grownPlaces(
 ) {
   const { held, columns } = stacksOf(rows, feeds, slots);
   const [, registries, runner] = columns;
-  const start = PAD + INSET + HALF;
-  const room = box ? box.height - 2 * (PAD + INSET + HALF) : 0;
+  const start = PAD + INSET + HEADING + HALF;
+  const room = box ? box.height - 2 * (PAD + INSET + HALF) - HEADING : 0;
   const byId = new Map(feeds.map((feed) => [feed.id, feed]));
   const sourcesOf = (id: string) => {
     const feed = byId.get(id);
@@ -662,7 +671,12 @@ function grownPlaces(
       places.set(id, { x: INSET + (lefts[2] ?? 0), y: block.top + (block.offsets.get(id) ?? 0) });
     }
   }
-  return { places, row };
+  const headings = HEADINGS.map((heading, index) => ({
+    ...heading,
+    x: INSET + (index === 0 ? PAD : (lefts[index] ?? 0)),
+    y: PAD + INSET,
+  }));
+  return { places, row, headings };
 }
 
 export interface TreeMapLayout {
@@ -675,6 +689,8 @@ export interface TreeMapLayout {
   grown: Map<string, Place>;
   /** A row's height grown. */
   row: number;
+  /** Grown, each column's heading: its top left corner. */
+  headings: ({ label: string; note: string } & Place)[];
   slots: Map<string, Slot>;
   /** When each node growing adds starts to draw. */
   starts: Map<string, number>;
@@ -996,7 +1012,7 @@ export function treeMapLayout(
     below = y + ROW;
   }
   const slots = slotsOf(feeds);
-  const { places, row } = grownPlaces(rows, feeds, slots, width, box);
+  const { places, row, headings } = grownPlaces(rows, feeds, slots, width, box);
   const layout: TreeMapLayout = {
     rows,
     feeds,
@@ -1004,6 +1020,7 @@ export function treeMapLayout(
     closed,
     grown: places,
     row,
+    headings,
     slots,
     starts: new Map(),
     lanes: new Map(),

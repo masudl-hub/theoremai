@@ -156,7 +156,7 @@ Deno.test('what feeds the tree is shared: one runner, each provider once, its pr
   assert(feed(RUNNER)?.from.includes(subagent?.id ?? ''));
   assertEquals(from(TOOL_RUNNER), ['Tool loop', ...tools.map((tool) => tool.label)]);
   assertEquals(under(TOOL_RUNNER).length, 5);
-  assertEquals(from(TRACE_DESTINATIONS), ['Trace']);
+  assertEquals(from(TRACE_DESTINATIONS), ['Telemetry']);
   assertEquals(from(`${RUNNER}/tools`), ['Tools']);
   assertEquals(from(`${RUNNER}/trace`), ['Observability', 'Observability']);
   assertEquals(
@@ -169,7 +169,7 @@ Deno.test('closed the tree map is as it was, and grown every node growing adds h
   const layout = picture(BOX);
   for (const [id, { x, y }] of layout.closed) assertEquals(placeAt(layout, id, 0), { x, y });
   const added = layout.feeds.filter((feed) => !layout.few.has(feed.id));
-  assertEquals(added.length, 19);
+  assertEquals(added.length, 18);
   for (const feed of added) {
     assertEquals(drawnAt(layout, feed.id, 0), 0);
     assertEquals(drawnAt(layout, feed.id, 1), 1);

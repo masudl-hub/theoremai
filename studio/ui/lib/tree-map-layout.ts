@@ -94,14 +94,13 @@ export interface Feed {
  * post_turn are hooks for the host's stages, so the map leaves those four out.
  */
 export const TURN_STEPS: readonly { id: string; label: string; reads: readonly string[] }[] = [
-  { id: 'resolve', label: 'Resolve', reads: ['inputs', 'models'] },
+  { id: 'resolve', label: 'Setup', reads: ['inputs', 'models'] },
   { id: 'sanitize', label: 'Sanitize', reads: ['guardrails'] },
-  { id: 'compaction', label: 'Compaction', reads: ['models'] },
   { id: 'stream', label: 'Provider stream', reads: [] },
   { id: 'tools', label: 'Tool loop', reads: ['tools'] },
   { id: 'validation', label: 'Validation', reads: ['outputs'] },
   { id: 'egress', label: 'Egress', reads: ['guardrails'] },
-  { id: 'trace', label: 'Trace', reads: ['observability'] },
+  { id: 'trace', label: 'Telemetry', reads: ['observability'] },
 ];
 
 /** The profile sections the runner reads whole, not at one step. */

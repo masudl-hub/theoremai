@@ -1,5 +1,7 @@
 # Horizon small cut to the chosen layers and the 76k-token vocabulary, trained to copy Horizon's
-# window probabilities (teach4.jsonl), then scored on EVAL with score.py's windows. Usage: prune.py <name> <layers> <epochs>
+# window probabilities (teach4.jsonl), then scored on EVAL with score.py's windows. Saves to prune/<name> when held-out agreement improves.
+# DEV=cuda AMP=1 trains in fp16 (a T4 has no bf16). NOSCORE=1 stops after training. LOAD=<dir> starts from a saved model.
+# Usage: prune.py <name> <layers> <epochs>
 import os, sys, json, time, random, copy, importlib.util, torch, torch.nn.functional as F
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 spec = importlib.util.spec_from_file_location('score', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'score.py')); S = importlib.util.module_from_spec(spec); spec.loader.exec_module(S)
@@ -17,7 +19,10 @@ def build(layers, remap):
 if __name__ == '__main__':
     name, layers, EP = sys.argv[1], [int(x) for x in sys.argv[2].split(',')], int(sys.argv[3])
     remap = json.load(open(os.environ.get('REMAP', f'{S.WORK}/trim/m5/remap.json'))); lut = {t: k for k, t in enumerate(remap['keep'])}; unk = remap['unk']
-    tok = AutoTokenizer.from_pretrained(D); m, full = build(layers, remap); del full
+    tok = AutoTokenizer.from_pretrained(D)
+    if os.environ.get('LOAD'): m = AutoModelForSequenceClassification.from_pretrained(os.environ['LOAD'])
+    else: m, full = build(layers, remap); del full
+    amp = os.environ.get('AMP') == '1'; scaler = torch.amp.GradScaler('cuda', enabled=amp); out_dir = f'{S.WORK}/prune/{name}'
     dev = os.environ.get('DEV', 'mps'); m.to(dev).train(); random.seed(7); torch.manual_seed(7)
     W = [json.loads(l) for l in open(os.environ.get('TEACH', f'{S.WORK}/distil/teach4.jsonl'))]
     if os.environ.get('LIMIT'): W = W[: int(os.environ['LIMIT'])]
@@ -28,7 +33,9 @@ if __name__ == '__main__':
     def batch(ks):
         seqs = [[cls] + ids[k] + [sep] for k in ks]; L = max(len(q) for q in seqs)
         x = torch.tensor([q + [0] * (L - len(q)) for q in seqs], device=dev); return x, (x != 0).long()
-    def logit(x, am): lg = m(input_ids=x, attention_mask=am).logits.float(); return lg[:, 1] - lg[:, 0]
+    def logit(x, am):
+        with torch.autocast('cuda', dtype=torch.float16, enabled=amp): lg = m(input_ids=x, attention_mask=am).logits.float()
+        return lg[:, 1] - lg[:, 0]
     def evalv():
         m.eval(); out = []
         with torch.no_grad():
@@ -36,12 +43,15 @@ if __name__ == '__main__':
         m.train(); return round(sum((o > .5) == (p[k] > .5) for o, k in zip(out, va)) / max(len(va), 1), 4)
     print('layers', layers, 'train', len(tr), 'val', len(va), 'agree before', evalv(), flush=True)
     opt = torch.optim.AdamW(m.parameters(), lr=float(os.environ.get('LR', '5e-5')), weight_decay=0.01); B = int(os.environ.get('B', '16')); t0 = time.time()
+    best = -1.0
     for ep in range(EP):
         tr.sort(key=lambda k: len(ids[k]) + random.random() * 64); bs = [tr[s:s + B] for s in range(0, len(tr), B)]; random.shuffle(bs); tot = 0
         for ks in bs:
-            loss = F.binary_cross_entropy_with_logits(logit(*batch(ks)), torch.tensor([p[k] for k in ks], device=dev)); opt.zero_grad(); loss.backward(); opt.step(); tot += loss.item() * len(ks)
-        print('ep', ep, 'loss', round(tot / len(tr), 4), 'agree', evalv(), round(time.time() - t0), 's', flush=True)
-    m.save_pretrained(f'{S.WORK}/prune/{name}'); json.dump(remap, open(f'{S.WORK}/prune/{name}/remap.json', 'w'))
+            loss = F.binary_cross_entropy_with_logits(logit(*batch(ks)), torch.tensor([p[k] for k in ks], device=dev)); opt.zero_grad(); scaler.scale(loss).backward(); scaler.step(opt); scaler.update(); tot += loss.item() * len(ks)
+        a = evalv(); print('ep', ep, 'loss', round(tot / len(tr), 4), 'agree', a, round(time.time() - t0), 's', flush=True)
+        if a > best: best = a; m.save_pretrained(out_dir); json.dump(remap, open(f'{out_dir}/remap.json', 'w')); print('saved', ep, flush=True)
+    if not EP: os.makedirs(out_dir, exist_ok=True)
+    if os.environ.get('NOSCORE'): sys.exit(0)
     m.eval(); rows = [json.loads(l) for l in open(os.environ.get('EVAL', f'{S.WORK}/sample.jsonl'))]; allw, owner = [], []
     for i, r in enumerate(rows):
         ws, _ = S.windows(tok, r['text']); allw += [[lut.get(t, unk) for t in w] for w in ws]; owner += [i] * len(ws)
@@ -52,5 +62,5 @@ if __name__ == '__main__':
             for k, v in zip(ks, torch.sigmoid(logit(x, (x != 0).long())).tolist()): prob[k] = v
     score = [0.0] * len(rows)
     for k, i in enumerate(owner): score[i] = max(score[i], prob[k])
-    json.dump({'model': name, 'windows': len(allw), 'secs': time.time() - t1, 'ntok': [], 'score': score}, open(os.environ.get('OUT', f'{S.WORK}/s-{name}.json'), 'w'))
+    json.dump({'model': name, 'windows': len(allw), 'secs': time.time() - t1, 'ntok': [], 'score': score, 'prob': prob, 'owner': owner}, open(os.environ.get('OUT', f'{S.WORK}/s-{name}.json'), 'w'))
     print(name, 'scored', len(rows), 'texts', len(allw), 'windows', round(time.time() - t1), 's')

@@ -1,12 +1,13 @@
 # A student gates Horizon window by window: Horizon reads only the windows the student passes at a loose threshold.
 # The student's window threshold passes a share of the pool's windows; Horizon's threshold is then set so that a row flags when one of its windows passes both, and 2% of pool rows flag.
+# HZ_SAMPLE and HZ_BONSAI name another classifier's per-window files in Horizon's place (score.py or prune.py output).
 # Usage: gate.py <student>   (reads sample.jsonl, win/hz-sample.json, win/<student>-sample.json, and the Bonsai pair *-bonsai300.json)
 import json, sys, os, collections
 DATA = os.path.expanduser(os.environ.get('GUARDRAIL_DATA', '~/Development/.guardrail-data'))
 WORK = os.environ.get('PAGE_MODEL_WORK', f'{DATA}/linear-2210/clf'); st = sys.argv[1]
 rows = [json.loads(l) for l in open(f'{WORK}/sample.jsonl')]
-hz = json.load(open(f'{WORK}/win/hz-sample.json')); ss = json.load(open(f'{WORK}/win/{st}-sample.json'))['wscore']
-hb = json.load(open(f'{WORK}/win/hz-bonsai300.json')); sb = json.load(open(f'{WORK}/win/{st}-bonsai300.json'))['wscore']
+hz = json.load(open(os.environ.get('HZ_SAMPLE', f'{WORK}/win/hz-sample.json'))); ss = json.load(open(f'{WORK}/win/{st}-sample.json'))['wscore']
+hb = json.load(open(os.environ.get('HZ_BONSAI', f'{WORK}/win/hz-bonsai300.json'))); sb = json.load(open(f'{WORK}/win/{st}-bonsai300.json'))['wscore']
 assert len(ss) == len(hz['prob']) and len(sb) == len(hb['prob'])
 key = lambda r: f"{r['set']}:{r['y']}" if r['set'] == 'bsafe-validate' else r['set']
 COLS = ['llmail-p2', 'dtap-validate', 'bsafe-validate:1', 'm2w-validate', 'bsafe-validate:0']

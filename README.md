@@ -177,7 +177,7 @@ Use the `type` field to choose what the agent does. The type sets the shape of t
 | `live` | `runSession` | realtime mic audio, camera frames, typed text | streamed audio, transcripts, tool calls | `geminiLive` |
 | `host` | `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep` | tool calls from your own code, one at a time or as a step; the `run` pair gives how each call ended | guarded tool results | none; it never calls a model |
 | `decision` | `runDecision` | non-null JSON state plus declared questions | typed choices, probabilities, scores, boxes, or `noul` | `systemOne`, `openRouterDecisions` |
-| `embedding` | `runEmbedding` | text, or text and media parts | one vector for each input | `geminiEmbedding`, `openRouterEmbedding`, `ollamaEmbedding` |
+| `embedding` | `runEmbedding` | text, or text and media parts | one vector for each input | `geminiEmbeddings`, `openRouterEmbeddings`, `ollamaEmbeddings` |
 
 A protocol that you define can serve the same profile types. Its `endpoints` name the profile types that it serves.
 
@@ -302,10 +302,10 @@ The binding under `models` names the protocol, the registered provider ID, and t
 
 | Provider | ID | Protocols |
 | :--- | :--- | :--- |
-| `geminiProvider` | `gemini` | `geminiInteractions` (text, image, speech), `geminiLive` (live), `geminiEmbedding` (embedding) |
-| `openRouterProvider` | `openrouter` | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterDecisions` (decision), `openRouterEmbedding` (embedding) |
+| `geminiProvider` | `gemini` | `geminiInteractions` (text, image, speech), `geminiLive` (live), `geminiEmbeddings` (embedding) |
+| `openRouterProvider` | `openrouter` | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterDecisions` (decision), `openRouterEmbeddings` (embedding) |
 | `typesafeProvider` | `typesafe` | `systemOne` (decision) |
-| `localProvider` | `local` | `openAi` (text, speech), `ollamaEmbedding` (embedding), for a server such as Ollama |
+| `localProvider` | `local` | `openAi` (text, speech), `ollamaEmbeddings` (embedding), for a server such as Ollama |
 
 Register providers before profiles. `registerProvider(provider, { id, connection, keySlot, fallbackKeySlot })` returns the registered provider.
 `registerProfile` refuses a binding whose provider does not serve its protocol, or whose protocol has no endpoint for the profile type.
@@ -458,7 +458,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Observability | `memorySink`, `noopSink`, `readTraceparent`, `writeTrace`, `buildRecord`, `traceRecordSchema`, `contentOf`, `inlineContent`, `toOtlpJson`, `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination`, `listTraceDestinationIds`, `clearTraceDestinations`, `isTraceSink`, `resolveTraceWriter`, `resolveObservabilityPolicy`, `traceSpanMeta`, `traceAttributeMeta`, `traceEventMeta`, `traceEventAttributeMeta`, `TRACE_ATTRIBUTE_GROUPS`, `TRACE_STATUS`, `TRACE_FIELDS`, `TRACE_SPAN_TYPES`, `TraceSpanMeta`, `TraceSpanType`, `TraceAttributeMeta`, `TraceEventMeta`, `TraceOptionMeta`, `TraceAttributeGroup`, `TraceValueFormat`, `TraceRecord`, `TraceSink`, `TraceWriteContext`, `TraceSpan`, `TraceSpanEvent`, `TraceSpanKind`, `TraceSpanLink`, `TraceSpanStatus`, `TraceAttributes`, `TraceAttributeValue`, `TraceContent`, `TraceBytes`, `TraceJson`, `TraceTree`, `SpanHandle`, `SpanOptions`, `SpanLinkInput`, `TraceClock`, `ProfileObservabilitySpec`, `ResolvedObservabilityPolicy`, `ResolvedTraceInclude`, `ResolvedTraceScrub`, `TraceIncludeSpec`, `TraceScrubSpec`, `ScrubSwitch`, `ResolvedScrubSwitch`, `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` (file sink: `@theoremjs/agents/observability/jsonl` → `jsonlSink`, `JsonlSinkOptions`) |
 | Providers | `registerProvider`, `getProvider`, `listProviders`, `listProtocols`, `createProviderRegistry`, `defineProvider`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Provider sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbedding`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterDecisions`, `openRouterEmbedding`, `ollamaEmbedding`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `LiveToolResult`, `callProtocol`, `ProtocolCall`, `CallSetup` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `keySlotSchema`, `checkBinding`, `keySlotsOf`, `RuntimeAbilities` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |

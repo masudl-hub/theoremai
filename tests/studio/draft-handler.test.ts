@@ -345,7 +345,7 @@ function embedding(apiId: string) {
       id: 'embed',
       identity: { handle: 'embed' },
       inputs: { text: true },
-      models: { main: { protocol: 'geminiEmbedding', provider: 'gemini', apiId } },
+      models: { main: { protocol: 'geminiEmbeddings', provider: 'gemini', apiId } },
     },
     input: 'hello',
   };

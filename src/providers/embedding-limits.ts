@@ -1,10 +1,10 @@
 import type { ModelBinding } from '../kernel/protocols/binding.ts';
 import type { EmbeddingModelLimits, Protocol } from '../kernel/protocols/protocol.ts';
-import { geminiEmbedding } from './gemini/embedding-protocol.ts';
-import { ollamaEmbedding } from './local/embedding-protocol.ts';
-import { openRouterEmbedding } from './openrouter/embedding-protocol.ts';
+import { geminiEmbeddings } from './gemini/embeddings-protocol.ts';
+import { ollamaEmbeddings } from './local/embeddings-protocol.ts';
+import { openRouterEmbeddings } from './openrouter/embeddings-protocol.ts';
 
-const SHIPPED: readonly Protocol[] = [geminiEmbedding, openRouterEmbedding, ollamaEmbedding];
+const SHIPPED: readonly Protocol[] = [geminiEmbeddings, openRouterEmbeddings, ollamaEmbeddings];
 
 /**
  * What a binding's embedding model takes, read from its protocol: one Theorem ships, or one of

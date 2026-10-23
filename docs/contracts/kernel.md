@@ -207,7 +207,7 @@ The input declaration is provider-neutral:
   },
   models: {
     default: {
-      protocol: 'geminiEmbedding',
+      protocol: 'geminiEmbeddings',
       provider: 'gemini',
       apiId: 'gemini-embedding-2',
       options: { outputDimensionality: 768 },

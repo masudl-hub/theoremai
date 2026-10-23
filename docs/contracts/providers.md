@@ -68,7 +68,7 @@ Register providers before profiles. Use the registered provider's model helper t
 | `openRouterProvider` (`openrouter`) | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterDecisions` (decision) |
 | `geminiProvider` (`gemini`) | `geminiInteractions` (text, image, speech), `geminiLive` (live) |
 | Planned local embedding adapter | Embeddings through a host-supplied local runtime |
-| `localProvider` (`local`) | `openAi` (text, speech) |
+| `localProvider` (`local`) | `openAi` (text, speech), `ollamaEmbeddings` (embedding) |
 | `typesafeProvider` (`typesafe`) | `systemOne` (decision) |
 | A provider from `defineProvider` | The protocols that its `serves` function returns |
 
@@ -233,7 +233,7 @@ registered connection:
 ```ts
 return [
   { protocol: openRouterOpenAi, baseUrl, headers },
-  { protocol: openRouterEmbedding, baseUrl, headers },
+  { protocol: openRouterEmbeddings, baseUrl, headers },
 ]
 ```
 
@@ -385,7 +385,7 @@ Use `openRouterProvider` for OpenRouter. It signs each request with a bearer key
 Its connection takes `baseUrl`, `decisionUrl`, `siteUrl`, and `siteName`, and each is optional.
 `siteUrl` goes out as `HTTP-Referer` and `siteName` as `X-Title`.
 
-The planned `openRouterEmbedding` protocol uses the same bearer credential and
+The planned `openRouterEmbeddings` protocol uses the same bearer credential and
 connection headers as chat. It sends text or provider-supported multimodal
 content to `/api/v1/embeddings` and normalizes each returned `embedding` array
 to the kernel vector result.
@@ -417,7 +417,7 @@ Use `geminiProvider` with the `geminiInteractions` protocol for Gemini text, ima
 Its options contain `store` and `persistViaInteractionId`. Its `googleMaps` builtin takes a `location` from the request's `builtInArgs`.
 The provider signs each request with the key in the `x-goog-api-key` header. Its connection takes an optional `host`.
 
-The `geminiEmbedding` protocol uses the same Google API key and host.
+The `geminiEmbeddings` protocol uses the same Google API key and host.
 It sends text or provider-supported media to the embedding methods and
 normalizes the returned values to the kernel vector result.
 
@@ -474,6 +474,7 @@ A close with 1013 (try again later) is `busy`; 1011 is `unavailable` unless its 
 Use `localProvider` for a server that speaks OpenAI Chat Completions, such as Ollama, llama.cpp, vLLM, or LM Studio.
 Its connection requires `baseUrl`, up to and including `/v1`. The `openAi` protocol appends `/chat/completions`.
 The key is optional. Name a slot only when the server takes a key.
+It also serves `ollamaEmbeddings`, which posts text to Ollama's `/api/embed` at the same server, without the `/v1`.
 
 ```ts
 const local = registerProvider(localProvider, {
@@ -563,7 +564,7 @@ The root also exports the default-scope registry functions, the binding schemas,
 | --- | --- |
 | Providers | `defineProvider`, `createProviderRegistry`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbedding`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterDecisions`, `openRouterEmbedding`, `ollamaEmbedding`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |

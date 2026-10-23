@@ -8,8 +8,8 @@ import type {
 } from '../../kernel/protocols/protocol.ts';
 import type { EmbeddingInput, EmbeddingResult, EmbeddingTask } from '../../kernel/types.ts';
 
-/** What a `geminiEmbedding` binding sets in `options`. */
-export interface GeminiEmbeddingOptions {
+/** What a `geminiEmbeddings` binding sets in `options`. */
+export interface GeminiEmbeddingsOptions {
   /** For `gemini-embedding-001`; Gemini Embedding 2 refuses it and reads the request's `task` from the text. */
   taskType?:
     | 'RETRIEVAL_QUERY'
@@ -27,7 +27,7 @@ function task<T extends string>(value: T, title: string, description: string) {
   return z.literal(value).meta({ title, description });
 }
 
-const options: z.ZodType<GeminiEmbeddingOptions> = z.strictObject({
+const options: z.ZodType<GeminiEmbeddingsOptions> = z.strictObject({
   // why: Labels and descriptions are Google's own task-type table (ai.google.dev/gemini-api/docs/embeddings), so a studio can show them.
   taskType: z
     .union([
@@ -103,7 +103,7 @@ const TEXT_ONLY: EmbeddingModelLimits = { maxInputs: 100, media: [] };
 const TASK_TYPES = {
   query: 'RETRIEVAL_QUERY',
   document: 'RETRIEVAL_DOCUMENT',
-} as const satisfies Record<EmbeddingTask, GeminiEmbeddingOptions['taskType']>;
+} as const satisfies Record<EmbeddingTask, GeminiEmbeddingsOptions['taskType']>;
 
 // why: The formats Google gives for Gemini Embedding 2 search (ai.google.dev/gemini-api/docs/embeddings); it advises leaving input with media unprefixed.
 function withTask(text: string, task: EmbeddingTask): string {
@@ -150,8 +150,8 @@ function requestBody(
   return body;
 }
 
-export const geminiEmbedding: Protocol<GeminiEmbeddingOptions> = defineProtocol({
-  id: 'geminiEmbedding',
+export const geminiEmbeddings: Protocol<GeminiEmbeddingsOptions> = defineProtocol({
+  id: 'geminiEmbeddings',
   name: 'Gemini Embeddings',
   description: "Google's embedding API for text and supported media.",
   endpoints: { embedding: '/models/{apiId}:embedContent' },
@@ -162,7 +162,7 @@ export const geminiEmbedding: Protocol<GeminiEmbeddingOptions> = defineProtocol(
   create(context) {
     return {
       async embed(request: EmbeddingCall): Promise<EmbeddingResult> {
-        const parsed = modelOptions(geminiEmbedding, context.apiId, request.options);
+        const parsed = modelOptions(geminiEmbeddings, context.apiId, request.options);
         const taskField = TASK_FIELD_MODELS.test(context.apiId);
         const shape: Shape = { taskField, ...(request.task ? { task: request.task } : {}) };
         const inputs = Array.isArray(request.input) ? request.input : [request.input];

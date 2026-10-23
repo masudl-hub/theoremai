@@ -6,7 +6,7 @@ import {
   type Provider,
 } from '../../kernel/protocols/provider.ts';
 import { openRouterDecisions } from './decisions-protocol.ts';
-import { openRouterEmbedding } from './embedding-protocol.ts';
+import { openRouterEmbeddings } from './embeddings-protocol.ts';
 import { openRouterImages } from './images-protocol.ts';
 import { openRouterOpenAi } from './protocol.ts';
 
@@ -55,7 +55,7 @@ export const openRouterProvider: Provider<OpenRouterConnection, string> = define
     const decisionUrl = at.decisionUrl ?? 'https://openrouter.ai/api/alpha/decisions';
     return [
       { protocol: openRouterOpenAi, baseUrl, headers },
-      { protocol: openRouterEmbedding, baseUrl, headers },
+      { protocol: openRouterEmbeddings, baseUrl, headers },
       { protocol: openRouterImages, baseUrl, headers },
       { protocol: openRouterDecisions, baseUrl: decisionUrl, url: () => decisionUrl, headers },
     ];

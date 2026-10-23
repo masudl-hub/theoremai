@@ -17,7 +17,7 @@ function handler(sent: unknown[]) {
       identity: { handle: 'search' },
       inputs: { text: true },
       models: {
-        gemini: { protocol: 'geminiEmbedding', provider: 'gemini', apiId: 'gemini-embedding-2' },
+        gemini: { protocol: 'geminiEmbeddings', provider: 'gemini', apiId: 'gemini-embedding-2' },
       },
     },
     vault: FIXTURE_VAULT,

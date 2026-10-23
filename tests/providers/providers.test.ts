@@ -97,7 +97,7 @@ Deno.test('OpenRouter serves chat, images, and decisions at its defaults, signed
     [
       'openAi',
       'openRouterDecisions',
-      'openRouterEmbedding',
+      'openRouterEmbeddings',
       'openRouterImages',
       'openRouterOpenAi',
     ],
@@ -195,10 +195,10 @@ Deno.test('OpenRouter, TypeSafe, and a local server share one registry and its p
       .map((protocol) => protocol.id)
       .sort(),
     [
-      'ollamaEmbedding',
+      'ollamaEmbeddings',
       'openAi',
       'openRouterDecisions',
-      'openRouterEmbedding',
+      'openRouterEmbeddings',
       'openRouterImages',
       'openRouterOpenAi',
       'systemOne',

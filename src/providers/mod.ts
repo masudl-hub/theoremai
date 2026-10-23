@@ -70,15 +70,15 @@ export type {
   KeyVault,
 } from '../kernel/registry/vault.ts';
 export { embeddingModelLimits } from './embedding-limits.ts';
-export { geminiEmbedding } from './gemini/embedding-protocol.ts';
+export { geminiEmbeddings } from './gemini/embeddings-protocol.ts';
 export { geminiInteractions } from './gemini/interactions-protocol.ts';
 export { geminiLive } from './gemini/live-protocol.ts';
 export { geminiProvider } from './gemini/provider.ts';
-export { ollamaEmbedding } from './local/embedding-protocol.ts';
+export { ollamaEmbeddings } from './local/embeddings-protocol.ts';
 export { localProvider } from './local/provider.ts';
 export { openAi } from './open-ai/protocol.ts';
 export { openRouterDecisions } from './openrouter/decisions-protocol.ts';
-export { openRouterEmbedding } from './openrouter/embedding-protocol.ts';
+export { openRouterEmbeddings } from './openrouter/embeddings-protocol.ts';
 export { openRouterImages } from './openrouter/images-protocol.ts';
 export { openRouterOpenAi } from './openrouter/protocol.ts';
 export { openRouterProvider } from './openrouter/provider.ts';

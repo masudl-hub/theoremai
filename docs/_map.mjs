@@ -276,7 +276,7 @@ const graph = {
         'tests/providers/providers.test.ts',
         'tests/providers/create-provider.test.ts',
         'tests/providers/registered-openrouter.test.ts',
-        'tests/providers/embedding-protocol.test.ts',
+        'tests/providers/embeddings-protocol.test.ts',
         'tests/providers/gemini/interactions-protocol.test.ts',
         'tests/providers/gemini/live-protocol.test.ts',
         'tests/providers/google/interactions/framing.test.ts',
@@ -347,7 +347,7 @@ const graph = {
           sections: ['Google Live'],
         },
         {
-          paths: ['src/providers/*/embedding-protocol.ts', 'src/kernel/engine/embedding.ts'],
+          paths: ['src/providers/*/embeddings-protocol.ts', 'src/kernel/engine/embedding.ts'],
           sections: ['Embedding protocols'],
         },
       ],

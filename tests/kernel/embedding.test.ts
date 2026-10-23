@@ -19,7 +19,7 @@ function scope() {
       inputs: { text: true },
       models: {
         embeddinggemma: {
-          protocol: 'ollamaEmbedding',
+          protocol: 'ollamaEmbeddings',
           provider: 'local',
           apiId: 'embeddinggemma',
         },
@@ -70,7 +70,7 @@ Deno.test('runEmbedding rejects media that the selected model does not accept', 
 /** A profile on the given model that takes images and PDFs, with the given limits. */
 function mediaScope(
   model: { protocol: string; provider: string; apiId: string } = {
-    protocol: 'openRouterEmbedding',
+    protocol: 'openRouterEmbeddings',
     provider: 'openrouter',
     apiId: 'nvidia/llama-nemotron-embed-vl-1b-v2:free',
   },
@@ -128,7 +128,7 @@ Deno.test('an embedding profile that takes media must set its limits', () => {
         inputs: { attachments: { accept: ['image/*'] } },
         models: {
           embeddinggemma: {
-            protocol: 'ollamaEmbedding',
+            protocol: 'ollamaEmbeddings',
             provider: 'local',
             apiId: 'embeddinggemma',
           },
@@ -155,7 +155,7 @@ Deno.test('runEmbedding holds each input to the file count, and the request to t
 Deno.test('runEmbedding holds each input to what its model takes', async () => {
   const gemini = () =>
     mediaScope(
-      { protocol: 'geminiEmbedding', provider: 'gemini', apiId: 'gemini-embedding-2-preview' },
+      { protocol: 'geminiEmbeddings', provider: 'gemini', apiId: 'gemini-embedding-2-preview' },
       { maxFiles: 10, maxBytes: 100, maxTurnBytes: 1000 },
     );
   const file = (mimeType: string) => ({ type: 'media' as const, mimeType, data: 'AA==' });
@@ -173,7 +173,7 @@ Deno.test('runEmbedding holds each input to what its model takes', async () => {
     'takes at most 100 inputs',
   );
   await refusedUnsent(
-    mediaScope({ protocol: 'ollamaEmbedding', provider: 'local', apiId: 'embeddinggemma' }),
+    mediaScope({ protocol: 'ollamaEmbeddings', provider: 'local', apiId: 'embeddinggemma' }),
     { parts: [file('image/png')] },
     'attachments_not_accepted',
   );
@@ -195,7 +195,7 @@ Deno.test('runEmbedding refuses a task that is not query or document', async () 
 Deno.test('a model that refuses an option is refused it when its profile registers', () => {
   const register = (apiId: string) =>
     mediaScope({
-      protocol: 'geminiEmbedding',
+      protocol: 'geminiEmbeddings',
       provider: 'gemini',
       apiId,
       options: { taskType: 'CLUSTERING' },

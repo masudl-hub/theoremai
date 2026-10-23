@@ -163,7 +163,7 @@ Deno.test("the interface holds the profile's inputs to its default model's limit
     defaultModel: 'gemini',
     models: {
       gemini: {
-        protocol: 'geminiEmbedding',
+        protocol: 'geminiEmbeddings',
         provider: 'gemini',
         apiId: 'gemini-embedding-2-preview',
       },

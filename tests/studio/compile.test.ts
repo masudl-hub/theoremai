@@ -1476,7 +1476,7 @@ Deno.test('an option the model refuses is an issue at that option, though its pr
   assert(first);
   const gemini2 = {
     ...first,
-    protocol: 'geminiEmbedding',
+    protocol: 'geminiEmbeddings',
     provider: 'gemini',
     apiId: 'gemini-embedding-2-preview',
     options: { taskType: 'CLUSTERING' },

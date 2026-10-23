@@ -24,7 +24,7 @@ const GEMINI_PROTOCOL: Record<Exclude<ModelProfileType, 'decision'>, string> = {
   image: 'geminiInteractions',
   speech: 'geminiInteractions',
   live: 'geminiLive',
-  embedding: 'geminiEmbedding',
+  embedding: 'geminiEmbeddings',
 };
 
 const models: LentKeys['models'] = (type, definition) => {

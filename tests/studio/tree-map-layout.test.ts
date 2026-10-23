@@ -101,7 +101,7 @@ const width = (layout: TreeMapLayout, id: string) => {
   return 40 + 7 * label.length;
 };
 
-const BOX: Box = { width: 860, height: 860 };
+const BOX: Box = { width: 860, height: 960 };
 
 for (const box of [undefined, BOX]) {
   Deno.test(`growing, no token of the tree map stands on another${box ? ', filling a box' : ''}`, () => {
@@ -186,7 +186,7 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
     from(TOOL_RUNTIME),
     tools.map((tool) => tool.label),
   );
-  assertEquals(under(TOOL_RUNTIME), ['Permission gate', 'Authentication', 'MCP sessions']);
+  assertEquals(under(TOOL_RUNTIME), ['Permission gate', 'MCP sessions', 'Authentication']);
 
   assertEquals(from(GUARDRAIL_RUNTIME), ['Guardrails']);
   assertEquals(under(GUARDRAIL_RUNTIME), [
@@ -226,6 +226,24 @@ Deno.test('closed the tree map is as it was, and grown every node growing adds h
     assertEquals(drawnAt(layout, feed.id, 0), 0);
     assertEquals(drawnAt(layout, feed.id, 1), 1);
   }
+});
+
+Deno.test('grown, the rows into the guards stand level with them', () => {
+  const layout = picture(BOX);
+  const at = (id: string) => placeAt(layout, id, 1).y;
+  const [agent] = layout.rows;
+  const row = (facet: string) => {
+    const found = layout.rows.find(
+      (each) => each.agent === agent?.agent && each.node.ref.facet === facet,
+    );
+    assert(found, facet);
+    return rowId(found);
+  };
+  assertEquals(at(row('guardrails')), at(GUARDRAIL_RUNTIME));
+  assertEquals(at(row('inputs')), at(`${GUARDRAIL_RUNTIME}/sanitize`));
+  assertEquals(at(row('outputs')), at(`${GUARDRAIL_RUNTIME}/egress`));
+  const tools = layout.feeds.filter((feed) => feed.kind === 'tool' && feed.column === 1);
+  assertEquals(at(TOOL_RUNTIME), Math.min(...tools.map((tool) => at(tool.id))));
 });
 
 Deno.test('grown into a box, the tree map fills it', () => {

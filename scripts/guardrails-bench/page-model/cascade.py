@@ -1,5 +1,6 @@
-# E1 AND a classifier: E1 at a loose threshold, the classifier's threshold set so that both together flag q of the pool.
-# Usage: cascade.py <model>   (reads sample.jsonl and s-<model>.json)
+# A first stage AND a classifier: the first stage at a loose threshold, the classifier's threshold set so that both together flag q of the pool.
+# The first stage is E1, or the student that FIRST names (s-<FIRST>.json). sent = pool texts that pass the first stage.
+# Usage: [FIRST=<student>] cascade.py <model>   (reads sample.jsonl and s-<model>.json)
 import json, sys, os, collections
 DATA = os.path.expanduser(os.environ.get('GUARDRAIL_DATA', '~/Development/.guardrail-data'))
 WORK = os.environ.get('PAGE_MODEL_WORK', f'{DATA}/linear-2210/clf'); model = sys.argv[1]
@@ -7,11 +8,13 @@ rows = [json.loads(l) for l in open(f'{WORK}/sample.jsonl')]; sc = json.load(ope
 sd = json.load(open(os.environ.get('E1_SCORES', f'{WORK}/../web/sd2-E1.json')))
 e1v = {(s, i): v for s, i, y, v in sd['rows']}; e1p = {(s, i): v for (s, i), v in zip(sd['poolIds'], sd['pool'])}
 e1 = [(e1p if r['g'] == 'pool' else e1v).get((r['set'], r['i'])) for r in rows]
+first = os.environ.get('FIRST')
+if first: e1 = json.load(open(f'{WORK}/s-{first}.json'))['score']
 pool = [(e, s) for r, e, s in zip(rows, e1, sc) if r['g'] == 'pool' and e is not None]
-fullpool = sorted(sd['pool'], reverse=True)
+fullpool = sorted(sd['pool'] if not first else [e for e, s in pool], reverse=True)
 COLS = ['llmail-validate', 'llmail-p2', 'dtap-validate', 'bsafe-validate:1', 'm2w-validate', 'bsafe-validate:0']
 key = lambda r: f"{r['set']}:{r['y']}" if r['set'] == 'bsafe-validate' else r['set']
-print('loose q pool ' + ' '.join(COLS))
+print('loose q sent pool ' + ' '.join(COLS))
 for q in (0.01, 0.02):
     for loose in (q, 0.05, 0.10, 0.20, 0.40, 1.0):
         te = fullpool[min(int(loose * len(fullpool)), len(fullpool) - 1)] if loose < 1 else -1e9
@@ -21,4 +24,4 @@ for q in (0.01, 0.02):
         by = collections.defaultdict(lambda: [0, 0])
         for r, e, s in zip(rows, e1, sc):
             if r['g'] == 'val' and e is not None: by[key(r)][0] += flag(e, s); by[key(r)][1] += 1
-        print(f'{loose:.2f} {int(q*100)}% {sum(flag(e, s) for e, s in pool)}/{len(pool)} ' + ' '.join(f'{by[c][0]}/{by[c][1]}' for c in COLS))
+        print(f'{loose:.2f} {int(q*100)}% {sum(e > te for e, s in pool)}/{len(pool)} {sum(flag(e, s) for e, s in pool)}/{len(pool)} ' + ' '.join(f'{by[c][0]}/{by[c][1]}' for c in COLS))

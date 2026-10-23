@@ -66,7 +66,8 @@ export type FeedKind =
   | 'guardrail-runtime'
   | 'check'
   | 'destinations'
-  | 'stream';
+  | 'stream'
+  | 'model';
 
 /** What feeds the tree: a tool, the runner, a provider, the tool runner, or one of their own nested under them. */
 export interface Feed {
@@ -175,6 +176,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       return row ? [rowId(row)] : [];
     });
   const providers = new Map<string, Map<string, string[]>>();
+  const models: Feed[] = [];
   for (const agent of drawn) {
     for (const binding of agent.modelBindings) {
       const row = rowOf(agent.key, 'modelBinding', binding.key);
@@ -182,6 +184,15 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
       protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), rowId(row)]);
       providers.set(binding.provider, protocols);
+      models.push({
+        id: `model:${rowId(row)}`,
+        label: binding.modelId,
+        kind: 'model',
+        from: [],
+        under: `provider:${binding.provider}`,
+        column: 1,
+        group: 'providers',
+      });
     }
   }
   const protocols: Feed[] = [];
@@ -247,6 +258,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const observability = sections(['observability']);
 
   // Registries: each provider, with a line from the model rows that bind it, and the trace destinations.
+  feeds.push(...models);
   feeds.push({
     id: TRACE_DESTINATIONS,
     label: 'Trace destinations',
@@ -273,9 +285,9 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     tools.filter(({ spec }) => types.includes(spec.toolType)).map(({ id }) => id);
   const checkFrom: Record<string, string[]> = {
     'sign-in': tools.filter(({ spec }) => (spec.authType ?? 'none') !== 'none').map(({ id }) => id),
-    network: [...toolsOf(REMOTE_TYPES), ...guardrails],
+    network: toolsOf(REMOTE_TYPES),
     sessions: toolsOf(['mcp']),
-    result: guardrails,
+    result: [],
   };
   feeds.push({
     id: TOOL_RUNTIME,
@@ -322,7 +334,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       label: step.label,
       kind: 'step',
       of: id,
-      from: sections(step.reads),
+      from: [],
       under: GUARDRAIL_RUNTIME,
       column: 2,
       group: 'guardrail-runtime',

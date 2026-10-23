@@ -12,6 +12,7 @@ import {
   IconArrowsMinimize,
   IconChecks,
   IconCloud,
+  IconCpu,
   IconDatabase,
   IconKey,
   IconLock,
@@ -83,6 +84,7 @@ function feedIcon(feed: Feed): IconType {
   if (feed.kind === 'tool-runtime') return IconSettingsAutomation;
   if (feed.kind === 'guardrail-runtime') return IconShieldCheck;
   if (feed.kind === 'destinations') return IconDatabase;
+  if (feed.kind === 'model') return IconCpu;
   return CHECK_ICONS[of] ?? IconShieldCheck;
 }
 

@@ -158,10 +158,16 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   const mcp = tools.find((tool) => tool.of === 'mcp');
   const remote = tools.filter((tool) => tool.of === 'http' || tool.of === 'mcp');
   assertEquals(from(`${TOOL_RUNTIME}/sessions`), [mcp?.label]);
-  assertEquals(from(`${GUARDRAIL_RUNTIME}/network`), [
-    ...remote.map((tool) => tool.label),
-    'Guardrails',
-  ]);
+  assertEquals(
+    from(`${GUARDRAIL_RUNTIME}/network`),
+    remote.map((tool) => tool.label),
+  );
+  assertEquals(from(`${GUARDRAIL_RUNTIME}/sanitize`), []);
+  assertEquals(from(`${GUARDRAIL_RUNTIME}/result`), []);
+  const models = feeds.filter((each) => each.kind === 'model');
+  assert(models.length > 0);
+  for (const model of models) assert(model.under?.startsWith('provider:'), model.id);
+  assertEquals(columnOf('model'), new Set([1]));
   assertEquals(from(`${TOOL_RUNTIME}/sign-in`), []);
   assertEquals(
     from(TOOL_RUNTIME),
@@ -199,7 +205,7 @@ Deno.test('closed the tree map is as it was, and grown every node growing adds h
   const layout = picture(BOX);
   for (const [id, { x, y }] of layout.closed) assertEquals(placeAt(layout, id, 0), { x, y });
   const added = layout.feeds.filter((feed) => !layout.few.has(feed.id));
-  assertEquals(added.length, 16);
+  assertEquals(added.length, 20);
   for (const feed of added) {
     assertEquals(drawnAt(layout, feed.id, 0), 0);
     assertEquals(drawnAt(layout, feed.id, 1), 1);

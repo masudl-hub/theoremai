@@ -20,7 +20,7 @@ export const PAD = 16;
 /** Closed, between the tree's widest row and the feeds; grown, the least and most between columns. */
 const GAP = 72;
 const LEAST_GAP = 56;
-const MOST_GAP = 160;
+const MOST_GAP = 200;
 /** The least room between two lanes. */
 const LANE = 9;
 /** The tools beside a Tools row: the first of each type. */
@@ -41,6 +41,7 @@ const CLEAR = 2;
 export const TOOL_RUNTIME = 'tool-runtime';
 export const GUARDRAIL_RUNTIME = 'guardrail-runtime';
 export const TRACE_DESTINATIONS = 'trace-destinations';
+export const PROVIDER_STREAM = 'provider-stream';
 
 export interface Place {
   x: number;
@@ -64,7 +65,8 @@ export type FeedKind =
   | 'tool-runtime'
   | 'guardrail-runtime'
   | 'check'
-  | 'destinations';
+  | 'destinations'
+  | 'stream';
 
 /** What feeds the tree: a tool, the runner, a provider, the tool runner, or one of their own nested under them. */
 export interface Feed {
@@ -81,8 +83,8 @@ export interface Feed {
   under?: string;
   /** Until it draws, its lines run to the feed it is under, and move to it as it draws. */
   closedUnder?: boolean;
-  /** The column it stands in beside the tree: the tools, the runner, or what they share underneath. */
-  column: 1 | 2 | 3;
+  /** The column it stands in beside the tree: the registries, or the runner. */
+  column: 1 | 2;
   /** Feeds that stand together, with a gap before the next group. */
   group: string;
 }
@@ -94,23 +96,25 @@ export interface Feed {
  * post_turn are hooks for the host's stages, so the map leaves those four out.
  */
 export const TURN_STEPS: readonly { id: string; label: string; reads: readonly string[] }[] = [
-  { id: 'resolve', label: 'Setup', reads: ['inputs', 'models'] },
   { id: 'sanitize', label: 'Sanitize', reads: ['guardrails'] },
   { id: 'validation', label: 'Validation', reads: ['outputs'] },
   { id: 'egress', label: 'Egress', reads: ['guardrails'] },
-  { id: 'trace', label: 'Telemetry', reads: ['observability'] },
+  { id: 'trace', label: 'Telemetry engine', reads: ['observability'] },
 ];
 
 /**
- * What the tool runner does with every call, in order (`executeRegisteredTool`): its permission,
- * its sign-in, the network a remote call reaches, the MCP session an MCP call runs in, and the
- * guard on its result.
+ * What the tool runtime does with every call, in order (`executeRegisteredTool`): its permission,
+ * its sign-in, and the MCP session an MCP call runs in.
  */
 export const TOOL_CHECKS: readonly { id: string; label: string }[] = [
   { id: 'permission', label: 'Permission gate' },
   { id: 'sign-in', label: 'Sign-in' },
-  { id: 'network', label: 'Network check' },
   { id: 'sessions', label: 'MCP sessions' },
+];
+
+/** What the guardrail runtime does with a call: the network a remote call reaches, and the guard on its result. */
+const GUARDRAIL_CHECKS: readonly { id: string; label: string }[] = [
+  { id: 'network', label: 'Network check' },
   { id: 'result', label: 'Result guard' },
 ];
 
@@ -143,13 +147,14 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
 }
 
 /**
- * Beside the tree, shared by every agent drawn, three columns. First, the first tool of each type
- * the agents allow, with a line from each Tools row that allows it, and an agent tool's agent under
- * it. Then the registries: each provider, with a line from the model rows that bind it, and the
- * trace destinations, with a line from the observability rows. Last, the runtime: each protocol
- * with a line from its provider; the tool runtime, with a line from each tool, what it does with
- * each call under it and validation; the guardrail runtime, with a line from the guardrails, its
- * sanitize and egress under it; setup; and telemetry.
+ * Beside the tree, shared by every agent drawn, two columns. First, the registries: the first tool of
+ * each type the agents allow, with a line from each Tools row that allows it, and an agent tool's
+ * agent under it; each provider, with a line from the model rows that bind it; and the trace
+ * destinations, with a line from the observability rows. Then the runner: the provider stream, over
+ * each provider's protocols, each with a line from its provider; the tool runtime, with a line from
+ * each tool, and what it does with each call under it; the guardrail runtime, with a line from the
+ * guardrails, and what it does under it; and the telemetry engine, with a line from the trace
+ * destinations.
  */
 function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const drawn = workspace.agents.filter((agent) => rows.some((row) => row.agent === agent.key));
@@ -169,6 +174,39 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       const row = agent.tools.allow.includes(key) ? rowOf(agent.key, 'tools') : undefined;
       return row ? [rowId(row)] : [];
     });
+  const providers = new Map<string, Map<string, string[]>>();
+  for (const agent of drawn) {
+    for (const binding of agent.modelBindings) {
+      const row = rowOf(agent.key, 'modelBinding', binding.key);
+      if (!row) continue;
+      const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
+      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), rowId(row)]);
+      providers.set(binding.provider, protocols);
+    }
+  }
+  const protocols: Feed[] = [];
+  for (const [provider, byProtocol] of providers) {
+    const id = `provider:${provider}`;
+    feeds.push({
+      id,
+      label: provider,
+      kind: 'provider',
+      from: [...byProtocol.values()].flat(),
+      column: 1,
+      group: 'providers',
+    });
+    for (const protocol of byProtocol.keys()) {
+      protocols.push({
+        id: `${id}/${protocol}`,
+        label: protocol,
+        kind: 'protocol',
+        from: [id],
+        under: PROVIDER_STREAM,
+        column: 2,
+        group: 'protocols',
+      });
+    }
+  }
   const tools: { id: string; spec: StudioWorkspace['toolSpecs'][number] }[] = [];
   for (const type of TOOL_TYPES) {
     const spec = workspace.toolSpecs.find(
@@ -209,50 +247,28 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const observability = sections(['observability']);
 
   // Registries: each provider, with a line from the model rows that bind it, and the trace destinations.
-  const providers = new Map<string, Map<string, string[]>>();
-  for (const agent of drawn) {
-    for (const binding of agent.modelBindings) {
-      const row = rowOf(agent.key, 'modelBinding', binding.key);
-      if (!row) continue;
-      const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
-      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), rowId(row)]);
-      providers.set(binding.provider, protocols);
-    }
-  }
-  const protocols: Feed[] = [];
-  for (const [provider, byProtocol] of providers) {
-    const id = `provider:${provider}`;
-    feeds.push({
-      id,
-      label: provider,
-      kind: 'provider',
-      from: [...byProtocol.values()].flat(),
-      column: 2,
-      group: 'providers',
-    });
-    for (const protocol of byProtocol.keys()) {
-      protocols.push({
-        id: `${id}/${protocol}`,
-        label: protocol,
-        kind: 'protocol',
-        from: [id],
-        column: 3,
-        group: 'protocols',
-      });
-    }
-  }
   feeds.push({
     id: TRACE_DESTINATIONS,
     label: 'Trace destinations',
     kind: 'destinations',
     from: observability,
-    column: 2,
+    column: 1,
     group: 'destinations',
   });
 
-  // The runtime: each protocol, then the tool runtime and the guardrail runtime with what each does
-  // under it, then setup and telemetry.
-  feeds.push(...protocols);
+  // The runner: the provider stream over each protocol, then the tool runtime and the guardrail
+  // runtime with what each does under it, then the telemetry engine.
+  if (protocols.length > 0) {
+    feeds.push({
+      id: PROVIDER_STREAM,
+      label: 'Provider stream',
+      kind: 'stream',
+      from: [],
+      column: 2,
+      group: 'protocols',
+    });
+    feeds.push(...protocols);
+  }
   const toolsOf = (types: readonly string[]) =>
     tools.filter(({ spec }) => types.includes(spec.toolType)).map(({ id }) => id);
   const checkFrom: Record<string, string[]> = {
@@ -266,7 +282,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     label: 'Tool runtime',
     kind: 'tool-runtime',
     from: tools.map(({ id }) => id),
-    column: 3,
+    column: 2,
     group: 'tool-runtime',
   });
   for (const check of TOOL_CHECKS) {
@@ -277,7 +293,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       of: check.id,
       from: checkFrom[check.id] ?? [],
       under: TOOL_RUNTIME,
-      column: 3,
+      column: 2,
       group: 'tool-runtime',
     });
   }
@@ -288,7 +304,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     of: 'validation',
     from: sections(stepOf('validation').reads),
     under: TOOL_RUNTIME,
-    column: 3,
+    column: 2,
     group: 'tool-runtime',
   });
   feeds.push({
@@ -296,7 +312,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     label: 'Guardrail runtime',
     kind: 'guardrail-runtime',
     from: guardrails,
-    column: 3,
+    column: 2,
     group: 'guardrail-runtime',
   });
   for (const id of ['sanitize', 'egress']) {
@@ -308,22 +324,31 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       of: id,
       from: sections(step.reads),
       under: GUARDRAIL_RUNTIME,
-      column: 3,
+      column: 2,
       group: 'guardrail-runtime',
     });
   }
-  for (const id of ['resolve', 'trace'] as const) {
-    const step = stepOf(id);
+  for (const check of GUARDRAIL_CHECKS) {
     feeds.push({
-      id: id === 'resolve' ? 'setup' : 'telemetry',
-      label: step.label,
-      kind: 'step',
-      of: id,
-      from: sections(step.reads),
-      column: 3,
-      group: id === 'resolve' ? 'setup' : 'telemetry',
+      id: `${GUARDRAIL_RUNTIME}/${check.id}`,
+      label: check.label,
+      kind: 'check',
+      of: check.id,
+      from: checkFrom[check.id] ?? [],
+      under: GUARDRAIL_RUNTIME,
+      column: 2,
+      group: 'guardrail-runtime',
     });
   }
+  feeds.push({
+    id: 'telemetry',
+    label: stepOf('trace').label,
+    kind: 'step',
+    of: 'trace',
+    from: [TRACE_DESTINATIONS],
+    column: 2,
+    group: 'telemetry',
+  });
   return feeds;
 }
 
@@ -371,7 +396,7 @@ function stacksOf(rows: Row[], feeds: Feed[], slots: Map<string, Slot>) {
   };
   const tree = new Map<string, string[]>();
   for (const row of rows) tree.set(row.agent, [...(tree.get(row.agent) ?? []), rowId(row)]);
-  const columns = ([1, 2, 3] as const).map((column) => {
+  const columns = ([1, 2] as const).map((column) => {
     const groups = new Map<string, string[]>();
     for (const feed of feeds) {
       if (feed.column !== column || feed.under !== undefined) continue;
@@ -389,8 +414,7 @@ export interface Box {
 }
 
 /**
- * The map grown: the tree, each agent a zone of its own; beside it the tools, then the runner, then
- * what they share underneath. Rows stretch, up to a most, and the gaps between columns and
+ * The map grown: the tree, each agent a zone of its own; beside it the registries, then the runner. Rows stretch, up to a most, and the gaps between columns and
  * between groups widen, so the map fills `box`; without one, rows and gaps are at their least.
  */
 function grownPlaces(
@@ -409,7 +433,7 @@ function grownPlaces(
 
   const right = (id: string, x: number) => x + width(id);
   const treeRight = Math.max(0, ...rows.map((each) => right(rowId(each), each.x)));
-  const columnWidth = (column: 1 | 2 | 3) =>
+  const columnWidth = (column: 1 | 2) =>
     Math.max(
       0,
       ...feeds
@@ -419,24 +443,19 @@ function grownPlaces(
           return right(feed.id, slot ? slot.across : 0);
         }),
     );
-  const [first, second, third] = [columnWidth(1), columnWidth(2), columnWidth(3)];
-  const taken = treeRight - PAD + first + second + third;
+  const [first, second] = [columnWidth(1), columnWidth(2)];
+  const taken = treeRight - PAD + first + second;
   // A gap is wide enough for a lane into each feed of the column after it, and the spare is shared.
-  const gaps = ([1, 2, 3] as const).map((column) => {
+  const gaps = ([1, 2] as const).map((column) => {
     const lanes = feeds.filter(
       (feed) => feed.column === column && feed.from.length + (feed.late?.length ?? 0) > 0,
     ).length;
     return Math.max(LEAST_GAP, (lanes + 1) * LANE);
   });
-  const [one = 0, two = 0, three = 0] = gaps;
-  const spare = box ? Math.max(0, box.width - 2 * PAD - taken - one - two - three) / 3 : 0;
+  const [one = 0, two = 0] = gaps;
+  const spare = box ? Math.max(0, box.width - 2 * PAD - taken - one - two) / 2 : 0;
   const widen = (gap: number) => Math.max(gap, Math.min(gap + spare, MOST_GAP));
-  const lefts = [
-    0,
-    treeRight + widen(one),
-    treeRight + widen(one) + first + widen(two),
-    treeRight + widen(one) + first + widen(two) + second + widen(three),
-  ];
+  const lefts = [0, treeRight + widen(one), treeRight + widen(one) + first + widen(two)];
 
   const places = new Map<string, Place>();
   const tree = new Map(rows.map((each) => [rowId(each), each]));
@@ -601,7 +620,7 @@ function lanesOf(
     return slot ? root(slot.holder) : id;
   };
   const rights = (ids: string[]) => Math.max(0, ...ids.map((id) => grown(id).x + width(id)));
-  ([1, 2, 3] as const).forEach((column) => {
+  ([1, 2] as const).forEach((column) => {
     const inColumn = layout.feeds.filter((feed) => feed.column === column);
     const head = inColumn.find((feed) => !layout.slots.has(feed.id));
     if (!head) return;

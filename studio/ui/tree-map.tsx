@@ -1,16 +1,14 @@
 /**
  * The workspace's tree, every row open, drawn as the map draws: each row a map token, and a line
  * from each row down and across to each of its children. Beside the tree, what feeds it, shared by
- * every agent drawn, in three columns: the first tool of each type its Tools rows allow, an agent
- * tool's agent under it; the one runner that runs every agent, its steps one list under it, each
- * with a line from the profile sections it reads; and what they share underneath: the providers,
- * with the protocols their models speak under them, the tool runner the tool loop and each tool
- * reach, with what it does with each call, and the trace's destinations. It changes nothing and
- * opens nothing: a picture of what a workspace holds, for a page that is not the studio.
+ * every agent drawn, in two columns beside it. The registries: the first tool of each type its Tools
+ * rows allow, an agent tool's agent under it; the providers; and the trace destinations. The runner:
+ * each provider's protocols under the provider stream; the tool runtime, with what it does with each
+ * call; and the guardrail runtime, with what it does under it, and the telemetry engine. It changes
+ * nothing and opens nothing: a picture of what a workspace holds, for a page that is not the studio.
  */
 import type { IconType } from '@astryxdesign/core/Icon';
 import {
-  IconAdjustments,
   IconArrowsMinimize,
   IconChecks,
   IconCloud,
@@ -58,7 +56,6 @@ const LINE_GAP = 4;
 const GUESS = 120;
 
 const STEP_ICONS: Record<string, IconType> = {
-  resolve: IconAdjustments,
   sanitize: IconShieldCheck,
   compaction: IconArrowsMinimize,
   stream: IconCloud,
@@ -81,7 +78,7 @@ function feedIcon(feed: Feed): IconType {
   if (feed.kind === 'provider') return IconCloud;
   if (feed.kind === 'protocol') return IconPlugConnected;
   if (feed.kind === 'tool') return toolTypeIcon(of);
-  if (feed.kind === 'branch') return IconStack2;
+  if (feed.kind === 'branch' || feed.kind === 'stream') return IconStack2;
   if (feed.kind === 'subagent') return profileTypeIcon(of) ?? AGENT_ICON;
   if (feed.kind === 'tool-runtime') return IconSettingsAutomation;
   if (feed.kind === 'guardrail-runtime') return IconShieldCheck;

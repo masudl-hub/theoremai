@@ -13,6 +13,7 @@ import {
   GUARDRAIL_RUNTIME,
   HALF,
   lineKey,
+  PROVIDER_STREAM,
   placeAt,
   rowId,
   TOOL_RUNTIME,
@@ -121,7 +122,7 @@ for (const box of [undefined, BOX]) {
   });
 }
 
-Deno.test('what feeds the tree is shared: providers in the registries, the runtime in the third column', () => {
+Deno.test('what feeds the tree is shared: the registries beside the tree, the runner after them', () => {
   const { feeds, rows } = picture();
   const feed = (id: string) => feeds.find((each) => each.id === id);
   const under = (id: string) => feeds.filter((each) => each.under === id).map((each) => each.label);
@@ -133,16 +134,17 @@ Deno.test('what feeds the tree is shared: providers in the registries, the runti
     tools.map((tool) => tool.of),
     ['function', 'http', 'mcp', 'agent'],
   );
-  // Columns: the tools beside the profile, the providers and trace destinations as registries, and
-  // the runtime after them.
+  // Columns: the tools, providers and trace destinations as registries beside the tree, then the runner.
   const columnOf = (kind: string) =>
     new Set(feeds.filter((each) => each.kind === kind).map((each) => each.column));
   assertEquals(columnOf('tool'), new Set([1]));
-  assertEquals(columnOf('provider'), new Set([2]));
-  assertEquals(columnOf('destinations'), new Set([2]));
-  assertEquals(columnOf('protocol'), new Set([3]));
-  assertEquals(columnOf('tool-runtime'), new Set([3]));
-  assertEquals(columnOf('guardrail-runtime'), new Set([3]));
+  assertEquals(columnOf('provider'), new Set([1]));
+  assertEquals(columnOf('destinations'), new Set([1]));
+  assertEquals(columnOf('stream'), new Set([2]));
+  assertEquals(columnOf('protocol'), new Set([2]));
+  assertEquals(columnOf('tool-runtime'), new Set([2]));
+  assertEquals(columnOf('guardrail-runtime'), new Set([2]));
+  assertEquals(feed('telemetry')?.column, 2);
   assertEquals(
     feeds.map((each) => each.column),
     [...feeds.map((each) => each.column)].sort(),
@@ -156,7 +158,7 @@ Deno.test('what feeds the tree is shared: providers in the registries, the runti
   const mcp = tools.find((tool) => tool.of === 'mcp');
   const remote = tools.filter((tool) => tool.of === 'http' || tool.of === 'mcp');
   assertEquals(from(`${TOOL_RUNTIME}/sessions`), [mcp?.label]);
-  assertEquals(from(`${TOOL_RUNTIME}/network`), [
+  assertEquals(from(`${GUARDRAIL_RUNTIME}/network`), [
     ...remote.map((tool) => tool.label),
     'Guardrails',
   ]);
@@ -165,16 +167,20 @@ Deno.test('what feeds the tree is shared: providers in the registries, the runti
     from(TOOL_RUNTIME),
     tools.map((tool) => tool.label),
   );
-  assertEquals(under(TOOL_RUNTIME).length, 6);
+  assertEquals(under(TOOL_RUNTIME), ['Permission gate', 'Sign-in', 'MCP sessions', 'Validation']);
   assertEquals(from(`${TOOL_RUNTIME}/validation`), ['Outputs']);
 
   assertEquals(from(GUARDRAIL_RUNTIME), ['Guardrails']);
-  assertEquals(under(GUARDRAIL_RUNTIME), ['Sanitize', 'Egress']);
+  assertEquals(under(GUARDRAIL_RUNTIME), ['Sanitize', 'Egress', 'Network check', 'Result guard']);
+  assertEquals(under(PROVIDER_STREAM), [
+    'geminiInteractions',
+    'openRouterOpenAi',
+    'openRouterDecisions',
+  ]);
+  assertEquals(from('telemetry'), ['Trace destinations']);
   assertEquals(
-    TURN_STEPS.map((step) => step.label).filter(
-      (label) => label === 'Setup' || label === 'Telemetry',
-    ),
-    ['Setup', 'Telemetry'],
+    TURN_STEPS.map((step) => step.label).filter((label) => label === 'Telemetry engine'),
+    ['Telemetry engine'],
   );
 
   const agent = tools.find((tool) => tool.of === 'agent');

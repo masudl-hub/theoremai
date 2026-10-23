@@ -140,8 +140,17 @@ export function mapRoute(
   const last = corners[corners.length - 1] ?? from;
   // The steps hand over level, halfway to the rail, where the last bend starts.
   const handover = { x: last.x + (grown({ x: rail, y: 0 }).x - last.x) / 2, y: last.y };
-  const points = [from, ...corners, handover];
-  let d = `M ${from.x} ${from.y}`;
+  return (
+    mapPolyline([from, ...corners, handover], radius) +
+    mapBend(handover, to, rail, radius, square).replace(/^M \S+ \S+/, '')
+  );
+}
+
+/** A line through `points`, each corner turned by `radius`, or less where a run is short. */
+export function mapPolyline(points: readonly MapPlace[], radius: number): string {
+  const first = points[0];
+  if (!first) return '';
+  let d = `M ${first.x} ${first.y}`;
   points.slice(1, -1).forEach((corner, index) => {
     const before = points[index] ?? corner;
     const after = points[index + 2] ?? corner;
@@ -162,5 +171,6 @@ export function mapRoute(
     };
     d += ` L ${enter.x} ${enter.y} Q ${corner.x} ${corner.y}, ${leave.x} ${leave.y}`;
   });
-  return d + mapBend(handover, to, rail, radius, square).replace(/^M \S+ \S+/, '');
+  const last = points[points.length - 1] ?? first;
+  return points.length > 1 ? `${d} L ${last.x} ${last.y}` : d;
 }

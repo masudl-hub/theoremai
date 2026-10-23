@@ -36,6 +36,8 @@ const LEAST_GAP = 56;
 const MOST_GAP = 200;
 /** The least room between two lanes. */
 const LANE = 9;
+/** Closed, how far left of the feeds the lines from a row run down to them, as one. */
+const TRUNK_GAP = 24;
 /** The tools beside a Tools row: the first of each type. */
 const TOOL_TYPES = ['function', 'http', 'mcp', 'agent'];
 /** The tools a remote call reaches the network for. */
@@ -863,6 +865,8 @@ export interface TreeMapLayout {
   leaving: { rows: Row[]; feeds: Feed[]; lines: { source: string; feed: string }[] };
   /** A row of the still that growing turns into a feed, by its id: the feed's id. */
   becomes: Map<string, string>;
+  /** Closed, where the lines from each row run down to what it shows, by the row's id. */
+  trunks: Map<string, number>;
 }
 
 /** How far what the still shows and growing takes away has gone, 0 to 1. */
@@ -1298,6 +1302,33 @@ function stillPlaces(
 }
 
 /**
+ * Closed, the x each row's lines run down to its feeds, together: left of the feeds, a lane
+ * further left for each trunk it would run beside, so two rows' lines meet only at a feed both have.
+ */
+function trunksOf(
+  lines: { source: string; feed: string }[],
+  closed: Map<string, Place>,
+  x: number,
+) {
+  const spans = new Map<string, [number, number]>();
+  for (const { source, feed } of lines) {
+    const ys = [closed.get(source)?.y, closed.get(feed)?.y].filter((y) => y !== undefined);
+    const [top, bottom] = spans.get(source) ?? [Infinity, -Infinity];
+    spans.set(source, [Math.min(top, ...ys), Math.max(bottom, ...ys)]);
+  }
+  const taken: { lane: number; top: number; bottom: number }[] = [];
+  const trunks = new Map<string, number>();
+  for (const [source, [top, bottom]] of spans) {
+    let lane = 0;
+    while (taken.some((each) => each.lane === lane && each.top <= bottom && top <= each.bottom))
+      lane += 1;
+    taken.push({ lane, top, bottom });
+    trunks.set(source, x - TRUNK_GAP - lane * LANE);
+  }
+  return trunks;
+}
+
+/**
  * The tree and what feeds it, closed and grown, for tokens this wide: grown, it fills `box` when
  * one is given.
  */
@@ -1354,16 +1385,16 @@ export function treeMapLayout(
 
   // What the still shows and the tree does not: it stays where it stood closed as it goes.
   const shownClosed = (feed: Feed) => few.has(feed.id);
+  const stillLines = stillFeeds
+    .filter(shownClosed)
+    .flatMap((feed) => feed.from.map((source) => ({ source, feed: feed.id })));
   const grownLines = new Set(
     feeds.flatMap((feed) => feed.from.map((source) => lineKey(source, feed.id))),
   );
   const leaving = {
     rows: placed.rows.filter((each) => !grownRows.has(rowId(each)) && !becomes.has(rowId(each))),
     feeds: stillFeeds.filter((feed) => few.has(feed.id) && !grownFeeds.has(feed.id)),
-    lines: stillFeeds
-      .filter(shownClosed)
-      .flatMap((feed) => feed.from.map((source) => ({ source, feed: feed.id })))
-      .filter((line) => !grownLines.has(lineKey(line.source, line.feed))),
+    lines: stillLines.filter((line) => !grownLines.has(lineKey(line.source, line.feed))),
   };
   for (const each of leaving.rows) places.set(rowId(each), closed.get(rowId(each)) ?? each);
   for (const feed of leaving.feeds) {
@@ -1386,6 +1417,7 @@ export function treeMapLayout(
     jogs: new Map(),
     leaving,
     becomes,
+    trunks: trunksOf(stillLines, closed, feedX),
   };
   Object.assign(layout, lanesOf(layout, width));
   // What growing adds comes out in turn: each once what it comes out from is part way out, so a
@@ -1399,18 +1431,12 @@ export function treeMapLayout(
   for (const id of layout.anchors.keys()) {
     layout.starts.set(id, DRAW_FROM + (depth(id) - 1) * step);
   }
-  // A row that grows into a feed under another draws the line into it as it arrives, and the lines
-  // the still did not draw between what it shows draw in as the tree opens.
-  for (const feed of becomes.values()) layout.starts.set(underKey(feed), DRAW_FROM);
-  const stillLines = new Set(
-    stillFeeds
-      .filter(shownClosed)
-      .flatMap((feed) => feed.from.map((source) => lineKey(source, feed.id))),
-  );
+  // The lines the still did not draw between what it shows draw in as the tree opens.
+  const drawnClosed = new Set(stillLines.map((line) => lineKey(line.source, line.feed)));
   for (const feed of feeds.filter(shownClosed)) {
     for (const source of feed.from) {
       const key = lineKey(source, feed.id);
-      if (closed.has(source) && !stillLines.has(key)) layout.starts.set(key, DRAW_FROM);
+      if (closed.has(source) && !drawnClosed.has(key)) layout.starts.set(key, DRAW_FROM);
     }
   }
   return layout;

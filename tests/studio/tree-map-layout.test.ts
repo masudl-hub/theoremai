@@ -346,28 +346,36 @@ Deno.test('grown into a box, each line runs level clear of every token, lines sh
   assertEquals(new Set(fromTools.map((tool) => railOf(source, tool.id))).size, 1);
 });
 
+/** The tools the architect and the travel concierge both allow. */
+const SHARED = ['wikipedia_summary', 'search_web', 'convert_units'];
+
 /**
- * The architect with its narrator, and the decision example the architect calls as make_decision:
- * closed, all three with their models and tools; grown, the architect alone.
+ * As on the site: the architect and the travel concierge, which share three tools, and the decision
+ * example the architect calls as make_decision: closed, all three with their models and tools;
+ * grown, the architect alone.
  */
 function stillPicture(): TreeMapLayout {
   const base = createArchitectWorkspace();
   const narrate = base.toolSpecs.find((tool) => tool.toolType === 'agent');
   const trimmed: StudioWorkspace = {
     ...base,
-    agents: base.agents.map((agent) => ({
-      ...agent,
-      tools: { ...agent.tools, allow: agent.tools.allow.filter((key) => key !== narrate?.key) },
-    })),
-    toolSpecs: base.toolSpecs.filter((tool) => tool !== narrate),
+    agents: base.agents
+      .filter((agent) => agent.key !== narrate?.agentKey)
+      .map((agent) => ({
+        ...agent,
+        tools: { ...agent.tools, allow: agent.tools.allow.filter((key) => key !== narrate?.key) },
+      })),
+    toolSpecs: base.toolSpecs
+      .filter((tool) => tool !== narrate)
+      .sort((a, b) => Number(SHARED.includes(b.toolName)) - Number(SHARED.includes(a.toolName))),
   };
   // As on the site, the decision agent runs through OpenRouter, the architect's provider.
   const jev = decisionExampleDraft();
-  const added = addAgent(trimmed, {
+  const added = addAgent(addAgent(trimmed, createExampleDraft()), {
     ...jev,
     modelBindings: jev.modelBindings.map((binding) => ({ ...binding, provider: 'openrouter' })),
   });
-  const [architect, narrator, decision] = added.agents;
+  const [architect, concierge, decision] = added.agents;
   const ask = defaultToolSpec({
     toolName: 'make_decision',
     toolType: 'agent',
@@ -375,16 +383,23 @@ function stillPicture(): TreeMapLayout {
     description: 'Asks the decision agent to make a call.',
     category: 'demo',
   });
+  const convert = added.toolSpecs.find((tool) => tool.toolName === 'convert_units');
   const workspace: StudioWorkspace = {
     ...added,
     agents: added.agents.map((agent) =>
       agent === architect
-        ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, ask.key] } }
+        ? {
+            ...agent,
+            tools: {
+              ...agent.tools,
+              allow: [...agent.tools.allow, ...(convert ? [convert.key] : []), ask.key],
+            },
+          }
         : agent,
     ),
     toolSpecs: [...added.toolSpecs, ask],
   };
-  const still = [architect?.key ?? '', narrator?.key ?? '', decision?.key ?? ''];
+  const still = [architect?.key ?? '', concierge?.key ?? '', decision?.key ?? ''];
   const agents = [architect?.key ?? ''];
   const named = treeMapLayout(workspace, agents, () => 0, undefined, still);
   const labels = new Map<string, string>([
@@ -399,7 +414,7 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
   const layout = stillPicture();
   const roots = layout.rows.filter((row) => row.parent === undefined);
   assertEquals(roots.length, 1);
-  // The narrator's rows go, and the decision agent's root glides into make_decision's agent.
+  // The concierge's rows go, and the decision agent's root glides into make_decision's agent.
   const [[jev, feed] = ['', '']] = [...layout.becomes];
   assert(feed.endsWith('/agent'));
   const { x, y } = layout.closed.get(jev) ?? { x: -1, y: -1 };
@@ -417,11 +432,22 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
   for (const row of layout.rows)
     assert(layout.closed.has(rowId(row)) && !layout.starts.has(rowId(row)));
   const going = new Set(layout.leaving.rows.map((row) => row.node.label));
-  for (const label of ['Speech', 'Guardrails', 'Labels', 'Observability', 'Decision'])
+  for (const label of ['Tools', 'Guardrails', 'Labels', 'Observability', 'Decision'])
     assert(going.has(label), label);
-  // The line into the decision agent draws in.
-  assertEquals(drawnAt(layout, underKey(feed), 0), 0);
-  assertEquals(drawnAt(layout, underKey(feed), 1), 1);
+  // The line from make_decision to the decision agent shows closed, and stays.
+  assertEquals(drawnAt(layout, underKey(feed), 0), undefined);
+  // Closed, the tools the concierge shares have a line from each Tools row, each row's lines down
+  // a trunk of its own.
+  const tools = layout.feeds.filter((each) => each.kind === 'tool');
+  const sharing = tools.filter((tool) =>
+    layout.leaving.lines.some((line) => line.feed === tool.id),
+  );
+  assertEquals(sharing.map((tool) => tool.label).toSorted(), SHARED.toSorted());
+  const [toolsRow = ''] = tools[0]?.from ?? [];
+  const [conciergeTools = ''] = layout.leaving.lines
+    .filter((line) => line.feed === tools[0]?.id)
+    .map((line) => line.source);
+  assert(layout.trunks.get(toolsRow) !== layout.trunks.get(conciergeTools));
   // Growing, no two tokens at rest meet.
   const leavingIds = new Set([
     ...layout.leaving.rows.map(rowId),

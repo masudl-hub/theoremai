@@ -33,7 +33,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { mapBracket, mapRoute } from '../map-line.ts';
+import { type MapPlace, mapBracket, mapPolyline, mapRoute } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
 import { modelFamilyMark } from './brand-icons.tsx';
 import {
@@ -252,8 +252,13 @@ export function StudioTreeMap({
       .map((each) => right(each.id) + LINE_GAP);
     return Math.max(right(source) + LINE_GAP, ...passed) + BOW;
   };
-  // why: Closed, a line is the still's curve; grown, it runs down its feed's lane like the tree's.
+  // why: Closed, a row's lines run down one trunk to what it shows; grown, each runs down its feed's
+  // lane like the tree's, its steps aside growing out of its row.
   const square = ease(grow / MOVE_TO);
+  const toward = (from: MapPlace, to: MapPlace, at: number) => ({
+    x: from.x + (to.x - from.x) * at,
+    y: from.y + (to.y - from.y) * at,
+  });
   const lines = feeds.flatMap((feed) => {
     if (!on(feed.id)) return [];
     const late = (feed.late ?? []).map((source) => ({ source, late: true }));
@@ -279,16 +284,63 @@ export function StudioTreeMap({
           ];
         }
         const lane = layout.lanes.get(lineKey(source, feed.id));
-        const rail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;
+        const grownRail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;
+        const trunk = layout.trunks.get(source);
         const steps = (layout.jogs.get(lineKey(source, feed.id)) ?? []).map((jog) => ({
           x: at(jog.lane.of).x - jog.lane.by,
           y: at(jog.near).y + (jog.side * layout.row) / 2,
         }));
-        const d = mapRoute(start, { x: end.x - LINE_GAP, y: end.y }, steps, rail, TURN, square);
+        const into = { x: end.x - LINE_GAP, y: end.y };
+        const d =
+          trunk === undefined
+            ? mapRoute(start, into, steps, grownRail, TURN, square)
+            : mapRoute(
+                start,
+                into,
+                steps.map((step) => toward(start, step, square)),
+                trunk + (grownRail - trunk) * square,
+                TURN,
+                1,
+              );
         return [{ key: lineKey(source, feed.id), d, draws }];
       },
     );
   });
+  const agentsOf = new Set(layout.becomes.values());
+  /**
+   * The line from an agent tool to the agent of the still it grows into. why: Closed, the agent
+   * stands as its own in the tree, so the line leaves the tool's right, runs down right of what
+   * stands between, and comes back into the agent's right; grown, it is the line from under the
+   * tool's icon into the agent in its slot. Each corner eases from the one to the other.
+   */
+  const backPath = (holder: string, agent: string) => {
+    const [tool, to] = [at(holder), at(agent)];
+    const [top, bottom] = [Math.min(tool.y, to.y), Math.max(tool.y, to.y)];
+    const passed = [...shown.map((feed) => feed.id), ...leaving.feeds.map((feed) => feed.id)]
+      .filter((id) => at(id).y >= top && at(id).y <= bottom)
+      .map((id) => right(id) + LINE_GAP);
+    const rail = Math.max(right(holder) + LINE_GAP, right(agent) + LINE_GAP, ...passed) + BOW;
+    const closed = [
+      { x: right(holder) + LINE_GAP, y: tool.y },
+      { x: rail, y: tool.y },
+      { x: rail, y: (tool.y + to.y) / 2 },
+      { x: rail, y: to.y },
+      { x: right(agent) + LINE_GAP, y: to.y },
+    ];
+    const trunk = to.x - INDENT + TRUNK;
+    const across = tool.y + HALF + LINE_GAP;
+    const grown = [
+      { x: tool.x + TRUNK, y: tool.y + HALF },
+      { x: tool.x + TRUNK, y: across },
+      { x: trunk, y: across },
+      { x: trunk, y: to.y },
+      { x: to.x - LINE_GAP, y: to.y },
+    ];
+    return mapPolyline(
+      closed.map((point, index) => toward(point, grown[index] ?? point, square)),
+      TURN,
+    );
+  };
   // What growing takes away goes under the rest: a row folding into its agent, a feed drifting off.
   const going = gone < 1;
   const leavingStyle = { opacity: 1 - gone, zIndex: 0 };
@@ -297,14 +349,17 @@ export function StudioTreeMap({
     ? leaving.lines.map(({ source, feed }) => {
         const end = at(feed);
         const start = { x: right(source) + LINE_GAP, y: at(source).y };
+        const rail = layout.trunks.get(source) ?? (start.x + end.x) / 2;
         return {
           key: lineKey(source, feed),
-          d: mapRoute(start, { x: end.x - LINE_GAP, y: end.y }, [], (start.x + end.x) / 2, TURN, 0),
+          d: mapRoute(start, { x: end.x - LINE_GAP, y: end.y }, [], rail, TURN, 1),
         };
       })
     : [];
   const places = [...rows.map(rowId), ...shown.map((feed) => feed.id)];
-  const mapWidth = Math.max(GUESS, ...places.map(right)) + PAD;
+  // why: An agent tool's line back to its agent runs down right of the feeds.
+  const back = layout.becomes.size > 0 ? LINE_GAP + BOW : 0;
+  const mapWidth = Math.max(GUESS, ...places.map(right)) + back + PAD;
   const height = Math.max(...places.map((id) => at(id).y)) + HALF + PAD;
   const grown = useMemo(() => {
     const ids = [...layout.rows.map(rowId), ...layout.feeds.map((feed) => feed.id)];
@@ -319,10 +374,10 @@ export function StudioTreeMap({
   const closedSize = useMemo(() => {
     const ends = [...layout.closed];
     return {
-      width: Math.max(...ends.map(([id, end]) => end.x + (widths[id] ?? GUESS))) + PAD,
+      width: Math.max(...ends.map(([id, end]) => end.x + (widths[id] ?? GUESS))) + back + PAD,
       height: Math.max(...ends.map(([, end]) => end.y)) + HALF + PAD,
     };
-  }, [layout, widths]);
+  }, [layout, widths, back]);
   // why: Closed and grown alike, the map fits the box it stands in, never larger than itself, and
   // stands in the middle of it; it eases from the one to the other with its nodes' move.
   const settled = ease(grow / MOVE_TO);
@@ -442,13 +497,18 @@ export function StudioTreeMap({
           return drawing && <path key={key} d={d} {...drawing} />;
         })}
         {shown.map((feed) => {
-          const drawing = feed.under !== undefined && lineDrawn(feed.id, underKey(feed.id));
+          const holder = feed.under;
+          const drawing = holder !== undefined && lineDrawn(feed.id, holder, underKey(feed.id));
           return (
-            feed.under !== undefined &&
+            holder !== undefined &&
             drawing && (
               <path
                 key={underKey(feed.id)}
-                d={underPath(at(feed.under), at(feed.id))}
+                d={
+                  agentsOf.has(feed.id)
+                    ? backPath(holder, feed.id)
+                    : underPath(at(holder), at(feed.id))
+                }
                 {...drawing}
               />
             )

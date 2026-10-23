@@ -27,6 +27,7 @@ import {
 import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
 import { mapRoute } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
+import { modelFamilyMark } from './brand-icons.tsx';
 import {
   type Box,
   drawnAt,
@@ -183,8 +184,9 @@ export function StudioTreeMap({
 
   const right = (id: string) => at(id).x + width(id);
   const isRow = new Set(rows.map(rowId));
-  // why: A model's row stays in the tree's data, so the providers keep their place, but its token is the model under its provider.
-  const hidden = new Set(rows.filter((row) => row.node.ref.facet === 'modelBinding').map(rowId));
+  // why: A model wears its family's mark, the Gemini sparkle or the provider's, as the editor's tree does.
+  const iconOf = (feed: Feed) =>
+    (feed.kind === 'model' && feed.of !== undefined && modelFamilyMark(feed.of)) || feedIcon(feed);
   /** Where a feed's lines end: a feed closed under another, at that one until it draws. */
   const endOf = (feed: Feed) => {
     const place = at(feed.id);
@@ -205,11 +207,10 @@ export function StudioTreeMap({
     const late = (feed.late ?? []).map((source) => ({ source, late: true }));
     return [...feed.from.map((source) => ({ source, late: false })), ...late].flatMap(
       ({ source, late }) => {
-        if (hidden.has(source)) return [];
         if (!isRow.has(source) && (drawn(source) ?? 1) <= 0) return [];
         const end = endOf(feed);
         const start = { x: right(source) + LINE_GAP, y: at(source).y };
-        const lane = layout.lanes.get(feed.id);
+        const lane = layout.lanes.get(lineKey(source, feed.id));
         const rail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;
         const steps = (layout.jogs.get(lineKey(source, feed.id)) ?? []).map((jog) => ({
           x: at(jog.lane.of).x - jog.lane.by,
@@ -291,9 +292,7 @@ export function StudioTreeMap({
       <svg className="studio-tree-map-lines" width={mapWidth} height={height} aria-hidden="true">
         {rows.map(
           (row) =>
-            row.parent &&
-            !hidden.has(rowId(row)) &&
-            !hidden.has(row.parent) && (
+            row.parent && (
               <path
                 key={rowId(row)}
                 className="map-line"
@@ -316,22 +315,20 @@ export function StudioTreeMap({
             ),
         )}
       </svg>
-      {rows
-        .filter((row) => !hidden.has(rowId(row)))
-        .map((row) => {
-          const draft = drafts.get(row.agent) ?? createBlankDraft();
-          const { x, y } = at(rowId(row));
-          return (
-            <MapToken
-              key={rowId(row)}
-              id={rowId(row)}
-              label={row.node.label}
-              icon={nodeIcon(draft, row.node.ref)}
-              x={x}
-              y={y}
-            />
-          );
-        })}
+      {rows.map((row) => {
+        const draft = drafts.get(row.agent) ?? createBlankDraft();
+        const { x, y } = at(rowId(row));
+        return (
+          <MapToken
+            key={rowId(row)}
+            id={rowId(row)}
+            label={row.node.label}
+            icon={nodeIcon(draft, row.node.ref)}
+            x={x}
+            y={y}
+          />
+        );
+      })}
       {feeds.map((feed) => {
         const { x, y } = at(feed.id);
         const part = drawn(feed.id);
@@ -341,7 +338,7 @@ export function StudioTreeMap({
             key={feed.id}
             id={feed.id}
             label={feed.label}
-            icon={feedIcon(feed)}
+            icon={iconOf(feed)}
             x={x}
             y={y}
             {...(part === undefined ? {} : { style: { ...unseen, opacity: clamp(part * 2 - 1) } })}

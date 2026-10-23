@@ -138,7 +138,14 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
       ...(parent ? { parent: rowId(parent) } : {}),
     };
     rows.push(row);
-    for (const child of node.children) walk(child, agent, depth + 1, row);
+    // why: The models are named once, under their providers beside the tree; the Models row links to
+    // them. Observability comes last, level with the trace destinations and the telemetry engine at
+    // the foot of the map.
+    const children = node.children.filter((child) => child.ref.facet !== 'modelBinding');
+    const last = (child: StudioTreeNode) => Number(child.ref.facet === 'observability');
+    for (const child of children.toSorted((a, b) => last(a) - last(b))) {
+      walk(child, agent, depth + 1, row);
+    }
   };
   workspaceTree(workspace).agents.forEach((root, index) => {
     const key = workspace.agents[index]?.key ?? '';
@@ -150,7 +157,7 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
 /**
  * Beside the tree, shared by every agent drawn, two columns. First, the registries: the first tool of
  * each type the agents allow, with a line from each Tools row that allows it, and an agent tool's
- * agent under it; each provider, with a line from the model rows that bind it; and the trace
+ * agent under it; each provider, with its models under it, each with a line from its Models row; and the trace
  * destinations, with a line from the observability rows. Then the runner: the provider stream, over
  * each provider's protocols, each with a line from its provider; the tool runtime, with a line from
  * each tool, and what it does with each call under it; the guardrail runtime, with a line from the
@@ -178,21 +185,20 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const providers = new Map<string, Map<string, string[]>>();
   const models: Feed[] = [];
   for (const agent of drawn) {
+    const section = rowOf(agent.key, 'models');
+    if (!section) continue;
     for (const binding of agent.modelBindings) {
-      const row = rowOf(agent.key, 'modelBinding', binding.key);
-      if (!row) continue;
       const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
-      // why: A line runs from the Models section, not from each model's row, which the map does not draw.
-      const section = rowOf(agent.key, 'models');
-      const source = section ? rowId(section) : rowId(row);
-      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), source]);
+      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), rowId(section)]);
       providers.set(binding.provider, protocols);
       models.push({
-        id: `model:${rowId(row)}`,
+        id: `model:${agent.key}/${binding.key}`,
         label: binding.modelId,
         kind: 'model',
-        from: [source],
+        of: binding.apiId,
+        from: [rowId(section)],
         under: `provider:${binding.provider}`,
+        closedUnder: true,
         column: 1,
         group: 'providers',
       });
@@ -205,7 +211,8 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       id,
       label: provider,
       kind: 'provider',
-      from: [...new Set([...byProtocol.values()].flat())],
+      // why: The Models rows link to the models under it, not to the provider.
+      from: [],
       column: 1,
       group: 'providers',
     });
@@ -260,7 +267,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const guardrails = sections(['guardrails']);
   const observability = sections(['observability']);
 
-  // Registries: each provider, with a line from the model rows that bind it, and the trace destinations.
+  // Registries: each provider, its models under it, and the trace destinations.
   feeds.push(...models);
   feeds.push({
     id: TRACE_DESTINATIONS,
@@ -385,9 +392,7 @@ function slotsOf(feeds: Feed[]): Map<string, Slot> {
     if (feed.under === undefined) continue;
     const index = counts.get(feed.under) ?? 0;
     counts.set(feed.under, index + 1);
-    // why: Tools stand as one straight list, so a tool under a tool is not set in from it.
-    const across = feed.column === 1 ? 0 : INDENT;
-    slots.set(feed.id, { holder: feed.under, across, down: index + 1 });
+    slots.set(feed.id, { holder: feed.under, across: INDENT, down: index + 1 });
   }
   return slots;
 }
@@ -429,8 +434,10 @@ export interface Box {
 }
 
 /**
- * The map grown: the tree, each agent a zone of its own; beside it the registries, then the runner. Rows stretch, up to a most, and the gaps between columns and
- * between groups widen, so the map fills `box`; without one, rows and gaps are at their least.
+ * The map grown: the tree, each row with lines into a registry level with it; beside it the
+ * registries, then the runner, each block centred on its sources. Rows stretch, up to a most, and
+ * the gaps between columns and between groups widen, so the map fills `box`; without one, rows and
+ * gaps are at their least.
  */
 function grownPlaces(
   rows: Row[],
@@ -440,19 +447,127 @@ function grownPlaces(
   box: Box | undefined,
 ) {
   const { held, columns } = stacksOf(rows, feeds, slots);
-  // In rows, from the top node's middle to the bottom one's, each gap at its least of a row.
-  const span = Math.max(...columns.map((each) => each.rows + each.ids.length - 2));
+  const [, registries, runner] = columns;
+  const start = PAD + HALF;
   const room = box ? box.height - 2 * (PAD + HALF) : 0;
-  const row = Math.min(Math.max(room / Math.max(span, 1), GROWN_ROW), TALLEST_ROW);
-  const height = Math.max(room, span * row);
+  const byId = new Map(feeds.map((feed) => [feed.id, feed]));
+  const sourcesOf = (id: string) => {
+    const feed = byId.get(id);
+    return feed ? [...feed.from, ...(feed.late ?? [])] : [];
+  };
+  const tree = new Map(rows.map((each) => [rowId(each), each]));
+  const lined = new Set(feeds.flatMap((feed) => sourcesOf(feed.id)));
+
+  /** A column's groups, each a block of rows `step` apart, its heads' nested feeds under them. */
+  const blocksOf = (stack: Stack | undefined, step: number) =>
+    (stack?.ids ?? []).map((group) => {
+      const offsets = new Map<string, number>();
+      let size = 0;
+      for (const id of group) {
+        offsets.set(id, size);
+        for (const [nested, slot] of slots) {
+          if (slot.holder === id) offsets.set(nested, size + slot.down * step);
+        }
+        size += step * (1 + (held.get(id) ?? 0));
+      }
+      // A registry block stands level with the first tree row any of its feeds has a line from.
+      const anchor = [...offsets]
+        .toSorted((a, b) => a[1] - b[1])
+        .flatMap(([id, offset]) => {
+          const row = sourcesOf(id).find((source) => tree.has(source));
+          return row ? [{ row, offset }] : [];
+        })[0];
+      return { group, offsets, size: size - step, top: start, anchor };
+    });
+
+  /**
+   * The tree and the registries, together down the map: a row with lines into a registry block is
+   * level with the first feed it has a line to, and the row after it stands below that block.
+   */
+  const lay = (step: number, extra = 0) => {
+    const ys = new Map<string, number>();
+    const blocks = blocksOf(registries, step);
+    let y = start;
+    let floor = start;
+    let last: Row | undefined;
+    for (const row of rows) {
+      const id = rowId(row);
+      if (last && last.agent !== row.agent) y += 2 * step;
+      let below = y;
+      for (const block of blocks.filter((each) => each.anchor?.row === id)) {
+        const offset = block.anchor?.offset ?? 0;
+        block.top = Math.max(floor, y - offset);
+        y = block.top + offset;
+        floor = block.top + block.size + 2 * step + extra;
+        below = Math.max(below, block.top + block.size + extra);
+      }
+      ys.set(id, y);
+      y = Math.max(y + step, below);
+      last = row;
+    }
+    for (const block of blocks.filter((each) => !each.anchor)) {
+      block.top = floor;
+      floor = block.top + block.size + 2 * step;
+    }
+    const bottom = Math.max(...ys.values(), ...blocks.map((block) => block.top + block.size));
+    return { ys, blocks, bottom };
+  };
+  const runnerRows = (runner?.rows ?? 1) + 2 * ((runner?.ids.length ?? 1) - 1) - 1;
+  const fits = (step: number) => {
+    const laid = lay(step);
+    return laid.bottom - start <= room && runnerRows * step <= room;
+  };
+  let row = GROWN_ROW;
+  if (box) {
+    for (let step = TALLEST_ROW; step >= GROWN_ROW; step -= 1) {
+      if (fits(step)) {
+        row = step;
+        break;
+      }
+    }
+  }
+  const plain = lay(row);
+  const height = Math.max(room, plain.bottom - start, runnerRows * row);
+  // why: The last row's registry stands at the foot of the map, with the rows before it that have
+  // no line of their own; the map's spare room is shared between the gap above them and the gap
+  // below each registry block before it.
+  const lastRow = rows.at(-1);
+  const atFoot = (block: (typeof plain.blocks)[number]) =>
+    lastRow !== undefined && block.anchor?.row === rowId(lastRow);
+  const breaks = plain.blocks.filter((block) => block.anchor && !atFoot(block)).length + 1;
+  const footOf = (blocks: typeof plain.blocks) =>
+    Math.max(...blocks.filter(atFoot).map((block) => block.top + block.size));
+  const { ys, blocks, bottom } = plain.blocks.some(atFoot)
+    ? lay(row, Math.max(0, start + height - footOf(plain.blocks)) / breaks)
+    : plain;
+  const foot = blocks.filter(atFoot);
+  if (lastRow && foot.length > 0) {
+    const tail = [lastRow];
+    for (const each of rows.toReversed().slice(1)) {
+      if (lined.has(rowId(each)) || each.agent !== lastRow.agent) break;
+      tail.push(each);
+    }
+    const shift = start + height - footOf(foot);
+    if (shift > 0) {
+      for (const each of tail) ys.set(rowId(each), (ys.get(rowId(each)) ?? 0) + shift);
+      for (const block of foot) block.top += shift;
+    }
+  } else {
+    // Otherwise the spare room opens between the agents, each a zone of its own.
+    const agents = [...new Set(rows.map((each) => each.agent))];
+    const spare = start + height - bottom;
+    if (agents.length > 1 && spare > 0) {
+      const by = (agent: string) => (spare * agents.indexOf(agent)) / (agents.length - 1);
+      for (const each of rows) ys.set(rowId(each), (ys.get(rowId(each)) ?? 0) + by(each.agent));
+      for (const block of blocks) {
+        const anchor = block.anchor && tree.get(block.anchor.row);
+        if (anchor) block.top += by(anchor.agent);
+      }
+    }
+  }
 
   const right = (id: string, x: number) => x + width(id);
-  const treeRight = Math.max(
-    0,
-    ...rows
-      .filter((each) => each.node.ref.facet !== 'modelBinding')
-      .map((each) => right(rowId(each), each.x)),
-  );
+  const treeRight = Math.max(0, ...rows.map((each) => right(rowId(each), each.x)));
   const columnWidth = (column: 1 | 2) =>
     Math.max(
       0,
@@ -478,19 +593,11 @@ function grownPlaces(
   const lefts = [0, treeRight + widen(one), treeRight + widen(one) + first + widen(two)];
 
   const places = new Map<string, Place>();
-  const tree = new Map(rows.map((each) => [rowId(each), each]));
-  const start = PAD + HALF;
-  // The tree: its agents spread down the map, the gaps between them widened to fill it.
-  const [agents] = columns;
-  const free = height - ((agents?.rows ?? 1) - 1) * row;
-  const extra = (agents?.ids.length ?? 0) > 1 ? free / ((agents?.ids.length ?? 1) - 1) : free / 2;
-  let y = start + ((agents?.ids.length ?? 0) > 1 ? 0 : free / 2);
-  for (const group of agents?.ids ?? []) {
-    for (const id of group) {
-      places.set(id, { x: tree.get(id)?.x ?? 0, y });
-      y += row;
+  for (const [id, y] of ys) places.set(id, { x: tree.get(id)?.x ?? 0, y });
+  for (const block of blocks) {
+    for (const id of block.group) {
+      places.set(id, { x: lefts[1] ?? 0, y: block.top + (block.offsets.get(id) ?? 0) });
     }
-    y += extra;
   }
   const yOf = (id: string): number | undefined => {
     const slot = slots.get(id);
@@ -498,49 +605,35 @@ function grownPlaces(
     const holder = yOf(slot.holder);
     return holder === undefined ? undefined : holder + slot.down * row;
   };
-  // invariant: Every line runs from a column left of its feed, so each column's sources stand
-  // before it is placed.
-  columns.slice(1).forEach((stack, index) => {
-    const blocks = stack.ids.map((group) => {
-      const offsets = new Map<string, number>();
-      let size = 0;
-      for (const id of group) {
-        offsets.set(id, size);
-        for (const [nested, slot] of slots) {
-          if (slot.holder === id) offsets.set(nested, size + slot.down * row);
-        }
-        size += row * (1 + (held.get(id) ?? 0));
-      }
-      // Level with what it has lines from: each line pulls its feed toward its source's row.
-      const pulls = feeds
-        .filter((feed) => offsets.has(feed.id))
-        .flatMap((feed) =>
-          [...feed.from, ...(feed.late ?? [])].flatMap((source) => {
-            const at = yOf(source);
-            return at === undefined ? [] : [at - (offsets.get(feed.id) ?? 0)];
-          }),
-        );
-      const want =
-        pulls.length > 0 ? pulls.reduce((sum, each) => sum + each, 0) / pulls.length : start;
-      return { group, offsets, want, size: size - row, top: want };
+  // The runner: each block centred on the rows its head has lines from, or, a head without lines,
+  // on the rows its feeds have lines from.
+  const steps = blocksOf(runner, row).map((block) => {
+    const [head] = block.group;
+    const heads = head === undefined ? [] : sourcesOf(head);
+    const sources = heads.length > 0 ? heads : [...block.offsets.keys()].flatMap(sourcesOf);
+    const at = sources.flatMap((source) => {
+      const y = yOf(source);
+      return y === undefined ? [] : [y];
     });
-    // Groups keep their order a row apart, inside the map.
-    let floor = start;
-    for (const block of blocks) {
-      block.top = Math.max(block.want, floor);
-      floor = block.top + block.size + 2 * row;
-    }
-    let ceiling = start + height;
-    for (const block of blocks.toReversed()) {
-      block.top = Math.max(Math.min(block.top, ceiling - block.size), start);
-      ceiling = block.top - 2 * row;
-    }
-    for (const block of blocks) {
-      for (const id of block.group) {
-        places.set(id, { x: lefts[index + 1] ?? 0, y: block.top + (block.offsets.get(id) ?? 0) });
-      }
-    }
+    const want = at.length > 0 ? (Math.min(...at) + Math.max(...at)) / 2 - block.size / 2 : start;
+    return { ...block, want };
   });
+  // Groups keep their order a row apart, inside the map.
+  let floor = start;
+  for (const block of steps) {
+    block.top = Math.max(block.want, floor);
+    floor = block.top + block.size + 2 * row;
+  }
+  let ceiling = start + height;
+  for (const block of steps.toReversed()) {
+    block.top = Math.max(Math.min(block.top, ceiling - block.size), start);
+    ceiling = block.top - 2 * row;
+  }
+  for (const block of steps) {
+    for (const id of block.group) {
+      places.set(id, { x: lefts[2] ?? 0, y: block.top + (block.offsets.get(id) ?? 0) });
+    }
+  }
   return { places, row };
 }
 
@@ -650,15 +743,40 @@ function lanesOf(
         ? layout.rows.map(rowId)
         : layout.feeds.filter((feed) => feed.column === column - 1).map((feed) => feed.id);
     const space = left - rights(before);
-    const targets = inColumn.filter((feed) => feed.from.length + (feed.late?.length ?? 0) > 0);
-    const runs = (feed: Feed, lane: number): Run[] =>
-      [...feed.from, ...(feed.late ?? [])].map((source) => ({
+    // why: As in the studio's map, the lines that share an end run as one: the end most lines share
+    // takes them as its hub, then the end most of the rest share, a feed before a source when even.
+    const links = inColumn.flatMap((feed) =>
+      [...feed.from, ...(feed.late ?? [])].map((source) => ({ source, feed: feed.id })),
+    );
+    const hubs = new Map<string, typeof links>();
+    let open = links;
+    while (open.length > 0) {
+      const ends = new Map<string, typeof links>();
+      for (const link of open) {
+        for (const end of [`>${link.feed}`, `${link.source}>`]) {
+          ends.set(end, [...(ends.get(end) ?? []), link]);
+        }
+      }
+      const feedEnd = (end: string) => end.startsWith('>');
+      const [hub, taken] = [...ends].reduce((most, each) =>
+        each[1].length > most[1].length ||
+        (each[1].length === most[1].length && feedEnd(each[0]) && !feedEnd(most[0]))
+          ? each
+          : most,
+      );
+      hubs.set(hub, taken);
+      open = open.filter((link) => !taken.includes(link));
+    }
+    const middle = (group: typeof links) =>
+      group.reduce((sum, link) => sum + grown(link.feed).y, 0) / group.length;
+    const runs = (group: typeof links, lane: number): Run[] =>
+      group.map(({ source, feed }) => ({
         from: { x: grown(source).x + width(source), y: grown(source).y },
-        to: grown(feed.id),
+        to: grown(feed),
         lane,
       }));
-    // The first lane is the nearest its column; to start, the top feed's.
-    const order = targets.toSorted((a, b) => grown(a.id).y - grown(b.id).y);
+    // The first lane is the nearest its column; to start, the top hub's.
+    const order = [...hubs.values()].toSorted((a, b) => middle(a) - middle(b));
     const laneAt = (index: number) => left - (space * (index + 1)) / (order.length + 1);
     const cost = () =>
       order.reduce(
@@ -692,8 +810,11 @@ function lanesOf(
         }
       }
     }
-    order.forEach((feed, index) => {
-      lanes.set(feed.id, { of: root(feed.id), by: left - laneAt(index) });
+    order.forEach((group, index) => {
+      const of = root(group[0]?.feed ?? head.id);
+      for (const { source, feed } of group) {
+        lanes.set(lineKey(source, feed), { of, by: grown(of).x - laneAt(index) });
+      }
     });
     steps.set(column, { of: head.id, by: space - space / (order.length + 1) / 2 });
   });
@@ -727,9 +848,6 @@ function jogsOf(
   const nodes = [...layout.rows.map(rowId), ...layout.feeds.map((feed) => feed.id)];
   const jogs = new Map<string, Jog[]>();
   for (const feed of layout.feeds) {
-    const lane = lanes.get(feed.id);
-    if (!lane) continue;
-    const rail = laneX(lane);
     const end = grown(feed.id);
     // What a level run can't pass: other tokens, and the last runs into the feeds beside this one.
     const blocks = [
@@ -741,14 +859,19 @@ function jogsOf(
       })),
       ...layout.feeds
         .filter((other) => other.column === feed.column && other.id !== feed.id)
-        .flatMap((other) => {
-          const its = lanes.get(other.id);
-          return its
-            ? [{ id: other.id, left: laneX(its), right: grown(other.id).x, reach: HALF }]
-            : [];
-        }),
+        .flatMap((other) =>
+          [...other.from, ...(other.late ?? [])].flatMap((source) => {
+            const its = lanes.get(lineKey(source, other.id));
+            return its
+              ? [{ id: other.id, left: laneX(its), right: grown(other.id).x, reach: HALF }]
+              : [];
+          }),
+        ),
     ];
     for (const source of [...feed.from, ...(feed.late ?? [])]) {
+      const lane = lanes.get(lineKey(source, feed.id));
+      if (!lane) continue;
+      const rail = laneX(lane);
       const aside: Jog[] = [];
       let x = grown(source).x + width(source);
       let y = grown(source).y;

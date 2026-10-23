@@ -150,7 +150,13 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
     [...feeds.map((each) => each.column)].sort(),
   );
 
-  assertEquals(from('provider:openrouter'), ['Models', 'Models']);
+  assertEquals(from('provider:openrouter'), []);
+  for (const model of feeds.filter((each) => each.kind === 'model'))
+    assertEquals(from(model.id), ['Models'], model.id);
+  assertEquals(
+    rows.filter((row) => row.node.ref.facet === 'modelBinding'),
+    [],
+  );
   assertEquals(from('provider:gemini/geminiInteractions'), ['gemini']);
   assertEquals(from('provider:openrouter/openRouterOpenAi'), ['openrouter']);
   assertEquals(from(TRACE_DESTINATIONS), ['Observability', 'Observability']);
@@ -224,20 +230,20 @@ Deno.test('grown into a box, the tree map fills it', () => {
   assert(BOX.width - 16 - right <= 2, `the map ends ${BOX.width - 16 - right} short of the box`);
 });
 
-Deno.test('grown into a box, each line runs level clear of every token, down its own lane', () => {
+Deno.test('grown into a box, each line runs level clear of every token, lines sharing an end down one lane', () => {
   const layout = picture(BOX);
   const at = (id: string) => placeAt(layout, id, 1);
   const ids = [...layout.rows.map(rowId), ...layout.feeds.map((feed) => feed.id)];
-  const rails = new Set<number>();
+  const railOf = (source: string, feed: string) => {
+    const lane = layout.lanes.get(lineKey(source, feed));
+    assert(lane, `${source} to ${feed} has no lane`);
+    return at(lane.of).x - lane.by;
+  };
+  const rails = new Map<number, { source: string; feed: string }[]>();
   for (const feed of layout.feeds) {
-    const lane = layout.lanes.get(feed.id);
-    const sources = [...feed.from, ...(feed.late ?? [])];
-    if (sources.length === 0) continue;
-    assert(lane, `${feed.id} has no lane`);
-    const rail = at(lane.of).x - lane.by;
-    assert(!rails.has(rail), `${feed.id} shares its lane`);
-    rails.add(rail);
-    for (const source of sources) {
+    for (const source of [...feed.from, ...(feed.late ?? [])]) {
+      const rail = railOf(source, feed.id);
+      rails.set(rail, [...(rails.get(rail) ?? []), { source, feed: feed.id }]);
       let x = at(source).x + width(layout, source);
       let y = at(source).y;
       const level: [number, number, number][] = [];
@@ -260,4 +266,17 @@ Deno.test('grown into a box, each line runs level clear of every token, down its
       }
     }
   }
+  for (const [rail, lines] of rails) {
+    const one = (pick: (line: { source: string; feed: string }) => string) =>
+      new Set(lines.map(pick)).size === 1;
+    assert(
+      one((line) => line.source) || one((line) => line.feed),
+      `the lines at ${rail} share no end`,
+    );
+  }
+  const tools = layout.feeds.filter((feed) => feed.kind === 'tool' && feed.from.length > 0);
+  const [source = ''] = tools[0]?.from ?? [];
+  const fromTools = tools.filter((tool) => tool.from.includes(source));
+  assert(fromTools.length > 1);
+  assertEquals(new Set(fromTools.map((tool) => railOf(source, tool.id))).size, 1);
 });

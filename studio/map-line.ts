@@ -73,7 +73,7 @@ export function mapBracket(from: MapPlace, to: MapPlace, rail: number, radius: n
  * corners turned like the tree's own; `square` from 0 to 1 takes it there from `mapCurve`'s line,
  * one shape the whole way.
  */
-export function mapBend(
+function mapBend(
   from: MapPlace,
   to: MapPlace,
   rail: number,

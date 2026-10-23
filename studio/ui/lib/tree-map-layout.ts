@@ -200,6 +200,39 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
   return rows;
 }
 
+/** A tool's feed, with a line from each row in `from`, and an agent tool's agent under it. */
+function toolFeeds(
+  workspace: StudioWorkspace,
+  id: string,
+  spec: StudioWorkspace['toolSpecs'][number],
+  from: string[],
+): Feed[] {
+  const tool: Feed = {
+    id,
+    label: spec.toolName,
+    kind: 'tool',
+    of: spec.toolType,
+    from,
+    column: 1,
+    group: 'tools',
+  };
+  const agent = workspace.agents.find((each) => each.key === spec.agentKey);
+  if (spec.toolType !== 'agent' || !agent) return [tool];
+  return [
+    tool,
+    {
+      id: `${id}/agent`,
+      label: agent.identity.agentId || agent.identity.handle,
+      kind: 'subagent',
+      of: agent.identity.profileType,
+      from: [],
+      under: id,
+      column: 1,
+      group: 'tools',
+    },
+  ];
+}
+
 /**
  * Beside the tree, shared by every agent drawn, two columns. First, the registries: the first tool of
  * each type the agents allow, with a line from each Tools row that allows it, and an agent tool's
@@ -298,37 +331,12 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       group: 'vault',
     });
   }
-  const tools: { id: string; spec: StudioWorkspace['toolSpecs'][number] }[] = [];
-  for (const type of TOOL_TYPES) {
+  const tools = TOOL_TYPES.flatMap((type) => {
     const spec = firstOf(type);
-    if (!spec) continue;
-    const id = `tool:${spec.key}`;
-    tools.push({ id, spec });
-    const from = allowing(spec.key);
-    feeds.push({
-      id,
-      label: spec.toolName,
-      kind: 'tool',
-      of: type,
-      from,
-      column: 1,
-      group: 'tools',
-    });
-    const agent = workspace.agents.find((each) => each.key === spec.agentKey);
-    if (type === 'agent' && agent) {
-      const label = agent.identity.agentId || agent.identity.handle;
-      feeds.push({
-        id: `${id}/agent`,
-        label,
-        kind: 'subagent',
-        of: agent.identity.profileType,
-        from: [],
-        under: id,
-        column: 1,
-        group: 'tools',
-      });
-    }
-  }
+    return spec ? [{ id: `tool:${spec.key}`, spec }] : [];
+  });
+  for (const { id, spec } of tools)
+    feeds.push(...toolFeeds(workspace, id, spec, allowing(spec.key)));
 
   const stepOf = (id: string) =>
     TURN_STEPS.find((step) => step.id === id) ?? { id, label: id, reads: [] as string[] };

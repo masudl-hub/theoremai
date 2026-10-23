@@ -26,7 +26,13 @@ import {
   IconVault,
   IconWorldCheck,
 } from '@tabler/icons-react';
-import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { mapBracket, mapRoute } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
 import { modelFamilyMark } from './brand-icons.tsx';
@@ -45,6 +51,7 @@ import {
   PAD,
   type Place,
   placeAt,
+  type Row,
   rowId,
   treeMapLayout,
   underKey,
@@ -358,6 +365,37 @@ export function StudioTreeMap({
     );
   };
   const shift = { x: field.x + centre.x, y: field.y + centre.y };
+  type Look = { style: CSSProperties };
+  const rowToken = (row: Row, look: Look) => {
+    const draft = drafts.get(row.agent) ?? createBlankDraft();
+    const { x, y } = at(rowId(row));
+    return (
+      <MapToken
+        key={rowId(row)}
+        id={rowId(row)}
+        label={row.node.label}
+        icon={nodeIcon(draft, row.node.ref)}
+        x={x}
+        y={y}
+        {...look}
+      />
+    );
+  };
+  /** A feed's token, `drift` right of where it stands. */
+  const feedToken = (feed: Feed, look: Look, drift = 0) => {
+    const { x, y } = at(feed.id);
+    return (
+      <MapToken
+        key={feed.id}
+        id={feed.id}
+        label={feed.label}
+        icon={iconOf(feed)}
+        x={x + drift}
+        y={y}
+        {...look}
+      />
+    );
+  };
   const translate = shift.x || shift.y ? { translate: `${shift.x}px ${shift.y}px` } : {};
 
   return (
@@ -433,66 +471,10 @@ export function StudioTreeMap({
             </Text>
           </div>
         ))}
-      {rows.map((row) => {
-        const draft = drafts.get(row.agent) ?? createBlankDraft();
-        const { x, y } = at(rowId(row));
-        return (
-          <MapToken
-            key={rowId(row)}
-            id={rowId(row)}
-            label={row.node.label}
-            icon={nodeIcon(draft, row.node.ref)}
-            x={x}
-            y={y}
-            {...tokenDrawn(rowId(row))}
-          />
-        );
-      })}
-      {going &&
-        leaving.rows.map((row) => {
-          const draft = drafts.get(row.agent) ?? createBlankDraft();
-          const { x, y } = at(rowId(row));
-          return (
-            <MapToken
-              key={rowId(row)}
-              id={rowId(row)}
-              label={row.node.label}
-              icon={nodeIcon(draft, row.node.ref)}
-              x={x}
-              y={y}
-              style={leavingStyle}
-            />
-          );
-        })}
-      {going &&
-        leaving.feeds.map((feed) => {
-          const { x, y } = at(feed.id);
-          return (
-            <MapToken
-              key={feed.id}
-              id={feed.id}
-              label={feed.label}
-              icon={iconOf(feed)}
-              x={x + DRIFT * gone}
-              y={y}
-              style={leavingStyle}
-            />
-          );
-        })}
-      {feeds.map((feed) => {
-        const { x, y } = at(feed.id);
-        return (
-          <MapToken
-            key={feed.id}
-            id={feed.id}
-            label={feed.label}
-            icon={iconOf(feed)}
-            x={x}
-            y={y}
-            {...tokenDrawn(feed.id)}
-          />
-        );
-      })}
+      {rows.map((row) => rowToken(row, tokenDrawn(rowId(row))))}
+      {going && leaving.rows.map((row) => rowToken(row, { style: leavingStyle }))}
+      {going && leaving.feeds.map((feed) => feedToken(feed, { style: leavingStyle }, DRIFT * gone))}
+      {feeds.map((feed) => feedToken(feed, tokenDrawn(feed.id)))}
     </div>
   );
 }

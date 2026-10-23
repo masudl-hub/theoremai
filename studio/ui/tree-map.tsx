@@ -356,7 +356,12 @@ export function StudioTreeMap({
         };
       })
     : [];
-  const places = [...rows.map(rowId), ...shown.map((feed) => feed.id)];
+  // why: What growing takes away holds the map open until it has gone.
+  const places = [
+    ...rows.map(rowId),
+    ...shown.map((feed) => feed.id),
+    ...(going ? [...leaving.rows.map(rowId), ...leaving.feeds.map((feed) => feed.id)] : []),
+  ];
   // why: An agent tool's line back to its agent runs down right of the feeds.
   const back = layout.becomes.size > 0 ? LINE_GAP + BOW : 0;
   const mapWidth = Math.max(GUESS, ...places.map(right)) + back + PAD;

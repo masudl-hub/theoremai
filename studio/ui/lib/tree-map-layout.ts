@@ -1285,8 +1285,8 @@ function anchorsOf(
 
 /**
  * Closed, the still: the rows down the map, a gap before each agent after the first, and beside
- * them, at `x`, the feeds it shows. The runs stand one under another, a row's gap between them,
- * centred beside the rows; each starts level with a row, none above a row it serves.
+ * them, at `x`, the feeds it shows: the runs one under another, a row's gap between them, centred
+ * on the rows.
  */
 function stillPlaces(
   rows: Row[],
@@ -1306,24 +1306,18 @@ function stillPlaces(
     y += ROW;
     return at;
   });
-  const yOf = new Map(placed.map((row) => [rowId(row), row.y]));
-  // why: Every line runs down to the run, so a run stands no higher than the lowest row it serves.
   const own = placed.flatMap((row) => {
     const run = runs.get(rowId(row)) ?? [];
-    const floor = Math.max(...run.flatMap((feed) => feed.from.map((id) => yOf.get(id) ?? row.y)));
-    return run.length > 0 ? [{ floor, run }] : [];
+    return run.length > 0 ? [run] : [];
   });
-  const slots = own.reduce((sum, { run }) => sum + run.length + 1, -1);
+  // The runs one under another, a row's gap between them, their middle level with the rows' middle.
+  const slots = own.reduce((sum, run) => sum + run.length + 1, -1);
   const [first, last] = [placed[0]?.y ?? 0, placed.at(-1)?.y ?? 0];
-  const centred = (first + last) / 2 - (slots * ROW) / 2;
-  // why: A run starts level with a row, so its items stand level with the rows beside them.
-  const levelFrom = (from: number) => placed.find((row) => row.y >= from - HALF)?.y ?? from;
+  let top = (first + last) / 2 - ((slots - 1) * ROW) / 2;
   const feeds = new Map<string, Place>();
-  let cursor = centred;
-  for (const { floor, run } of own) {
-    const top = levelFrom(Math.max(cursor, floor));
+  for (const run of own) {
     for (const [step, feed] of run.entries()) feeds.set(feed.id, { x, y: top + step * ROW });
-    cursor = top + (run.length + 1) * ROW;
+    top += (run.length + 1) * ROW;
   }
   return { rows: placed, feeds };
 }

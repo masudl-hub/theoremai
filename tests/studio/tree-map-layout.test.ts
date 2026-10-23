@@ -457,23 +457,20 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
       layout.feeds.some((each) => each.id === line.feed && each.kind === 'model'),
     ),
   );
-  // Every line runs level or down from its row into its feed, and the feeds stand centred beside
-  // the rows as far as that lets them.
+  // The models and tools stand centred on the rows.
   const shown = [...layout.rows, ...layout.leaving.rows].map(
     (row) => layout.closed.get(rowId(row))?.y ?? 0,
   );
-  const column: number[] = [];
-  for (const each of [...layout.feeds, ...layout.leaving.feeds]) {
+  const column = [...layout.feeds, ...layout.leaving.feeds].flatMap((each) => {
     const y = layout.closed.get(each.id)?.y;
-    if (!layout.few.has(each.id) || y === undefined) continue;
-    if (each.kind === 'model' || each.kind === 'tool') column.push(y);
-    for (const source of each.from) {
-      const from = layout.closed.get(source)?.y;
-      if (from !== undefined) assert(y >= from, `${source} runs up to ${each.id}`);
-    }
-  }
+    return layout.few.has(each.id) &&
+      (each.kind === 'model' || each.kind === 'tool') &&
+      y !== undefined
+      ? [y]
+      : [];
+  });
   const middle = (ys: number[]) => (Math.min(...ys) + Math.max(...ys)) / 2;
-  assert(Math.abs(middle(column) - middle(shown)) < (Math.max(...shown) - Math.min(...shown)) / 4);
+  assert(Math.abs(middle(column) - middle(shown)) < 1, 'centred');
   // Growing, no two tokens at rest meet.
   const leavingIds = new Set([
     ...layout.leaving.rows.map(rowId),

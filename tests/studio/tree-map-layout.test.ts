@@ -150,7 +150,7 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
     [...feeds.map((each) => each.column)].sort(),
   );
 
-  assertEquals(from('provider:openrouter').length, 2);
+  assertEquals(from('provider:openrouter'), ['Models', 'Models']);
   assertEquals(from('provider:gemini/geminiInteractions'), ['gemini']);
   assertEquals(from('provider:openrouter/openRouterOpenAi'), ['openrouter']);
   assertEquals(from(TRACE_DESTINATIONS), ['Observability', 'Observability']);

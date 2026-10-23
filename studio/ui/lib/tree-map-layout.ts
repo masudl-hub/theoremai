@@ -182,13 +182,16 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       const row = rowOf(agent.key, 'modelBinding', binding.key);
       if (!row) continue;
       const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
-      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), rowId(row)]);
+      // why: A line runs from the Models section, not from each model's row, which the map does not draw.
+      const section = rowOf(agent.key, 'models');
+      const source = section ? rowId(section) : rowId(row);
+      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), source]);
       providers.set(binding.provider, protocols);
       models.push({
         id: `model:${rowId(row)}`,
         label: binding.modelId,
         kind: 'model',
-        from: [],
+        from: [source],
         under: `provider:${binding.provider}`,
         column: 1,
         group: 'providers',
@@ -202,7 +205,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       id,
       label: provider,
       kind: 'provider',
-      from: [...byProtocol.values()].flat(),
+      from: [...new Set([...byProtocol.values()].flat())],
       column: 1,
       group: 'providers',
     });

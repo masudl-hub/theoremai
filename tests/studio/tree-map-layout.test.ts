@@ -173,8 +173,9 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
     from(`${GUARDRAIL_RUNTIME}/network`),
     remote.map((tool) => tool.label),
   );
-  assertEquals(from(`${GUARDRAIL_RUNTIME}/sanitize`), []);
-  assertEquals(from(`${GUARDRAIL_RUNTIME}/result`), []);
+  assertEquals(new Set(from(`${GUARDRAIL_RUNTIME}/sanitize`)), new Set(['Inputs']));
+  assertEquals(new Set(from(`${GUARDRAIL_RUNTIME}/egress`)), new Set(['Outputs']));
+  assertEquals(from(`${GUARDRAIL_RUNTIME}/result`), ['Tool runtime']);
   const models = feeds.filter((each) => each.kind === 'model');
   assert(models.length > 0);
   for (const model of models) assert(model.under?.startsWith('provider:'), model.id);
@@ -205,11 +206,11 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   );
 
   assertEquals(subagent?.label, 'travel.concierge');
-  // Every line runs from a column left of the feed it draws into, or from the agent under its tool.
+  // Every line runs from a column left of the feed it draws into, or from a feed in its own column.
   for (const each of feeds) {
     for (const source of each.from) {
       const sourceFeed = feed(source);
-      if (sourceFeed && source !== subagent?.id)
+      if (sourceFeed && sourceFeed.column !== each.column)
         assert(sourceFeed.column < each.column, `${source} runs to ${each.id}`);
     }
   }

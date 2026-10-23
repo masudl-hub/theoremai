@@ -53,6 +53,22 @@ export function mapRail(from: MapPlace, to: MapPlace, rail: number, radius: numb
 }
 
 /**
+ * A line between two places in one column: level out from `from` to `rail`, right of them both,
+ * up or down it, and level back to `to`, its two corners rounded by `radius`.
+ */
+export function mapBracket(from: MapPlace, to: MapPlace, rail: number, radius: number): string {
+  const up = Math.sign(to.y - from.y);
+  const round = Math.max(
+    0,
+    Math.min(radius, Math.abs(to.y - from.y) / 2, rail - from.x, rail - to.x),
+  );
+  return (
+    `M ${from.x} ${from.y} L ${rail - round} ${from.y} Q ${rail} ${from.y}, ${rail} ${from.y + up * round}` +
+    ` L ${rail} ${to.y - up * round} Q ${rail} ${to.y}, ${rail - round} ${to.y} L ${to.x} ${to.y}`
+  );
+}
+
+/**
  * A line that runs level from `from` to `rail`, straight up or down it, and level to `to`, its
  * corners turned like the tree's own; `square` from 0 to 1 takes it there from `mapCurve`'s line,
  * one shape the whole way.

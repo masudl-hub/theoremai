@@ -98,11 +98,11 @@ export interface Feed {
  * why: The canary bind runs only while a canary detector is on, and pre_turn, before_end and
  * post_turn are hooks for the host's stages, so the map leaves those four out; the structured
  * reply's validation is the outputs' own, not a story of the runner's, so it is left out too.
- * Sanitize and egress are named for what they read: the input, and the reply.
+ * Sanitize and egress are named for what they guard, the input and the reply, and drawn from them.
  */
 export const TURN_STEPS: readonly { id: string; label: string; reads: readonly string[] }[] = [
-  { id: 'sanitize', label: 'Input guard', reads: ['guardrails'] },
-  { id: 'egress', label: 'Reply guard', reads: ['guardrails'] },
+  { id: 'sanitize', label: 'Input guard', reads: ['inputs'] },
+  { id: 'egress', label: 'Reply guard', reads: ['outputs'] },
   { id: 'trace', label: 'Telemetry engine', reads: ['observability'] },
 ];
 
@@ -120,6 +120,24 @@ export const TOOL_CHECKS: readonly { id: string; label: string }[] = [
 const GUARDRAIL_CHECKS: readonly { id: string; label: string }[] = [
   { id: 'network', label: 'Network guard' },
   { id: 'result', label: 'Tool result guard' },
+];
+
+/**
+ * The order of an agent's rows: what it runs on, how it turns, its tools, its guardrails, then what
+ * goes in and out of it, level with the guards on them; any other section after, observability last.
+ */
+const ROW_ORDER: readonly string[] = [
+  'identity',
+  'models',
+  'decision',
+  'image',
+  'speech',
+  'live',
+  'turnBehaviour',
+  'tools',
+  'guardrails',
+  'inputs',
+  'outputs',
 ];
 
 /** Closed, the map shows only these heads beside the tree, in this order. */
@@ -145,8 +163,13 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
     // them. Observability comes last, level with the trace destinations and the telemetry engine at
     // the foot of the map.
     const children = node.children.filter((child) => child.ref.facet !== 'modelBinding');
-    const last = (child: StudioTreeNode) => Number(child.ref.facet === 'observability');
-    for (const child of children.toSorted((a, b) => last(a) - last(b))) {
+    const rank = (child: StudioTreeNode) =>
+      child.ref.facet === 'observability'
+        ? ROW_ORDER.length + 1
+        : ROW_ORDER.includes(child.ref.facet)
+          ? ROW_ORDER.indexOf(child.ref.facet)
+          : ROW_ORDER.length;
+    for (const child of children.toSorted((a, b) => rank(a) - rank(b))) {
       walk(child, agent, depth + 1, row);
     }
   };
@@ -311,7 +334,8 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     'sign-in': tools.filter(({ spec }) => (spec.authType ?? 'none') !== 'none').map(({ id }) => id),
     network: toolsOf(REMOTE_TYPES),
     sessions: toolsOf(['mcp']),
-    result: [],
+    // why: The tool runtime hands each result to its guard before it goes back to the model.
+    result: tools.length > 0 ? [TOOL_RUNTIME] : [],
   };
   feeds.push({
     id: TOOL_RUNTIME,
@@ -348,7 +372,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       label: step.label,
       kind: 'step',
       of: id,
-      from: [],
+      from: sections(step.reads),
       under: GUARDRAIL_RUNTIME,
       column: 2,
       group: 'guardrail-runtime',
@@ -834,7 +858,7 @@ export interface Jog {
   side: 1 | -1;
 }
 
-/** Whether `source` stands in `feed`'s own column: its line bows out to the right, as in the studio's map. */
+/** Whether `source` stands in `feed`'s own column: its line runs out to the right of the column and back. */
 export function beside(layout: TreeMapLayout, source: string, feed: Feed): boolean {
   return layout.feeds.some((each) => each.id === source && each.column === feed.column);
 }

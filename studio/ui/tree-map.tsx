@@ -24,7 +24,7 @@ import {
   IconWorldCheck,
 } from '@tabler/icons-react';
 import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
-import { mapCurve, mapRoute } from '../map-line.ts';
+import { mapBracket, mapRoute } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
 import { modelFamilyMark } from './brand-icons.tsx';
 import {
@@ -54,7 +54,7 @@ const TRUNK = 13;
 const TURN = 8;
 /** Between a token's side and its line. */
 const LINE_GAP = 4;
-/** How far past its column a line between two of its feeds bows out. */
+/** How far right of the feeds it passes a line between two feeds of one column runs. */
 const BOW = 16;
 /** A token's width until it is measured. */
 const GUESS = 120;
@@ -218,11 +218,13 @@ export function StudioTreeMap({
             : [feed.id, ...(isRow.has(source) ? [] : [source])];
         if (beside(layout, source, feed)) {
           const into = { x: end.x + width(feed.id) + LINE_GAP, y: end.y };
-          const column = shown
+          const [top, bottom] = [Math.min(start.y, end.y), Math.max(start.y, end.y)];
+          const passed = shown
             .filter((each) => each.column === feed.column)
+            .filter((each) => at(each.id).y >= top && at(each.id).y <= bottom)
             .map((each) => right(each.id));
-          const bow = Math.max(start.x, into.x, ...column) + BOW;
-          return [{ key: lineKey(source, feed.id), d: mapCurve(start, into, bow).d, draws }];
+          const rail = Math.max(start.x, into.x, ...passed) + BOW;
+          return [{ key: lineKey(source, feed.id), d: mapBracket(start, into, rail, TURN), draws }];
         }
         const lane = layout.lanes.get(lineKey(source, feed.id));
         const rail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;

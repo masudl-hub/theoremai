@@ -1,4 +1,4 @@
-# Scores every row of a jsonl file with one classifier: the max positive-class probability over 512-token windows.
+# Scores every row with one classifier: the max positive-class probability over 512-token windows. Also writes each window's probability (prob) and row (owner).
 # KEEP and MINC: tokens seen fewer than MINC times in the KEEP counts file become unk, as in the cut vocabulary.
 # Usage: score.py <model> <rows.jsonl> <out.json>
 import json, sys, time, os, torch
@@ -52,5 +52,5 @@ if __name__ == '__main__':
             for k, v in zip(ks, p): prob[k] = v
     score = [0.0] * len(rows)
     for k, i in enumerate(owner): score[i] = max(score[i], prob[k])
-    json.dump({'model': name, 'windows': len(allw), 'secs': time.time() - t0, 'ntok': ntok, 'score': score}, open(out, 'w'))
+    json.dump({'model': name, 'windows': len(allw), 'secs': time.time() - t0, 'ntok': ntok, 'score': score, 'prob': prob, 'owner': owner}, open(out, 'w'))
     print(name, len(allw), 'windows', round(time.time() - t0), 's')

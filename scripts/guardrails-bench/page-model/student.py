@@ -1,6 +1,7 @@
 # A static-embedding student of Horizon small: token vectors, mean over K-token chunks, a small MLP, max over chunks.
 # ARCH=meanmax also feeds the max over each chunk; ARCH=conv adds two convolutions over the token vectors (local word order).
 # Trained on the teacher's per-window probabilities (TEACH). LOAD=<file.pt> skips training and prints the held-out agreement.
+# WINDOWS=1 scores each of Horizon's 512-token windows of every EVAL row instead (wscore, in score.py's window order).
 # Usage: student.py <name> <K> <H> <epochs>   (writes logits for EVAL to OUT)
 import json, sys, time, random, os, torch, torch.nn.functional as F
 from tokenizers import Tokenizer
@@ -55,9 +56,16 @@ if __name__ == '__main__':
         print('ep', ep, 'loss', round(tot / len(tr), 4), 'val agree/tp/fn/fp', evalv(), round(time.time() - t0), 's', flush=True)
     if not os.environ.get('LOAD'): torch.save(m.state_dict(), f'{WORK}/distil/{name}.pt')
     R = [json.loads(l) for l in open(os.environ.get('EVAL', f'{WORK}/sample.jsonl'))]; m.eval().to('cpu'); sc = []; t1 = time.time(); ntok = 0
+    texts = [r['text'] for r in R]
+    if os.environ.get('WINDOWS'):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('score', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'score.py')); SC = importlib.util.module_from_spec(spec); spec.loader.exec_module(SC)
+        from transformers import AutoTokenizer
+        th = AutoTokenizer.from_pretrained(SC.MODELS['hz-small'][0], trust_remote_code=False)
+        texts = [th.decode(w[1:-1]) for t in texts for w in SC.windows(th, t)[0]]; t1 = time.time()
     with torch.no_grad():
-        for r in R:
-            q = enc([r['text']])[0] or [0]; ntok += len(q); x = torch.tensor([q]); sc.append(m(x, (x != 0).float())[0].item())
+        for t in texts:
+            q = enc([t])[0] or [0]; ntok += len(q); x = torch.tensor([q]); sc.append(m(x, (x != 0).float())[0].item())
     secs = time.time() - t1
-    json.dump({'model': name, 'windows': len(R), 'secs': secs, 'ntok': ntok, 'score': sc}, open(os.environ.get('OUT', f'{WORK}/s-{name}.json'), 'w'))
-    print(name, 'scored', len(R), 'texts', round(secs, 1), 's cpu,', round(1000 * secs / len(R), 2), 'ms/text')
+    json.dump({'model': name, 'windows': len(texts), 'secs': secs, 'ntok': ntok, ('wscore' if os.environ.get('WINDOWS') else 'score'): sc}, open(os.environ.get('OUT', f'{WORK}/s-{name}.json'), 'w'))
+    print(name, 'scored', len(texts), 'texts', round(secs, 1), 's cpu,', round(1000 * secs / len(texts), 2), 'ms/text')

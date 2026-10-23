@@ -1253,7 +1253,8 @@ function jogsOf(
 /**
  * What each node growing adds comes out from under: a row, the row above it; a feed under another,
  * the one above it there, else that one; any other feed, the first it has a line from, else the
- * first under it, else the feed before it.
+ * first under it (or, when that comes out too, the first that one has a line from), else the feed
+ * before it.
  */
 function anchorsOf(
   rows: Row[],
@@ -1277,7 +1278,11 @@ function anchorsOf(
       [...slots].find(
         ([, each]) => each.holder === slot.holder && each.down === slot.down - 1,
       )?.[0];
-    const anchor = above ?? slot?.holder ?? feed.from[0] ?? under ?? feeds[index - 1]?.id ?? ids[0];
+    const first =
+      under === undefined || few.has(under)
+        ? under
+        : feeds.find((each) => each.id === under)?.from[0];
+    const anchor = above ?? slot?.holder ?? feed.from[0] ?? first ?? feeds[index - 1]?.id ?? ids[0];
     if (anchor !== undefined) anchors.set(feed.id, anchor);
   }
   return anchors;
@@ -1322,6 +1327,23 @@ function stillPlaces(
   return { rows: placed, feeds };
 }
 
+/** Closed, the rows and feeds given a place, each where it is given. */
+function givenPlaces(
+  rows: Row[],
+  feeds: Feed[],
+  given: ReadonlyMap<string, Place>,
+): { rows: Row[]; feeds: Map<string, Place> } {
+  return {
+    rows: rows.map((row) => ({ ...row, ...given.get(rowId(row)) })),
+    feeds: new Map(
+      feeds.flatMap((feed) => {
+        const place = given.get(feed.id);
+        return place ? [[feed.id, place] as const] : [];
+      }),
+    ),
+  };
+}
+
 /**
  * Closed, the x each row's lines run down to its feeds, together: left of the feeds, a lane
  * further left for each trunk from a row above it that it would run beside, so two rows' lines meet
@@ -1363,12 +1385,22 @@ export function treeMapLayout(
   box?: Box,
   /** The agents the map shows closed, when not the tree's. */
   still?: readonly string[],
+  /** Where the tokens the map shows closed stand, by id, when not where the still puts them. */
+  given?: ReadonlyMap<string, Place>,
 ): TreeMapLayout {
   const rows = rowsOf(workspace, agents);
   const feeds = feedsOf(workspace, rows);
-  // Closed, the still: its own agents and rows, or the tree's, and what feeds them.
-  const stillRows = still ? rowsOf(workspace, still) : rows;
-  const stillFeeds = still ? feedsOf(workspace, stillRows) : feeds;
+  // Closed, the still: what is given, else its own agents and rows, or the tree's, and what feeds them.
+  const stillRows = given
+    ? rows.filter((row) => given.has(rowId(row)))
+    : still
+      ? rowsOf(workspace, still)
+      : rows;
+  const stillFeeds = given
+    ? feeds.filter((feed) => given.has(feed.id))
+    : still
+      ? feedsOf(workspace, stillRows)
+      : feeds;
   const grownRows = new Set(rows.map(rowId));
   const grownFeeds = new Set(feeds.map((feed) => feed.id));
   // why: An agent of the still that the tree draws as an agent tool's agent glides into it.
@@ -1381,11 +1413,13 @@ export function treeMapLayout(
   }
   // Closed, each agent's models and tools stand beside the tree, those with a line from a row of it.
   const feedX = Math.max(0, ...stillRows.map((row) => row.x + width(rowId(row)))) + GAP;
-  const placed = stillPlaces(
-    stillRows,
-    CLOSED.flatMap((kind) => stillFeeds.filter((feed) => feed.kind === kind)),
-    feedX,
-  );
+  const placed = given
+    ? givenPlaces(stillRows, stillFeeds, given)
+    : stillPlaces(
+        stillRows,
+        CLOSED.flatMap((kind) => stillFeeds.filter((feed) => feed.kind === kind)),
+        feedX,
+      );
   const few = new Set([...placed.feeds.keys(), ...becomes.values()]);
   const closed = new Map<string, Place>(placed.rows.map((row) => [rowId(row), row]));
   for (const [row, feed] of becomes) {
@@ -1409,9 +1443,14 @@ export function treeMapLayout(
 
   // What the still shows and the tree does not: it stays where it stood closed as it goes.
   const shownClosed = (feed: Feed) => few.has(feed.id);
+  const stillIds = new Set(stillRows.map(rowId));
   const stillLines = stillFeeds
     .filter(shownClosed)
-    .flatMap((feed) => feed.from.map((source) => ({ source, feed: feed.id })));
+    .flatMap((feed) =>
+      feed.from
+        .filter((source) => stillIds.has(source))
+        .map((source) => ({ source, feed: feed.id })),
+    );
   const grownLines = new Set(
     feeds.flatMap((feed) => feed.from.map((source) => lineKey(source, feed.id))),
   );

@@ -155,12 +155,48 @@ export interface StudioTreeMapProps {
    * tree does not draw, and an agent the tree draws as an agent tool's agent glides into it.
    */
   still?: readonly string[] | undefined;
+  /**
+   * Where the tokens the map shows closed stand, by id, in the map's own pixels, for a map that
+   * grows out of something else: closed, the map stands at its own size from the top left of what
+   * holds it, these tokens where they are given and nothing else; growing, each glides to where it
+   * stands grown as the rest of the tree comes out round it. In place of `still`.
+   */
+  closed?: ReadonlyMap<string, MapPlace> | undefined;
   /** A token dragged moves to where it is dropped, its lines with it; the field dragged moves the whole map. */
   draggable?: boolean | undefined;
 }
 
 type Shift = { x: number; y: number };
 const NONE: Shift = { x: 0, y: 0 };
+
+/**
+ * How large the map stands, and where in `room`, this far settled: closed and grown alike it fits
+ * the box it stands in, never larger than itself, in the middle of it, easing from the one to the
+ * other. Closed at given places, which are its own pixels, it stands at its own size from the top left.
+ */
+function frameAt(
+  closed: Box,
+  grown: Box,
+  room: Box | undefined,
+  settled: number,
+  given: boolean,
+): { scale: number; centre: Shift } {
+  const fitting = (size: Box) =>
+    room ? Math.min(1, room.width / size.width, room.height / size.height) : 1;
+  const middle = (size: Box) =>
+    room
+      ? {
+          x: Math.max(0, room.width - size.width * fitting(size)) / 2,
+          y: Math.max(0, room.height - size.height * fitting(size)) / 2,
+        }
+      : NONE;
+  const closedScale = given ? 1 : fitting(closed);
+  const [from, to] = [given ? NONE : middle(closed), middle(grown)];
+  return {
+    scale: closedScale + (fitting(grown) - closedScale) * settled,
+    centre: { x: from.x + (to.x - from.x) * settled, y: from.y + (to.y - from.y) * settled },
+  };
+}
 
 export function StudioTreeMap({
   workspace,
@@ -169,6 +205,7 @@ export function StudioTreeMap({
   fit,
   room = fit,
   still,
+  closed: given,
   draggable = false,
 }: StudioTreeMapProps) {
   const root = useRef<HTMLDivElement>(null);
@@ -186,8 +223,9 @@ export function StudioTreeMap({
         (id) => widths[id] ?? GUESS,
         fitWidth > 0 && fitHeight > 0 ? { width: fitWidth, height: fitHeight } : undefined,
         still,
+        given,
       ),
-    [workspace, agents, widths, fitWidth, fitHeight, still],
+    [workspace, agents, widths, fitWidth, fitHeight, still, given],
   );
   const width = (id: string) => widths[id] ?? GUESS;
   const drafts = new Map(
@@ -383,21 +421,8 @@ export function StudioTreeMap({
       height: Math.max(...ends.map(([, end]) => end.y)) + HALF + PAD,
     };
   }, [layout, widths, back]);
-  // why: Closed and grown alike, the map fits the box it stands in, never larger than itself, and
-  // stands in the middle of it; it eases from the one to the other with its nodes' move.
   const settled = ease(grow / MOVE_TO);
-  const fitting = (size: Box) =>
-    room ? Math.min(1, room.width / size.width, room.height / size.height) : 1;
-  const scale = fitting(closedSize) + (fitting(grown) - fitting(closedSize)) * settled;
-  const middle = (size: Box) =>
-    room
-      ? {
-          x: Math.max(0, room.width - size.width * fitting(size)) / 2,
-          y: Math.max(0, room.height - size.height * fitting(size)) / 2,
-        }
-      : NONE;
-  const [from, to] = [middle(closedSize), middle(grown)];
-  const centre = { x: from.x + (to.x - from.x) * settled, y: from.y + (to.y - from.y) * settled };
+  const { scale, centre } = frameAt(closedSize, grown, room, settled, given !== undefined);
   // why: The pointer moves in the page's pixels; the map is scaled, so a move is divided back into its own.
   const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!draggable || !drags(event)) return;

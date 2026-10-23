@@ -484,3 +484,34 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
   const wide = (id: string) => 40 + 7 * label(id).length;
   assertApartAtRest(layout, ids, wide);
 });
+
+Deno.test('closed, what is given stands where it is given, and the rest comes out as it grows', () => {
+  const { workspace, agents } = pictureWorkspace();
+  const tree = treeMapLayout(workspace, agents, () => 40);
+  const [agent] = tree.rows;
+  const [model] = tree.feeds.filter((feed) => feed.kind === 'model');
+  assert(agent && model);
+  const given = new Map([
+    [rowId(agent), { x: 120, y: 40 }],
+    [model.id, { x: 140, y: 88 }],
+  ]);
+  const layout = treeMapLayout(workspace, agents, () => 40, BOX, undefined, given);
+  for (const [id, place] of given) {
+    assertEquals(placeAt(layout, id, 0), place);
+    assertEquals(drawnAt(layout, id, 0), undefined);
+  }
+  // Nothing else shows closed: the rows unfold from the agent, the feeds come out from what they grow from.
+  for (const row of layout.rows.slice(1)) assert(layout.starts.has(rowId(row)), row.node.label);
+  for (const feed of layout.feeds.filter((each) => each.id !== model.id))
+    assertEquals(drawnAt(layout, feed.id, 0), 0, feed.label);
+  assertEquals(layout.leaving.rows.length + layout.leaving.feeds.length, 0);
+  // Grown, the given stand where the tree puts them.
+  assertEquals(
+    placeAt(layout, model.id, 1),
+    placeAt(
+      treeMapLayout(workspace, agents, () => 40, BOX),
+      model.id,
+      1,
+    ),
+  );
+});

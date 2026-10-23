@@ -179,7 +179,12 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
     from(TOOL_RUNTIME),
     tools.map((tool) => tool.label),
   );
-  assertEquals(under(TOOL_RUNTIME), ['Permission gate', 'Sign-in', 'MCP sessions', 'Validation']);
+  assertEquals(under(TOOL_RUNTIME), [
+    'Permission gate',
+    'Authentication',
+    'MCP sessions',
+    'Validation',
+  ]);
   assertEquals(from(`${TOOL_RUNTIME}/validation`), ['Outputs']);
 
   assertEquals(from(GUARDRAIL_RUNTIME), ['Guardrails']);
@@ -225,9 +230,9 @@ Deno.test('grown into a box, the tree map fills it', () => {
   const right = Math.max(...ends.map((end) => end.x + width(layout, end.id)));
   const bottom = Math.max(...ends.map((end) => end.y)) + HALF;
   const top = Math.min(...ends.map((end) => end.y)) - HALF;
-  assert(Math.abs(BOX.height - 16 - bottom) <= 1, `the map ends at ${bottom}`);
-  assert(top >= 16 - 1 && top <= 16 + 1, `the map starts at ${top}`);
-  assert(BOX.width - 16 - right <= 2, `the map ends ${BOX.width - 16 - right} short of the box`);
+  assert(Math.abs(BOX.height - 32 - bottom) <= 1, `the map ends at ${bottom}`);
+  assert(top >= 32 - 1 && top <= 32 + 1, `the map starts at ${top}`);
+  assert(BOX.width - 32 - right <= 2, `the map ends ${BOX.width - 32 - right} short of the box`);
 });
 
 Deno.test('grown into a box, each line runs level clear of every token, lines sharing an end down one lane', () => {

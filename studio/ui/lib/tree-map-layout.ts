@@ -17,6 +17,8 @@ export const INDENT = 28;
 /** A token's half height. */
 export const HALF = 11;
 export const PAD = 16;
+/** Grown, how much further in from the box's edges the map stands. */
+const INSET = 16;
 /** Closed, between the tree's widest row and the feeds; grown, the least and most between columns. */
 const GAP = 72;
 const LEAST_GAP = 56;
@@ -109,7 +111,7 @@ export const TURN_STEPS: readonly { id: string; label: string; reads: readonly s
  */
 export const TOOL_CHECKS: readonly { id: string; label: string }[] = [
   { id: 'permission', label: 'Permission gate' },
-  { id: 'sign-in', label: 'Sign-in' },
+  { id: 'sign-in', label: 'Authentication' },
   { id: 'sessions', label: 'MCP sessions' },
 ];
 
@@ -448,8 +450,8 @@ function grownPlaces(
 ) {
   const { held, columns } = stacksOf(rows, feeds, slots);
   const [, registries, runner] = columns;
-  const start = PAD + HALF;
-  const room = box ? box.height - 2 * (PAD + HALF) : 0;
+  const start = PAD + INSET + HALF;
+  const room = box ? box.height - 2 * (PAD + INSET + HALF) : 0;
   const byId = new Map(feeds.map((feed) => [feed.id, feed]));
   const sourcesOf = (id: string) => {
     const feed = byId.get(id);
@@ -588,15 +590,15 @@ function grownPlaces(
     return Math.max(LEAST_GAP, (lanes + 1) * LANE);
   });
   const [one = 0, two = 0] = gaps;
-  const spare = box ? Math.max(0, box.width - 2 * PAD - taken - one - two) / 2 : 0;
+  const spare = box ? Math.max(0, box.width - 2 * (PAD + INSET) - taken - one - two) / 2 : 0;
   const widen = (gap: number) => Math.max(gap, Math.min(gap + spare, MOST_GAP));
   const lefts = [0, treeRight + widen(one), treeRight + widen(one) + first + widen(two)];
 
   const places = new Map<string, Place>();
-  for (const [id, y] of ys) places.set(id, { x: tree.get(id)?.x ?? 0, y });
+  for (const [id, y] of ys) places.set(id, { x: INSET + (tree.get(id)?.x ?? 0), y });
   for (const block of blocks) {
     for (const id of block.group) {
-      places.set(id, { x: lefts[1] ?? 0, y: block.top + (block.offsets.get(id) ?? 0) });
+      places.set(id, { x: INSET + (lefts[1] ?? 0), y: block.top + (block.offsets.get(id) ?? 0) });
     }
   }
   const yOf = (id: string): number | undefined => {
@@ -631,7 +633,7 @@ function grownPlaces(
   }
   for (const block of steps) {
     for (const id of block.group) {
-      places.set(id, { x: lefts[2] ?? 0, y: block.top + (block.offsets.get(id) ?? 0) });
+      places.set(id, { x: INSET + (lefts[2] ?? 0), y: block.top + (block.offsets.get(id) ?? 0) });
     }
   }
   return { places, row };

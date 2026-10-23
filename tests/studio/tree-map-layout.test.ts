@@ -170,12 +170,8 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   assertEquals(from(TRACE_DESTINATIONS), ['Observability', 'Observability']);
 
   const mcp = tools.find((tool) => tool.of === 'mcp');
-  const remote = tools.filter((tool) => tool.of === 'http' || tool.of === 'mcp');
   assertEquals(from(`${TOOL_RUNTIME}/sessions`), [mcp?.label]);
-  assertEquals(
-    from(`${GUARDRAIL_RUNTIME}/network`),
-    remote.map((tool) => tool.label),
-  );
+  assertEquals(from(`${GUARDRAIL_RUNTIME}/network`), ['Tool runner']);
   assertEquals(new Set(from(`${GUARDRAIL_RUNTIME}/sanitize`)), new Set(['Inputs']));
   assertEquals(new Set(from(`${GUARDRAIL_RUNTIME}/egress`)), new Set(['Outputs']));
   assertEquals(from(`${GUARDRAIL_RUNTIME}/result`), ['Tool runner']);

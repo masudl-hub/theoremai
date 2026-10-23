@@ -206,6 +206,21 @@ export function StudioTreeMap({
     if (feed.under !== undefined && !firstUnder.has(feed.under))
       firstUnder.set(feed.under, feed.id);
   }
+  /**
+   * The rail the lines from a source to feeds in its own column run down, right of it: clear of every
+   * token they pass, and one for all of them, so they leave the source as one line.
+   */
+  const railOf = (source: string) => {
+    const ends = shown.filter((feed) => feed.from.includes(source) && beside(layout, source, feed));
+    const ys = [at(source).y, ...ends.map((feed) => endOf(feed).y)];
+    const [top, bottom] = [Math.min(...ys), Math.max(...ys)];
+    const column = ends[0]?.column;
+    const passed = shown
+      .filter((each) => each.column === column)
+      .filter((each) => at(each.id).y >= top && at(each.id).y <= bottom)
+      .map((each) => right(each.id) + LINE_GAP);
+    return Math.max(right(source) + LINE_GAP, ...passed) + BOW;
+  };
   // why: Closed, a line is the still's curve; grown, it runs down its feed's lane like the tree's.
   const square = clamp(grow / MOVE_TO);
   const lines = feeds.flatMap((feed) => {
@@ -223,13 +238,13 @@ export function StudioTreeMap({
             : [feed.id, ...(isRow.has(source) ? [] : [source])];
         if (beside(layout, source, feed)) {
           const into = { x: end.x + width(feed.id) + LINE_GAP, y: end.y };
-          const [top, bottom] = [Math.min(start.y, end.y), Math.max(start.y, end.y)];
-          const passed = shown
-            .filter((each) => each.column === feed.column)
-            .filter((each) => at(each.id).y >= top && at(each.id).y <= bottom)
-            .map((each) => right(each.id));
-          const rail = Math.max(start.x, into.x, ...passed) + BOW;
-          return [{ key: lineKey(source, feed.id), d: mapBracket(start, into, rail, TURN), draws }];
+          return [
+            {
+              key: lineKey(source, feed.id),
+              d: mapBracket(start, into, railOf(source), TURN),
+              draws,
+            },
+          ];
         }
         const lane = layout.lanes.get(lineKey(source, feed.id));
         const rail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;

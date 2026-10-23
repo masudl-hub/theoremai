@@ -377,7 +377,9 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       // why: A tool's sign-in reads its key or its resolver from the vault.
       ...(tools.length > 0 ? [KEY_VAULT] : []),
     ],
-    network: toolsOf(REMOTE_TYPES),
+    // why: The tool runner checks the address of each remote call with the network guard, so one
+    // line from it says so, not one from every remote tool.
+    network: toolsOf(REMOTE_TYPES).length > 0 ? [TOOL_RUNTIME] : [],
     sessions: toolsOf(['mcp']),
     // why: The tool runner hands each result to its guard before it goes back to the model.
     result: tools.length > 0 ? [TOOL_RUNTIME] : [],
@@ -1041,10 +1043,12 @@ function jogsOf(
   const jogs = new Map<string, Jog[]>();
   for (const feed of layout.feeds) {
     const end = grown(feed.id);
-    // What a level run can't pass: other tokens, and the last runs into the feeds beside this one.
+    // What a level run can't pass: other tokens, and the last runs into the feeds beside this one,
+    // but a run from its own source, which it shares.
     const blocks = [
       ...nodes.map((id) => ({
         id,
+        from: undefined as string | undefined,
         left: grown(id).x,
         right: grown(id).x + width(id),
         reach: band,
@@ -1055,7 +1059,15 @@ function jogsOf(
           [...other.from, ...(other.late ?? [])].flatMap((source) => {
             const its = lanes.get(lineKey(source, other.id));
             return its
-              ? [{ id: other.id, left: laneX(its), right: grown(other.id).x, reach: HALF }]
+              ? [
+                  {
+                    id: other.id,
+                    from: source as string | undefined,
+                    left: laneX(its),
+                    right: grown(other.id).x,
+                    reach: HALF,
+                  },
+                ]
               : [];
           }),
         ),
@@ -1074,6 +1086,7 @@ function jogsOf(
             (block) =>
               block.id !== source &&
               block.id !== feed.id &&
+              block.from !== source &&
               block.right > x &&
               block.left < rail &&
               Math.abs(grown(block.id).y - y) < block.reach,

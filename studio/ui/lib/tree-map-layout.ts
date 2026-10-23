@@ -41,7 +41,11 @@ const REMOTE_TYPES = ['http', 'mcp'];
 /** By how far grown every node has reached its zone; the rest is for drawing in. */
 export const MOVE_TO = 0.7;
 /** Over what stretch of growing the added nodes draw, and how long each takes of it. */
-const DRAW_FROM = 0.2;
+const DRAW_FROM = 0.25;
+/** Of a row's glide into a slot, the share it falls before it starts across, and goes across after it lands. */
+const SINK = 0.45;
+/** What the still shows and growing takes away is gone by this far grown. */
+export const LEAVE_TO = 0.3;
 const DRAW_TO = 0.95;
 const DRAW_SPAN = 0.2;
 /** How much of a move across leads down. */
@@ -164,7 +168,11 @@ export function rowId(row: Row): string {
   return `${row.agent}/${row.node.id}`;
 }
 
-function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
+function rowsOf(
+  workspace: StudioWorkspace,
+  only?: readonly string[],
+  facets?: readonly string[],
+): Row[] {
   const rows: Row[] = [];
   const walk = (node: StudioTreeNode, agent: string, depth: number, parent?: Row) => {
     const row: Row = {
@@ -178,7 +186,11 @@ function rowsOf(workspace: StudioWorkspace, only?: readonly string[]): Row[] {
     // why: The models are named once, under their providers beside the tree; the Models row links to
     // them. Observability comes last, level with the trace destinations and the trace exporter at
     // the foot of the map.
-    const children = node.children.filter((child) => child.ref.facet !== 'modelBinding');
+    const children = node.children.filter(
+      (child) =>
+        child.ref.facet !== 'modelBinding' &&
+        (facets === undefined || facets.includes(child.ref.facet)),
+    );
     const rank = (child: StudioTreeNode) =>
       child.ref.facet === 'observability'
         ? ROW_ORDER.length + 1
@@ -846,6 +858,24 @@ export interface TreeMapLayout {
   lanes: Map<string, Lane>;
   /** Grown, where a line steps aside to pass between rows, by its key. */
   jogs: Map<string, Jog[]>;
+  /** What the still shows that growing takes away: its rows, its feeds, and its lines. */
+  leaving: { rows: Row[]; feeds: Feed[]; lines: { source: string; feed: string }[] };
+  /** A row of the still that growing turns into a feed, by its id: the feed's id. */
+  becomes: Map<string, string>;
+}
+
+/** How far what the still shows and growing takes away has gone, 0 to 1. */
+export function goneAt(grow: number): number {
+  return ease(grow / LEAVE_TO);
+}
+
+/** The key under which the line into a feed under another draws, for a feed that was a row. */
+export const underKey = (feed: string) => `${feed}^`;
+
+/** What the map shows closed: these agents, each with only these rows under it. */
+export interface TreeMapStill {
+  agents: readonly string[];
+  facets: readonly string[];
 }
 
 /** A feed's lane: `by` left of the column it stands in, which starts at the feed `of`. */
@@ -857,20 +887,38 @@ export interface Lane {
 /** Where a node stands this far grown: a node under a feed keeps its slot under it on the way. */
 export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place {
   const moved = ease(grow / MOVE_TO);
-  const slot = layout.slots.get(id);
-  if (slot) {
-    const holder = placeAt(layout, slot.holder, grow);
-    const row = between(ROW, layout.row, moved);
-    return { x: holder.x + slot.across, y: holder.y + slot.down * row };
-  }
-  const to = layout.grown.get(id) ?? { x: 0, y: 0 };
-  const from = layout.closed.get(id) ?? to;
   // why: In one move that bends: across leads down a little, so heads bound for different columns
   // are apart before any passes another's row, and each glides on a curve, not two legs.
   const t = clamp(grow / MOVE_TO);
   const across = ease(t / (1 - LEAD));
   const down = ease((t - LEAD) / (1 - LEAD));
-  return { x: between(from.x, to.x, across), y: between(from.y, to.y, down) };
+  const glide = (from: Place, to: Place) => ({
+    x: between(from.x, to.x, across),
+    y: between(from.y, to.y, down),
+  });
+  const slot = layout.slots.get(id);
+  if (slot) {
+    const holder = placeAt(layout, slot.holder, grow);
+    const row = between(ROW, layout.row, moved);
+    const to = { x: holder.x + slot.across, y: holder.y + slot.down * row };
+    // why: A row of the still that grows into a node under a feed glides down the tree's side first
+    // and then across under its holder, so it passes no column's tokens.
+    const from = layout.closed.get(id);
+    if (!from) return to;
+    return {
+      x: between(from.x, to.x, ease((t - SINK) / (1 - SINK))),
+      y: between(from.y, to.y, ease(t / (1 - SINK))),
+    };
+  }
+  // A row of the still that growing takes away folds into its agent as it goes.
+  const leaving = layout.leaving.rows.find((row) => rowId(row) === id);
+  if (leaving?.parent !== undefined) {
+    const parent = placeAt(layout, layout.becomes.get(leaving.parent) ?? leaving.parent, grow);
+    const gone = goneAt(grow);
+    return { x: between(leaving.x, parent.x, gone), y: between(leaving.y, parent.y, gone) };
+  }
+  const to = layout.grown.get(id) ?? { x: 0, y: 0 };
+  return glide(layout.closed.get(id) ?? to, to);
 }
 
 /** How far a node growing adds has drawn, 0 to 1; undefined for one the map shows closed. */
@@ -1187,20 +1235,38 @@ export function treeMapLayout(
   agents: readonly string[] | undefined,
   width: (id: string) => number,
   box?: Box,
+  still?: TreeMapStill,
 ): TreeMapLayout {
   const rows = rowsOf(workspace, agents);
   const feeds = feedsOf(workspace, rows);
+  // Closed, the still: its own agents and rows, or the tree's, and what feeds them.
+  const stillRows = still ? rowsOf(workspace, still.agents, still.facets) : rows;
+  const stillFeeds = still ? feedsOf(workspace, stillRows) : feeds;
+  const grownRows = new Set(rows.map(rowId));
+  const grownFeeds = new Set(feeds.map((feed) => feed.id));
+  // why: An agent of the still that the tree draws as an agent tool's agent glides into it.
+  const becomes = new Map<string, string>();
+  for (const row of stillRows) {
+    if (row.parent !== undefined || grownRows.has(rowId(row))) continue;
+    const spec = workspace.toolSpecs.find((each) => each.agentKey === row.agent);
+    const feed = spec ? `tool:${spec.key}/agent` : undefined;
+    if (feed && grownFeeds.has(feed)) becomes.set(rowId(row), feed);
+  }
   // Closed, the providers, the tools and the runner stand beside the tree, each level with the first
   // row it or a feed closed under it has a line from, or under the one before.
   const fewFeeds = CLOSED.flatMap((kind) =>
-    feeds.filter((feed) => feed.kind === kind && feed.under === undefined),
+    stillFeeds.filter((feed) => feed.kind === kind && feed.under === undefined),
   );
-  const few = new Set(fewFeeds.map((feed) => feed.id));
-  const feedX = Math.max(0, ...rows.map((row) => row.x + width(rowId(row)))) + GAP;
-  const closed = new Map<string, Place>(rows.map((row) => [rowId(row), row]));
-  const rowY = new Map(rows.map((row) => [rowId(row), row.y]));
+  const few = new Set([...fewFeeds.map((feed) => feed.id), ...becomes.values()]);
+  const feedX = Math.max(0, ...stillRows.map((row) => row.x + width(rowId(row)))) + GAP;
+  const closed = new Map<string, Place>(stillRows.map((row) => [rowId(row), row]));
+  for (const [row, feed] of becomes) {
+    const place = closed.get(row);
+    if (place) closed.set(feed, place);
+  }
+  const rowY = new Map(stillRows.map((row) => [rowId(row), row.y]));
   const firstRow = (feed: Feed) =>
-    [feed, ...feeds.filter((each) => each.closedUnder && each.under === feed.id)]
+    [feed, ...stillFeeds.filter((each) => each.closedUnder && each.under === feed.id)]
       .flatMap((each) => each.from)
       .find((id) => rowY.has(id));
   let below = Number.NEGATIVE_INFINITY;
@@ -1211,6 +1277,27 @@ export function treeMapLayout(
   }
   const slots = slotsOf(feeds);
   const { places, row, headings } = grownPlaces(rows, feeds, slots, width, box);
+
+  // What the still shows and the tree does not: it stays where it stood closed as it goes.
+  const shownClosed = (feed: Feed) =>
+    few.has(feed.id) || (feed.closedUnder === true && few.has(feed.under ?? ''));
+  const grownLines = new Set(
+    feeds.flatMap((feed) => feed.from.map((source) => lineKey(source, feed.id))),
+  );
+  const leaving = {
+    rows: stillRows.filter((each) => !grownRows.has(rowId(each)) && !becomes.has(rowId(each))),
+    feeds: stillFeeds.filter((feed) => shownClosed(feed) && !grownFeeds.has(feed.id)),
+    lines: stillFeeds
+      .filter(shownClosed)
+      .flatMap((feed) => feed.from.map((source) => ({ source, feed: feed.id })))
+      .filter((line) => !grownLines.has(lineKey(line.source, line.feed))),
+  };
+  for (const each of leaving.rows) places.set(rowId(each), closed.get(rowId(each)) ?? each);
+  for (const feed of leaving.feeds) {
+    const place = closed.get(feed.id);
+    if (place) places.set(feed.id, place);
+  }
+
   const layout: TreeMapLayout = {
     rows,
     feeds,
@@ -1223,15 +1310,35 @@ export function treeMapLayout(
     starts: new Map(),
     lanes: new Map(),
     jogs: new Map(),
+    leaving,
+    becomes,
   };
   Object.assign(layout, lanesOf(layout, width));
-  // What growing adds draws in its columns' order, each once it stands clear.
-  const order = feeds.filter((feed) => !few.has(feed.id));
+  // What growing adds draws in, the tree's new rows first, then the columns' order, each once it
+  // stands clear.
+  const order = [
+    ...rows.map(rowId).filter((id) => !closed.has(id)),
+    ...feeds.filter((feed) => !few.has(feed.id)).map((feed) => feed.id),
+  ];
   const ids = [...rows.map(rowId), ...feeds.map((feed) => feed.id)];
-  order.forEach((feed, index) => {
+  order.forEach((id, index) => {
     const turn =
       DRAW_FROM + ((DRAW_TO - DRAW_SPAN - DRAW_FROM) * index) / Math.max(order.length - 1, 1);
-    layout.starts.set(feed.id, Math.max(turn, clearFrom(layout, feed.id, ids, width)));
+    layout.starts.set(id, Math.max(turn, clearFrom(layout, id, ids, width)));
   });
+  // A row that grows into a feed under another draws the line into it as it arrives, and the lines
+  // the still did not draw between what it shows draw in as the tree opens.
+  for (const feed of becomes.values()) layout.starts.set(underKey(feed), MOVE_TO - DRAW_SPAN / 2);
+  const stillLines = new Set(
+    stillFeeds
+      .filter(shownClosed)
+      .flatMap((feed) => feed.from.map((source) => lineKey(source, feed.id))),
+  );
+  for (const feed of feeds.filter(shownClosed)) {
+    for (const source of feed.from) {
+      const key = lineKey(source, feed.id);
+      if (closed.has(source) && !stillLines.has(key)) layout.starts.set(key, DRAW_FROM);
+    }
+  }
   return layout;
 }

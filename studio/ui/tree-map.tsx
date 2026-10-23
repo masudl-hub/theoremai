@@ -36,6 +36,7 @@ import {
   drawnAt,
   ease,
   type Feed,
+  goneAt,
   HALF,
   INDENT,
   lineKey,
@@ -44,7 +45,9 @@ import {
   type Place,
   placeAt,
   rowId,
+  type TreeMapStill,
   treeMapLayout,
+  underKey,
 } from './lib/tree-map-layout.ts';
 import { AGENT_ICON, profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
 import { MapToken, useTokenWidths } from './map-token.tsx';
@@ -135,6 +138,12 @@ export interface StudioTreeMapProps {
    * of it. When the map cannot fit, it eases smaller as it grows until all of it does.
    */
   fit?: Box | undefined;
+  /**
+   * What the map shows closed, when not the tree: these agents, each with only these rows. Growing
+   * takes away what the tree does not draw, and an agent the tree draws as an agent tool's agent
+   * glides into it.
+   */
+  still?: TreeMapStill | undefined;
   /** A token dragged moves to where it is dropped, its lines with it; the field dragged moves the whole map. */
   draggable?: boolean | undefined;
 }
@@ -147,6 +156,7 @@ export function StudioTreeMap({
   agents,
   grow = 0,
   fit,
+  still,
   draggable = false,
 }: StudioTreeMapProps) {
   const root = useRef<HTMLDivElement>(null);
@@ -163,8 +173,9 @@ export function StudioTreeMap({
         agents,
         (id) => widths[id] ?? GUESS,
         fitWidth > 0 && fitHeight > 0 ? { width: fitWidth, height: fitHeight } : undefined,
+        still,
       ),
-    [workspace, agents, widths, fitWidth, fitHeight],
+    [workspace, agents, widths, fitWidth, fitHeight, still],
   );
   const width = (id: string) => widths[id] ?? GUESS;
   const drafts = new Map(
@@ -173,7 +184,8 @@ export function StudioTreeMap({
       libraryDraft(workspace, agent.key) ?? createBlankDraft(),
     ]),
   );
-  const { rows, feeds } = layout;
+  const { rows, feeds, leaving } = layout;
+  const gone = goneAt(grow);
   const at = (id: string) => {
     const place = placeAt(layout, id, grow);
     const by = moved[id] ?? NONE;
@@ -232,11 +244,14 @@ export function StudioTreeMap({
         if (!isRow.has(source) && (drawn(source) ?? 1) <= 0) return [];
         const end = endOf(feed);
         const start = { x: right(source) + LINE_GAP, y: at(source).y };
-        const draws = late
-          ? [firstUnder.get(feed.id) ?? feed.id]
-          : feed.closedUnder
-            ? []
-            : [feed.id, ...(isRow.has(source) ? [] : [source])];
+        const draws = [lineKey(source, feed.id)];
+        draws.push(
+          ...(late
+            ? [firstUnder.get(feed.id) ?? feed.id]
+            : feed.closedUnder
+              ? []
+              : [feed.id, ...(isRow.has(source) ? [] : [source])]),
+        );
         if (beside(layout, source, feed)) {
           const into = { x: end.x + width(feed.id) + LINE_GAP, y: end.y };
           return [
@@ -258,6 +273,21 @@ export function StudioTreeMap({
       },
     );
   });
+  // What growing takes away fades: a row folding into its agent, a feed drifting off.
+  const going = gone < 1;
+  const leavingStyle = { opacity: 1 - gone };
+  const parentOf = (id: string) => layout.becomes.get(id) ?? id;
+  const leavingLines = going
+    ? leaving.lines.map(({ source, feed }) => {
+        const each = [...feeds, ...leaving.feeds].find((one) => one.id === feed);
+        const end = at(each?.closedUnder && each.under !== undefined ? each.under : feed);
+        const start = { x: right(source) + LINE_GAP, y: at(source).y };
+        return {
+          key: lineKey(source, feed),
+          d: mapRoute(start, { x: end.x - LINE_GAP, y: end.y }, [], (start.x + end.x) / 2, TURN, 0),
+        };
+      })
+    : [];
   const places = [...rows.map(rowId), ...shown.map((feed) => feed.id)];
   const mapWidth = Math.max(GUESS, ...places.map(right)) + PAD;
   const height = Math.max(...places.map((id) => at(id).y)) + HALF + PAD;
@@ -329,9 +359,25 @@ export function StudioTreeMap({
                 key={rowId(row)}
                 className="map-line"
                 d={linePath(at(row.parent), at(rowId(row)))}
+                {...lineDrawn(rowId(row))}
               />
             ),
         )}
+        {going &&
+          leaving.rows.map(
+            (row) =>
+              row.parent && (
+                <path
+                  key={rowId(row)}
+                  className="map-line"
+                  d={linePath(at(parentOf(row.parent)), at(rowId(row)))}
+                  style={leavingStyle}
+                />
+              ),
+          )}
+        {leavingLines.map(({ key, d }) => (
+          <path key={key} className="map-line" d={d} style={leavingStyle} />
+        ))}
         {lines.map(({ key, d, draws }) => (
           <path key={key} className="map-line" d={d} {...lineDrawn(...draws)} />
         ))}
@@ -339,10 +385,10 @@ export function StudioTreeMap({
           (feed) =>
             feed.under !== undefined && (
               <path
-                key={`${feed.id}^`}
+                key={underKey(feed.id)}
                 className="map-line"
                 d={underPath(at(feed.under), at(feed.id))}
-                {...lineDrawn(feed.id)}
+                {...lineDrawn(feed.id, underKey(feed.id))}
               />
             ),
         )}
@@ -364,17 +410,51 @@ export function StudioTreeMap({
       {rows.map((row) => {
         const draft = drafts.get(row.agent) ?? createBlankDraft();
         const { x, y } = at(rowId(row));
+        const part = drawn(rowId(row));
+        const seen = part === undefined ? 1 : ease(part * 2 - 1);
         return (
           <MapToken
             key={rowId(row)}
             id={rowId(row)}
             label={row.node.label}
             icon={nodeIcon(draft, row.node.ref)}
-            x={x}
+            x={x - DRIFT * (1 - seen)}
             y={y}
+            {...(part === undefined ? {} : { style: { opacity: seen } })}
           />
         );
       })}
+      {going &&
+        leaving.rows.map((row) => {
+          const draft = drafts.get(row.agent) ?? createBlankDraft();
+          const { x, y } = at(rowId(row));
+          return (
+            <MapToken
+              key={rowId(row)}
+              id={rowId(row)}
+              label={row.node.label}
+              icon={nodeIcon(draft, row.node.ref)}
+              x={x}
+              y={y}
+              style={leavingStyle}
+            />
+          );
+        })}
+      {going &&
+        leaving.feeds.map((feed) => {
+          const { x, y } = at(feed.id);
+          return (
+            <MapToken
+              key={feed.id}
+              id={feed.id}
+              label={feed.label}
+              icon={iconOf(feed)}
+              x={x + DRIFT * gone}
+              y={y}
+              style={leavingStyle}
+            />
+          );
+        })}
       {feeds.map((feed) => {
         const { x, y } = at(feed.id);
         const part = drawn(feed.id);

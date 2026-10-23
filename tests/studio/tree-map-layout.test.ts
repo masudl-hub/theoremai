@@ -12,6 +12,7 @@ import {
   beside,
   drawnAt,
   GUARDRAIL_RUNTIME,
+  goneAt,
   HALF,
   HEADING,
   KEY_VAULT,
@@ -25,6 +26,7 @@ import {
   TURN_LOOP,
   TURN_STEPS,
   treeMapLayout,
+  underKey,
 } from '../../studio/ui/lib/tree-map-layout.ts';
 
 /**
@@ -331,4 +333,114 @@ Deno.test('grown into a box, each line runs level clear of every token, lines sh
   );
   assert(fromTools.length > 1);
   assertEquals(new Set(fromTools.map((tool) => railOf(source, tool.id))).size, 1);
+});
+
+/**
+ * The architect with its narrator, and the decision example the architect calls as make_decision:
+ * closed, all three with their models and tools; grown, the architect alone.
+ */
+function stillPicture(): TreeMapLayout {
+  const base = createArchitectWorkspace();
+  const narrate = base.toolSpecs.find((tool) => tool.toolType === 'agent');
+  const trimmed: StudioWorkspace = {
+    ...base,
+    agents: base.agents.map((agent) => ({
+      ...agent,
+      tools: { ...agent.tools, allow: agent.tools.allow.filter((key) => key !== narrate?.key) },
+    })),
+    toolSpecs: base.toolSpecs.filter((tool) => tool !== narrate),
+  };
+  const added = addAgent(trimmed, decisionExampleDraft());
+  const [architect, narrator, decision] = added.agents;
+  const ask = defaultToolSpec({
+    toolName: 'make_decision',
+    toolType: 'agent',
+    agentKey: decision?.key ?? '',
+    description: 'Asks the decision agent to make a call.',
+    category: 'demo',
+  });
+  const workspace: StudioWorkspace = {
+    ...added,
+    agents: added.agents.map((agent) =>
+      agent === architect
+        ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, ask.key] } }
+        : agent,
+    ),
+    toolSpecs: [...added.toolSpecs, ask],
+  };
+  const still = {
+    agents: [architect?.key ?? '', decision?.key ?? '', narrator?.key ?? ''],
+    facets: ['models', 'tools'],
+  };
+  const agents = [architect?.key ?? ''];
+  const named = treeMapLayout(workspace, agents, () => 0, undefined, still);
+  const labels = new Map<string, string>([
+    ...[...named.rows, ...named.leaving.rows].map((row) => [rowId(row), row.node.label] as const),
+    ...[...named.feeds, ...named.leaving.feeds].map((feed) => [feed.id, feed.label] as const),
+  ]);
+  const wide = (id: string) => 40 + 7 * (labels.get(id) ?? '').length;
+  return treeMapLayout(workspace, agents, wide, BOX, still);
+}
+
+Deno.test('closed, the still shows its agents with their models and tools; grown, the tree alone', () => {
+  const layout = stillPicture();
+  const roots = layout.rows.filter((row) => row.parent === undefined);
+  assertEquals(roots.length, 1);
+  // The narrator's rows go, and the decision agent's root glides into make_decision's agent.
+  const [[jev, feed] = ['', '']] = [...layout.becomes];
+  assert(feed.endsWith('/agent'));
+  const { x, y } = layout.closed.get(jev) ?? { x: -1, y: -1 };
+  assertEquals(placeAt(layout, feed, 0), { x, y });
+  const grown = placeAt(layout, feed, 1);
+  const holder = layout.slots.get(feed)?.holder ?? '';
+  assert(grown.x > placeAt(layout, holder, 1).x && grown.y > placeAt(layout, holder, 1).y);
+  assert(layout.leaving.rows.length > 0);
+  for (const row of layout.leaving.rows) assert(layout.closed.has(rowId(row)));
+  assert(layout.leaving.rows.some((row) => row.node.label === 'Models'));
+  assertEquals(goneAt(0), 0);
+  assertEquals(goneAt(0.3), 1);
+  // Closed, each agent shows only its models and tools; grown, the architect every row.
+  const stillFacets = layout.leaving.rows.flatMap((row) =>
+    row.parent ? [row.node.ref.facet] : [],
+  );
+  for (const facet of stillFacets) assert(['models', 'tools'].includes(facet));
+  // What the tree adds to the still draws in: its new rows, and the line into the decision agent.
+  const added = layout.rows.map(rowId).filter((id) => !layout.closed.has(id));
+  assert(added.length > 0);
+  for (const id of added) {
+    assertEquals(drawnAt(layout, id, 0), 0);
+    assertEquals(drawnAt(layout, id, 1), 1);
+  }
+  assertEquals(drawnAt(layout, underKey(feed), 0), 0);
+  assertEquals(drawnAt(layout, underKey(feed), 1), 1);
+  // Growing, nothing seen passes over another, but a row folding into its own agent.
+  const leavingIds = new Set([
+    ...layout.leaving.rows.map(rowId),
+    ...layout.leaving.feeds.map((each) => each.id),
+  ]);
+  const ids = [...layout.rows.map(rowId), ...layout.feeds.map((each) => each.id), ...leavingIds];
+  const label = (id: string) =>
+    [...layout.rows, ...layout.leaving.rows].find((row) => rowId(row) === id)?.node.label ??
+    [...layout.feeds, ...layout.leaving.feeds].find((each) => each.id === id)?.label ??
+    '';
+  const wide = (id: string) => 40 + 7 * label(id).length;
+  const folds = (child: string, parent: string) => {
+    const row = layout.leaving.rows.find((each) => rowId(each) === child);
+    return row?.parent !== undefined && (layout.becomes.get(row.parent) ?? row.parent) === parent;
+  };
+  for (let step = 0; step <= 200; step += 1) {
+    const grow = step / 200;
+    const seen = ids.filter((id) =>
+      leavingIds.has(id) ? goneAt(grow) < 0.5 : (drawnAt(layout, id, grow) ?? 1) > 0.5,
+    );
+    for (const [index, a] of seen.entries()) {
+      for (const b of seen.slice(index + 1)) {
+        if (folds(a, b) || folds(b, a)) continue;
+        const [p, q] = [placeAt(layout, a, grow), placeAt(layout, b, grow)];
+        const apart =
+          p.x + wide(a) <= q.x || q.x + wide(b) <= p.x || Math.abs(p.y - q.y) >= 2 * HALF;
+        assert(apart, `${label(a)} and ${label(b)} meet at ${grow}`);
+      }
+    }
+  }
 });

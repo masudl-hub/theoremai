@@ -457,19 +457,23 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
       layout.feeds.some((each) => each.id === line.feed && each.kind === 'model'),
     ),
   );
-  // Each row's run starts level with the row and goes down: the first item stands beside it.
-  const shown = [...layout.rows, ...layout.leaving.rows].map(rowId);
-  const lines = [...layout.feeds, ...layout.leaving.feeds].flatMap((each) =>
-    layout.few.has(each.id) ? each.from.map((source) => ({ source, feed: each.id })) : [],
+  // Every line runs level or down from its row into its feed, and the feeds stand centred beside
+  // the rows as far as that lets them.
+  const shown = [...layout.rows, ...layout.leaving.rows].map(
+    (row) => layout.closed.get(rowId(row))?.y ?? 0,
   );
-  for (const source of shown) {
-    const at = layout.closed.get(source)?.y;
-    const below = lines
-      .filter((line) => line.source === source)
-      .map((line) => layout.closed.get(line.feed)?.y ?? -Infinity)
-      .filter((y) => at !== undefined && y >= at);
-    if (below.length > 0) assertEquals(Math.min(...below), at, source);
+  const column: number[] = [];
+  for (const each of [...layout.feeds, ...layout.leaving.feeds]) {
+    const y = layout.closed.get(each.id)?.y;
+    if (!layout.few.has(each.id) || y === undefined) continue;
+    if (each.kind === 'model' || each.kind === 'tool') column.push(y);
+    for (const source of each.from) {
+      const from = layout.closed.get(source)?.y;
+      if (from !== undefined) assert(y >= from, `${source} runs up to ${each.id}`);
+    }
   }
+  const middle = (ys: number[]) => (Math.min(...ys) + Math.max(...ys)) / 2;
+  assert(Math.abs(middle(column) - middle(shown)) < (Math.max(...shown) - Math.min(...shown)) / 4);
   // Growing, no two tokens at rest meet.
   const leavingIds = new Set([
     ...layout.leaving.rows.map(rowId),

@@ -1285,8 +1285,8 @@ function anchorsOf(
 
 /**
  * Closed, the still: the rows down the map, a gap before each agent after the first, and beside
- * them, at `x`, the feeds it shows, each row's run starting level with the row and going down. A
- * row with a run stands far enough down that its run starts below the one above.
+ * them, at `x`, the feeds it shows. The runs stand one under another, a row's gap between them,
+ * centred beside the rows; each starts level with a row, none above a row it serves.
  */
 function stillPlaces(
   rows: Row[],
@@ -1299,27 +1299,39 @@ function stillPlaces(
     const source = feed.from.find((id) => ids.has(id));
     if (source !== undefined) runs.set(source, [...(runs.get(source) ?? []), feed]);
   }
-  const feeds = new Map<string, Place>();
-  let floor = PAD + HALF;
-  let clear = PAD + HALF;
+  let y = PAD + HALF;
   const placed = rows.map((row, index) => {
-    if (index > 0 && row.parent === undefined) {
-      floor += AGENT_GAP;
-      clear += AGENT_GAP;
-    }
-    const run = runs.get(rowId(row)) ?? [];
-    const y = run.length > 0 ? Math.max(floor, clear) : floor;
-    for (const [at, feed] of run.entries()) feeds.set(feed.id, { x, y: y + at * ROW });
-    if (run.length > 0) clear = y + run.length * ROW;
-    floor = y + ROW;
-    return { ...row, y };
+    if (index > 0 && row.parent === undefined) y += AGENT_GAP;
+    const at = { ...row, y };
+    y += ROW;
+    return at;
   });
+  const yOf = new Map(placed.map((row) => [rowId(row), row.y]));
+  // why: Every line runs down to the run, so a run stands no higher than the lowest row it serves.
+  const own = placed.flatMap((row) => {
+    const run = runs.get(rowId(row)) ?? [];
+    const floor = Math.max(...run.flatMap((feed) => feed.from.map((id) => yOf.get(id) ?? row.y)));
+    return run.length > 0 ? [{ floor, run }] : [];
+  });
+  const slots = own.reduce((sum, { run }) => sum + run.length + 1, -1);
+  const [first, last] = [placed[0]?.y ?? 0, placed.at(-1)?.y ?? 0];
+  const centred = (first + last) / 2 - (slots * ROW) / 2;
+  // why: A run starts level with a row, so its items stand level with the rows beside them.
+  const levelFrom = (from: number) => placed.find((row) => row.y >= from - HALF)?.y ?? from;
+  const feeds = new Map<string, Place>();
+  let cursor = centred;
+  for (const { floor, run } of own) {
+    const top = levelFrom(Math.max(cursor, floor));
+    for (const [step, feed] of run.entries()) feeds.set(feed.id, { x, y: top + step * ROW });
+    cursor = top + (run.length + 1) * ROW;
+  }
   return { rows: placed, feeds };
 }
 
 /**
  * Closed, the x each row's lines run down to its feeds, together: left of the feeds, a lane
- * further left for each trunk it would run beside, so two rows' lines meet only at a feed both have.
+ * further left for each trunk from a row above it that it would run beside, so two rows' lines meet
+ * only at a feed both have.
  */
 function trunksOf(
   lines: { source: string; feed: string }[],
@@ -1334,7 +1346,9 @@ function trunksOf(
   }
   const taken: { lane: number; top: number; bottom: number }[] = [];
   const trunks = new Map<string, number>();
-  for (const [source, [top, bottom]] of spans) {
+  // why: A lower row's trunk stands further left, so its line in runs short of the trunks above.
+  const fromTop = [...spans].sort(([, [a]], [, [b]]) => a - b);
+  for (const [source, [top, bottom]] of fromTop) {
     let lane = 0;
     while (taken.some((each) => each.lane === lane && each.top <= bottom && top <= each.bottom))
       lane += 1;

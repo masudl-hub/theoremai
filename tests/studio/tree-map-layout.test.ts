@@ -14,6 +14,7 @@ import {
   GUARDRAIL_RUNTIME,
   HALF,
   HEADING,
+  KEY_VAULT,
   lineKey,
   PROVIDER_STREAM,
   placeAt,
@@ -21,6 +22,7 @@ import {
   TOOL_RUNTIME,
   TRACE_DESTINATIONS,
   type TreeMapLayout,
+  TURN_LOOP,
   TURN_STEPS,
   treeMapLayout,
 } from '../../studio/ui/lib/tree-map-layout.ts';
@@ -101,7 +103,7 @@ const width = (layout: TreeMapLayout, id: string) => {
   return 40 + 7 * label.length;
 };
 
-const BOX: Box = { width: 860, height: 960 };
+const BOX: Box = { width: 860, height: 1010 };
 
 for (const box of [undefined, BOX]) {
   Deno.test(`growing, no token of the tree map stands on another${box ? ', filling a box' : ''}`, () => {
@@ -181,7 +183,11 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   assert(models.length > 0);
   for (const model of models) assert(model.under?.startsWith('provider:'), model.id);
   assertEquals(columnOf('model'), new Set([1]));
-  assertEquals(from(`${TOOL_RUNTIME}/sign-in`), []);
+  assertEquals(from(`${TOOL_RUNTIME}/sign-in`), ['Key vault']);
+  assertEquals(from(PROVIDER_STREAM), ['Key vault']);
+  assertEquals(feed(KEY_VAULT)?.column, 1);
+  assertEquals(from(TURN_LOOP), ['Turn behaviour']);
+  assertEquals(feed(TURN_LOOP)?.column, 2);
   assertEquals(
     from(TOOL_RUNTIME),
     tools.map((tool) => tool.label),
@@ -221,14 +227,14 @@ Deno.test('closed the tree map is as it was, and grown every node growing adds h
   const layout = picture(BOX);
   for (const [id, { x, y }] of layout.closed) assertEquals(placeAt(layout, id, 0), { x, y });
   const added = layout.feeds.filter((feed) => !layout.few.has(feed.id));
-  assertEquals(added.length, 22);
+  assertEquals(added.length, 24);
   for (const feed of added) {
     assertEquals(drawnAt(layout, feed.id, 0), 0);
     assertEquals(drawnAt(layout, feed.id, 1), 1);
   }
 });
 
-Deno.test('grown, the rows into the guards stand level with them', () => {
+Deno.test('grown, the rows into the turn loop, the tool runner and the guards stand level with them', () => {
   const layout = picture(BOX);
   const at = (id: string) => placeAt(layout, id, 1).y;
   const [agent] = layout.rows;
@@ -244,6 +250,7 @@ Deno.test('grown, the rows into the guards stand level with them', () => {
   assertEquals(at(row('outputs')), at(`${GUARDRAIL_RUNTIME}/egress`));
   const tools = layout.feeds.filter((feed) => feed.kind === 'tool' && feed.column === 1);
   assertEquals(at(TOOL_RUNTIME), Math.min(...tools.map((tool) => at(tool.id))));
+  assertEquals(at(row('turnBehaviour')), at(TURN_LOOP));
 });
 
 Deno.test('grown into a box, the tree map fills it', () => {

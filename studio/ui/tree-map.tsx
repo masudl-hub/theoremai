@@ -18,10 +18,12 @@ import {
   IconLock,
   IconPlugConnected,
   IconRepeat,
+  IconRotateClockwise,
   IconSettingsAutomation,
   IconShieldCheck,
   IconStack2,
   IconTimeline,
+  IconVault,
   IconWorldCheck,
 } from '@tabler/icons-react';
 import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
@@ -67,6 +69,7 @@ const STEP_ICONS: Record<string, IconType> = {
   tools: IconRepeat,
   egress: IconShieldCheck,
   trace: IconTimeline,
+  loop: IconRotateClockwise,
 };
 
 const CHECK_ICONS: Record<string, IconType> = {
@@ -87,6 +90,7 @@ function feedIcon(feed: Feed): IconType {
   if (feed.kind === 'tool-runtime') return IconSettingsAutomation;
   if (feed.kind === 'guardrail-runtime') return IconShieldCheck;
   if (feed.kind === 'destinations') return IconDatabase;
+  if (feed.kind === 'vault') return IconVault;
   if (feed.kind === 'model') return IconCpu;
   return CHECK_ICONS[of] ?? IconShieldCheck;
 }

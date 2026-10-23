@@ -53,6 +53,8 @@ export const TOOL_RUNTIME = 'tool-runtime';
 export const GUARDRAIL_RUNTIME = 'guardrail-runtime';
 export const TRACE_DESTINATIONS = 'trace-destinations';
 export const PROVIDER_STREAM = 'provider-stream';
+export const KEY_VAULT = 'key-vault';
+export const TURN_LOOP = 'turn-loop';
 
 export interface Place {
   x: number;
@@ -77,6 +79,7 @@ export type FeedKind =
   | 'guardrail-runtime'
   | 'check'
   | 'destinations'
+  | 'vault'
   | 'stream'
   | 'model';
 
@@ -278,6 +281,18 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
       });
     }
   }
+  // why: The key vault holds the keys the protocols call providers with and the tools sign in
+  // with, so it stands between the providers and the tools.
+  if (protocols.length > 0 || TOOL_TYPES.some(firstOf)) {
+    feeds.push({
+      id: KEY_VAULT,
+      label: 'Key vault',
+      kind: 'vault',
+      from: [],
+      column: 1,
+      group: 'vault',
+    });
+  }
   const tools: { id: string; spec: StudioWorkspace['toolSpecs'][number] }[] = [];
   for (const type of TOOL_TYPES) {
     const spec = firstOf(type);
@@ -326,23 +341,42 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     group: 'destinations',
   });
 
-  // The runner: the provider protocols, one under another, then the tool runner and the guard
-  // runner with what each does under it, then the trace exporter.
+  // The runner: the provider protocols, one under another, then the turn loop, the tool runner and
+  // the guard runner with what each does under it, then the trace exporter.
   if (protocols.length > 0) {
     feeds.push({
       id: PROVIDER_STREAM,
       label: 'Provider protocols',
       kind: 'stream',
-      from: [],
+      // why: The protocols call each provider with the key the vault holds for it.
+      from: [KEY_VAULT],
       column: 2,
       group: 'protocols',
     });
     feeds.push(...protocols);
   }
+  // why: The turn loop runs the steps of a turn as the turn behaviour sets them: where the step
+  // limit stops it, and whether a cut-off reply continues or the user steers it.
+  const turnBehaviour = sections(['turnBehaviour']);
+  if (turnBehaviour.length > 0) {
+    feeds.push({
+      id: TURN_LOOP,
+      label: 'Turn loop',
+      kind: 'step',
+      of: 'loop',
+      from: turnBehaviour,
+      column: 2,
+      group: 'turn-loop',
+    });
+  }
   const toolsOf = (types: readonly string[]) =>
     tools.filter(({ spec }) => types.includes(spec.toolType)).map(({ id }) => id);
   const checkFrom: Record<string, string[]> = {
-    'sign-in': tools.filter(({ spec }) => (spec.authType ?? 'none') !== 'none').map(({ id }) => id),
+    'sign-in': [
+      ...tools.filter(({ spec }) => (spec.authType ?? 'none') !== 'none').map(({ id }) => id),
+      // why: A tool's sign-in reads its key or its resolver from the vault.
+      ...(tools.length > 0 ? [KEY_VAULT] : []),
+    ],
     network: toolsOf(REMOTE_TYPES),
     sessions: toolsOf(['mcp']),
     // why: The tool runner hands each result to its guard before it goes back to the model.
@@ -508,7 +542,7 @@ function liftTail(
     tail.push(each);
   }
   const last = (ys.get(rowId(lastRow)) ?? 0) + Math.max(0, shift);
-  tail.forEach((each, index) => ys.set(rowId(each), last - index * step));
+  for (const [index, each] of tail.entries()) ys.set(rowId(each), last - index * step);
   if (shift > 0) for (const block of foot) block.top += shift;
 }
 
@@ -659,6 +693,7 @@ function grownPlaces(
     // its agent.
     let reserve = start;
     let last: Row | undefined;
+    const placed = new Set<(typeof blocks)[number]>();
     for (const row of rows) {
       const id = rowId(row);
       if (last && last.agent !== row.agent) {
@@ -680,12 +715,20 @@ function grownPlaces(
         y = block.top + offset;
         floor = block.top + block.size + 2 * step;
         below = Math.max(below, block.top + block.size + step);
+        // A block with no line from a row stands after the block before it.
+        for (const next of blocks.slice(blocks.indexOf(block) + 1)) {
+          if (next.anchor || placed.has(next)) break;
+          next.top = floor;
+          floor = next.top + next.size + 2 * step;
+          below = Math.max(below, next.top + next.size + step);
+          placed.add(next);
+        }
       }
       ys.set(id, y);
       y = Math.max(y + step, below);
       last = row;
     }
-    for (const block of blocks.filter((each) => !each.anchor)) {
+    for (const block of blocks.filter((each) => !each.anchor && !placed.has(each))) {
       block.top = floor;
       floor = block.top + block.size + 2 * step;
     }
@@ -747,7 +790,13 @@ function grownPlaces(
     });
   const steps = blocksOf(runner, row).map((block) => {
     const [head] = block.group;
-    const heads = ysOf(head === undefined ? [] : sourcesOf(head));
+    // why: A source with no line of its own, the key vault, does not place a head; its line finds
+    // the head where it stands.
+    const heads = ysOf(
+      (head === undefined ? [] : sourcesOf(head)).filter(
+        (source) => tree.has(source) || sourcesOf(source).length > 0,
+      ),
+    );
     const at = ysOf([...block.offsets.keys()].flatMap(sourcesOf));
     const want =
       heads.length > 0

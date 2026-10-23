@@ -43,7 +43,9 @@ export const MOVE_TO = 0.7;
 /** Over what stretch of growing the added nodes draw, and how long each takes of it. */
 const DRAW_FROM = 0.2;
 const DRAW_TO = 0.95;
-const DRAW_SPAN = 0.1;
+const DRAW_SPAN = 0.2;
+/** How much of a move across leads down. */
+const LEAD = 0.2;
 /** How finely growing is walked to find where an added node first stands clear. */
 const SAMPLES = 100;
 /** Space kept clear round a token. */
@@ -450,6 +452,11 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
 }
 
 const clamp = (value: number) => Math.min(Math.max(value, 0), 1);
+/** Slow out, slow in: how far a move or a draw has gone at `at` of its time, both from 0 to 1. */
+export const ease = (at: number) => {
+  const t = clamp(at);
+  return t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2;
+};
 const between = (from: number, to: number, at: number) => from + (to - from) * at;
 
 /** Where a node under a feed sits from it: across, and rows down. */
@@ -851,7 +858,7 @@ export interface Lane {
 
 /** Where a node stands this far grown: a node under a feed keeps its slot under it on the way. */
 export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place {
-  const moved = clamp(grow / MOVE_TO);
+  const moved = ease(grow / MOVE_TO);
   const slot = layout.slots.get(id);
   if (slot) {
     const holder = placeAt(layout, slot.holder, grow);
@@ -860,10 +867,11 @@ export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place 
   }
   const to = layout.grown.get(id) ?? { x: 0, y: 0 };
   const from = layout.closed.get(id) ?? to;
-  // why: Across into its column first, then up or down it: heads bound for different columns are
-  // apart before any passes another's row.
-  const across = clamp(grow / (MOVE_TO / 2));
-  const down = clamp((grow - MOVE_TO / 2) / (MOVE_TO / 2));
+  // why: In one move that bends: across leads down a little, so heads bound for different columns
+  // are apart before any passes another's row, and each glides on a curve, not two legs.
+  const t = clamp(grow / MOVE_TO);
+  const across = ease(t / (1 - LEAD));
+  const down = ease((t - LEAD) / (1 - LEAD));
   return { x: between(from.x, to.x, across), y: between(from.y, to.y, down) };
 }
 

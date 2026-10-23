@@ -34,6 +34,7 @@ import {
   type Box,
   beside,
   drawnAt,
+  ease,
   type Feed,
   HALF,
   INDENT,
@@ -59,6 +60,8 @@ const TURN = 8;
 const LINE_GAP = 4;
 /** How far right of the feeds it passes a line between two feeds of one column runs. */
 const BOW = 16;
+/** How far a token drawing drifts into place. */
+const DRIFT = 8;
 /** A token's width until it is measured. */
 const GUESS = 120;
 
@@ -114,8 +117,6 @@ function underPath(from: Place, to: Place): string {
     ` Q ${trunk} ${to.y} ${trunk + TURN} ${to.y} H ${to.x - LINE_GAP}`
   );
 }
-
-const clamp = (value: number) => Math.min(Math.max(value, 0), 1);
 
 export interface StudioTreeMapProps {
   workspace: StudioWorkspace;
@@ -184,7 +185,7 @@ export function StudioTreeMap({
     const parts = ids.flatMap((id) => drawn(id) ?? []);
     if (parts.length === 0) return {};
     const part = Math.min(...parts);
-    return { pathLength: 1, style: { strokeDasharray: 1, strokeDashoffset: 1 - clamp(part * 2) } };
+    return { pathLength: 1, style: { strokeDasharray: 1, strokeDashoffset: 1 - ease(part * 2) } };
   };
   const shown = feeds.filter((feed) => (drawn(feed.id) ?? 1) > 0);
 
@@ -198,7 +199,7 @@ export function StudioTreeMap({
     const place = at(feed.id);
     if (!feed.closedUnder || feed.under === undefined) return place;
     const holder = at(feed.under);
-    const part = clamp((drawn(feed.id) ?? 1) * 2);
+    const part = ease((drawn(feed.id) ?? 1) * 2);
     return { x: holder.x + (place.x - holder.x) * part, y: holder.y + (place.y - holder.y) * part };
   };
   const firstUnder = new Map<string, string>();
@@ -222,7 +223,7 @@ export function StudioTreeMap({
     return Math.max(right(source) + LINE_GAP, ...passed) + BOW;
   };
   // why: Closed, a line is the still's curve; grown, it runs down its feed's lane like the tree's.
-  const square = clamp(grow / MOVE_TO);
+  const square = ease(grow / MOVE_TO);
   const lines = feeds.flatMap((feed) => {
     if (!feed.closedUnder && (drawn(feed.id) ?? 1) <= 0) return [];
     const late = (feed.late ?? []).map((source) => ({ source, late: true }));
@@ -269,12 +270,12 @@ export function StudioTreeMap({
     };
   }, [layout, widths]);
   const fits = fit ? Math.min(1, fit.width / grown.width, fit.height / grown.height) : 1;
-  const scale = 1 + (fits - 1) * clamp(grow);
+  const scale = 1 + (fits - 1) * ease(grow);
   // why: Grown, the map stands in the middle of the box it fills; closed, at its top left.
   const centre = fit
     ? {
-        x: (Math.max(0, fit.width - grown.width * fits) / 2) * clamp(grow),
-        y: (Math.max(0, fit.height - grown.height * fits) / 2) * clamp(grow),
+        x: (Math.max(0, fit.width - grown.width * fits) / 2) * ease(grow),
+        y: (Math.max(0, fit.height - grown.height * fits) / 2) * ease(grow),
       }
     : NONE;
   // why: The pointer moves in the page's pixels; the map is scaled, so a move is divided back into its own.
@@ -350,7 +351,7 @@ export function StudioTreeMap({
         <div
           key={label}
           className="studio-tree-map-heading"
-          style={{ left: x, top: y, opacity: clamp(grow * 2 - 1) }}
+          style={{ left: x, top: y, opacity: ease(grow * 2 - 1) }}
         >
           <Text type="supporting" color="secondary" weight="semibold">
             {label}
@@ -378,15 +379,17 @@ export function StudioTreeMap({
         const { x, y } = at(feed.id);
         const part = drawn(feed.id);
         const unseen = part === 0 ? { visibility: 'hidden' as const } : {};
+        // why: A token drawing drifts the last few pixels into the end of its line as it fades in.
+        const seen = part === undefined ? 1 : ease(part * 2 - 1);
         return (
           <MapToken
             key={feed.id}
             id={feed.id}
             label={feed.label}
             icon={iconOf(feed)}
-            x={x}
+            x={x - DRIFT * (1 - seen)}
             y={y}
-            {...(part === undefined ? {} : { style: { ...unseen, opacity: clamp(part * 2 - 1) } })}
+            {...(part === undefined ? {} : { style: { ...unseen, opacity: seen } })}
           />
         );
       })}

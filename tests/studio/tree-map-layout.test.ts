@@ -167,10 +167,13 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   assertEquals(from('provider:openrouter'), []);
   const asked = tools.find((tool) => tool.of === 'agent');
   const subagent = feeds.find((each) => each.under === asked?.id);
-  // The agent tool's agent's models stand under their providers, each from the agent under the tool.
+  // The agent tool's agent's models stand under their providers, each from the agent under the tool;
+  // a model it shares with an agent drawn stands once, with a line from each.
   for (const model of feeds.filter((each) => each.kind === 'model'))
-    assert(model.from[0] === subagent?.id || from(model.id)[0] === 'Models', model.id);
-  assert(feeds.some((each) => each.kind === 'model' && each.from[0] === subagent?.id));
+    for (const source of model.from)
+      assert(source === subagent?.id || label(source) === 'Models', model.id);
+  assert(feeds.some((each) => each.kind === 'model' && each.from.includes(subagent?.id ?? '')));
+  assert(feeds.some((each) => each.kind === 'model' && each.from.length > 1));
   assertEquals(
     rows.filter((row) => row.node.ref.facet === 'modelBinding'),
     [],
@@ -237,7 +240,7 @@ Deno.test('closed the tree map is as it was, and grown every node growing adds h
   for (const [id, { x, y }] of layout.closed) assertEquals(placeAt(layout, id, 0), { x, y });
   // Closed, the models with a line from a row and the tools show; the providers come out over them.
   const added = layout.feeds.filter((feed) => !layout.few.has(feed.id));
-  assertEquals(added.length, 23);
+  assertEquals(added.length, 20);
   for (const feed of layout.feeds.filter((each) => each.kind === 'provider'))
     assert(!layout.few.has(feed.id), feed.id);
   for (const feed of added) {
@@ -448,6 +451,25 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
     .filter((line) => line.feed === tools[0]?.id)
     .map((line) => line.source);
   assert(layout.trunks.get(toolsRow) !== layout.trunks.get(conciergeTools));
+  // The models the concierge shares stand once too, with a line from its Models row.
+  assert(
+    layout.leaving.lines.some((line) =>
+      layout.feeds.some((each) => each.id === line.feed && each.kind === 'model'),
+    ),
+  );
+  // Each row's run starts level with the row and goes down: the first item stands beside it.
+  const shown = [...layout.rows, ...layout.leaving.rows].map(rowId);
+  const lines = [...layout.feeds, ...layout.leaving.feeds].flatMap((each) =>
+    layout.few.has(each.id) ? each.from.map((source) => ({ source, feed: each.id })) : [],
+  );
+  for (const source of shown) {
+    const at = layout.closed.get(source)?.y;
+    const below = lines
+      .filter((line) => line.source === source)
+      .map((line) => layout.closed.get(line.feed)?.y ?? -Infinity)
+      .filter((y) => at !== undefined && y >= at);
+    if (below.length > 0) assertEquals(Math.min(...below), at, source);
+  }
   // Growing, no two tokens at rest meet.
   const leavingIds = new Set([
     ...layout.leaving.rows.map(rowId),

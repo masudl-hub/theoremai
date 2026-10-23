@@ -236,6 +236,41 @@ function toolFeeds(
 }
 
 /**
+ * Each provider with the sources of each of its protocols, and each model once under its provider,
+ * with a line from each source that runs on it.
+ */
+function modelsOf(modelled: { agent: StudioWorkspace['agents'][number]; source: string }[]) {
+  const providers = new Map<string, Map<string, string[]>>();
+  // why: Agents that run on the same model share it, as they share a tool: one model, with a line
+  // from each Models row.
+  const models = new Map<string, Feed>();
+  for (const { agent, source } of modelled) {
+    for (const binding of agent.modelBindings) {
+      const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
+      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), source]);
+      providers.set(binding.provider, protocols);
+      const id = `model:${binding.provider}:${binding.apiId}:${binding.modelId}`;
+      const shared = models.get(id);
+      if (shared) {
+        if (!shared.from.includes(source)) shared.from.push(source);
+        continue;
+      }
+      models.set(id, {
+        id,
+        label: binding.modelId,
+        kind: 'model',
+        of: binding.apiId,
+        from: [source],
+        under: `provider:${binding.provider}`,
+        column: 1,
+        group: 'providers',
+      });
+    }
+  }
+  return { providers, models };
+}
+
+/**
  * Beside the tree, shared by every agent drawn, two columns. First, the registries: the first tool of
  * each type the agents allow, with a line from each Tools row that allows it, and an agent tool's
  * agent under it; each provider, with its models under it, each with a line from its Models row; and the trace
@@ -278,25 +313,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
     }),
     ...(asked && askedAgent ? [{ agent: askedAgent, source: `tool:${asked.key}/agent` }] : []),
   ];
-  const providers = new Map<string, Map<string, string[]>>();
-  const models: Feed[] = [];
-  for (const { agent, source } of modelled) {
-    for (const binding of agent.modelBindings) {
-      const protocols = providers.get(binding.provider) ?? new Map<string, string[]>();
-      protocols.set(binding.protocol, [...(protocols.get(binding.protocol) ?? []), source]);
-      providers.set(binding.provider, protocols);
-      models.push({
-        id: `model:${agent.key}/${binding.key}`,
-        label: binding.modelId,
-        kind: 'model',
-        of: binding.apiId,
-        from: [source],
-        under: `provider:${binding.provider}`,
-        column: 1,
-        group: 'providers',
-      });
-    }
-  }
+  const { providers, models } = modelsOf(modelled);
   const protocols: Feed[] = [];
   for (const [provider, byProtocol] of providers) {
     const id = `provider:${provider}`;
@@ -346,7 +363,7 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
   const observability = sections(['observability']);
 
   // Registries: each provider, its models under it, and the trace destinations.
-  feeds.push(...models);
+  feeds.push(...models.values());
   feeds.push({
     id: TRACE_DESTINATIONS,
     label: 'Trace destinations',
@@ -1268,8 +1285,8 @@ function anchorsOf(
 
 /**
  * Closed, the still: the rows down the map, a gap before each agent after the first, and beside
- * them, at `x`, the feeds it shows, each row's run centred on the row. A row with a run stands far
- * enough down that its run clears the one above.
+ * them, at `x`, the feeds it shows, each row's run starting level with the row and going down. A
+ * row with a run stands far enough down that its run starts below the one above.
  */
 function stillPlaces(
   rows: Row[],
@@ -1291,10 +1308,9 @@ function stillPlaces(
       clear += AGENT_GAP;
     }
     const run = runs.get(rowId(row)) ?? [];
-    const half = ((run.length - 1) * ROW) / 2;
-    const y = run.length > 0 ? Math.max(floor, clear + half) : floor;
-    for (const [at, feed] of run.entries()) feeds.set(feed.id, { x, y: y - half + at * ROW });
-    if (run.length > 0) clear = y + half + ROW;
+    const y = run.length > 0 ? Math.max(floor, clear) : floor;
+    for (const [at, feed] of run.entries()) feeds.set(feed.id, { x, y: y + at * ROW });
+    if (run.length > 0) clear = y + run.length * ROW;
     floor = y + ROW;
     return { ...row, y };
   });

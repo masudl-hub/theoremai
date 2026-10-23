@@ -38,14 +38,17 @@ const LANE = 9;
 const TOOL_TYPES = ['function', 'http', 'mcp', 'agent'];
 /** The tools a remote call reaches the network for. */
 const REMOTE_TYPES = ['http', 'mcp'];
-/** By how far grown every node has reached its zone, and the map its size: most of the pull, so it moves with its card. */
-export const MOVE_TO = 0.8;
-/** Over what stretch of growing the added nodes draw, and how long each takes of it. */
-const DRAW_FROM = 0.15;
+/** By how far grown every node of the still has reached its zone. */
+export const MOVE_TO = 0.4;
+/**
+ * How far grown the added nodes start to draw: once the still has moved, so each draws where it
+ * stays, as the loader's map draws.
+ */
+export const DRAW_FROM = MOVE_TO;
 /** Of a row's glide into a slot, the share it goes across before it starts to its slot, and the share it has left to go there after it is across. */
 const SINK = 0.45;
 /** What the still shows and growing takes away is gone by this far grown. */
-export const LEAVE_TO = 0.3;
+export const LEAVE_TO = 0.15;
 const DRAW_TO = 0.9;
 const DRAW_SPAN = 0.2;
 /** How finely growing is walked to find where an added node first stands clear. */
@@ -912,6 +915,11 @@ export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place 
 }
 
 /** How far a node growing adds has drawn, 0 to 1; undefined for one the map shows closed. */
+/** What growing draws in, in the order it draws: a node's place in it is its draw's start. */
+export function drawOrder(layout: TreeMapLayout): string[] {
+  return [...layout.starts].sort(([, a], [, b]) => a - b).map(([id]) => id);
+}
+
 export function drawnAt(layout: TreeMapLayout, id: string, grow: number): number | undefined {
   const start = layout.starts.get(id);
   return start === undefined ? undefined : clamp((grow - start) / DRAW_SPAN);

@@ -26,14 +26,21 @@ import {
   IconVault,
   IconWorldCheck,
 } from '@tabler/icons-react';
-import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react';
+import {
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { mapBracket, mapRoute } from '../map-line.ts';
 import { createBlankDraft, libraryDraft, type StudioWorkspace } from '../mod.ts';
 import { modelFamilyMark } from './brand-icons.tsx';
 import {
   type Box,
   beside,
-  drawnAt,
+  DRAW_FROM,
+  drawOrder,
   ease,
   type Feed,
   goneAt,
@@ -64,8 +71,8 @@ const LINE_GAP = 4;
 const BOW = 16;
 /** How far a feed going drifts off. */
 const DRIFT = 8;
-/** How far grown the column headings draw in. */
-const HEADINGS_AT = 0.5;
+/** The slowest the map draws, as the loader's map does: one node in this long. */
+const STEP_MS = 70;
 /** A token's width until it is measured. */
 const GUESS = 120;
 
@@ -153,6 +160,30 @@ export interface StudioTreeMapProps {
 type Shift = { x: number; y: number };
 const NONE: Shift = { x: 0, y: 0 };
 
+/** How many of the map's draws have played: it counts up one node a step while on, and back down while off. */
+function useDrawn(total: number, on: boolean): number {
+  const [count, setCount] = useState(0);
+  const cursor = useRef(0);
+  useEffect(() => {
+    const target = on ? total : 0;
+    let frame = 0;
+    let at = performance.now();
+    const tick = (now: number) => {
+      const step = (now - at) / STEP_MS;
+      at = now;
+      cursor.current =
+        target > cursor.current
+          ? Math.min(target, cursor.current + step)
+          : Math.max(target, cursor.current - step);
+      setCount(Math.ceil(cursor.current));
+      if (cursor.current !== target) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [total, on]);
+  return count;
+}
+
 export function StudioTreeMap({
   workspace,
   agents,
@@ -194,9 +225,16 @@ export function StudioTreeMap({
     const by = moved[id] ?? NONE;
     return { ...place, x: place.x + by.x, y: place.y + by.y };
   };
-  const drawn = (id: string) => drawnAt(layout, id, grow);
-  // why: Growing past where a node draws starts its draw, which then plays at its own pace as the
-  // loader's map draws; the pull only says when, never how far.
+  // why: The map draws as the loader's map draws: growing past where drawing starts sets it going,
+  // and it then draws node after node in order at its own pace, whatever the pull does; drawn back
+  // above that, it takes them away the same way.
+  const order = useMemo(() => drawOrder(layout), [layout]);
+  const count = useDrawn(order.length, grow >= DRAW_FROM);
+  const rank = useMemo(() => new Map(order.map((id, index) => [id, index])), [order]);
+  const drawn = (id: string) => {
+    const index = rank.get(id);
+    return index === undefined ? undefined : Number(index < count);
+  };
   const on = (id: string) => (drawn(id) ?? 1) > 0;
   /** A line that draws in, once every end it waits on has started: none undrawn, and drawing if any draws. */
   const lineDrawn = (...ids: string[]) => {
@@ -409,8 +447,8 @@ export function StudioTreeMap({
           );
         })}
       </svg>
-      {/* The column headings draw in with the map, once it is half grown. */}
-      {grow > HEADINGS_AT &&
+      {/* The column headings draw in as the map starts to draw. */}
+      {count > 0 &&
         layout.headings.map(({ label, note, x, y }) => (
           <div
             key={label}

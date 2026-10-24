@@ -12,7 +12,7 @@ first = os.environ.get('FIRST')
 if first: e1 = json.load(open(f'{WORK}/s-{first}.json'))['score']
 pool = [(e, s) for r, e, s in zip(rows, e1, sc) if r['g'] == 'pool' and e is not None]
 fullpool = sorted(sd['pool'] if not first else [e for e, s in pool], reverse=True)
-COLS = ['llmail-validate', 'llmail-p2', 'dtap-validate', 'bsafe-validate:1', 'm2w-validate', 'bsafe-validate:0']
+COLS = ['llmail-validate', 'llmail-p2', 'dtap-validate', 'c:nvidia-ipi', 'c:injecagent', 'bsafe-validate:1', 'm2w-validate', 'bsafe-validate:0', 'c:bonsai-pages', 'c:wildjailbreak-benign']
 key = lambda r: f"{r['set']}:{r['y']}" if r['set'] == 'bsafe-validate' else r['set']
 print('loose q sent pool ' + ' '.join(COLS))
 for q in (0.01, 0.02):

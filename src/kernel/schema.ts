@@ -1497,6 +1497,27 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'No limit',
   },
+  'registerTool.session': {
+    ...field(
+      'McpSessionLimits',
+      "How long and how many of an MCP tool's server sessions the kernel keeps.",
+    ),
+    unset: 'No limits',
+  },
+  'registerTool.session.idleMs': {
+    ...field(
+      'number',
+      'How long a session may sit unused before the next call opens a new one, in milliseconds.',
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.session.max': {
+    ...field(
+      'number',
+      'The most sessions the tool keeps open; past it the least recently used is dropped.',
+    ),
+    unset: 'No limit',
+  },
   'registerTool.maxCallsPerTurn': {
     ...field('number', 'How many times one turn of the calling agent may run this tool.'),
     unset: 'As many as its steps allow',

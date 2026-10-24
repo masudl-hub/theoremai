@@ -68,6 +68,7 @@ export function registerCustomTool(
       headers: tool.headers,
       auth: tool.auth,
       maxResponseBytes: tool.maxResponseBytes,
+      session: tool.session,
     });
     return;
   }

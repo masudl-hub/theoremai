@@ -39,6 +39,7 @@ import {
   isMcpSessionId,
   type McpSession,
   type McpSessionCache,
+  type McpSessionUse,
   mcpSessionKey,
 } from './mcp-sessions.ts';
 import type { ToolOperationClaim } from './operation.ts';
@@ -1287,13 +1288,15 @@ async function negotiateInSession(
   rpcId: string | number,
   mcpToolName: string,
   input: unknown,
-  sessions: { cache: McpSessionCache; key: string; cached?: McpSession },
+  sessions: { cache: McpSessionCache; key: string; use: McpSessionUse; cached?: McpSession },
 ): Promise<McpNegotiated> {
   let session = sessions.cached;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (!session) {
       try {
-        session = await sessions.cache.open(sessions.key, () => openMcpSession(transport));
+        session = await sessions.cache.open(sessions.key, sessions.use, () =>
+          openMcpSession(transport),
+        );
       } catch (err) {
         if (err instanceof McpSessionFailure) return { failure: err.failure };
         throw err;
@@ -1544,11 +1547,13 @@ async function* sendMcpRequest(
       ...(tool.maxResponseBytes === undefined ? {} : { maxResponseBytes: tool.maxResponseBytes }),
     };
     const key = await mcpSessionKey(url.href, transport.originBoundHeaders);
-    const cached = sessions.get(key);
+    const use: McpSessionUse = { tool: tool.name, ...tool.session };
+    const cached = sessions.get(key, use);
     const first = cached
       ? await negotiateInSession(transport, base.callId, tool.mcpToolName, input, {
           cache: sessions,
           key,
+          use,
           cached,
         })
       : await negotiateMcpRpc(transport, base.callId, tool.mcpToolName, input);
@@ -1556,6 +1561,7 @@ async function* sendMcpRequest(
       ? await negotiateInSession(transport, base.callId, tool.mcpToolName, input, {
           cache: sessions,
           key,
+          use,
         })
       : first;
     const refused = yield* refusedCredentialOutcome(

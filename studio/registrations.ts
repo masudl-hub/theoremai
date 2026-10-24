@@ -75,6 +75,7 @@ export type McpToolRegistration = {
   headers?: Record<string, string>;
   auth?: StudioToolAuth;
   maxResponseBytes?: number;
+  session?: { idleMs?: number; max?: number };
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;

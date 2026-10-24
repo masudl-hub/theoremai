@@ -1088,8 +1088,9 @@ session: `initialize` at `2025-11-25` (no redirects followed, no client
 capabilities, only the session ID and version read back), then
 `notifications/initialized`, then the call. Sessions live in memory on the
 scope's tool registry (`tools.mcpSessions`), keyed by server URL and a SHA-256 of
-the credential headers, capped at 256 and dropped after 30 idle minutes; they
-are never persisted. The ID travels as an origin-bound header, must be 1–256
+the credential headers, and kept with no limit unless the tool sets `session`:
+`idleMs` drops a session left unused longer than that, and `max` drops the
+tool's least recently used sessions past that count. They are never persisted. The ID travels as an origin-bound header, must be 1–256
 visible ASCII characters, and stays out of events. A `404` in a session reopens
 it once; a second fails the call with `mcp_session_expired`.
 An MCP result is read as its `structuredContent` when that passes the tool's

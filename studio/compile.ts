@@ -838,7 +838,24 @@ function mcpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegis
     serverUrl,
     mcpToolName,
     ...remoteToolFields(tool, fail),
+    ...mcpSession(tool, fail),
   };
+}
+
+function mcpSession(tool: ToolSpecDraft, fail: Fail) {
+  const idleMs = tool.sessionIdleMs ?? null;
+  const max = tool.sessionMax ?? null;
+  if (idleMs !== null && !(Number.isInteger(idleMs) && idleMs >= 1)) {
+    fail('Idle must be a positive whole number.', 'sessionIdleMs');
+  }
+  if (max !== null && !(Number.isInteger(max) && max >= 1)) {
+    fail('Max must be a positive whole number.', 'sessionMax');
+  }
+  const session = {
+    ...(idleMs !== null ? { idleMs } : {}),
+    ...(max !== null ? { max } : {}),
+  };
+  return Object.keys(session).length ? { session } : {};
 }
 
 function functionTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {

@@ -51,6 +51,10 @@ export type StudioToolSpecSeed = {
   mcpToolName?: string;
   /** An HTTP or MCP tool's most response bytes read; `null` or absent: no limit. */
   maxResponseBytes?: number | null;
+  /** An MCP tool's session idle time, in ms; `null` or absent: no limit. */
+  sessionIdleMs?: number | null;
+  /** An MCP tool's most sessions; `null` or absent: no limit. */
+  sessionMax?: number | null;
   /** An agent tool's agent, by its workspace key. */
   agentKey?: string;
   /** An agent tool's calls in one turn of its caller; `null` or absent: no cap but max steps. */

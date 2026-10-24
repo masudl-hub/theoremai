@@ -327,6 +327,16 @@ export interface McpToolDef<TIn = unknown, TOut = unknown>
   auth?: ToolAuthConfig;
   /** The most of a response body the kernel reads; past it the call fails `response_too_large`. Left out, there is no limit. */
   maxResponseBytes?: number;
+  /** How long and how many of this tool's server sessions the kernel keeps. Left out, there is no limit. */
+  session?: McpSessionLimits;
+}
+
+/** The sessions an MCP tool keeps: each field left out is no limit. */
+export interface McpSessionLimits {
+  /** How long a session may sit unused before the next call opens a new one, in milliseconds. */
+  idleMs?: number;
+  /** The most sessions the tool keeps open; past it the least recently used is dropped. */
+  max?: number;
 }
 
 /**

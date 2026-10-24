@@ -149,6 +149,8 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
   assertAuthService(def.name, def.auth);
   assertQueryParam(def.name, def.auth);
   assertReadLimits(def);
+  assertWhole(def.name, 'session.idleMs', def.session?.idleMs);
+  assertWhole(def.name, 'session.max', def.session?.max);
   return { ...def, type: 'mcp', ...schemasFromZod(def) };
 }
 

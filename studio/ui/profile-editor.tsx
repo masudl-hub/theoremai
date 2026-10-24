@@ -5669,6 +5669,37 @@ function McpServerSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) 
   );
 }
 
+function McpSessionSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
+  return (
+    <InspectorSection title="Session" path="registerTool.session">
+      <NumberRow
+        label="Idle"
+        path="registerTool.session.idleMs"
+        units="ms"
+        field="sessionIdleMs"
+        value={tool.sessionIdleMs ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(sessionIdleMs) => {
+          set({ sessionIdleMs });
+        }}
+      />
+      <NumberRow
+        label="Max"
+        path="registerTool.session.max"
+        units="sessions"
+        field="sessionMax"
+        value={tool.sessionMax ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(sessionMax) => {
+          set({ sessionMax });
+        }}
+      />
+    </InspectorSection>
+  );
+}
+
 /** Where an authenticated tool's credential comes from, how it's sent, and what signed out does. */
 function AuthCredentialRows({
   tool,
@@ -5912,6 +5943,7 @@ function ToolSpecEditor({
         <AgentSection tool={tool} set={set} workspace={workspace} />
       )}
       {tool.toolType === 'mcp' && <McpServerSection tool={tool} set={set} />}
+      {tool.toolType === 'mcp' && <McpSessionSection tool={tool} set={set} />}
       {remote && <AuthSection tool={tool} set={set} />}
       {remote && <ToolTest key={tool.key} tool={tool} guardrails={draft.guardrails} />}
       <PolicySection draft={draft} tool={tool} set={set} />

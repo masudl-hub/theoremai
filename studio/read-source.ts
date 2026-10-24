@@ -892,6 +892,8 @@ function toolRoute(spec: Record<string, unknown>) {
     serverUrl: filled(spec.serverUrl),
     mcpToolName: filled(spec.mcpToolName),
     maxResponseBytes: whole(spec.maxResponseBytes),
+    sessionIdleMs: whole(record(spec.session)?.idleMs),
+    sessionMax: whole(record(spec.session)?.max),
   } satisfies Partial<ToolSpecDraft>;
 }
 

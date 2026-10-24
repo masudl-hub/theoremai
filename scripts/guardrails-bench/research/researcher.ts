@@ -12,7 +12,7 @@
  *
  * Writes `<data>/research/<run>/events.jsonl` and `reply.json`, and appends each
  * candidate to `<data>/research/ledger.jsonl`. The OpenRouter key comes from
- * `THEOREM_VAULT_OPENROUTER` and Jev's from `THEOREM_VAULT_TYPESAFE` (via `THEOREM_ENV_FILE`).
+ * `THEOREM_VAULT_OPENROUTER` (via `THEOREM_ENV_FILE`); Jev runs through it too.
  */
 
 import { z } from 'zod';
@@ -24,13 +24,11 @@ import {
   invokeTool,
   type ProfileItemCheck,
   registerProfile,
-  registerProvider,
   registerStructured,
   registerTool,
   runDecision,
   runTurn,
   type StageHandler,
-  typesafeProvider,
 } from '../../../mod.ts';
 import { hostVault, loadHostEnv } from '../../host-env.ts';
 import { registerScriptProviders } from '../../provider-options.ts';
@@ -57,11 +55,6 @@ if (!vault.openrouter) throw new Error('No THEOREM_VAULT_OPENROUTER: set THEOREM
 registerScriptProviders();
 const openRouter = getProvider('openrouter');
 if (!openRouter) throw new Error('openrouter provider not registered');
-if (READER === 'jev' && !vault.typesafe)
-  throw new Error('No THEOREM_VAULT_TYPESAFE for the Jev reader: set it, or pass --reader none');
-registerProvider(typesafeProvider, { keySlot: 'typesafe' });
-const typesafe = getProvider('typesafe');
-if (!typesafe) throw new Error('typesafe provider not registered');
 
 // ---------- sources: Theorem MCP and HTTP tools ----------
 
@@ -303,7 +296,11 @@ registerProfile({
   type: 'decision',
   id: READER_PROFILE,
   identity: { handle: 'Research page reader' },
-  models: { jev: typesafe.decisionModel('systemOne', 'jev-latest', { timeoutMs: 20_000 }) },
+  models: {
+    jev: openRouter.decisionModel('openRouterDecisions', 'typesafe/jev-1.14', {
+      timeoutMs: 20_000,
+    }),
+  },
   inputs: { state: 'json' },
   decision: { contract: 'research.page-passages.v1' },
 });

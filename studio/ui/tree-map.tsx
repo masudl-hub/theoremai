@@ -1,8 +1,8 @@
 /**
  * The workspace's tree, every row open, drawn as the map draws: each row a map token, and a line
  * from each row down and across to each of its children. Beside the tree, what feeds it, shared by
- * every agent drawn, in two columns beside it. The registries: the first tool of each type its Tools
- * rows allow, an agent tool's agent under it; the providers; and the trace destinations. The runner:
+ * every agent drawn, in two columns beside it. The registries: each tool its Tools rows allow, by
+ * type, an agent tool's agent under it; the providers; and the trace destinations. The runner:
  * the provider protocols, each provider's under one head; the tool runner, with what it does with each
  * call; and the guard runner, with what it does under it, and the trace exporter. It changes
  * nothing and opens nothing: a picture of what a workspace holds, for a page that is not the studio.
@@ -46,13 +46,14 @@ import {
   goneAt,
   HALF,
   INDENT,
+  lineAt,
   lineKey,
-  MOVE_TO,
   PAD,
   type Place,
   placeAt,
   type Row,
   rowId,
+  settledAt,
   treeMapLayout,
   underKey,
 } from './lib/tree-map-layout.ts';
@@ -133,11 +134,11 @@ export interface StudioTreeMapProps {
   /** The keys of the agents to draw, in the workspace's order; every agent when unset. */
   agents?: readonly string[] | undefined;
   /**
-   * How far the tree has grown, from 0 to 1. As it grows each agent drifts into a zone of its own
-   * and what feeds the tree spreads into its columns. What growing adds comes out from under the
-   * node it grows from as the pull goes, its lines with it: the providers over their models, the
-   * protocols, the runner's steps, the tool runner with what it does with each call, and the
-   * trace's destinations. Shrinking takes it all back the same way.
+   * How far the tree has grown, from 0 to 1. As it grows the map grows to its size, then draws out
+   * from the tree's agents as one pen would, at an even pace: each line runs out from the node it
+   * leaves, and the node at its end shows as the line reaches it, drifting the last of the way along
+   * it. What the map shows closed glides into place as the drawing reaches what it is reached from.
+   * Shrinking takes it all back the same way.
    */
   grow?: number | undefined;
   /**
@@ -158,8 +159,8 @@ export interface StudioTreeMapProps {
   /**
    * Where the tokens the map shows closed stand, by id, in the map's own pixels, for a map that
    * grows out of something else: closed, the map stands at its own size from the top left of what
-   * holds it, these tokens where they are given and nothing else; growing, each glides to where it
-   * stands grown as the rest of the tree comes out round it. In place of `still`.
+   * holds it, these tokens where they are given and nothing else; growing, the tree draws out round
+   * them, and each glides to where it stands grown as the drawing comes to it. In place of `still`.
    */
   closed?: ReadonlyMap<string, MapPlace> | undefined;
   /** A token dragged moves to where it is dropped, its lines with it; the field dragged moves the whole map. */
@@ -241,40 +242,35 @@ export function StudioTreeMap({
     const by = moved[id] ?? NONE;
     return { ...place, x: place.x + by.x, y: place.y + by.y };
   };
-  // why: What growing adds comes out as the pull goes, and goes back as it comes back: no clock of its own.
+  // why: What growing adds draws as the growing goes, and goes back as it comes back: no clock of its own.
   const drawn = (id: string) => drawnAt(layout, id, grow);
   const on = (id: string) => (drawn(id) ?? 1) > 0;
-  /** How solid what comes out is: whole by a third of the way out, so its move does the showing. */
-  const solid = (out: number) => Math.min(1, out * 3);
-  /** A line, as solid as the least come out of what it waits on. */
-  const lineDrawn = (...ids: string[]) => {
-    const out = Math.min(1, ...ids.map((id) => drawn(id) ?? 1));
-    if (out <= 0) return undefined;
-    return out < 1
-      ? { className: 'map-line', style: { opacity: solid(out) } }
-      : { className: 'map-line' };
-  };
   /**
-   * A token, as solid as it has come out. why: A token on its way stands under those at rest, so it
-   * slides out from under the node it grows from, and passes under what it crosses.
+   * A line drawing runs out from its source at the drawing's pace, as a pen draws it, the loader's
+   * map's way: the length of it drawn so far shows, and the rest is still to come.
    */
+  const lineDrawn = (source: string, target: string) => {
+    const run = lineAt(layout, source, target, grow);
+    if (run <= 0) return undefined;
+    if (run >= 1) return { className: 'map-line' };
+    return {
+      className: 'map-line',
+      pathLength: 1,
+      style: { strokeDasharray: 1, strokeDashoffset: 1 - run },
+    };
+  };
+  /** A token, as solid as it has shown since the drawing reached it. */
   const tokenDrawn = (id: string) => {
     const out = drawn(id) ?? 1;
     const zIndex = atRest(layout, id, grow) ? 2 : 1;
-    return { style: out < 1 ? { opacity: solid(out), zIndex } : { zIndex } };
+    return { style: out < 1 ? { opacity: ease(out), zIndex } : { zIndex } };
   };
   const shown = feeds.filter((feed) => on(feed.id));
 
   const right = (id: string) => at(id).x + width(id);
-  const isRow = new Set(rows.map(rowId));
   // why: A model wears its family's mark, the Gemini sparkle or the provider's, as the editor's tree does.
   const iconOf = (feed: Feed) =>
     (feed.kind === 'model' && feed.of !== undefined && modelFamilyMark(feed.of)) || feedIcon(feed);
-  const firstUnder = new Map<string, string>();
-  for (const feed of feeds) {
-    if (feed.under !== undefined && !firstUnder.has(feed.under))
-      firstUnder.set(feed.under, feed.id);
-  }
   /**
    * The rail the lines from a source to feeds in its own column run down, right of it: clear of every
    * token they pass, and one for all of them, so they leave the source as one line.
@@ -292,57 +288,48 @@ export function StudioTreeMap({
   };
   // why: Closed, a row's lines run down one trunk to what it shows; grown, each runs down its feed's
   // lane like the tree's, its steps aside growing out of its row.
-  const square = ease(grow / MOVE_TO);
+  const square = settledAt(grow);
   const toward = (from: MapPlace, to: MapPlace, at: number) => ({
     x: from.x + (to.x - from.x) * at,
     y: from.y + (to.y - from.y) * at,
   });
   const lines = feeds.flatMap((feed) => {
-    if (!on(feed.id)) return [];
-    const late = (feed.late ?? []).map((source) => ({ source, late: true }));
-    return [...feed.from.map((source) => ({ source, late: false })), ...late].flatMap(
-      ({ source, late }) => {
-        if (!isRow.has(source) && !on(source)) return [];
-        const end = at(feed.id);
-        const start = { x: right(source) + LINE_GAP, y: at(source).y };
-        const draws = [lineKey(source, feed.id)];
-        draws.push(
-          ...(late
-            ? [firstUnder.get(feed.id) ?? feed.id]
-            : [feed.id, ...(isRow.has(source) ? [] : [source])]),
-        );
-        if (beside(layout, source, feed)) {
-          const into = { x: end.x + width(feed.id) + LINE_GAP, y: end.y };
-          return [
-            {
-              key: lineKey(source, feed.id),
-              d: mapBracket(start, into, railOf(source), TURN),
-              draws,
-            },
-          ];
-        }
-        const lane = layout.lanes.get(lineKey(source, feed.id));
-        const grownRail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;
-        const trunk = layout.trunks.get(source);
-        const steps = (layout.jogs.get(lineKey(source, feed.id)) ?? []).map((jog) => ({
-          x: at(jog.lane.of).x - jog.lane.by,
-          y: at(jog.near).y + (jog.side * layout.row) / 2,
-        }));
-        const into = { x: end.x - LINE_GAP, y: end.y };
-        const d =
-          trunk === undefined
-            ? mapRoute(start, into, steps, grownRail, TURN, square)
-            : mapRoute(
-                start,
-                into,
-                steps.map((step) => toward(start, step, square)),
-                trunk + (grownRail - trunk) * square,
-                TURN,
-                1,
-              );
-        return [{ key: lineKey(source, feed.id), d, draws }];
-      },
-    );
+    return [...feed.from, ...(feed.late ?? [])].flatMap((source) => {
+      if (!on(source) || lineAt(layout, source, feed.id, grow) <= 0) return [];
+      const end = at(feed.id);
+      const start = { x: right(source) + LINE_GAP, y: at(source).y };
+      if (beside(layout, source, feed)) {
+        const into = { x: end.x + width(feed.id) + LINE_GAP, y: end.y };
+        return [
+          {
+            key: lineKey(source, feed.id),
+            d: mapBracket(start, into, railOf(source), TURN),
+            target: feed.id,
+            source,
+          },
+        ];
+      }
+      const lane = layout.lanes.get(lineKey(source, feed.id));
+      const grownRail = lane ? at(lane.of).x - lane.by : (start.x + end.x) / 2;
+      const trunk = layout.trunks.get(source);
+      const steps = (layout.jogs.get(lineKey(source, feed.id)) ?? []).map((jog) => ({
+        x: at(jog.lane.of).x - jog.lane.by,
+        y: at(jog.near).y + (jog.side * layout.row) / 2,
+      }));
+      const into = { x: end.x - LINE_GAP, y: end.y };
+      const d =
+        trunk === undefined
+          ? mapRoute(start, into, steps, grownRail, TURN, square)
+          : mapRoute(
+              start,
+              into,
+              steps.map((step) => toward(start, step, square)),
+              trunk + (grownRail - trunk) * square,
+              TURN,
+              1,
+            );
+      return [{ key: lineKey(source, feed.id), d, source, target: feed.id }];
+    });
   });
   const agentsOf = new Set(layout.becomes.values());
   /**
@@ -421,7 +408,7 @@ export function StudioTreeMap({
       height: Math.max(...ends.map(([, end]) => end.y)) + HALF + PAD,
     };
   }, [layout, widths, back]);
-  const settled = ease(grow / MOVE_TO);
+  const settled = settledAt(grow);
   const { scale, centre } = frameAt(closedSize, grown, room, settled, given !== undefined);
   // why: The pointer moves in the page's pixels; the map is scaled, so a move is divided back into its own.
   const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -499,7 +486,7 @@ export function StudioTreeMap({
     >
       <svg className="studio-tree-map-lines" width={mapWidth} height={height} aria-hidden="true">
         {rows.map((row) => {
-          const drawing = row.parent && lineDrawn(rowId(row));
+          const drawing = row.parent !== undefined && lineDrawn(row.parent, rowId(row));
           return (
             row.parent &&
             drawing && (
@@ -522,13 +509,13 @@ export function StudioTreeMap({
         {leavingLines.map(({ key, d }) => (
           <path key={key} className="map-line" d={d} style={leavingStyle} />
         ))}
-        {lines.map(({ key, d, draws }) => {
-          const drawing = lineDrawn(...draws);
+        {lines.map(({ key, d, source, target }) => {
+          const drawing = lineDrawn(source, target);
           return drawing && <path key={key} d={d} {...drawing} />;
         })}
-        {shown.map((feed) => {
+        {feeds.map((feed) => {
           const holder = feed.under;
-          const drawing = holder !== undefined && lineDrawn(feed.id, holder, underKey(feed.id));
+          const drawing = holder !== undefined && on(holder) && lineDrawn(holder, feed.id);
           return (
             holder !== undefined &&
             drawing && (

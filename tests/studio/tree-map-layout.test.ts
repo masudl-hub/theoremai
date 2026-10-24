@@ -143,11 +143,11 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   const label = (id: string) =>
     rows.find((row) => rowId(row) === id)?.node.label ?? feed(id)?.label ?? id;
   const from = (id: string) => (feed(id)?.from ?? []).map(label);
+  // Every tool the agents allow, by type, in the order the map draws the types.
   const tools = feeds.filter((each) => each.kind === 'tool');
-  assertEquals(
-    tools.map((tool) => tool.of),
-    ['function', 'http', 'mcp', 'agent'],
-  );
+  const types = ['function', 'http', 'mcp', 'agent'];
+  assertEquals([...new Set(tools.map((tool) => tool.of))], types);
+  assert(tools.length > types.length);
   // Columns: the tools, providers and trace destinations as registries beside the tree, then the runner.
   const columnOf = (kind: string) =>
     new Set(feeds.filter((each) => each.kind === kind).map((each) => each.column));
@@ -182,8 +182,10 @@ Deno.test('what feeds the tree is shared: the registries beside the tree, the ru
   assertEquals(from('provider:openrouter/openRouterOpenAi'), ['openrouter']);
   assertEquals(from(TRACE_DESTINATIONS), ['Observability', 'Observability']);
 
-  const mcp = tools.find((tool) => tool.of === 'mcp');
-  assertEquals(from(`${TOOL_RUNTIME}/sessions`), [mcp?.label]);
+  assertEquals(
+    from(`${TOOL_RUNTIME}/sessions`),
+    tools.filter((tool) => tool.of === 'mcp').map((tool) => tool.label),
+  );
   assertEquals(
     from(`${GUARDRAIL_RUNTIME}/network`),
     tools.filter((tool) => tool.of === 'http' || tool.of === 'mcp').map((tool) => tool.label),
@@ -275,7 +277,8 @@ Deno.test('grown into a box, the tree map fills it', () => {
   const right = Math.max(...ends.map((end) => end.x + width(layout, end.id)));
   const bottom = Math.max(...ends.map((end) => end.y)) + HALF;
   const top = Math.min(...ends.map((end) => end.y)) - HALF;
-  assert(Math.abs(BOX.height - 32 - bottom) <= 1, `the map ends at ${bottom}`);
+  // Taller than the box, as every tool the agents allow makes it, it runs on past it.
+  assert(bottom >= BOX.height - 32 - 1, `the map ends at ${bottom}`);
   assert(top >= 32 + HEADING - 1 && top <= 32 + HEADING + 1, `the map starts at ${top}`);
   for (const heading of layout.headings) assertEquals(heading.y, 32);
   assert(BOX.width - 32 - right <= 2, `the map ends ${BOX.width - 32 - right} short of the box`);
@@ -433,7 +436,7 @@ Deno.test('closed, the still shows each of its agents whole; grown, the tree alo
   // Closed, every agent shows its whole profile: the architect's rows all stand in the still, and
   // the others' go with them.
   for (const row of layout.rows)
-    assert(layout.closed.has(rowId(row)) && !layout.starts.has(rowId(row)));
+    assert(layout.closed.has(rowId(row)) && !layout.anchors.has(rowId(row)));
   const going = new Set(layout.leaving.rows.map((row) => row.node.label));
   for (const label of ['Tools', 'Guardrails', 'Labels', 'Observability', 'Decision'])
     assert(going.has(label), label);
@@ -501,7 +504,7 @@ Deno.test('closed, what is given stands where it is given, and the rest comes ou
     assertEquals(drawnAt(layout, id, 0), undefined);
   }
   // Nothing else shows closed: the rows unfold from the agent, the feeds come out from what they grow from.
-  for (const row of layout.rows.slice(1)) assert(layout.starts.has(rowId(row)), row.node.label);
+  for (const row of layout.rows.slice(1)) assert(layout.anchors.has(rowId(row)), row.node.label);
   for (const feed of layout.feeds.filter((each) => each.id !== model.id))
     assertEquals(drawnAt(layout, feed.id, 0), 0, feed.label);
   assertEquals(layout.leaving.rows.length + layout.leaving.feeds.length, 0);

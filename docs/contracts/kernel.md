@@ -437,9 +437,12 @@ Live sessions emit the same stage names around utterance cycles and
    omitted ([guardrails](./guardrails.md)). A tool call the model is still
    writing goes out as `tool_draft` pieces, read at its call's
    `tool_arguments_<kind>` boundary; the runner sends none while it withholds
-   the reply. On a profile with `outputs.structured`, the reply's text is its
-   JSON: it goes out as `structured_draft` pieces under `sse`, and not at all
-   under `buffered`. Each provider call has its own gate;
+   the reply. On a profile with `outputs.structured` and no function tools, the
+   request carries the schema as its response format, and the reply's text is
+   its JSON: it goes out as `structured_draft` pieces under `sse`, and not at all
+   under `buffered`. A profile with `outputs.structured` and function tools
+   answers through the **answer tool** (`ANSWER_TOOL`) instead: see
+   [Structured output](#structured-output). Each provider call has its own gate;
    the turn carries a possible canary opening from one call into the next
    (`canaryCarry` and `thoughtCarry` on the step state), so a token split across
    tool steps is one match.
@@ -1110,9 +1113,30 @@ Profile `outputs` pins behavior the kernel enforces before the protocol runs:
 
 | Pin | Effect |
 | --- | --- |
-| `structured` | Schema id or slot-mapped ids; `responseFormat` vs prompt enforcement |
+| `structured` | Schema id or slot-mapped ids. Sent as the response format, or as the answer tool's input when the turn has function tools ([Structured output](#structured-output)) |
 | `streaming` | `mode`, `streamThoughts`. Under `sse`, the reply, tool calls, and tool output stream as they are written, each piece checked first; thinking streams unless `streamThoughts` is `false`. Under `buffered`, each arrives whole |
 | `validation` | Field validators, `maxRetries` (repair guidance is the labels' `repair.default_guidance`) |
+
+### Structured output
+
+A structured turn gets its output in one of two ways. The turn's function tools pick the way (`answersByTool`).
+
+| The turn has | The request carries | The structured output is |
+| --- | --- | --- |
+| No function tools | The schema as its response format | The reply's JSON |
+| Function tools | The answer tool, whose input schema is the profile's schema, and no response format | The input of the answer tool's call |
+
+Use function tools and a schema together when the agent must do work before it gives its structured answer. Many endpoints refuse a response format beside tools, and many models given both write JSON at once and call no tool. The answer tool avoids both.
+
+On a turn that answers by tool:
+
+- Text the model writes is progress. It streams as `text`, and the reply gate reads it.
+- The answer tool's call is not a tool call to the host. Its drafts go out as `structured_draft`, read at `reply_structured`. Its input is the `structured` event.
+- The call ends the turn. Other calls in the same step do not run.
+- The step that `turnBehaviour.atStepLimit: 'answer'` leaves without tools still has the answer tool.
+- A turn that ends without the call is repaired while `outputs.validation.maxRetries` has a retry left. The repair's rejection is the label `structured.answer_missing`. With no retry left, the turn fails with a `bad_response` error and the stop `provider_error`.
+- The tool's description is the label `structured.answer_tool`.
+- A profile with `outputs.structured` cannot offer a tool of its own named as `ANSWER_TOOL`. The turn throws a `config` error.
 
 Top-level modality pins (after `model`, not under `outputs`):
 

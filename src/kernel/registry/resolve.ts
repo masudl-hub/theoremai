@@ -4,6 +4,7 @@ import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import { ANSWER_TOOL } from '../answer-tool.ts';
 import { DEFAULT_MAX_STEPS } from '../profile-presence.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
@@ -261,6 +262,12 @@ function resolveTurnInRegistry(
   const builtins = toolSnapshot.builtins;
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
+  if (structuredId && toolSnapshot.wire.some((tool) => tool.name === ANSWER_TOOL)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: a structured turn answers through '${ANSWER_TOOL}', so no tool of its own may take that name`, // labels-exempt: developer contract error
+    );
+  }
   assertSpeechRole(profile, safe);
   const builtInArgs = resolveBuiltInArgs(profile, picked, binding, safe.builtInArgs);
   const transport = resolveTransport(profile, binding);

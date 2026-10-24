@@ -64,6 +64,15 @@ const CODE = [
   'guardrails.disclosure.enforce',
   'guardrails.detect.*.find',
   'models.*.compaction.trigger',
+  'models.*.limits.operationTimeoutMs',
+  'models.*.limits.connectTimeoutMs',
+  'models.*.limits.liveStepTimeoutMs',
+  'models.*.limits.maxWireRecordBytes',
+  'models.*.limits.maxWireResponseBytes',
+  'models.*.limits.maxEventBytes',
+  'models.*.limits.maxStepBytes',
+  'models.*.limits.maxStepEvents',
+  'models.*.limits.maxPendingToolCalls',
   'observability.onWriteError',
 ];
 

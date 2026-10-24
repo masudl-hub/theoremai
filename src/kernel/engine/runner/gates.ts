@@ -21,6 +21,7 @@ import type {
   OutboundPayload,
   ResolvedGuardrailPolicy,
 } from '../../../guardrails/types.ts';
+import { ANSWER_TOOL, answersByTool } from '../../answer-tool.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
@@ -53,6 +54,7 @@ import {
   type AttemptFlowState,
   appendUserInput,
   type PendingItemFix,
+  recordStepEvent,
   type StepExecutionState,
 } from './state.ts';
 import { executeAttempt } from './steps.ts';
@@ -576,6 +578,40 @@ async function handleValidationGate(
   return 'pass';
 }
 
+/**
+ * An attempt on a turn that answers by tool, ended without calling the answer tool: a repair while
+ * `outputs.validation` has a retry left, else a `bad_response` failure.
+ */
+function* handleMissingAnswer(
+  flow: AttemptFlowState,
+  state: StepExecutionState,
+  profile: Profile,
+  latestStructured: unknown,
+  /** True when the attempt's events go out at its end (`yieldBufferedAttemptEvents`). */
+  held: boolean,
+): Generator<TurnEvent, 'continue' | 'pass'> {
+  if (latestStructured !== undefined || state.lastStop?.kind !== 'completed') return 'pass';
+  if (!answersByTool(flow.currentGen)) return 'pass';
+  const validation = profileTurnOutputs(profile)?.validation;
+  if (validation && flow.currentAttempt < (validation.maxRetries ?? 0)) {
+    const rejection = labelText('structured.answer_missing', { tool: ANSWER_TOOL }, profile.labels);
+    const nextRequest = buildRepairRequest(
+      flow.currentReq,
+      collectAttemptText(state.attemptEvents),
+      rejection,
+    );
+    yield updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
+    return 'continue';
+  }
+  const failure = toErrorEvent(
+    new TheoremError('bad_response', `the model ended without calling ${ANSWER_TOOL}`), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+  recordStepEvent(failure, state);
+  state.lastStop = { kind: 'provider_error' };
+  if (!held) yield failure;
+  return 'pass';
+}
+
 /** Puts on the attempt's structured output the fields that still failed. */
 function markFailed(state: StepExecutionState, failed: ValidationFailure[]): void {
   const held = findLast(state.attemptEvents, (event) => event.type === 'structured');
@@ -686,6 +722,18 @@ async function* executeSingleAttemptCycle(args: {
       return action;
     }
     latestStructured = projectOutbound(state.attemptEvents).structured ?? latestStructured;
+  }
+
+  if (
+    (yield* handleMissingAnswer(
+      flow,
+      state,
+      profile,
+      latestStructured,
+      Boolean(validation) || judged,
+    )) === 'continue'
+  ) {
+    return { status: 'continue' };
   }
 
   if (validation) {

@@ -31,7 +31,7 @@ for image and speech-adjacent profile fields.
 | `codeExecution` | Interactions `code_execution` (server-side Python sandbox); Live `codeExecution` |
 
 All are `type: 'builtin'`. Declare ids on `ModelBinding.builtInTools` — they are on whenever that model is selected (visibility still respects `loadTier`).
-`codeExecution` combines with `googleSearch` on Gemini 3+ and with registered function tools when the profile allows them on Interactions. THEOREM also sends structured `responseFormat` on the same request when both are configured; Google may still reject that pairing at the API. `googleSearch` uses the model's key slot like any call; a model that needs a billed key for it pins that slot with `key`. Google's sandbox runtime (~30s) is not a THEOREM knob.
+`codeExecution` combines with `googleSearch` on Gemini 3+ and with registered function tools when the profile allows them on Interactions. A structured profile with function tools answers through the answer tool, so the request carries no `responseFormat` beside them. One with only built-in tools still sends `responseFormat` beside them; Google may reject that pairing at the API. `googleSearch` uses the model's key slot like any call; a model that needs a billed key for it pins that slot with `key`. Google's sandbox runtime (~30s) is not a THEOREM knob.
 `googleMaps` declares `conflictsWith: ['googleSearch', 'urlContext']`. When a turn would send Maps with either of them, the kernel drops Maps, because Google refuses that request.
 
 ## Interaction persistence

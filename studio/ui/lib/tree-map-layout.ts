@@ -43,19 +43,28 @@ const TOOL_TYPES = ['function', 'http', 'mcp', 'agent'];
 /** The tools a remote call reaches the network for. */
 const REMOTE_TYPES = ['http', 'mcp'];
 /** By how far grown the map's frame has eased to its grown size and place. */
-const MOVE_TO = 0.28;
+const MOVE_TO = 0.2;
 /** What the still shows and growing takes away is gone by this far grown. */
 export const LEAVE_TO = 0.2;
-/** How far grown the drawing starts from the tree's agents: once the frame has settled, so what it moves lands in place. */
+/** How far grown the drawing starts from the tree's agents: once the frame has settled. */
 const DRAW_FROM = MOVE_TO;
-/** How much of the growing a node of the still takes to glide into place, landing as its line does. */
-const GLIDE = 0.2;
-/** How much of the growing a node growing adds takes to show, once its line has reached it. */
-const SHOW = 0.05;
+/**
+ * How long nodes of the still take to glide into place, as a length of line: they go as the
+ * drawing comes to the node they are reached from, and its lines to them wait for them.
+ */
+const GLIDE = 280;
+/** How long a node growing adds takes to show once its line has reached it, as a length of line. */
+const SHOW = 180;
+/** How far clear a node of the still waits of what the map will show. */
+const ROOM = 12;
+/** How much of its showing a node has done as its line reaches it, so the line meets it there. */
+const MET = 0.35;
+/** How much of its showing a node has done when its lines start to leave it. */
+const SHOWN = 0.4;
 /** How far a node growing adds drifts in along its line as it shows. */
-const DRIFT = 10;
+const DRIFT = 14;
 /** How long the drawing rests at each node before its lines leave it, as a length of line. */
-const PAUSE = 24;
+const PAUSE = 40;
 /** Space kept clear round a token. */
 const CLEAR = 2;
 /**
@@ -487,7 +496,10 @@ function feedsOf(workspace: StudioWorkspace, rows: Row[]): Feed[] {
 const clamp = (value: number) => Math.min(Math.max(value, 0), 1);
 /** Slow out, slow in: how far a move or a draw has gone at `at` of its time, both from 0 to 1. */
 /** A gentle ease in and out, for what moves far: it never rushes through the middle. */
-const soft = (at: number) => (1 - Math.cos(Math.PI * clamp(at))) / 2;
+export const soft = (at: number) => (1 - Math.cos(Math.PI * clamp(at))) / 2;
+
+/** An ease that comes in quickly and settles slowly, for what drifts the last of its way. */
+export const settling = (at: number) => 1 - (1 - clamp(at)) ** 3;
 
 /** How far the map's frame has settled this far grown, 0 to 1: its size and place, and what holds it. */
 export const settledAt = (grow: number) => soft(grow / MOVE_TO);
@@ -885,8 +897,12 @@ export interface TreeMapLayout {
   reach: Map<string, number>;
   /** What the drawing reaches each node from, by its id. */
   reachedFrom: Map<string, string>;
-  /** How far grown each node of the still lands, by its id: as the drawing reaches where it is reached from. */
-  lands: Map<string, number>;
+  /** How far grown each node's lines leave it, by its id: once it stands shown and still. */
+  leaves: Map<string, number>;
+  /** How far grown each node of the still starts its glide into place, by its id. */
+  gathers: Map<string, number>;
+  /** Where a node of the still waits for its line, by its id, where the still holds it in the map's way. */
+  rests: Map<string, Place>;
   /** How much of the growing the drawing takes over one pixel of line. */
   pace: number;
   /** The lines the still draws closed, by their keys. */
@@ -933,6 +949,14 @@ function grownPlace(layout: TreeMapLayout, id: string): Place {
  * the node it grows from, and moves with it, drifting in along its line as it shows.
  */
 export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place {
+  return standAt(layout, id, grow, true);
+}
+
+/**
+ * Where a node stands this far grown, drifting in or not. What grows from a node keeps to where it
+ * stands, not to its drift, so a node's drift moves nothing else.
+ */
+function standAt(layout: TreeMapLayout, id: string, grow: number, drifts: boolean): Place {
   const moved = glidedAt(layout, id, grow);
   const glide = (from: Place, to: Place, at: number) => ({
     x: between(from.x, to.x, at),
@@ -943,12 +967,13 @@ export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place 
   if (anchor !== undefined) {
     // why: It keeps to the node it grows from, which may still be on its way, and comes the last
     // little way along the line that reached it, as a pen's mark settles.
-    const from = placeAt(layout, anchor, grow);
+    const from = standAt(layout, anchor, grow, false);
     const [own, its] = [grownPlace(layout, id), grownPlace(layout, anchor)];
     const source = layout.reachedFrom.get(id);
     const back = source === undefined ? { x: 0, y: 0 } : grownPlace(layout, source);
     const [dx, dy] = [own.x - back.x, own.y - back.y];
-    const away = (DRIFT * (1 - ease(drawnAt(layout, id, grow) ?? 1))) / (Math.hypot(dx, dy) || 1);
+    const drift = drifts ? DRIFT * (1 - settling(drawnAt(layout, id, grow) ?? 1)) : 0;
+    const away = drift / (Math.hypot(dx, dy) || 1);
     return { x: from.x + own.x - its.x - dx * away, y: from.y + own.y - its.y - dy * away };
   }
   // A row of the still that growing takes away folds into its agent as it goes, and an agent going
@@ -966,7 +991,7 @@ export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place 
     const by = above && from ? placeAt(layout, rowId(above), grow).y - from.y : 0;
     return { x: leaving.x, y: leaving.y + by };
   }
-  const from = layout.closed.get(id);
+  const from = waitAt(layout, id, grow);
   if (slot && from) {
     // why: A node of the still that moves into a slot goes across first, out of the tree's way,
     // and turns down or up to its slot on the way, in one curve.
@@ -979,6 +1004,17 @@ export function placeAt(layout: TreeMapLayout, id: string, grow: number): Place 
   }
   const to = grownPlace(layout, id);
   return glide(from ?? to, to, moved);
+}
+
+/**
+ * Where a node of the still waits for its line: where the still holds it, or, where the map will
+ * show something there, clear of it, which it goes to with the frame.
+ */
+function waitAt(layout: TreeMapLayout, id: string, grow: number): Place | undefined {
+  const [closed, rest] = [layout.closed.get(id), layout.rests.get(id)];
+  if (!closed || !rest) return closed;
+  const at = settledAt(grow);
+  return { x: between(closed.x, rest.x, at), y: between(closed.y, rest.y, at) };
 }
 
 /**
@@ -997,12 +1033,14 @@ export function atRest(layout: TreeMapLayout, id: string, grow: number): boolean
 }
 
 /**
- * How far a node of the still has gone on its glide into place, 0 to 1: it lands as the drawing
- * reaches where it is reached from, or with the frame where the drawing does not.
+ * How far a node of the still has gone on its glide into place, 0 to 1: it goes once the drawing
+ * reaches it, or with the frame where the drawing does not reach it.
  */
 function glideAt(layout: TreeMapLayout, id: string, grow: number): number {
-  const reach = layout.lands.get(id);
-  return reach === undefined ? clamp(grow / MOVE_TO) : clamp((grow - reach + GLIDE) / GLIDE);
+  const start = layout.gathers.get(id);
+  return start === undefined
+    ? clamp(grow / MOVE_TO)
+    : clamp((grow - start) / (GLIDE * layout.pace));
 }
 
 /** How far a node of the still has glided, eased. */
@@ -1017,18 +1055,22 @@ function glidedAt(layout: TreeMapLayout, id: string, grow: number): number {
 export function drawnAt(layout: TreeMapLayout, id: string, grow: number): number | undefined {
   if (!layout.anchors.has(id)) return undefined;
   const reach = layout.reach.get(id) ?? DRAW_FROM;
-  return clamp((grow - reach) / SHOW);
+  return clamp((grow - reach) / (SHOW * layout.pace) + MET);
 }
 
-/** A line's length as the drawing runs it: across, then down, from where its ends stand grown. */
+/**
+ * A line's length as the drawing runs it: across, then down, from where its source stands grown to
+ * where its target stands when the pen comes, which for a node of the still is where the still holds it.
+ */
 function lineLength(layout: TreeMapLayout, source: string, target: string): number {
-  const [from, to] = [grownPlace(layout, source), grownPlace(layout, target)];
+  const from = grownPlace(layout, source);
+  const to = (glides(layout, target) && waitAt(layout, target, 1)) || grownPlace(layout, target);
   return Math.abs(to.x - from.x) + Math.abs(to.y - from.y);
 }
 
 /**
  * How far the line from `source` to `target` has drawn, 0 to 1: it runs out from its source at the
- * drawing's pace once the drawing has rested there. What the still draws closed is drawn.
+ * drawing's pace once its source stands shown and still, easing out of it and into its end. What the still draws closed is drawn.
  */
 export function lineAt(
   layout: TreeMapLayout,
@@ -1037,11 +1079,10 @@ export function lineAt(
   grow: number,
 ): number {
   if (layout.drawnClosed.has(lineKey(source, target))) return 1;
-  const reach = layout.reach.get(source);
-  if (reach === undefined) return 1;
-  const start = reach + PAUSE * layout.pace;
+  const start = layout.leaves.get(source);
+  if (start === undefined) return 1;
   const span = lineLength(layout, source, target) * layout.pace;
-  return span > 0 ? clamp((grow - start) / span) : grow >= start ? 1 : 0;
+  return span > 0 ? soft((grow - start) / span) : grow >= start ? 1 : 0;
 }
 
 /** A line's three runs: level from its source, down its lane, level into its feed. */
@@ -1450,62 +1491,170 @@ function edgesOf(rows: Row[], feeds: Feed[]): [string, string][] {
   ] as [string, string][];
 }
 
-/**
- * How far the pen runs, in pixels of line and rests, to each node, and what it reaches each from:
- * the shortest run from the tree's agents.
- */
-function runsOf(layout: TreeMapLayout, edges: [string, string][]) {
-  const ran = new Map<string, number>();
-  const from = new Map<string, string>();
-  const queue = layout.rows.filter((each) => each.parent === undefined).map(rowId);
-  for (const id of queue) ran.set(id, 0);
-  while (queue.length > 0) {
-    queue.sort((a, b) => (ran.get(a) ?? 0) - (ran.get(b) ?? 0));
-    const id = queue.shift() as string;
-    for (const [source, target] of edges.filter(([each]) => each === id)) {
-      const to = (ran.get(id) ?? 0) + PAUSE + lineLength(layout, source, target);
-      if (to >= (ran.get(target) ?? Infinity)) continue;
-      ran.set(target, to);
-      from.set(target, source);
-      queue.push(target);
-    }
-  }
-  // What no line reaches is reached from what it grows from.
-  for (const id of layout.anchors.keys()) {
-    if (ran.has(id)) continue;
-    let anchor = layout.anchors.get(id);
-    while (anchor !== undefined && !ran.has(anchor)) anchor = layout.anchors.get(anchor);
-    if (anchor === undefined) {
-      ran.set(id, 0);
-      continue;
-    }
-    ran.set(id, (ran.get(anchor) ?? 0) + PAUSE + lineLength(layout, anchor, id));
-    from.set(id, anchor);
-  }
-  return { ran, from };
+/** How far the pen has run, in pixels of line and rests, at each moment of each node. */
+interface Runs {
+  /** When the drawing reaches each node. */
+  ran: Map<string, number>;
+  /** What the drawing reaches each node from. */
+  from: Map<string, string>;
+  /** When each node stands shown, and landed where it glides. */
+  ready: Map<string, number>;
+  /** When each node's lines leave it. */
+  leave: Map<string, number>;
+  /** When each node of the still that moves starts its glide. */
+  gather: Map<string, number>;
+}
+
+/** Whether a node is of the still and goes somewhere growing, so it glides when the drawing comes. */
+function glides(layout: TreeMapLayout, id: string): boolean {
+  const closed = layout.closed.get(id);
+  if (!closed || layout.anchors.has(id)) return false;
+  const grown = grownPlace(layout, id);
+  return Math.hypot(grown.x - closed.x, grown.y - closed.y) > 1;
 }
 
 /**
- * When the drawing reaches each node, and when each node of the still lands.
+ * Settles a node the drawing has reached: when it stands ready, and when its lines leave. A node
+ * growing adds is well on its way to shown; a node of the still that moves glides into place once
+ * its line has reached it, the line coming with it.
+ */
+function settle(layout: TreeMapLayout, runs: Runs, id: string) {
+  const ran = runs.ran.get(id) ?? 0;
+  let ready = ran + (layout.anchors.has(id) ? SHOW * (SHOWN - MET) : 0);
+  if (runs.from.has(id) && glides(layout, id)) {
+    runs.gather.set(id, ran);
+    ready = ran + GLIDE;
+  }
+  runs.ready.set(id, ready);
+  runs.leave.set(id, ready + PAUSE);
+}
+
+/**
+ * The pen's runs to every node, by the shortest run of line from the tree's agents.
+ */
+function runsOf(layout: TreeMapLayout, edges: [string, string][]): Runs {
+  const runs: Runs = {
+    ran: new Map(),
+    from: new Map(),
+    ready: new Map(),
+    leave: new Map(),
+    gather: new Map(),
+  };
+  const queue = layout.rows.filter((each) => each.parent === undefined).map(rowId);
+  for (const id of queue) runs.ran.set(id, 0);
+  while (queue.length > 0) {
+    queue.sort((a, b) => (runs.ran.get(a) ?? 0) - (runs.ran.get(b) ?? 0));
+    const id = queue.shift() as string;
+    if (runs.leave.has(id)) continue;
+    settle(layout, runs, id);
+    for (const [source, target] of edges.filter(([each]) => each === id)) {
+      const to = (runs.leave.get(id) ?? 0) + lineLength(layout, source, target);
+      if (to >= (runs.ran.get(target) ?? Infinity)) continue;
+      runs.ran.set(target, to);
+      runs.from.set(target, source);
+      queue.push(target);
+    }
+  }
+  reachUnlined(layout, runs);
+  return runs;
+}
+
+/** What the pen still has not reached is reached from what it grows from, once that node's lines leave. */
+function reachUnlined(layout: TreeMapLayout, runs: Runs) {
+  for (const id of layout.anchors.keys()) {
+    if (runs.ran.has(id)) continue;
+    let anchor = layout.anchors.get(id);
+    while (anchor !== undefined && !runs.ran.has(anchor)) anchor = layout.anchors.get(anchor);
+    if (anchor !== undefined) runs.from.set(id, anchor);
+    const leaves = anchor === undefined ? 0 : (runs.leave.get(anchor) ?? 0);
+    runs.ran.set(id, leaves + (anchor === undefined ? 0 : lineLength(layout, anchor, id)));
+    settle(layout, runs, id);
+  }
+}
+
+/**
+ * Where nodes of the still wait for their lines, by their ids: those that stand where the map will
+ * show something move clear of it to its right, each group the still holds together as one.
+ */
+function restsOf(layout: TreeMapLayout, width: (id: string) => number): Map<string, Place> {
+  const box = (id: string, place: Place) => ({
+    left: place.x - ROOM,
+    right: place.x + width(id) + ROOM,
+    top: place.y - HALF - CLEAR,
+    bottom: place.y + HALF + CLEAR,
+  });
+  type Edges = ReturnType<typeof box>;
+  const meet = (a: Edges, b: Edges) =>
+    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  const sources = new Map(
+    edgesOf(layout.rows, layout.feeds).map(([source, target]) => [target, source]),
+  );
+  const waiting = [...layout.closed.keys()].filter((id) => sources.has(id) && glides(layout, id));
+  const grown = [...new Set([...layout.anchors.keys(), ...layout.closed.keys()])].map((id) => ({
+    id,
+    edges: box(id, grownPlace(layout, id)),
+  }));
+  const groups = Map.groupBy(waiting, (id) => sources.get(id) ?? id);
+  const rests = new Map<string, Place>();
+  for (const members of groups.values()) {
+    const shown = grown.filter((each) => !members.includes(each.id)).map((each) => each.edges);
+    let by = 0;
+    // why: Moving clear of one thing can land on the next; a few steps right settle it.
+    for (let step = 0; step < 8; step += 1) {
+      const over = members.flatMap((id) => {
+        const place = layout.closed.get(id) as Place;
+        const stands = box(id, { x: place.x + by, y: place.y });
+        return shown.filter((each) => meet(each, stands)).map((each) => each.right - stands.left);
+      });
+      if (over.length === 0) break;
+      by += Math.max(...over);
+    }
+    if (by === 0) continue;
+    for (const id of members) {
+      const place = layout.closed.get(id) as Place;
+      rests.set(id, { x: place.x + by, y: place.y });
+    }
+  }
+  return rests;
+}
+
+/**
+ * When the drawing reaches each node, when each node's lines leave it, and when each node of the
+ * still glides into place.
  *
- * why: The map draws out from the tree's agents as one pen would, at an even pace: down the tree
- * to each row, and along each line to what it feeds, so a node is reached by the shortest run of
- * line to it, and the drawing rests a moment at each before its lines leave.
+ * why: The map draws out from the tree's agents as one pen would, at an even pace, and nothing
+ * moves before the pen comes to it: down the tree to each row, and along each line to what it
+ * feeds, so a node is reached by the shortest run of line to it. A node shows as its line reaches
+ * it; what the still holds stands until its line reaches it, then glides into place with it.
  */
 function drawingOf(
   layout: TreeMapLayout,
-): Pick<TreeMapLayout, 'reach' | 'reachedFrom' | 'lands' | 'pace'> {
+  width: (id: string) => number,
+): Pick<TreeMapLayout, 'reach' | 'reachedFrom' | 'leaves' | 'gathers' | 'rests' | 'pace'> {
+  layout.rests = restsOf(layout, width);
   const edges = edgesOf(layout.rows, layout.feeds);
-  const { ran, from } = runsOf(layout, edges);
+  // why: What no line runs into is reached from what it grows from, as the pen goes, so the lines
+  // it sends out run in their turn with the rest.
+  const lined = new Set(edges.map(([, target]) => target));
+  const jumps = [...layout.anchors]
+    .filter(([id]) => !lined.has(id))
+    .map(([id, anchor]) => [anchor, id] as [string, string]);
+  const runs = runsOf(layout, [...edges, ...jumps]);
   const ends = edges
-    .filter(([source]) => ran.has(source))
-    .map(([source, target]) => (ran.get(source) ?? 0) + PAUSE + lineLength(layout, source, target));
-  const pace = (1 - SHOW - DRAW_FROM) / Math.max(1, ...ran.values(), ...ends);
-  const reach = new Map([...ran].map(([id, run]) => [id, DRAW_FROM + run * pace]));
-  // why: Nodes reached from one place are in it as the drawing reaches there, so they glide as one,
-  // none crosses another, and none is under what the drawing shows there.
-  const lands = new Map([...reach].map(([id, at]) => [id, reach.get(from.get(id) ?? id) ?? at]));
-  return { reach, reachedFrom: from, lands, pace };
+    .filter(([source]) => runs.leave.has(source))
+    .map(([source, target]) => (runs.leave.get(source) ?? 0) + lineLength(layout, source, target));
+  const farthest = Math.max(1, ...[...runs.ran.values()].map((at) => at + SHOW), ...ends);
+  const pace = (1 - DRAW_FROM) / Math.max(farthest, ...runs.ready.values());
+  const grown = (runs: Map<string, number>) =>
+    new Map([...runs].map(([id, run]) => [id, DRAW_FROM + run * pace]));
+  return {
+    reach: grown(runs.ran),
+    reachedFrom: runs.from,
+    leaves: grown(runs.leave),
+    gathers: grown(runs.gather),
+    rests: layout.rests,
+    pace,
+  };
 }
 
 /**
@@ -1610,7 +1759,9 @@ export function treeMapLayout(
     slots,
     reach: new Map(),
     reachedFrom: new Map(),
-    lands: new Map(),
+    leaves: new Map(),
+    gathers: new Map(),
+    rests: new Map(),
     pace: 0,
     drawnClosed: new Set(stillLines.map((line) => lineKey(line.source, line.feed))),
     anchors: anchorsOf(rows, feeds, slots, unfolds, few),
@@ -1621,6 +1772,6 @@ export function treeMapLayout(
     trunks: trunksOf(stillLines, closed, feedX),
   };
   Object.assign(layout, lanesOf(layout, width));
-  Object.assign(layout, drawingOf(layout));
+  Object.assign(layout, drawingOf(layout, width));
   return layout;
 }

@@ -41,7 +41,6 @@ import {
   type Box,
   beside,
   drawnAt,
-  ease,
   type Feed,
   goneAt,
   HALF,
@@ -54,6 +53,7 @@ import {
   type Row,
   rowId,
   settledAt,
+  settling,
   treeMapLayout,
   underKey,
 } from './lib/tree-map-layout.ts';
@@ -137,7 +137,8 @@ export interface StudioTreeMapProps {
    * How far the tree has grown, from 0 to 1. As it grows the map grows to its size, then draws out
    * from the tree's agents as one pen would, at an even pace: each line runs out from the node it
    * leaves, and the node at its end shows as the line reaches it, drifting the last of the way along
-   * it. What the map shows closed glides into place as the drawing reaches what it is reached from.
+   * it. Nothing moves before the drawing comes to it: what the map shows closed waits, clear of what
+   * will show where it stands, until its line reaches it, then glides into place with its line.
    * Shrinking takes it all back the same way.
    */
   grow?: number | undefined;
@@ -263,7 +264,7 @@ export function StudioTreeMap({
   const tokenDrawn = (id: string) => {
     const out = drawn(id) ?? 1;
     const zIndex = atRest(layout, id, grow) ? 2 : 1;
-    return { style: out < 1 ? { opacity: ease(out), zIndex } : { zIndex } };
+    return { style: out < 1 ? { opacity: settling(out), zIndex } : { zIndex } };
   };
   const shown = feeds.filter((feed) => on(feed.id));
 

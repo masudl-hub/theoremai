@@ -544,10 +544,7 @@ registerProfile(
     type: 'text',
     identity: { handle: 'Research scout', system: SYSTEM },
     models: {
-      main: openRouter.model('openRouterOpenAi', MODEL, {
-        maxOutputTokens: 16_384,
-        builtInTools: [],
-      }),
+      main: openRouter.model('openRouterOpenAi', MODEL, { builtInTools: [] }),
     },
     maxSteps: MAX_STEPS,
     turnBehaviour: { atStepLimit: 'answer' },

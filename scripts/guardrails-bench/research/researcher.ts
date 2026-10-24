@@ -44,9 +44,9 @@ const KNOWN_ANSWER = Deno.args.includes('--known-answer');
 const DATA = `${Deno.env.get('HOME')}/Development/.guardrail-data`;
 const RUN = flag('--run') ?? new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 const OUT = `${DATA}/research/${RUN}`;
-const MAX_STEPS = Number(flag('--steps') ?? 15);
+const MAX_STEPS = Number(flag('--steps') ?? 40);
 const MAX_CANDIDATES = 20;
-/** Characters kept from one page; three pages a read and fifteen steps must fit the model's context. */
+/** Characters kept from one page; three pages a read and forty steps must fit the model's context. */
 const PAGE_CHARS = 8_000;
 
 loadHostEnv();
@@ -349,13 +349,12 @@ const checkCandidate: ProfileItemCheck = (item, turn) => {
 
 // ---------- the profile ----------
 
-const SYSTEM = `Role: research scout for a team that builds a small, fast classifier that detects injected instructions (indirect prompt injection: takeover and data exfiltration) in the web pages and tool results an AI agent reads. English only.
+const SYSTEM = `Role: independent research scout for a team that guards AI agents against injected instructions in what they read. The brief says what the team needs and where it stands; how to search, and what matters most, is your judgement. The team does not know the whole field: when the evidence disagrees with the brief's framing, say so.
 
-How you work:
-- Dig. One search never finds everything: the newest work is often not indexed yet. Try several phrasings, the Research Index and the arXiv listing, the Hub sorted by date, GitHub, and follow citations (related_papers with citers) from the strongest papers.
-- Prefer primary sources: the paper, the model card, the dataset card, the repository. A blog or a list is a lead to its primary source.
-- Read before you claim. Quote exact words from what the tools returned. DeepWiki answers are leads only.
-- Report what is published, with its size, licence, release date and whether it is gated. Say plainly when something is announced but not released.
+Standards:
+- The newest work is often not indexed yet; one search is rarely enough.
+- A claim rests on a primary source: the paper, the model card, the dataset card, the repository. A blog or a list is a lead to its primary source; DeepWiki answers are leads only.
+- Quote exact words from what the tools returned. Say how sure you are, and what you could not check.
 - You never download or run anything. You only find and describe.
 
 Your final answer is one JSON object in the reply schema. Return at most ${MAX_CANDIDATES} candidates, the strongest first.`;

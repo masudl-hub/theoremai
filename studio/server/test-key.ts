@@ -3,7 +3,7 @@
  * from a bad setting. The key is used for this one request: never logged, kept, or echoed back.
  */
 import { z } from '@theoremjs/agents';
-import { readBody } from '@theoremjs/react/server';
+import { readBody } from '@theoremjs/web/server';
 
 const TIMEOUT_MS = 8000;
 const MAX_KEY_LENGTH = 512;

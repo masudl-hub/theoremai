@@ -35,7 +35,7 @@ import {
   createTheoremHandler,
   createTheoremHostHandler,
   type TheoremConversationStore,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 import { differingSettings } from '../agreement.ts';
 import { type StudioAsks, studioAsks } from '../asks.ts';
 import { compileWorkspace } from '../compile-workspace.ts';

@@ -899,7 +899,7 @@ Deno.test('injectedStageEvent names only the injects the host named', () => {
     stage: 'post_tool',
     callId: 'c1',
     toolName: 't',
-    injected: [{ id: 'a' }],
+    injected: [{ id: 'a', messages: [{ role: 'user', content: 'one' }] }],
   });
   assertEquals(injectedStageEvent('pre_turn', [units[1] ?? { messages: [] }]), undefined);
 });

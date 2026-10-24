@@ -73,15 +73,14 @@ function mergeSpans(spans: RedactSpan[]): RedactSpan[] {
 }
 
 function applySpans(text: string, spans: RedactSpan[]): string {
-  let out = text;
-  const merged = mergeSpans(spans);
-  for (let i = merged.length - 1; i >= 0; i -= 1) {
-    const span = merged[i];
-    if (span) {
-      out = out.slice(0, span.start) + tokenFor(span.kind) + out.slice(span.end);
-    }
+  const pieces: string[] = [];
+  let at = 0;
+  for (const span of mergeSpans(spans)) {
+    pieces.push(text.slice(at, span.start), tokenFor(span.kind));
+    at = span.end;
   }
-  return out;
+  pieces.push(text.slice(at));
+  return pieces.join('');
 }
 
 function spansFromPatterns(text: string, patterns: RegExp[], kind: RedactKind): RedactSpan[] {

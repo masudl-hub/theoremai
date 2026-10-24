@@ -33,4 +33,4 @@ jobs:
             --metrics=off \
             --error \
             --exclude tests --exclude npm --exclude studio --exclude tmp \
-            src react/src mod.ts scripts
+            src web/src react/src mod.ts scripts

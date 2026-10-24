@@ -102,7 +102,7 @@ build a custom relay still may call `processLiveOutboundBatch` /
 `finalizeLiveOutboundTurn` directly — prefer `runSession` when possible.
 
 A relay reads each text frame from the live client with `parseLiveClientMessage`
-(`@theoremjs/react/server`): JSON that passes the live client's schema, else a
+(`@theoremjs/web/server`): JSON that passes the live client's schema, else a
 `request` error the relay sends back as an `error` envelope,
 `{ type: 'error', error, errorKind }`. The live client reads every envelope
 against its own schema: a kind it does not know reaches `onTurnEvent` as
@@ -217,9 +217,13 @@ Does not validate full JSON documents.
 
 ## Exported API
 
-Live list: `src/host/mod.ts` (`json`, status constants, `caughtStatus`,
-`flushMintTrace`, `CutoutTape`, `readStreamingJsonStringField`, `forClient`,
-`forClientEvents`, `clientError`, `ClientError`, `ClientTurnOptions`).
+| Export | Role |
+| --- | --- |
+| `json`, `caughtStatus` | A JSON reply, and the HTTP status for a caught error |
+| `HTTP_OK`, `HTTP_BUSY`, `HTTP_NOT_FOUND`, `HTTP_METHOD` | Status constants |
+| `forClient`, `forClientEvents`, `clientError`, `ClientError`, `ClientTurnOptions` | Client-safe turn events |
+| `flushMintTrace`, `CutoutTape` | Cutout mint trace |
+| `readStreamingJsonStringField` | Structured JSON preview |
 
 ```theorem-evidence
 {

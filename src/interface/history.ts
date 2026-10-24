@@ -239,6 +239,13 @@ function foldAssistantEvents(
       textBuf += event.text;
       continue;
     }
+    if (event.type === 'stage' && event.injected) {
+      // why: A steer is a message in the conversation, after what the reply said and did before it.
+      flushStep();
+      flushText();
+      next = [...next, ...event.injected.flatMap((inject) => inject.messages)];
+      continue;
+    }
     if (event.type === 'structured' && event.structured !== undefined) {
       flushStep();
       // why: The streamed text is this reply's JSON as the model wrote it; the structured output is the reply as kept.

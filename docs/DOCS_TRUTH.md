@@ -8,7 +8,8 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | --- | --- |
 | CLI | `scripts/docs-truth/cli.mjs` (`lint`, `inventory`, `freshness`) |
 | Export drift | `scripts/docs-truth/export-drift.mjs` (barrel exports vs contracts) |
-| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` and the headless `react/src` directories (not `ui/`) must live in the labels or carry an explicit exempt) |
+| README claims | `tests/docs/readme.test.ts` (README tables, field paths and examples vs the code) |
+| Copy lint | `scripts/docs-truth/copy-lint.mjs` (P2 — full-tree prose in `src/kernel` / `src/guardrails` / `src/interface` the headless `react/src` directories (not `ui/`), and `web/src` must live in the labels or carry an explicit exempt) |
 | Release notes | `scripts/docs-truth/release-notes.mjs` (each version's notes in `docs/releases/`, in the five sections) |
 | Graph | `docs/_map.mjs` |
 
@@ -22,9 +23,11 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | `scripts/docs-truth/copy-lint.mjs` | Emit-site copy vs labels (P2) |
 | `scripts/docs-truth/release-notes.mjs` | Release notes shape |
 | `scripts/docs-truth/release-notes.test.mjs` | Release notes tests |
+| `scripts/docs-truth/export-drift.test.mjs` | Export drift tests |
 | `scripts/docs-truth/graph.test.mjs` | Contract tests |
 | `docs/_map.mjs` | Entrypoint and document ownership graph |
 | `react/README.md` | Consumer guide owned by the `react-package` entry |
+| `web/README.md` | Consumer guide owned by the `web-package` entry |
 
 ## Rules
 
@@ -36,8 +39,9 @@ Deterministic document-health lint for THEOREM. No waivers. No LLM.
 | Section freshness | Watches/`section_triggers` → specific `##` headings must change, read from one diff between the fork point with the base and the working tree, so uncommitted edits cannot shift a hunk into the wrong section |
 | Owned fallback | Owned files → at least one behavioral section hunk |
 | Evidence | ≥ `min_evidence_supports` supports (default 2); behavioral sections require `contract_test` or `validation` evidence |
-| Export drift | Every `export { name }` / `export type { Name }` in a published entry point (each `deno.json` export, not only `mod.ts` files) appears in the contract of the graph entry that owns that export (`export-drift.mjs`) |
-| Copy lint | A string literal of ≥3 alphabetic words in `src/kernel` / `src/guardrails` / `src/interface` or headless `react/src` (`client`, `components`, `hooks`, `server`) fails outside `src/guardrails/labels.ts` (`copy-lint.mjs`). `react/src/ui` owns its wording and is not scanned. `// labels-exempt: <reason>` goes on the string line, or above it in the same statement; `labels-exempt-file: <reason>` goes in the first 40 lines of a non-runtime fixture module |
+| Export drift | `deno doc` reads every name that a published entry point (each `deno.json` export) exports, `export *` included. Each name is in the `Symbols` or `Export` column of a table under `## Exported API` (or `###`) in the doc of the graph entry that owns that export. Names that come through `export type *`, or through `export *` from another published entry point, are covered by reference. Every name in that column is exported by some entry point. The root README's `## Public Entrypoints` table names each `deno.json` export, and only those (`export-drift.mjs`) |
+| README claims | The README's profile-type and provider tables equal the registered first-party providers and the protocols they serve. Each profile field path in its prose is a full catalog key. The host-profile guardrail line equals `HOST_GUARDRAIL_FIELDS`. Its `ts` examples type-check as one program (`tests/docs/readme.test.ts`) |
+| Copy lint | A string literal of ≥3 alphabetic words in `src/kernel` / `src/guardrails` / `src/interface` headless `react/src` (`client`, `components`, `hooks`), or `web/src` (`client`, `server`) fails outside `src/guardrails/labels.ts` (`copy-lint.mjs`). `react/src/ui` owns its wording and is not scanned. `// labels-exempt: <reason>` goes on the string line, or above it in the same statement; `labels-exempt-file: <reason>` goes in the first 40 lines of a non-runtime fixture module |
 | Release notes | `docs/releases/v<version>.md` exists for the `package.json` version. Every `docs/releases/v*.md` opens with `# v<version>`, then has the `##` sections Summary, What's New, What's Fixed, Breaking Changes, and Notes, in that order. No section is empty (`None.` when there is nothing) and no notes link a pull request (`release-notes.mjs`) |
 
 ## Package vs repo documentation
@@ -46,7 +50,7 @@ Two documentation surfaces. Do not mix them in the publish tarball.
 
 | Surface | Lives in | Ships in package? | Maintained by |
 | --- | --- | --- | --- |
-| **Package docs** | `README.md`, `react/README.md` | Yes, in their respective packages | Entries `package` and `react-package` |
+| **Package docs** | `README.md`, `react/README.md`, `web/README.md` | Yes, in their respective packages | Entries `package`, `react-package` and `web-package` |
 | **Repo contracts** | `docs/contracts/*.md`, `docs/DOCS_TRUTH.md`, `docs/_map.mjs` | **No** | docs-truth module entries — ownership, freshness, evidence |
 
 Publish gates:
@@ -59,8 +63,9 @@ Publish gates:
 | `scripts/verify-publish-bundle.ts` | Asserts the above before publish |
 | `scripts/build-npm.ts` | Strips residual `*.md` from the dnt output tree (except root README) |
 | `scripts/build-npm-react.ts` | Type-checks the local Studio prototype, then removes its emitted files from the React package |
+| `scripts/build-npm-web.ts` | Builds the web package and copies its audio worklet beside the emitted files |
 
-Package verification rejects Studio modules in both agents and React build output.
+Package verification rejects Studio modules in the agents, React and web build output, and any React import in the web source or build.
 
 Contracts live under `docs/contracts/` (repo-only). Module code under `src/` stays
 owned by those contracts for freshness — change code, update the matching contract.
@@ -78,6 +83,7 @@ Explicit mappings also monitor files outside these production roots.
 The `react-package` entry monitors `react/src/` and `react/package.json`.
 This includes TypeScript, TSX, JavaScript worklets, and stylesheets. Changes require `react/README.md` in the diff.
 Its provider and session watches require updates to the relevant README sections.
+The `web-package` entry monitors `web/src/` and `web/package.json` the same way. Changes require `web/README.md` in the diff.
 
 ## CI and hooks
 
@@ -85,7 +91,7 @@ Its provider and session watches require updates to the relevant README sections
 | --- | --- |
 | `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
-| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `react/` via its own `tsc`, since it builds against the kernel as the `@theoremjs/agents` package), and the tests, run once with coverage for fallow (`lint:fallow`, last) |
+| `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `web/` and `react/` each via its own `tsc`, since each builds against the kernel as the `@theoremjs/agents` package), and the tests, run once with coverage for fallow (`lint:fallow`, last) |
 | CI | `lint` job: `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, `lint:biome`, `lint:ast-grep`. `check` job: typechecks, `verify:publish`, studio tests, then `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`), which runs the test suite once with coverage |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
 | Pre-push | `fallow audit` against the branch's upstream, or `FALLOW_AUDIT_BASE` (uses the generated coverage report when present) |

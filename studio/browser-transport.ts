@@ -1,5 +1,6 @@
 import { type DecisionProfile, defineProfile, TheoremError } from '@theoremjs/agents';
 import { clientError, forClient } from '@theoremjs/agents/host';
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import type { RunDecisionOptions } from '@theoremjs/agents/kernel';
 import {
   type ChatLineSink,
@@ -17,8 +18,8 @@ import {
   type TraceFeed,
   type TurnEventSink,
   withFailedTraces,
-} from '@theoremjs/react/client';
-import type { ReplyLine } from '@theoremjs/react/server';
+} from '@theoremjs/web/client';
+import type { ReplyLine } from '@theoremjs/web/server';
 import { STUDIO_READER } from './reader.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import type { StudioRuntimeBase } from './runtime-scope.ts';
@@ -94,7 +95,7 @@ function localPageResult(
 ) {
   return runtime.execution
     ? undefined
-    : async (result: import('@theoremjs/react/client').PageDispatchResult) => {
+    : async (result: import('@theoremjs/web/client').PageDispatchResult) => {
         await (await local())?.pageResult(result);
       };
 }
@@ -113,6 +114,7 @@ function withBrowserExecution(runtime: StudioBrowserRuntime, run: Engine) {
       remoteTools: original.remoteTools,
       hostOptions: original.hostOptions?.bind(original),
       provider: original.provider?.bind(original),
+      toolHandlers: original.toolHandlers,
       onAgentCall: original.onAgentCall?.bind(original),
       execution: local.execution,
       pageExecution: local.pageExecution,
@@ -123,6 +125,39 @@ function withBrowserExecution(runtime: StudioBrowserRuntime, run: Engine) {
 
 /** The one session a page's conversations open in: the tab holds the key, so only its refs open. */
 const PAGE_SESSION = 'studio-page';
+
+/** The page's conversations, sealed with the tab's `conversationKey`. */
+const pageConversations = (run: Engine, conversationKey: string) => ({
+  sessionId: PAGE_SESSION,
+  store: run.createSealedConversationStore({ keys: { 1: conversationKey }, keyVersion: 1 }),
+});
+
+/**
+ * A conversation with the draft that opens on `blocks`, sealed with `conversationKey` as the
+ * page's chats are: its ref and view.
+ */
+export async function startBrowserStudioConversation(
+  payload: StudioRunPayload,
+  runtime: StudioBrowserRuntime,
+  options: { conversationKey: string; blocks: readonly TranscriptBlock[] },
+) {
+  try {
+    const run = await browserEngine();
+    return await run.startStudioConversation(
+      {
+        profile: payload.profile,
+        customTools: payload.customTools,
+        structured: payload.structured,
+        dependencies: payload.dependencies,
+        runtime: withBrowserExecution(runtime, run).runtime,
+      },
+      pageConversations(run, options.conversationKey),
+      options.blocks,
+    );
+  } catch (error) {
+    throw failed(error, payload);
+  }
+}
 
 /**
  * A chat run in the page. Its conversation is sealed with `conversationKey`,
@@ -139,13 +174,7 @@ export function createBrowserStudioTransport(
     run,
     ...withBrowserExecution(runtime, run),
     steer: run.createMemorySteerInbox(),
-    conversations: {
-      sessionId: PAGE_SESSION,
-      store: run.createSealedConversationStore({
-        keys: { 1: options.conversationKey },
-        keyVersion: 1,
-      }),
-    },
+    conversations: pageConversations(run, options.conversationKey),
   }));
   // why: a failed load surfaces on the run that awaits it, not as an unhandled rejection.
   session.catch(() => {});
@@ -224,6 +253,15 @@ export function createBrowserStudioTransport(
       const inbox = inboxes.get(request.turnId);
       const { run, steer } = await session;
       if (!inbox || !(await steer.enqueue(inbox, run.steerUnitOf(request)))) {
+        throw new TheoremError('request', 'The turn has ended', {
+          copy: { key: 'session.turn_ended' },
+        }); // labels-exempt: internal diagnostic
+      }
+    },
+    async stop({ turnId }) {
+      const inbox = inboxes.get(turnId);
+      const { steer } = await session;
+      if (!inbox || !(await steer.stop(inbox))) {
         throw new TheoremError('request', 'The turn has ended', {
           copy: { key: 'session.turn_ended' },
         }); // labels-exempt: internal diagnostic

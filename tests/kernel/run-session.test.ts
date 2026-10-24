@@ -1693,7 +1693,13 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
   assertEquals(beforeEndSawInject, true);
   assertEquals(
     eventsOf(events, 'stage').filter((e) => e.injected !== undefined),
-    [{ type: 'stage', stage: 'pre_turn', injected: [{ id: 'steer-live' }] }],
+    [
+      {
+        type: 'stage',
+        stage: 'pre_turn',
+        injected: [{ id: 'steer-live', messages: [{ role: 'user', content: 'injected steer' }] }],
+      },
+    ],
   );
   await session.close();
 });
@@ -1828,7 +1834,13 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
   );
   assertEquals(
     eventsOf(events, 'stage').filter((e) => e.injected !== undefined),
-    [{ type: 'stage', stage: 'before_end', injected: [{ id: 'steer-end' }] }],
+    [
+      {
+        type: 'stage',
+        stage: 'before_end',
+        injected: [{ id: 'steer-end', messages: [{ role: 'user', content: 'before-end steer' }] }],
+      },
+    ],
   );
   liveMock.close();
   await session.close();

@@ -4,5 +4,6 @@ docs/
 src/**/*.md
 studio/
 react/
+web/
 src/guardrails/eval/
 snyk

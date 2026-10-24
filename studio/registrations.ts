@@ -55,6 +55,7 @@ export type HttpToolRegistration = {
     bodyParam?: string;
   };
   auth?: StudioToolAuth;
+  maxResponseBytes?: number;
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;
@@ -73,6 +74,8 @@ export type McpToolRegistration = {
   mcpToolName: string;
   headers?: Record<string, string>;
   auth?: StudioToolAuth;
+  maxResponseBytes?: number;
+  session?: { idleMs?: number; max?: number };
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;

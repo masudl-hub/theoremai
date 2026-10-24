@@ -316,7 +316,7 @@ export function studioSource(compiled: CompiledStudio): string {
 }
 
 function imagesSource(images: Record<string, unknown>, declare: string): string {
-  return `/** The pictures every decision sends, by the reference its questions write. */\n${declare} images = ${literal(
+  return `/** The pictures a decision can send, by the reference its questions write. */\n${declare} images = ${literal(
     images,
     0,
   )} satisfies Record<string, DecisionAsset>;\n`;

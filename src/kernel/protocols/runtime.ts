@@ -14,7 +14,7 @@ import {
   keySlotsOf,
   type ModelBinding,
 } from './binding.ts';
-import { type ProviderLimits, resolveProviderLimits } from './limits.ts';
+import type { ProviderLimits } from './limits.ts';
 import { costFromPrices } from './prices.ts';
 import type {
   DecisionCall,
@@ -51,7 +51,8 @@ export function plainWebSocket(provider: string): OpenWebSocket {
 
 /** What a host lends every provider call: its keys, its network, its clock, and its budgets. */
 export interface ProviderHostOptions {
-  limits?: Partial<ProviderLimits>;
+  /** Overrides the model's own `limits`, one field at a time. */
+  limits?: ProviderLimits;
   vault?: KeyVault;
   fetch?: typeof fetch;
   wait?: Wait;
@@ -339,7 +340,7 @@ function protocolContext(
     apiId,
     options: setup.binding.options ?? {},
     builtInTools,
-    limits: setup.limits ?? resolveProviderLimits(),
+    limits: setup.limits ?? setup.binding.limits ?? {},
     ...(setup.signal ? { signal: setup.signal } : {}),
     tapUpstream: tap,
     async *send(body, init: SendInit) {

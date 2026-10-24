@@ -139,6 +139,14 @@ export const RAISED = {
 export const PANEL_EDGE = 3;
 export const PANEL_BOTTOM = 4;
 
+/**
+ * A raised pane's gap from the page's end or bottom edge: `--theorem-pane-edge` where a host
+ * sets it (0 where the host already insets its page), else `spacing`.
+ */
+export function paneEdge(spacing: typeof PANEL_EDGE | typeof PANEL_BOTTOM): string {
+  return `var(--theorem-pane-edge, var(--spacing-${String(spacing)}))`;
+}
+
 /** The raised card every docked panel and the content beside one share. */
 export function PanelBody({
   padding,
@@ -161,8 +169,10 @@ export function PanelBody({
       height="100%"
       className={className}
       paddingInlineStart={inset === 'end' ? undefined : PANEL_EDGE}
-      paddingInlineEnd={inset === 'start' ? undefined : PANEL_EDGE}
-      paddingBlockEnd={PANEL_BOTTOM}
+      style={{
+        paddingInlineEnd: inset === 'start' ? undefined : paneEdge(PANEL_EDGE),
+        paddingBlockEnd: paneEdge(PANEL_BOTTOM),
+      }}
     >
       <Card variant="transparent" height="100%" padding={padding} style={RAISED}>
         {children}
@@ -278,7 +288,15 @@ export function RaisedPane({
       header={header}
       content={
         <LayoutContent padding={0} isScrollable={false}>
-          <VStack height="100%" padding={3}>
+          <VStack
+            height="100%"
+            paddingInlineStart={PANEL_EDGE}
+            paddingBlockStart={PANEL_EDGE}
+            style={{
+              paddingInlineEnd: paneEdge(PANEL_EDGE),
+              paddingBlockEnd: paneEdge(PANEL_EDGE),
+            }}
+          >
             <Card variant="transparent" height="100%" padding={0} style={RAISED}>
               <div id={id} ref={ref} style={{ height: '100%' }}>
                 {children(isSidePanelWide(width))}

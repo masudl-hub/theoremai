@@ -19,7 +19,7 @@ If the diagram only repeats the sentence above it, delete the diagram.
 
 | Doc ships to | Format | Why |
 | --- | --- | --- |
-| npm README (`README.md`, `react/README.md`) | ASCII or box-drawing, in a ```` ```text ```` fence | npmjs.com did not render Mermaid when this guide was written. Check a published page if it matters. Plain text works everywhere |
+| npm README (`README.md`, `web/README.md`, `react/README.md`) | ASCII or box-drawing, in a ```` ```text ```` fence | npmjs.com did not render Mermaid when this guide was written. Check a published page if it matters. Plain text works everywhere |
 | GitHub-only pages (`docs/`, contracts, proposals) | Mermaid in a ```` ```mermaid ```` fence | GitHub renders it, and the source is easy to diff |
 | JSR or any other page you have not tested | ASCII | Plain text renders everywhere |
 | The site | Whatever the site's components render | Check the site code first |

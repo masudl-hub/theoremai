@@ -64,22 +64,24 @@
   },
   "scripts": {
     "build:npm": "deno run --allow-read --allow-write --allow-env --allow-net --allow-run=npm scripts/build-npm.ts",
+    "build:npm:web": "deno run --allow-read --allow-write --allow-run=npx scripts/build-npm-web.ts",
     "build:npm:react": "deno run --allow-read --allow-write --allow-run=npx scripts/build-npm-react.ts",
     "build:npm:studio": "deno run --allow-read --allow-write --allow-env --allow-run=npx,node scripts/build-npm-studio.ts",
     "test": "deno test --parallel --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=npm/ tests/",
     "coverage": "sh scripts/coverage.sh",
-    "check:react": "npm --prefix react ci && npm --prefix react run typecheck && npm --prefix react run theme:check",
+    "check:web": "npm --prefix web ci && npm --prefix web run typecheck",
+    "check:react": "npm --prefix web ci && npm --prefix react ci && npm --prefix react run typecheck && npm --prefix react run theme:check",
     "lint:biome": "biome check --error-on-warnings .",
     "lint:ast-grep": "ast-grep scan",
     "lint:fallow": "npm run coverage && fallow audit --base \"${FALLOW_AUDIT_BASE:-origin/main}\" --coverage coverage/coverage-final.json",
     "lint:fallow:deep": "fallow health && fallow dupes && fallow dead-code",
-    "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node ./scripts/docs-truth/copy-lint.mjs && node ./scripts/docs-truth/comment-kinds.mjs && node ./scripts/docs-truth/release-notes.mjs && node --test ./scripts/docs-truth/graph.test.mjs ./scripts/docs-truth/release-notes.test.mjs",
+    "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node ./scripts/docs-truth/copy-lint.mjs && node ./scripts/docs-truth/comment-kinds.mjs && node ./scripts/docs-truth/release-notes.mjs && node --test ./scripts/docs-truth/graph.test.mjs ./scripts/docs-truth/release-notes.test.mjs ./scripts/docs-truth/export-drift.test.mjs && deno test --quiet --allow-read --allow-write --allow-run tests/docs/",
     "docs:inventory": "node ./scripts/docs-truth/cli.mjs inventory",
     "docs:freshness": "node ./scripts/docs-truth/cli.mjs freshness",
     "hooks:install": "node ./scripts/hooks/install.mjs",
     "prepare": "node ./scripts/hooks/install.mjs",
     "lint": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && npm run lint:fallow",
-    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run build:npm && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && npm run check:react && npm run build:npm:react && npm --prefix studio ci && npm --prefix studio test && npm run build:npm:studio && npm run lint:fallow"
+    "check:ci": "npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep && deno task verify:publish && npm run build:npm && deno check mod.ts tests/fixtures/probes/ scripts/*.ts && npm run check:web && npm run check:react && npm run build:npm:web && npm run build:npm:react && npm --prefix studio ci && npm --prefix studio test && npm run build:npm:studio && npm run lint:fallow"
   },
   "devDependencies": {
     "@ast-grep/cli": "^0.41.0",

@@ -107,7 +107,7 @@ Deno.test('an embedding exports an embedding route and its inputs-and-vectors co
       identity: { handle: 'Docs embeddings' },
       inputs: { text: true },
       models: {
-        gemma: { protocol: 'ollamaEmbedding', provider: 'local', apiId: 'embeddinggemma' },
+        gemma: { protocol: 'ollamaEmbeddings', provider: 'local', apiId: 'embeddinggemma' },
       },
     },
   };

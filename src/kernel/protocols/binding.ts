@@ -4,6 +4,7 @@ import { labelText } from '../../guardrails/labels.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import { KEY_SLOT_NAME, type KeySlot } from '../schema.ts';
 import type { Equals } from '../util/exact-type.ts';
+import { type ProviderLimits, providerLimitsSchema } from './limits.ts';
 import { type ModelProfileType, modelOptions, type Protocol } from './protocol.ts';
 import type { RegisteredProvider } from './provider.ts';
 
@@ -58,13 +59,14 @@ export interface ModelBinding extends z.infer<typeof commonModelSettingsSchema> 
   keySlot?: string;
   fallbackKeySlot?: string;
   options?: JsonObject;
+  limits?: ProviderLimits;
 }
 
 /** A decision profile's model: no generation settings, and a time limit. */
 export interface DecisionModelBinding
   extends Pick<
     ModelBinding,
-    'protocol' | 'provider' | 'apiId' | 'keySlot' | 'fallbackKeySlot' | 'options'
+    'protocol' | 'provider' | 'apiId' | 'keySlot' | 'fallbackKeySlot' | 'options' | 'limits'
   > {
   timeoutMs?: number;
 }
@@ -114,6 +116,10 @@ const modelBinding = z.strictObject({
     .optional()
     // labels-exempt: builder field description, read by the studio and docs
     .describe("What this model's protocol takes beyond the shared settings."),
+  limits: providerLimitsSchema
+    .optional()
+    // labels-exempt: builder field description, read by the studio and docs
+    .describe("Theorem's cut-offs for this model's calls; each one left out is no limit."),
 });
 true satisfies Equals<z.infer<typeof modelBinding>, ModelBinding>;
 export const modelBindingSchema: z.ZodType<ModelBinding> = modelBinding;
@@ -126,6 +132,7 @@ const decisionModelBinding = modelBinding
     keySlot: true,
     fallbackKeySlot: true,
     options: true,
+    limits: true,
   })
   .extend({
     timeoutMs: z

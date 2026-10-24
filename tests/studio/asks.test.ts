@@ -8,13 +8,13 @@ import {
   type ToolPermission,
   type TurnEvent,
 } from '../../mod.ts';
-import { createHostTransport } from '../../react/src/client/host-transport.ts';
-import type { TurnEventSink } from '../../react/src/client/transport.ts';
-import { issuedOperationId } from '../../react/src/client/turn-client.ts';
 import { studioAsks, writeAsk, writeAskLine } from '../../studio/asks.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
+import { createHostTransport } from '../../web/src/client/host-transport.ts';
+import type { TurnEventSink } from '../../web/src/client/transport.ts';
+import { issuedOperationId } from '../../web/src/client/turn-client.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 
 const HOST = '127.0.0.1:4983';

@@ -11,10 +11,9 @@ import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconEye, IconFlame, IconPencil, type Icon as TablerIcon } from '@tabler/icons-react';
 import type { ToolAccess, ToolGate } from '@theoremjs/agents/kernel';
+import type { ToolDecisionAction } from '@theoremjs/web/client';
+import { humanize, isOAuthComplete } from '@theoremjs/web/client';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
-import { isOAuthComplete } from '../client/oauth-popup.ts';
-import { humanize } from '../client/shaped-data.ts';
-import type { ToolDecisionAction } from '../client/tool-resume.ts';
 import { approvalHeading } from './approval-heading.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 

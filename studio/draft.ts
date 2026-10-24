@@ -29,6 +29,7 @@ import {
   type JsonObject,
   mimeAllowed,
   type ProfileItemRule,
+  type ProviderLimits,
   profileTypesForField,
 } from '@theoremjs/agents/kernel';
 import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
@@ -114,6 +115,8 @@ export interface ModelBindingDraft {
   options: JsonObject;
   /** Decision request timeout; `null` uses the studio timeout. */
   timeoutMs: number | null;
+  /** Theorem's cut-offs for its calls; one `null` or absent is no limit. */
+  limits?: { [K in keyof ProviderLimits]?: number | null };
   efforts: EffortDraft[];
   defaultEffort: string;
   allowEffortSelect: boolean;
@@ -139,6 +142,27 @@ export interface ModelBindingDraft {
   /** The workspace agent that writes the summary, by key; `''` or absent: this agent. */
   compactWith?: string;
 }
+
+/** A model's limits, in the kernel's order, with each row's label and units. */
+export const MODEL_LIMITS = [
+  { name: 'operationTimeoutMs', label: 'Call timeout', units: 'ms', isTimer: true },
+  { name: 'connectTimeoutMs', label: 'Connect timeout', units: 'ms', isTimer: true },
+  { name: 'liveStepTimeoutMs', label: 'Live step timeout', units: 'ms', isTimer: true },
+  { name: 'maxWireRecordBytes', label: 'Wire record', units: 'bytes', isTimer: false },
+  { name: 'maxWireResponseBytes', label: 'Wire response', units: 'bytes', isTimer: false },
+  { name: 'maxEventBytes', label: 'Event', units: 'bytes', isTimer: false },
+  { name: 'maxStepBytes', label: 'Step', units: 'bytes', isTimer: false },
+  { name: 'maxStepEvents', label: 'Step events', units: 'events', isTimer: false },
+  { name: 'maxPendingToolCalls', label: 'Tool calls', units: 'calls', isTimer: false },
+] as const satisfies readonly {
+  name: keyof ProviderLimits;
+  label: string;
+  units: string;
+  isTimer: boolean;
+}[];
+
+/** The longest a timer runs: the most a JavaScript timer takes, in ms. */
+export const TIMER_MAX_MS = 2_147_483_647;
 
 /** Where compaction starts when a builder turns it on; every number stays theirs to change. */
 export const COMPACTION_DRAFT_DEFAULTS = {
@@ -370,7 +394,7 @@ export interface DecisionQuestionDraft {
   image?: string;
 }
 
-/** A picture every decision sends, which the questions write as its name in angle brackets. */
+/** A picture a decision can send, which the questions write as its name in angle brackets. */
 export interface DecisionImageDraft {
   key: string;
   /** The reference without its brackets: `ghs02` is written `<ghs02>`. */
@@ -433,7 +457,7 @@ export function defaultModelBinding(partial?: Partial<ModelBindingDraft>): Model
   return {
     key: draftKey('model'),
     modelId: 'fast',
-    protocol: 'openRouter',
+    protocol: 'openRouterOpenAi',
     provider: 'openrouter',
     apiId: '',
     options: {},

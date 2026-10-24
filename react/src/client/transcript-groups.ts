@@ -6,7 +6,7 @@
 
 import type { TurnStop } from '@theoremjs/agents';
 import { type TranscriptBlock, WORDED_STOP_KINDS } from '@theoremjs/agents/interface';
-import { humanize } from './shaped-data.ts';
+import { humanize } from '@theoremjs/web/client';
 
 /** What a reply or a called agent used: its tokens, and its cost when the provider gave one. */
 export type TurnUsage = { total: number; cost?: { usd: number; partial?: true } };

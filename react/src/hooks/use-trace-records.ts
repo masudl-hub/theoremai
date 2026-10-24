@@ -1,6 +1,6 @@
 import type { TraceRecord } from '@theoremjs/agents';
+import type { TraceFeed } from '@theoremjs/web/client';
 import { useSyncExternalStore } from 'react';
-import type { TraceFeed } from '../client/trace-feed.ts';
 
 const NONE: readonly TraceRecord[] = [];
 const noSubscription = () => () => {};

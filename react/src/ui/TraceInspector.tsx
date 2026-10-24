@@ -14,8 +14,8 @@ import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconActivity } from '@tabler/icons-react';
 import type { TraceRecord } from '@theoremjs/agents';
+import type { TraceFeed } from '@theoremjs/web/client';
 import { type ReactNode, useMemo, useState } from 'react';
-import type { TraceFeed } from '../client/trace-feed.ts';
 import {
   isCallTrace,
   type TraceTurn,

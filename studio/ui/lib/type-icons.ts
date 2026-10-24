@@ -7,12 +7,12 @@ import type { IconType } from '@astryxdesign/core/Icon';
 import {
   IconChartBar,
   IconChartScatter3d,
+  IconFileSmile,
   IconGavel,
   IconHeadset,
   IconLetterT,
   IconListCheck,
   IconMathFunction,
-  IconMessageForward,
   IconNumber,
   IconPhoto,
   IconServer,
@@ -24,6 +24,9 @@ import {
 import type { CustomToolType } from '@theoremjs/agents';
 import type { DecisionQuestionType, StudioProfileType } from '../../mod.ts';
 import { IconMcp } from '../mcp-icon.tsx';
+
+/** An agent's icon, wherever one shows: the workspace's Agents list, an agent tool, a profile file. */
+export const AGENT_ICON: IconType = IconFileSmile;
 
 /** Each profile type's icon: the Type control's segments and the tree's Identity row. */
 export const PROFILE_TYPE_ICON = {
@@ -48,7 +51,7 @@ export const TOOL_TYPE_ICON = {
   function: IconMathFunction,
   http: IconWorld,
   mcp: IconMcp,
-  agent: IconMessageForward,
+  agent: AGENT_ICON,
 } satisfies Record<CustomToolType, IconType>;
 
 /** Each decision question type's icon: the Answer control's segments and the question list. */

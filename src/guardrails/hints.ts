@@ -18,8 +18,11 @@ const OTHER_HINTS: Readonly<Record<string, LabelKey>> = {
   [EGRESS_RULES.providerToolLeak]: 'egress.hint_provider_tool_leak',
 };
 
-/** The rules whose match is the profile's own, and is never repeated. */
-const UNQUOTED: readonly string[] = [DETECT_RULES.canary_leak, DETECT_RULES.prompt_leak];
+/**
+ * The rules whose match is never repeated: the canary is the profile's own secret. A prompt leak is
+ * quoted, since the model already holds the instruction it repeated and must know which passage.
+ */
+const UNQUOTED: readonly string[] = [DETECT_RULES.canary_leak];
 
 /** How many matches a detector's line quotes, and how much of each. */
 const MAX_QUOTED = 3;

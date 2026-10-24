@@ -1,14 +1,21 @@
 import type { TurnEvent } from '@theoremjs/agents';
 import { toolCallsOf, toolSnapshotFromEvents } from '@theoremjs/agents/interface';
+import type {
+  ClientTurnEvent,
+  HostInterface,
+  HostTransport,
+  PageTools,
+} from '@theoremjs/web/client';
+import {
+  type ClientFailure,
+  clientFailure,
+  continueGatedToolInvocation,
+  issuedOperationId,
+  type PersonGateResolution,
+  withPageToolDispatch,
+} from '@theoremjs/web/client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type ClientFailure, clientFailure } from '../client/failure.ts';
 import type { ToolCall } from '../client/host-call.ts';
-import type { HostInterface, HostTransport } from '../client/host-transport.ts';
-import type { PageTools } from '../client/live/live-page-tool.ts';
-import { withPageToolDispatch } from '../client/page-dispatch.ts';
-import { continueGatedToolInvocation, type PersonGateResolution } from '../client/tool-resume.ts';
-import type { ClientTurnEvent } from '../client/transport.ts';
-import { issuedOperationId } from '../client/turn-client.ts';
 import { useDescribed } from './use-described.ts';
 
 export type { ToolCall };

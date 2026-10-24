@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { geminiEmbedding } from '../../src/providers/mod.ts';
+import { geminiEmbeddings } from '../../src/providers/mod.ts';
 import { optionAt, protocolOptionFields, withOption } from '../../studio/providers.ts';
 
 Deno.test('optionAt reads a dotted path, and nothing past a value that is not an object', () => {
@@ -32,12 +32,14 @@ Deno.test('withOption leaves out an undefined value, and an object it leaves emp
 });
 
 Deno.test('protocolOptionFields keeps the name and description a protocol gives each choice', () => {
-  const taskType = protocolOptionFields(geminiEmbedding).find((field) => field.path === 'taskType');
+  const taskType = protocolOptionFields(geminiEmbeddings).find(
+    (field) => field.path === 'taskType',
+  );
   assertEquals(taskType?.kind, 'choice');
   assertEquals(taskType?.choices?.[0]?.value, 'RETRIEVAL_QUERY');
   assertEquals(taskType?.choices?.[0]?.label, 'Retrieval query');
   assertEquals(typeof taskType?.choices?.[0]?.description, 'string');
-  const dims = protocolOptionFields(geminiEmbedding).find(
+  const dims = protocolOptionFields(geminiEmbeddings).find(
     (field) => field.path === 'outputDimensionality',
   );
   assertEquals(dims?.choices, [{ value: '768' }, { value: '1536' }, { value: '3072' }]);
@@ -45,7 +47,7 @@ Deno.test('protocolOptionFields keeps the name and description a protocol gives 
 
 Deno.test('protocolOptionFields leaves out what the model refuses, unless the binding holds it', () => {
   const paths = (apiId: string, options = {}) =>
-    protocolOptionFields(geminiEmbedding, { apiId, options }).map((field) => field.path);
+    protocolOptionFields(geminiEmbeddings, { apiId, options }).map((field) => field.path);
   assertEquals(paths('gemini-embedding-001').includes('taskType'), true);
   assertEquals(paths('gemini-embedding-2-preview').includes('taskType'), false);
   assertEquals(

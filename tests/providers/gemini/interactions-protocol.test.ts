@@ -239,7 +239,7 @@ Deno.test('a thought signature becomes reasoning for its call, and goes back on 
       ],
       reasoning: [
         { data: { call: 0, signature: 'sig' }, origin: { protocol: 'geminiInteractions' } },
-        { data: { call: 1, signature: 'other' }, origin: { protocol: 'openRouter' } },
+        { data: { call: 1, signature: 'other' }, origin: { protocol: 'openRouterOpenAi' } },
       ],
     },
   ];

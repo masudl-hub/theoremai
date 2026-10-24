@@ -118,7 +118,11 @@ function exampleQuestion(
  * it, so it runs as it opens.
  */
 export async function createDecisionExampleDraft(): Promise<StudioDraft> {
-  const images = await decisionImages();
+  return decisionExampleDraft(await decisionImages());
+}
+
+/** The decision example with the pictures given: none for a page that only shows its shape. */
+export function decisionExampleDraft(images: DecisionImageDraft[] = []): StudioDraft {
   const blank = createBlankDraft();
   const had = new Set(includableFacets(blank));
   const decision = setProfileType(blank, 'decision', EXAMPLE_PICKS);
@@ -134,7 +138,7 @@ export async function createDecisionExampleDraft(): Promise<StudioDraft> {
       ...draft.decision,
       contract: 'pantry.v1',
       questions: [
-        exampleQuestion('Ginger', 'box', 'Where is <ginger> in `photo`?'),
+        { ...exampleQuestion('Ginger', 'box', 'Where is <ginger> in `photo`?'), image: 'photo' },
         exampleQuestion('Something to drink', 'noul', "There's something to drink in `photo`."),
         exampleQuestion('Fruit salad', 'noul', 'Do we have what we need for a fruit salad?'),
         {
@@ -146,7 +150,10 @@ export async function createDecisionExampleDraft(): Promise<StudioDraft> {
           image: '<apple_ripeness>',
         },
         exampleQuestion('Bread on the shelf', 'noul', 'Does the shelf have bread?'),
-        exampleQuestion('Union Jack', 'box', 'Which jar in `photo` matches <union_jack>?'),
+        {
+          ...exampleQuestion('Union Jack', 'box', 'Which jar in `photo` matches <union_jack>?'),
+          image: 'photo',
+        },
         exampleQuestion('Brunch', 'choice', 'What can we make for brunch from `photo`?', [
           ['toast', 'Toast with a spread.'],
           ['fruit', 'A bowl of fruit.'],
@@ -362,7 +369,10 @@ export function createLiveExampleDraft(): StudioDraft {
 
 /** A speech agent that reads a script aloud. */
 export function createNarratorExampleDraft(): StudioDraft {
-  const draft = setProfileType(createBlankDraft(), 'speech', EXAMPLE_PICKS);
+  const draft = includeFacet(
+    setProfileType(createBlankDraft(), 'speech', EXAMPLE_PICKS),
+    'guardrails',
+  );
   return {
     ...draft,
     identity: { ...draft.identity, agentId: 'studio.narrator', handle: 'narrator' },

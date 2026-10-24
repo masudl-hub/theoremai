@@ -20,5 +20,6 @@ export {
   createBrowserStudioHostTransport,
   createBrowserStudioTransport,
   type StudioBrowserRuntime,
+  startBrowserStudioConversation,
 } from './browser-transport.ts';
 export { attachStudioLiveSession } from './live-session-bridge.ts';

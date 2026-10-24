@@ -1,5 +1,5 @@
 import { registerTool, z } from '../../mod.ts';
-import { createTheoremHostHandler } from '../../react/src/server/mod.ts';
+import { createTheoremHostHandler } from '../../web/src/server/mod.ts';
 import { sqliteSessionStore } from './sqlite-session-store.ts';
 
 const [path, phase, endpoint, encodedAnswer, name] = Deno.args;

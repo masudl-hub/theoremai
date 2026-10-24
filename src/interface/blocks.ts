@@ -1,5 +1,11 @@
 import { keptReply } from '../kernel/turn-events.ts';
-import type { Source, ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
+import type {
+  InjectedMessages,
+  Source,
+  ToolCallEvent,
+  TurnEvent,
+  TurnEventOf,
+} from '../kernel/types.ts';
 import { partialJsonObject } from '../kernel/util/partial-json.ts';
 import { applyToolDraft, applyToolEvent } from './tool-calls.ts';
 import { collectPromotedMediaFromToolOutput } from './tool-media.ts';
@@ -192,6 +198,38 @@ function appendPromotedToolMedia(
   }
 }
 
+/**
+ * A named inject's user messages as the user's own blocks, where the reply took them in: its
+ * text, then a block per file. A message from anyone else (a host's note) is not the user's to show.
+ */
+function injectedBlocks(inject: InjectedMessages, idPrefix: string): TranscriptBlock[] {
+  return inject.messages.flatMap((message) => {
+    if (message.role !== 'user') return [];
+    const parts = message.parts ?? [];
+    const text = [message.content ?? '', ...parts.map((part) => ('text' in part ? part.text : ''))]
+      .join('')
+      .trim();
+    return [
+      ...(text ? [{ id: nextBlockId(idPrefix), kind: 'user-text' as const, text }] : []),
+      ...parts.flatMap((part): TranscriptBlock[] =>
+        'text' in part
+          ? []
+          : [
+              {
+                id: nextBlockId(idPrefix),
+                kind: part.type === 'audio' ? 'user-voice' : 'user-attachment',
+                name: part.mimeType,
+                mimeType: part.mimeType,
+                ...('data' in part
+                  ? { sizeBytes: Math.floor((part.data.length * 3) / 4), data: part.data }
+                  : { sizeBytes: 0 }),
+              },
+            ],
+      ),
+    ];
+  });
+}
+
 /** Turns a user draft into transcript blocks: a `user-text` block for the trimmed text, then one block per attachment and per voice clip. */
 function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): TranscriptBlock[] {
   const blocks: TranscriptBlock[] = [];
@@ -224,6 +262,40 @@ function buildUserTurnBlocks(draft: UserTurnDraft, idPrefix = 'user'): Transcrip
     });
   }
   return blocks;
+}
+
+/** The block an event adds on its own, beside the blocks before it; `undefined` for one that adds none. */
+function standaloneBlock(event: TurnEvent, idPrefix: string): TranscriptBlock | undefined {
+  switch (event.type) {
+    case 'media':
+      return event.media
+        ? {
+            id: nextBlockId(idPrefix),
+            kind: 'media',
+            mimeType: event.media.mimeType,
+            data: event.media.data,
+          }
+        : undefined;
+    case 'grounding':
+      return { id: nextBlockId(idPrefix), kind: 'grounding', grounding: event.grounding };
+    case 'evidence':
+      return { id: nextBlockId(idPrefix), kind: 'evidence', evidence: event.evidence };
+    case 'error':
+      return event.error
+        ? { id: nextBlockId(idPrefix), kind: 'error', message: event.error }
+        : undefined;
+    case 'done':
+      return {
+        id: nextBlockId(idPrefix),
+        kind: 'turn-done',
+        stop: event.stop,
+        tokens: event.tokens,
+        interactionId: event.interactionId,
+        compaction: event.compaction !== undefined,
+      };
+    default:
+      return undefined;
+  }
 }
 
 /** Resets only the turn id sequence, so streaming refolds keep stable `turn-*` keys. */
@@ -263,32 +335,8 @@ function foldTurnEvents(
       case 'structured':
         settleStructured(blocks, event.structured, idPrefix);
         break;
-      case 'media':
-        if (event.media) {
-          blocks.push({
-            id: nextBlockId(idPrefix),
-            kind: 'media',
-            mimeType: event.media.mimeType,
-            data: event.media.data,
-          });
-        }
-        break;
-      case 'grounding':
-        blocks.push({
-          id: nextBlockId(idPrefix),
-          kind: 'grounding',
-          grounding: event.grounding,
-        });
-        break;
       case 'citation':
         foldCitation(blocks, event, idPrefix);
-        break;
-      case 'evidence':
-        blocks.push({
-          id: nextBlockId(idPrefix),
-          kind: 'evidence',
-          evidence: event.evidence,
-        });
         break;
       case 'guardrail':
         addGuardrailBlock(blocks, {
@@ -297,27 +345,13 @@ function foldTurnEvents(
           guardrail: event.guardrail,
         });
         break;
-      case 'error':
-        if (event.error) {
-          blocks.push({
-            id: nextBlockId(idPrefix),
-            kind: 'error',
-            message: event.error,
-          });
-        }
+      case 'stage':
+        for (const steer of event.injected ?? []) blocks.push(...injectedBlocks(steer, idPrefix));
         break;
-      case 'done':
-        blocks.push({
-          id: nextBlockId(idPrefix),
-          kind: 'turn-done',
-          stop: event.stop,
-          tokens: event.tokens,
-          interactionId: event.interactionId,
-          compaction: event.compaction !== undefined,
-        });
-        break;
-      default:
-        break;
+      default: {
+        const block = standaloneBlock(event, idPrefix);
+        if (block) blocks.push(block);
+      }
     }
   }
 

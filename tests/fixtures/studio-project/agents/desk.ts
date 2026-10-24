@@ -6,7 +6,7 @@ export const desk = defineProfile({
   identity: { handle: 'Desk' },
   models: {
     primary: { protocol: 'openAi', provider: 'house', apiId: 'house/model-1', efforts: { normal: 'minimal' } },
-    second: { protocol: 'openRouter', provider: 'router', apiId: 'openrouter/free', efforts: { normal: 'minimal' } },
+    second: { protocol: 'openRouterOpenAi', provider: 'router', apiId: 'openrouter/free', efforts: { normal: 'minimal' } },
     third: { protocol: 'openAi', provider: 'left', apiId: 'left/model', efforts: { normal: 'minimal' } },
     fourth: { protocol: 'geminiInteractions', provider: 'odd', apiId: 'gemini-2.5-flash', efforts: { normal: 'minimal' } },
     fifth: { protocol: 'openAi', provider: 'own', apiId: 'own/model', efforts: { normal: 'minimal' } },

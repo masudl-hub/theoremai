@@ -143,7 +143,7 @@ grading the same records twice is byte-identical.
 
 A trial's graders run at once, so its judges answer in parallel; the judge
 records they hand back are written in grader order once every grader is done,
-whichever answered first.
+whichever answered first, each under the trial span it graded.
 
 | Grader | Reads | Passes when |
 | --- | --- | --- |
@@ -208,7 +208,7 @@ A judge is a host profile of one of two kinds, and the host picks per grader:
 
 | Judge | Profile | Reads | Answers |
 | --- | --- | --- | --- |
-| Text | `type: 'text'` with `outputs.structured: EVAL_JUDGMENT` (`evalJudgment`, registered when `graders/judge.ts` is imported) | the rubric's `template`, filled, as its one user message through `runTurn` | `{ label, explanation }` through structured output |
+| Text | `type: 'text'` with `outputs.structured: EVAL_JUDGMENT` (`evalJudgment`, registered when `src/evals/graders/judge.ts` is imported) | the rubric's `template`, filled, as its one user message through `runTurn` | `{ label, explanation }` through structured output |
 | Decision (Jev) | `type: 'decision'` | the rubric's variables as JSON state, and its `question` as one choice question through `runDecision` | a typed choice with a probability per label, read against the pass line below; the explanation is `Jev: <label> N%, …; passing needs <pass labels> above N%.` |
 
 The suite's `judge: { profile }` is the default; `judge({ profile })` names a
@@ -270,8 +270,8 @@ Every judge call is stamped `metadata.eval = { suite, case, trial, judge:
 { grader } }`, runs under the trial span (`EvalGradeContext.traceparent`), so
 it lands in the judged trace beneath the trial it graded (an `invoke_agent`
 turn or a `decide` decision), and goes to the run's sink under the judge
-profile's observability policy. The result names each judge call's root in
-`judgeTraceparents`.
+profile's observability policy. The result names each judge call's root (`recordRoot` of its
+first record) in `judgeTraceparents`.
 
 The variables are Phoenix's names, so its prompts read the trace unchanged:
 
@@ -307,7 +307,7 @@ prompt's variables are the names it reads outside any section (`output` for
 question's criteria must be exactly the labels. `fillRubric` renders a prompt
 over a view.
 
-The Mustache (`rubrics/mustache.ts`) is variables, dotted names, `{{.}}`,
+The Mustache (`src/evals/rubrics/mustache.ts`) is variables, dotted names, `{{.}}`,
 triple braces, sections over lists and values, inverted sections and comments;
 a tag alone on its line takes the line with it. Nothing is HTML-escaped: the
 output is a prompt. Partials, delimiter changes, and unbalanced sections are
@@ -319,7 +319,7 @@ Phoenix 20.16.0: `completeness`, `conciseness`, `correctness`,
 `refusal`, `retrievalRelevance`, `toolInvocation`, `toolResponseHandling`,
 `toolSelection`, `toxicity`, `userFriction`. Each keeps Phoenix's name (the
 result's, e.g. `tool_selection`), labels, scores, and prompt, copied verbatim
-into `rubrics/catalog.ts` (Arize AI, Apache-2.0). `deno task rubrics:sync`
+into `src/evals/rubrics/catalog.ts` (Arize AI, Apache-2.0). `deno task rubrics:sync`
 copies them again from the running Phoenix (`deno task phoenix:up`), and
 refuses a prompt the judge cannot use: more than one message, a part that is
 not text, Mustache it does not render, no single `<data>` block. Run it when
@@ -350,9 +350,9 @@ Reading the result:
   classify, not instructions, and its answer can only be one of the labels.
 - Judge calls cost: `TrialReport.judgeCostUsd` carries a trial's judge
   spend, and `run.costUsd` and `maxCostUsd` count agent and judge together.
-  Jev reports tokens, not dollars; `runDecision` prices them at Jev's fixed
-  price ($0.042 per million input tokens, output free), so a Jev judge counts
-  like any other.
+  TypeSafe reports Jev's tokens, not dollars; `runDecision` prices them at
+  Jev's fixed price ($0.042 per million input tokens, output free), so the Jev
+  judge counts like any other. OpenRouter reports its own cost.
 
 ## Result records
 
@@ -494,7 +494,8 @@ run of provider errors is not read as a run of wrong answers), and the median
 and 90th percentile of turn time, model calls, and tool calls. Percentiles are nearest-rank, so each is a value some trial had.
 Caseless trials belong to no group.
 
-`run.costUsd` sums only the costs providers reported; `run.unpriced` counts
+`run.costUsd` sums only the costs providers reported, read from each record's
+`recordRoot`; `run.unpriced` counts
 the agent turns and judge calls whose cost went unreported, in whole or part,
 and `run.priced` those that reported one, `$0` included (the summary carries
 both).

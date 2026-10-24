@@ -1,5 +1,5 @@
 import type { ProfileDefinition } from '@theoremjs/agents';
-import type { PageTools } from '@theoremjs/react/client';
+import type { PageTools } from '@theoremjs/web/client';
 import type { ToolRegistration } from './registrations.ts';
 import type { StudioRunPayload } from './run-payload.ts';
 import { stubOutputFromSchema } from './stub.ts';

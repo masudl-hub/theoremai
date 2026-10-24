@@ -110,11 +110,16 @@ interface StageContext {
   awaiting?: boolean;
   stop?: TurnStop;
   gate?: ToolGate;
+  /**
+   * before_end on text: the answer the model just wrote, before any guardrail verdict on it and
+   * not yet in `history`. Its last step wrote no text when no message here carries any.
+   */
+  reply?: readonly TurnHistoryMessage[];
 }
 
 interface StageResult {
   inject?: TurnHistoryMessage[];
-  /** Names this inject; the stage event recording it landing carries it in `injected`. */
+  /** Names this inject; the stage event recording it landing carries it, with its messages, in `injected`. */
   injectId?: string;
   /**
    * With `inject`, at `post_tool` or `before_end` on text: how many characters of the attempt's
@@ -191,7 +196,10 @@ ran; `warnings` lists warning codes. See
    An inject with any message live cannot send as plain text (`parts`, or no
    text) is refused whole with an `inject_invalid_messages` stage warning;
    none of it is written.
-6. `before_end` inject on text: the answer the model just wrote goes into turn
+6. `before_end` on text: `StageContext.reply` is the answer the model just wrote, so a host can
+   tell a turn about to end with no answer (no text in it) and inject to ask for one. A draft a
+   detector goes on to stop is in it: the egress gate, not the host, answers that draft.
+   `before_end` inject on text: the answer the model just wrote goes into turn
    history first, then the inject, and the step loop re-enters subject to
    **maxSteps** (see Budgets), so the model goes on from its answer. On live:
    schedule ingress; does not invent a fake model pull.
@@ -217,8 +225,9 @@ provider checkpoint still covers it. Structured replies get no blank line.
 non-empty string; anything else refuses the inject whole with an
 `inject_id_invalid` warning, as does an `injectId` without an `inject`). Where
 the messages land in the conversation — not when the handler returns — the
-kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id }] }`
-naming the injects that landed at that stage, and `released` when a draft
+kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages }] }`
+naming the injects that landed at that stage, each with the messages it added as the model reads
+them (after the `injected` guardrails), and `released` when a draft
 dropped (see 7). An inject that never lands (a
 live cycle that aborts first, a refused live inject) is never reported, so a
 host that sent it knows to send it again. Unnamed injects land unreported.
@@ -536,7 +545,7 @@ tool-request events.
 | Gate helpers | `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
 | Abandon | The message walks away in its own turn request (`abandon`): the host settles each waiting call cancelled before the reply, and the model reads it. A call an earlier answer already settled (its client never heard) replays that settle instead |
 | Failed answer | A request that ends before the call it answers or walks away from settles puts the call back to wait (`createTheoremHandler`); the client leaves the gate to answer again. After the settle, the client keeps the result |
-| Studio steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/react/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
+| Studio steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/web/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
 | Snapshot | Still on `done` when `stop.kind === 'gate'` (and available on normal `done` when tools ran — not only gates) |
 
 ---

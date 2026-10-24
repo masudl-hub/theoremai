@@ -6,10 +6,17 @@ import { Text } from '@astryxdesign/core/Text';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
+  type ComposerPendingMessage,
   type ComposerProfileInterface,
-  moveComposerPendingWithinKind,
   removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
+import type { PageTools } from '@theoremjs/web/client';
+import {
+  type ConversationView,
+  createHttpTransport,
+  type HttpTransportOptions,
+  type TheoremTransport,
+} from '@theoremjs/web/client';
 import {
   type ReactNode,
   type Ref,
@@ -19,13 +26,6 @@ import {
   useRef,
 } from 'react';
 import { parseAspectRatio } from '../client/image-output.ts';
-import type { PageTools } from '../client/live/live-page-tool.ts';
-import {
-  type ConversationView,
-  createHttpTransport,
-  type HttpTransportOptions,
-  type TheoremTransport,
-} from '../client/transport.ts';
 import {
   type SentTurn,
   type UseTheoremChatOptions,
@@ -123,11 +123,22 @@ export type TheoremChatProps = {
   conversationView?: ConversationView;
   /** The text the composer starts with, for the user to send or change. Read once, when the chat mounts. */
   initialText?: string;
+  /** The files the composer starts with, staged to send. Read once, when the chat mounts. */
+  initialFiles?: readonly File[];
+  /** The voice notes the composer starts with, staged to send. Read once, when the chat mounts. */
+  initialVoice?: readonly File[];
+  /**
+   * The messages the composer starts with set aside: queued, stashed or steering, as
+   * `createComposerPendingMessage` makes them. Read once, when the chat mounts.
+   */
+  initialPending?: readonly ComposerPendingMessage[];
   /**
    * Called with each new ref the host issues for the conversation: once the message posts, and
-   * again as the reply's runs are saved. Keep the latest to resume the chat later.
+   * again as the reply's runs are saved. Keep the latest to resume the chat later. `undefined`
+   * when the host can no longer open the ref the chat resumed: the chat starts a new one, so
+   * forget it.
    */
-  onConversationChange?: (ref: string) => void;
+  onConversationChange?: (ref: string | undefined) => void;
   /** Lets the host send a message as the composer would; see {@link TheoremChatHandle}. */
   chatRef?: Ref<TheoremChatHandle>;
   /**
@@ -227,9 +238,7 @@ function ChatComposerForChat({
       onMenuAction={chat.handleMenuAction}
       onGenerationChange={chat.handleGenerationChange}
       slotChoices={chat.slotChoices}
-      onPendingMove={(id, direction) => {
-        chat.setPendingMessages((prev) => moveComposerPendingWithinKind(prev, id, direction));
-      }}
+      onPendingMove={chat.handlePendingMove}
       onPendingRemove={(id) => {
         chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
       }}
@@ -260,6 +269,9 @@ function ChatBody({
   conversation,
   conversationView,
   initialText,
+  initialFiles,
+  initialVoice,
+  initialPending,
   onConversationChange,
   chatRef,
   composer: hasComposer = true,
@@ -276,6 +288,9 @@ function ChatBody({
     conversation,
     conversationView,
     initialText,
+    initialFiles,
+    initialVoice,
+    initialPending,
     onConversationChange,
     slots,
     onSlotsChange,
@@ -315,7 +330,8 @@ function ChatBody({
         style={{ position: 'relative', ...style }}
         header={header}
         content={
-          <LayoutContent padding={0}>
+          // why: Once there are messages ChatLayout is the scroller; a second one around it moved the docked composer.
+          <LayoutContent padding={0} isScrollable={landing}>
             {landing ? (
               <ChatLanding {...docked} handle={handle} emptyState={emptyState} />
             ) : (
@@ -336,6 +352,8 @@ function ChatBody({
     </WithTrace>
   );
 }
+
+const CHAT_SCROLL = { overscrollBehavior: 'none' } as const;
 
 /** Where the composer sits, and how wide the chat's column is. */
 type DockedComposer = {
@@ -407,6 +425,8 @@ function ChatThread({
       <ChatLayout
         density={density}
         scrollRef={scrollRef}
+        // why: Scrolling past either end does not bounce the transcript and its docked composer.
+        style={CHAT_SCROLL}
         composer={
           composer && (
             <VStack paddingBlockEnd={3}>

@@ -22,8 +22,8 @@ Registered adapters can use object methods or class prototype methods. The kerne
 Replacing a scope registration affects later runs. It does not replace an active run's captured adapter contract.
 
 Exported agent handoffs ask the builder to supply shared atomic session storage when deployment uses several server instances.
-The React handler's session contract uses `load` and `compareAndSwap`. Tool credentials use a separate store.
-Exported React handlers apply finite session limits before accepting new execution claims.
+The session contract of the `@theoremjs/web/server` handler uses `load` and `compareAndSwap`. Tool credentials use a separate store.
+Exported handlers apply finite session limits before accepting new execution claims.
 Builders can set `sessionLimits` and `operationRetentionMs` in the host handler options.
 These settings are host code; they do not enter the exported profile.
 The handler stores version 3 operation records. It retains unresolved claims instead of restoring approvals after dispatch.
@@ -56,6 +56,8 @@ demo product out of the `@theoremjs/agents` package.
 `scripts/verify-publish-bundle.ts` checks that `studio/` stays out of the
 kernel's npm and JSR packages. `scripts/build-npm-studio.ts` builds the npm package
 `@theoremjs/studio` (`npm run build:npm:studio`), and copies `studio/README.md` into it.
+
+The studio's server, its runs and its exported handlers use `@theoremjs/web`, which has no React. Its peers are `zod`, `@theoremjs/agents` and `@theoremjs/web`, and `@theoremjs/react` as an optional exact peer. React, React DOM and the design packages are not peers, so `npx theorem-studio` installs beside any React, or none: npm refuses an install when a peer, even an optional one, is present at a version outside its range. The command runs the built page and checks only those packages (`studio/installed.mjs`). A host that shows the screen in its app installs `@theoremjs/react` and its peers.
 
 Generic authoring vocabulary the kernel schema owns (`STUDIO_AUTH_TYPES`,
 `StudioAuthType`, `studio.*` field metadata) stays in `@theoremjs/agents/schema`.

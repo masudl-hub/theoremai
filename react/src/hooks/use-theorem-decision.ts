@@ -1,6 +1,5 @@
 import type { DecisionAsset, DecisionJson, DecisionResult } from '@theoremjs/agents';
-import type { DecisionInterface, DecisionTransport } from '../client/decision-transport.ts';
-import type { ClientFailure } from '../client/failure.ts';
+import type { ClientFailure, DecisionInterface, DecisionTransport } from '@theoremjs/web/client';
 import { useDescribed } from './use-described.ts';
 import { type OneCallState, useOneCall } from './use-one-call.ts';
 

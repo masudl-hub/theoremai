@@ -21,6 +21,7 @@ import type {
   OutboundPayload,
   ResolvedGuardrailPolicy,
 } from '../../../guardrails/types.ts';
+import { ANSWER_TOOL, answersByTool } from '../../answer-tool.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
@@ -53,6 +54,7 @@ import {
   type AttemptFlowState,
   appendUserInput,
   type PendingItemFix,
+  recordStepEvent,
   type StepExecutionState,
 } from './state.ts';
 import { executeAttempt } from './steps.ts';
@@ -282,7 +284,8 @@ function updateFlowForRetry(
   flow.currentReq = nextReq;
   const safe = sanitizeTurnRequest(nextReq, profile);
   if (profile.type === 'text') {
-    // why: The conversation is already in turn history: the repair is its next user message.
+    // why: The repair is the turn's next user message, and the retry reads this turn alone.
+    state.turnOnly = true;
     const before = state.currentHistory.length;
     appendUserInput(
       state,
@@ -576,6 +579,40 @@ async function handleValidationGate(
   return 'pass';
 }
 
+/**
+ * An attempt on a turn that answers by tool, ended without calling the answer tool: a repair while
+ * `outputs.validation` has a retry left, else a `bad_response` failure.
+ */
+function* handleMissingAnswer(
+  flow: AttemptFlowState,
+  state: StepExecutionState,
+  profile: Profile,
+  latestStructured: unknown,
+  /** True when the attempt's events go out at its end (`yieldBufferedAttemptEvents`). */
+  held: boolean,
+): Generator<TurnEvent, 'continue' | 'pass'> {
+  if (latestStructured !== undefined || state.lastStop?.kind !== 'completed') return 'pass';
+  if (!answersByTool(flow.currentGen)) return 'pass';
+  const validation = profileTurnOutputs(profile)?.validation;
+  if (validation && flow.currentAttempt < (validation.maxRetries ?? 0)) {
+    const rejection = labelText('structured.answer_missing', { tool: ANSWER_TOOL }, profile.labels);
+    const nextRequest = buildRepairRequest(
+      flow.currentReq,
+      collectAttemptText(state.attemptEvents),
+      rejection,
+    );
+    yield updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
+    return 'continue';
+  }
+  const failure = toErrorEvent(
+    new TheoremError('bad_response', `the model ended without calling ${ANSWER_TOOL}`), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+  recordStepEvent(failure, state);
+  state.lastStop = { kind: 'provider_error' };
+  if (!held) yield failure;
+  return 'pass';
+}
+
 /** Puts on the attempt's structured output the fields that still failed. */
 function markFailed(state: StepExecutionState, failed: ValidationFailure[]): void {
   const held = findLast(state.attemptEvents, (event) => event.type === 'structured');
@@ -607,9 +644,6 @@ async function* executeSingleAttemptCycle(args: {
   provider: TurnModel;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
   const { flow, state, profile, system, provider } = args;
-  const validation = profileTurnOutputs(profile)?.validation;
-  const policy = resolveGuardrailPolicy(profile.guardrails);
-  const judged = replyIsJudged(policy, TURN_REPLY);
 
   // invariant: Fresh maxSteps budget per validation/egress attempt. before_end inject
   // re-entry inside this cycle still accumulates stepCount (do not reset there).
@@ -617,6 +651,8 @@ async function* executeSingleAttemptCycle(args: {
   // invariant: The attempt's reply spans its before_end re-entries; only a new attempt starts it again.
   state.replyText = '';
   state.replyMessages = [];
+  // invariant: The leak check's carry is the end of this attempt's reply; a retry's is read on its own.
+  state.canaryCarry = undefined;
 
   let latestStructured: unknown;
   for (;;) {
@@ -677,6 +713,21 @@ async function* executeSingleAttemptCycle(args: {
     break;
   }
 
+  return yield* checkAttemptReply(flow, state, profile, system, latestStructured);
+}
+
+/** The checks on an attempt's finished reply: the egress judge, the answer, then validation. */
+async function* checkAttemptReply(
+  flow: AttemptFlowState,
+  state: StepExecutionState,
+  profile: Profile,
+  system: BoundSystem,
+  structured: unknown,
+): AsyncGenerator<TurnEvent, AttemptStepAction> {
+  const validation = profileTurnOutputs(profile)?.validation;
+  const policy = resolveGuardrailPolicy(profile.guardrails);
+  const judged = replyIsJudged(policy, TURN_REPLY);
+  let latestStructured = structured;
   if (judged) {
     const status = yield* handleEgressGate(policy, flow, state, profile, system.private);
     const action = gateStatusToAction(status);
@@ -684,6 +735,18 @@ async function* executeSingleAttemptCycle(args: {
       return action;
     }
     latestStructured = projectOutbound(state.attemptEvents).structured ?? latestStructured;
+  }
+
+  if (
+    (yield* handleMissingAnswer(
+      flow,
+      state,
+      profile,
+      latestStructured,
+      Boolean(validation) || judged,
+    )) === 'continue'
+  ) {
+    return { status: 'continue' };
   }
 
   if (validation) {

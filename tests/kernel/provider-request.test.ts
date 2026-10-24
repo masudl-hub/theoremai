@@ -16,7 +16,7 @@ Deno.test('providerCompleteRequest forwards summaries for OpenAI-compatible prov
       identity: { handle: 'provider_request' },
       models: {
         'openrouter/free': {
-          protocol: 'openRouter',
+          protocol: 'openRouterOpenAi',
           provider: 'openrouter',
           apiId: 'openrouter/free',
           summaries: false,

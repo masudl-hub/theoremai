@@ -32,7 +32,7 @@ at the upstream tap boundary before the existing trace scrub and content-hash po
 | `src/observability/trace-sink.ts` | `TraceSink` contract (type-only) |
 | `src/observability/trace.ts` | `memorySink`, `noopSink`, `writeTrace` |
 | `src/observability/jsonl.ts` | `jsonlSink` (daily rotating JSONL files; its own export) |
-| `src/observability/trace-span.ts` | Span builder (`startTrace`), content markers, `traceparent` helpers |
+| `src/observability/trace-span.ts` | Span builder (`startTrace`), content markers, `traceparent` helpers, `recordRoot` |
 | `src/observability/trace-record.ts` | `TraceRecord` shape, `buildRecord` (scrub + include), `contentOf`, `inlineContent` |
 | `src/observability/otlp.ts` | `toOtlpJson` (records → OTLP/JSON request) |
 | `src/observability/openinference.ts` | `withOpenInference` (opt-in viewer attributes; its own export) |
@@ -281,6 +281,12 @@ by `traceId` / `parentSpanId`; resume and continuation edges are span links. A
 record is self-contained (`content` holds every hash its spans reference);
 sinks may deduplicate across records by hash.
 
+`recordRoot(record)` is the record's root: the span no other span in the record
+parents. It is not always parentless: a turn the host ran under its own span,
+or a judge call under its trial span, hangs under a span another record holds.
+Eval cost, judge traceparents, and Studio's replay all find a record's root
+through it.
+
 A tool call a service refused for access outside its declared scopes carries a
 `theorem.auth.scope_refused` event on its `execute_tool` span: the credential
 slot, the scopes the service asked for and the scopes the tool declares.
@@ -478,12 +484,13 @@ from that table, not from a span's `llm.cost.total`.
 | `JsonlSinkOptions` (from `@theoremjs/agents/observability/jsonl`) | type |
 | `writeTrace` | function |
 | `buildRecord`, `contentOf`, `inlineContent` | function |
+| `traceRecordSchema` | const |
 | `toOtlpJson` | function |
 | `withOpenInference` (from `@theoremjs/agents/observability/openinference`) | function |
 | `phoenixAnnotations` (from `@theoremjs/agents/observability/phoenix`) | function |
 | `PhoenixSpanAnnotation` (from `@theoremjs/agents/observability/phoenix`) | type |
 | `OtlpTraceRequest`, `OtlpSpan`, `OtlpKeyValue`, `OtlpAnyValue` | type |
-| `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `readTraceparent` | function |
+| `startTrace`, `traceContent`, `traceBytes`, `traceJson`, `readTraceparent`, `recordRoot` | function |
 | `registerTraceDestination`, `requireTraceDestination`, `getTraceDestination` | function |
 | `listTraceDestinationIds`, `clearTraceDestinations` | function |
 | `isTraceSink` | function |

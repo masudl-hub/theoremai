@@ -1,0 +1,36 @@
+/* The tree map: the lines are one drawing under the tokens (map-token.css), as on the map. It has no
+   background of its own: it sits on whatever holds it. */
+.studio-tree-map {
+  position: relative;
+  /* why: Grown to fit, it eases smaller from its top left, where it stands closed. */
+  transform-origin: 0 0;
+}
+
+.studio-tree-map-lines {
+  position: absolute;
+  inset: 0 auto auto 0;
+  pointer-events: none;
+}
+
+.studio-tree-map-lines .map-line {
+  stroke: color-mix(in srgb, var(--color-border-emphasized) 60%, var(--color-background-surface));
+}
+
+/* Grown, a title over each column, and what the column is under it. */
+.studio-tree-map-heading {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.studio-tree-map[data-draggable] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.studio-tree-map[data-dragging] {
+  cursor: grabbing;
+}

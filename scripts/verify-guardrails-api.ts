@@ -85,7 +85,7 @@ function registerLiveProfile(
         },
         models: {
           freeRouter: {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId,
             efforts: { normal: 'none' },

@@ -12,7 +12,8 @@
     "./ui/studio-run.tsx",
     "./ui/studio-screen.tsx",
     "./ui/studio-shell.tsx",
-    "./ui/theorem-mark.tsx"
+    "./ui/theorem-mark.tsx",
+    "./ui/tree-map.tsx"
   ],
   "description": "The studio's source: the profile draft, its tree and compiler, source export, and the studio screen. `npm run build:npm:studio` builds @theoremjs/studio from it into npm/, at the root package's version; this folder is never published itself. Opt-in: nothing here is installed with the kernel or the React package; `npm install` in this folder is what lets the screen run on its own.",
   "scripts": {
@@ -38,19 +39,15 @@
     "monaco-editor": "^0.57.0"
   },
   "peerDependencies": {
-    "@astryxdesign/core": "0.7.0",
-    "@astryxdesign/theme-neutral": "0.7.0",
-    "@stylexjs/stylex": "0.19.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@astryxdesign/core": "0.7.0",
-    "@astryxdesign/theme-neutral": "0.7.0",
+    "@astryxdesign/core": "0.7.1",
+    "@astryxdesign/theme-neutral": "0.7.1",
     "@stylexjs/stylex": "0.19.0",
     "@theoremjs/agents": "file:..",
     "@theoremjs/react": "file:../react",
+    "@theoremjs/web": "file:../web",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",

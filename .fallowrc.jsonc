@@ -15,9 +15,12 @@
     "tests/host/**/*.ts",
     "tests/interface/**/*.ts",
     "tests/react/**/*.ts",
+    "tests/web/**/*.ts",
     "tests/fixtures/**/*.ts",
     "tests/cassettes/**/*.ts",
     "tests/fixtures/**/*.js",
+    "web/src/server/mod.ts",
+    "web/src/client/index.ts",
     "react/src/index.ts",
     "react/src/ui/index.ts",
     "react/src/server/mod.ts",
@@ -81,6 +84,7 @@
     "src/cli/**",
     "npm/**",
     "react/npm/**",
+    "web/npm/**",
     "studio/npm/**"
   ],
   // Follows calls made through refs and returned clients, which the syntactic pass cannot.

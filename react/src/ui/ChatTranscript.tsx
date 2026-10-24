@@ -13,7 +13,6 @@ import { Citation } from '@astryxdesign/core/Citation';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
-import { useStreamingText } from '@astryxdesign/core/hooks';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { useLocale } from '@astryxdesign/core/i18n';
@@ -29,9 +28,13 @@ import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import type { LabelOverrides } from '@theoremjs/agents';
 import { stopText, type TranscriptBlock } from '@theoremjs/agents/interface';
+import type { AnsweringGate } from '@theoremjs/web/client';
+import { citationsFromBlock, type SourceCitationBlock } from '@theoremjs/web/client';
 import {
   type CSSProperties,
   createContext,
+  type FocusEvent,
+  type PointerEvent,
   type ReactNode,
   useContext,
   useEffect,
@@ -39,8 +42,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { citationsFromBlock, type SourceCitationBlock } from '../client/source-citations.ts';
-import type { AnsweringGate } from '../client/tool-resume.ts';
 import {
   assistantTurnCopyText,
   assistantTurnTiming,
@@ -243,6 +244,73 @@ function CopyAndTime(props: { sender: 'user' | 'assistant'; at: number; copyText
   );
 }
 
+/** How long the newest message keeps its copy button, time and status in view after it lands or its status changes. */
+const CHROME_FRESH_MS = 4_000;
+const CHROME_FADE = 'opacity 160ms ease';
+
+/** A press on a control inside the message, which does its own thing rather than show the details. */
+function isControl(target: EventTarget): boolean {
+  return (
+    target instanceof Element &&
+    target.closest('a, button, input, textarea, [role="button"]') !== null
+  );
+}
+
+/**
+ * Whether a message shows its copy button, time and status: while it is hovered, while focus is
+ * inside it, after a tap or hold until the next tap, and for a few seconds when it is the newest
+ * message or its status changes.
+ */
+function useChromeReveal(isNewest: boolean, status?: ChatMessageStatus) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [tapped, setTapped] = useState(false);
+  const fresh = useFresh(isNewest, status);
+  // why: A hold opens the context menu and may end in a pointerup; that pointerup must not hide it again.
+  const held = useRef(false);
+  const handlers = {
+    onPointerEnter: (event: PointerEvent) => {
+      if (event.pointerType === 'mouse') setHovered(true);
+    },
+    onPointerLeave: (event: PointerEvent) => {
+      if (event.pointerType === 'mouse') setHovered(false);
+    },
+    onPointerUp: (event: PointerEvent) => {
+      if (event.pointerType === 'mouse' || isControl(event.target)) return;
+      if (held.current) held.current = false;
+      else setTapped((open) => !open);
+    },
+    onContextMenu: () => {
+      held.current = true;
+      setTapped(true);
+    },
+    onFocus: () => setFocused(true),
+    onBlur: (event: FocusEvent<HTMLElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+    },
+  };
+  return { revealed: hovered || focused || tapped || fresh, handlers };
+}
+
+/** Whether a message has just landed, or its status just changed: true for a few seconds after. */
+function useFresh(isNewest: boolean, status?: ChatMessageStatus): boolean {
+  // why: Only the last prompt carries a status, and it can mount with one when its reply commits.
+  // why: A count, so a status that lands while the details already show starts their seconds over.
+  const [fresh, setFresh] = useState(isNewest || status !== undefined ? 1 : 0);
+  const [seenStatus, setSeenStatus] = useState(status);
+  // why: A message that stops being the last prompt loses its status; only a new one is news.
+  if (status !== seenStatus) {
+    setSeenStatus(status);
+    if (status !== undefined) setFresh((count) => count + 1);
+  }
+  useEffect(() => {
+    if (fresh === 0) return;
+    const timer = setTimeout(() => setFresh(0), CHROME_FRESH_MS);
+    return () => clearTimeout(timer);
+  }, [fresh]);
+  return fresh > 0;
+}
+
 /** A message's copy button (outermost), time and status; a failure says why on hovering its status. */
 function MessageChrome(props: {
   sender: 'user' | 'assistant';
@@ -254,25 +322,27 @@ function MessageChrome(props: {
   error?: string;
   /** What the reply used, when the transcript shows usage. */
   usage?: TurnUsage;
+  /** Whether the details show; a failure or a stop waits for it too, like any status. */
+  revealed: boolean;
 }) {
-  const usage = props.usage ? <Usage tokens={props.usage} /> : undefined;
-  const aside =
-    props.error !== undefined ? (
-      <Failed reason={props.error} />
-    ) : props.stopped !== undefined ? (
-      <Stopped label={props.stopped} />
-    ) : (
-      usage
-    );
+  const notice = turnNotice(props.error, props.stopped);
   return (
     <ChatMessageMetadata
+      style={{ opacity: props.revealed ? 1 : 0, transition: CHROME_FADE }}
       // why: The row's first slot is the one nearest the margin.
       timestamp={<CopyAndTime sender={props.sender} at={props.at} copyText={props.copyText} />}
       // why: Astryx's statuses are a closed set, so these ride the footer.
-      footer={aside}
-      status={props.error !== undefined || props.stopped !== undefined ? undefined : props.status}
+      footer={notice ?? (props.usage ? <Usage tokens={props.usage} /> : undefined)}
+      status={notice === undefined ? props.status : undefined}
     />
   );
+}
+
+/** Why a turn failed or stopped short, said where its status goes. */
+function turnNotice(error?: string, stopped?: string): ReactNode {
+  if (error !== undefined) return <Failed reason={error} />;
+  if (stopped !== undefined) return <Stopped label={stopped} />;
+  return undefined;
 }
 
 function dataUrl(mimeType: string, data?: string): string | undefined {
@@ -480,10 +550,9 @@ function Sources({ block }: { block: SourceCitationBlock }) {
 }
 
 /**
- * Streamed text (the reply, or the latest thought). Guardrails release text in batches (the last one when
- * the stream closes), and Astryx's reveal snaps to the full text once
- * `isStreaming` goes false — so keep the reveal on until Astryx's own
- * `useStreamingText` has caught up with everything received.
+ * Streamed text (the reply, or the latest thought). Astryx reveals it while
+ * the stream is open, and shows it whole once it closes: the reveal never
+ * holds back text that has arrived.
  */
 function StreamedMarkdown({
   text,
@@ -496,15 +565,9 @@ function StreamedMarkdown({
   density?: 'compact';
   components?: Partial<MarkdownComponents>;
 }) {
-  const [revealing, setRevealing] = useState(streaming);
-  if (streaming && !revealing) setRevealing(true);
   const plugins = useMarkdownPlugins();
-  const shown = useStreamingText(text, revealing);
-  useEffect(() => {
-    if (!streaming && shown.length >= text.length) setRevealing(false);
-  }, [streaming, shown, text]);
   return (
-    <Markdown isStreaming={revealing} density={density} components={components} plugins={plugins}>
+    <Markdown isStreaming={streaming} density={density} components={components} plugins={plugins}>
       {text}
     </Markdown>
   );
@@ -650,6 +713,12 @@ const THOUGHT_MARKDOWN: Partial<MarkdownComponents> = {
   ),
 };
 
+// why: Lists and other blocks Markdown draws itself take no `components`; the thought's tokens quiet them too.
+const THOUGHT_TEXT = {
+  '--text-body-size': 'var(--text-supporting-size)',
+  '--color-text-primary': 'var(--color-text-secondary)',
+} as CSSProperties;
+
 function TraceList({ items, streaming }: { items: readonly TraceItem[]; streaming: boolean }) {
   const t = useLabels();
   const showUsage = useContext(ShowUsage);
@@ -667,13 +736,14 @@ function TraceList({ items, streaming }: { items: readonly TraceItem[]; streamin
     }
     flush();
     rows.push(
-      <StreamedMarkdown
-        key={item.id}
-        text={item.text}
-        streaming={streaming && i === items.length - 1}
-        density="compact"
-        components={THOUGHT_MARKDOWN}
-      />,
+      <div key={item.id} style={THOUGHT_TEXT}>
+        <StreamedMarkdown
+          text={item.text}
+          streaming={streaming && i === items.length - 1}
+          density="compact"
+          components={THOUGHT_MARKDOWN}
+        />
+      </div>,
     );
   }
   flush();
@@ -814,8 +884,11 @@ function AssistantTurn(props: {
   stopped?: string;
   /** What the reply used; shown when the transcript shows usage. */
   usage?: TurnUsage;
+  /** Whether it is the transcript's last message. */
+  isNewest?: boolean;
 }) {
   const t = useLabels();
+  const chrome = useChromeReveal(props.isNewest === true);
   const showUsage = useContext(ShowUsage);
   const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.workedMs);
   const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
@@ -830,6 +903,7 @@ function AssistantTurn(props: {
     <ChatMessage
       sender="assistant"
       name={props.handle}
+      {...chrome.handlers}
       metadata={
         props.streaming ? undefined : (
           <MessageChrome
@@ -839,6 +913,7 @@ function AssistantTurn(props: {
             error={props.error}
             stopped={props.stopped}
             usage={showUsage ? props.usage : undefined}
+            revealed={chrome.revealed}
           />
         )
       }
@@ -874,8 +949,11 @@ function UserTurn(props: {
   stopped?: string;
   /** Why the turn failed before any reply. */
   error?: string;
+  /** Whether it is the transcript's last message. */
+  isNewest?: boolean;
 }) {
   const t = useLabels();
+  const reveal = useChromeReveal(props.isNewest === true, props.status);
   const copyText = props.blocks
     .map((block) => transcriptBlockCopyText(t, block))
     .filter(Boolean)
@@ -888,6 +966,7 @@ function UserTurn(props: {
       status={props.status}
       stopped={props.stopped}
       error={props.error}
+      revealed={reveal.revealed}
     />
   );
   // why: Astryx: metadata goes on the last bubble, or on the message when the last
@@ -895,7 +974,7 @@ function UserTurn(props: {
   const last = props.blocks.at(-1);
   const lastIsBubble = last?.kind === 'user-text';
   return (
-    <ChatMessage sender="user" metadata={lastIsBubble ? undefined : chrome}>
+    <ChatMessage sender="user" {...reveal.handlers} metadata={lastIsBubble ? undefined : chrome}>
       {props.blocks.map((block) => (
         <UserBlock
           key={block.id}
@@ -974,6 +1053,7 @@ function ChatTranscriptBody({
         status={status}
         stopped={stopText(group.stop, group.blocks, labels)}
         error={error}
+        isNewest={index === groups.length - 1}
       />
     );
   };
@@ -1001,6 +1081,7 @@ function ChatTranscriptBody({
         error={failureOf(group)}
         stopped={stopText(group.stop, group.blocks, labels)}
         usage={group.usage}
+        isNewest={index === groups.length - 1}
       />
     );
   };

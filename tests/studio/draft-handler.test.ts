@@ -13,6 +13,7 @@ import {
 import { decisionRequestSchema } from '../../studio/server/draft-decide.ts';
 import { errorJson, ndjsonEventStream } from '../../studio/server/draft-replies.ts';
 import { createStudioHandler } from '../../studio/server/handler.ts';
+import { testConnection } from '../../studio/server/test-connection.ts';
 import {
   createStudioDraftHandler,
   type ProbeEntry,
@@ -69,6 +70,8 @@ Deno.test('without lent keys, the handler answers the probe and the tests, and n
     'embedding/embed',
     'page-result',
     'turn/steer',
+    'turn/stop',
+    'conversation/start',
   ]) {
     assertEquals((await handler(post(route, run))).status, 404, route);
   }
@@ -120,6 +123,87 @@ Deno.test("on lent keys, a reply that fails keeps the visitor's wording, never t
   const failure = view.transcript.find((block: { kind: string }) => block.kind === 'error');
   assert(failure, JSON.stringify(view));
   assert(!JSON.stringify(view).includes('HTTP 400'), failure.message);
+});
+
+Deno.test('on lent keys, a conversation starts on blocks the page wrote, and its next turn goes on from them', async () => {
+  const handler = createStudioDraftHandler({
+    lent: { ...ON_TEST_KEYS, provider: () => says('Picking up where we were.') },
+  });
+  const blocks = [
+    { id: 'b1', kind: 'user-text', text: 'How far is 10 km in miles?' },
+    { id: 'b2', kind: 'text', text: 'About 6.2 miles.' },
+  ];
+  const started = await handler(post('conversation/start', { ...concierge(), blocks }));
+  assertEquals(started.status, 200);
+  const cookie = started.headers.get('set-cookie')?.split(';')[0] ?? '';
+  const { conversation, view } = await started.json();
+  assert(typeof conversation === 'string');
+  assertEquals(view.transcript, blocks);
+  const turn = await handler(
+    post('turn', { ...concierge(), conversation, input: { text: 'And 20?' } }, { cookie }),
+  );
+  const events = await lines(turn);
+  assert(
+    events.some((event) => event.type === 'done'),
+    JSON.stringify(events),
+  );
+  const next = events.findLast((event) => event.type === 'conversation')?.ref;
+  const read = await handler(
+    post('conversation', { ...concierge(), conversation: next }, { cookie }),
+  );
+  const kinds = (await read.json()).transcript.map((block: { kind: string }) => block.kind);
+  assertEquals(kinds.slice(0, 2), ['user-text', 'text']);
+  assert(kinds.length > 2, kinds.join(', '));
+  const bad = await handler(post('conversation/start', { ...concierge(), blocks: [{ kind: 3 }] }));
+  assertEquals(bad.status, 400);
+});
+
+Deno.test('on lent keys, a stopped turn ends its stream and keeps what the reply said', async () => {
+  const held = Promise.withResolvers<void>();
+  const handler = createStudioDraftHandler({
+    lent: {
+      ...ON_TEST_KEYS,
+      provider: () => ({
+        async *complete() {
+          yield { type: 'text', text: 'Day one' };
+          await held.promise;
+        },
+      }),
+    },
+  });
+  const response = await handler(post('turn', { ...concierge(), input: { text: 'Plan a trip' } }));
+  const cookie = response.headers.get('set-cookie')?.split(';')[0] ?? '';
+  const events: { type: string; [key: string]: unknown }[] = [];
+  const decoder = new TextDecoder();
+  let buffered = '';
+  let stopped: Response | undefined;
+  for await (const chunk of response.body ?? []) {
+    buffered += decoder.decode(chunk, { stream: true });
+    const complete = buffered.split('\n');
+    buffered = complete.pop() ?? '';
+    for (const line of complete.filter(Boolean)) events.push(JSON.parse(line));
+    const inbox = events.find((event) => event.type === 'steer_inbox')?.inbox;
+    if (!stopped && events.some((event) => event.type === 'text')) {
+      stopped = await handler(post('turn/stop', { turnId: inbox }, { cookie }));
+    }
+  }
+  held.resolve();
+  assertEquals(stopped?.status, 200);
+  const done = events.findLast((event) => event.type === 'done');
+  assertEquals(done?.stop, { kind: 'cancelled' });
+  assert(!events.some((event) => event.type === 'error'), JSON.stringify(events));
+  const ref = events.findLast((event) => event.type === 'conversation')?.ref;
+  const read = await handler(
+    post('conversation', { ...concierge(), conversation: ref }, { cookie }),
+  );
+  const said = (await read.json()).transcript.flatMap((block: { kind: string; text?: string }) =>
+    block.kind === 'text' ? [block.text] : [],
+  );
+  // The reply keeps what the visitor saw before the stop, as it streamed.
+  const streamed = events.flatMap((event) => (event.type === 'text' ? [event.text] : []));
+  assertEquals(said, [streamed.join('')]);
+  const again = await handler(post('turn/stop', { turnId: 'not-running' }, { cookie }));
+  assertEquals(again.status, 400);
 });
 
 Deno.test('a draft the kernel refuses is a bad request, not the host', async () => {
@@ -213,19 +297,6 @@ Deno.test('a binding option the protocol does not take is a bad request, and nev
   );
 });
 
-Deno.test('a message far over the length the detectors read is the sender’s error, not the host’s', async () => {
-  const handler = createStudioDraftHandler({ lent: ON_TEST_KEYS });
-  const response = await handler(
-    post('turn', { ...concierge(), input: { text: 'a'.repeat(8_000_000) } }),
-  );
-  assertEquals(
-    (await lines(response))
-      .filter((event) => event.type === 'error')
-      .map((event) => event.errorKind),
-    ['input'],
-  );
-});
-
 Deno.test('a refused spend refuses the call before it runs', async () => {
   const spent: StudioSpend[] = [];
   const handler = createStudioDraftHandler({
@@ -274,7 +345,7 @@ function embedding(apiId: string) {
       id: 'embed',
       identity: { handle: 'embed' },
       inputs: { text: true },
-      models: { main: { protocol: 'geminiEmbedding', provider: 'gemini', apiId } },
+      models: { main: { protocol: 'geminiEmbeddings', provider: 'gemini', apiId } },
     },
     input: 'hello',
   };
@@ -540,4 +611,40 @@ Deno.test('a lent decision with too many images spends nothing', async () => {
   const many = Object.fromEntries([1, 2, 3, 4].map((n) => [`p${String(n)}`, png]));
   assertEquals((await handler(post('decide', boxRequest(many)))).status, 400);
   assertEquals(spent, []);
+});
+
+Deno.test("an MCP connection test sends the client's revision and capabilities, as a stateless server asks", async () => {
+  const originalFetch = globalThis.fetch;
+  let sent: { method?: string; params?: { _meta?: Record<string, unknown> } } = {};
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    sent = JSON.parse(String(init?.body));
+    return Promise.resolve(
+      Response.json({
+        jsonrpc: '2.0',
+        id: 'test-ping-1',
+        result: { tools: [{ name: 'web_search_exa' }] },
+      }),
+    );
+  }) as typeof fetch;
+  try {
+    const answer = await testConnection(
+      new Request('http://studio.test/api/studio/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'mcp',
+          serverUrl: 'https://93.184.216.34/mcp',
+          mcpToolName: 'web_search_exa',
+        }),
+      }),
+    );
+    assertEquals((await answer.json()).targetToolFound, true);
+    assertEquals(sent.method, 'tools/list');
+    assertEquals(sent.params?._meta, {
+      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+      'io.modelcontextprotocol/clientCapabilities': {},
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

@@ -10,16 +10,14 @@ import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconCheck, IconCopy } from '@tabler/icons-react';
 import type { EmbeddingInput, EmbeddingResult } from '@theoremjs/agents';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import type { EmbeddingMatch } from '../client/embedding-input.ts';
+import type { ClientFailure, EmbeddingMatch, QueryMatch } from '@theoremjs/web/client';
 import {
   type EmbeddingSpace,
   layoutSpaceSoon,
   outlierThreshold,
   placeQuery,
-} from '../client/embedding-space.ts';
-import type { ClientFailure } from '../client/failure.ts';
-import type { QueryMatch } from '../client/space-geometry.ts';
+} from '@theoremjs/web/client';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { EmbeddingIndex, IndexProgress } from '../hooks/use-embedding-index.ts';
 import type { OneCallState } from '../hooks/use-one-call.ts';
 import { Arrive } from './arrive.tsx';

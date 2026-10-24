@@ -1,0 +1,20 @@
+{
+  "name": "@theoremjs/web",
+  "type": "module",
+  "sideEffects": false,
+  "description": "Theorem on the web platform, with no UI framework: Web-standard server handlers that serve a profile, and the browser client that talks to them.",
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "exports": {
+    "./server": "./src/server/mod.ts",
+    "./client": "./src/client/index.ts"
+  },
+  "peerDependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@theoremjs/agents": "file:..",
+    "typescript": "^6.0.3"
+  }
+}

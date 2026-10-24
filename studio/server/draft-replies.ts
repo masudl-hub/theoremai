@@ -7,7 +7,7 @@
 import type { ProfileDefinition, TurnEvent } from '@theoremjs/agents';
 import { toErrorEvent, withPublicLabels } from '@theoremjs/agents/guardrails';
 import { caughtStatus, clientError, forClient } from '@theoremjs/agents/host';
-import { failedDecisionTraces } from '../runtime.ts';
+import { failedTraces } from '../runtime.ts';
 
 const NDJSON_HEADERS = {
   'content-type': 'application/x-ndjson; charset=utf-8',
@@ -59,7 +59,7 @@ export function noStoreJson(body: unknown, status = 200): Response {
  * the traces the failed run left, when it left any.
  */
 export function errorJson(err: unknown, labels?: ProfileDefinition['labels']): Response {
-  const traces = failedDecisionTraces(err);
+  const traces = failedTraces(err);
   return noStoreJson(
     { ...clientError(err, labels), ...(traces.length > 0 ? { traces } : {}) },
     caughtStatus(err),

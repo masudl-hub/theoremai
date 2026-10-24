@@ -35,7 +35,7 @@ export interface MapNode {
   holds?: string[];
   /** A model whose label another model has too: its label with what tells the two apart. */
   long?: string;
-  /** An agent's profile type, a tool's type, a model's provider definition, or the section a shared setting fills. */
+  /** An agent's profile type, a tool's type, or the section a shared setting fills. */
   type?: string;
   /** A profile's sections, in the tree's order. */
   rows?: MapRow[];
@@ -173,7 +173,6 @@ export function workspaceMap(
           kind: 'model',
           label: binding.modelId || 'New model',
           note: binding.apiId,
-          type: definitions.get(binding.provider),
           opens,
           holds: [opens],
         });

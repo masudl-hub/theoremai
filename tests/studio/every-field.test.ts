@@ -119,6 +119,7 @@ registerTool({
   description: 'Fetches a page.',
   method: 'GET',
   endpoint: 'https://example.com/page',
+  maxResponseBytes: 1_000_000,
   input: z.object({}),
   output: z.object({ page: z.string() }),
   access: 'read-only',
@@ -226,6 +227,17 @@ const PROFILES = [
         maxOutputTokens: 2048,
         temperature: 0.4,
         builtInTools: ['googleSearch'],
+        limits: {
+          operationTimeoutMs: 60_000,
+          connectTimeoutMs: 5000,
+          liveStepTimeoutMs: 30_000,
+          maxWireRecordBytes: 1_000_000,
+          maxWireResponseBytes: 8_000_000,
+          maxEventBytes: 500_000,
+          maxStepBytes: 4_000_000,
+          maxStepEvents: 10_000,
+          maxPendingToolCalls: 16,
+        },
         compaction: {
           maxTokens: 100_000,
           compactAt: 0.8,
@@ -236,7 +248,7 @@ const PROFILES = [
         },
       },
       cached: {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'anthropic/claude-sonnet-4.5',
         options: { cache: { mode: 'system', ttl: '1h' } },
@@ -364,12 +376,22 @@ const PROFILES = [
     id: 'every-decision',
     identity: { handle: 'judge' },
     models: {
-      main: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      main: {
+        protocol: 'systemOne',
+        provider: 'typesafe',
+        apiId: 'jev-latest',
+        timeoutMs: 1000,
+        limits: { operationTimeoutMs: 2000 },
+      },
     },
     inputs: { state: 'json', maxStateBytes: 1000 },
     decision: { contract: 'every.v1' },
   } as never),
-  defineProfile({ type: 'host', id: 'every-host', tools: { allow: ['every_fetch'] } }),
+  defineProfile({
+    type: 'host',
+    id: 'every-host',
+    tools: { allow: ['every_fetch'], parallel: true },
+  }),
 ];
 for (const profile of PROFILES) registerProfile(profile);
 

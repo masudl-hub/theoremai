@@ -89,6 +89,7 @@ import {
   IconServer,
   IconShieldLock,
   IconShieldOff,
+  IconShieldSearch,
   IconSquareRoundedNumber0,
   IconSquareRoundedNumber2,
   IconTool,
@@ -149,6 +150,7 @@ import {
 } from '@theoremjs/agents/guardrails';
 import {
   type ContextType,
+  createContext,
   type Dispatch,
   lazy,
   type ReactNode,
@@ -192,6 +194,7 @@ import {
   type LentKeys,
   LOCAL_PROVIDER_ID,
   lentCompression,
+  MODEL_LIMITS,
   type ModelBindingDraft,
   modelBindingNodeId,
   modelRoute,
@@ -230,6 +233,7 @@ import {
   studioNodeRef,
   studioRunsProvider,
   studioTaintNote,
+  TIMER_MAX_MS,
   type ToolSpecDraft,
   takesContinueInstruction,
   toolSpecNodeId,
@@ -259,6 +263,7 @@ import {
 } from './inspector.tsx';
 import {
   ConfirmWrite,
+  GuardrailTest,
   LeavePage,
   ListBadges,
   LocalConnection,
@@ -762,6 +767,29 @@ function DecisionModelEditor({
           set({ timeoutMs });
         }}
       />
+    </InspectorSection>
+  );
+}
+
+function LimitsSection({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
+  return (
+    <InspectorSection title="Limits" path="models.*.limits">
+      {MODEL_LIMITS.map(({ name, label, units, isTimer }) => (
+        <NumberRow
+          key={name}
+          label={label}
+          path={`models.*.limits.${name}`}
+          units={units}
+          field={`limits.${name}`}
+          value={binding.limits?.[name] ?? null}
+          min={1}
+          max={isTimer ? TIMER_MAX_MS : undefined}
+          isIntegerOnly
+          onChange={(value) => {
+            set({ limits: { ...binding.limits, [name]: value } });
+          }}
+        />
+      ))}
     </InspectorSection>
   );
 }
@@ -1604,6 +1632,7 @@ function ModelBindingEditor({
       <ModelSection draft={draft} binding={binding} type={type} set={set} />
       {type !== 'embedding' && <GenerationSection binding={binding} set={set} />}
       <ProtocolOptionsSection providers={draft.providers} binding={binding} type={type} set={set} />
+      <LimitsSection binding={binding} set={set} />
       {type === 'text' && <CompactionSection binding={binding} set={set} />}
       {type !== 'embedding' && <EffortsSection binding={binding} set={set} />}
       {/* A profile runs on at least one model, so the last one stays. */}
@@ -4436,6 +4465,24 @@ function PageFrame({
   );
 }
 
+/** Opens the guardrail test in the preview's place, or closes it; there while an agent compiles. */
+function GuardrailTestButton() {
+  const test = useContext(GuardrailTest);
+  if (!test) return null;
+  return (
+    <Section variant="transparent" paddingInline={3} paddingBlockStart={3}>
+      <Button
+        label={test.open ? 'Close guardrail test' : 'Test guardrails'}
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={IconShieldSearch} size="sm" />}
+        aria-pressed={test.open}
+        onClick={test.toggle}
+      />
+    </Section>
+  );
+}
+
 function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { guardrails } = draft;
   const set = patch(setDraft, 'guardrails');
@@ -4449,6 +4496,7 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
   return frame(
     'list',
     <>
+      <GuardrailTestButton />
       <DetectSection guardrails={guardrails} boundaries={boundaries} set={set} onOpen={show} />
       {draftAllows(draft, 'guardrails.blockedReply') && (
         <BlockedReplySection
@@ -5122,6 +5170,9 @@ function TestConnectionButton({ isLoading, onClick }: { isLoading: boolean; onCl
   );
 }
 
+/** A test already run, which a still preview of the editor shows done. */
+export const ShownProbe = createContext<ProbeResult | undefined>(undefined);
+
 /**
  * Tries the tool's endpoint or MCP server once, from the server, which reaches public hosts only.
  * The sample input and credential live here only: neither is saved to the draft.
@@ -5139,7 +5190,8 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
     setToolCredential(tool.key, value);
   };
   const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<ProbeResult>();
+  const shown = useContext(ShownProbe);
+  const [result, setResult] = useState(shown);
   const http = tool.toolType === 'http';
   const method = tool.method ?? HTTP_METHODS[0];
   // A result answers the request as it was: once what it reaches or sends changes, it's dropped.
@@ -5480,6 +5532,18 @@ function HttpRequestSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
         }}
       />
       <HeadersRow tool={tool} set={set} />
+      <NumberRow
+        label="Max response"
+        path="registerTool.maxResponseBytes"
+        units="bytes"
+        field="maxResponseBytes"
+        value={tool.maxResponseBytes ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(maxResponseBytes) => {
+          set({ maxResponseBytes });
+        }}
+      />
     </InspectorSection>
   );
 }
@@ -5589,6 +5653,49 @@ function McpServerSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) 
         }}
       />
       <HeadersRow tool={tool} set={set} />
+      <NumberRow
+        label="Max response"
+        path="registerTool.maxResponseBytes"
+        units="bytes"
+        field="maxResponseBytes"
+        value={tool.maxResponseBytes ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(maxResponseBytes) => {
+          set({ maxResponseBytes });
+        }}
+      />
+    </InspectorSection>
+  );
+}
+
+function McpSessionSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
+  return (
+    <InspectorSection title="Session" path="registerTool.session">
+      <NumberRow
+        label="Idle"
+        path="registerTool.session.idleMs"
+        units="ms"
+        field="sessionIdleMs"
+        value={tool.sessionIdleMs ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(sessionIdleMs) => {
+          set({ sessionIdleMs });
+        }}
+      />
+      <NumberRow
+        label="Max"
+        path="registerTool.session.max"
+        units="sessions"
+        field="sessionMax"
+        value={tool.sessionMax ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(sessionMax) => {
+          set({ sessionMax });
+        }}
+      />
     </InspectorSection>
   );
 }
@@ -5836,6 +5943,7 @@ function ToolSpecEditor({
         <AgentSection tool={tool} set={set} workspace={workspace} />
       )}
       {tool.toolType === 'mcp' && <McpServerSection tool={tool} set={set} />}
+      {tool.toolType === 'mcp' && <McpSessionSection tool={tool} set={set} />}
       {remote && <AuthSection tool={tool} set={set} />}
       {remote && <ToolTest key={tool.key} tool={tool} guardrails={draft.guardrails} />}
       <PolicySection draft={draft} tool={tool} set={set} />
@@ -6905,7 +7013,7 @@ function DecisionImageRow({
   );
 }
 
-/** The pictures every decision sends, each under the name its questions write, and a drop to add more. */
+/** The pictures a decision can send, each under the name its questions write, and a drop to add more. */
 function DecisionImagesSection({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const keys = useLentKeys();
   const { reading, changeAction } = useFilesRead(async (picked) => {

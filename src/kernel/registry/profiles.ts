@@ -220,7 +220,7 @@ function validateDecisionBinding(
     throw new TheoremError(
       'config',
       // labels-exempt: developer contract / internal diagnostic
-      `Profile ${profileId} model '${modelId}': decision retry configuration is unsupported; POSTs are never retried`,
+      `Profile ${profileId} model '${modelId}': a decision binding takes no retry; a decision retries only a transient failure, by the kernel's rule`,
     );
   }
   if (

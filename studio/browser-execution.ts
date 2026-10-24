@@ -7,7 +7,7 @@ import {
   sessionPageDispatch,
   sessionStateStore,
   sessionToolCoordinator,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 
 export function browserExecution() {
   const id = crypto.randomUUID();

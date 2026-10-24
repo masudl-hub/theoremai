@@ -1,5 +1,5 @@
 import type { ToolCallEvent, ToolFailure, TurnEvent } from '@theoremjs/agents';
-import { TheoremStreamError } from '../transport.ts';
+import { TheoremStreamError } from '@theoremjs/web/client';
 
 type LiveToolEventArgs = {
   /** The call whose gate the user is looking at, if one is open. */

@@ -4,7 +4,7 @@ import { Popover } from '@astryxdesign/core/Popover';
 import { IconActivity, IconKey } from '@tabler/icons-react';
 import type { ModelBinding } from '@theoremjs/agents';
 import { TheoremThemeProvider, TracePlacement } from '@theoremjs/react/ui';
-import { useState, useSyncExternalStore } from 'react';
+import { useState } from 'react';
 import { studioKeySlots } from '../browser.ts';
 import {
   modelRoute,
@@ -19,27 +19,11 @@ import type { StudioRunOpened } from './lib/studio-run-open.ts';
 import { StudioKeys, useStudioConnection } from './studio-connection.tsx';
 import type { StudioSupplies } from './studio-host.ts';
 import { StudioRunner } from './studio-runner.tsx';
+import { usePhone } from './use-phone.ts';
 import './studio-run.css';
 
 /** A model binding as the connection reads it. */
 type ConnectionModel = Parameters<typeof useStudioConnection>[0][number];
-
-/** The width below which these controls keep only their icon. */
-const PHONE = '(width < 768px)';
-
-function usePhone() {
-  return useSyncExternalStore(
-    (change) => {
-      const query = globalThis.matchMedia(PHONE);
-      query.addEventListener('change', change);
-      return () => {
-        query.removeEventListener('change', change);
-      };
-    },
-    () => globalThis.matchMedia(PHONE).matches,
-    () => false,
-  );
-}
 
 /** The name the page and the document title use. A host has no handle: it's named by its id. */
 export function studioRunTitle(payload: StudioRunPayload): string {

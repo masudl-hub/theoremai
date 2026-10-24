@@ -3,9 +3,6 @@ import {
   formatAttachmentSize,
   resolveAttachPreviewStyle,
 } from '../../react/src/client/attachment-hover-preview.ts';
-import { composerDrawerSummary } from '../../react/src/client/composer-drawer.ts';
-import { isStashShortcut, resolveComposerHint } from '../../react/src/client/composer-hints.ts';
-import { composerActionState } from '../../react/src/client/composer-primary.ts';
 import {
   computeInkBarTargets,
   INK_WAVE_BAR_COUNT,
@@ -22,15 +19,6 @@ import {
   liveCaptionStreaming,
   liveCaptionTranscript,
 } from '../../react/src/client/live/live-captions.ts';
-import {
-  applyLiveToolTurnEvent,
-  type LiveToolCallDraft,
-  liveTranscriptFromEvidence,
-  shouldForwardMicFrame,
-} from '../../react/src/client/live/live-mic-forward.ts';
-import { liveState } from '../../react/src/client/live/live-state.ts';
-import { stampWorked } from '../../react/src/client/run-commit.ts';
-import { citationsFromBlock } from '../../react/src/client/source-citations.ts';
 import {
   assistantTurnTiming,
   composeAssistantTurn,
@@ -58,6 +46,18 @@ import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.t
 import type { ProviderEvidence, Source } from '../../src/kernel/turn-events.ts';
 import { registerGooglePreset } from '../../src/presets/google.ts';
 import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
+import { composerDrawerSummary } from '../../web/src/client/composer-drawer.ts';
+import { isStashShortcut, resolveComposerHint } from '../../web/src/client/composer-hints.ts';
+import { composerActionState } from '../../web/src/client/composer-primary.ts';
+import {
+  applyLiveToolTurnEvent,
+  type LiveToolCallDraft,
+  liveTranscriptFromEvidence,
+  shouldForwardMicFrame,
+} from '../../web/src/client/live/live-mic-forward.ts';
+import { liveState } from '../../web/src/client/live/live-state.ts';
+import { stampWorked } from '../../web/src/client/run-commit.ts';
+import { citationsFromBlock } from '../../web/src/client/source-citations.ts';
 import { foldedCall } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 import { defaultLabels as t } from './default-labels.ts';

@@ -59,6 +59,7 @@ export {
   includeFacet,
   type LabelsDraft,
   type LiveDraft,
+  MODEL_LIMITS,
   type ModelBindingDraft,
   type ModelsDraft,
   newCriteria,
@@ -81,6 +82,7 @@ export {
   type StudioProfileType,
   type StudioTurnProfileType,
   setProfileType,
+  TIMER_MAX_MS,
   type ToolSpecDraft,
   type ToolsDraft,
   type TurnBehaviourDraft,
@@ -100,6 +102,7 @@ export {
   DECISION_EXAMPLE_AGENT_ID,
   DECISION_EXAMPLE_STATE,
   decisionExampleAssets,
+  decisionExampleDraft,
 } from './example.ts';
 export { EXAMPLE_EMBEDDING_FILES } from './example-embedding-files.ts';
 export type {
@@ -231,6 +234,17 @@ export type {
   ToolRegistration,
 } from './registrations.ts';
 export {
+  createReplay,
+  parseTraceFile,
+  type Replay,
+  type ReplayDivergence,
+  type ReplayScript,
+  type ReplayTurn,
+  recordedPayload,
+  recordedTranscript,
+  replayScript,
+} from './replay.ts';
+export {
   bindingSlots,
   defaultEffortRequired,
   defaultModelRequired,
@@ -314,6 +328,7 @@ export {
   createStudioEmbeddingTransport,
   createStudioHostTransport,
   createStudioTransport,
+  startStudioConversation,
   studioInterface,
   studioRunDefines,
 } from './transport.ts';
@@ -357,6 +372,7 @@ export {
   renameProvider,
   reopened,
   resetAgent,
+  resetAgentNode,
   resetAll,
   resetLibraryTool,
   resetProvider,

@@ -2,32 +2,32 @@
 
 import { assertEquals, assertThrows } from '@std/assert';
 import { labelText, TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
+import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
+import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
 import {
   float32Rms,
   float32RmsToLevel,
   INPUT_LEVEL_GAIN,
   timeDomainBytesToLevel,
-} from '../../react/src/client/audio-level.ts';
-import { clientFailure } from '../../react/src/client/failure.ts';
-import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
-import { pageToolMismatch } from '../../react/src/client/live/live-page-tool.ts';
-import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
-import { LiveSessionClient, type LiveSocket } from '../../react/src/client/live-client.ts';
-import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
+} from '../../web/src/client/audio-level.ts';
+import { clientFailure } from '../../web/src/client/failure.ts';
+import { pageToolMismatch } from '../../web/src/client/live/live-page-tool.ts';
+import { LiveSessionClient, type LiveSocket } from '../../web/src/client/live-client.ts';
+import { isPermissionDeniedError } from '../../web/src/client/live-errors.ts';
 import {
   type ExecuteToolOnRelay,
   parseLiveServerEnvelope,
-} from '../../react/src/client/live-messages.ts';
+} from '../../web/src/client/live-messages.ts';
 import {
   downsampleAndConvertToInt16,
   pcm16BytesToFloat32,
-} from '../../react/src/client/pcm-downsample.ts';
-import type { HostErrorBody } from '../../react/src/client/transport.ts';
+} from '../../web/src/client/pcm-downsample.ts';
+import type { HostErrorBody } from '../../web/src/client/transport.ts';
 import {
   parseLiveClientMessage,
   parseLiveOpenMessage,
-} from '../../react/src/server/request-check.ts';
-import { liveSessionOpen } from '../../react/src/server/turn-input.ts';
+} from '../../web/src/server/request-check.ts';
+import { liveSessionOpen } from '../../web/src/server/turn-input.ts';
 import { assertMalformed } from '../fixtures/malformed.ts';
 import { checkpointFixture } from '../fixtures/provider-checkpoint.ts';
 

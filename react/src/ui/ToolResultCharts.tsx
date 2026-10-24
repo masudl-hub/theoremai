@@ -2,6 +2,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
+import { type ResultChart, timeFormats, withUnit } from '@theoremjs/web/client';
 import { useMemo } from 'react';
 import {
   Bar,
@@ -15,8 +16,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { withUnit } from '../client/shaped-data.ts';
-import { type ResultChart, timeFormats } from '../client/tool-result.ts';
 import { Arrive } from './arrive.tsx';
 import { CardWall } from './CardWall.tsx';
 import { ChartFrame, ChartTip, FIRST_WIDTH_PX } from './TraceOverview.tsx';

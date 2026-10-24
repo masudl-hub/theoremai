@@ -13,6 +13,7 @@ on:
     paths:
       - 'src/**'
       - 'react/src/**'
+      - 'web/src/**'
       - 'studio/**'
       - 'stryker.*.json'
       - '.github/workflows/mutation.yml'
@@ -80,7 +81,7 @@ jobs:
             files: '^studio/.*\.ts$'
             exclude: '^$'
           - config: react
-            files: '^react/src/.*\.tsx?$'
+            files: '^(react|web)/src/.*\.tsx?$'
             exclude: '^$'
           - config: surface-host-presets
             files: '^src/(surface|host|presets)/.*\.ts$'
@@ -124,6 +125,7 @@ jobs:
         if: steps.scope.outputs.mutate != ''
         run: |
           npm ci
+          npm --prefix web ci
           npm --prefix react ci
 
       - name: Stryker (changed files)
@@ -231,6 +233,7 @@ jobs:
       - name: Install
         run: |
           npm ci
+          npm --prefix web ci
           npm --prefix react ci
 
       - name: Stryker (${{ matrix.shard }})

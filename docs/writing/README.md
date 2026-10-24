@@ -106,7 +106,7 @@ Report to the user what you proved, what you could not prove, and which docs the
 
 ## Theorem-specific facts to respect
 
-- **Two documentation surfaces.** Package docs (`README.md`, `react/README.md`) ship to npm and speak to consumers. Repo contracts (`docs/contracts/*.md`) never ship and speak to maintainers. Never put maintainer ownership notes in a README, or consumer how-to in a contract.
+- **Two documentation surfaces.** Package docs (`README.md`, `web/README.md`, `react/README.md`) ship to npm and speak to consumers. Repo contracts (`docs/contracts/*.md`) never ship and speak to maintainers. Never put maintainer ownership notes in a README, or consumer how-to in a contract.
 - **A package README is frozen per version.** A new README appears on npm only after a new release. Say so when you hand it over.
 - **Words the user sees live in the kernel labels.** If a doc quotes UI or error text, copy it from the labels or catalog. Do not paraphrase it.
 - **Do not over-comment code to document it.** Comments go stale. Put explanation in the doc, and keep comments for the one thing the code cannot say.

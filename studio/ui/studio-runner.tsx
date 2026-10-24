@@ -3,6 +3,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
 import { IconKey } from '@tabler/icons-react';
+import { PaneLoading, PaneState, TheoremChat, useLabels } from '@theoremjs/react/ui';
 import {
   createDecisionTransport,
   createEmbeddingTransport,
@@ -10,8 +11,7 @@ import {
   createHttpTransport,
   createTraceFeed,
   type TraceFeed,
-} from '@theoremjs/react/client';
-import { PaneLoading, PaneState, TheoremChat, useLabels } from '@theoremjs/react/ui';
+} from '@theoremjs/web/client';
 import {
   type ComponentProps,
   lazy,
@@ -102,6 +102,12 @@ export interface StudioRunnerProps {
   conversationView?: ChatProps['conversationView'];
   /** The text a chat's composer starts with. */
   initialText?: ChatProps['initialText'];
+  /** The files a chat's composer starts with, staged. */
+  initialFiles?: ChatProps['initialFiles'];
+  /** The voice notes a chat's composer starts with, staged. */
+  initialVoice?: ChatProps['initialVoice'];
+  /** The messages a chat's composer starts with set aside. */
+  initialPending?: ChatProps['initialPending'];
   onConversationChange?: ChatProps['onConversationChange'];
   chatRef?: ChatProps['chatRef'];
   /** The value the page picked for each slot, for a chat's turns and a call's start. */
@@ -113,6 +119,8 @@ export interface StudioRunnerProps {
    * answers twice while it holds edits the files do not: as the files, and as the edits.
    */
   tested?: StudioWorkspace;
+  /** The feed its trace records land in, when the page reads them too; else its own. */
+  traces?: TraceFeed;
 }
 
 /**
@@ -133,13 +141,18 @@ export function StudioRunner({
   conversation,
   conversationView,
   initialText,
+  initialFiles,
+  initialVoice,
+  initialPending,
   onConversationChange,
   chatRef,
   slots,
   context,
   tested,
+  traces: given,
 }: StudioRunnerProps) {
-  const [traces] = useState(createTraceFeed);
+  const [own] = useState(createTraceFeed);
+  const traces = given ?? own;
   const activity = useRef(onActivity);
   activity.current = onActivity;
   const [note] = useState(() => () => activity.current?.());
@@ -160,6 +173,9 @@ export function StudioRunner({
         conversation={conversation}
         conversationView={conversationView}
         initialText={initialText}
+        initialFiles={initialFiles}
+        initialVoice={initialVoice}
+        initialPending={initialPending}
         onConversationChange={onConversationChange}
         chatRef={chatRef}
         slots={slots}
@@ -184,6 +200,9 @@ function Run({
   conversation,
   conversationView,
   initialText,
+  initialFiles,
+  initialVoice,
+  initialPending,
   onConversationChange,
   chatRef,
   slots,
@@ -268,6 +287,9 @@ function Run({
       conversation={conversation}
       conversationView={conversationView}
       initialText={initialText}
+      initialFiles={initialFiles}
+      initialVoice={initialVoice}
+      initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
       slots={slots}
@@ -316,7 +338,7 @@ function UnsavedActions({ agentId, isNew }: { agentId: string; isNew: boolean })
 }
 
 export type ChatProps = ComponentProps<typeof TheoremChat>;
-type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity'> & {
+type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity' | 'traces'> & {
   traces: TraceFeed;
   note: () => void;
 };
@@ -572,6 +594,9 @@ function TurnRun({
   conversation,
   conversationView,
   initialText,
+  initialFiles,
+  initialVoice,
+  initialPending,
   onConversationChange,
   chatRef,
   slots,
@@ -612,6 +637,9 @@ function TurnRun({
       conversation={conversation}
       conversationView={conversationView}
       initialText={initialText}
+      initialFiles={initialFiles}
+      initialVoice={initialVoice}
+      initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
       slots={slots}

@@ -1,4 +1,13 @@
 import { type SessionEventOf, TheoremError, type TurnEvent } from '@theoremjs/agents';
+import type {
+  LiveCallOptions,
+  LiveConnectPhase,
+  LiveGateAnswer,
+  LiveSessionStatus,
+  LiveToolGatePrompt,
+  TraceFeed,
+} from '@theoremjs/web/client';
+import { type LiveConnection, LiveSessionClient } from '@theoremjs/web/client';
 import {
   type Dispatch,
   type MutableRefObject,
@@ -7,13 +16,8 @@ import {
   useRef,
 } from 'react';
 import { applyLiveTranscript, type LiveCaptionState } from '../../client/live/live-captions.ts';
-import type { LiveCallOptions } from '../../client/live/live-page-tool.ts';
-import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
-import type { LiveGateAnswer, LiveToolGatePrompt } from '../../client/live/live-tool.ts';
 import type { LiveFacingMode, LiveVideoCapture } from '../../client/live/live-video.ts';
 import { runLiveToolCall } from '../../client/live/run-live-tool-call.ts';
-import { type LiveConnection, LiveSessionClient } from '../../client/live-client.ts';
-import type { TraceFeed } from '../../client/trace-feed.ts';
 
 export type LiveClientBindings = LiveCallOptions & {
   voiceAvailable: boolean;

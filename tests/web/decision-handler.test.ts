@@ -1,0 +1,344 @@
+import { defaultKernelScope } from '../../src/kernel/scope.ts';
+import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
+
+registerFixtureProviders(defaultKernelScope);
+
+import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
+import { type DecisionQuestion, labelDefault } from '../../mod.ts';
+import type { DecisionProfileDefinition } from '../../src/kernel/mod.ts';
+import { createTheoremDecisionHandler, createTheoremHandler } from '../../web/src/server/mod.ts';
+
+const BASE = 'http://host.test/api/decision';
+function profile(id = 'decision-handler-test'): DecisionProfileDefinition {
+  return {
+    type: 'decision',
+    id,
+    identity: { handle: 'triage' },
+    models: {
+      jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+    },
+    inputs: { state: 'json', maxStateBytes: 200 },
+    decision: { contract: 'test.v1' },
+  };
+}
+const questions: Record<string, DecisionQuestion> = {
+  next: {
+    type: 'choice',
+    instructions: 'SECRET choose the safest next action.',
+    criteria: { ask_user: 'Request authorization.', execute: 'Perform the deletion.' },
+  },
+  risk: { type: 'score', instructions: 'How risky?', criteria: ['low: fine', 'high: not fine'] },
+};
+const jevReply = {
+  model: 'jev-1.13.0',
+  answers: {
+    next: {
+      type: 'choice',
+      choice: 'ask_user',
+      confidence: 0.9,
+      probabilities: { ask_user: 0.9, execute: 0.1 },
+    },
+    risk: {
+      type: 'score',
+      score: 1,
+      confidence: 0.8,
+      legend: { 0: 'low', 1: 'high' },
+      probabilities: { 0: 0.1, 1: 0.9 },
+    },
+  },
+  usage: { input_tokens: 1000, output_tokens: 5 },
+};
+function jev(status = 200, body: unknown = jevReply) {
+  const calls: unknown[] = [];
+  const fetch: typeof globalThis.fetch = (_url, init) => {
+    calls.push(JSON.parse(String(init?.body)));
+    return Promise.resolve(Response.json(body, { status }));
+  };
+  return { calls, fetch };
+}
+function decide(state: unknown): Request {
+  return new Request(`${BASE}/decide`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ state }),
+  });
+}
+Deno.test('GET describes the decision without its instructions', async () => {
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_a: 'k' },
+    fetch: jev().fetch,
+  });
+  const response = await handler(new Request(BASE));
+  assertEquals(response.status, 200);
+  const text = await response.text();
+  assertEquals(text.includes('SECRET'), false);
+  assertEquals(JSON.parse(text).interface, {
+    type: 'decision',
+    identity: { handle: 'triage' },
+    contract: 'test.v1',
+    maxStateBytes: 200,
+    questions: [
+      { id: 'next', type: 'choice', labels: ['ask_user', 'execute'] },
+      { id: 'risk', type: 'score', labels: ['low: fine', 'high: not fine'] },
+    ],
+  });
+});
+Deno.test('POST decide asks the host questions about the posted state', async () => {
+  const mock = jev();
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_a: 'k' },
+    fetch: mock.fetch,
+  });
+  const response = await handler(decide({ action: 'delete' }));
+  assertEquals(response.status, 200);
+  const { result } = await response.json();
+  assertEquals(result.model, 'jev-1.13.0');
+  assertEquals(result.answers.next.choice, 'ask_user');
+  assertEquals(mock.calls.length, 1);
+  assertStringIncludes(JSON.stringify(mock.calls[0]), 'SECRET');
+});
+Deno.test('a null or oversized state is a request error, and Jev is never called', async () => {
+  const mock = jev();
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_a: 'k' },
+    fetch: mock.fetch,
+  });
+  for (const state of [null, { blob: 'x'.repeat(500) }]) {
+    const response = await handler(decide(state));
+    assertEquals(response.status, 400);
+    const body = await response.json();
+    assertEquals(body.errorKind, 'request');
+    assertEquals(body.error, labelDefault('error.request'));
+  }
+  const malformed = await handler(
+    new Request(`${BASE}/decide`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{',
+    }),
+  );
+  assertEquals(malformed.status, 400);
+  assertEquals(mock.calls.length, 0);
+});
+Deno.test('decision handlers reject malformed JSON and non-JSON content types', async () => {
+  const mock = jev();
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_a: 'stub' },
+    fetch: mock.fetch,
+  });
+  for (const [type, body] of [
+    ['application/json', '{'],
+    ['text/plain', '{"state":{}}'],
+  ]) {
+    const response = await handler(
+      new Request(`${BASE}/decide`, { method: 'POST', headers: { 'content-type': type }, body }),
+    );
+    assertEquals(response.status, 400);
+    assertEquals((await response.json()).errorKind, 'request');
+  }
+  assertEquals(mock.calls.length, 0);
+});
+Deno.test("Jev's failures reach the page as their kind, in the labels' words", async () => {
+  const cases = [
+    [401, 'auth', 401],
+    [429, 'rate_limit', 429],
+  ] as const;
+  for (const [upstream, kind, status] of cases) {
+    const errors: unknown[] = [];
+    const handler = createTheoremDecisionHandler({
+      profile: profile(),
+      questions,
+      vault: { slot_a: 'k' },
+      fetch: jev(upstream, {}).fetch,
+      onError: (err) => errors.push(err),
+    });
+    const response = await handler(decide({ action: 'delete' }));
+    assertEquals(response.status, status);
+    const body = await response.json();
+    assertEquals(body.errorKind, kind);
+    assertEquals(body.error, labelDefault(`error.${kind}`));
+    assertEquals(errors.length, 1);
+  }
+});
+Deno.test('a vault without the profile slot is an auth error, and Jev is never called', async () => {
+  const mock = jev();
+  const errors: unknown[] = [];
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_b: 'k' },
+    fetch: mock.fetch,
+    onError: (err) => errors.push(err),
+  });
+  const response = await handler(decide({ action: 'delete' }));
+  assertEquals(response.status, 401);
+  const body = await response.json();
+  assertEquals(body.errorKind, 'auth');
+  assertEquals(body.error, labelDefault('error.auth'));
+  // The host is told what stopped it; the visitor is not.
+  assertEquals(String(errors[0]).includes("slot 'slot_a'"), true);
+  assertEquals(mock.calls.length, 0);
+});
+Deno.test('a host whose reader is the builder answers a failure with what stopped it', async () => {
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_b: 'k' },
+    fetch: jev().fetch,
+    clientEvents: { reader: 'builder' },
+  });
+  const body = await (await handler(decide({ action: 'delete' }))).json();
+  assertEquals(body.errorKind, 'auth');
+  assertEquals(body.error.includes("slot 'slot_a'"), true);
+});
+Deno.test('other methods and paths are refused', async () => {
+  const handler = createTheoremDecisionHandler({
+    profile: profile(),
+    questions,
+    vault: { slot_a: 'k' },
+    fetch: jev().fetch,
+  });
+  assertEquals((await handler(new Request(`${BASE}/decide`))).status, 405);
+  assertEquals((await handler(new Request(BASE, { method: 'POST', body: '{}' }))).status, 405);
+});
+Deno.test('the turn handler refuses a decision profile and names the decision handler', () => {
+  assertThrows(
+    () => createTheoremHandler({ profile: profile('decision-handler-turn') } as never),
+    Error,
+    'createTheoremDecisionHandler',
+  );
+});
+
+const PNG = 'iVBORw0KGgo=';
+const boxReply = {
+  model: 'jev-1.14.0',
+  answers: {
+    where: { type: 'box', box: { top: 0.1, bottom: 0.6, left: 0.2, right: 0.5 }, confidence: 0.9 },
+  },
+  usage: { input_tokens: 1000, output_tokens: 5 },
+};
+
+Deno.test('POST carries the posted images to the model and answers a box', async () => {
+  const seen: { body: Record<string, unknown>; headers: Headers }[] = [];
+  const fetch: typeof globalThis.fetch = (_url, init) => {
+    seen.push({
+      body: JSON.parse(String(init?.body)),
+      headers: new Headers(init?.headers),
+    });
+    return Promise.resolve(Response.json(boxReply));
+  };
+  const base = profile('decision-handler-box');
+  const handler = createTheoremDecisionHandler({
+    profile: {
+      ...base,
+      models: {
+        jev: {
+          protocol: 'systemOne',
+          provider: 'typesafe',
+          apiId: 'jev-1.14.0',
+          timeoutMs: 1000,
+          options: { images: true },
+        },
+      },
+    },
+    questions: { where: { type: 'box', instructions: 'Box the lemon.' } },
+    vault: { slot_a: 'k' },
+    fetch,
+  });
+  const response = await handler(
+    new Request(`${BASE}/decide`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        state: { shelf: 'photo' },
+        assets: { photo: { mimeType: 'image/png', data: PNG } },
+      }),
+    }),
+  );
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).result.answers.where.type, 'box');
+  assertEquals(seen[0].headers.get('TypeSafe-Danger-Zone-Images'), 'true');
+  assertEquals(seen[0].body.assets, { photo: { type: 'image', format: 'png', data_base64: PNG } });
+});
+
+Deno.test('POST refuses a posted image that is not PNG or JPEG bytes, before any request', async () => {
+  const model = jev();
+  const base = profile('decision-handler-bad-image');
+  const handler = createTheoremDecisionHandler({
+    profile: {
+      ...base,
+      models: {
+        jev: {
+          protocol: 'systemOne',
+          provider: 'typesafe',
+          apiId: 'jev-1.14.0',
+          timeoutMs: 1000,
+          options: { images: true },
+        },
+      },
+    },
+    questions: { where: { type: 'box', instructions: 'Box the lemon.' } },
+    vault: { slot_a: 'k' },
+    fetch: model.fetch,
+  });
+  const response = await handler(
+    new Request(`${BASE}/decide`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        state: { shelf: 'photo' },
+        assets: { photo: { mimeType: 'image/gif', data: PNG } },
+      }),
+    }),
+  );
+  assertEquals(response.status, 400);
+  assertEquals((await response.json()).errorKind, 'request');
+  assertEquals(model.calls.length, 0);
+});
+Deno.test("the host's images go with every decision, and a page image may not take their names", async () => {
+  const mock = jev();
+  const ghs02 = { mimeType: 'image/png', data: 'AAAA' } as const;
+  const shelf = { mimeType: 'image/png', data: 'BBBB' } as const;
+  const handler = createTheoremDecisionHandler({
+    profile: {
+      ...profile(),
+      models: {
+        jev: {
+          protocol: 'systemOne',
+          provider: 'typesafe',
+          apiId: 'jev-latest',
+          timeoutMs: 1000,
+          options: { images: true },
+        },
+      },
+    },
+    questions,
+    images: { '<ghs02>': ghs02 },
+    vault: { slot_a: 'k' },
+    fetch: mock.fetch,
+  });
+  const described = await (await handler(new Request(BASE))).json();
+  assertEquals(described.interface.images, { '<ghs02>': ghs02 });
+  const post = (assets: unknown) =>
+    handler(
+      new Request(`${BASE}/decide`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ state: { photo: '<shelf>', label: '<ghs02>' }, assets }),
+      }),
+    );
+  assertEquals((await post({ '<shelf>': shelf })).status, 200);
+  assertEquals(Object.keys((mock.calls[0] as { assets: object }).assets), ['<ghs02>', '<shelf>']);
+  const clash = await post({ '<ghs02>': shelf });
+  assertEquals(clash.status, 400);
+  assertEquals((await clash.json()).errorKind, 'request');
+  assertEquals(mock.calls.length, 1);
+});

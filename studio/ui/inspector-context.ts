@@ -102,6 +102,9 @@ export const ISSUE_ROW_ATTRIBUTE = 'data-issue';
  */
 export const ListBadges = createContext(1);
 
+/** The preview's guardrail test: whether it is open, and the button that opens or closes it. Null while no agent compiles. */
+export const GuardrailTest = createContext<{ open: boolean; toggle: () => void } | null>(null);
+
 /** What the studio runs on: the page's lent keys, the builder's own, or their machine. */
 export const RunsOn = createContext<StudioRunsOn>(ON_OWN_KEYS);
 

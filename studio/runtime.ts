@@ -39,7 +39,7 @@ import {
   type TheoremRewound,
   type TheoremTurnRequest,
   withFailedTraces,
-} from '@theoremjs/react/client';
+} from '@theoremjs/web/client';
 import {
   answerReply,
   checkRequest,
@@ -56,9 +56,10 @@ import {
   startConversation,
   statelessRefusal,
   steerStage,
+  stopOnRequest,
   type TheoremConversationStore,
   waitingCalls,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 import { STUDIO_TRACE_DESTINATION } from './policy.ts';
 import { studioReader } from './reader.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
@@ -240,11 +241,11 @@ export async function* streamStudioTurn(
     request: TheoremTurnRequest;
     conversations: StudioConversations;
     signal: AbortSignal;
-    /** Where the turn's mid-turn steers queue. */
+    /** Where the turn's mid-turn steers queue, and its stop arrives. */
     steer: SteerInbox;
   },
 ): AsyncGenerator<ReplyLine | StudioTraceLine | StudioSteerLine> {
-  const { request, runtime, signal } = args;
+  const { request, runtime } = args;
   const { scope, profile, iface, host } = await studioChat(args, args.conversations);
   const message = postedMessage(iface, request.input);
   const sessionPermissions = request.replay?.sessionPermissions;
@@ -277,6 +278,9 @@ export async function* streamStudioTurn(
   // Random and picked here, so only the run's own browser can steer it.
   const inbox = globalThis.crypto.randomUUID();
   await args.steer.open(inbox);
+  const stop = new AbortController();
+  stopOnRequest(args.steer, inbox, stop);
+  const signal = AbortSignal.any([args.signal, stop.signal]);
   const steerLine: StudioSteerLine = { type: 'steer_inbox', inbox };
   yield steerLine;
   try {
@@ -620,6 +624,6 @@ export async function runStudioEmbedding(
   }
 }
 
-export { failedDecisionTraces, withFailedTraces } from '@theoremjs/react/client';
+export { failedTraces, withFailedTraces } from '@theoremjs/web/client';
 
 export { studioKeySlots } from './browser-connection.ts';

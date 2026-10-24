@@ -514,6 +514,63 @@ export function resetAgent(workspace: StudioWorkspace, key: string): StudioWorks
 }
 
 /**
+ * Puts one row of an agent's tree back to its start: a section, or one model under Models. The
+ * agent's other sections keep their edits. The agent's own row puts the whole agent back, as
+ * `resetAgent` does, and Tools brings back a tool that left the library as it does too. A row
+ * already at its start returns the same workspace.
+ */
+export function resetAgentNode(
+  workspace: StudioWorkspace,
+  key: string,
+  ref: StudioNodeRef,
+): StudioWorkspace {
+  if (ref.facet === 'identity') return resetAgent(workspace, key);
+  if (ref.facet === 'toolSpec') return resetLibraryTool(workspace, ref.key);
+  const base = resetAgent(workspace, key);
+  const start = base.agents.find((agent) => agent.key === key);
+  const now = workspace.agents.find((agent) => agent.key === key);
+  if (base === workspace || !start || !now) return workspace;
+  const agent = sectionOf(now, start, ref);
+  if (same(agent, now)) return workspace;
+  return {
+    ...workspace,
+    agents: mapAgent(workspace, key, () => agent),
+    toolSpecs: ref.facet === 'tools' ? base.toolSpecs : workspace.toolSpecs,
+    // why: Only a model names a provider, so only Models or a model brings one back.
+    providers:
+      ref.facet === 'models' || ref.facet === 'modelBinding' ? base.providers : workspace.providers,
+  };
+}
+
+/** `now`, with the part of it `ref` names taken from `start`. */
+function sectionOf(now: AgentDraft, start: AgentDraft, ref: StudioNodeRef): AgentDraft {
+  if (ref.facet === 'models') {
+    return { ...now, models: start.models, modelBindings: start.modelBindings };
+  }
+  if (ref.facet === 'modelBinding') {
+    const back = start.modelBindings.find((binding) => binding.key === ref.key);
+    return back
+      ? {
+          ...now,
+          modelBindings: now.modelBindings.map((binding) =>
+            binding.key === ref.key ? back : binding,
+          ),
+        }
+      : now;
+  }
+  if (ref.facet === 'toolSpec') return now;
+  return withSection(now, start, ref.facet);
+}
+
+function withSection<K extends keyof AgentDraft>(
+  now: AgentDraft,
+  start: AgentDraft,
+  section: K,
+): AgentDraft {
+  return { ...now, [section]: start[section] };
+}
+
+/**
  * Puts every agent, every library tool, and every provider back to its start, in one step. A tool that left the
  * library comes back when an agent started out allowing it. An agent or a tool added here stays: it
  * started as it is. A workspace already at its start is returned as it is.

@@ -135,7 +135,6 @@ export function FileConflicts({
                           added: SIDE_NAME.studio,
                         }}
                         kept={pick === 'studio' ? '+' : '-'}
-                        isWrapped
                         maxHeight={DIFF_MAX_HEIGHT}
                       />
                     </VStack>

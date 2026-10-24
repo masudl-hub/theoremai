@@ -14,6 +14,7 @@ import type {
   DecisionJson,
   DecisionResult,
 } from '@theoremjs/agents';
+import type { DecisionInterface, DecisionQuestionView } from '@theoremjs/web/client';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   boxSource,
@@ -23,7 +24,6 @@ import {
   imageSrc,
   markedBox,
 } from '../client/decision-images.ts';
-import type { DecisionInterface, DecisionQuestionView } from '../client/decision-transport.ts';
 import { Arrive, Stream } from './arrive.tsx';
 import { CardWall } from './CardWall.tsx';
 import { resultMeta } from './labels.ts';
@@ -353,24 +353,24 @@ function BoxCrop({
   );
 }
 
-/** The box cut from the image its question names, or drawn in a frame that stands for the whole image. */
+/** The box cut from its image, or drawn in a frame that stands for the whole image when the page cannot tell which. */
 function BoxAnswer({
   title,
   aside,
   detail,
   answer,
-  field,
+  image,
   asked,
 }: {
   title: string;
   aside?: ReactNode;
   detail?: string;
   answer: Extract<DecisionAnswer, { type: 'box' }>;
-  field?: string;
+  image?: string;
   asked?: TheoremDecisionAnswersProps['asked'];
 }) {
   const t = useLabels();
-  const source = asked && boxSource(asked.images, asked.state, field);
+  const source = asked && boxSource(asked.images, asked.state, image);
   const n = useNumbers();
   const { top, bottom, left, right } = answer.box;
   const edges = t('@theorem.decision.box_edges', {
@@ -455,7 +455,7 @@ function AnswerCard({
   if (answer.type === 'score')
     return <ScoreAnswer {...head} answer={answer} labels={question.labels} />;
   if (answer.type === 'noul') return <NumberAnswer {...head} answer={answer} />;
-  return <BoxAnswer {...head} answer={answer} field={question.field} asked={asked} />;
+  return <BoxAnswer {...head} answer={answer} image={question.image} asked={asked} />;
 }
 
 /**

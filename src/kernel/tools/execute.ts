@@ -44,6 +44,7 @@ import {
   toolEvent,
 } from './events.ts';
 import { type HandlerEventChecks, HandlerEvents } from './handler-events.ts';
+import { fetchToolImages } from './image-fetch.ts';
 import { formatToolFailureForModel, formatToolResult, frameToolFailure } from './model-text.ts';
 import type {
   ToolExecutionCoordinator,
@@ -452,6 +453,8 @@ async function* settleToolCall(args: {
   reproject?: Reproject;
   /** Run on the output the call settles with, after any `mutate`. */
   sources?: (output: unknown) => Source[];
+  /** Fetches the pictures the settled output names; runs only for a result the guard let through. */
+  images?: (output: unknown) => ReturnType<typeof fetchToolImages>;
   labels?: ToolLabels;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
   const { base, toolName, callId, input, stages, provisional, guard, reproject, sources } = args;
@@ -489,7 +492,15 @@ async function* settleToolCall(args: {
     }
   }
 
-  if (!failure && sources) yield* sourceEvents(base, sources, outputRaw);
+  if (!failure) {
+    modelResult = yield* citeAndShow({
+      base,
+      sources,
+      images: args.images,
+      outputRaw,
+      modelResult,
+    });
+  }
   yield failure
     ? failureEvent(
         base,
@@ -510,6 +521,44 @@ async function* settleToolCall(args: {
     ...(callNotStarted ? { callNotStarted: true as const } : {}),
     ...(awaiting ? { awaiting: true as const } : {}),
     ...stageSettlement(post),
+  };
+}
+
+/** The settled output's cited sources, then the pictures its tool names; the result carrying them. */
+async function* citeAndShow(args: {
+  base: ToolCallBase;
+  sources: ((output: unknown) => Source[]) | undefined;
+  images: ((output: unknown) => ReturnType<typeof fetchToolImages>) | undefined;
+  outputRaw: unknown;
+  modelResult: ModelToolResult;
+}): AsyncGenerator<TurnEvent, ModelToolResult> {
+  const { base, sources, images, outputRaw, modelResult } = args;
+  if (sources) yield* sourceEvents(base, sources, outputRaw);
+  if (!images || outputRaw === undefined) return modelResult;
+  return yield* withFetchedImages(base, modelResult, images, outputRaw);
+}
+
+/**
+ * The result with the pictures its tool names, fetched after the guard and the stages passed it.
+ * The addresses fetched are written into the result's text, so the egress rule on pictures the
+ * model shows counts them as given by a tool.
+ */
+async function* withFetchedImages(
+  base: ToolCallBase,
+  result: ModelToolResult,
+  images: (output: unknown) => ReturnType<typeof fetchToolImages>,
+  outputRaw: unknown,
+): AsyncGenerator<TurnEvent, ModelToolResult> {
+  const fetched = await images(outputRaw);
+  if (fetched.warning) yield toolEvent(base, { phase: 'warning', warning: fetched.warning });
+  if (fetched.parts.length === 0) return result;
+  const note = `\n[Pictures shown with this result: ${fetched.urls.join(' ')}]`; // labels-exempt: a marker the egress rule reads the addresses from, not prose (P2)
+  return {
+    ...result,
+    parts: [...(result.parts ?? []), ...fetched.parts],
+    ...(result.modelText !== undefined
+      ? { modelText: result.modelText + note }
+      : { finding: result.finding + note }),
   };
 }
 
@@ -773,6 +822,7 @@ export async function* executeFunction(
   const settleOutcome = (outcome: ToolBodyOutcome) =>
     settleBodyOutcome({
       outcome,
+      ctx,
       tool,
       base,
       callId,
@@ -1032,8 +1082,9 @@ async function* settleBodyOutcome(args: {
   stages?: ToolStageSupport;
   guard: ResultGuard;
   labels: LabelOverrides | undefined;
+  ctx: ToolContext;
 }): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { outcome, tool, base, callId, safeInput, stages, guard, labels } = args;
+  const { outcome, tool, base, callId, safeInput, stages, guard, labels, ctx } = args;
   const name = tool.name;
 
   if (outcome.kind === 'gated') {
@@ -1070,6 +1121,12 @@ async function* settleBodyOutcome(args: {
     guard,
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
     sources: tool.sources,
+    ...(tool.type !== 'function' && tool.images
+      ? {
+          images: (output: unknown) =>
+            fetchToolImages(tool.images as never, output, ctx, tool.imageLimits),
+        }
+      : {}),
     labels: tool.labels,
     reproject: makeReproject(
       (v) => parseToolOutput(tool.output, v),
@@ -1625,7 +1682,7 @@ async function* settleByType(
     });
   }
   const guard = resultGuard(tools, tool, fullCtx, snapshot, stages?.span);
-  const remoteOutcome: ToolBodyOutcome =
+  const body: ToolBodyOutcome =
     tool.type === 'http'
       ? yield* executeHttpTool(
           tool,
@@ -1638,7 +1695,8 @@ async function* settleByType(
         )
       : yield* executeMcpTool(tool, safeInput, fullCtx, base, stages, tools.mcpSessions, beginBody);
   return yield* settleBodyOutcome({
-    outcome: remoteOutcome,
+    outcome: body,
+    ctx: fullCtx,
     tool,
     base,
     callId: base.callId,

@@ -32,9 +32,11 @@ import {
   theoremHostCallRequestSchema,
   theoremInvokeRequestSchema,
   theoremRewindRequestSchema,
+  theoremStartRequestSchema,
   theoremSteerRequestSchema,
+  theoremStopRequestSchema,
   theoremTurnRequestSchema,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 import { newConversationKey } from '../conversation-key.ts';
 import type { LentKeys } from '../lent-keys.ts';
 import type { StructuredRegistration, ToolRegistration } from '../registrations.ts';
@@ -287,6 +289,16 @@ export function createStudioDraftHandler(
           ),
         ),
       ),
+    'conversation/start': (request) =>
+      draftRequest(request, async (draft, boundary) =>
+        Response.json(
+          await startStudioConversation(
+            draftRun(lent, draft, boundary, request),
+            conversationsOf(boundary),
+            checkRequest(theoremStartRequestSchema, draft, 'request body').blocks,
+          ),
+        ),
+      ),
     rewind: (request) =>
       draftRequest(request, async (draft, boundary) =>
         Response.json(
@@ -326,6 +338,25 @@ export function createStudioDraftHandler(
         if (!(await steer.enqueue(asked.turnId, steerUnitOf(asked)))) {
           // labels-exempt: internal diagnostic; the user reads session.turn_ended
           throw new TheoremError('request', 'steer: no open run has this inbox', {
+            copy: { key: 'session.turn_ended' },
+          });
+        }
+        return Response.json({ ok: true });
+      } catch (err) {
+        return errorJson(err);
+      }
+    },
+    'turn/stop': async (request) => {
+      try {
+        // The inbox the server opened for the turn is the turn id the browser stops.
+        const asked = checkRequest(
+          theoremStopRequestSchema,
+          await readBody(request, z.unknown()),
+          'request body',
+        );
+        if (!(await steer.stop(asked.turnId))) {
+          // labels-exempt: internal diagnostic; the user reads session.turn_ended
+          throw new TheoremError('request', 'stop: no open run has this inbox', {
             copy: { key: 'session.turn_ended' },
           });
         }

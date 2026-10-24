@@ -60,7 +60,7 @@ function registerFuzzCanaryProfile(): void {
     identity: { handle: 'fuzz-canary', system: 'Canary fuzz profile.' },
     models: {
       'fuzz-model': {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
         keySlot: 'fuzz',

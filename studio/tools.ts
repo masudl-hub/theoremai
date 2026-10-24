@@ -55,6 +55,7 @@ export function registerCustomTool(
       headers: tool.headers,
       mapping: tool.mapping,
       auth: tool.auth,
+      maxResponseBytes: tool.maxResponseBytes,
     });
     return;
   }
@@ -66,6 +67,8 @@ export function registerCustomTool(
       mcpToolName: tool.mcpToolName,
       headers: tool.headers,
       auth: tool.auth,
+      maxResponseBytes: tool.maxResponseBytes,
+      session: tool.session,
     });
     return;
   }

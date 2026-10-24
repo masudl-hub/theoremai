@@ -38,6 +38,7 @@ import {
   type GuardrailsDraft,
   type ImageReferenceDraft,
   INLINE_LABELS,
+  MODEL_LIMITS,
   type ModelBindingDraft,
   type PatternDraft,
   STUDIO_PROFILE_TYPES,
@@ -799,6 +800,11 @@ function applyLabels(draft: StudioDraft, labels: unknown): void {
   draft.labels = entries;
 }
 
+function limitsOf(value: unknown): ModelBindingDraft['limits'] {
+  if (!isRecord(value)) return undefined;
+  return Object.fromEntries(MODEL_LIMITS.map(({ name }) => [name, whole(value[name])]));
+}
+
 function bindingOf(
   modelId: string,
   spec: unknown,
@@ -825,6 +831,7 @@ function bindingOf(
     apiId: text(spec.apiId),
     options: (record(spec.options) ?? {}) as JsonObject,
     timeoutMs: timeout,
+    limits: limitsOf(spec.limits),
     efforts,
     defaultEffort: text(spec.defaultEffort),
     allowEffortSelect: spec.allowEffortSelect === true,
@@ -884,6 +891,9 @@ function toolRoute(spec: Record<string, unknown>) {
     bodyParam: filled(mapping.bodyParam),
     serverUrl: filled(spec.serverUrl),
     mcpToolName: filled(spec.mcpToolName),
+    maxResponseBytes: whole(spec.maxResponseBytes),
+    sessionIdleMs: whole(record(spec.session)?.idleMs),
+    sessionMax: whole(record(spec.session)?.max),
   } satisfies Partial<ToolSpecDraft>;
 }
 

@@ -9,7 +9,7 @@
  * @module
  */
 
-import type { EmbeddingSpace, SpacePoint } from '../client/embedding-space.ts';
+import type { EmbeddingSpace, SpacePoint } from '@theoremjs/web/client';
 import {
   DOT_FLOATS,
   FRAME_SLOT,
@@ -18,7 +18,7 @@ import {
   SEGMENT_FLOATS,
   type SpaceGeometry,
   spaceGeometry,
-} from '../client/space-geometry.ts';
+} from '@theoremjs/web/client';
 
 /** What the space highlights: a query's matches, and the document under the pointer. */
 export type SpaceFocus = {

@@ -10,6 +10,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
+import type { HttpOptions } from '@theoremjs/web/client';
 import {
   Children,
   type CSSProperties,
@@ -22,10 +23,17 @@ import {
   useRef,
   useSyncExternalStore,
 } from 'react';
-import type { HttpOptions } from '../client/transport.ts';
 import type { TheoremLabels } from './labels.ts';
 import { useLabels } from './labels-provider.tsx';
-import { PanelBody, PanelScroll, RAISED, SidePanel, SidePanelHeader } from './SidePanel.tsx';
+import {
+  PANEL_EDGE,
+  PanelBody,
+  PanelScroll,
+  paneEdge,
+  RAISED,
+  SidePanel,
+  SidePanelHeader,
+} from './SidePanel.tsx';
 import { textRows } from './StateFields.tsx';
 import { type TraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 import { CONSOLE_CARD } from './trace-patterns.tsx';
@@ -122,7 +130,11 @@ function ConsoleSingle({
   children: ReactNode;
 }) {
   return (
-    <VStack height="100%" paddingInline={3} style={flush ? FLUSH_CARD : undefined}>
+    <VStack
+      height="100%"
+      paddingInlineStart={PANEL_EDGE}
+      style={{ ...(flush ? FLUSH_CARD : undefined), paddingInlineEnd: paneEdge(PANEL_EDGE) }}
+    >
       <Card
         variant="transparent"
         height="100%"
@@ -166,15 +178,18 @@ export function ConsoleFrame({
         }
         content={
           <LayoutContent padding={0} isScrollable={false}>
-            <ConsoleBody
-              layoutRef={layoutRef}
-              flush={flush}
-              columns={columns}
-              maxWidth={maxWidth}
-              requestLabel={requestLabel}
-            >
-              {children}
-            </ConsoleBody>
+            {/* why: The same 12px off the row above as a raised pane, so a console and the trace sit alike. */}
+            <VStack height="100%" paddingBlockStart={PANEL_EDGE}>
+              <ConsoleBody
+                layoutRef={layoutRef}
+                flush={flush}
+                columns={columns}
+                maxWidth={maxWidth}
+                requestLabel={requestLabel}
+              >
+                {children}
+              </ConsoleBody>
+            </VStack>
           </LayoutContent>
         }
       />
@@ -338,17 +353,28 @@ export type ConsoleView = 'fields' | 'json';
 
 export type RequestCardProps = {
   title: string;
-  /** The view shown: fields only while the request parses. */
-  view: ConsoleView;
-  hasFields: boolean;
-  onView: (next: ConsoleView) => void;
   /** Runs on ⌘/Ctrl+Enter anywhere in the card. */
   onRun: () => void;
   children: ReactNode;
-};
+} & (
+  | {
+      /** The view shown: fields only while the request parses. */
+      view: ConsoleView;
+      hasFields: boolean;
+      onView: (next: ConsoleView) => void;
+      actions?: never;
+    }
+  | {
+      view?: never;
+      hasFields?: never;
+      onView?: never;
+      /** In the Fields/JSON switch's place, for a request that has no JSON of its own. */
+      actions?: ReactNode;
+    }
+);
 
 /** The request's card: its heading with the Fields/JSON switch, then the request and its run bar. */
-export function RequestCard({ title, view, hasFields, onView, onRun, children }: RequestCardProps) {
+export function RequestCard({ title, onRun, children, ...heading }: RequestCardProps) {
   const t = useLabels();
   const framed = use(ConsoleChrome);
   const body = (
@@ -357,21 +383,25 @@ export function RequestCard({ title, view, hasFields, onView, onRun, children }:
         <Text type="supporting" color="secondary" as="h3">
           {title}
         </Text>
-        <SegmentedControl
-          label={t('@theorem.decision.view')}
-          size="sm"
-          value={view}
-          onChange={(next) => {
-            onView(next === 'json' ? 'json' : 'fields');
-          }}
-        >
-          <SegmentedControlItem
-            value="fields"
-            label={t('@theorem.decision.fields')}
-            isDisabled={!hasFields}
-          />
-          <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
-        </SegmentedControl>
+        {heading.onView ? (
+          <SegmentedControl
+            label={t('@theorem.decision.view')}
+            size="sm"
+            value={heading.view}
+            onChange={(next) => {
+              heading.onView(next === 'json' ? 'json' : 'fields');
+            }}
+          >
+            <SegmentedControlItem
+              value="fields"
+              label={t('@theorem.decision.fields')}
+              isDisabled={!heading.hasFields}
+            />
+            <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
+          </SegmentedControl>
+        ) : (
+          heading.actions
+        )}
       </HStack>
       {children}
     </VStack>

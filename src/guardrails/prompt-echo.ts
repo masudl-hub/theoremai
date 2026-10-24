@@ -81,8 +81,8 @@ function promptReadings(stretches: readonly string[], canary?: string): PromptRe
   const readings: PromptReadings = { plain: [], slotted: [] };
   for (const view of PROMPT_VIEWS) {
     const read = viewReadings(stretches.map(view), canary === undefined ? undefined : view(canary));
-    readings.plain.push(...read.plain);
-    readings.slotted.push(...read.slotted);
+    for (const each of read.plain) readings.plain.push(each);
+    for (const each of read.slotted) readings.slotted.push(each);
   }
   return readings;
 }

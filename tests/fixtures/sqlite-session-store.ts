@@ -1,5 +1,5 @@
 import { z } from '../../mod.ts';
-import { type TheoremSessionStore, theoremSessionStateSchema } from '../../react/src/server/mod.ts';
+import { type TheoremSessionStore, theoremSessionStateSchema } from '../../web/src/server/mod.ts';
 
 const snapshotSchema = z.strictObject({
   revision: z.string().min(1),

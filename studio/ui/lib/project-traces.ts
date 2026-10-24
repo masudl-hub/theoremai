@@ -1,5 +1,5 @@
 import { resolveObservabilityPolicy } from '@theoremjs/agents';
-import type { TraceFeed } from '@theoremjs/react/client';
+import type { TraceFeed } from '@theoremjs/web/client';
 import type { StudioRunPayload } from '../../mod.ts';
 import { actingAsHeaders, type StudioActingAs } from '../../people.ts';
 import { eachLine, NDJSON } from '../../stream-lines.ts';

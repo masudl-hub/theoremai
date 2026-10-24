@@ -217,7 +217,8 @@ function placeholdersAt(node: unknown, prefix: string): string[] {
   if (!isRecord(node)) return [];
   const branches = schemaBranches(node);
   if (branches.length) return branches.flatMap((branch) => placeholdersAt(branch, prefix));
-  if (schemaTypes(node).includes('array')) return leavesAt(node.items, at('0'));
+  // why: A list's length is a number a label can show, after its first item's fields.
+  if (schemaTypes(node).includes('array')) return [...leavesAt(node.items, at('0')), at('length')];
   if (!isRecord(node.properties)) return [];
   return Object.entries(node.properties).flatMap(([key, child]) => leavesAt(child, at(key)));
 }
@@ -314,7 +315,12 @@ function placeholderProblem(
       group: 'is a list or group; a label shows text or a number.', // labels-exempt: builder diagnostic
       flag: 'is true or false; a label shows text or a number.', // labels-exempt: builder diagnostic
     }[found.holds];
-    return `{${path}} ${reason}${tryInstead(near.length ? near : all)}`;
+    // why: What the builder ended the path with (a length, a name) says which of the fields they meant.
+    const last = route.keys.at(-1);
+    const tail = (candidate: string) => (candidate.split('.').at(-1) === last ? 0 : 1);
+    // why: Not `toSorted`: the studio's declaration build targets a lib before ES2023.
+    const ranked = [...(near.length ? near : all)].sort((a, b) => tail(a) - tail(b));
+    return `{${path}} ${reason}${tryInstead(ranked)}`;
   }
   return undefined;
 }

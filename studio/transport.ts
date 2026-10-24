@@ -15,7 +15,11 @@ import {
   type TurnEvent,
   traceRecordSchema,
 } from '@theoremjs/agents';
-import { interfaceFromProfile, type ProfileInterface } from '@theoremjs/agents/interface';
+import {
+  interfaceFromProfile,
+  type ProfileInterface,
+  type TranscriptBlock,
+} from '@theoremjs/agents/interface';
 import { createToolRegistry, type Equals } from '@theoremjs/agents/kernel';
 import {
   CHAT_LINES,
@@ -29,6 +33,7 @@ import {
   embeddingInterface,
   fetchConversation,
   fetchRewound,
+  fetchStarted,
   type HostTransport,
   type HttpOptions,
   hostInterface,
@@ -42,7 +47,7 @@ import {
   type TurnEventSink,
   type UnsupportedEvent,
   type WireLines,
-} from '@theoremjs/react/client';
+} from '@theoremjs/web/client';
 import { z } from 'zod';
 import { uncompiled } from './compile.ts';
 import {
@@ -231,8 +236,32 @@ export function createStudioTransport(
       // The server's inbox is the turn it steers, so the body is a `TheoremSteerRequest`.
       await postJson('/api/studio/turn/steer', { turnId: inbox, id, inject }, options);
     },
+    async stop({ turnId }) {
+      const inbox = inboxes.get(turnId);
+      if (!inbox) {
+        // labels-exempt: internal diagnostic; the user reads session.turn_ended
+        throw new TheoremError('request', 'stop: the turn has not opened its inbox', {
+          copy: { key: 'session.turn_ended' },
+        });
+      }
+      await postJson('/api/studio/turn/stop', { turnId: inbox }, options);
+    },
     traces,
   };
+}
+
+/** A conversation with the draft that opens on `blocks`, kept in this visitor's session: its ref and view. */
+export function startStudioConversation(
+  payload: StudioRunPayload,
+  blocks: readonly TranscriptBlock[],
+  options: HttpOptions & { signal?: AbortSignal } = {},
+) {
+  const { profile, customTools, structured, dependencies } = payload;
+  return fetchStarted(
+    '/api/studio/conversation/start',
+    { profile, customTools, structured, dependencies, blocks },
+    options,
+  );
 }
 
 /**

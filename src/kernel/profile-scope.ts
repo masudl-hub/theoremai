@@ -26,10 +26,11 @@ const MODEL_PROFILE_TYPES: readonly ProfileType[] = [
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
 /** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
 const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
-const TURN_INPUT_REASON = 'a decision takes JSON state, not turn text, files, or slots';
+const TURN_INPUT_REASON =
+  'a decision takes JSON state, and live takes its input through live.ingress';
 /** Types that take slots and context: the turn types, and a call. */
 const SLOT_TYPES: readonly ProfileType[] = ['text', 'image', 'live'];
-const SLOT_REASON = 'a decision takes JSON state, and speech reads its transcript only';
+const SLOT_REASON = 'a decision takes JSON state, and an embedding call embeds its input alone';
 export interface ProfileFieldScope {
   profileTypes: readonly ProfileType[];
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
@@ -93,12 +94,12 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'identity.system': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
+      'speech has no system channel (the input text is the transcript), a decision is asked only through its questions, and an embedding call embeds its input alone',
   },
   'identity.systemByRole': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech has no system channel (the input text is the transcript) and a decision is asked only through its questions',
+      'speech has no system channel (the input text is the transcript), a decision is asked only through its questions, and an embedding call embeds its input alone',
   },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
   'models.*.protocol': {
@@ -111,7 +112,8 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   },
   'models.*.compaction': {
     profileTypes: ['text', 'image', 'speech'],
-    reason: 'live compacts with live.contextCompression',
+    reason:
+      'live compacts with live.contextCompression, and decision and embedding calls keep no conversation to compact',
   },
   'profile.defaultModel': {
     profileTypes: [...TURN_TYPES, 'embedding'],
@@ -131,7 +133,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   live: { profileTypes: ['live'], reason: 'only live profiles open a realtime session' },
   tools: {
     profileTypes: ['text', 'image', 'live', 'host'],
-    reason: 'speech and decision profiles call no tools',
+    reason: 'speech, decision, and embedding profiles call no tools',
   },
   'tools.t1Policy': {
     profileTypes: ['text', 'image'],
@@ -149,7 +151,8 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   },
   'inputs.voice': {
     profileTypes: ['text'],
-    reason: 'no image model reads audio, and a decision takes JSON state',
+    reason:
+      'no image model reads audio, live takes audio through live.ingress, a decision takes JSON state, and an embedding call takes text and files',
   },
   'inputs.text': {
     profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
@@ -194,7 +197,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   outputs: {
     profileTypes: ['text', 'image', 'speech'],
     reason:
-      'live output is the realtime session, and decision and host profiles produce no turn output',
+      'live output is the realtime session, and decision, embedding, and host profiles produce no turn output',
   },
   'outputs.structured': {
     profileTypes: ['text'],
@@ -223,27 +226,29 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   },
   'guardrails.quota': {
     profileTypes: turnGuardrailTypes('quota'),
-    reason: 'quota counts model turns',
+    reason: 'quota counts model turns, and decision, embedding, and host profiles run none',
   },
   'guardrails.detect': {
     profileTypes: turnGuardrailTypes('detect'),
-    reason: 'the decision path runs none of the turn guardrails',
+    reason: 'decision and embedding calls run none of the turn guardrails',
   },
   'guardrails.blockedReply': {
     profileTypes: ['text', 'image', 'live'],
-    reason: 'only a reply can be blocked, and speech, decision, and host profiles write none',
+    reason:
+      'only a reply can be blocked, and speech, decision, embedding, and host profiles write none',
   },
   'guardrails.network': {
     profileTypes: ['text', 'image', 'live', 'host'],
-    reason: 'speech and decision profiles call no tools',
+    reason: 'speech, decision, and embedding profiles call no tools',
   },
   'guardrails.taint': {
     profileTypes: ['text', 'image', 'live'],
-    reason: 'speech and decision profiles call no tools, and a host profile runs no turn to taint',
+    reason:
+      'speech, decision, and embedding profiles call no tools, and a host profile runs no turn to taint',
   },
   'guardrails.disclosure': {
     profileTypes: ['decision'],
-    reason: 'disclosure gates state leaving a decision profile for its model',
+    reason: 'only a decision profile sends state to its model, and disclosure gates that state',
   },
 };
 /**

@@ -38,15 +38,15 @@ The screen keeps the profile it edits in the browser, as a **draft**. It sends t
 ## Install
 
 ```bash
-npm install -D @theoremjs/studio @theoremjs/agents @theoremjs/react
+npm install -D @theoremjs/studio @theoremjs/agents @theoremjs/web
 ```
 
-The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents`, and `@theoremjs/react` versions must match exactly.
+The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `@theoremjs/agents`, and `@theoremjs/web` versions must match exactly. The command does not need React, so it installs beside any React version, or none.
 
-To show the screen in your app, also install the peers at the versions this package lists in `peerDependencies`:
+To show the screen in your app, also install `@theoremjs/react` at the same version, and React 19 and the design packages at the versions `@theoremjs/react` lists in `peerDependencies`:
 
 ```bash
-npm install react react-dom zod @astryxdesign/core@0.7.0 @astryxdesign/theme-neutral@0.7.0 @stylexjs/stylex@0.19.0
+npm install @theoremjs/react react react-dom @astryxdesign/core@0.7.1 @astryxdesign/theme-neutral@0.7.1 @stylexjs/stylex@0.19.0
 ```
 
 ## Open your project
@@ -80,7 +80,7 @@ Every export is optional. The studio reads only these:
 | `provider` | The keys, network, and limits every model call runs on (`ProviderHostOptions` from `@theoremjs/agents/kernel`). Without it, a run's model call fails for want of a key. |
 | `people`, `host` | Who a run's tools act for (below). |
 | `questions` | What each decision profile asks, by the profile's id: `{ [profileId]: { [questionId]: DecisionQuestion } }`. |
-| `images` | The pictures each decision profile sends with every decision, by the profile's id: `{ [profileId]: { [reference]: DecisionAsset } }`, where a reference is the name its questions write, such as `'<ghs02>'`. |
+| `images` | The pictures each decision profile can send, by the profile's id. A decision sends only those its state or questions name: `{ [profileId]: { [reference]: DecisionAsset } }`, where a reference is the name its questions write, such as `'<ghs02>'`. |
 
 ### Keys a run uses
 
@@ -169,9 +169,13 @@ Render it in the browser only. `openStudio()` reads the tab's kept workspace, so
 | `kernelVersion` | The `@theoremjs/agents` version, shown under the studio's title. Required. |
 | `lentKeys` | Keys your page lends to whoever opens the studio. See [Lend your keys](#lend-your-keys). |
 | `toolHandlers` | Handlers for your page's own function tools, by name. A tool with none answers with its sample reply or a stub. |
-| `hasSettings` | True when your page has a door to Settings. Keys then show in Settings, not in the editor's header. |
+| `hasSettings` | True when your page has a door to Settings. Keys then show in Settings, not above the providers list. |
 | `mountSurface` | Mounts the screen's surface while the screen is open, and returns the unmount. |
 | `onReport` | Called as what is on screen changes, and with `null` when the screen closes. |
+
+To show a picture of the studio on a page that is not the studio, such as a home page, use `StudioEditorPreview` from the same file. It draws the studio's editor for a workspace, open on the workspace's `selected` node: the toolbar with the issue count, over the inspector with each issue on its row. Nothing on it changes anything, it writes no storage, and it reports nothing. It takes `workspace`, and `on`, where your page's studio runs, so it shows the issues your studio would. On a remote tool, `probe` is a connection test already run, a `ProbeResult`: the inspector shows it done, scrolled to the end of the tool's page.
+
+`StudioTreeMap`, from `ui/tree-map.tsx`, draws a workspace's tree, every row open, as the map draws: a map token for each row, and a line from each row to its children. Beside it, what feeds the tree, shared by every agent drawn: each provider once, with a line into each model it serves and the protocols those models speak under it; each tool the agents allow, by type, with a line into each Tools row that allows it, an MCP tool's sessions under it, and an agent tool's agent under it with a line to the runner; and one Runner, with a line from each agent's name but a host's and the steps of a turn under it. Past those stands the Tool runner, with a line from the runner's tool loop and what it checks of each call under it: permission, sign-in, network and the result. It has no background; it sits on what holds it. It takes `workspace`, and `agents`, the keys of the agents to draw (every agent when unset); nothing on it opens or changes anything. With `still`, the keys of the agents it shows closed, closed it shows those agents whole, with each agent's models and tools beside it, the runs one under another centred on the rows, and each row's lines running along one trunk to them, a model or tool two agents share drawn once with a line from each; an agent the tree draws as an agent tool's agent has a line back from that tool. With `closed`, the places of the tokens it shows closed, by id, in its own pixels, it grows out of something else: closed it stands at its own size from the top left of what holds it, with those tokens where they are given and nothing else, and growing, the tree draws out round them, and each glides to where it stands grown once its line reaches it, its line with it. With `grow`, from 0 to 1, it grows with the value and has no clock of its own: it grows to its size, what the tree does not draw folds away, and then it draws out from the tree's agents as one pen would, at an even pace, each line running out from the node it leaves and the node at its end showing as the line reaches it. Nothing moves before the drawing comes to it: what it shows closed glides into place once its line reaches it, its line with it, or, where something would show where it stands, sets off just before that shows and goes slower, so its line catches it as it lands. A token on its way passes under the tokens at rest; no two tokens at rest meet. With `fit`, a width and height, it fills that box grown, its rows and gaps stretching to it. With `room`, the box it stands in now, closed and grown it stands in the middle of that box, scaled down where it would not fit. With `draggable`, a token dragged moves where it is dropped, its lines with it, and the field dragged moves the whole map; nothing it moves is kept.
 
 ### 3. Answer at `/api/studio`
 
@@ -252,7 +256,7 @@ With `lent`, the handler also runs chats, calls, decisions, and embeddings. A dr
 | `conversationKey` | The key chat conversations are sealed with. Default: a new one for this handler's lifetime. A restart, or another isolate, then cannot open a chat, and the chat continues from the page's transcript. Pass one key to every isolate to keep each conversation on the server. |
 | `draftNetwork` | True only when the handler serves the builder alone, on their own machine, as the command's does. A connection test then keeps to the draft's network guardrail. Otherwise it reaches public hosts only. |
 
-Live calls on lent keys open a WebSocket to `/api/live/relay`, not `/api/studio`. This package does not ship that relay. Build it on your server with `attachStudioLiveSession` from `@theoremjs/studio/browser`, and see the relay section of [`@theoremjs/react`](https://www.npmjs.com/package/@theoremjs/react).
+Live calls on lent keys open a WebSocket to `/api/live/relay`, not `/api/studio`. This package does not ship that relay. Build it on your server with `attachStudioLiveSession` from `@theoremjs/studio/browser`, and see the relay section of [`@theoremjs/web`](https://www.npmjs.com/package/@theoremjs/web).
 
 ## Entry points
 
@@ -275,7 +279,7 @@ Use these when you build on the studio's draft yourself: compile it, export it a
 | Export | Purpose |
 | --- | --- |
 | `StudioDraft`, `createBlankDraft()`, `createExampleDraft()` | Editable profile draft; blank, or the travel concierge |
-| `createDecisionExampleDraft()`, `DECISION_EXAMPLE_STATE`, `decisionExampleAssets()` | The decision example: Jev 1.14 asked about a pantry shelf, with box, Number and Choice questions. Its four pictures ship with it, and load only when the example is made, so both functions return a promise. The ginger, the colour chart and the flag are the decision's own, sent with every decision. The chart question sets its box's image to `<apple_ripeness>`. The run tab starts with the shelf in its state. Each is written as its reference, such as `<ginger>`, in the state or in the questions. The shelf and ginger photos are CC0 and the flag is public domain, all from Wikimedia Commons. The colour chart was drawn for the example |
+| `createDecisionExampleDraft()`, `decisionExampleDraft(images?)`, `DECISION_EXAMPLE_STATE`, `decisionExampleAssets()` | The decision example: Jev 1.14 asked about a pantry shelf, with box, Number and Choice questions. Its four pictures ship with it, and load only when the example is made, so `createDecisionExampleDraft` and `decisionExampleAssets` return a promise; `decisionExampleDraft` is the same draft with the pictures it is given, none by default, for a page that only shows its shape. The ginger, the colour chart and the flag are the decision's own; a decision sends each one its state or questions name. Each box question names the image it reads: the Ginger and Union Jack questions read `photo`, and the chart question reads `<apple_ripeness>`. The run tab starts with the shelf in its state. Each is written as its reference, such as `<ginger>`, in the state or in the questions. The shelf and ginger photos are CC0 and the flag is public domain, all from Wikimedia Commons. The colour chart was drawn for the example |
 | `createLiveExampleDraft()`, `createNarratorExampleDraft()`, `createConsoleExampleDraft()`, `createArchitectWorkspace()` | The other examples: the concierge as a live agent, a speech narrator, a host tool console, and a code architect that calls the narrator through an agent tool |
 | `setProfileType()`, `includeFacet()`, `excludeFacet()`, `newModelBinding()`, `newToolSpec()` | Draft edits that keep it consistent with `PROFILE_GRAPH` |
 | `studioTree()`, `studioNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |

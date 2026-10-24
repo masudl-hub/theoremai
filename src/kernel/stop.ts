@@ -20,6 +20,19 @@ export const DEFAULT_ALLOW_CONTINUE: readonly ContinueStopKind[] = CONTINUE_STOP
 /** Hosts wait briefly, then continue once on their own. */
 export const DEFAULT_AUTO_CONTINUE: readonly ContinueStopKind[] = ['length', 'stream_incomplete'];
 
+/** The `native` of a `filtered` stop that Theorem's own guardrail made, not the provider's filter. */
+const GUARDRAIL_STOP_NATIVES: ReadonlySet<string> = new Set([
+  'egress',
+  'canary',
+  'prompt_echo',
+  'provider_tool_leak',
+]);
+
+/** Whether Theorem's own guardrail ended the turn, so its error or refusal already says why. */
+export function isGuardrailStop(stop: TurnStop): boolean {
+  return stop.kind === 'filtered' && GUARDRAIL_STOP_NATIVES.has(stop.native ?? '');
+}
+
 /** Pause before an auto-continue, the host's or the turn's own, so a flaky tunnel can settle. */
 export const AUTO_CONTINUE_DELAY_MS = 1_500;
 

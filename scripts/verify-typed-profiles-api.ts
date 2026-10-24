@@ -201,7 +201,7 @@ if (selected.has('text')) {
         identity: { handle: 'assistant', system: 'You are a concise AI assistant.' },
         models: {
           'openrouter/free': {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId: OPENROUTER_TEXT_API_ID,
             efforts: { normal: 'none' },
@@ -234,7 +234,7 @@ if (selected.has('text')) {
         identity: { handle: 'analyzer', system: 'Analyze sentiment in structured JSON.' },
         models: {
           'openrouter/free': {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId: OPENROUTER_TEXT_API_ID,
             efforts: { normal: 'none' },
@@ -453,7 +453,7 @@ if (selected.has('speech')) {
         identity: { handle: 'speaker' },
         models: {
           fishTts: {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId: 'fish-audio/s2.1-pro-free:free',
             efforts: { normal: 'none' },

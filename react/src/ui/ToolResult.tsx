@@ -5,8 +5,6 @@ import { useLocale } from '@astryxdesign/core/i18n';
 import { Lightbox } from '@astryxdesign/core/Lightbox';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { VStack } from '@astryxdesign/core/VStack';
-import { lazy, Suspense, useMemo, useState } from 'react';
-import { withUnit } from '../client/shaped-data.ts';
 import {
   hasLead,
   layoutResult,
@@ -14,7 +12,9 @@ import {
   type ResultLayout,
   type ResultMedia,
   returnedMedia,
-} from '../client/tool-result.ts';
+  withUnit,
+} from '@theoremjs/web/client';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { Arrive } from './arrive.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { keyedByContent } from './row-keys.ts';

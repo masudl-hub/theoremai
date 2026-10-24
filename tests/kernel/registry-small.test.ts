@@ -128,7 +128,7 @@ Deno.test('a structured schema is registered once by id, refuses enforced and no
   refused(
     'e',
     { jsonSchema: {}, enforced: true },
-    "registerStructured 'e': enforced was removed; every structured schema is sent to the model as its response format",
+    "registerStructured 'e': enforced was removed; every structured schema is sent to the model, as its response format or as its answer tool's input",
   );
   for (const bad of [{}, { jsonSchema: 'x' }, { jsonSchema: [] }, { jsonSchema: null }]) {
     refused('j', bad, "registerStructured 'j': jsonSchema must be a JSON Schema object");

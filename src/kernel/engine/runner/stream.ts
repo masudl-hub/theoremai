@@ -30,6 +30,7 @@ import type {
   GuardrailHit,
   ResolvedGuardrailPolicy,
 } from '../../../guardrails/types.ts';
+import { ANSWER_TOOL, answersByTool } from '../../answer-tool.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { toolArgumentsBoundary } from '../../tools/execute.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
@@ -133,29 +134,29 @@ function isWithheldOnBlock(event: ModelEvent): boolean {
   return event.type === 'text' || event.type === 'media';
 }
 
+export type ShownGeneration = Pick<ResolvedGeneration, 'structured' | 'stream' | 'tools'>;
+
 /**
- * An event as the host gets it, or nothing. The text of a call that asked for structured output is
- * that output's JSON: under `sse` it goes out as `structured_draft`, and under `buffered` not at all,
- * since the `structured` event is the reply whole. The turn keeps it as text, which its checks,
- * repairs and history read.
+ * An event as the host gets it, or nothing. On a turn that answers through a response format, the
+ * text is that output's JSON: under `sse` it goes out as `structured_draft`, and under `buffered`
+ * not at all, since the `structured` event is the reply whole. The turn keeps it as text, which its
+ * checks, repairs and history read. On a turn that answers by tool, the text is progress.
  */
-function shownToHost(
-  event: TurnEvent,
-  generation: Pick<ResolvedGeneration, 'structured' | 'stream'>,
-): TurnEvent | undefined {
-  if (!generation.structured || event.type !== 'text') return event;
+function shownToHost(event: TurnEvent, generation: ShownGeneration): TurnEvent | undefined {
+  if (!generation.structured || answersByTool(generation) || event.type !== 'text') return event;
   return generation.stream === false ? undefined : { type: 'structured_draft', text: event.text };
 }
 
 /**
  * A step's events as the host gets them (`shownToHost`), with a structured reply's drafts read
- * first at `reply_structured`, where the whole is read. The reply's text has already passed the
- * `reply` gate; a match at `reply_structured` stops the drafts, and the `structured` event still
- * arrives as that check leaves it. The held tail is read and released when the step's stream ends.
+ * first at `reply_structured`, where the whole is read. The drafts are the reply's text, or the
+ * answer tool's arguments as the model writes them. Text has already passed the `reply` gate; a
+ * match at `reply_structured` stops the drafts, and the `structured` event still arrives as that
+ * check leaves it. The held tail is read and released when the step's stream ends.
  */
 class StructuredDrafts {
   private readonly drafts: DraftReader;
-  private readonly generation: Pick<ResolvedGeneration, 'structured' | 'stream'>;
+  private readonly generation: ShownGeneration;
 
   /** Reads the stream's own checks off what the step knows of the turn. */
   constructor(
@@ -176,8 +177,14 @@ class StructuredDrafts {
       if (shown) yield shown;
       return;
     }
-    const text = await this.drafts.read(shown.text);
-    if (text) yield { ...shown, text };
+    yield* this.draft(shown.text);
+  }
+
+  /** Part of the structured output's JSON, as the model writes it. */
+  async *draft(json: string): AsyncGenerator<TurnEvent> {
+    if (this.generation.stream === false) return;
+    const text = await this.drafts.read(json);
+    if (text) yield { type: 'structured_draft', text };
   }
 
   /** The drafts' tail the gate still holds, once the step's stream has ended. */
@@ -215,6 +222,7 @@ class ToolDrafts {
     private readonly policy: ResolvedGuardrailPolicy,
     private readonly context: GuardrailContext,
     private readonly tools: ToolRegistry,
+    private readonly answerTool: boolean,
   ) {}
 
   /**
@@ -264,7 +272,9 @@ class ToolDrafts {
   }
 
   private async open(event: StreamEvent & { type: 'tool_draft' }): Promise<ShownDraft> {
-    const boundary = toolArgumentsBoundary(this.tools, event.name);
+    // why: The answer's drafts are the structured output's, read at `reply_structured` by `StructuredDrafts`.
+    const answer = this.answerTool && event.name === ANSWER_TOOL;
+    const boundary = answer ? undefined : toolArgumentsBoundary(this.tools, event.name);
     const gate = boundary ? await createDraftGate(this.policy, this.context, boundary) : null;
     const draft = { name: event.name, gate };
     this.drafts.set(event.callId, draft);
@@ -291,6 +301,8 @@ interface StreamArgs {
   ownTools?: OwnTools;
   /** The turn's tools: a draft is read at the boundary its tool's calls are. */
   tools: ToolRegistry;
+  /** True when the turn answers through the answer tool (`answersByTool`). */
+  answerTool?: boolean;
 }
 
 /** What the stream's checks know of the turn. */
@@ -335,7 +347,7 @@ async function* yieldProviderEvents(args: StreamArgs): AsyncGenerator<StreamEven
     canaryCarry,
   );
   const thoughts = await thoughtGuardFor(policy, context, thoughtCarry);
-  const drafts = new ToolDrafts(policy, context, args.tools);
+  const drafts = new ToolDrafts(policy, context, args.tools, args.answerTool === true);
   /** The streamed event whose reply sits in the gate's lookback; released tails keep its shape. */
   let pendingStream: StreamedReplyEvent | null = null;
   let withholdVisible = false;

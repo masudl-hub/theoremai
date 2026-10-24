@@ -59,6 +59,7 @@ import {
   type ProfileLiveSpec,
   type ProfileOutputsSpec,
   type ProfileSpeechSpec,
+  type ProviderLimits,
   type SystemPrompt,
   systemPromptProblem,
 } from '@theoremjs/agents/kernel';
@@ -98,6 +99,8 @@ import {
   draftAllows,
   draftFacets,
   INLINE_LABELS,
+  MODEL_LIMITS,
+  TIMER_MAX_MS,
   takesContinueInstruction,
 } from './draft.ts';
 import type { LentKeys, StudioRunsOn } from './lent-keys.ts';
@@ -105,6 +108,7 @@ import { isGoogleRoute, isProviderBuiltinId, modelBindingViolation } from './pol
 import {
   type ModelRoute,
   modelRoute,
+  protocolOptionFields,
   type StudioProvider,
   servedProtocols,
   servesProfileType,
@@ -158,7 +162,7 @@ export interface CompiledStudio {
   structured?: StructuredRegistration;
   /** A decision's questions, by id. */
   questions?: Record<string, DecisionQuestion>;
-  /** The pictures every decision sends, by the reference its questions write. */
+  /** The pictures a decision can send, by the reference its questions write. A decision sends only those its state or questions name. */
   images?: Record<string, DecisionAsset>;
   /** The providers its models can name, each with its adapter. */
   providers: readonly StudioProvider[];
@@ -241,9 +245,13 @@ function checkBindingRoute(
   } else if (!servesProfileType(provider, type)) {
     report(nodeId, `${binding.provider} doesn't serve ${type} agents.`, 'provider');
   } else if (!servesProfileType(provider, type, binding.protocol)) {
+    // why: The builder needs the protocol that works, not only the one that doesn't.
+    const served = (servedProtocols(provider, type) ?? []).map((each) => each.id).join(' or ');
     report(
       nodeId,
-      `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`,
+      served
+        ? `${binding.provider} runs ${type} agents on ${served}, not ${binding.protocol}.`
+        : `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`,
       'protocol',
     );
   }
@@ -251,6 +259,27 @@ function checkBindingRoute(
     report(nodeId, 'API model is required.', 'apiId');
   }
   return route;
+}
+
+/** `a`, `a or b`, or `a, b or c`. */
+function orList(items: readonly string[]): string {
+  return items.length < 2
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`;
+}
+
+/** An option the protocol doesn't have, with the one it has under another case, as a typo usually is. */
+function unknownOptionMessage(
+  protocol: NonNullable<ReturnType<typeof servedProtocols>>[number],
+  name: string,
+): string {
+  const known = protocolOptionFields(protocol).map(
+    (field) => field.path.split('.')[0] ?? field.path,
+  );
+  const meant = known.find((each) => each.toLowerCase() === name.toLowerCase());
+  return meant
+    ? `${protocol.id} has no option ${name}. Did you mean ${meant}?`
+    : `${protocol.id} has no option ${name}.`;
 }
 
 /** The binding's efforts, keyed by alias, and its default; each problem is reported on the binding. */
@@ -273,7 +302,7 @@ function compileEfforts(
     if (isGoogleRoute(route) && !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)) {
       report(
         nodeId,
-        `${binding.provider} doesn't take the ${level} thinking level.`,
+        `${binding.provider} takes the ${orList(GOOGLE_THINKING_LEVELS)} thinking level, not ${level}.`,
         'efforts',
         index,
       );
@@ -286,7 +315,14 @@ function compileEfforts(
   if (!defaultEffort && defaultEffortRequired(binding)) {
     report(nodeId, 'Pick a default effort — there is more than one.', 'defaultEffort');
   } else if (defaultEffort && !(defaultEffort in efforts)) {
-    report(nodeId, `Default effort '${defaultEffort}' is not one of the efforts.`, 'defaultEffort');
+    const names = Object.keys(efforts);
+    report(
+      nodeId,
+      names.length
+        ? `Default effort '${defaultEffort}' is not one of the efforts. Pick ${orList(names)}.`
+        : `Default effort '${defaultEffort}' is not one of the efforts.`,
+      'defaultEffort',
+    );
   }
   return { efforts, defaultEffort };
 }
@@ -312,6 +348,7 @@ function compileBinding(
   }
   checkOptions(binding, providers, type, nodeId, report);
   const compaction = compileCompaction(binding, type, nodeId, report, agentIdOf);
+  const limits = compileLimits(binding, nodeId, report);
 
   return {
     protocol: binding.protocol,
@@ -327,8 +364,27 @@ function compileBinding(
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
     ...(Object.keys(binding.options).length ? { options: binding.options } : {}),
+    ...(limits ? { limits } : {}),
     ...(compaction ? { compaction } : {}),
   };
+}
+
+function compileLimits(
+  binding: ModelBindingDraft,
+  nodeId: string,
+  report: Report,
+): ProviderLimits | undefined {
+  const limits: ProviderLimits = {};
+  for (const { name, label, isTimer } of MODEL_LIMITS) {
+    const value = binding.limits?.[name] ?? null;
+    if (value === null) continue;
+    checkWhole(report, nodeId, `limits.${name}`, label, value, 1);
+    if (isTimer && value > TIMER_MAX_MS) {
+      report(nodeId, `${label} must be at most ${TIMER_MAX_MS} ms.`, `limits.${name}`);
+    }
+    limits[name] = value;
+  }
+  return Object.keys(limits).length ? limits : undefined;
 }
 
 /**
@@ -347,7 +403,11 @@ function checkOptions(
     provider && servedProtocols(provider, type)?.find((each) => each.id === binding.protocol);
   for (const issue of protocol?.options.safeParse(binding.options).error?.issues ?? []) {
     const name = issue.code === 'unrecognized_keys' ? issue.keys[0] : issue.path[0];
-    report(nodeId, issue.message, typeof name === 'string' ? `options.${name}` : 'options');
+    const message =
+      protocol && issue.code === 'unrecognized_keys' && typeof name === 'string'
+        ? unknownOptionMessage(protocol, name)
+        : issue.message;
+    report(nodeId, message, typeof name === 'string' ? `options.${name}` : 'options');
   }
   const apiId = binding.apiId.trim();
   for (const key of apiId ? (protocol?.refusedOptions?.(apiId) ?? []) : []) {
@@ -725,7 +785,15 @@ function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const inUrl = credentialUrlProblem(tool[field]?.trim());
   if (inUrl) fail(inUrl, field);
   const auth = compileAuth(tool, fail);
-  return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
+  const maxResponseBytes = tool.maxResponseBytes ?? null;
+  if (maxResponseBytes !== null && !(Number.isInteger(maxResponseBytes) && maxResponseBytes >= 1)) {
+    fail('Max response must be a positive whole number.', 'maxResponseBytes');
+  }
+  return {
+    ...(headers ? { headers } : {}),
+    ...(auth ? { auth } : {}),
+    ...(maxResponseBytes !== null ? { maxResponseBytes } : {}),
+  };
 }
 
 function checkUrl(
@@ -770,7 +838,24 @@ function mcpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegis
     serverUrl,
     mcpToolName,
     ...remoteToolFields(tool, fail),
+    ...mcpSession(tool, fail),
   };
+}
+
+function mcpSession(tool: ToolSpecDraft, fail: Fail) {
+  const idleMs = tool.sessionIdleMs ?? null;
+  const max = tool.sessionMax ?? null;
+  if (idleMs !== null && !(Number.isInteger(idleMs) && idleMs >= 1)) {
+    fail('Idle must be a positive whole number.', 'sessionIdleMs');
+  }
+  if (max !== null && !(Number.isInteger(max) && max >= 1)) {
+    fail('Max must be a positive whole number.', 'sessionMax');
+  }
+  const session = {
+    ...(idleMs !== null ? { idleMs } : {}),
+    ...(max !== null ? { max } : {}),
+  };
+  return Object.keys(session).length ? { session } : {};
 }
 
 function functionTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {
@@ -1962,6 +2047,7 @@ function compileDecision(
     }
     checkWhole(report, nodeId, 'timeoutMs', 'Timeout', binding.timeoutMs, 1);
   }
+  const limits = binding ? compileLimits(binding, nodeId, report) : undefined;
   checkWhole(report, 'decision', 'maxStateBytes', 'Max state', decision.maxStateBytes, 1);
   const questions = compileQuestions(decision, report);
   const images = compileDecisionImages(decision, report);
@@ -1982,6 +2068,7 @@ function compileDecision(
               : {}),
             ...(binding.fallbackKeySlot ? { fallbackKeySlot: binding.fallbackKeySlot } : {}),
             ...(binding.timeoutMs !== null ? { timeoutMs: binding.timeoutMs } : {}),
+            ...(limits ? { limits } : {}),
           },
         }
       : {},
@@ -2008,7 +2095,14 @@ function compileHost(
   agentInputOf: AgentToolInputOf,
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
-  const { customTools, tools } = compileTools(draft, false, false, report, agentIdOf, agentInputOf);
+  const { customTools, tools } = compileTools(
+    draft,
+    draftAllows(draft, 'tools.t2Loader'),
+    draftAllows(draft, 'tools.parallel'),
+    report,
+    agentIdOf,
+    agentInputOf,
+  );
   if (!customTools.length) {
     report('tools', 'Add at least one tool: a host runs only its tools.');
   }

@@ -24,10 +24,7 @@ import {
   withJsonTraces,
   withRunTraces,
 } from '../../studio/server/run-traces.ts';
-import {
-  createDecisionTransport,
-  failedTraces,
-} from '../../web/src/client/decision-transport.ts';
+import { createDecisionTransport, failedTraces } from '../../web/src/client/decision-transport.ts';
 import { createEmbeddingTransport } from '../../web/src/client/embedding-transport.ts';
 
 const HOST = '127.0.0.1:4983';

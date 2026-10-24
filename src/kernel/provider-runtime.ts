@@ -22,7 +22,7 @@ import {
   type ModelBinding,
   protocolOf,
 } from './protocols/binding.ts';
-import { resolveProviderLimits } from './protocols/limits.ts';
+import { providerLimitsSchema } from './protocols/limits.ts';
 import {
   carriesTo,
   type DecisionCall,
@@ -260,7 +260,7 @@ export function guardedCall(
     timeoutMs?: number;
   },
 ): GuardedCall {
-  const limits = resolveProviderLimits(host.limits);
+  const limits = Object.freeze(providerLimitsSchema.parse({ ...binding.limits, ...host.limits }));
   const budget = new ProviderBudget(
     limits,
     req.signal,

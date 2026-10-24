@@ -129,6 +129,7 @@ Use a binding to select a protocol, a registered provider, and an upstream model
 | Shared settings | Output tokens, temperature, effort aliases, and selection, summaries, builtins, and compaction |
 | `keySlot`, `fallbackKeySlot` | Optional overrides of the registration's credential slots |
 | `options` | JSON object, parsed by the protocol's options schema; defaults to an empty object |
+| `limits` | Optional points at which Theorem stops the model's calls (see [Operating budgets](#operating-budgets)). Each one left out is no limit |
 | Decision timeout | Decision bindings add `timeoutMs` |
 
 `modelBindingSchema` is strict. It checks shared data. The protocol's options schema checks `options`.
@@ -164,7 +165,7 @@ Its `body` adds to each request. Its `read` sees each reply row before the base.
 `carriesTo` reports whether reasoning that one protocol wrote may go back to another protocol in its lineage.
 `modelOptions(protocol, apiId, options)` parses a model's options by the protocol's schema, less any option that model refuses, and throws a `config` error naming what does not fit. A binding is checked with it when it is registered, and a protocol may call it in its own operations.
 
-`ProtocolContext` supplies the profile type, model ID, parsed options, built-in tool IDs, resolved limits, and abort signal.
+`ProtocolContext` supplies the profile type, model ID, parsed options, built-in tool IDs, merged limits, and abort signal.
 `send` posts to the endpoint of the profile type and yields reply rows. `connect` opens the WebSocket and sends the first frame.
 `tapUpstream` records a row for tracing. The context never holds a key, a key slot, or a base URL.
 
@@ -455,6 +456,7 @@ These implementations share the `embed` operation and normalized result contract
 Use `geminiProvider` with the `geminiLive` protocol for native WebSocket sessions.
 The protocol encodes Gemini frames. The kernel sends normalized input and approved tool results through the public session.
 Live sends the key in the URL query, so a browser runtime can open the socket.
+The session's setup waits for `connectTimeoutMs` when it is set. With no limit, it waits until the socket closes or the call is aborted.
 
 | Data | Treatment |
 | --- | --- |
@@ -544,6 +546,7 @@ Successful turn completion returns `providerState`. Live `provider_checkpoint` e
 Interface helpers retain checkpoints separately from displayed history. A branch discards native state.
 
 Protocol, provider, model, version, connection, key slot, or covered-history changes cause a mismatch.
+A change to the binding's `limits` keeps the checkpoint, because limits do not change what the state means.
 The kernel rebuilds from portable history and emits `provider_warning` with `provider_state_rebuilt` and the reason.
 A key fallback starts without saved state. A request with a checkpoint and no history then fails, because the turn needs the conversation.
 Set `providerContinuation.history` to `provider` when the provider's stored conversation is the only history: pass `providerState` alone, and a request that also carries history is a mismatch.
@@ -571,7 +574,7 @@ The root also exports the default-scope registry functions, the binding schemas,
 | Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket` |
 | Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderContinuationPolicy` |
 | Provider limits | `ProviderLimits` |
-| Root only | `registerProvider`, `getProvider`, `listProviders`, `listProtocols`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `keySlotSchema`, `checkBinding`, `keySlotsOf`, `RuntimeAbilities`, `providerLimitsSchema`, `resolveProviderLimits`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `ProviderStateRebuilt`, `callProtocol`, `ProtocolCall`, `CallSetup`, `plainWebSocket` |
+| Root only | `registerProvider`, `getProvider`, `listProviders`, `listProtocols`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `keySlotSchema`, `checkBinding`, `keySlotsOf`, `RuntimeAbilities`, `providerLimitsSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `ProviderStateRebuilt`, `callProtocol`, `ProtocolCall`, `CallSetup`, `plainWebSocket` |
 
 ```theorem-evidence
 {
@@ -762,22 +765,26 @@ The root also exports the default-scope registry functions, the binding schemas,
 
 ## Operating budgets
 
-Use host limits to bound setup, credentials, retries, and upstream output. Profiles contain none of these limits.
-`ProviderHostOptions.limits` accepts positive safe-integer overrides. Timer limits must fit the runtime timer range.
-`resolveProviderLimits` merges defaults and validates the result with `providerLimitsSchema`.
-The protocol receives resolved limits through `ProtocolContext.limits`.
+Set limits when a model call must stop at a point that you choose, not at the provider's own limit.
+Theorem sets no limit of its own. Each limit that is left out is no limit, so the provider's own limits apply.
 
-| Budget | Default |
+A model in a profile sets its limits in `models.*.limits`. The host options of `runTurn`, `runSession`, `runDecision` and `runEmbedding` take `limits` too (`ProviderHostOptions.limits`). Each field that the host sets overrides the model's.
+Each limit is a positive safe integer. A timer must also fit the runtime timer range. `providerLimitsSchema` checks the merged result.
+The protocol receives the merged limits through `ProtocolContext.limits`.
+
+| Field | What it stops |
 | --- | --- |
-| Operation deadline | 120 seconds |
-| Live connection deadline | 30 seconds |
-| Active live response deadline | 120 seconds |
-| Wire record and normalized event | 16 MiB each |
-| Decompressed HTTP response and aggregate HTTP attempts | 64 MiB each |
-| Normalized response cycle | 64 MiB and 100,000 events |
-| Pending client tool calls | 32 |
+| `operationTimeoutMs` | One call, with its retries and its credential resolution |
+| `connectTimeoutMs` | The opening of a live session |
+| `liveStepTimeoutMs` | A live session that waits for the model to answer |
+| `maxWireRecordBytes` | One SSE record or one WebSocket message |
+| `maxWireResponseBytes` | The decompressed bytes of one HTTP response, and of all the attempts of one step |
+| `maxEventBytes` | One normalized event |
+| `maxStepBytes` | All the normalized events of one step |
+| `maxStepEvents` | The number of normalized events in one step |
+| `maxPendingToolCalls` | The tool calls of one step that have no result yet |
 
-The operation deadline includes creation and credential resolution. Retries retain the original deadline and consumption budget.
+Retries keep the original deadline and byte counts.
 Theorem sends a request again when it fails with a network error or a 408, 429, 500, 502, 503, 504 or 529 status, while the waits between tries stay within five seconds in all, and at most four times.
 A network error is any send that got no response and was not aborted or timed out. Its message is never read.
 Each wait is the response's `Retry-After` when it gives one. Otherwise it is 1, 2, 4, then 8 seconds. A wait that would pass the five seconds is not taken, and the last answer goes back as it came.

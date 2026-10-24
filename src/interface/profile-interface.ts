@@ -44,6 +44,19 @@ const modelBinding = z.object({
       meter: z.enum(COMPACTION_METERS).optional(),
     })
     .optional(),
+  limits: z
+    .object({
+      operationTimeoutMs: z.number().optional(),
+      connectTimeoutMs: z.number().optional(),
+      liveStepTimeoutMs: z.number().optional(),
+      maxWireRecordBytes: z.number().optional(),
+      maxWireResponseBytes: z.number().optional(),
+      maxEventBytes: z.number().optional(),
+      maxStepBytes: z.number().optional(),
+      maxStepEvents: z.number().optional(),
+      maxPendingToolCalls: z.number().optional(),
+    })
+    .optional(),
 });
 
 const outputs = z.object({

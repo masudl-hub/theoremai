@@ -56,12 +56,12 @@ export type {
   AdvisoryLevel,
   BlockedReplyOnBlock,
   BlockedReplySpec,
-  DecisionDisclosureEnforcer,
-  DecisionDisclosureVerdict,
-  DecisionGuardrailsSpec,
   CanaryGateResult,
   CanaryGateSession,
   CanaryStreamGate,
+  DecisionDisclosureEnforcer,
+  DecisionDisclosureVerdict,
+  DecisionGuardrailsSpec,
   DestinationGate,
   DestinationVerdict,
   Directive,
@@ -270,7 +270,7 @@ export {
   keySlotsOf,
   modelBindingSchema,
 } from './src/kernel/protocols/binding.ts';
-export { providerLimitsSchema, resolveProviderLimits } from './src/kernel/protocols/limits.ts';
+export { providerLimitsSchema } from './src/kernel/protocols/limits.ts';
 export type { CallSetup, ProtocolCall } from './src/kernel/protocols/runtime.ts';
 export { callProtocol, plainWebSocket } from './src/kernel/protocols/runtime.ts';
 export type { AttachmentFacts, AttachmentRules } from './src/kernel/registry/attachments.ts';

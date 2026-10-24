@@ -292,9 +292,9 @@ The checks fail closed: a payload that cannot be scanned counts as a block. The 
 
 ## Providers
 
-Host options can set finite `limits` for provider setup, credentials, transport, and normalized output.
-Defaults bound each operation to 120 seconds and each live connection opening to 30 seconds.
-Retries share the deadline and byte budget. Limits do not enter the profile.
+A profile's model can set `limits`: the points at which Theorem stops its calls, such as a deadline or a byte cap.
+The `limits` that you pass to `runTurn` override them, one field at a time.
+Theorem sets none of its own, so a limit that nobody sets is the provider's own. Retries share the deadline and byte budget.
 
 A model call uses a **protocol**, a **provider** and a **binding**.
 The protocol is the code for one API shape. The provider is data: an address, the protocols that it serves, and a sign-in.
@@ -464,7 +464,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |
 | Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket`, `plainWebSocket` |
 | Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderStateRebuilt`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
-| Provider limits | `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
+| Provider limits | `ProviderLimits`, `providerLimitsSchema` |
 | Re-exported whole | Everything that `@theoremjs/agents/providers` and `@theoremjs/agents/presets` export. Their contracts list each name. |
 
 </details>

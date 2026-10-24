@@ -723,6 +723,37 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'How long a decision waits for its provider, in milliseconds. Omit for no timeout.',
   ),
+  'models.*.limits': field(
+    'ProviderLimits',
+    "The points at which Theorem stops this model's calls. Each one left out is no limit, so the provider's own limits apply. A runTurn limits value overrides each field it sets.",
+  ),
+  'models.*.limits.operationTimeoutMs': field(
+    'number',
+    'How long one call may take, in milliseconds, retries included.',
+  ),
+  'models.*.limits.connectTimeoutMs': field(
+    'number',
+    'How long a live session may take to open, in milliseconds.',
+  ),
+  'models.*.limits.liveStepTimeoutMs': field(
+    'number',
+    'How long a live session may wait for the model to answer, in milliseconds.',
+  ),
+  'models.*.limits.maxWireRecordBytes': field(
+    'number',
+    'The most bytes in one record the provider sends: a stream event or a socket message.',
+  ),
+  'models.*.limits.maxWireResponseBytes': field(
+    'number',
+    'The most bytes the provider sends for one step.',
+  ),
+  'models.*.limits.maxEventBytes': field('number', 'The most bytes in one event of a step.'),
+  'models.*.limits.maxStepBytes': field('number', 'The most bytes in all the events of one step.'),
+  'models.*.limits.maxStepEvents': field('number', 'The most events in one step.'),
+  'models.*.limits.maxPendingToolCalls': field(
+    'number',
+    'The most tool calls one step may ask for.',
+  ),
   decision: field(
     '{ contract: DecisionContractId }',
     'Names the host decision this profile makes.',

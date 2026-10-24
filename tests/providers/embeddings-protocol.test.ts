@@ -1,6 +1,5 @@
 import { assertEquals, assertRejects } from '@std/assert';
 import type { JsonObject } from '../../src/kernel/json.ts';
-import { resolveProviderLimits } from '../../src/kernel/protocols/limits.ts';
 import type { ProtocolContext } from '../../src/kernel/protocols/protocol.ts';
 import { bytesToBase64 } from '../../src/kernel/util/base64.ts';
 import { geminiEmbeddings } from '../../src/providers/gemini/embeddings-protocol.ts';
@@ -16,7 +15,7 @@ function context<O>(
     apiId,
     options: {} as O,
     builtInTools: [],
-    limits: resolveProviderLimits({}),
+    limits: {},
     send(body, init) {
       return (async function* () {
         yield send(body, init.path);

@@ -46,16 +46,18 @@ function socketTrouble(frame: JsonObject, during: 'setup' | 'session'): TheoremE
 /** Waits for `setupComplete`; a refusal here comes before any event, so the kernel can try the other key. */
 async function setupComplete(frames: Frames, context: ProtocolContext): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = context.limits.connectTimeoutMs;
   const late = new Promise<never>((_, reject) => {
+    if (limit === undefined) return;
     timer = setTimeout(
       () =>
         reject(
           new TheoremError(
             'timeout',
-            `Gemini Live setup timed out after ${context.limits.connectTimeoutMs}ms`, // labels-exempt: developer diagnostic
+            `Gemini Live setup timed out after ${limit}ms`, // labels-exempt: developer diagnostic
           ),
         ),
-      context.limits.connectTimeoutMs,
+      limit,
     );
   });
   try {

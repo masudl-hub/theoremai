@@ -101,7 +101,7 @@ export {
   modelBindingSchema,
 } from './protocols/binding.ts';
 export type { ProviderLimits } from './protocols/limits.ts';
-export { providerLimitsSchema, resolveProviderLimits } from './protocols/limits.ts';
+export { providerLimitsSchema } from './protocols/limits.ts';
 export type { EstimatedCost, ModelPrice, PriceTable, Rates } from './protocols/prices.ts';
 export { costFromPrices } from './protocols/prices.ts';
 export type {

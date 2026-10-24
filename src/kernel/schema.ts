@@ -1490,6 +1490,13 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'Its handler',
   },
+  'registerTool.maxResponseBytes': {
+    ...field(
+      'number',
+      'The most bytes of a response body an HTTP or MCP tool reads; past it the call fails with response_too_large.',
+    ),
+    unset: 'No limit',
+  },
   'registerTool.maxCallsPerTurn': {
     ...field('number', 'How many times one turn of the calling agent may run this tool.'),
     unset: 'As many as its steps allow',

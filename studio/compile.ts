@@ -59,6 +59,7 @@ import {
   type ProfileLiveSpec,
   type ProfileOutputsSpec,
   type ProfileSpeechSpec,
+  type ProviderLimits,
   type SystemPrompt,
   systemPromptProblem,
 } from '@theoremjs/agents/kernel';
@@ -98,6 +99,8 @@ import {
   draftAllows,
   draftFacets,
   INLINE_LABELS,
+  MODEL_LIMITS,
+  TIMER_MAX_MS,
   takesContinueInstruction,
 } from './draft.ts';
 import type { LentKeys, StudioRunsOn } from './lent-keys.ts';
@@ -345,6 +348,7 @@ function compileBinding(
   }
   checkOptions(binding, providers, type, nodeId, report);
   const compaction = compileCompaction(binding, type, nodeId, report, agentIdOf);
+  const limits = compileLimits(binding, nodeId, report);
 
   return {
     protocol: binding.protocol,
@@ -360,8 +364,27 @@ function compileBinding(
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
     ...(Object.keys(binding.options).length ? { options: binding.options } : {}),
+    ...(limits ? { limits } : {}),
     ...(compaction ? { compaction } : {}),
   };
+}
+
+function compileLimits(
+  binding: ModelBindingDraft,
+  nodeId: string,
+  report: Report,
+): ProviderLimits | undefined {
+  const limits: ProviderLimits = {};
+  for (const { name, label, isTimer } of MODEL_LIMITS) {
+    const value = binding.limits?.[name] ?? null;
+    if (value === null) continue;
+    checkWhole(report, nodeId, `limits.${name}`, label, value, 1);
+    if (isTimer && value > TIMER_MAX_MS) {
+      report(nodeId, `${label} must be at most ${TIMER_MAX_MS} ms.`, `limits.${name}`);
+    }
+    limits[name] = value;
+  }
+  return Object.keys(limits).length ? limits : undefined;
 }
 
 /**
@@ -762,7 +785,15 @@ function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const inUrl = credentialUrlProblem(tool[field]?.trim());
   if (inUrl) fail(inUrl, field);
   const auth = compileAuth(tool, fail);
-  return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
+  const maxResponseBytes = tool.maxResponseBytes ?? null;
+  if (maxResponseBytes !== null && !(Number.isInteger(maxResponseBytes) && maxResponseBytes >= 1)) {
+    fail('Max response must be a positive whole number.', 'maxResponseBytes');
+  }
+  return {
+    ...(headers ? { headers } : {}),
+    ...(auth ? { auth } : {}),
+    ...(maxResponseBytes !== null ? { maxResponseBytes } : {}),
+  };
 }
 
 function checkUrl(
@@ -1999,6 +2030,7 @@ function compileDecision(
     }
     checkWhole(report, nodeId, 'timeoutMs', 'Timeout', binding.timeoutMs, 1);
   }
+  const limits = binding ? compileLimits(binding, nodeId, report) : undefined;
   checkWhole(report, 'decision', 'maxStateBytes', 'Max state', decision.maxStateBytes, 1);
   const questions = compileQuestions(decision, report);
   const images = compileDecisionImages(decision, report);
@@ -2019,6 +2051,7 @@ function compileDecision(
               : {}),
             ...(binding.fallbackKeySlot ? { fallbackKeySlot: binding.fallbackKeySlot } : {}),
             ...(binding.timeoutMs !== null ? { timeoutMs: binding.timeoutMs } : {}),
+            ...(limits ? { limits } : {}),
           },
         }
       : {},

@@ -49,6 +49,8 @@ export type StudioToolSpecSeed = {
   bodyParam?: string;
   serverUrl?: string;
   mcpToolName?: string;
+  /** An HTTP or MCP tool's most response bytes read; `null` or absent: no limit. */
+  maxResponseBytes?: number | null;
   /** An agent tool's agent, by its workspace key. */
   agentKey?: string;
   /** An agent tool's calls in one turn of its caller; `null` or absent: no cap but max steps. */

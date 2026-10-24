@@ -194,6 +194,7 @@ import {
   type LentKeys,
   LOCAL_PROVIDER_ID,
   lentCompression,
+  MODEL_LIMITS,
   type ModelBindingDraft,
   modelBindingNodeId,
   modelRoute,
@@ -232,6 +233,7 @@ import {
   studioNodeRef,
   studioRunsProvider,
   studioTaintNote,
+  TIMER_MAX_MS,
   type ToolSpecDraft,
   takesContinueInstruction,
   toolSpecNodeId,
@@ -765,6 +767,29 @@ function DecisionModelEditor({
           set({ timeoutMs });
         }}
       />
+    </InspectorSection>
+  );
+}
+
+function LimitsSection({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
+  return (
+    <InspectorSection title="Limits" path="models.*.limits">
+      {MODEL_LIMITS.map(({ name, label, units, isTimer }) => (
+        <NumberRow
+          key={name}
+          label={label}
+          path={`models.*.limits.${name}`}
+          units={units}
+          field={`limits.${name}`}
+          value={binding.limits?.[name] ?? null}
+          min={1}
+          max={isTimer ? TIMER_MAX_MS : undefined}
+          isIntegerOnly
+          onChange={(value) => {
+            set({ limits: { ...binding.limits, [name]: value } });
+          }}
+        />
+      ))}
     </InspectorSection>
   );
 }
@@ -1607,6 +1632,7 @@ function ModelBindingEditor({
       <ModelSection draft={draft} binding={binding} type={type} set={set} />
       {type !== 'embedding' && <GenerationSection binding={binding} set={set} />}
       <ProtocolOptionsSection providers={draft.providers} binding={binding} type={type} set={set} />
+      <LimitsSection binding={binding} set={set} />
       {type === 'text' && <CompactionSection binding={binding} set={set} />}
       {type !== 'embedding' && <EffortsSection binding={binding} set={set} />}
       {/* A profile runs on at least one model, so the last one stays. */}
@@ -5506,6 +5532,18 @@ function HttpRequestSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
         }}
       />
       <HeadersRow tool={tool} set={set} />
+      <NumberRow
+        label="Max response"
+        path="registerTool.maxResponseBytes"
+        units="bytes"
+        field="maxResponseBytes"
+        value={tool.maxResponseBytes ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(maxResponseBytes) => {
+          set({ maxResponseBytes });
+        }}
+      />
     </InspectorSection>
   );
 }
@@ -5615,6 +5653,18 @@ function McpServerSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) 
         }}
       />
       <HeadersRow tool={tool} set={set} />
+      <NumberRow
+        label="Max response"
+        path="registerTool.maxResponseBytes"
+        units="bytes"
+        field="maxResponseBytes"
+        value={tool.maxResponseBytes ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(maxResponseBytes) => {
+          set({ maxResponseBytes });
+        }}
+      />
     </InspectorSection>
   );
 }

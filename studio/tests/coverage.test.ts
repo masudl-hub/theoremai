@@ -25,7 +25,6 @@ const NOT_IN_STUDIO: Record<string, string> = {
   'guardrails.detect.*.find': 'A function that reads the text, written in code.',
   'observability.onWriteError': 'An error handler, written in code.',
   'models.*.compaction.trigger': 'A function that decides when to compact, written in code.',
-  'models.*.limits': 'Set in code for now: the studio has no editor for limits yet.',
 };
 
 // The editor's rows live in the package's screen files.

@@ -1,4 +1,5 @@
 # Scores every row with one classifier: the max positive-class probability over 512-token windows. Also writes each window's probability (prob) and row (owner).
+# W: window tokens (default 512). A positive index of -1 is a multi-label head: sigmoid of logit 0, its attack presence.
 # KEEP and MINC: tokens seen fewer than MINC times in the KEEP counts file become unk, as in the cut vocabulary.
 # Usage: score.py <model> <rows.jsonl> <out.json>
 import json, sys, time, os, torch
@@ -15,7 +16,11 @@ MODELS = {
   'pg2-86m': (snap('meta-llama--Llama-Prompt-Guard-2-86M'), 1), 'protectai-v2': (snap('protectai--deberta-v3-base-prompt-injection-v2'), 1),
   'deepset': (snap('deepset--deberta-v3-base-injection'), 1), 'ts-large': (snap('testsavantai--prompt-injection-defender-large-v0'), 1),
   'ts-base': (snap('testsavantai--prompt-injection-defender-base-v0'), 1),
+  'hz-large': (f'{M}/Horizon-Labs__prompt-injection-guard-large', 1),
+  'wolf-small': (f'{M}/patronus-studio__wolf-defender-prompt-injection-small', 1), 'wolf-base': (f'{M}/patronus-studio__wolf-defender-prompt-injection', 1),
+  'sheltron-68m': (f'{M}/sheltron-ai__prompt-guard-68m', -1),
 }
+MPS = ('hz-', 'wolf-', 'sheltron-')
 class PIG(torch.nn.Module):
     def __init__(self, d):
         super().__init__(); cfg = DebertaV2Config.from_dict({**json.load(open(f'{d}/config.json')), 'model_type': 'deberta-v2'})
@@ -30,13 +35,13 @@ def load(name):
     with torch.no_grad():
         for t in list(m.parameters()) + list(m.buffers()): t.data = t.data.clone()  # off the drive's memory map
     return tok, m.eval(), f, pos
-def windows(tok, text, W=512, overlap=64):
+def windows(tok, text, W=int(os.environ.get('W', '512')), overlap=64):
     ids = tok(text, add_special_tokens=False, truncation=False)['input_ids']; n = W - 2; step = n - overlap
     if KEEP is not None: ids = [i if i in KEEP else tok.unk_token_id for i in ids]
     parts = [ids[i:i + n] for i in range(0, max(len(ids) - overlap, 1), step)] or [[]]
     return [[tok.cls_token_id] + p + [tok.sep_token_id] for p in parts], len(ids)
 if __name__ == '__main__':
-    name, src, out = sys.argv[1:4]; dev = 'mps' if torch.backends.mps.is_available() and name.startswith('hz-') else 'cpu'  # DeBERTa runs faster on CPU
+    name, src, out = sys.argv[1:4]; dev = 'mps' if torch.backends.mps.is_available() and name.startswith(MPS) else 'cpu'  # DeBERTa runs faster on CPU
     tok, m, f, pos = load(name); m.to(dev); rows = [json.loads(l) for l in open(src)]
     allw, owner, ntok = [], [], []
     for i, r in enumerate(rows):
@@ -48,7 +53,7 @@ if __name__ == '__main__':
             ks = order[s:s + B]; L = max(len(allw[k]) for k in ks)
             ids = torch.tensor([allw[k] + [pad] * (L - len(allw[k])) for k in ks], device=dev)
             am = torch.tensor([[1] * len(allw[k]) + [0] * (L - len(allw[k])) for k in ks], device=dev)
-            p = torch.softmax(f(ids, am).float(), -1)[:, pos].tolist()
+            lg = f(ids, am).float(); p = (torch.sigmoid(lg[:, 0]) if pos < 0 else torch.softmax(lg, -1)[:, pos]).tolist()
             for k, v in zip(ks, p): prob[k] = v
     score = [0.0] * len(rows)
     for k, i in enumerate(owner): score[i] = max(score[i], prob[k])

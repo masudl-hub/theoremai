@@ -47,7 +47,7 @@ const OUT = `${DATA}/research/${RUN}`;
 const MAX_STEPS = Number(flag('--steps') ?? 15);
 const MAX_CANDIDATES = 20;
 /** Characters kept from one page; three pages a read and fifteen steps must fit the model's context. */
-const PAGE_CHARS = 20_000;
+const PAGE_CHARS = 8_000;
 
 loadHostEnv();
 const vault = hostVault();
@@ -112,7 +112,7 @@ const TOOLS = [
   mcp('search_web', 'Search the live web (Exa). Returns each result with its highlights.', EXA, 'web_search_exa', z.object({ query: z.string().min(1), numResults: z.number().int().max(10).default(6) })),
   mcp('read_pages', 'Read up to three web pages by URL (Exa). Pass the question you read them for.', EXA, 'web_fetch_exa', z.object({ urls: z.array(z.string().url()).min(1).max(3), maxCharacters: z.number().int().max(PAGE_CHARS).default(PAGE_CHARS), question })),
   http('search_papers', 'Search the Firecrawl Research Index of papers (arXiv and more) by meaning. from/to are YYYY-MM-DD; categories like cs.CR,cs.CL.', FIRECRAWL, z.object({ query: z.string().min(1), k: z.number().int().max(20).default(10), from: z.string().optional(), to: z.string().optional(), categories: z.string().optional() }), { queryParams: ['query', 'k', 'from', 'to', 'categories'] }, firecrawlHeaders),
-  http('read_paper', "A paper's abstract and the passages that best answer query. id is like arxiv:2610.28988.", `${FIRECRAWL}/{id}`, z.object({ id: z.string().min(1), query: question, k: z.number().int().max(12).default(8) }), { pathParams: ['id'], queryParams: ['query', 'k'] }, firecrawlHeaders),
+  http('read_paper', "A paper's abstract and the passages that best answer query. id is like arxiv:2610.28988.", `${FIRECRAWL}/{id}`, z.object({ id: z.string().min(1), query: question, k: z.number().int().max(12).default(4) }), { pathParams: ['id'], queryParams: ['query', 'k'] }, firecrawlHeaders),
   http('related_papers', 'Papers like one paper (similar), the papers that cite it (citers), or the papers it cites (references).', `${FIRECRAWL}/{id}/similar`, z.object({ id: z.string().min(1), mode: z.enum(['similar', 'citers', 'references']), intent: z.string().min(1).describe('What the related papers should be about.'), k: z.number().int().max(20).default(10) }), { pathParams: ['id'], queryParams: ['mode', 'intent', 'k'] }, firecrawlHeaders),
   http('list_arxiv', 'The newest arXiv submissions for an arXiv query (e.g. all:"prompt injection" AND all:detector), newest first: papers too new for the index.', 'https://export.arxiv.org/api/query', z.object({ search_query: z.string().min(1), sortBy: z.literal('submittedDate').default('submittedDate'), sortOrder: z.literal('descending').default('descending'), max_results: z.number().int().max(25).default(15) }), { queryParams: ['search_query', 'sortBy', 'sortOrder', 'max_results'] }),
   http('search_models', 'Search Hugging Face models, most recently changed first.', 'https://huggingface.co/api/models', z.object({ search: z.string().min(1), sort: z.literal('lastModified').default('lastModified'), direction: z.literal('-1').default('-1'), limit: z.number().int().max(30).default(20) }), { queryParams: ['search', 'sort', 'direction', 'limit'] }),
@@ -452,7 +452,7 @@ const started = performance.now();
 
 for await (const event of runTurn(
   { profile: 'research.scout', input: { text: brief }, onStage, signal: AbortSignal.timeout(30 * 60_000) },
-  { vault },
+  { vault, limits: { operationTimeoutMs: 10 * 60_000 } },
 )) {
   await events.write(encoder.encode(`${JSON.stringify(event)}\n`));
   if (event.type === 'structured') {

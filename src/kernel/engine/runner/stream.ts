@@ -134,7 +134,7 @@ function isWithheldOnBlock(event: ModelEvent): boolean {
   return event.type === 'text' || event.type === 'media';
 }
 
-type ShownGeneration = Pick<ResolvedGeneration, 'structured' | 'stream' | 'tools'>;
+export type ShownGeneration = Pick<ResolvedGeneration, 'structured' | 'stream' | 'tools'>;
 
 /**
  * An event as the host gets it, or nothing. On a turn that answers through a response format, the

@@ -643,9 +643,6 @@ async function* executeSingleAttemptCycle(args: {
   provider: TurnModel;
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
   const { flow, state, profile, system, provider } = args;
-  const validation = profileTurnOutputs(profile)?.validation;
-  const policy = resolveGuardrailPolicy(profile.guardrails);
-  const judged = replyIsJudged(policy, TURN_REPLY);
 
   // invariant: Fresh maxSteps budget per validation/egress attempt. before_end inject
   // re-entry inside this cycle still accumulates stepCount (do not reset there).
@@ -715,6 +712,21 @@ async function* executeSingleAttemptCycle(args: {
     break;
   }
 
+  return yield* checkAttemptReply(flow, state, profile, system, latestStructured);
+}
+
+/** The checks on an attempt's finished reply: the egress judge, the answer, then validation. */
+async function* checkAttemptReply(
+  flow: AttemptFlowState,
+  state: StepExecutionState,
+  profile: Profile,
+  system: BoundSystem,
+  structured: unknown,
+): AsyncGenerator<TurnEvent, AttemptStepAction> {
+  const validation = profileTurnOutputs(profile)?.validation;
+  const policy = resolveGuardrailPolicy(profile.guardrails);
+  const judged = replyIsJudged(policy, TURN_REPLY);
+  let latestStructured = structured;
   if (judged) {
     const status = yield* handleEgressGate(policy, flow, state, profile, system.private);
     const action = gateStatusToAction(status);

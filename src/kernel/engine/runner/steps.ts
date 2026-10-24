@@ -217,17 +217,49 @@ function tallyCallEvent(
 }
 
 /**
- * The structured output the call gave through the answer tool, with the answer tool's calls taken
- * out of the step's calls. An answer ends the turn, so the step's other calls do not run.
+ * The structured output the call gave through the answer tool, shown as the step's, with the answer
+ * tool's calls taken out of the step's calls. An answer ends the turn, so the step's other calls do
+ * not run, and the call that gave it completed.
  */
-function takeAnswer(
+async function* showAnswer(
+  shown: StructuredDrafts,
   tally: CallTally,
-  generation: ResolvedGeneration,
-): TurnEventOf<'structured'> | undefined {
-  if (!answersByTool(generation)) return undefined;
+  step: {
+    generation: ResolvedGeneration;
+    state: StepExecutionState;
+    control: OutboundStreamControl;
+    buffer: { holdLate: boolean; holdVisible: boolean };
+    call: ReturnType<typeof startProviderCall>['call'];
+  },
+): AsyncGenerator<TurnEvent> {
+  if (!answersByTool(step.generation)) return;
   const answer = tally.calls.find((call) => call.name === ANSWER_TOOL && !call.failure);
   tally.calls = answer ? [] : tally.calls.filter((call) => call.name !== ANSWER_TOOL);
-  return answer && { type: 'structured', structured: answer.arguments };
+  if (!answer) return;
+  if (tally.stop?.kind === 'tool') {
+    tally.stop = { kind: 'completed' };
+    step.state.lastStop = tally.stop;
+  }
+  const event: TurnEventOf<'structured'> = { type: 'structured', structured: answer.arguments };
+  if (tallyCallEvent(event, tally, step.call)) return;
+  if (releasesNow(event, step.control, step.state, step.buffer)) yield* shown.show(event);
+}
+
+/**
+ * A tool call's preview. The answer tool's streams as the structured reply's draft.
+ *
+ * why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
+ * as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
+ */
+async function* showToolDraft(
+  event: TurnEventOf<'tool_draft'>,
+  shown: StructuredDrafts,
+  generation: ResolvedGeneration,
+  buffer: { holdVisible: boolean },
+): AsyncGenerator<TurnEvent> {
+  if (buffer.holdVisible) return;
+  if (event.name === ANSWER_TOOL && answersByTool(generation)) yield* shown.draft(event.text);
+  else yield event;
 }
 
 /** What sets one model call's text apart from the reply text before it: a blank line. */
@@ -380,11 +412,7 @@ async function* executeAutonomousStep(
         continue;
       }
       if (event.type === 'tool_draft') {
-        // why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
-        // as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
-        if (buffer.holdVisible) continue;
-        if (event.name === ANSWER_TOOL && answersByTool(generation)) yield* shown.draft(event.text);
-        else yield event;
+        yield* showToolDraft(event, shown, generation, buffer);
         continue;
       }
       // why: The model's history keeps what it wrote; only the reply the host gets is set apart.
@@ -401,18 +429,7 @@ async function* executeAutonomousStep(
   }
 
   yield* shown.end();
-  const answer = takeAnswer(tally, generation);
-  if (answer && tally.stop?.kind === 'tool') {
-    tally.stop = { kind: 'completed' };
-    state.lastStop = tally.stop;
-  }
-  if (
-    answer &&
-    !tallyCallEvent(answer, tally, call) &&
-    releasesNow(answer, control, state, buffer)
-  ) {
-    yield* shown.show(answer);
-  }
+  yield* showAnswer(shown, tally, { generation, state, control, buffer, call });
   keepStreamCarry(state, control);
   const resume = resumeOf(args.mayResume, profile, tally);
   if (!resume) {

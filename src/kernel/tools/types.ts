@@ -212,12 +212,26 @@ export interface ToolOutputHooks<TOut = unknown> {
 /** For a tool whose result names pictures by address; function tools return the bytes themselves as `parts`. */
 export interface ToolImageHooks<TOut = unknown> {
   /**
-   * The https addresses of pictures in `output` the model should see, at most `MAX_TOOL_IMAGES`
-   * of them. After the result passes the output guard, the kernel fetches each one through the
-   * profile's network policy, without the tool's credentials, and hands the model the image as a
-   * part; one it cannot fetch is an `images_unfetched` warning, never a failed call.
+   * The https addresses of pictures in `output` the model should see. After the result passes the
+   * output guard, the kernel fetches each one through the profile's network policy, without the
+   * tool's credentials, and hands the model the image as a part; one it cannot fetch is an
+   * `images_unfetched` warning, never a failed call.
    */
   images?: (output: TOut) => string[];
+  /** How many of those pictures the kernel fetches, how large, and how slowly. Left out, there is no limit. */
+  imageLimits?: ToolImageLimits;
+}
+
+/** Each limit left out is no limit. A picture past one is left out, not cut. */
+export interface ToolImageLimits {
+  /** The most pictures one call hands the model; the first ones named are kept. */
+  count?: number;
+  /** The largest picture fetched. */
+  bytes?: number;
+  /** The most one call hands the model in all. */
+  totalBytes?: number;
+  /** How long each picture may take. */
+  timeoutMs?: number;
 }
 
 export interface FunctionToolDef<TIn = unknown, TOut = unknown>
@@ -283,6 +297,8 @@ export interface HttpToolDef<TIn = unknown, TOut = unknown>
   };
   /** The service's own limit for one key; the kernel keeps this tool's requests within it. */
   limit?: HttpToolLimit;
+  /** The most of a response body the kernel reads; past it the call fails `response_too_large`. Left out, there is no limit. */
+  maxResponseBytes?: number;
   /**
    * How long the service may take to answer, its body read included. Past it the call
    * fails `timeout` and frees its place in the limit. Left out, a call waits as long as
@@ -309,6 +325,8 @@ export interface McpToolDef<TIn = unknown, TOut = unknown>
   mcpToolName: string;
   headers?: Record<string, string>;
   auth?: ToolAuthConfig;
+  /** The most of a response body the kernel reads; past it the call fails `response_too_large`. Left out, there is no limit. */
+  maxResponseBytes?: number;
 }
 
 /**

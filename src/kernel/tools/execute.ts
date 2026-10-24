@@ -1122,7 +1122,10 @@ async function* settleBodyOutcome(args: {
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
     sources: tool.sources,
     ...(tool.type !== 'function' && tool.images
-      ? { images: (output: unknown) => fetchToolImages(tool.images as never, output, ctx) }
+      ? {
+          images: (output: unknown) =>
+            fetchToolImages(tool.images as never, output, ctx, tool.imageLimits),
+        }
       : {}),
     labels: tool.labels,
     reproject: makeReproject(

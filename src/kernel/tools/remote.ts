@@ -623,15 +623,13 @@ function* thrownOutcome(
 
 const OMIT_CREDENTIAL = '[omitted - credential]';
 
-/** The most of a tool's response body the kernel reads; past it the call fails instead of exhausting the host's memory. */
-export const MAX_TOOL_RESPONSE_BYTES = 4 * 1024 * 1024;
 /** The most of an error or unparseable body quoted back in a failure message. */
 const MAX_QUOTED_BODY_CHARS = 2000;
 
-/** A body's text as it arrives, up to `maxBytes`; returns `false` when it runs past, with the rest left unread. */
+/** A body's text as it arrives, up to `maxBytes` when set; returns `false` when it runs past, with the rest left unread. */
 async function* cappedPieces(
   response: Response,
-  maxBytes: number,
+  maxBytes = Number.POSITIVE_INFINITY,
 ): AsyncGenerator<string, boolean> {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -661,10 +659,10 @@ async function* cappedPieces(
   return true;
 }
 
-/** A body, read up to `maxBytes`; `undefined` when it runs past, with the rest left unread. */
+/** A body, read up to `maxBytes` when set; `undefined` when it runs past, with the rest left unread. */
 async function readCappedText(
   response: Response,
-  maxBytes = MAX_TOOL_RESPONSE_BYTES,
+  maxBytes: number | undefined,
 ): Promise<string | undefined> {
   const pieces = cappedPieces(response, maxBytes);
   let text = '';
@@ -684,8 +682,9 @@ async function* readCappedTextShowing(
   response: Response,
   shown: HandlerEvents,
   secret: string | undefined,
+  maxBytes: number | undefined,
 ): AsyncGenerator<TurnEvent, string | undefined> {
-  const pieces = cappedPieces(response, MAX_TOOL_RESPONSE_BYTES);
+  const pieces = cappedPieces(response, maxBytes);
   const hold = secret ? secret.length - 1 : 0;
   let text = '';
   let pending = '';
@@ -711,12 +710,12 @@ function quotedBody(text: string): string {
   return text.length > MAX_QUOTED_BODY_CHARS ? `${text.slice(0, MAX_QUOTED_BODY_CHARS)}…` : text;
 }
 
-/** The failure for a body past MAX_TOOL_RESPONSE_BYTES. */
-function tooLargeFailure(host: string): ToolFailure {
+/** The failure for a body past the tool's `maxResponseBytes`. */
+function tooLargeFailure(host: string, maxBytes: number | undefined): ToolFailure {
   return {
     code: 'response_too_large',
     kind: 'bad_response',
-    message: `Response from ${host} is larger than ${MAX_TOOL_RESPONSE_BYTES} bytes`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    message: `Response from ${host} is larger than ${maxBytes} bytes`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   };
 }
 
@@ -842,9 +841,10 @@ async function* readHttpBody(
   response: Response,
   shown: HandlerEvents | undefined,
   secret: string | undefined,
+  maxBytes: number | undefined,
 ): AsyncGenerator<TurnEvent, string | undefined> {
-  if (!shown || !isDraftable(response)) return await readCappedText(response);
-  return yield* readCappedTextShowing(response, shown, secret);
+  if (!shown || !isDraftable(response)) return await readCappedText(response, maxBytes);
+  return yield* readCappedTextShowing(response, shown, secret, maxBytes);
 }
 
 async function* sendHttpRequest(
@@ -889,8 +889,10 @@ async function* sendHttpRequest(
       ),
     );
 
-    const text = yield* readHttpBody(response, shown, secret);
-    if (text === undefined) return failureOutcome(tooLargeFailure(targetUrl.hostname), false);
+    const text = yield* readHttpBody(response, shown, secret, tool.maxResponseBytes);
+    if (text === undefined) {
+      return failureOutcome(tooLargeFailure(targetUrl.hostname, tool.maxResponseBytes), false);
+    }
 
     if (!response.ok) {
       const refused = yield* refusedCredentialOutcome(
@@ -1060,6 +1062,7 @@ type McpTransport = {
   resolveHost?: ResolveHost;
   signal?: AbortSignal;
   onCheck?: (ms: number) => void;
+  maxResponseBytes?: number;
 };
 
 async function fetchMcpProtocolAttempt(
@@ -1102,9 +1105,10 @@ async function fetchMcpProtocolAttempt(
     },
   );
 
-  const text = await readCappedText(response);
+  const text = await readCappedText(response, transport.maxResponseBytes);
   if (text === undefined) {
-    return { kind: 'failure', failure: tooLargeFailure(new URL(transport.url).hostname) };
+    const host = new URL(transport.url).hostname;
+    return { kind: 'failure', failure: tooLargeFailure(host, transport.maxResponseBytes) };
   }
 
   if (!response.ok) {
@@ -1237,9 +1241,10 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
     },
     { 'Mcp-Method': 'initialize' },
   );
-  const text = await readCappedText(response);
+  const text = await readCappedText(response, transport.maxResponseBytes);
   if (text === undefined) {
-    throw new McpSessionFailure(tooLargeFailure(new URL(transport.url).hostname));
+    const host = new URL(transport.url).hostname;
+    throw new McpSessionFailure(tooLargeFailure(host, transport.maxResponseBytes));
   }
   if (!response.ok) {
     throw sessionFailure(
@@ -1536,6 +1541,7 @@ async function* sendMcpRequest(
       resolveHost: ctx.resolveHost,
       signal: ctx.signal,
       onCheck: checks.onCheck,
+      ...(tool.maxResponseBytes === undefined ? {} : { maxResponseBytes: tool.maxResponseBytes }),
     };
     const key = await mcpSessionKey(url.href, transport.originBoundHeaders);
     const cached = sessions.get(key);

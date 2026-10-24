@@ -719,12 +719,23 @@ omits `sources`.
 
 An HTTP or MCP tool whose result names pictures by address may declare
 `images: (output) => string[]`. Once a call succeeds and its result has passed the
-`tool_output` guard and the after-call stages, the kernel fetches up to
-`MAX_TOOL_IMAGES` (4) of the distinct https addresses, each within
-`IMAGE_FETCH_TIMEOUT_MS` (15 s), and adds each as an `image` part to the model's
-result beside any the server sent. A result the guard blocks or replaces fetches
-nothing and carries no pictures. Only png, jpeg, gif and webp up to
-`MAX_TOOL_IMAGE_BYTES` (5 MiB) each, and about 10 MiB in all per call, are taken.
+`tool_output` guard and the after-call stages, the kernel fetches the distinct https
+addresses and adds each as an `image` part to the model's result beside any the
+server sent. A result the guard blocks or replaces fetches nothing and carries no
+pictures. Only png, jpeg, gif and webp are taken.
+
+The tool may also declare `imageLimits`. Each limit left out is no limit:
+
+| Field | Limits |
+| --- | --- |
+| `count` | The pictures fetched; the first ones named are kept |
+| `bytes` | The size of each picture |
+| `totalBytes` | The size of all of a call's pictures, as the base64 the model reads |
+| `timeoutMs` | How long each picture may take |
+
+Registration refuses a count or size that is not a whole number above 0, and a
+timeout that is not a finite number of ms above 0. With no limits, every picture
+named goes to the model, so a large set can make a request that the provider refuses.
 An address that is not absolute https, blocked, slow, too big, not an image, or
 not answered, and a hook that throws, leave their pictures out and give the call
 one tool `warning` (`code: 'images_unfetched'`) naming each reason; the call still
@@ -1098,6 +1109,7 @@ HTTP and MCP tools, and function tools that declare `auth`, integrate with:
 - **Endpoint templates**: the scheme and host are fixed text; a placeholder there is refused at registration and at call time, so tool input never chooses where a credential goes.
 - **A service's limit**: an HTTP tool may declare `limit: { requests, windowMs }`, the most requests its service takes from one key in a window; registration refuses anything but a whole number of requests above 0 in a finite window above 0. Each call takes one place in the tool's window (its retries and redirects included) and holds it from send until a window after its answer, so requests the network delivers unevenly still land within the limit. A `429` with `Retry-After` holds every call of the tool until then. A call waits for a place at most the same five seconds a retry may; past that it sends nothing and fails `rate_limit_window` (kind `rate_limit`). The window belongs to the registered tool, so each scope's tool has its own.
 - **A service's timeout**: an HTTP tool may declare `timeoutMs`, how long its service may take to answer, its body read included; registration refuses anything but a finite number of ms above 0. It starts at send, so a wait for a place in the limit is not counted. Past it the call fails `timeout` (kind `timeout`) and its place frees as if answered. Left out, a call waits as long as the caller's signal lets it.
+- **A response's size**: an HTTP or MCP tool may declare `maxResponseBytes`, the most of a response body the kernel reads; registration refuses anything but a whole number above 0. Past it the kernel stops reading and the call fails `response_too_large` (kind `bad_response`). Left out, the kernel reads the whole body, however large, and holds it in memory.
 
 Catalog `conflictsWith` is an optional mutual exclusion on registered builtins: the kernel drops a builtin when a turn also carries one it conflicts with. The Google preset sets it on `googleMaps`, against `googleSearch` and `urlContext`.
 MIME classification (`MEDIA_INPUT_KINDS`, `ATTACHMENT_ACCEPT_MIMES`, …) lives in

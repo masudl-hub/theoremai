@@ -2,9 +2,13 @@ import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
-import { assertEquals, assertStringIncludes } from '../../src/kernel/engine/assert.ts';
+import {
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import { MAX_TOOL_IMAGES } from '../../src/kernel/tools/image-fetch.ts';
+import type { ToolImageLimits } from '../../src/kernel/tools/types.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { invokeRegisteredTool } from '../fixtures/test-tools.ts';
@@ -13,7 +17,12 @@ const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 const PNG_BASE64 = 'iVBORw0KGgo=';
 const API = 'https://api.example.com/shots';
 
-function registerShotTool(name: string, shots: string[], blockSecrets = false): void {
+function registerShotTool(
+  name: string,
+  shots: string[],
+  blockSecrets = false,
+  imageLimits?: ToolImageLimits,
+): void {
   registerTool({
     type: 'http',
     name,
@@ -31,6 +40,7 @@ function registerShotTool(name: string, shots: string[], blockSecrets = false): 
       note: z.string().optional(),
     }),
     images: (output) => output.shots,
+    ...(imageLimits ? { imageLimits } : {}),
   });
   registerProfile(
     defineProfile({
@@ -130,14 +140,46 @@ Deno.test('a picture that cannot be fetched is a warning, and the call still com
   assertEquals(toolEventsOf(events, 'error'), []);
 });
 
-Deno.test('only the first few pictures are fetched', async () => {
-  const urls = Array.from(
-    { length: MAX_TOOL_IMAGES + 3 },
-    (_, i) => `https://cdn.example.com/${i}.png`,
+const SEVEN = Array.from({ length: 7 }, (_, i) => `https://cdn.example.com/${i}.png`);
+
+Deno.test('with no image limits, every picture named is fetched', async () => {
+  registerShotTool('shot_all', SEVEN);
+  const events = await run('shot_all', Object.fromEntries(SEVEN.map((url) => [url, png()])));
+  assertEquals(toolEventsOf(events, 'complete')[0]?.parts?.length, 7);
+});
+
+Deno.test('imageLimits.count keeps the first pictures named', async () => {
+  registerShotTool('shot_many', SEVEN, false, { count: 4 });
+  const events = await run('shot_many', Object.fromEntries(SEVEN.map((url) => [url, png()])));
+  assertEquals(toolEventsOf(events, 'complete')[0]?.parts?.length, 4);
+});
+
+Deno.test('a picture past imageLimits.bytes is left out', async () => {
+  registerShotTool('shot_small', SEVEN.slice(0, 3), false, { bytes: PNG.length - 1 });
+  const events = await run('shot_small', Object.fromEntries(SEVEN.map((url) => [url, png()])));
+  assertEquals(toolEventsOf(events, 'complete')[0]?.parts ?? [], []);
+  assertStringIncludes(
+    toolEventsOf(events, 'warning')[0]?.warning.message ?? '',
+    `larger than ${PNG.length - 1} bytes`,
   );
-  registerShotTool('shot_many', urls);
-  const events = await run('shot_many', Object.fromEntries(urls.map((url) => [url, png()])));
-  assertEquals(toolEventsOf(events, 'complete')[0]?.parts?.length, MAX_TOOL_IMAGES);
+});
+
+Deno.test('pictures past imageLimits.totalBytes are left out', async () => {
+  registerShotTool('shot_total', SEVEN.slice(0, 3), false, { totalBytes: 2 * PNG_BASE64.length });
+  const events = await run('shot_total', Object.fromEntries(SEVEN.map((url) => [url, png()])));
+  assertEquals(toolEventsOf(events, 'complete')[0]?.parts?.length, 2);
+  assertStringIncludes(toolEventsOf(events, 'warning')[0]?.warning.message ?? '', 'byte total');
+});
+
+Deno.test('registration refuses image limits that are not whole numbers, or some time, above 0', () => {
+  for (const [limits, field] of [
+    [{ count: 0 }, 'imageLimits.count'],
+    [{ bytes: 1.5 }, 'imageLimits.bytes'],
+    [{ totalBytes: -1 }, 'imageLimits.totalBytes'],
+    [{ timeoutMs: 0 }, 'timeoutMs'],
+  ] as const) {
+    assertThrows(() => registerShotTool('shot_refused', [], false, limits), Error, field);
+  }
 });
 
 Deno.test('an address that is not https is a warning, not a failed call', async () => {

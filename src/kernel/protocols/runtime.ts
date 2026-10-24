@@ -1,4 +1,4 @@
-import { kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
+import { describeError, kindOfHttpStatus, TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import { retryTransient, type Wait, waitDefault } from '../../providers/shared/retry.ts';
 import { readSseChunks } from '../../providers/shared/sse.ts';
@@ -476,7 +476,7 @@ function failureEvent(error: unknown): ProtocolEvent {
     type: 'error',
     errorKind: error.kind,
     // invariant: `error` is the person's wording, added from the profile's labels; the upstream text is internal.
-    errorInternal: error.message,
+    errorInternal: describeError(error),
     ...(error.copy ? { errorCopy: error.copy } : {}),
   } as ProtocolEvent;
 }

@@ -699,7 +699,10 @@ not the key.
 | `unknown_tool`, `not_loaded`, `not_gated`, `provider_native` | `request` |
 | `cancelled` | `cancelled` |
 
-`describeError` returns the raw detail for logs. `throwIfAborted(signal)`
+`describeError` returns the raw detail for logs: the error's message, then a
+`caused by:` line for each error in its `cause` chain. `errorInternal` and the
+trace's `exception.message` use it. A provider error keeps its cause, with keys
+removed from each message. `throwIfAborted(signal)`
 preserves a framework error, abort, or timeout reason when execution must stop;
 `isAbortError` / `isTimeoutError` read the error name only.
 

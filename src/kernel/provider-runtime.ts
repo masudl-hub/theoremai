@@ -174,12 +174,16 @@ function diagnosticError(error: unknown, clean: (text: string) => string): Error
   const message = clean(error instanceof Error ? error.message : String(error));
   if (error instanceof DOMException) return new DOMException(message, error.name);
   if (isAbortError(error)) return new DOMException(message, 'AbortError');
+  const cause =
+    error instanceof Error && error.cause !== undefined
+      ? { cause: diagnosticError(error.cause, clean) }
+      : {};
   const result =
     error instanceof TheoremError
-      ? new TheoremError(error.kind, message, { copy: diagnosticCopy(error.copy, clean) })
+      ? new TheoremError(error.kind, message, { copy: diagnosticCopy(error.copy, clean), ...cause })
       : error instanceof TypeError
-        ? new TypeError(message)
-        : new Error(message);
+        ? new TypeError(message, cause)
+        : new Error(message, cause);
   if (isRecord(error) && typeof error.status === 'number')
     Object.assign(result, { status: error.status });
   return result;

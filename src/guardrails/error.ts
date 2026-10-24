@@ -66,8 +66,7 @@ function publicError(err: unknown, labels?: LabelOverrides): string {
   return wording(errorKind(err), err instanceof TheoremError ? err.copy : undefined, labels);
 }
 
-/** Raw diagnostic for hosts, traces, and logs; never shown to end users. */
-function describeError(err: unknown): string {
+function messageOf(err: unknown): string {
   if (typeof err === 'string') {
     return err;
   }
@@ -75,6 +74,25 @@ function describeError(err: unknown): string {
     return err.message;
   }
   return String(err);
+}
+
+/** Raw diagnostic for hosts, traces, and logs; never shown to end users. Each cause that says something new follows on its own line. */
+function describeError(err: unknown): string {
+  const lines = [messageOf(err)];
+  const seen = new Set<unknown>([err]);
+  let said = messageOf(err);
+  let cause = err instanceof Error ? err.cause : undefined;
+  while (cause !== undefined && cause !== null && !seen.has(cause)) {
+    seen.add(cause);
+    const message = messageOf(cause);
+    if (message !== said) {
+      const name = cause instanceof Error && cause.name !== 'Error' ? `${cause.name}: ` : '';
+      lines.push(`caused by: ${name}${message}`);
+      said = message;
+    }
+    cause = cause instanceof Error ? cause.cause : undefined;
+  }
+  return lines.join('\n');
 }
 
 type ProducedError = TurnEventOf<'error'> & { errorInternal: string };

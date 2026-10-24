@@ -1,4 +1,4 @@
-import { type ErrorKind, errorKind } from '../../guardrails/error.ts';
+import { describeError, type ErrorKind, errorKind } from '../../guardrails/error.ts';
 import type { GuardrailEvent, GuardrailStage, TrustLevel } from '../../guardrails/types.ts';
 import {
   type SpanHandle,
@@ -721,7 +721,7 @@ function errorName(err: unknown): string {
 function recordException(span: SpanHandle, err: unknown): void {
   span.event('exception', {
     'exception.type': errorName(err),
-    'exception.message': traceContent(err instanceof Error ? err.message : String(err)),
+    'exception.message': traceContent(describeError(err)),
     ...(err instanceof Error && err.stack
       ? { 'exception.stacktrace': traceContent(err.stack) }
       : {}),

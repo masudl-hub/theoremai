@@ -137,8 +137,9 @@ export interface StudioTreeMapProps {
    * How far the tree has grown, from 0 to 1. As it grows the map grows to its size, then draws out
    * from the tree's agents as one pen would, at an even pace: each line runs out from the node it
    * leaves, and the node at its end shows as the line reaches it, drifting the last of the way along
-   * it. Nothing moves before the drawing comes to it: what the map shows closed waits, clear of what
-   * will show where it stands, until its line reaches it, then glides into place with its line.
+   * it. Nothing moves before the drawing comes to it: what the map shows closed glides into place
+   * once its line reaches it, its line with it, or, where something would show where it stands, sets
+   * off just before that shows and goes slower, so its line catches it as it lands.
    * Shrinking takes it all back the same way.
    */
   grow?: number | undefined;

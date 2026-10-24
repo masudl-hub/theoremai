@@ -27,8 +27,8 @@ The token estimator uses preset media metadata when the binding names a known pr
 
 | Concern | Kernel | Preset |
 | --- | --- | --- |
-| Provider rules | Registered adapter capabilities and request validation | Known-provider metadata in `PROVIDER_FACTS`; media families inform token estimation |
-| Tool ids | `string` allowlist | Registers hosted tool definitions. The selected provider adapter owns their wire encoding. |
+| Provider rules | Each protocol validates its own requests | The first setting a provider would refuse on a binding (`googleBindingViolation`, `localBindingViolation`) |
+| Tool ids | `string` allowlist | Registers hosted tool definitions. The protocol of the binding writes them on the wire. |
 | Image/speech pins | Open `string` fields | Typed constants (`GOOGLE_IMAGE_RESOLUTIONS`, `GOOGLE_IMAGE_OUTPUT_MIMES`, voices, …) |
 | Registration | `registerTools` API (default scope) or `scope.tools.registerMany` | Google and OpenRouter registration functions fill the default scope. Their catalogs also register into an isolated scope. |
 
@@ -54,7 +54,6 @@ This barrel exports provider metadata, catalogs, local checks, media settings, a
 
 | Export | Role |
 | --- | --- |
-| `PROVIDER_FACTS`, `ProviderFacts` | Each provider's answers to what the kernel's rules ask: `needsKey`, `takesServer`, and where it has them `cacheOn`, `storesOn`, `traceName`, and `decisionsUrl` |
 | `registerGooglePreset` | Register Google builtins into the default scope's tool registry |
 | `GOOGLE_BUILTIN_TOOLS` | Catalog entries; register them into any scope's `tools` |
 | `registerOpenRouterPreset` | Register OpenRouter hosted tools into the default scope's tool registry before registering profiles |
@@ -74,7 +73,6 @@ This barrel exports provider metadata, catalogs, local checks, media settings, a
 | `ollamaModelThinks` | Whether an Ollama model thinks, read from the server's `/api/show` reply for it (`capabilities` lists `thinking`). The host fetches the reply; the preset makes no network call |
 | `OPENROUTER_IMAGES_IGNORED_INPUTS` | `system` and `history`: `/images` sends the model the prompt text and the references only, so a profile's system prompt (the canary and `user_data` notes with it) never reaches it; `image.includeText` moves the turn to the chat path, which sends both |
 | `OPENROUTER_IMAGES_INPUT_MIMES` | `/images` takes image references only (https URLs or bytes), so a profile on it accepts `image/*` and nothing wider; the send refuses video and PDF |
-| `JEV_USD_PER_MILLION_INPUT_TOKENS` | TypeSafe Jev's input price per million tokens; output tokens are free |
 
 ```theorem-evidence
 {

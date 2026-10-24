@@ -42,6 +42,7 @@ import {
   tryRot13,
   typoNormalize,
 } from './injection.ts';
+import { freshPattern } from './injection-patterns.ts';
 import { REVERSED_INJECTION_PATTERNS } from './injection-reversed.ts';
 import { isEmoji, normalizeCodePoint } from './normalize.ts';
 import { detectRule } from './rules.ts';
@@ -512,8 +513,8 @@ interface ScanPattern {
   /** The automaton's id for the pattern. */
   id: number;
   regex: RegExp;
-  /** Whether a settled match at `at` counts, read with the reply as the view holds it so far. */
-  hit?: (match: string, reply: string, at: number) => boolean;
+  /** Whether a settled match at `at` counts, read with the reply as the view holds it so far, and that in lower case. */
+  hit?: (match: string, reply: string, at: number, lower: () => string) => boolean;
   /** In place of the regex: where the first hit starting in a settled stretch [from, to) starts. */
   find?: (reply: string, from: number, to: number) => number | undefined;
 }
@@ -599,7 +600,7 @@ function forwardPatterns(
     out.push({
       ...rule,
       id,
-      regex: new RegExp(entry.pattern.source, entry.pattern.flags),
+      regex: freshPattern(entry.pattern),
       ...patternReading(entry.kind, entry.pattern, urls),
     });
   });
@@ -615,7 +616,7 @@ function injectionPatterns(): ScanPattern[] {
     out.push({
       ...INJECTION_RULE,
       id,
-      regex: new RegExp(pattern.source, pattern.flags),
+      regex: freshPattern(pattern),
       ...(hit ? { hit } : {}),
     });
   });
@@ -774,6 +775,12 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
     return { rule, severity, start: view.rawAt(at), detector };
   }
 
+  let lowered = { text: '', lower: '' };
+  const lower = (): string => {
+    if (lowered.text !== view.text) lowered = { text: view.text, lower: view.text.toLowerCase() };
+    return lowered.lower;
+  };
+
   /** A regex pattern's hit up to `settledTo`. */
   function matched(p: number, settledTo: number): EgressStreamHit | undefined {
     if (!reached[p] && !recheck[p]) {
@@ -792,7 +799,7 @@ function createScan(view: View, automaton: Automaton, patterns: ScanPattern[]) {
         return undefined;
       }
       const [blob] = match;
-      if (blob && (!hit || hit(blob, text, match.index))) {
+      if (blob && (!hit || hit(blob, text, match.index, lower))) {
         // why: The scan reads on from the end of the match, so the next call finds the one after it.
         resume[p] = regex.lastIndex;
         recheck[p] = 1;

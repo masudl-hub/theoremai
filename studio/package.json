@@ -12,7 +12,8 @@
     "./ui/studio-run.tsx",
     "./ui/studio-screen.tsx",
     "./ui/studio-shell.tsx",
-    "./ui/theorem-mark.tsx"
+    "./ui/theorem-mark.tsx",
+    "./ui/tree-map.tsx"
   ],
   "description": "The studio's source: the profile draft, its tree and compiler, source export, and the studio screen. `npm run build:npm:studio` builds @theoremjs/studio from it into npm/, at the root package's version; this folder is never published itself. Opt-in: nothing here is installed with the kernel or the React package; `npm install` in this folder is what lets the screen run on its own.",
   "scripts": {

@@ -7,8 +7,8 @@ import { GOOGLE_BUILTIN_TOOLS } from '@theoremjs/agents/presets/google';
 import {
   geminiInteractions,
   geminiLive,
-  openRouter,
   openRouterImages,
+  openRouterOpenAi,
 } from '@theoremjs/agents/providers';
 import type { ModelBindingDraft } from './draft.ts';
 import type {
@@ -84,7 +84,7 @@ export function isGoogleRoute(route: Pick<ModelRoute, 'protocol'>): boolean {
 
 /** A model spoken to in one of OpenRouter's protocols. */
 export function isOpenRouterRoute(route: Pick<ModelRoute, 'protocol'>): boolean {
-  return route.protocol === openRouter.id || route.protocol === openRouterImages.id;
+  return route.protocol === openRouterOpenAi.id || route.protocol === openRouterImages.id;
 }
 
 export function isProviderBuiltinId(name: string): boolean {

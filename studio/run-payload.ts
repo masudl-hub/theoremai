@@ -49,7 +49,7 @@ export type StudioRunPayload = {
   structured?: StructuredRegistration;
   /** A decision profile's questions, by id. */
   questions?: Record<string, DecisionQuestion>;
-  /** The pictures every decision sends, by the reference its questions write. */
+  /** The pictures a decision can send, by the reference its questions write. A decision sends only those its state or questions name. */
   images?: Record<string, DecisionAsset>;
   /** The providers its models name, each with its adapter. Left out, they are the studio's own. */
   providers?: readonly StudioProvider[];

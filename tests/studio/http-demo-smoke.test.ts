@@ -14,7 +14,7 @@ const profile: TextProfile = {
   type: 'text',
   identity: { handle: 'concierge' },
   models: {
-    default: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' },
+    default: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test' },
   },
   defaultModel: 'default',
   tools: { allow: [] },

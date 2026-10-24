@@ -299,7 +299,8 @@ Deno.test('POST refuses a posted image that is not PNG or JPEG bytes, before any
       }),
     }),
   );
-  assertEquals(response.ok, false);
+  assertEquals(response.status, 400);
+  assertEquals((await response.json()).errorKind, 'request');
   assertEquals(model.calls.length, 0);
 });
 Deno.test("the host's images go with every decision, and a page image may not take their names", async () => {
@@ -331,7 +332,7 @@ Deno.test("the host's images go with every decision, and a page image may not ta
       new Request(`${BASE}/decide`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ state: { photo: '<shelf>' }, assets }),
+        body: JSON.stringify({ state: { photo: '<shelf>', label: '<ghs02>' }, assets }),
       }),
     );
   assertEquals((await post({ '<shelf>': shelf })).status, 200);

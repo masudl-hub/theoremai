@@ -81,8 +81,8 @@ function promptReadings(stretches: readonly string[], canary?: string): PromptRe
   const readings: PromptReadings = { plain: [], slotted: [] };
   for (const view of PROMPT_VIEWS) {
     const read = viewReadings(stretches.map(view), canary === undefined ? undefined : view(canary));
-    readings.plain.push(...read.plain);
-    readings.slotted.push(...read.slotted);
+    for (const each of read.plain) readings.plain.push(each);
+    for (const each of read.slotted) readings.slotted.push(each);
   }
   return readings;
 }
@@ -314,9 +314,16 @@ function promptEchoRanges(
   stretches: readonly string[],
   canary?: string,
 ): Array<[number, number]> {
-  return replyViews(text)
+  const sorted = replyViews(text)
     .flatMap((view) => echoRanges(view, stretches, canary))
     .sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const [start, end] of sorted) {
+    const last = merged.at(-1);
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  return merged;
 }
 
 function echoRanges(

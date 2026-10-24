@@ -14,7 +14,7 @@ const profile: Profile = {
   id: 'sessions',
   type: 'text',
   identity: { handle: 'sessions' },
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test' } },
   defaultModel: 'm',
   tools: { allow: ['search'] },
   inputs: { text: true },

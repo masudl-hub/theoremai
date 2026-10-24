@@ -171,6 +171,9 @@ To draw your own figures like the trace panel does, `@theoremjs/react/ui` also e
 | `trace` | Shows the trace instead of the chat. Use it when your own control switches the view. The profile must record traces. |
 | `conversation`, `conversationView`, `onConversationChange` | Resume a conversation that the server keeps, or open one you started. See below. |
 | `initialText` | The text that the composer starts with. The user can send it or change it. The component reads it once, when it mounts. |
+| `initialFiles` | The files that the composer starts with, staged to send. The component reads them once, when it mounts. |
+| `initialVoice` | The voice notes that the composer starts with, staged to send. The component reads them once, when it mounts. |
+| `initialPending` | The messages that the composer starts with set aside: queued, stashed, or steering, as `createComposerPendingMessage` from `@theoremjs/agents/interface` makes them. The component reads them once, when it mounts. |
 | `chatRef` | Sends a message from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
 
@@ -275,7 +278,7 @@ import { TheoremDecision } from '@theoremjs/react/ui';
 ```
 
 - `questions` maps each question id to its definition.
-- `images` is optional. It holds pictures every decision sends, by the reference the questions write, such as `<ghs02>` in "Which item matches <ghs02>?". The page sees them and refuses its own image under one of their names.
+- `images` is optional. It holds pictures a decision can send, by reference, such as `<ghs02>` in "Which item matches <ghs02>?". The kernel sends only the ones that the state or a question references. The page sees them and refuses its own image under one of their names.
 - `vault` holds the keys of the profile, by slot.
 - `metadata` is optional. It adds data, such as the signed-in user, to the trace record of each decision.
 
@@ -283,9 +286,9 @@ When the profile sets `maxStateBytes` in its `inputs`, `TheoremDecision` shows t
 
 In one column, the state sits in the middle of the page until you ask for a decision. It then eases up to the top, and the answers appear under it. With `columns`, the state moves to the left instead and the answers fill the right.
 
-A profile whose model takes images (`images: true`, see the TypeSafe options in `docs/contracts/providers.md`) shows a drop area under the state when a question is a box. Each PNG or JPEG dropped there becomes a state field named after the file. The field holds the image's reference, its name in angle brackets: `pantry shelf.jpg` becomes `{ "pantry_shelf": "<pantry_shelf>" }`. The field shows the image, opens it full size in a lightbox when clicked, and can replace it. A question names the field in backticks, such as "Which jar in `pantry_shelf` is open?". TypeSafe reads a reference anywhere it appears as text. The brackets keep a reference from matching an ordinary word. A decision sends only the images its state still names, as `assets`, and the kernel refuses any that are not PNG or JPEG bytes before a request leaves. Pass `defaultImages`, with a `defaultState` that names them, to start with some.
+The page shows a drop area under the state fields when a question is a box or the decision holds images. The model must take images: on TypeSafe, the binding sets `images: true` (see `docs/contracts/providers.md`). Each PNG or JPEG dropped there becomes a state field named after the file. The field holds the image's reference, its name in angle brackets: `pantry shelf.jpg` becomes `{ "pantry_shelf": "<pantry_shelf>" }`. The field shows the image, opens it full size in a lightbox when clicked, and can replace it. A question names the field in backticks, such as "Which jar in `pantry_shelf` is open?". The model reads a reference anywhere in a string, so the brackets keep a reference from matching an ordinary word. A decision sends only the images its state still holds as a field value, as `assets`, and the kernel refuses any that are not PNG or JPEG bytes before a request leaves. Pass `defaultImages`, with a `defaultState` that names them, to start with some.
 
-A box answer is drawn as the part of the image it covers, with its edges beside it as shares of the image. The image is the one the question's `image` gives, a reference or a state field. Without one, it is the one at the field the instructions first name in backticks, such as `chart` in "Where on `chart` would the green apple in `photo` sit?". Without that, it is the first image the state names, or else the first held. Click the cut-out to open the whole image in a lightbox, with the box outlined in `--color-accent` and the rest shaded in `--color-overlay`.
+A box answer is drawn as the part of the image it covers, with its edges beside it as shares of the image. The image is the one the question's `image` gives, a reference or a state field. Without one, it is the decision's only image. When the page cannot tell which image the box is on, it draws the box in a frame that stands for the whole image. Click the cut-out to open the whole image in a lightbox, with the box outlined in `--color-accent` and the rest shaded in `--color-overlay`.
 
 Pass `onQuestion` to open a question where it is set up, such as in an editor. Each answer then has a button that calls it with the question's id.
 
@@ -429,6 +432,8 @@ function MyChat() {
 ```
 
 `chat.phase` is `'idle'`, `'streaming'`, or `'gated'`. The actions are `handleSubmit`, `handleStop`, `handleSendNow`, and `handleToolDecision`.
+
+`handlePendingMove(id, direction)` moves a pending message among those of its kind. `ChatComposerBar` draws a move only when `composerPendingMoves` from `@theoremjs/agents/interface` says the message can go that way: a message alone in its kind has none.
 
 To show the transcript and the composer, use `ChatTranscript` and `ChatComposerBar` from `/ui`. You can also draw your own from `chat.blocks`.
 

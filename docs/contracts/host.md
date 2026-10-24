@@ -217,9 +217,13 @@ Does not validate full JSON documents.
 
 ## Exported API
 
-Live list: `src/host/mod.ts` (`json`, status constants, `caughtStatus`,
-`flushMintTrace`, `CutoutTape`, `readStreamingJsonStringField`, `forClient`,
-`forClientEvents`, `clientError`, `ClientError`, `ClientTurnOptions`).
+| Export | Role |
+| --- | --- |
+| `json`, `caughtStatus` | A JSON reply, and the HTTP status for a caught error |
+| `HTTP_OK`, `HTTP_BUSY`, `HTTP_NOT_FOUND`, `HTTP_METHOD` | Status constants |
+| `forClient`, `forClientEvents`, `clientError`, `ClientError`, `ClientTurnOptions` | Client-safe turn events |
+| `flushMintTrace`, `CutoutTape` | Cutout mint trace |
+| `readStreamingJsonStringField` | Structured JSON preview |
 
 ```theorem-evidence
 {

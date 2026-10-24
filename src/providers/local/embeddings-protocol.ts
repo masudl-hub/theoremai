@@ -3,13 +3,13 @@ import { TheoremError } from '../../guardrails/error.ts';
 import { defineProtocol, type EmbeddingCall, type Protocol } from '../../kernel/protocols/mod.ts';
 import type { EmbeddingInput, EmbeddingResult } from '../../kernel/types.ts';
 
-/** What an `ollamaEmbedding` binding sets in `options`. */
-export interface OllamaEmbeddingOptions {
+/** What an `ollamaEmbeddings` binding sets in `options`. */
+export interface OllamaEmbeddingsOptions {
   truncate?: boolean;
   dimensions?: number;
 }
 
-const options: z.ZodType<OllamaEmbeddingOptions> = z.strictObject({
+const options: z.ZodType<OllamaEmbeddingsOptions> = z.strictObject({
   truncate: z
     .boolean()
     .optional()
@@ -36,8 +36,8 @@ function strings(input: EmbeddingCall['input']): string[] {
   });
 }
 
-export const ollamaEmbedding: Protocol<OllamaEmbeddingOptions> = defineProtocol({
-  id: 'ollamaEmbedding',
+export const ollamaEmbeddings: Protocol<OllamaEmbeddingsOptions> = defineProtocol({
+  id: 'ollamaEmbeddings',
   name: 'Ollama Embeddings',
   description: 'Ollama’s local embedding endpoint.',
   endpoints: { embedding: '/api/embed' },

@@ -565,7 +565,7 @@ export interface PrivateSystemPart {
   private: string;
 }
 
-/** One part of a system prompt: plain text or a part kept out of traces. */
+/** One part of a system prompt: shareable text, or private text a reply may not repeat. */
 export type SystemPart = string | PrivateSystemPart;
 
 /**
@@ -696,8 +696,10 @@ export interface DecisionRequest {
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
   /**
-   * Images by reference. Write a reference as a string where its image belongs, in `state`, in a
-   * question's instructions, or in its criteria; the provider puts the image there.
+   * Images by reference. Write a reference in a string where its image belongs, in `state`, in a
+   * question's instructions, or in its criteria, as the whole string or inside it; the model reads
+   * the image in its place, once for each use. Keys are never read. Only the images some string
+   * references are sent, so pick references that cannot occur in your text by accident.
    */
   assets?: Record<string, DecisionAsset>;
   signal?: AbortSignal;

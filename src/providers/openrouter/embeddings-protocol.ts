@@ -9,12 +9,12 @@ import {
 import type { EmbeddingInput, EmbeddingResult } from '../../kernel/types.ts';
 import { base64ToBytes } from '../../kernel/util/base64.ts';
 
-/** What an `openRouterEmbedding` binding sets in `options`. */
-export interface OpenRouterEmbeddingOptions {
+/** What an `openRouterEmbeddings` binding sets in `options`. */
+export interface OpenRouterEmbeddingsOptions {
   encodingFormat?: 'float' | 'base64';
 }
 
-const options: z.ZodType<OpenRouterEmbeddingOptions> = z.strictObject({
+const options: z.ZodType<OpenRouterEmbeddingsOptions> = z.strictObject({
   encodingFormat: z
     .enum(['float', 'base64'])
     .optional()
@@ -61,8 +61,8 @@ function embeddingValues(value: unknown): number[] {
   );
 }
 
-export const openRouterEmbedding: Protocol<OpenRouterEmbeddingOptions> = defineProtocol({
-  id: 'openRouterEmbedding',
+export const openRouterEmbeddings: Protocol<OpenRouterEmbeddingsOptions> = defineProtocol({
+  id: 'openRouterEmbeddings',
   name: 'OpenRouter Embeddings',
   description: 'OpenRouter embedding models, including supported multimodal models.',
   endpoints: { embedding: '/embeddings' },

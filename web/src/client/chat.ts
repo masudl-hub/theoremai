@@ -12,6 +12,7 @@ import {
   defaultInterfaceEffort,
   emptyInterfaceTurnSession,
   type InterfaceTurnSession,
+  moveComposerPendingWithinKind,
   orderComposerPendingMessages,
   promoteComposerPendingKind,
   removeComposerPendingMessage,
@@ -67,6 +68,15 @@ export type ChatOptions = {
   conversationView?: ConversationView;
   /** The text the composer starts with. Read once, when the chat is created. */
   initialText?: string;
+  /** The files the composer starts with, staged to send. Read once, when the chat is created. */
+  initialFiles?: readonly File[];
+  /** The voice notes the composer starts with, staged to send. Read once, when the chat is created. */
+  initialVoice?: readonly File[];
+  /**
+   * The messages the composer starts with set aside: queued, stashed or steering. Read once, when
+   * the chat is created.
+   */
+  initialPending?: readonly ComposerPendingMessage[];
   /**
    * Each new ref the host issues for the conversation: once the message posts, and again as the
    * reply's runs are saved. Keep the latest to resume the chat later. `undefined` when the host
@@ -174,6 +184,8 @@ export type ChatController = {
   restorePending(id: string): Promise<void>;
   /** Moves a stashed message into the queue. At idle, the queue starts sending. */
   queuePending(id: string): void;
+  /** Moves a pending message one place up or down among those of its kind; `composerPendingMoves` says which ways it can go. */
+  movePending(id: string, direction: 'up' | 'down'): void;
   /** Answers the gate the reply waits on. */
   decide(action: ToolDecisionAction): Promise<void>;
   /** The visitor signed in for the gated call, or gave its secret. */
@@ -341,9 +353,9 @@ class Chat implements ChatController {
       streamBlocks: [],
       chatStarted: false,
       draftText: options.initialText ?? '',
-      pendingFiles: [],
-      pendingVoice: [],
-      pendingMessages: [],
+      pendingFiles: [...(options.initialFiles ?? [])],
+      pendingVoice: [...(options.initialVoice ?? [])],
+      pendingMessages: orderComposerPendingMessages([...(options.initialPending ?? [])]),
       issues: [],
       failure: null,
       answering: null,
@@ -499,6 +511,12 @@ class Chat implements ChatController {
     if (this.#state.phase === 'idle') this.#drainArmed = true;
     this.#set({
       pendingMessages: promoteComposerPendingKind(this.#state.pendingMessages, id, 'queue'),
+    });
+  };
+
+  movePending = (id: string, direction: 'up' | 'down'): void => {
+    this.#set({
+      pendingMessages: moveComposerPendingWithinKind(this.#state.pendingMessages, id, direction),
     });
   };
 

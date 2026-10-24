@@ -54,7 +54,7 @@ import {
   type WorkspaceMap,
   workspaceMap,
 } from '../mod.ts';
-import { IconTypeSafe, modelFamilyMark } from './brand-icons.tsx';
+import { modelFamilyMark } from './brand-icons.tsx';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { type KeptMap, type MapPlaces, readKeptMap, writeKeptMap } from './lib/studio-map-kept.ts';
 import { useProject } from './lib/studio-project.ts';
@@ -90,7 +90,6 @@ function nodeIcon({ kind, type, note }: MapNode): IconType {
   if (agent) return agent;
   if (kind === 'tool') return toolTypeIcon(type ?? '');
   // A model's note is its API model id, which names the family.
-  if (kind === 'model' && type === 'typesafe') return IconTypeSafe;
   if (kind === 'model') return modelFamilyMark(note) ?? FACET_ICON.modelBinding;
   if (kind === 'provider') return IconCloud;
   if (kind === 'shared' && type && Object.hasOwn(FACET_ICON, type)) {
@@ -249,8 +248,8 @@ function useLit(layout: MapLayout) {
 }
 
 /**
- * A family, and the map with or without detail, each start from the top left, or as near it as
- * shows the node that is open.
+ * A family starts from the top left. The map, opened or turned to or from detail, centres the node
+ * that is open, or starts from the top left when none is.
  */
 function useStart(
   field: RefObject<HTMLDivElement | null>,
@@ -261,6 +260,7 @@ function useStart(
   latest.current = open.place;
   // invariant: the sizes are one of two constants, so they change exactly when the detail does.
   const { sizes } = open;
+  // why: Not on a click: the node clicked is already in view, and the map stays where the reader put it.
   useEffect(() => {
     const node = field.current;
     if (!node) return;
@@ -268,14 +268,11 @@ function useStart(
     const at = family === undefined ? place : undefined;
     // The field starts past the room around it.
     return scrollOnce(node, (scroller) => {
-      const hidden =
-        at !== undefined &&
-        (at.x + sizes.node.width > scroller.clientWidth ||
-          at.y + at.height > scroller.clientHeight);
       const { left, top } = fieldStart(node, scroller);
+      if (at === undefined) return { left, top };
       return {
-        left: left + (hidden ? at.x - sizes.padding : 0),
-        top: top + (hidden ? at.y - sizes.padding - sizes.heading : 0),
+        left: left + at.x + sizes.node.width / 2 - scroller.clientWidth / 2,
+        top: top + at.y + at.height / 2 - scroller.clientHeight / 2,
       };
     });
   }, [field, family, sizes]);

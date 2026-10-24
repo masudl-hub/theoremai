@@ -7,7 +7,7 @@ import {
   type Provider,
   query,
 } from '../../kernel/protocols/provider.ts';
-import { geminiEmbedding } from './embedding-protocol.ts';
+import { geminiEmbeddings } from './embeddings-protocol.ts';
 import { geminiInteractions } from './interactions-protocol.ts';
 import { geminiLive } from './live-protocol.ts';
 import { geminiPrices } from './prices.ts';
@@ -45,7 +45,7 @@ export const geminiProvider: Provider<GeminiConnection, string> = defineProvider
     const liveOrigin = `${host.protocol === 'http:' ? 'ws:' : 'wss:'}//${host.host}`;
     return [
       { protocol: geminiInteractions, baseUrl: `${origin}/v1beta` },
-      { protocol: geminiEmbedding, baseUrl: `${origin}/v1beta` },
+      { protocol: geminiEmbeddings, baseUrl: `${origin}/v1beta` },
       // probed 2026-09-23: Live's WebSocket takes the key only in the URL's query.
       { protocol: geminiLive, baseUrl: `${liveOrigin}/ws`, authorize: query('key') },
     ];

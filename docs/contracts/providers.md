@@ -27,7 +27,7 @@ Keep the wire in the protocol. Keep the address and the sign-in in the provider.
 | `src/kernel/provider-runtime.ts` | Event validation, terminal checks, and checkpoints |
 | `src/kernel/provider-live.ts` | Normalized live operations for the session runner |
 | `src/providers/open-ai/protocol.ts` | The `openAi` protocol |
-| `src/providers/openrouter/` | The `openRouter` and `openRouterImages` protocols, and `openRouterProvider` |
+| `src/providers/openrouter/` | The `openRouterOpenAi`, `openRouterImages`, and `openRouterDecisions` protocols, and `openRouterProvider` |
 | `src/providers/openrouter/openai/reasoning-state.ts` | Native reasoning details for replay |
 | `src/providers/gemini/` | The `geminiInteractions` and `geminiLive` protocols, and `geminiProvider` |
 | `src/providers/google/interactions/` | Gemini Interactions request and event translation |
@@ -57,6 +57,7 @@ Defining or registering a provider does not open HTTP or WebSocket transport.
 First-party providers do not read environment variables for credentials or endpoints.
 The host supplies a vault. It can also supply fetch, waits, and a WebSocket opener.
 A protocol never holds a key, a key slot, or a base URL.
+A protocol that extends another has its own id, as `openRouterOpenAi` extends `openAi`. A binding names the protocol its provider serves.
 
 ## Registered providers
 
@@ -64,10 +65,10 @@ Register providers before profiles. Use the registered provider's model helper t
 
 | Provider | Serves |
 | --- | --- |
-| `openRouterProvider` (`openrouter`) | `openRouter` (text, speech), `openRouterImages` (image), `systemOne` (decision) |
+| `openRouterProvider` (`openrouter`) | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterDecisions` (decision) |
 | `geminiProvider` (`gemini`) | `geminiInteractions` (text, image, speech), `geminiLive` (live) |
 | Planned local embedding adapter | Embeddings through a host-supplied local runtime |
-| `localProvider` (`local`) | `openAi` (text, speech) |
+| `localProvider` (`local`) | `openAi` (text, speech), `ollamaEmbeddings` (embedding) |
 | `typesafeProvider` (`typesafe`) | `systemOne` (decision) |
 | A provider from `defineProvider` | The protocols that its `serves` function returns |
 
@@ -88,7 +89,7 @@ scope.profiles.register(defineProfile({
   identity: { handle: 'Analyst' },
   tools: { allow: [] },
   inputs: { text: true },
-  models: { default: router.model('openRouter', 'model-id', {
+  models: { default: router.model('openRouterOpenAi', 'model-id', {
     maxOutputTokens: 4096,
     options: { cache: { mode: 'automatic' } },
   }) },
@@ -128,6 +129,7 @@ Use a binding to select a protocol, a registered provider, and an upstream model
 | Shared settings | Output tokens, temperature, effort aliases, and selection, summaries, builtins, and compaction |
 | `keySlot`, `fallbackKeySlot` | Optional overrides of the registration's credential slots |
 | `options` | JSON object, parsed by the protocol's options schema; defaults to an empty object |
+| `limits` | Optional points at which Theorem stops the model's calls (see [Operating budgets](#operating-budgets)). Each one left out is no limit |
 | Decision timeout | Decision bindings add `timeoutMs` |
 
 `modelBindingSchema` is strict. It checks shared data. The protocol's options schema checks `options`.
@@ -163,7 +165,7 @@ Its `body` adds to each request. Its `read` sees each reply row before the base.
 `carriesTo` reports whether reasoning that one protocol wrote may go back to another protocol in its lineage.
 `modelOptions(protocol, apiId, options)` parses a model's options by the protocol's schema, less any option that model refuses, and throws a `config` error naming what does not fit. A binding is checked with it when it is registered, and a protocol may call it in its own operations.
 
-`ProtocolContext` supplies the profile type, model ID, parsed options, built-in tool IDs, resolved limits, and abort signal.
+`ProtocolContext` supplies the profile type, model ID, parsed options, built-in tool IDs, merged limits, and abort signal.
 `send` posts to the endpoint of the profile type and yields reply rows. `connect` opens the WebSocket and sends the first frame.
 `tapUpstream` records a row for tracing. The context never holds a key, a key slot, or a base URL.
 
@@ -231,8 +233,8 @@ registered connection:
 
 ```ts
 return [
-  { protocol: openRouter, baseUrl, headers },
-  { protocol: openRouterEmbedding, baseUrl, headers },
+  { protocol: openRouterOpenAi, baseUrl, headers },
+  { protocol: openRouterEmbeddings, baseUrl, headers },
 ]
 ```
 
@@ -344,7 +346,7 @@ The kernel gives each call a Theorem ID and keeps the upstream ID beside it. A t
 Send a `tool_draft` for each piece of a tool call's arguments as the model streams them, so the host can show the call while the model writes it.
 A draft is a preview and never runs. The `tool` event with the same `callId` is the call.
 Use `toolDraftEvents` from `src/providers/shared/tool-draft.ts` to send nothing until the call has an ID and a name, then each new piece once.
-A buffered reply sends no drafts. The `geminiInteractions`, `geminiLive`, and `openAi` protocols send drafts. `openRouter` extends `openAi`.
+A buffered reply sends no drafts. The `geminiInteractions`, `geminiLive`, and `openAi` protocols send drafts. `openRouterOpenAi` extends `openAi`.
 Always send them: the kernel decides whether the host sees them.
 The kernel holds pending client calls until it validates model-step termination.
 
@@ -374,6 +376,7 @@ Pin the versioned id when a decision must not change under you.
 | `longContext` | `TypeSafe-Danger-Zone-Long-Context: true` | The context window grows from 64k to 262k tokens, with less speed and accuracy |
 
 `systemOne` sends each image in the `assets` map as `data_base64` with its format. It does not send multipart bodies.
+TypeSafe reads a reference anywhere in a string, as the whole string or inside it, and puts the image there once for each use.
 Without `images`, a request that holds images or a `box` question fails before it leaves the process.
 A `box` question also fails on a pinned `jev-1.13.*` id.
 
@@ -383,21 +386,28 @@ Use `openRouterProvider` for OpenRouter. It signs each request with a bearer key
 Its connection takes `baseUrl`, `decisionUrl`, `siteUrl`, and `siteName`, and each is optional.
 `siteUrl` goes out as `HTTP-Referer` and `siteName` as `X-Title`.
 
-The planned `openRouterEmbedding` protocol uses the same bearer credential and
+The planned `openRouterEmbeddings` protocol uses the same bearer credential and
 connection headers as chat. It sends text or provider-supported multimodal
 content to `/api/v1/embeddings` and normalizes each returned `embedding` array
 to the kernel vector result.
 
 | Protocol | Endpoint |
 | --- | --- |
-| `openRouter` | Text at `/chat/completions`, speech at `/audio/speech` |
+| `openRouterOpenAi` | Text at `/chat/completions`, speech at `/audio/speech` |
 | `openRouterImages` | Image at `/images` |
-| `systemOne` | Decision at `decisionUrl`, by default `https://openrouter.ai/api/alpha/decisions` |
+| `openRouterDecisions` | Decision at `decisionUrl`, by default `https://openrouter.ai/api/alpha/decisions` |
 
-`openRouter` extends `openAi`. On text, it asks the router for providers that support every supplied parameter.
+`openRouterOpenAi` extends `openAi`. On text, it asks the router for providers that support every supplied parameter.
 It decodes text, reasoning, fragmented tool arguments, structured output, citations, and usage.
 It writes reasoning details as `reasoning` parts and sends them back with the history on the next request.
 It writes the `webSearch` built-in as `web_search_options`.
+
+`openRouterDecisions` sends the same questions and reads the same answers as `systemOne`, but it takes no options.
+OpenRouter needs no opt-in for images or `box` questions, and runs every request with an image in long-context mode.
+It ignores an `assets` map, so the protocol puts each image where its reference is, as an `image_url` part with a `data:` URL.
+It reads references as TypeSafe does, in `state`, instructions, and criteria: a string that is one reference becomes the image part, and a longer string becomes an array of its text and images in order.
+Model ids carry the vendor, such as `typesafe/jev-1.14`.
+A model that cannot read an image somewhere, or cannot answer a `box`, refuses with OpenRouter's own error.
 
 Set chat caching in `options.cache`. Native image and speech operations reject client tools, structured output, and chat-only settings.
 The kernel controls transient retries and quota fallback for every protocol.
@@ -408,7 +418,7 @@ Use `geminiProvider` with the `geminiInteractions` protocol for Gemini text, ima
 Its options contain `store` and `persistViaInteractionId`. Its `googleMaps` builtin takes a `location` from the request's `builtInArgs`.
 The provider signs each request with the key in the `x-goog-api-key` header. Its connection takes an optional `host`.
 
-The `geminiEmbedding` protocol uses the same Google API key and host.
+The `geminiEmbeddings` protocol uses the same Google API key and host.
 It sends text or provider-supported media to the embedding methods and
 normalizes the returned values to the kernel vector result.
 
@@ -446,6 +456,7 @@ These implementations share the `embed` operation and normalized result contract
 Use `geminiProvider` with the `geminiLive` protocol for native WebSocket sessions.
 The protocol encodes Gemini frames. The kernel sends normalized input and approved tool results through the public session.
 Live sends the key in the URL query, so a browser runtime can open the socket.
+The session's setup waits for `connectTimeoutMs` when it is set. With no limit, it waits until the socket closes or the call is aborted.
 
 | Data | Treatment |
 | --- | --- |
@@ -465,6 +476,7 @@ A close with 1013 (try again later) is `busy`; 1011 is `unavailable` unless its 
 Use `localProvider` for a server that speaks OpenAI Chat Completions, such as Ollama, llama.cpp, vLLM, or LM Studio.
 Its connection requires `baseUrl`, up to and including `/v1`. The `openAi` protocol appends `/chat/completions`.
 The key is optional. Name a slot only when the server takes a key.
+It also serves `ollamaEmbeddings`, which posts text to Ollama's `/api/embed` at the same server, without the `/v1`.
 
 ```ts
 const local = registerProvider(localProvider, {
@@ -484,7 +496,7 @@ Use a speech profile to resolve voice, format, and media settings before the pro
 
 | Protocol | Audio operation |
 | --- | --- |
-| `openRouter`, `openAi` | `/audio/speech` |
+| `openRouterOpenAi`, `openAi` | `/audio/speech` |
 | `geminiInteractions` | Interactions output audio |
 
 Protocols preserve native media details and convert supported raw PCM to WAV.
@@ -534,6 +546,7 @@ Successful turn completion returns `providerState`. Live `provider_checkpoint` e
 Interface helpers retain checkpoints separately from displayed history. A branch discards native state.
 
 Protocol, provider, model, version, connection, key slot, or covered-history changes cause a mismatch.
+A change to the binding's `limits` keeps the checkpoint, because limits do not change what the state means.
 The kernel rebuilds from portable history and emits `provider_warning` with `provider_state_rebuilt` and the reason.
 A key fallback starts without saved state. A request with a checkpoint and no history then fails, because the turn needs the conversation.
 Set `providerContinuation.history` to `provider` when the provider's stored conversation is the only history: pass `providerState` alone, and a request that also carries history is a mismatch.
@@ -554,14 +567,14 @@ The root also exports the default-scope registry functions, the binding schemas,
 | --- | --- |
 | Providers | `defineProvider`, `createProviderRegistry`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbedding`, `openAi`, `openRouter`, `openRouterImages`, `openRouterEmbedding`, `ollamaEmbedding`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |
 | Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket` |
 | Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderContinuationPolicy` |
 | Provider limits | `ProviderLimits` |
-| Root only | `registerProvider`, `getProvider`, `listProviders`, `listProtocols`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `keySlotSchema`, `checkBinding`, `keySlotsOf`, `RuntimeAbilities`, `providerLimitsSchema`, `resolveProviderLimits`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `ProviderStateRebuilt`, `callProtocol`, `ProtocolCall`, `CallSetup`, `plainWebSocket` |
+| Root only | `registerProvider`, `getProvider`, `listProviders`, `listProtocols`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `keySlotSchema`, `checkBinding`, `keySlotsOf`, `RuntimeAbilities`, `providerLimitsSchema`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema`, `ProviderStateRebuilt`, `callProtocol`, `ProtocolCall`, `CallSetup`, `plainWebSocket` |
 
 ```theorem-evidence
 {
@@ -752,22 +765,26 @@ The root also exports the default-scope registry functions, the binding schemas,
 
 ## Operating budgets
 
-Use host limits to bound setup, credentials, retries, and upstream output. Profiles contain none of these limits.
-`ProviderHostOptions.limits` accepts positive safe-integer overrides. Timer limits must fit the runtime timer range.
-`resolveProviderLimits` merges defaults and validates the result with `providerLimitsSchema`.
-The protocol receives resolved limits through `ProtocolContext.limits`.
+Set limits when a model call must stop at a point that you choose, not at the provider's own limit.
+Theorem sets no limit of its own. Each limit that is left out is no limit, so the provider's own limits apply.
 
-| Budget | Default |
+A model in a profile sets its limits in `models.*.limits`. The host options of `runTurn`, `runSession`, `runDecision` and `runEmbedding` take `limits` too (`ProviderHostOptions.limits`). Each field that the host sets overrides the model's.
+Each limit is a positive safe integer. A timer must also fit the runtime timer range. `providerLimitsSchema` checks the merged result.
+The protocol receives the merged limits through `ProtocolContext.limits`.
+
+| Field | What it stops |
 | --- | --- |
-| Operation deadline | 120 seconds |
-| Live connection deadline | 30 seconds |
-| Active live response deadline | 120 seconds |
-| Wire record and normalized event | 16 MiB each |
-| Decompressed HTTP response and aggregate HTTP attempts | 64 MiB each |
-| Normalized response cycle | 64 MiB and 100,000 events |
-| Pending client tool calls | 32 |
+| `operationTimeoutMs` | One call, with its retries and its credential resolution |
+| `connectTimeoutMs` | The opening of a live session |
+| `liveStepTimeoutMs` | A live session that waits for the model to answer |
+| `maxWireRecordBytes` | One SSE record or one WebSocket message |
+| `maxWireResponseBytes` | The decompressed bytes of one HTTP response, and of all the attempts of one step |
+| `maxEventBytes` | One normalized event |
+| `maxStepBytes` | All the normalized events of one step |
+| `maxStepEvents` | The number of normalized events in one step |
+| `maxPendingToolCalls` | The tool calls of one step that have no result yet |
 
-The operation deadline includes creation and credential resolution. Retries retain the original deadline and consumption budget.
+Retries keep the original deadline and byte counts.
 Theorem sends a request again when it fails with a network error or a 408, 429, 500, 502, 503, 504 or 529 status, while the waits between tries stay within five seconds in all, and at most four times.
 A network error is any send that got no response and was not aborted or timed out. Its message is never read.
 Each wait is the response's `Retry-After` when it gives one. Otherwise it is 1, 2, 4, then 8 seconds. A wait that would pass the five seconds is not taken, and the last answer goes back as it came.

@@ -100,7 +100,7 @@ function baseModelBinding(apiId: string): import('../src/kernel/types.ts').Model
     };
   }
   return {
-    protocol: 'openRouter',
+    protocol: 'openRouterOpenAi',
     provider: 'openrouter',
     apiId,
     summaries: false,

@@ -64,6 +64,15 @@ const CODE = [
   'guardrails.disclosure.enforce',
   'guardrails.detect.*.find',
   'models.*.compaction.trigger',
+  'models.*.limits.operationTimeoutMs',
+  'models.*.limits.connectTimeoutMs',
+  'models.*.limits.liveStepTimeoutMs',
+  'models.*.limits.maxWireRecordBytes',
+  'models.*.limits.maxWireResponseBytes',
+  'models.*.limits.maxEventBytes',
+  'models.*.limits.maxStepBytes',
+  'models.*.limits.maxStepEvents',
+  'models.*.limits.maxPendingToolCalls',
   'observability.onWriteError',
 ];
 
@@ -236,7 +245,7 @@ const PROFILES = [
         },
       },
       cached: {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'anthropic/claude-sonnet-4.5',
         options: { cache: { mode: 'system', ttl: '1h' } },
@@ -369,7 +378,11 @@ const PROFILES = [
     inputs: { state: 'json', maxStateBytes: 1000 },
     decision: { contract: 'every.v1' },
   } as never),
-  defineProfile({ type: 'host', id: 'every-host', tools: { allow: ['every_fetch'] } }),
+  defineProfile({
+    type: 'host',
+    id: 'every-host',
+    tools: { allow: ['every_fetch'], parallel: true },
+  }),
 ];
 for (const profile of PROFILES) registerProfile(profile);
 

@@ -57,6 +57,7 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     handleStop: chat.stop,
     handleMenuAction: chat.menuAction,
     handlePendingQueue: chat.queuePending,
+    handlePendingMove: chat.movePending,
     handlePendingRestore: chat.restorePending,
     handleSendNow: chat.sendNow,
     handleToolDecision,

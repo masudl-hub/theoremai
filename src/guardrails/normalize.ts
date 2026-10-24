@@ -183,8 +183,10 @@ function withoutMatches(view: NormalizedView, pattern: RegExp): NormalizedView {
   let last = 0;
   const keep = (to: number): void => {
     kept.text += view.text.slice(last, to);
-    kept.start.push(...view.start.slice(last, to));
-    kept.end.push(...view.end.slice(last, to));
+    for (let at = last; at < to; at++) {
+      kept.start.push(view.start[at] as number);
+      kept.end.push(view.end[at] as number);
+    }
   };
   for (const match of view.text.matchAll(pattern)) {
     keep(match.index);

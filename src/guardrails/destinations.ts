@@ -103,10 +103,14 @@ function hostOf(link: string): string {
 
 function destinationsIn(text: string): Found[] {
   const emails = emailsIn(text);
-  let rest = text;
+  const pieces: string[] = [];
+  let at = 0;
   for (const { start, end } of emails) {
-    rest = rest.slice(0, start) + ' '.repeat(end - start) + rest.slice(end);
+    pieces.push(text.slice(at, start), ' '.repeat(end - start));
+    at = end;
   }
+  pieces.push(text.slice(at));
+  const rest = pieces.join('');
   const found = [...emails];
   for (const match of [...rest.matchAll(LINK)]) {
     const host = hostOf(match[0]);

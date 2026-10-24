@@ -242,6 +242,28 @@ Deno.test('agent ids and library tool names are unique across the workspace', ()
   assert(issues.some((issue) => issue.message === "Tool name 'my_tool' is used twice."));
 });
 
+Deno.test("a model's mistakes each say what would work", () => {
+  const draft = createExampleDraft();
+  const modelBindings = draft.modelBindings.map((binding) =>
+    binding.modelId === 'smart'
+      ? {
+          ...binding,
+          efforts: [...binding.efforts, { alias: 'max', level: 'xhigh' as const }],
+          defaultEffort: 'balanced',
+          options: { persistViaInteractionID: true },
+        }
+      : binding,
+  );
+  const messages = issuesOf(workspaceFromDraft({ ...draft, modelBindings })).map(
+    (issue) => issue.message,
+  );
+  assertEquals(messages, [
+    'gemini takes the minimal, low, medium or high thinking level, not xhigh.',
+    "Default effort 'balanced' is not one of the efforts. Pick normal, deep or max.",
+    'geminiInteractions has no option persistViaInteractionID. Did you mean persistViaInteractionId?',
+  ]);
+});
+
 Deno.test("a provider's settings answer with the kernel's own rules, each at its field", () => {
   const start = workspaceFromDraft(helperDraft());
   const issues = issuesOf(

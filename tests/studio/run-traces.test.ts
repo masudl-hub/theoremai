@@ -24,10 +24,7 @@ import {
   withJsonTraces,
   withRunTraces,
 } from '../../studio/server/run-traces.ts';
-import {
-  createDecisionTransport,
-  failedDecisionTraces,
-} from '../../web/src/client/decision-transport.ts';
+import { createDecisionTransport, failedTraces } from '../../web/src/client/decision-transport.ts';
 import { createEmbeddingTransport } from '../../web/src/client/embedding-transport.ts';
 
 const HOST = '127.0.0.1:4983';
@@ -86,7 +83,7 @@ registerProfile({
   observability: { writeTo: 'bench-store' },
   identity: { handle: 'Bench', system: 'You reply.' },
   inputs: { text: true },
-  models: { main: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test/model' } },
+  models: { main: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test/model' } },
   tools: { allow: [] },
 });
 
@@ -250,8 +247,8 @@ Deno.test("a failed decision's trace reaches the page on the failure thrown for 
     fetch: (input, init) => serve(new Request(input, init)),
   });
   const failure = await assertRejects(() => transport.decide({ note: 'one' }));
-  assertEquals(failedDecisionTraces(failure), [record]);
-  assertEquals(failedDecisionTraces(new Error('unrelated')), []);
+  assertEquals(failedTraces(failure), [record]);
+  assertEquals(failedTraces(new Error('unrelated')), []);
 });
 
 Deno.test("a failed embedding's trace reaches the page on the failure thrown for it", async () => {
@@ -266,5 +263,5 @@ Deno.test("a failed embedding's trace reaches the page on the failure thrown for
     fetch: (input, init) => serve(new Request(input, init)),
   });
   const failure = await assertRejects(() => transport.embed(['one']));
-  assertEquals(failedDecisionTraces(failure), [record]);
+  assertEquals(failedTraces(failure), [record]);
 });

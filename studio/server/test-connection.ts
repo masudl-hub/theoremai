@@ -12,6 +12,7 @@ import {
   fetchGuarded,
   isUnsupportedMcpProtocolError,
   MCP_PROTOCOL_VERSIONS,
+  mcpRequestMeta,
   type NetworkGuardrailSpec,
   parseMcpRpcResponse,
   type ResolveHost,
@@ -303,9 +304,7 @@ function mcpToolsListRequest(
     id: 'test-ping-1',
     method: 'tools/list',
     params: {
-      _meta: {
-        'io.modelcontextprotocol/protocolVersion': protocolVersion,
-      },
+      _meta: mcpRequestMeta(protocolVersion),
     },
   };
   return {

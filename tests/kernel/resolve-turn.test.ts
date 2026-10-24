@@ -23,7 +23,7 @@ function check(actual: unknown, expected: unknown, label: string): void {
 }
 type Loose = Record<string, unknown>;
 const GEMINI = { protocol: 'scripted', provider: 'scripted', apiId: 'g' } as const;
-const SONAR = { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' } as const;
+const SONAR = { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y' } as const;
 function define(id: string, over: Loose = {}): void {
   registerProfile({
     id,

@@ -71,7 +71,7 @@ A `Profile` binds:
 
 | Block | Role |
 | --- | --- |
-| `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'`, or planned `'embedding'` (`PROFILE_TYPES`) |
+| `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'`, or `'embedding'` (`PROFILE_TYPES`) |
 | `identity` | `handle`, optional `system` / `systemByRole` — absent on `host`; `handle` only on `speech` and `decision` |
 | `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID, and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` — absent on `host`; `decision` binds exactly one model and never selects |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image`; `parallel` on every type that takes `tools` |
@@ -103,7 +103,7 @@ facet kinds. Drift is gated by `tests/kernel/profile-graph.test.ts` and
 ### Decision profile
 
 A `decision` profile is a separate, bounded execution path for typed decisions.
-Its `models` map binds exactly one model: the `systemOne` protocol, a registered provider ID, and upstream `apiId`.
+Its `models` map binds exactly one model: a decision protocol (`systemOne`, or `openRouterDecisions` on OpenRouter), a registered provider ID, and upstream `apiId`.
 Credentials inherit the provider registration's slots unless the model overrides them.
 The profile's `decision.contract` is the host's stable id for the decision it
 makes. The id names the decision on its trace (`theorem.decision.contract`);
@@ -111,12 +111,13 @@ it is not sent to the provider and does not limit which questions a call asks. A
 `runDecision` accepts non-null JSON `state` and named `choice`, `noul`, `score`, or
 `box` questions, then returns validated typed answers and usage.
 `validateDecisionRequest` exposes the same generic request checks for hosts to
-call before spending quota. TypeSafe uses `/v1/systemone`; OpenRouter uses
-`/api/alpha/decisions`. Bindings may set
+call before spending quota. `systemOne` posts to TypeSafe's `/v1/systemone`; `openRouterDecisions`
+posts to OpenRouter's `/api/alpha/decisions`. Bindings may set
 `timeoutMs`; omission uses the operation limit (`ProviderLimits`).
 A binding has no retry field. The kernel retries a transient failure within its five-second wait budget.
-After a `rate_limit` or `busy`, it tries the fallback slot once. The builder chooses questions
-compatible with its model. Provider-reported cost is used when available.
+After a `rate_limit` or `busy`, it tries the fallback slot once. The kernel does not check that the
+model can answer a question type: the protocol or the provider refuses one it cannot.
+Provider-reported cost is used when available. OpenRouter reports one.
 Otherwise the provider's prices give an estimated cost.
 `typesafeProvider` prices `jev-*` models at $0.042 per million input tokens with output free.
 It has no prompt, conversation history, attachments, tools, streaming, or
@@ -135,19 +136,22 @@ reaches the provider: the kernel adds the `decision.box_image` label, "Give the 
 to the instructions, with a field written in backticks.
 
 A request may carry `assets`: PNG or JPEG images as base64, by reference (`DecisionAsset`).
-Write the reference as a string in `state`, in a question's instructions, or in its criteria.
-The provider puts the image where the reference stands. The kernel checks only the image type and
+Write the reference in a string where the image belongs: a value in `state`, a question's
+instructions, or one of its criteria. It can be the whole string, such as `{ "photo": "<ghs02>" }`,
+or part of one, such as "Which item matches <ghs02>?". The model reads the image in its place.
+Keys are never read. The kernel sends only the images that some string references, so choose
+references that cannot occur in your text by accident. The kernel checks only the image type and
 that the base64 is padded and bare. The provider keeps its own limits on size and count.
-The `systemOne` protocol refuses a request with `assets` or a `box` question unless the binding
-sets `options.images`, and it refuses a `box` question on `jev-1.13.*`.
+`systemOne` refuses a request that sends images or has a `box` question unless the binding sets
+`options.images`, and it refuses a `box` question on `jev-1.13.*`. `openRouterDecisions` takes no
+options.
 
 `decision.guardrails.disclosure` is a host hook immediately before the request
 leaves the process. It may return `allow` or `block`; a block prevents dispatch.
 The hook receives the request's `assets` in its context, because the images leave the process too.
-The shared guardrail fields are structurally accepted for compatibility but the
-registry rejects quota, sanitization, redaction, canary, egress, network, and
-taint configuration as inert on a decision profile. Recursive state scanning
-is deliberately deferred. Decision profiles are served by `createTheoremDecisionHandler`,
+The registry refuses every other guardrail field (`quota`, `detect`, `blockedReply`,
+`network`, `taint`) on a decision profile: the decision path runs no turn guardrails, and the
+kernel does not scan the state. Decision profiles are served by `createTheoremDecisionHandler`,
 `DecisionTransport`, `useTheoremDecision`, and `TheoremDecision` in `@theoremjs/react`.
 
 Every decision writes one trace record through the profile's observability
@@ -178,7 +182,7 @@ The profile has these fields:
 | `models` | One or more model bindings; registration fills `defaultModel` |
 | `allowModelSelect` | Allows the request to select a named embedding model |
 | `inputs` | Text and media kinds, accepted MIME patterns, and byte/file limits |
-| `guardrails` | Input and network policy that the embedding request can use |
+| `guardrails` | Takes no field today: each `guardrails.*` field is scoped to other profile types, and `defineProfile` refuses it with a `config` error. The trace record is scrubbed with the default detectors |
 | `observability` | Trace destination, sampling, scrubbing, and usage inclusion |
 | `labels` | Host-owned wording for errors and other exposed text |
 
@@ -203,7 +207,7 @@ The input declaration is provider-neutral:
   },
   models: {
     default: {
-      protocol: 'geminiEmbedding',
+      protocol: 'geminiEmbeddings',
       provider: 'gemini',
       apiId: 'gemini-embedding-2',
       options: { outputDimensionality: 768 },
@@ -306,7 +310,7 @@ documents `application/pdf`, `text/plain`, `text/html`, `text/css`,
 `text/x-python`/`application/x-python`, `application/json`), verified
 2026-09-12, plus
 provider alias essences (`image/jpg`, `audio/x-wav`, `video/x-ms-wmv`, …). The
-The `openAi`, `openRouter`, and `openRouterImages` protocols forward a part's MIME verbatim on every `MediaInputKind`,
+The `openAi`, `openRouterOpenAi`, and `openRouterImages` protocols forward a part's MIME verbatim on every `MediaInputKind`,
 so their accepted set is open-ended and contributes no additional rows; what
 they cannot carry — a `uri` reference part — is refused at request time with
 `TheoremError` rather than by a second MIME table (see
@@ -346,7 +350,7 @@ provider file reference:
 `wireInteractionPart` emits `{ type, mimeType, uri }` for a reference part; the
 `geminiInteractions` protocol snake-cases it to the documented Files input
 `{ "type": "video", "uri": "files/<id>", "mime_type": "video/mp4" }`. The `openAi`,
-`openRouter`, `openRouterImages`, and `geminiLive` protocols throw `TheoremError` for reference
+`openRouterOpenAi`, `openRouterImages`, and `geminiLive` protocols throw `TheoremError` for reference
 parts — see `docs/contracts/providers.md`.
 
 `ModelBinding` contains `protocol`, registered `provider`, and upstream `apiId` strings,
@@ -433,9 +437,12 @@ Live sessions emit the same stage names around utterance cycles and
    omitted ([guardrails](./guardrails.md)). A tool call the model is still
    writing goes out as `tool_draft` pieces, read at its call's
    `tool_arguments_<kind>` boundary; the runner sends none while it withholds
-   the reply. On a profile with `outputs.structured`, the reply's text is its
-   JSON: it goes out as `structured_draft` pieces under `sse`, and not at all
-   under `buffered`. Each provider call has its own gate;
+   the reply. On a profile with `outputs.structured` and no function tools, the
+   request carries the schema as its response format, and the reply's text is
+   its JSON: it goes out as `structured_draft` pieces under `sse`, and not at all
+   under `buffered`. A profile with `outputs.structured` and function tools
+   answers through the **answer tool** (`ANSWER_TOOL`) instead: see
+   [Structured output](#structured-output). Each provider call has its own gate;
    the turn carries a possible canary opening from one call into the next
    (`canaryCarry` and `thoughtCarry` on the step state), so a token split across
    tool steps is one match.
@@ -618,7 +625,7 @@ the raw reason instead ([host](host.md)). Pass a trace sink (`memorySink`, `json
 `content` and `parts` are sent together, never one instead of the other:
 `historyMessageParts` (`src/kernel/interaction-parts.ts`) puts `content` first as a
 text part, then `parts`. Every first-party protocol (`geminiInteractions`, `geminiLive`,
-`openAi`, `openRouter`, `openRouterImages`) builds history content from it, so a host that stores a text projection
+`openAi`, `openRouterOpenAi`, `openRouterImages`) builds history content from it, so a host that stores a text projection
 alongside media does not lose either one.
 
 Google Interactions code execution (`codeExecution` builtin) is a server-side
@@ -1108,9 +1115,30 @@ Profile `outputs` pins behavior the kernel enforces before the protocol runs:
 
 | Pin | Effect |
 | --- | --- |
-| `structured` | Schema id or slot-mapped ids; `responseFormat` vs prompt enforcement |
+| `structured` | Schema id or slot-mapped ids. Sent as the response format, or as the answer tool's input when the turn has function tools ([Structured output](#structured-output)) |
 | `streaming` | `mode`, `streamThoughts`. Under `sse`, the reply, tool calls, and tool output stream as they are written, each piece checked first; thinking streams unless `streamThoughts` is `false`. Under `buffered`, each arrives whole |
 | `validation` | Field validators, `maxRetries` (repair guidance is the labels' `repair.default_guidance`) |
+
+### Structured output
+
+A structured turn gets its output in one of two ways. The turn's function tools pick the way (`answersByTool`).
+
+| The turn has | The request carries | The structured output is |
+| --- | --- | --- |
+| No function tools | The schema as its response format | The reply's JSON |
+| Function tools | The answer tool, whose input schema is the profile's schema, and no response format | The input of the answer tool's call |
+
+Use function tools and a schema together when the agent must do work before it gives its structured answer. Many endpoints refuse a response format beside tools, and many models given both write JSON at once and call no tool. The answer tool avoids both.
+
+On a turn that answers by tool:
+
+- Text the model writes is progress. It streams as `text`, and the reply gate reads it.
+- The answer tool's call is not a tool call to the host. Its drafts go out as `structured_draft`, read at `reply_structured`. Its input is the `structured` event.
+- The call ends the turn. Other calls in the same step do not run.
+- The step that `turnBehaviour.atStepLimit: 'answer'` leaves without tools still has the answer tool.
+- A turn that ends without the call is repaired while `outputs.validation.maxRetries` has a retry left. The repair's rejection is the label `structured.answer_missing`. With no retry left, the turn fails with a `bad_response` error and the stop `provider_error`.
+- The tool's description is the label `structured.answer_tool`.
+- A profile with `outputs.structured` cannot offer a tool of its own named as `ANSWER_TOOL`. The turn throws a `config` error.
 
 Top-level modality pins (after `model`, not under `outputs`):
 
@@ -1149,9 +1177,8 @@ unchanged.
 guardrail vocabulary, not a second hierarchy. It carries only the switches that
 fire on the `invokeTool` path: `detect` (the
 detectors run over model-supplied arguments, tool result text, and tool failure
-text), `network` (SSRF clearance for declarative HTTP and MCP targets), and
-`taint` (the confused-deputy gate, plus its advisory guidance on fenced remote
-results). `defineProfile` throws a `TheoremError` naming the field for
+text) and `network` (SSRF clearance for declarative HTTP and MCP targets)
+(`HOST_GUARDRAIL_FIELDS`). `defineProfile` throws a `TheoremError` naming the field for
 `guardrails.quota` and `guardrails.egress`: a host profile
 runs no model, so quota counts nothing, and egress gates user-visible model text in the turn runner, which a
 host profile never enters.
@@ -1458,7 +1485,7 @@ compaction profile registered first and a text profile that takes text.
 
 ## Prompt cache (OpenRouter)
 
-The `openRouter` protocol validates per-model `options.cache`:
+The `openRouterOpenAi` protocol validates per-model `options.cache`:
 
 ```ts
 options: { cache: { mode: "automatic" | "system", ttl?: "5m" | "1h" } }
@@ -1726,25 +1753,26 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Providers | `defineProvider`, `registerProvider`, `createProviderRegistry`, `getProvider`, `listProviders`, `listProtocols`, `Provider`, `ProviderDefinition`, `RegisteredProvider`, `Registration`, `ProviderRegistry`, `ProviderTransport`, `Serve`, `PriceTable`, `ModelPrice`, `Rates`, `costFromPrices` |
 | Provider sign-in | `Authorize`, `Signer`, `bearer`, `header`, `query`, `KeyCredential`, `ApiKeyCredential`, `BearerCredential`, `RuntimeAbilities`, `endpointUrlSchema` |
 | Protocols | `defineProtocol`, `extendProtocol`, `callProtocol`, `carriesTo`, `modelOptions`, `plainWebSocket`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `Continuation` |
-| Model bindings | `ModelBinding`, `DecisionModelBinding`, `ModelProfileType`, `ProviderGenerationConfig`, `ProviderBuiltin`, `checkBinding`, `keySlotsOf`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `DecisionModelSettings` |
+| Model bindings | `ModelBinding`, `DecisionModelBinding`, `ModelProfileType`, `ProviderGenerationConfig`, `ProviderBuiltin`, `checkBinding`, `keySlotsOf`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `DecisionModelSettings`, `ModelSettings` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `EstimatedCost` |
 | Provider vault | `KeySlot`, `keySlotSchema`, `KeyVault`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket` |
 | Protocol operations | `ProtocolOperations`, `ProtocolContext`, `ProtocolRequest`, `ProtocolCall`, `ProtocolSession`, `ProtocolSocket`, `SendInit`, `Outgoing`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult`, `UpstreamFailure`, `CallSetup` |
 | Provider output | `ProtocolEvent`, `ProtocolContentEvent`, `ProviderCheckpoint`, `ProviderStateRebuilt`, `ProviderWarning`, `ProviderEvidence`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
-| Provider limits | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema`, `resolveProviderLimits` |
+| Provider limits | `ProviderHostOptions`, `ProviderLimits`, `providerLimitsSchema` |
 | Catalog | `clampThinkingLevel`, `clampThinkingLevelForApiId`, `mediaChannelForMime`, `MediaInputChannel`, `mediaKindForMime`, `getTool`, `mimeAllowed`, `mimeEssence`, `modelEntryByApiId`, `registerTools`, `requireModelBinding`, `resetTools` |
-| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `ApiExportMeta`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `BLOCKED_REPLY_ON_BLOCK`, `BlockedReplyOnBlock` |
+| Schema | `PROFILE_FIELDS`, `PROFILE_GRAPH`, `PROFILE_TYPES`, `PROFILE_ID_MAX_CHARS`, `PROFILE_HANDLE_MAX_CHARS`, `EXTRA_FIELDS`, `REQUEST_FIELDS`, `API_EXPORTS`, `ApiExportMeta`, `fieldMeta`, `catalogPathFor`, `DYNAMIC_FIELD_PARENTS`, `spineFacetsForProfileType`, `profileGraphFacet`, `ProfileGraphFacet`, `ProfileGraphFacetId`, `ProfileGraphEditor`, `ProfileGraphRole`, `THINKING_LEVELS`, `KEY_SLOT_NAME`, `isKeySlotName`, `MEDIA_INPUT_KINDS`, `MEDIA_INPUT_KIND_VALUES`, `MEDIA_WILDCARDS`, `ATTACHMENT_ACCEPT_MIMES`, `IMAGE_ATTACHMENT_ACCEPT_MIMES`, `VOICE_ACCEPT_MIMES`, `SUMMARY_MODES`, `STREAM_MODES`, `SPEECH_AUDIO_FORMATS`, `COMPACTION_METERS`, `COMPACTION_OUTCOMES`, `COMPACTION_TIMINGS`, `CACHE_MODES`, `CACHE_TTLS`, `TURN_STOP_KINDS`, `CONTINUE_STOP_KINDS`, `TURN_STAGES`, `TURN_INJECT_STAGES`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `TOOL_LOAD_TIERS`, `TOOL_ACCESS`, `TOOL_PERMISSION`, `TOOL_TYPES`, `AUTH_UNAUTHENTICATED_POLICIES`, `HTTP_METHODS`, `STUDIO_AUTH_TYPES`, `TOOL_AUTH_TYPES`, `AuthUnauthenticatedPolicy`, `CustomToolType`, `HttpMethod`, `StudioAuthType`, `ToolAccess`, `ToolAuthType`, `ToolPermission`, `ToolType`, `ToolGateKind`, `TurnStage`, `TurnInjectStage`, `AwaitingUserInputKind`, `BLOCKED_REPLY_ON_BLOCK`, `BlockedReplyOnBlock`, `ProfileType`, `ThinkingLevel`, `MediaInputKind`, `SummaryMode`, `StreamMode`, `SpeechAudioFormat`, `DEFAULT_RESUMED_AFTER_MS`, `CONTEXT_SENDERS`, `ContextSender`, `LIVE_ACTIVITY_HANDLINGS`, `LiveActivityHandling`, `LIVE_START_SENSITIVITIES`, `LiveStartSensitivity`, `LIVE_END_SENSITIVITIES`, `LiveEndSensitivity`, `CompactionMeter`, `CompactionTiming`, `CompactionOutcome`, `CacheMode`, `CacheTtl`, `STEP_LIMIT_MODES`, `StepLimitMode`, `ITEM_FAIL_ACTIONS`, `TOOL_RESUME_CAUSES`, `ToolResumeCause`, `STAGE_APPLY_WARNING_CODES`, `ToolLoadTier`, `FieldMeta` |
 | Utilities | `base64ToBytes`, `bytesToBase64`, `isRecord`, `Equals` (compile-time type equality, for exact-shape checks) |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn` |
-| Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery` |
-| Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource` |
+| Tools | `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `ToolContext`, `GateReference`, `gateReferenceSchema`, `executeRegisteredTool`, `McpRpcResponse`, `ModelToolResult`, `PageAnswer`, `CredentialRefusedError` |
+| Tool execution | `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
+| Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource`, `ProtectedResourceMetadata`, `AuthorizationServerMetadata`, `OAuthTokens`, `OAuth2Credential`, `ToolCredential`, `OAuthTransportOptions`, `OAuthEndpoints`, `CreatePkceFlowOptions`, `PkceFlowResult`, `ExchangePkceCodeOptions`, `ExchangePkceCodeResult`, `RefreshOAuthTokenOptions`, `SealedStatePayload`, `toBase64Url`, `fromBase64Url`, `credentialFromTypedSecret`, `credentialForSignInGate` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |
 | Stages (target foundation) | `TURN_STAGES`, `TURN_INJECT_STAGES`, `STAGE_AFFORDANCES`, `STAGE_AFFORDANCE_MATRIX`, `TOOL_GATE_KINDS`, `AWAITING_USER_INPUT_KINDS`, `AWAITING_USER_INPUT_STATUS`, `applyStageResult`, `awaitingUserInputSchema`, `toolGateSchema`, `isTurnStage`, `isTurnInjectStage`, `isToolGateKind`, `isAwaitingUserInput`, `stageAllowsAffordance`, `stageEventFields`, `profileAllowsInject`, `StageAffordance`, `StageContext`, `StageResult`, `StageMutate`, `StageHandler`, `StageApplyInput`, `StageApplyOutput`, `StageApplyWarning`, `StageApplyWarningCode`, `StageEventExtra`, `AwaitingUserInput`, `ToolGate` — see [`stages.md`](stages.md). Slices 1–3 landed on branch; publish when release cut matches docs. |
 | Turn events | `TurnEvent`, `TurnEventOf`, `TurnEventType`, `CallDone`, `DoneFields`, `SessionEvent`, `SessionEventOf`, `TURN_EVENT_SCHEMAS` (each kind's schema, for a wire parser), `turnEventSchema`, `turnHistoryMessageSchema`, `turnToolSnapshotSchema`, `reasoningPartSchema`, `historyHash`, `turnDoneOf`, `keptReply`, `AttemptReason`, `InvalidField`, `z` (the zod these schemas are built with; compose them with it, since two copies of zod do not mix) |
-| Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `argumentsSoFar`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
+| Interface (headless) | `interfaceFromProfile`, `clientProfileInterface`, `interfaceFromProjected`, `profileInterfaceSchema`, `inputsFromSpec`, `attachmentAcceptAttr`, `validateProfileInputs`, `pickMediaRecorderMime`, `sanitizeUserDraft`, `prepareUserTurn`, `buildUserTurnBlocks`, `foldTurnEvents`, `foldConversationTurn`, `resetBlockIds`, `stopText`, `WORDED_STOP_KINDS`, `WordedStopKind`, `streamThoughtsEnabled`, `collectPromotedMediaFromToolOutput`, `promotedMediaFromUrlString`, `PromotedToolMedia`, `defaultInterfaceEffort`, `effortSelectEnabled`, `generationSelectEnabled`, `interfaceEffortOptions`, `interfaceModelOptions`, `modelSelectEnabled`, `appendAssistantEventsToHistory`, `appendToolDenialToHistory`, `appendToolExchangeToHistory`, `appendUserDraftToHistory`, `historyFromTranscriptBlocks`, `toolReadBack`, `applyTurnEventsToSession`, `branchInterfaceTurnSession`, `emptyInterfaceTurnSession`, `gatedToolFromEvents`, `awaitingFromEvents`, `promotedToolIdsFromEvents`, `toolSnapshotFromEvents`, `gatedToolsFromEvents`, `toolCallsOf`, `argumentsSoFar`, `settlesToolCall`, `toolCallRanWith`, `appendPausedTurnToHistory`, `answerOpenToolCalls`, `assertOpenToolCalls`, `removeLandedSteers`, `SettledToolCallEvent`, `ToolGateAuth`, `COMPOSER_PENDING_KINDS`, `cloneUserTurnDraft`, `composerPendingMoves`, `composerPendingPreview`, `consumeNextComposerQueue`, `consumeNextComposerSteer`, `convertSteersToFrontQueued`, `createComposerPendingMessage`, `moveComposerPendingWithinKind`, `orderComposerPendingMessages`, `promoteComposerPendingKind`, `removeComposerPendingMessage`, `resolveComposerMenuActions`, `resolveComposerPrimary`, `updateComposerPendingDraft`, `userDraftHasPayload`, `userDraftToSteerInject`, `AttachmentValidationCode`, `AttachmentValidationIssue`, `AttachmentValidationParams`, `AttachmentValidationResult`, `AwaitingToolContext`, `ComposerActionContext`, `ComposerInterfaceFields`, `ComposerMenuAction`, `ComposerPendingKind`, `ComposerPendingMessage`, `ComposerPrimaryAction`, `ComposerProfileInterface`, `ComposerRunPhase`, `CreateComposerPendingMessageArgs`, `FoldTurnEventsOptions`, `GatedToolContext`, `ImageProfileInterface`, `InterfaceEffortOption`, `InterfaceModelOption`, `LiveProfileInterface`, `ModelBindingView`, `PendingAttachment`, `PrepareUserTurnResult`, `ProfileGuardrailsView`, `ProfileObservabilityView`, `ProfileInputsInterface`, `ProfileInterface`, `ProfileOutputsView`, `ProfileToolsView`, `SpeechProfileInterface`, `TextProfileInterface`, `TranscriptBlock`, `TranscriptBlockKind`, `UserTurnDraft`, `UserTurnHistoryMedia`, `InterfaceTurnSession` |
 | Attachments (kernel) | `attachmentIssues`, `attachmentIssueCopy`, `attachmentIssueText`, `attachmentsRefused`, `assertTurnAttachments`, `maxBytesForMime`, `requireMediaLimits`, `resolveMediaLimits`, `sanitizeCsvText`, `sanitizeTurnBlobs`, `AttachmentFacts`, `AttachmentRules` |
 
 `PromotedToolMedia` and `media` `TranscriptBlock`s carry an optional

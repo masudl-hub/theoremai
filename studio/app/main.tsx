@@ -9,7 +9,7 @@ import { Theme } from '@astryxdesign/core/theme';
 import { type ReactNode, StrictMode, Suspense, use, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import kernel from '../../package.json' with { type: 'json' };
-import { BootMark } from '../ui/boot-mark.tsx';
+import { BootMark, holdBoot } from '../ui/boot-mark.tsx';
 import { theoremStudioTheme } from '../ui/built/theorem-studio.js';
 import { onceAnswering } from '../ui/lib/project-starting.ts';
 import { createReading } from '../ui/lib/read-progress.ts';
@@ -74,11 +74,13 @@ async function page(): Promise<ReactNode> {
 /** The page opens while the mark draws on the shell. */
 const opening = page();
 
-/** Settles once the page is in the shell, so the mark gives way to a page that is already there. */
+/** The mark is held until the page is in the shell, so it gives way to a page that is already there. */
 let pageIsIn = () => {};
-const shown = new Promise<void>((resolve) => {
-  pageIsIn = resolve;
-});
+holdBoot(
+  new Promise<void>((resolve) => {
+    pageIsIn = resolve;
+  }),
+);
 
 function Opened() {
   const here = use(opening);
@@ -104,7 +106,7 @@ if (root) {
               />
             }
           >
-            <BootMark shape={frameShape} ready={shown} reading={onBase ? reading : undefined} />
+            <BootMark shape={frameShape} reading={onBase ? reading : undefined} />
             <Suspense>
               <Opened />
             </Suspense>

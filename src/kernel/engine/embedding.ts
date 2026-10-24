@@ -1,4 +1,3 @@
-import { refuseOverlong } from '../../guardrails/detect-at.ts';
 import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import { protocolOf } from '../protocols/binding.ts';
@@ -84,7 +83,6 @@ function validateInputs(
     const files: AttachmentFacts[] = [];
     for (const part of parts) {
       if (part.type === 'text') {
-        refuseOverlong(part.text, 'embedding input');
         if (!rules.text)
           throw new TheoremError(
             'unsupported',

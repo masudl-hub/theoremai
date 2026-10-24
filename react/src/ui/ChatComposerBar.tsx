@@ -44,6 +44,7 @@ import {
   type ComposerPendingMessage,
   type ComposerProfileInterface,
   type ComposerRunPhase,
+  composerPendingMoves,
   composerPendingPreview,
   effortSelectEnabled,
   interfaceEffortOptions,
@@ -143,22 +144,24 @@ export type LiveComposerBarProps = Omit<
 const isImage = (file: File) => file.type.startsWith('image/');
 const anyFile = () => true;
 
-/** Object URLs for the files `keep` (a module-level predicate) accepts, revoked when the files change. */
+/**
+ * Object URLs for the files `keep` (a module-level predicate) accepts, revoked when the files change.
+ * why: Each URL is made in the effect that revokes it, so a remount (strict mode, a moved subtree)
+ * makes fresh ones instead of keeping revoked ones; until the effect runs the files have none.
+ */
 function useObjectUrls(
   files: readonly File[],
   keep: (file: File) => boolean,
 ): (string | undefined)[] {
-  const urls = useMemo(
-    () => files.map((file) => (keep(file) ? URL.createObjectURL(file) : undefined)),
-    [files, keep],
-  );
-  useEffect(
-    () => () => {
+  const [made, setMade] = useState<{ files: readonly File[]; urls: (string | undefined)[] }>();
+  useEffect(() => {
+    const urls = files.map((file) => (keep(file) ? URL.createObjectURL(file) : undefined));
+    setMade({ files, urls });
+    return () => {
       for (const url of urls) if (url) URL.revokeObjectURL(url);
-    },
-    [urls],
-  );
-  return urls;
+    };
+  }, [files, keep]);
+  return made?.files === files ? made.urls : [];
 }
 
 /** Each way to send, by the same icon in the send menu and on a waiting message. */
@@ -171,6 +174,7 @@ const SEND_ICON: Record<ComposerMenuAction, typeof IconX> = {
 
 function PendingRow(props: {
   message: ComposerPendingMessage;
+  moves: { up: boolean; down: boolean };
   onMove: ChatComposerBarProps['onPendingMove'];
   onRemove: ChatComposerBarProps['onPendingRemove'];
   onQueue: ChatComposerBarProps['onPendingQueue'];
@@ -230,22 +234,26 @@ function PendingRow(props: {
           icon={icon(IconSend)}
           onClick={() => props.onSendNow(message.id)}
         />
-        <IconButton
-          label={moveUp}
-          tooltip={moveUp}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconArrowUp)}
-          onClick={() => props.onMove(message.id, 'up')}
-        />
-        <IconButton
-          label={moveDown}
-          tooltip={moveDown}
-          size="sm"
-          variant="ghost"
-          icon={icon(IconArrowDown)}
-          onClick={() => props.onMove(message.id, 'down')}
-        />
+        {props.moves.up ? (
+          <IconButton
+            label={moveUp}
+            tooltip={moveUp}
+            size="sm"
+            variant="ghost"
+            icon={icon(IconArrowUp)}
+            onClick={() => props.onMove(message.id, 'up')}
+          />
+        ) : null}
+        {props.moves.down ? (
+          <IconButton
+            label={moveDown}
+            tooltip={moveDown}
+            size="sm"
+            variant="ghost"
+            icon={icon(IconArrowDown)}
+            onClick={() => props.onMove(message.id, 'down')}
+          />
+        ) : null}
         <IconButton
           label={remove}
           tooltip={remove}
@@ -404,7 +412,7 @@ function PendingDrawer(props: {
   otherFiles: readonly StagedFile[];
   voiceFiles: readonly File[];
   voiceUrls: readonly (string | undefined)[];
-  pendingActions: Omit<Parameters<typeof PendingRow>[0], 'message'>;
+  pendingActions: Omit<Parameters<typeof PendingRow>[0], 'message' | 'moves'>;
   onAttachmentRemove: (index: number) => void;
   onVoiceRemove: () => void;
 }) {
@@ -413,7 +421,12 @@ function PendingDrawer(props: {
     <ChatComposerDrawer count={props.summary.count} label={composerDrawerLabel(t, props.summary)}>
       <VStack gap={2} width="100%">
         {props.messages.map((message) => (
-          <PendingRow key={message.id} message={message} {...props.pendingActions} />
+          <PendingRow
+            key={message.id}
+            message={message}
+            moves={composerPendingMoves(props.messages, message.id)}
+            {...props.pendingActions}
+          />
         ))}
         {props.imageFiles.length + props.voiceFiles.length > 0 ? (
           <HStack gap={2} wrap="wrap" vAlign="center">
@@ -426,14 +439,18 @@ function PendingDrawer(props: {
                 onRemove={() => props.onAttachmentRemove(index)}
               />
             ))}
-            {props.voiceFiles.map((file, index) => (
-              <VoiceNote
-                key={`voice:${file.name}`}
-                src={props.voiceUrls[index] ?? ''}
-                mimeType={file.type || undefined}
-                onRemove={props.onVoiceRemove}
-              />
-            ))}
+            {props.voiceFiles.map((file, index) => {
+              const src = props.voiceUrls[index];
+              // why: An empty src makes the browser fetch the page again; a note draws once it has its URL.
+              return src === undefined ? null : (
+                <VoiceNote
+                  key={`voice:${file.name}`}
+                  src={src}
+                  mimeType={file.type || undefined}
+                  onRemove={props.onVoiceRemove}
+                />
+              );
+            })}
           </HStack>
         ) : null}
         {props.otherFiles.length > 0 ? (
@@ -569,8 +586,8 @@ function useStagedFiles(pendingFiles: readonly File[], pendingVoice: readonly Fi
     preview: previews[index],
   }));
   return {
-    imageFiles: staged.filter((entry) => entry.preview !== undefined),
-    otherFiles: staged.filter((entry) => entry.preview === undefined),
+    imageFiles: staged.filter((entry) => isImage(entry.file)),
+    otherFiles: staged.filter((entry) => !isImage(entry.file)),
     voiceUrls,
   };
 }

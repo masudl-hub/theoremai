@@ -1,6 +1,6 @@
 import { assert, assertEquals } from '@std/assert';
 import type { ComposerProfileInterface } from '../../src/interface/mod.ts';
-import { interfaceFromProfile } from '../../src/interface/mod.ts';
+import { createComposerPendingMessage, interfaceFromProfile } from '../../src/interface/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { failureEvent } from '../../src/kernel/tools/events.ts';
@@ -99,6 +99,30 @@ function said(blocks: readonly { kind: string; text?: string }[]): [string, stri
     b.kind === 'user-text' || b.kind === 'text' ? [[b.kind, b.text]] : [],
   );
 }
+
+Deno.test('a chat starts with the text, files, voice notes and set-aside messages it is given', () => {
+  const host = heldHost();
+  const file = new File(['%PDF'], 'pass.pdf', { type: 'application/pdf' });
+  const note = new File(['voice'], 'note.m4a', { type: 'audio/mp4' });
+  const later = createComposerPendingMessage({ kind: 'stash', draft: { text: 'Later' }, now: 2 });
+  const next = createComposerPendingMessage({ kind: 'queue', draft: { text: 'Next' }, now: 1 });
+  const chat = createChatController({
+    transport: host.transport,
+    iface: textInterface(),
+    initialText: 'Now',
+    initialFiles: [file],
+    initialVoice: [note],
+    initialPending: [later, next],
+  });
+  const state = chat.getState();
+  assertEquals(state.draftText, 'Now');
+  assertEquals(state.pendingFiles, [file]);
+  assertEquals(state.pendingVoice, [note]);
+  assertEquals(
+    state.pendingMessages.map((message) => message.kind),
+    ['queue', 'stash'],
+  );
+});
 
 Deno.test('a draft sent at idle joins the transcript with its reply, and the composer empties', async () => {
   const host = heldHost();
@@ -218,6 +242,22 @@ Deno.test('a stash stays put; queued at idle, it sends', async () => {
   reply(host.turns[0], 'Sent');
   await settle();
   assertEquals(chat.getState().pendingMessages, []);
+});
+
+Deno.test('a pending message moves among those of its kind', () => {
+  const host = heldHost();
+  const queued = (text: string) =>
+    createComposerPendingMessage({ kind: 'queue', draft: { text }, id: text });
+  const chat = createChatController({
+    transport: host.transport,
+    iface: textInterface(),
+    initialPending: [queued('a'), queued('b')],
+  });
+  chat.movePending('b', 'up');
+  assertEquals(
+    chat.getState().pendingMessages.map((m) => m.id),
+    ['b', 'a'],
+  );
 });
 
 Deno.test('restoring a pending message stashes what the composer holds first', async () => {

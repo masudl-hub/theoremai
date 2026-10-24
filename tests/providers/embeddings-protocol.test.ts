@@ -1,11 +1,10 @@
 import { assertEquals, assertRejects } from '@std/assert';
 import type { JsonObject } from '../../src/kernel/json.ts';
-import { resolveProviderLimits } from '../../src/kernel/protocols/limits.ts';
 import type { ProtocolContext } from '../../src/kernel/protocols/protocol.ts';
 import { bytesToBase64 } from '../../src/kernel/util/base64.ts';
-import { geminiEmbedding } from '../../src/providers/gemini/embedding-protocol.ts';
-import { ollamaEmbedding } from '../../src/providers/local/embedding-protocol.ts';
-import { openRouterEmbedding } from '../../src/providers/openrouter/embedding-protocol.ts';
+import { geminiEmbeddings } from '../../src/providers/gemini/embeddings-protocol.ts';
+import { ollamaEmbeddings } from '../../src/providers/local/embeddings-protocol.ts';
+import { openRouterEmbeddings } from '../../src/providers/openrouter/embeddings-protocol.ts';
 
 function context<O>(
   apiId: string,
@@ -16,7 +15,7 @@ function context<O>(
     apiId,
     options: {} as O,
     builtInTools: [],
-    limits: resolveProviderLimits({}),
+    limits: {},
     send(body, init) {
       return (async function* () {
         yield send(body, init.path);
@@ -31,7 +30,7 @@ function context<O>(
 
 Deno.test('Gemini embedding encodes media and batch requests', async () => {
   const sent: { body: JsonObject; path?: string }[] = [];
-  const call = geminiEmbedding.create(
+  const call = geminiEmbeddings.create(
     context<{
       taskType?:
         | 'RETRIEVAL_QUERY'
@@ -66,7 +65,7 @@ Deno.test('Gemini embedding encodes media and batch requests', async () => {
 
 Deno.test('OpenRouter embedding encodes text and media batches', async () => {
   let body: JsonObject | undefined;
-  const call = openRouterEmbedding.create(
+  const call = openRouterEmbeddings.create(
     context<{ encodingFormat?: 'float' | 'base64' }>(
       'nvidia/llama-nemotron-embed-vl-1b-v2:free',
       (sent) => {
@@ -93,7 +92,7 @@ Deno.test('OpenRouter embedding encodes text and media batches', async () => {
 
 Deno.test('OpenRouter embedding decodes base64 vectors', async () => {
   const bytes = new Uint8Array(new Float32Array([0.1, 0.2]).buffer);
-  const call = openRouterEmbedding.create(
+  const call = openRouterEmbeddings.create(
     context('nvidia/nemotron-3-embed-1b:free', () => ({
       data: [{ index: 0, embedding: bytesToBase64(bytes) }],
     })),
@@ -112,7 +111,7 @@ Deno.test('OpenRouter embedding decodes base64 vectors', async () => {
 
 Deno.test('Ollama embedding sends its documented text request', async () => {
   let body: JsonObject | undefined;
-  const call = ollamaEmbedding.create(
+  const call = ollamaEmbeddings.create(
     context<{ truncate?: boolean; dimensions?: number }>('embeddinggemma', (sent) => {
       body = sent;
       return { model: 'embeddinggemma', embeddings: [[0.1, 0.2]] };
@@ -133,7 +132,7 @@ function sentParts(body: JsonObject): JsonObject[][] {
 
 Deno.test('Gemini Embedding 2 writes the task into text-only inputs and leaves media as sent', async () => {
   const bodies: JsonObject[] = [];
-  const call = geminiEmbedding.create(
+  const call = geminiEmbeddings.create(
     context('gemini-embedding-2', (body) => {
       bodies.push(body);
       return { embeddings: [{ values: [0.1] }, { values: [0.2] }] };
@@ -161,7 +160,7 @@ Deno.test('Gemini Embedding 2 writes the task into text-only inputs and leaves m
 
 Deno.test('Gemini Embedding 001 sends the task as its taskType, over the binding default', async () => {
   let body: JsonObject | undefined;
-  const call = geminiEmbedding.create(
+  const call = geminiEmbeddings.create(
     context('gemini-embedding-001', (sent) => {
       body = sent;
       return { embedding: { values: [0.1] } };
@@ -178,7 +177,7 @@ Deno.test('Gemini Embedding 001 sends the task as its taskType, over the binding
 });
 
 Deno.test('Gemini Embedding 2 refuses a binding taskType', async () => {
-  const call = geminiEmbedding.create(context('gemini-embedding-2', () => ({})));
+  const call = geminiEmbeddings.create(context('gemini-embedding-2', () => ({})));
   await assertRejects(
     async () =>
       await call.embed?.({

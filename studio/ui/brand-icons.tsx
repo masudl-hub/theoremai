@@ -257,6 +257,15 @@ export function IconMicrosoft(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** TypeSafe mark, from its vector logo, centred in a square. */
+export function IconTypeSafe(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="-22.55 0 144 144" fill="currentColor" fillRule="evenodd" aria-hidden {...props}>
+      <path d="M76.458 17.565v24.833l22.357 14.524.006 54.989L49.405 144l-27.041-17.559V100.92L0 86.396v-54.3l2.129-1.387L49.41 0zM35.604 123.9l13.795 8.959 36.163-23.496-13.788-8.952zm18.472-61.904v24.407l-22.37 14.525v14.365l35.41-22.996V53.529zm22.382 30.313 13.015 8.454V61.989l-13.015-8.454zM13.247 83.86l13.788 8.96 13.794-8.96-13.788-8.953zM9.342 37.162V75.26l13.022-8.46V42.392L44.74 27.856v-13.69zm22.364 29.632 13.028 8.46V61.989l-13.028-8.46zm3.898-21.871 13.807 8.965 13.794-8.96-13.8-8.964zm18.478-17.067 13.033 8.466V22.638l-13.033-8.473z" />
+    </svg>
+  );
+}
+
 /** The mark for a model family, by its OpenRouter vendor prefix (`anthropic/claude-...`). */
 const FAMILY_MARK: Record<string, (props: SVGProps<SVGSVGElement>) => ReactElement> = {
   anthropic: IconAnthropic,
@@ -284,22 +293,35 @@ const FAMILY_MARK: Record<string, (props: SVGProps<SVGSVGElement>) => ReactEleme
   liquid: IconLiquid,
   sakana: IconSakana,
   microsoft: IconMicrosoft,
+  typesafe: IconTypeSafe,
   openrouter: IconOpenRouter,
+};
+
+/**
+ * The vendor of a model id a provider serves under its own name, with no vendor before it
+ * (`gemini-3.1-flash-lite` on Gemini's API), by the name it starts with.
+ */
+const BARE_FAMILY: Record<string, string> = {
+  gemini: 'google',
+  gemma: 'google',
+  claude: 'anthropic',
+  gpt: 'openai',
+  mistral: 'mistralai',
+  llama: 'meta',
+  qwen: 'qwen',
+  deepseek: 'deepseek',
+  grok: 'x-ai',
+  jev: 'typesafe',
 };
 
 /** The family's mark for a model id, or undefined when the family has no mark. */
 export function modelFamilyMark(
   modelId: string,
 ): ((props: SVGProps<SVGSVGElement>) => ReactElement) | undefined {
-  const vendor = modelId.split('/')[0]?.replace(/^~/, '') ?? '';
-  return Object.hasOwn(FAMILY_MARK, vendor) ? FAMILY_MARK[vendor] : undefined;
-}
-
-/** TypeSafe mark, from its vector logo, centred in a square. */
-export function IconTypeSafe(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="-22.55 0 144 144" fill="currentColor" fillRule="evenodd" aria-hidden {...props}>
-      <path d="M76.458 17.565v24.833l22.357 14.524.006 54.989L49.405 144l-27.041-17.559V100.92L0 86.396v-54.3l2.129-1.387L49.41 0zM35.604 123.9l13.795 8.959 36.163-23.496-13.788-8.952zm18.472-61.904v24.407l-22.37 14.525v14.365l35.41-22.996V53.529zm22.382 30.313 13.015 8.454V61.989l-13.015-8.454zM13.247 83.86l13.788 8.96 13.794-8.96-13.788-8.953zM9.342 37.162V75.26l13.022-8.46V42.392L44.74 27.856v-13.69zm22.364 29.632 13.028 8.46V61.989l-13.028-8.46zm3.898-21.871 13.807 8.965 13.794-8.96-13.8-8.964zm18.478-17.067 13.033 8.466V22.638l-13.033-8.473z" />
-    </svg>
-  );
+  const id = modelId.trim().replace(/^~/, '').toLowerCase();
+  const slash = id.indexOf('/');
+  const bare = id.split(/[-.:\d]/, 1)[0] ?? '';
+  const vendor =
+    slash >= 0 ? id.slice(0, slash) : Object.hasOwn(BARE_FAMILY, bare) ? BARE_FAMILY[bare] : '';
+  return vendor && Object.hasOwn(FAMILY_MARK, vendor) ? FAMILY_MARK[vendor] : undefined;
 }

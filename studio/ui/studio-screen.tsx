@@ -33,7 +33,6 @@ import {
   IconCopyPlus,
   IconFile,
   IconFileImport,
-  IconFileSmile,
   IconFileZip,
   IconKey,
   IconMenu2,
@@ -112,6 +111,7 @@ import {
   type StudioNodeRef,
   type StudioProvider,
   type StudioRunPayload,
+  type StudioRunsOn,
   type StudioTreeNode,
   type StudioWorkspace,
   sampleToolInput,
@@ -160,7 +160,6 @@ import {
 import { flushSync } from 'react-dom';
 import { ActingAsButton } from './acting-as-button.tsx';
 import { AddProviderButton } from './add-provider.tsx';
-import { IconTypeSafe, modelFamilyMark } from './brand-icons.tsx';
 import { useConfirmWrite } from './confirm-write.tsx';
 import {
   ConfirmWrite,
@@ -213,10 +212,12 @@ import {
 import { createStudioStore, type StudioStore } from './lib/studio-store.ts';
 import { subscribeToFiles } from './lib/studio-watch.ts';
 import { toolCredential } from './lib/tool-credentials.ts';
+import type { ProbeResult } from './lib/tool-probe.ts';
 import { runToolProbe } from './lib/tool-probe.ts';
-import { PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
+import { AGENT_ICON, PROFILE_TYPE_ICON, toolTypeIcon } from './lib/type-icons.ts';
 import { warmWhenIdle } from './lib/when-idle.ts';
-import { addToolSpec, ProfileEditor } from './profile-editor.tsx';
+import { nodeIcon } from './node-icon.ts';
+import { addToolSpec, ProfileEditor, ShownProbe } from './profile-editor.tsx';
 import { ProviderEditor } from './provider-editor.tsx';
 import { SharedChange } from './shared-change.tsx';
 import { ChooseConflictsContext, FileConflicts } from './studio-conflicts.tsx';
@@ -253,22 +254,6 @@ const TraceReplay = lazy(() => traceReplay().then((pane) => ({ default: pane.Tra
 const StudioSettings = lazy(() =>
   settingsPanel().then((settings) => ({ default: settings.StudioSettings })),
 );
-
-/** A node's icon; Identity shows the profile type's once one is picked. */
-function nodeIcon(draft: StudioDraft, ref: StudioNodeRef) {
-  const type = draft.identity.profileType;
-  if (ref.facet === 'identity' && type) return PROFILE_TYPE_ICON[type];
-  if (ref.facet === 'modelBinding') {
-    const binding = draft.modelBindings.find((each) => each.key === ref.key);
-    if (!binding) return FACET_ICON.modelBinding;
-    const definition = draft.providers.find((each) => each.id === binding.provider)?.definition;
-    if (definition === 'typesafe') return IconTypeSafe;
-    return modelFamilyMark(binding.apiId) ?? FACET_ICON.modelBinding;
-  }
-  if (ref.facet !== 'toolSpec') return FACET_ICON[ref.facet];
-  const tool = draft.toolSpecs.find((spec) => spec.key === ref.key);
-  return tool ? toolTypeIcon(tool.toolType) : IconTool;
-}
 
 /**
  * What every row of one agent's tree reads: its draft, the selection, and how to change them.
@@ -637,7 +622,7 @@ function WorkspaceListToggle({
 
 /** The sidebar's lists, as icons: a name and its count would not fit the nav's width. */
 const WORKSPACE_LISTS: readonly { value: WorkspaceList; name: string; icon: IconType }[] = [
-  { value: 'agents', name: 'Agents', icon: IconFileSmile },
+  { value: 'agents', name: 'Agents', icon: AGENT_ICON },
   { value: 'tools', name: 'Tools', icon: IconTool },
   { value: 'providers', name: 'Providers', icon: IconCloud },
 ];
@@ -2317,19 +2302,98 @@ const TreeColumn = memo(function TreeColumn({
 });
 
 /**
+ * The studio's editor for a workspace, open on its `selected` node: the toolbar, with the issue
+ * count, over the inspector, with each issue on its row. Nothing on it changes anything: a picture
+ * of the studio for a page that is not the studio, such as a home page. It writes no storage and
+ * reports nothing. `on` is where the page's studio runs, so the issues are the ones it would show.
+ * `probe`, on a tool, is a connection test already run: the inspector shows it, scrolled to the end.
+ */
+export function StudioEditorPreview({
+  workspace,
+  on,
+  probe,
+}: {
+  workspace: StudioWorkspace;
+  on: StudioRunsOn;
+  probe?: ProbeResult;
+}) {
+  const selected = workspace.selected;
+  const at = workspaceNodeRef(workspace, selected);
+  const focus = at && 'agent' in at ? at.agent : (workspace.agents[0]?.key ?? '');
+  const draft = libraryDraft(workspace, focus) ?? createBlankDraft();
+  const compiled = useMemo(() => compileWorkspace(workspace, on), [workspace, on]);
+  const editing = innerNodeId(selected, focus) ?? 'identity';
+  const still = () => {};
+  const scroller = useRef<HTMLDivElement>(null);
+  // why: A tool's test sits at the foot of its page: the editor stays at its end as the page settles.
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    const content = node?.firstElementChild;
+    if (!probe || !node || !content) return;
+    const toEnd = () => {
+      node.scrollTop = node.scrollHeight;
+    };
+    toEnd();
+    const watch = new ResizeObserver(toEnd);
+    watch.observe(content);
+    return () => {
+      watch.disconnect();
+    };
+  }, [probe]);
+  const view: EditorViewState = {
+    keysOpen: false,
+    setKeysOpen: still,
+    editorView: 'editor',
+    setEditorView: still,
+    mapOpen: false,
+    setMapOpen: still,
+    settingsOpen: false,
+    open: still,
+  };
+  return (
+    <VStack height="100%">
+      <EditorToolbar
+        heading={editorTitle(draft, editing)}
+        compiled={compiled}
+        selected={selected}
+        view={view}
+        onIssue={still}
+        getCode={null}
+        project={null}
+        setSheet={still}
+      />
+      <StackItem size="fill">
+        <ScrollableArea label="Editor" height="100%" ref={scroller}>
+          <RunsOn.Provider value={on}>
+            <ShownProbe.Provider value={probe}>
+              <ProfileEditor
+                draft={draft}
+                setDraft={still}
+                selectedId={editing}
+                onSelect={still}
+                issues={editorIssuesOf(compiled, focus)}
+              />
+            </ShownProbe.Provider>
+          </RunsOn.Provider>
+        </ScrollableArea>
+      </StackItem>
+    </VStack>
+  );
+}
+
+/**
  * The issue count, which goes to the next issue after the selected node and shows it there. Hidden
  * with none. It counts every issue, so what blocks a run or Save always has a way to it.
  */
 function IssueToken({
-  compile,
+  compiled,
   selected,
   onIssue,
 }: {
-  compile: WorkspaceCompile;
+  compiled: WorkspaceCompileResult;
   selected: string;
   onIssue: (node: string) => void;
 }) {
-  const { compiled } = compile;
   if (compiled.ok) return null;
   const issues = issuesLabel(compiled.issues.length);
   if (!issues) return null;
@@ -2433,7 +2497,7 @@ function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
 /** The editor column's header: its title, the next issue, what to start from, Get code, and the view toggle. */
 function EditorToolbar({
   heading,
-  compile,
+  compiled,
   selected,
   view,
   onIssue,
@@ -2442,7 +2506,7 @@ function EditorToolbar({
   setSheet,
 }: {
   heading: string | undefined;
-  compile: WorkspaceCompile;
+  compiled: WorkspaceCompileResult;
   /** Get code, beside the view toggle. */
   getCode: ReactNode;
   /** An open project's tokens: Save, and what the studio cannot run. */
@@ -2467,7 +2531,7 @@ function EditorToolbar({
         </StackItem>
         <StackItem size="static">
           <HStack gap={1} vAlign="center">
-            <IssueToken compile={compile} selected={selected} onIssue={onIssue} />
+            <IssueToken compiled={compiled} selected={selected} onIssue={onIssue} />
             {project}
           </HStack>
         </StackItem>
@@ -3706,7 +3770,7 @@ function EditorColumn({
     <VStack height="100%">
       <EditorToolbar
         heading={heading}
-        compile={compile}
+        compiled={compile.compiled}
         selected={selected}
         view={view}
         onIssue={goToIssue}

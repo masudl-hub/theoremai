@@ -482,7 +482,8 @@ export const THEOREM_UI_CATALOG = {
   },
   '@theorem.decision.confidence': {
     defaultMessage: '{percent} sure',
-    description: "How sure the model is of a choice or score; percent is formatted, e.g. '92%'.",
+    description:
+      "How sure the model is of a choice, score or box; percent is formatted, e.g. '92%'.",
     params: ['percent'],
   },
   '@theorem.decision.option': {

@@ -31,7 +31,7 @@ function conciergeRun() {
     identity: { ...blank.identity, agentId: 'travel.helper', handle: 'helper' },
     modelBindings: blank.modelBindings.map((binding) => ({
       ...binding,
-      protocol: 'openRouter',
+      protocol: 'openRouterOpenAi',
       provider: 'openrouter' as const,
       apiId: 'openrouter/free',
     })),

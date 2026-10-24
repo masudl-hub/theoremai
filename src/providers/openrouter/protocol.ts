@@ -105,14 +105,14 @@ function thinking(row: JsonObject): string {
     .join('');
 }
 
-/** What an `openRouter` binding sets in `options`. */
+/** What an `openRouterOpenAi` binding sets in `options`. */
 export interface OpenRouterOptions {
   cache?: CacheSpec;
 }
 
 /** Chat Completions with OpenRouter's caching, routing, web search, citations, and reasoning. */
-export const openRouter: Protocol<OpenRouterOptions> = extendProtocol(openAi, {
-  id: 'openRouter',
+export const openRouterOpenAi: Protocol<OpenRouterOptions> = extendProtocol(openAi, {
+  id: 'openRouterOpenAi',
   name: 'OpenRouter Chat Completions',
   description:
     "Chat Completions with OpenRouter's caching, routing, web search, citations and reasoning.", // labels-exempt: builder field description, read by the studio and docs

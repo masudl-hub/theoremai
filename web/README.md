@@ -177,7 +177,7 @@ await chat.submit();
 
 - `getState()` returns a `ChatState`. It is a new object after each change, and the same object between changes. So you can compare it by reference, as React's `useSyncExternalStore` does.
 - `subscribe(listener)` calls the listener once for each group of changes, after the code that made them has run. It returns the function that unsubscribes. Until the first subscribe or send, the chat asks nothing of the host. Then it reads a resumed conversation that came without its `conversationView`, and answers a restored page gate as unanswered.
-- `update(options)` gives the controller your latest options, such as a new `context`, `slots`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, and `initialText` are read only when the controller is created.
+- `update(options)` gives the controller your latest options, such as a new `context`, `slots`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, `initialText`, `initialFiles`, `initialVoice`, and `initialPending` are read only when the controller is created.
 - Each method is bound to the controller. Pass it as a callback as it is.
 
 `state.phase` is `'idle'`, `'streaming'`, or `'gated'`. The methods for the composer depend on it:
@@ -189,6 +189,7 @@ await chat.submit();
 | `enqueue('queue')` | Keeps the draft to send after the reply. When the reply ends without a failure and no gate waits, the first queued message is sent. |
 | `enqueue('stash')` | Keeps the draft without sending it. `queuePending(id)` moves it to the queue. |
 | `sendNow(message?)` | Sends a pending message, or the draft, at once. A streaming reply is stopped first, as `stop()` stops it. A reply that waits on gates is left. |
+| `movePending(id, direction)` | Moves a pending message one place `'up'` or `'down'` among the messages of its kind. `composerPendingMoves(messages, id)` from `@theoremjs/agents/interface` says which ways it can go, so a control that can do nothing is not drawn. |
 | `restorePending(id)` | Puts a pending message back in the composer. The draft that was there is stashed first, so the user loses nothing. |
 | `stop()` | Stops the streaming reply with `transport.stop`. What the reply said before the stop stays in the transcript and the history, closed as cancelled. A queued message stays queued. When the host refuses the stop, the controller drops the stream instead, and a host that keeps the conversation keeps the stopped reply where the page can't read it. |
 | `decide(action)`, `authenticate(secret?)` | Answer the gate that the reply waits on. |
@@ -484,7 +485,7 @@ On the browser side, `@theoremjs/web/client` reads what your server sends:
 | `fetchConversation(url, body, options?)` | POSTs a conversation read, and checks the view your server answers. |
 | `fetchRewound(url, body, options?)` | POSTs a rewind, and checks the rewound conversation. |
 | `fetchStarted(url, body, options?)` | POSTs blocks to start a conversation on, and checks the started conversation. |
-| `failedDecisionTraces(err)` | The trace records that a failed decision left, for the trace inspector. |
+| `failedTraces(err)` | The trace records that a failed decision left, for the trace inspector. |
 
 ## More documentation
 

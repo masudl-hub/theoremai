@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
-import { jsonObjectSchema } from '../../kernel/json.ts';
+import { type JsonObject, jsonObjectSchema } from '../../kernel/json.ts';
 import { defineProtocol, type Protocol } from '../../kernel/protocols/mod.ts';
 import type { DecisionCall } from '../../kernel/protocols/protocol.ts';
 import type { DecisionResult } from '../../kernel/types.ts';
@@ -72,37 +72,42 @@ export const systemOne: Protocol<SystemOneOptions> = defineProtocol({
             ? { assets: assetsOnWire(request.assets) }
             : {}),
         });
-        for await (const row of context.send(body, { stream: false, headers })) {
-          const parsed = reply.safeParse(row);
-          if (!parsed.success)
-            throw new TheoremError(
-              'bad_response',
-              labelText('protocol.reply_shape', {
-                protocol: 'systemOne',
-                issues: z.prettifyError(parsed.error),
-              }),
-            );
-          const { model, answers, usage } = parsed.data;
-          // invariant: The kernel validates every answer against its question before exposing it.
-          return {
-            model,
-            answers: answers as DecisionResult['answers'],
-            ...(usage
-              ? {
-                  usage: {
-                    inputTokens: usage.input_tokens,
-                    outputTokens: usage.output_tokens,
-                    ...(usage.cost === undefined ? {} : { costUsd: usage.cost }),
-                  },
-                }
-              : {}),
-          };
-        }
-        throw new TheoremError('bad_response', labelText('provider.decision_failed'));
+        return await decisionAnswered('systemOne', context.send(body, { stream: false, headers }));
       },
     };
   },
 });
+
+/** The first decision reply, read into the kernel's result. Shared by every decision API that answers as System One does. */
+export async function decisionAnswered(
+  protocol: string,
+  rows: AsyncIterable<JsonObject>,
+): Promise<DecisionResult> {
+  for await (const row of rows) {
+    const parsed = reply.safeParse(row);
+    if (!parsed.success)
+      throw new TheoremError(
+        'bad_response',
+        labelText('protocol.reply_shape', { protocol, issues: z.prettifyError(parsed.error) }),
+      );
+    const { model, answers, usage } = parsed.data;
+    // invariant: The kernel validates every answer against its question before exposing it.
+    return {
+      model,
+      answers: answers as DecisionResult['answers'],
+      ...(usage
+        ? {
+            usage: {
+              inputTokens: usage.input_tokens,
+              outputTokens: usage.output_tokens,
+              ...(usage.cost === undefined ? {} : { costUsd: usage.cost }),
+            },
+          }
+        : {}),
+    };
+  }
+  throw new TheoremError('bad_response', labelText('provider.decision_failed'));
+}
 
 const FORMATS = { 'image/png': 'png', 'image/jpeg': 'jpeg' } as const;
 

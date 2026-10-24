@@ -144,11 +144,108 @@ const INJECTION_PATTERNS = [
   OVERRIDE_FRAME,
 ];
 
+/**
+ * A pattern whose `exec` is a scan written by hand, which finds exactly the matches of its `source`.
+ * V8 grows its regex stack once per step of a repeated group whose steps differ in length, so on a run
+ * of millions of characters that regex throws. The egress automata are still built from `source`.
+ */
+abstract class ScannedPattern extends RegExp {
+  /** Where the match that starts at `start` ends, or -1 when none starts there. */
+  protected abstract endOf(text: string, start: number): number;
+
+  override exec(text: string): RegExpExecArray | null {
+    for (let start = this.lastIndex; start < text.length; start++) {
+      const end = this.endOf(text, start);
+      if (end < 0) continue;
+      this.lastIndex = end;
+      return Object.assign([text.slice(start, end)], {
+        index: start,
+        input: text,
+      }) as RegExpExecArray;
+    }
+    this.lastIndex = 0;
+    return null;
+  }
+}
+
+const WHITESPACE = /\s/;
+
+function isHex(code: number): boolean {
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 70) || (code >= 97 && code <= 102);
+}
+
+function isLetter(code: number): boolean {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+/** A character `\b` counts as part of a word: a letter, a digit, or `_`. */
+function isWordChar(code: number): boolean {
+  return isLetter(code) || (code >= 48 && code <= 57) || code === 95;
+}
+
+class HexBlob extends ScannedPattern {
+  constructor() {
+    super('(?:[0-9a-f]{2}[\\s]?){8,}', 'gi');
+  }
+
+  protected endOf(text: string, start: number): number {
+    let at = start;
+    let pairs = 0;
+    while (isHex(text.charCodeAt(at)) && isHex(text.charCodeAt(at + 1))) {
+      at += 2;
+      pairs++;
+      if (at < text.length && WHITESPACE.test(text[at] as string)) at++;
+    }
+    return pairs >= 8 ? at : -1;
+  }
+}
+
+class PipeSeparated extends ScannedPattern {
+  constructor() {
+    super('\\b(?:[A-Za-z]+\\|){2,}[A-Za-z]+\\b', 'g');
+  }
+
+  protected endOf(text: string, start: number): number {
+    if (!isLetter(text.charCodeAt(start)) || isWordChar(text.charCodeAt(start - 1))) return -1;
+    let at = start;
+    let piped = 0;
+    let lastWordEnd = -1;
+    for (;;) {
+      let end = at;
+      while (isLetter(text.charCodeAt(end))) end++;
+      if (end > at && text[end] === '|') {
+        piped++;
+        lastWordEnd = end;
+        at = end + 1;
+        continue;
+      }
+      if (end > at && piped >= 2 && !isWordChar(text.charCodeAt(end))) return end;
+      // why: The regex backtracks one step, so the last piped word is the final one.
+      return piped >= 3 ? lastWordEnd : -1;
+    }
+  }
+}
+
 /** Runs that might encode an injection; each is decoded and checked in `injection.ts`. */
-const BASE64_BLOB = /[A-Za-z0-9+/]{16,}={0,2}/g;
-const HEX_BLOB = /(?:[0-9a-f]{2}[\s]?){8,}/gi;
+const BASE64_BLOB = /[A-Za-z0-9+/]{16}[A-Za-z0-9+/]*={0,2}/g;
+const HEX_BLOB: RegExp = new HexBlob();
 const SPACED_LETTERS = /\b(?:[A-Za-z] ){3,}[A-Za-z]\b/g;
 /** Three+ alphabetic tokens joined by `|` (no shell spaces around pipes). */
-const PIPE_SEPARATED = /\b(?:[A-Za-z]+\|){2,}[A-Za-z]+\b/g;
+const PIPE_SEPARATED: RegExp = new PipeSeparated();
 
-export { BASE64_BLOB, HEX_BLOB, INJECTION_PATTERNS, overrideFrame, PIPE_SEPARATED, SPACED_LETTERS };
+/** A pattern of its own for one scan to move `lastIndex` on, of the same class as `pattern`. */
+function freshPattern(pattern: RegExp): RegExp {
+  if (pattern instanceof HexBlob) return new HexBlob();
+  if (pattern instanceof PipeSeparated) return new PipeSeparated();
+  return new RegExp(pattern.source, pattern.flags);
+}
+
+export {
+  BASE64_BLOB,
+  freshPattern,
+  HEX_BLOB,
+  INJECTION_PATTERNS,
+  overrideFrame,
+  PIPE_SEPARATED,
+  SPACED_LETTERS,
+};

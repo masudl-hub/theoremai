@@ -723,6 +723,37 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'How long a decision waits for its provider, in milliseconds. Omit for no timeout.',
   ),
+  'models.*.limits': field(
+    'ProviderLimits',
+    "The points at which Theorem stops this model's calls. Each one left out is no limit, so the provider's own limits apply. A runTurn limits value overrides each field it sets.",
+  ),
+  'models.*.limits.operationTimeoutMs': field(
+    'number',
+    'How long one call may take, in milliseconds, retries included.',
+  ),
+  'models.*.limits.connectTimeoutMs': field(
+    'number',
+    'How long a live session may take to open, in milliseconds.',
+  ),
+  'models.*.limits.liveStepTimeoutMs': field(
+    'number',
+    'How long a live session may wait for the model to answer, in milliseconds.',
+  ),
+  'models.*.limits.maxWireRecordBytes': field(
+    'number',
+    'The most bytes in one record the provider sends: a stream event or a socket message.',
+  ),
+  'models.*.limits.maxWireResponseBytes': field(
+    'number',
+    'The most bytes the provider sends for one step.',
+  ),
+  'models.*.limits.maxEventBytes': field('number', 'The most bytes in one event of a step.'),
+  'models.*.limits.maxStepBytes': field('number', 'The most bytes in all the events of one step.'),
+  'models.*.limits.maxStepEvents': field('number', 'The most events in one step.'),
+  'models.*.limits.maxPendingToolCalls': field(
+    'number',
+    'The most tool calls one step may ask for.',
+  ),
   decision: field(
     '{ contract: DecisionContractId }',
     'Names the host decision this profile makes.',
@@ -1382,7 +1413,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   'decision.questions.instructions': field(
     'DecisionEntry',
-    "What to ask about the state. Name a state field in backticks, such as `photo`, and one of the decision's images by its reference, such as <ginger>. A box looks in its In image, else in the image of the first field it names.",
+    "What to ask about the state. Name a state field in backticks, such as `photo`, and one of the decision's images by its reference, such as <ginger>. A box names what to find and the image it is in, such as the ginger in `photo`.",
   ),
   'decision.questions.image': {
     ...field(
@@ -1393,7 +1424,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   },
   'decision.images': field(
     'Record<string, DecisionAsset>',
-    'Pictures sent with every decision, beside the state. A question names one by its reference, such as <ghs02>. A PNG or JPEG.',
+    "Pictures a decision can send. Write one's reference, such as <ghs02>, in the state or a question, and the model reads the picture there; a picture nothing references is not sent. A PNG or JPEG.",
   ),
   'decision.images.name': field(
     'string',

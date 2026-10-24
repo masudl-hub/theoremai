@@ -26,7 +26,7 @@ function registerFuzzProfile(): void {
     identity: { handle: 'fuzz', system: 'Fuzz profile.' },
     models: {
       'fuzz-model': {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
         keySlot: 'fuzz',

@@ -22,14 +22,16 @@ Deno.test('imageName writes the file name as a bracketed reference, and numbers 
   assertEquals(imageName('.png', []), '<image>');
 });
 
-Deno.test('boxSource is the image the question names, or the one at its field, else the first the state names, else the first held', () => {
+Deno.test("boxSource is the question's image, by reference or state field, else the only image, else none", () => {
   const images = { '<shelf>': shelf, '<lemon>': lemon };
   const state = { photo: '<shelf>', chart: { strip: '<lemon>' } };
   assertEquals(boxSource(images, state, 'chart.strip'), lemon);
   assertEquals(boxSource(images, state, '<lemon>'), lemon);
   assertEquals(boxSource(images, state, 'photo'), shelf);
-  assertEquals(boxSource(images, { fruit: ['x', '<lemon>'] }, 'missing'), lemon);
-  assertEquals(boxSource(images, { note: 'no pictures here' }), shelf);
+  assertEquals(boxSource(images, state, 'missing'), undefined);
+  // The page cannot see the instructions, so with two images and no `image` it does not guess.
+  assertEquals(boxSource(images, state), undefined);
+  assertEquals(boxSource({ '<lemon>': lemon }, { note: 'no pictures here' }), lemon);
   assertEquals(boxSource({}, { a: '<shelf>' }), undefined);
 });
 
@@ -66,7 +68,7 @@ Deno.test('readImage reads a PNG or JPEG as bare base64 and refuses any other fi
   assertEquals(await readImage(new File(['x'], 'a.gif', { type: 'image/gif' })), null);
 });
 
-Deno.test('a box question shows the page its image, else the field its instructions first name, and nothing more', () => {
+Deno.test('a box question shows the page its image and nothing of its instructions', () => {
   const view = decisionInterface(
     {
       identity: { handle: 'jev' },
@@ -74,19 +76,16 @@ Deno.test('a box question shows the page its image, else the field its instructi
       inputs: { state: 'json' },
     },
     {
-      'Apple on the chart': {
-        type: 'box',
-        instructions: 'Where on `chart` would the green apple in `photo` sit?',
-      },
-      Ginger: { type: 'box', instructions: 'Where is <ginger>?' },
-      Strip: { type: 'box', instructions: 'Where in `photo` is the apple?', image: '<chart>' },
+      Ginger: { type: 'box', instructions: 'Where is <ginger> in `photo`?' },
+      Photo: { type: 'box', instructions: 'Where is the ginger?', image: 'photo' },
+      Strip: { type: 'box', instructions: 'Where is the apple?', image: '<chart>' },
       Bread: { type: 'noul', instructions: 'Is there bread in `photo`?' },
     },
   );
   assertEquals(view.questions, [
-    { id: 'Apple on the chart', type: 'box', labels: [], field: 'chart' },
     { id: 'Ginger', type: 'box', labels: [] },
-    { id: 'Strip', type: 'box', labels: [], field: '<chart>' },
+    { id: 'Photo', type: 'box', labels: [], image: 'photo' },
+    { id: 'Strip', type: 'box', labels: [], image: '<chart>' },
     { id: 'Bread', type: 'noul', labels: [] },
   ]);
 });

@@ -42,7 +42,7 @@ agents <command> [options]
 | `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
 | `run` | Execute a turn with streaming output (`--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …) |
 | `eval <suite>` | Run an eval suite module live, or grade recorded traces (`--recorded <file\|dir>`, `--trials <k>`, `--concurrency <n>`, `--max-cost-usd <n>`, `--threshold <fraction>`, `--trace-dir`, `--json`); exit `1` below the threshold or on a budget stop |
-| `profile list` / `profile show <id>` | Inspect registered profile blueprints (text, image, speech, live, decision). `run` and `test` remain turn paths; decision profiles run through host code with `runDecision`. |
+| `profile list` / `profile show <id>` | Inspect registered profile blueprints (text, image, speech, live, decision, embedding, host). `run` and `test` remain turn paths; decision profiles run through host code with `runDecision`. |
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
@@ -110,8 +110,11 @@ selected model's `builtInTools` include `googleSearch` / `googleMaps`.
 
 ## Exported API
 
-The entry module exports `main(args?)`, which reads the process arguments by
-default; `src/cli/bin.ts` runs it as the `agents` binary. It runs on Node
+| Export | Role |
+| --- | --- |
+| `main(args?)` | Runs one command. It reads the process arguments by default. |
+
+`src/cli/bin.ts` runs `main` as the `agents` binary. It runs on Node
 (20 and up), Deno, and Bun.
 
 Prefer `deno task agents` / `npx @theoremjs/agents` over importing commands in

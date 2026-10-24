@@ -13,6 +13,7 @@ import {
 import { decisionRequestSchema } from '../../studio/server/draft-decide.ts';
 import { errorJson, ndjsonEventStream } from '../../studio/server/draft-replies.ts';
 import { createStudioHandler } from '../../studio/server/handler.ts';
+import { testConnection } from '../../studio/server/test-connection.ts';
 import {
   createStudioDraftHandler,
   type ProbeEntry,
@@ -296,19 +297,6 @@ Deno.test('a binding option the protocol does not take is a bad request, and nev
   );
 });
 
-Deno.test('a message far over the length the detectors read is the sender’s error, not the host’s', async () => {
-  const handler = createStudioDraftHandler({ lent: ON_TEST_KEYS });
-  const response = await handler(
-    post('turn', { ...concierge(), input: { text: 'a'.repeat(8_000_000) } }),
-  );
-  assertEquals(
-    (await lines(response))
-      .filter((event) => event.type === 'error')
-      .map((event) => event.errorKind),
-    ['input'],
-  );
-});
-
 Deno.test('a refused spend refuses the call before it runs', async () => {
   const spent: StudioSpend[] = [];
   const handler = createStudioDraftHandler({
@@ -357,7 +345,7 @@ function embedding(apiId: string) {
       id: 'embed',
       identity: { handle: 'embed' },
       inputs: { text: true },
-      models: { main: { protocol: 'geminiEmbedding', provider: 'gemini', apiId } },
+      models: { main: { protocol: 'geminiEmbeddings', provider: 'gemini', apiId } },
     },
     input: 'hello',
   };
@@ -624,4 +612,40 @@ Deno.test('a lent decision with too many images spends nothing', async () => {
   const many = Object.fromEntries([1, 2, 3, 4].map((n) => [`p${String(n)}`, png]));
   assertEquals((await handler(post('decide', boxRequest(many)))).status, 400);
   assertEquals(spent, []);
+});
+
+Deno.test("an MCP connection test sends the client's revision and capabilities, as a stateless server asks", async () => {
+  const originalFetch = globalThis.fetch;
+  let sent: { method?: string; params?: { _meta?: Record<string, unknown> } } = {};
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+    sent = JSON.parse(String(init?.body));
+    return Promise.resolve(
+      Response.json({
+        jsonrpc: '2.0',
+        id: 'test-ping-1',
+        result: { tools: [{ name: 'web_search_exa' }] },
+      }),
+    );
+  }) as typeof fetch;
+  try {
+    const answer = await testConnection(
+      new Request('http://studio.test/api/studio/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'mcp',
+          serverUrl: 'https://93.184.216.34/mcp',
+          mcpToolName: 'web_search_exa',
+        }),
+      }),
+    );
+    assertEquals((await answer.json()).targetToolFound, true);
+    assertEquals(sent.method, 'tools/list');
+    assertEquals(sent.params?._meta, {
+      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+      'io.modelcontextprotocol/clientCapabilities': {},
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

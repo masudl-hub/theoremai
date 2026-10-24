@@ -69,7 +69,6 @@ export const LABEL_KEYS = [
   'attachments.turn_too_large',
   'attachments.not_accepted',
   'attachments.mime_not_allowed',
-  'input.too_long',
   'attachments.limits_unconfigured',
   'quota.exhausted',
   'quota.busy',
@@ -101,6 +100,8 @@ export const LABEL_KEYS = [
   'repair.section_validator_rejection',
   'repair.section_repair_guidance',
   'repair.section_instructions',
+  'structured.answer_tool',
+  'structured.answer_missing',
   'compaction.request',
   'compaction.tool_call',
   'compaction.tool_result',
@@ -234,7 +235,6 @@ export const CLIENT_LABEL_KEYS = [
   'attachments.turn_too_large',
   'attachments.not_accepted',
   'attachments.mime_not_allowed',
-  'input.too_long',
   'attachments.limits_unconfigured',
   'detect.blocked',
   'error.config',
@@ -425,8 +425,6 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
       ? `Sorry, ${name} is a file type that can't be used here.`
       : "Sorry, that file type can't be used here.";
   },
-  'input.too_long': (params) =>
-    `Sorry, that message is too long. Please keep it under ${Number(params.maxChars).toLocaleString('en-US')} characters.`,
   'attachments.limits_unconfigured': "Sorry, files can't be used here at the moment.",
   'quota.exhausted': (params) =>
     params.perDay === 1
@@ -465,6 +463,9 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'repair.section_validator_rejection': '### VALIDATOR REJECTION',
   'repair.section_repair_guidance': '### REPAIR GUIDANCE',
   'repair.section_instructions': '### INSTRUCTIONS',
+  'structured.answer_tool':
+    'Call this once your work is done, with your final answer as its input. Text you write outside this call is shown as progress, not taken as the answer.',
+  'structured.answer_missing': 'The reply did not call {tool}. Call {tool} with your final answer.',
   'compaction.request':
     'Summarize the conversation above, including any earlier summary in it. Call the participants the user and the assistant, and keep every name, number, fact, and decision either may need later. Reply with the summary only.',
   'compaction.tool_call': 'Called {tool} with {arguments}',
@@ -685,8 +686,6 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     "Shown to the user who sends files or a voice note to an agent that takes none. Takes {channel}: 'voice' or 'attachment'.",
   'attachments.mime_not_allowed':
     "Shown to the user when a file's type is not in the agent's accepted types. Takes {mimeType}, {channel} ('voice' or 'attachment'), and {fileName} when the file has one.",
-  'input.too_long':
-    'Shown to the user when one text a turn sends, such as the message or a text file, is longer than Theorem reads. Takes {maxChars}.',
   'attachments.limits_unconfigured':
     'Shown to the user who sends a file to an agent whose file limits are not set.',
   'quota.exhausted': 'Shown to the user who has used up the daily message cap. Takes {perDay}.',
@@ -745,6 +744,10 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     "The heading over the validator's or egress check's reason in the repair request.",
   'repair.section_repair_guidance': 'The heading over the repair guidance in the repair request.',
   'repair.section_instructions': 'The heading over the numbered steps in the repair request.',
+  'structured.answer_tool':
+    "The description of the answer tool: on a structured turn that has tools, the model calls it with its final answer, and the tool's input is the structured output.",
+  'structured.answer_missing':
+    'The validator rejection in the repair request when a structured turn with tools ended without calling the answer tool. Takes {tool}.',
   'compaction.request':
     'Sent to the compactor after the messages it compacts, asking for the summary.',
   'compaction.tool_call':
@@ -956,9 +959,9 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'attachments.turn_too_large': ['maxTurnBytes'],
   'attachments.not_accepted': ['channel'],
   'attachments.mime_not_allowed': ['mimeType', 'channel', 'fileName'],
-  'input.too_long': ['maxChars'],
   'quota.exhausted': ['perDay'],
   'repair.history_heading': ['count'],
+  'structured.answer_missing': TOOL,
   'compaction.tool_call': ['tool', 'arguments'],
   'compaction.tool_result': ['tool', 'result'],
   'decision.box_image': ['image'],

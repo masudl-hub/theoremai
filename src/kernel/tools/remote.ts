@@ -957,6 +957,17 @@ export const MCP_PROTOCOL_VERSIONS = [
   '2025-03-26',
 ] as const;
 
+/**
+ * The `_meta` an MCP request carries. Stateless servers (2026-07-28) read the client's revision and
+ * capabilities from each request, not from an initialize, and refuse one without both.
+ */
+export function mcpRequestMeta(protocolVersion: string): Record<string, unknown> {
+  return {
+    'io.modelcontextprotocol/protocolVersion': protocolVersion,
+    'io.modelcontextprotocol/clientCapabilities': {},
+  };
+}
+
 /** An MCP protocol version the client can speak. */
 export type McpProtocolVersion = (typeof MCP_PROTOCOL_VERSIONS)[number];
 
@@ -1065,11 +1076,7 @@ async function fetchMcpProtocolAttempt(
     params: {
       name: mcpToolName,
       arguments: input,
-      // why: Stateless servers read the client's capabilities from each call, not from an initialize.
-      _meta: {
-        'io.modelcontextprotocol/protocolVersion': protocolVersion,
-        'io.modelcontextprotocol/clientCapabilities': {},
-      },
+      _meta: mcpRequestMeta(protocolVersion),
     },
   };
 

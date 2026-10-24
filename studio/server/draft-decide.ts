@@ -57,7 +57,7 @@ export function decisionRequestSchema(limits: LentDecisionLimits) {
         .record(
           name,
           z.object({
-            protocol: z.literal('systemOne'),
+            protocol: name,
             provider: name,
             apiId: id,
             keySlot: slot.optional(),

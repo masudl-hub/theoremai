@@ -5,13 +5,14 @@
  */
 import type { IconType } from '@astryxdesign/core/Icon';
 import { Text } from '@astryxdesign/core/Text';
-import { IconFileCode, IconFileSmile, IconFolder } from '@tabler/icons-react';
+import { IconFileCode, IconFolder } from '@tabler/icons-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { mapCurve } from '../map-line.ts';
 import type { ReadStep } from '../read-steps.ts';
 import { type ReadNode, type ReadNodeKind, readMap } from './lib/read-map.ts';
 import type { Reading } from './lib/read-progress.ts';
-import { profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
+import { ease } from './lib/tree-map-layout.ts';
+import { AGENT_ICON, profileTypeIcon, toolTypeIcon } from './lib/type-icons.ts';
 import { MapToken, useTokenWidths } from './map-token.tsx';
 import './read-map.css';
 
@@ -23,6 +24,9 @@ const LAG_MS = 500;
 const CATCH_UP_MS = 900;
 /** The map shows for at least this long, so a quick read can still be seen. */
 const SHOWN_MS = 2000;
+
+/** How long a node already drawn takes to glide to where a new folder moves it. */
+const GLIDE_MS = 240;
 
 /** The panel's own padding, step 4. */
 const PAD = 16;
@@ -37,7 +41,7 @@ const LABEL = 30;
 const NODE_ICON: Record<ReadNodeKind, IconType | undefined> = {
   entry: IconFileCode,
   folder: IconFolder,
-  profile: IconFileSmile,
+  profile: AGENT_ICON,
   tool: undefined,
   more: undefined,
 };
@@ -148,6 +152,56 @@ function lineTo(from: Placed, fromWidth: number, to: Placed, dots: number) {
   };
 }
 
+interface Glide {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  at: number;
+}
+
+/** Where a glide stands at a time: eased from where it was to where it goes. */
+function glideAt({ from, to, at }: Glide, now: number) {
+  const part = ease(Math.min(1, (now - at) / GLIDE_MS));
+  return { x: from.x + (to.x - from.x) * part, y: from.y + (to.y - from.y) * part };
+}
+
+/**
+ * The nodes where they stand now: a node drawn shows where it is laid out, and one a later folder
+ * moves glides there from where it stood, its lines with it, rather than jumping.
+ */
+function useGlided(placed: readonly Placed[]): Placed[] {
+  const glides = useRef(new Map<string, Glide>());
+  const [now, setNow] = useState(() => performance.now());
+  useLayoutEffect(() => {
+    const at = performance.now();
+    let moving = false;
+    for (const { node, x, y } of placed) {
+      const last = glides.current.get(node.id);
+      if (last && last.to.x === x && last.to.y === y) {
+        moving ||= at - last.at < GLIDE_MS;
+        continue;
+      }
+      glides.current.set(node.id, {
+        from: last ? glideAt(last, at) : { x, y },
+        to: { x, y },
+        at: last ? at : 0,
+      });
+      moving ||= last !== undefined;
+    }
+    if (!moving) return;
+    let frame = 0;
+    const tick = (time: number) => {
+      setNow(time);
+      if (time - at < GLIDE_MS) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [placed]);
+  return placed.map((each) => {
+    const glide = glides.current.get(each.node.id);
+    return glide ? { ...each, ...glideAt(glide, now) } : each;
+  });
+}
+
 export interface ReadMapProps {
   reading: Reading;
   /** Called once every step is drawn and the project has arrived. */
@@ -179,8 +233,9 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
   }, [map, size, drawn.steps]);
 
   const widths = useTokenWidths(ref, placed);
+  const shown = useGlided(placed);
 
-  const byId = new Map(placed.map((each) => [each.node.id, each]));
+  const byId = new Map(shown.map((each) => [each.node.id, each]));
   return (
     <div ref={ref} className="read-map" aria-hidden="true">
       <svg
@@ -189,7 +244,7 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
         width={size?.width ?? 0}
         height={size?.height ?? 0}
       >
-        {placed.map((to) => {
+        {shown.map((to) => {
           const from = to.node.parent === undefined ? undefined : byId.get(to.node.parent);
           const width = from && widths[from.node.id];
           if (!from || width === undefined) return null;
@@ -200,7 +255,7 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
           const line = lineTo(from, width, to, Math.min(DOTS, to.node.own.length));
           return (
             <g key={to.node.id}>
-              <path className="map-line read-map-line" d={line.d} pathLength={1} />
+              <path className="map-line map-line-drawing" d={line.d} pathLength={1} />
               {line.dots.slice(0, dots).map(({ x, y }, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: a dot is its place along the line.
                 <circle key={index} className="read-map-dot" cx={x} cy={y} r={2.5} />
@@ -209,10 +264,10 @@ export function ReadMap({ reading, onDrawn }: ReadMapProps) {
           );
         })}
       </svg>
-      {placed.map(({ node, x, y }) => (
+      {shown.map(({ node, x, y }) => (
         <MapToken
           key={node.id}
-          className="read-map-node"
+          className="map-token-drawing"
           id={node.id}
           label={short(node.label)}
           icon={nodeIcon(node)}

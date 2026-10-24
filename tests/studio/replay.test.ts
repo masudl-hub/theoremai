@@ -111,6 +111,24 @@ Deno.test('a recorded turn reads back as what was sent, each model call, and eac
   assertEquals(kinds, ['user-text', 'thought', 'tool', 'text', 'turn-done']);
 });
 
+Deno.test("a turn under the host's own span, which the record does not hold, reads back the same", async () => {
+  const { records } = await recording();
+  const hosted = records.map((record) => ({
+    ...record,
+    spans: record.spans.map((span) =>
+      span.parentSpanId ? span : { ...span, parentSpanId: '00f067aa0ba902b7' },
+    ),
+  }));
+  const read = (script: ReturnType<typeof replayScript>) =>
+    script.turns.map(({ blocks, ...turn }) => ({
+      ...turn,
+      kinds: blocks.map((block) => block.kind),
+    }));
+  const original = replayScript(records);
+  assertEquals(original.turns.length, 1);
+  assertEquals(read(replayScript(hosted)), read(original));
+});
+
 Deno.test('a replay through the same profile answers as the recording did, reaching no model', async () => {
   const recorded = await recording();
   const script = replayScript(recorded.records);

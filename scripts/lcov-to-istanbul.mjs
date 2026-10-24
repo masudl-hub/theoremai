@@ -17,6 +17,12 @@ function span(startLine, endLine) {
   return { start: loc(startLine), end: loc(endLine, 1) };
 }
 
+// Deno prints V8's unsigned 32-bit hit counter as signed, so a count past 2^31 reads negative.
+function hitCount(raw) {
+  const hits = Number(raw);
+  return hits < 0 ? hits + 2 ** 32 : hits;
+}
+
 function parseRecord(block) {
   const path = block
     .split('\n')
@@ -40,12 +46,12 @@ function parseRecord(block) {
     } else if (line.startsWith('FNDA:')) {
       const rest = line.slice(5);
       const comma = rest.indexOf(',');
-      const hits = Number(rest.slice(0, comma));
+      const hits = hitCount(rest.slice(0, comma));
       const name = rest.slice(comma + 1);
       fnHits.set(name, hits);
     } else if (line.startsWith('DA:')) {
       const [rawLine, rawHits] = line.slice(3).split(',');
-      statements.push({ line: Number(rawLine), hits: Number(rawHits) });
+      statements.push({ line: Number(rawLine), hits: hitCount(rawHits) });
     }
   }
 

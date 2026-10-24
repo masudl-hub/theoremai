@@ -12,7 +12,7 @@
  *
  * Writes `<data>/research/<run>/events.jsonl` and `reply.json`, and appends each
  * candidate to `<data>/research/ledger.jsonl`. The OpenRouter key comes from
- * `THEOREM_VAULT_OPENROUTER` (via `THEOREM_ENV_FILE`).
+ * `THEOREM_VAULT_OPENROUTER` and Jev's from `THEOREM_VAULT_TYPESAFE` (via `THEOREM_ENV_FILE`).
  */
 
 import { z } from 'zod';
@@ -20,15 +20,17 @@ import {
   type DecisionQuestion,
   defineProfile,
   getProvider,
-  invokeTool,
   type ItemCheckTurn,
+  invokeTool,
   type ProfileItemCheck,
   registerProfile,
+  registerProvider,
   registerStructured,
   registerTool,
   runDecision,
   runTurn,
   type StageHandler,
+  typesafeProvider,
 } from '../../../mod.ts';
 import { hostVault, loadHostEnv } from '../../host-env.ts';
 import { registerScriptProviders } from '../../provider-options.ts';
@@ -55,6 +57,11 @@ if (!vault.openrouter) throw new Error('No THEOREM_VAULT_OPENROUTER: set THEOREM
 registerScriptProviders();
 const openRouter = getProvider('openrouter');
 if (!openRouter) throw new Error('openrouter provider not registered');
+if (READER === 'jev' && !vault.typesafe)
+  throw new Error('No THEOREM_VAULT_TYPESAFE for the Jev reader: set it, or pass --reader none');
+registerProvider(typesafeProvider, { keySlot: 'typesafe' });
+const typesafe = getProvider('typesafe');
+if (!typesafe) throw new Error('typesafe provider not registered');
 
 // ---------- sources: Theorem MCP and HTTP tools ----------
 
@@ -65,12 +72,30 @@ const shared = {
   loadTier: 'T0' as const,
   permission: 'auto' as const,
 };
-const question = z.string().min(1).describe('What you need from this source, as one specific question.');
+const question = z
+  .string()
+  .min(1)
+  .describe('What you need from this source, as one specific question.');
 const owner = z.string().regex(/^[\w.-]+$/);
 const any = z.unknown();
 
-function mcp(name: string, description: string, serverUrl: string, mcpToolName: string, input: z.ZodType) {
-  registerTool({ ...shared, type: 'mcp', name, description, serverUrl, mcpToolName, input, output: z.string() });
+function mcp(
+  name: string,
+  description: string,
+  serverUrl: string,
+  mcpToolName: string,
+  input: z.ZodType,
+) {
+  registerTool({
+    ...shared,
+    type: 'mcp',
+    name,
+    description,
+    serverUrl,
+    mcpToolName,
+    input,
+    output: z.string(),
+  });
   return name;
 }
 
@@ -80,7 +105,10 @@ function http(
   endpoint: string,
   input: z.ZodObject,
   mapping: { pathParams?: string[]; queryParams?: string[] },
-  options: { headers?: Record<string, string>; limit?: { requests: number; windowMs: number } } = {},
+  options: {
+    headers?: Record<string, string>;
+    limit?: { requests: number; windowMs: number };
+  } = {},
 ) {
   registerTool({
     ...shared,
@@ -101,29 +129,168 @@ function http(
 const EXA = 'https://mcp.exa.ai/mcp';
 const FIRECRAWL = 'https://api.firecrawl.dev/v2/search/research/papers';
 const firecrawlKey = Deno.env.get('FIRECRAWL_API_KEY')?.trim();
-const firecrawlHeaders = firecrawlKey ? { headers: { authorization: `Bearer ${firecrawlKey}` } } : {};
-const GITHUB = { headers: { accept: 'application/vnd.github.raw', 'user-agent': 'theorem-researcher' } };
+const firecrawlHeaders = firecrawlKey
+  ? { headers: { authorization: `Bearer ${firecrawlKey}` } }
+  : {};
+const GITHUB = {
+  headers: { accept: 'application/vnd.github.raw', 'user-agent': 'theorem-researcher' },
+};
 
 const DEEPWIKI = 'ask_deepwiki';
 /** The tools whose output is a page to read for a question: Jev picks its passages. */
-const READS = new Set(['read_pages', 'read_model_card', 'read_dataset_card', 'read_readme', 'library_docs']);
+const READS = new Set([
+  'read_pages',
+  'read_model_card',
+  'read_dataset_card',
+  'read_readme',
+  'library_docs',
+]);
 
 const TOOLS = [
-  mcp('search_web', 'Search the live web (Exa). Returns each result with its highlights.', EXA, 'web_search_exa', z.object({ query: z.string().min(1), numResults: z.number().int().max(10).default(6) })),
-  mcp('read_pages', 'Read up to three web pages by URL (Exa). Pass the question you read them for.', EXA, 'web_fetch_exa', z.object({ urls: z.array(z.string().url()).min(1).max(3), maxCharacters: z.number().int().max(PAGE_CHARS).default(PAGE_CHARS), question })),
-  http('search_papers', 'Search the Firecrawl Research Index of papers (arXiv and more) by meaning. from/to are YYYY-MM-DD; categories like cs.CR,cs.CL.', FIRECRAWL, z.object({ query: z.string().min(1), k: z.number().int().max(20).default(10), from: z.string().optional(), to: z.string().optional(), categories: z.string().optional() }), { queryParams: ['query', 'k', 'from', 'to', 'categories'] }, firecrawlHeaders),
-  http('read_paper', "A paper's abstract and the passages that best answer query. id is like arxiv:2610.28988.", `${FIRECRAWL}/{id}`, z.object({ id: z.string().min(1), query: question, k: z.number().int().max(12).default(4) }), { pathParams: ['id'], queryParams: ['query', 'k'] }, firecrawlHeaders),
-  http('related_papers', 'Papers like one paper (similar), the papers that cite it (citers), or the papers it cites (references).', `${FIRECRAWL}/{id}/similar`, z.object({ id: z.string().min(1), mode: z.enum(['similar', 'citers', 'references']), intent: z.string().min(1).describe('What the related papers should be about.'), k: z.number().int().max(20).default(10) }), { pathParams: ['id'], queryParams: ['mode', 'intent', 'k'] }, firecrawlHeaders),
-  http('list_arxiv', 'The newest arXiv submissions for an arXiv query (e.g. all:"prompt injection" AND all:detector), newest first: papers too new for the index.', 'https://export.arxiv.org/api/query', z.object({ search_query: z.string().min(1), sortBy: z.literal('submittedDate').default('submittedDate'), sortOrder: z.literal('descending').default('descending'), max_results: z.number().int().max(25).default(15) }), { queryParams: ['search_query', 'sortBy', 'sortOrder', 'max_results'] }),
-  http('search_models', 'Search Hugging Face models, most recently changed first.', 'https://huggingface.co/api/models', z.object({ search: z.string().min(1), sort: z.literal('lastModified').default('lastModified'), direction: z.literal('-1').default('-1'), limit: z.number().int().max(30).default(20) }), { queryParams: ['search', 'sort', 'direction', 'limit'] }),
-  http('search_datasets', 'Search Hugging Face datasets, most recently changed first.', 'https://huggingface.co/api/datasets', z.object({ search: z.string().min(1), sort: z.literal('lastModified').default('lastModified'), direction: z.literal('-1').default('-1'), limit: z.number().int().max(30).default(20) }), { queryParams: ['search', 'sort', 'direction', 'limit'] }),
-  http('read_model_card', 'Read a Hugging Face model card. For Horizon-Labs/prompt-injection-guard-small, owner is Horizon-Labs and name is prompt-injection-guard-small.', 'https://huggingface.co/{owner}/{name}/raw/main/README.md', z.object({ owner, name: owner, question }), { pathParams: ['owner', 'name'] }),
-  http('read_dataset_card', 'Read a Hugging Face dataset card, by owner and name.', 'https://huggingface.co/datasets/{owner}/{name}/raw/main/README.md', z.object({ owner, name: owner, question }), { pathParams: ['owner', 'name'] }),
-  http('search_github', 'Search GitHub repositories, most recently updated first. Keyless: 10 searches a minute.', 'https://api.github.com/search/repositories', z.object({ q: z.string().min(1), sort: z.literal('updated').default('updated'), per_page: z.number().int().max(20).default(6) }), { queryParams: ['q', 'sort', 'per_page'] }, { ...GITHUB, limit: { requests: 10, windowMs: 60_000 } }),
-  http('read_readme', 'Read a GitHub repository README, by owner and repo.', 'https://api.github.com/repos/{owner}/{repo}/readme', z.object({ owner, repo: owner, question }), { pathParams: ['owner', 'repo'] }, GITHUB),
-  mcp('library_docs', "A library's current docs (Context7) for a query. libraryId comes from find_library, like /huggingface/transformers.", 'https://mcp.context7.com/mcp', 'query-docs', z.object({ libraryId: z.string().min(1), query: question })),
-  mcp('find_library', 'Find the Context7 id of a library by name.', 'https://mcp.context7.com/mcp', 'resolve-library-id', z.object({ libraryName: z.string().min(1), query: z.string().min(1) })),
-  mcp(DEEPWIKI, "Ask DeepWiki's generated wiki about a GitHub repository (repoName owner/repo). Its answer is a lead to check, never a source to quote.", 'https://mcp.deepwiki.com/mcp', 'ask_wiki_question', z.object({ repoName: z.string().regex(/^[\w.-]+\/[\w.-]+$/), question })),
+  mcp(
+    'search_web',
+    'Search the live web (Exa). Returns each result with its highlights.',
+    EXA,
+    'web_search_exa',
+    z.object({ query: z.string().min(1), numResults: z.number().int().max(10).default(6) }),
+  ),
+  mcp(
+    'read_pages',
+    'Read up to three web pages by URL (Exa). Pass the question you read them for.',
+    EXA,
+    'web_fetch_exa',
+    z.object({
+      urls: z.array(z.string().url()).min(1).max(3),
+      maxCharacters: z.number().int().max(PAGE_CHARS).default(PAGE_CHARS),
+      question,
+    }),
+  ),
+  http(
+    'search_papers',
+    'Search the Firecrawl Research Index of papers (arXiv and more) by meaning. from/to are YYYY-MM-DD; categories like cs.CR,cs.CL.',
+    FIRECRAWL,
+    z.object({
+      query: z.string().min(1),
+      k: z.number().int().max(20).default(10),
+      from: z.string().optional(),
+      to: z.string().optional(),
+      categories: z.string().optional(),
+    }),
+    { queryParams: ['query', 'k', 'from', 'to', 'categories'] },
+    firecrawlHeaders,
+  ),
+  http(
+    'read_paper',
+    "A paper's abstract and the passages that best answer query. id is like arxiv:2610.28988.",
+    `${FIRECRAWL}/{id}`,
+    z.object({ id: z.string().min(1), query: question, k: z.number().int().max(12).default(4) }),
+    { pathParams: ['id'], queryParams: ['query', 'k'] },
+    firecrawlHeaders,
+  ),
+  http(
+    'related_papers',
+    'Papers like one paper (similar), the papers that cite it (citers), or the papers it cites (references).',
+    `${FIRECRAWL}/{id}/similar`,
+    z.object({
+      id: z.string().min(1),
+      mode: z.enum(['similar', 'citers', 'references']),
+      intent: z.string().min(1).describe('What the related papers should be about.'),
+      k: z.number().int().max(20).default(10),
+    }),
+    { pathParams: ['id'], queryParams: ['mode', 'intent', 'k'] },
+    firecrawlHeaders,
+  ),
+  http(
+    'list_arxiv',
+    'The newest arXiv submissions for an arXiv query (e.g. all:"prompt injection" AND all:detector), newest first: papers too new for the index.',
+    'https://export.arxiv.org/api/query',
+    z.object({
+      search_query: z.string().min(1),
+      sortBy: z.literal('submittedDate').default('submittedDate'),
+      sortOrder: z.literal('descending').default('descending'),
+      max_results: z.number().int().max(25).default(15),
+    }),
+    { queryParams: ['search_query', 'sortBy', 'sortOrder', 'max_results'] },
+  ),
+  http(
+    'search_models',
+    'Search Hugging Face models, most recently changed first.',
+    'https://huggingface.co/api/models',
+    z.object({
+      search: z.string().min(1),
+      sort: z.literal('lastModified').default('lastModified'),
+      direction: z.literal('-1').default('-1'),
+      limit: z.number().int().max(30).default(20),
+    }),
+    { queryParams: ['search', 'sort', 'direction', 'limit'] },
+  ),
+  http(
+    'search_datasets',
+    'Search Hugging Face datasets, most recently changed first.',
+    'https://huggingface.co/api/datasets',
+    z.object({
+      search: z.string().min(1),
+      sort: z.literal('lastModified').default('lastModified'),
+      direction: z.literal('-1').default('-1'),
+      limit: z.number().int().max(30).default(20),
+    }),
+    { queryParams: ['search', 'sort', 'direction', 'limit'] },
+  ),
+  http(
+    'read_model_card',
+    'Read a Hugging Face model card. For Horizon-Labs/prompt-injection-guard-small, owner is Horizon-Labs and name is prompt-injection-guard-small.',
+    'https://huggingface.co/{owner}/{name}/raw/main/README.md',
+    z.object({ owner, name: owner, question }),
+    { pathParams: ['owner', 'name'] },
+  ),
+  http(
+    'read_dataset_card',
+    'Read a Hugging Face dataset card, by owner and name.',
+    'https://huggingface.co/datasets/{owner}/{name}/raw/main/README.md',
+    z.object({ owner, name: owner, question }),
+    { pathParams: ['owner', 'name'] },
+  ),
+  http(
+    'search_github',
+    'Search GitHub repositories, most recently updated first. Keyless: 10 searches a minute.',
+    'https://api.github.com/search/repositories',
+    z.object({
+      q: z.string().min(1),
+      sort: z.literal('updated').default('updated'),
+      per_page: z.number().int().max(20).default(6),
+    }),
+    { queryParams: ['q', 'sort', 'per_page'] },
+    { ...GITHUB, limit: { requests: 10, windowMs: 60_000 } },
+  ),
+  http(
+    'read_readme',
+    'Read a GitHub repository README, by owner and repo.',
+    'https://api.github.com/repos/{owner}/{repo}/readme',
+    z.object({ owner, repo: owner, question }),
+    { pathParams: ['owner', 'repo'] },
+    GITHUB,
+  ),
+  mcp(
+    'library_docs',
+    "A library's current docs (Context7) for a query. libraryId comes from find_library, like /huggingface/transformers.",
+    'https://mcp.context7.com/mcp',
+    'query-docs',
+    z.object({ libraryId: z.string().min(1), query: question }),
+  ),
+  mcp(
+    'find_library',
+    'Find the Context7 id of a library by name.',
+    'https://mcp.context7.com/mcp',
+    'resolve-library-id',
+    z.object({ libraryName: z.string().min(1), query: z.string().min(1) }),
+  ),
+  mcp(
+    DEEPWIKI,
+    "Ask DeepWiki's generated wiki about a GitHub repository (repoName owner/repo). Its answer is a lead to check, never a source to quote.",
+    'https://mcp.deepwiki.com/mcp',
+    'ask_wiki_question',
+    z.object({ repoName: z.string().regex(/^[\w.-]+\/[\w.-]+$/), question }),
+  ),
 ];
 
 // ---------- the page reader (Jev), as bonsai.pagereader, run at post_tool ----------
@@ -136,7 +303,7 @@ registerProfile({
   type: 'decision',
   id: READER_PROFILE,
   identity: { handle: 'Research page reader' },
-  models: { jev: openRouter.decisionModel('systemOne', 'typesafe/jev-1.13', { timeoutMs: 20_000 }) },
+  models: { jev: typesafe.decisionModel('systemOne', 'jev-latest', { timeoutMs: 20_000 }) },
   inputs: { state: 'json' },
   decision: { contract: 'research.page-passages.v1' },
 });
@@ -210,7 +377,8 @@ async function relevantOf(q: string, batch: readonly string[]): Promise<string[]
 /** Where a read came from, from its input: the check needs the page named in what the tool returned. */
 function sourceOf(tool: string, input: Record<string, unknown>): string {
   if (tool === 'read_model_card') return `https://huggingface.co/${input.owner}/${input.name}`;
-  if (tool === 'read_dataset_card') return `https://huggingface.co/datasets/${input.owner}/${input.name}`;
+  if (tool === 'read_dataset_card')
+    return `https://huggingface.co/datasets/${input.owner}/${input.name}`;
   if (tool === 'read_readme') return `https://github.com/${input.owner}/${input.repo}`;
   if (tool === 'library_docs') return `https://context7.com${input.libraryId}`;
   return '';
@@ -257,9 +425,13 @@ const evidenceSchema = z.object({
 
 const candidateSchema = z.object({
   kind: z.enum(['model', 'dataset', 'paper', 'repo', 'method']),
-  name: z.string().describe('Its id as published: a Hub id, an arXiv id, owner/repo, or a short name.'),
+  name: z
+    .string()
+    .describe('Its id as published: a Hub id, an arXiv id, owner/repo, or a short name.'),
   url: z.string().describe('Where it is published.'),
-  what: z.string().describe('What it is, in one sentence: architecture and size, or contents and size.'),
+  what: z
+    .string()
+    .describe('What it is, in one sentence: architecture and size, or contents and size.'),
   why: z
     .string()
     .describe(
@@ -270,14 +442,18 @@ const candidateSchema = z.object({
   gated: z.boolean().optional(),
   basis: z
     .enum(['page', 'lead', 'memory'])
-    .describe('page: a source a tool returned this turn; cite it. lead: DeepWiki or a hint not yet confirmed. memory: your own recall.'),
+    .describe(
+      'page: a source a tool returned this turn; cite it. lead: DeepWiki or a hint not yet confirmed. memory: your own recall.',
+    ),
   evidence: z.array(evidenceSchema).describe('Quotes it rests on; required when basis is page.'),
 });
 
 const replySchema = z.object({
   summary: z.string().describe('What the search found and how sure you are, in a few sentences.'),
   candidates: z.array(candidateSchema),
-  searched: z.array(z.string()).describe('The queries and sources you tried, including the empty ones.'),
+  searched: z
+    .array(z.string())
+    .describe('The queries and sources you tried, including the empty ones.'),
   open: z.array(z.string()).describe('Leads you could not follow, and what would settle them.'),
 });
 
@@ -313,7 +489,10 @@ function sourceKey(uri: string): string {
   if (arxiv?.[1] && /arxiv/i.test(uri)) return arxiv[1];
   const repo = /(?:huggingface\.co\/(?:datasets\/)?|github\.com\/)([\w.-]+\/[\w.-]+)/.exec(uri);
   if (repo?.[1]) return repo[1].toLowerCase();
-  return uri.replace(/[#?].*$/, '').replace(/\/$/, '').toLowerCase();
+  return uri
+    .replace(/[#?].*$/, '')
+    .replace(/\/$/, '')
+    .toLowerCase();
 }
 
 /** Each quotable tool result's text. DeepWiki's leads are left out. */
@@ -333,16 +512,22 @@ const checkCandidate: ProfileItemCheck = (item, turn) => {
     return refused('A candidate based on a page needs that page and the exact words.');
   const read = resultsRead(turn.toolResults);
   if (basis === 'page' && !read.some((text) => text.includes(sourceKey(url))))
-    return refused('No tool returned this URL this turn. Find it with a tool, or set basis memory.');
+    return refused(
+      'No tool returned this URL this turn. Find it with a tool, or set basis memory.',
+    );
   for (const { uri, quote } of evidence) {
     const words = quotedWords(quote);
     if (!words) return refused('Each piece of evidence needs the exact words.');
     const key = sourceKey(uri);
     const fromIt = read.filter((text) => text.includes(key));
     if (fromIt.length === 0)
-      return refused(`No tool returned ${uri} this turn. Cite a source you read, or read it first.`);
+      return refused(
+        `No tool returned ${uri} this turn. Cite a source you read, or read it first.`,
+      );
     if (!fromIt.some((text) => text.includes(words)))
-      return refused(`These words are not in what the tools returned for ${uri}. Quote them exactly.`);
+      return refused(
+        `These words are not in what the tools returned for ${uri}. Quote them exactly.`,
+      );
   }
   return { isValid: true };
 };
@@ -365,7 +550,10 @@ registerProfile(
     type: 'text',
     identity: { handle: 'Research scout', system: SYSTEM },
     models: {
-      main: openRouter.model('openRouter', MODEL, { maxOutputTokens: 16_384, builtInTools: [] }),
+      main: openRouter.model('openRouterOpenAi', MODEL, {
+        maxOutputTokens: 16_384,
+        builtInTools: [],
+      }),
     },
     maxSteps: MAX_STEPS,
     turnBehaviour: { atStepLimit: 'answer' },
@@ -375,7 +563,10 @@ registerProfile(
     guardrails: { detect: 'flag' },
     outputs: {
       structured: REPLY_ID,
-      validation: { maxRetries: 1, items: { candidates: { check: checkCandidate, onFail: 'fix' } } },
+      validation: {
+        maxRetries: 1,
+        items: { candidates: { check: checkCandidate, onFail: 'fix' } },
+      },
       streaming: { streamThoughts: false },
     },
   }),
@@ -385,7 +576,8 @@ registerProfile(
 
 async function seen(): Promise<string[]> {
   const names: string[] = [];
-  for await (const entry of Deno.readDir(`${DATA}/hf-models`)) names.push(entry.name.replace(/__|--/, '/'));
+  for await (const entry of Deno.readDir(`${DATA}/hf-models`))
+    names.push(entry.name.replace(/__|--/, '/'));
   const datasets = await Deno.readTextFile(new URL('../datasets.ts', import.meta.url).pathname);
   for (const [, url] of datasets.matchAll(/source: '([^']+)'/g)) if (url) names.push(url);
   return names.sort();
@@ -395,26 +587,45 @@ async function seen(): Promise<string[]> {
 
 const SAMPLES: Record<string, Record<string, unknown>> = {
   search_web: { query: 'indirect prompt injection classifier web pages' },
-  read_pages: { urls: ['https://huggingface.co/Horizon-Labs/prompt-injection-guard-small'], question: 'What was it trained on?' },
+  read_pages: {
+    urls: ['https://huggingface.co/Horizon-Labs/prompt-injection-guard-small'],
+    question: 'What was it trained on?',
+  },
   search_papers: { query: 'indirect prompt injection detection', from: '2026-06-01' },
   read_paper: { id: 'arxiv:2610.28988', query: 'Which datasets are evaluated?' },
   related_papers: { id: 'arxiv:2410.05451', mode: 'citers', intent: 'prompt injection detection' },
   list_arxiv: { search_query: 'all:"prompt injection" AND all:detection' },
   search_models: { search: 'prompt injection' },
   search_datasets: { search: 'indirect prompt injection' },
-  read_model_card: { owner: 'Horizon-Labs', name: 'prompt-injection-guard-small', question: 'What was it trained on?' },
-  read_dataset_card: { owner: 'microsoft', name: 'llmail-inject-challenge', question: 'How many emails?' },
+  read_model_card: {
+    owner: 'Horizon-Labs',
+    name: 'prompt-injection-guard-small',
+    question: 'What was it trained on?',
+  },
+  read_dataset_card: {
+    owner: 'microsoft',
+    name: 'llmail-inject-challenge',
+    question: 'How many emails?',
+  },
   search_github: { q: 'indirect prompt injection detector' },
   read_readme: { owner: 'microsoft', repo: 'BIPIA', question: 'What attack categories?' },
   find_library: { libraryName: 'transformers', query: 'ModernBERT classification' },
-  library_docs: { libraryId: '/huggingface/transformers', query: 'ModernBERT sequence classification pooling' },
+  library_docs: {
+    libraryId: '/huggingface/transformers',
+    query: 'ModernBERT sequence classification pooling',
+  },
   [DEEPWIKI]: { repoName: 'microsoft/BIPIA', question: 'What attack categories does it include?' },
 };
 
 if (Deno.args.includes('--tools')) {
   for (const name of TOOLS) {
     let result = 'no result';
-    for await (const event of invokeTool({ profile: 'research.scout', name, input: SAMPLES[name], onStage })) {
+    for await (const event of invokeTool({
+      profile: 'research.scout',
+      name,
+      input: SAMPLES[name],
+      onStage,
+    })) {
       if (event.type !== 'tool') continue;
       const call = event.tool;
       if (call.phase === 'complete') {
@@ -439,7 +650,11 @@ const brief = KNOWN_ANSWER
   : `${await Deno.readTextFile(briefPath)}\n\nThe bench already has these; find others, or say why one deserves another look:\n${known.map((name) => `- ${name}`).join('\n')}`;
 
 await Deno.mkdir(OUT, { recursive: true });
-const events = await Deno.open(`${OUT}/events.jsonl`, { write: true, create: true, truncate: true });
+const events = await Deno.open(`${OUT}/events.jsonl`, {
+  write: true,
+  create: true,
+  truncate: true,
+});
 const encoder = new TextEncoder();
 let reply: z.infer<typeof replySchema> | undefined;
 let stop = '';
@@ -450,7 +665,12 @@ let flagged = 0;
 const started = performance.now();
 
 for await (const event of runTurn(
-  { profile: 'research.scout', input: { text: brief }, onStage, signal: AbortSignal.timeout(30 * 60_000) },
+  {
+    profile: 'research.scout',
+    input: { text: brief },
+    onStage,
+    signal: AbortSignal.timeout(30 * 60_000),
+  },
   { vault, limits: { operationTimeoutMs: 10 * 60_000 } },
 )) {
   await events.write(encoder.encode(`${JSON.stringify(event)}\n`));
@@ -473,9 +693,18 @@ if (reply) {
   const at = new Date().toISOString();
   const keys = known.map(sourceKey);
   const lines = reply.candidates.map((candidate) =>
-    JSON.stringify({ run: RUN, at, model: MODEL, seen: keys.includes(sourceKey(candidate.url)), ...candidate }),
+    JSON.stringify({
+      run: RUN,
+      at,
+      model: MODEL,
+      seen: keys.includes(sourceKey(candidate.url)),
+      ...candidate,
+    }),
   );
-  if (lines.length > 0) await Deno.writeTextFile(`${DATA}/research/ledger.jsonl`, `${lines.join('\n')}\n`, { append: true });
+  if (lines.length > 0)
+    await Deno.writeTextFile(`${DATA}/research/ledger.jsonl`, `${lines.join('\n')}\n`, {
+      append: true,
+    });
 }
 
 console.log(

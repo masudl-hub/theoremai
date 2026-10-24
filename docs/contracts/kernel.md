@@ -468,7 +468,10 @@ Live sessions emit the same stage names around utterance cycles and
 9. **Validation / repair** — structured output validators (`outputs.validation`)
    may trigger repair turns with `input.repair`. The repair prompt is the next
    user message in turn history (image and speech: it replaces the prompt
-   input). A retry is not resolved again: it keeps the turn's canary, tool set
+   input). From the first retry on, the model reads this turn only: the turn's
+   input, its tool calls and results, the replies sent back, and the repairs.
+   The conversation the host passed is left out, and the turn's `done` carries
+   no `providerState`. A retry is not resolved again: it keeps the turn's canary, tool set
    and system prompt. Under `outputs.streaming.mode: 'sse'` text and media
    stream as they arrive; under `'buffered'` they are held until the reply
    passes. Each retry is marked with an `attempt` event. Out of retries, the last
@@ -1665,7 +1668,7 @@ what its tools returned, such as a quote to the page that was read.
 The rewrite is one attempt: it reads only the refused items and each check's
 error (`claims[0]: …`, counted among the refused), under a schema that holds
 only their lists, so the model does not write the kept reply again. It keeps the
-turn's tools and history. Its guidance is the labels' `repair.items_guidance`.
+turn's tools and this turn's history. Its guidance is the labels' `repair.items_guidance`.
 Rewrites go back by position. Field validators run first; a reply they send back
 is rewritten whole.
 

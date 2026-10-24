@@ -79,7 +79,12 @@ import { sumEventTokens, sumTurnTokens } from '../usage.ts';
 import { runAttemptsWithValidation } from './gates.ts';
 import { createAgentCaller, NESTED_THROWS, turnError } from './nested.ts';
 import { applyTurnStage } from './stages.ts';
-import { openTurnState, type StepExecutionState, type TurnTraceState } from './state.ts';
+import {
+  cutConversation,
+  openTurnState,
+  type StepExecutionState,
+  type TurnTraceState,
+} from './state.ts';
 import { shouldSkipStreamEvent } from './stream.ts';
 
 function projectForObs(
@@ -426,6 +431,7 @@ async function* emitTurn(args: {
     {
       stop: state.lastStop ?? { kind: 'completed' },
       ...(state.providerState &&
+      !cutConversation(state) &&
       !(
         'providerContinuation' in profile && profile.providerContinuation?.history === 'stateless'
       ) &&

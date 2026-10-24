@@ -245,3 +245,35 @@ Deno.test('a structured profile cannot offer a tool of its own named as the answ
     `answers through '${ANSWER_TOOL}'`,
   );
 });
+
+const EARLIER = [
+  { role: 'user' as const, content: 'Check the fern' },
+  { role: 'assistant' as const, content: 'The fern is wet.' },
+];
+
+Deno.test('a repair reads this turn alone: the conversation before it is left out', async () => {
+  const { model, requests } = scripted([
+    [call('fetch_sensor', { sensor: 'soil' }), { type: 'done', stop: { kind: 'tool' } }],
+    [
+      { type: 'text', text: 'It is dry.' },
+      { type: 'done', stop: { kind: 'completed' } },
+    ],
+    answered({ message: 'Dry' }),
+  ]);
+  const profile = registerAnswerProfile('answer_repair_turn', { validation: { maxRetries: 1 } });
+  const events = await Array.fromAsync(
+    runTurn({ profile, input: { text: 'Check soil', history: EARLIER } }, model),
+  );
+  const said = (index: number) => JSON.stringify(requests[index]?.history);
+  assertEquals(said(1).includes('The fern is wet.'), true);
+  assertEquals(said(2).includes('The fern is wet.'), false);
+  assertEquals(JSON.stringify(requests[2]?.history?.[0]).includes('Check soil'), true);
+  assertEquals(
+    requests[2]?.history?.map((message) => message.role),
+    ['user', 'assistant', 'tool', 'user'],
+  );
+  assertEquals(
+    of(events, 'structured').map((e) => e.structured),
+    [{ message: 'Dry' }],
+  );
+});

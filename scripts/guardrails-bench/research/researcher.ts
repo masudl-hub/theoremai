@@ -113,7 +113,6 @@ function http(
     input,
     output: any,
     mapping,
-    timeoutMs: 60_000,
     ...options,
   });
   return name;
@@ -297,9 +296,7 @@ registerProfile({
   id: READER_PROFILE,
   identity: { handle: 'Research page reader' },
   models: {
-    jev: openRouter.decisionModel('openRouterDecisions', 'typesafe/jev-1.14', {
-      timeoutMs: 20_000,
-    }),
+    jev: openRouter.decisionModel('openRouterDecisions', 'typesafe/jev-1.14'),
   },
   inputs: { state: 'json' },
   decision: { contract: 'research.page-passages.v1' },
@@ -666,9 +663,8 @@ for await (const event of runTurn(
     profile: 'research.scout',
     input: { text: brief },
     onStage,
-    signal: AbortSignal.timeout(30 * 60_000),
   },
-  { vault, limits: { operationTimeoutMs: 10 * 60_000 } },
+  { vault },
 )) {
   await events.write(encoder.encode(`${JSON.stringify(event)}\n`));
   if (event.type === 'structured') {

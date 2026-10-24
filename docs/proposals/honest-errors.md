@@ -15,7 +15,7 @@ change keeps Theorem honest, and the matrix test tells them when it does not.
 reads a label that is true and shows no internals. A turn that fails keeps what
 it did, and its end says why it ended.
 
-Today the kernel breaks this rule in at least 14 places (section 7). The
+Today the kernel breaks this rule in at least 15 places (section 7). The
 contract already states part of the rule. [Public errors](../contracts/guardrails.md#public-errors)
 says "Nothing is guessed from message text" and that the raw detail is always
 set. The code does not keep it, and no test checks it across the kernel.
@@ -140,6 +140,7 @@ studio, evals, or the CLI.
 | 12 | `src/guardrails/detect-at.ts:259` | A host detector's `find` that throws stays closed, which is correct. The builder reads `find_threw` and not the thrown reason. | R1.1, S3 |
 | 13 | `src/guardrails/error.ts:41` | HTTP 400, 404, 409, 413, and 422 all read as `unsupported`. A 400 for a request that is too long reads as "the model cannot serve this". | R1.3, R2.1 |
 | 14 | `src/observability/trace.ts:9` | A trace that fails to write is silent when the sink has no `onError`. The contract says so. | R1.1 |
+| 15 | `src/guardrails/sanitize.ts` (`requestRefused`) | A host detector's `find` that throws on a request reads as `input`, which says the request was wrong. The detector failed instead. The label (`detect.blocked`) is vague but true. Found by the matrix. | R1.2, S3 |
 
 The contract also writes three of these down as rules:
 
@@ -191,3 +192,11 @@ Each needs Masud's decision before the fix that depends on it.
   execution" when the page may have acted.
 - **O7. A finish reason the kernel does not know.** `provider_error`, or a stop
   that carries the native reason and says the kernel does not know it.
+- **O8. A host detector that fails on a request.** Keep `input`, or give it
+  a kind that says the check failed.
+- **O9. The trace when a host detector fails.** The trace cleans each text it
+  stores with the host's own detectors. A `find` that fails covers the whole
+  text, the failure's reason too, so the trace holds `[omitted]` where the
+  reason was. The builder reads the reason on the host stream only. (a) Keep
+  this: the reason can repeat the text the detector could not check. (b) Store
+  the reason without the host's clean-up, as the trace stores a provider error.

@@ -955,7 +955,11 @@ detect: compileDetect({
   a stretch outside the text, an empty one, or anything but a list, stops the
   text as `block` does whatever the action set; the hit names the detector, no
   match, and how it failed as its `signal`: `find_threw`, or `find_result`
-  for what it returned.
+  for what it returned. The guardrail event's `errorInternal` names the
+  detector and why it failed, with what it threw, for the builder only. A
+  request it stops throws with the same reason in its message. The trace
+  cleans what it stores with the same `find`, so it stores `[omitted]` in
+  place of the reason.
 - A reply streams up to a pattern's match, as above. `find` cannot say where a
   match might still start, so with one the last `HOST_FIND_HOLD` (256)
   characters of a reply stay held, `HOST_FIND_HOLD_LIVE` (96) in a Live reply,
@@ -1059,6 +1063,9 @@ switch cannot mean different things on different paths.
 | `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, context, repair, history, system, and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
 | `sanitizeTurnRequestWithEvents(req, profile)` | A `SanitizedTurnRequest`: the request, one `{ type: 'guardrail' }` event for each boundary where something matched, and the `refusal` to end the turn on when a match blocks |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
+
+A request a match blocks throws an `input` error worded `detect.blocked`. Its
+message names the boundary and, when a host detector failed, why it failed.
 
 `injectionSpans` and `sensitiveSpans` return `RedactSpan[]`; `applySpans`
 (from observability) performs replacement. Detection runs on normalized text

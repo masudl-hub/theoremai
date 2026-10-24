@@ -5,6 +5,8 @@ import {
   userDataNote,
 } from '../../../guardrails/canary.ts';
 import {
+  describeError,
+  errorKind,
   isAbortError,
   TheoremError,
   throwIfAborted,
@@ -204,9 +206,9 @@ async function runCompactor(args: {
     }
   } catch (err) {
     throwIfAborted(args.signal);
-    const error = err instanceof TheoremError ? err.kind : 'internal';
+    const error = errorKind(err);
     if (NESTED_THROWS.has(error)) throw err;
-    return { droppedMedia, failure: { error } };
+    return { droppedMedia, failure: { error, errorInternal: describeError(err) } };
   }
   throwIfAborted(args.signal);
 
@@ -224,7 +226,11 @@ async function runCompactor(args: {
   if (stop !== 'completed' || error) {
     return {
       droppedMedia,
-      failure: { ...(stop ? { stop } : {}), ...(error ? { error } : {}) },
+      failure: {
+        ...(stop ? { stop } : {}),
+        ...(error ? { error } : {}),
+        ...(reported?.errorInternal ? { errorInternal: reported.errorInternal } : {}),
+      },
       ...usage,
     };
   }
@@ -279,6 +285,9 @@ function compactionOutcome(
     dropped_media: result.droppedMedia,
     ...(result.failure?.stop ? { failure_stop: result.failure.stop } : {}),
     ...(result.failure?.error ? { failure_error: result.failure.error } : {}),
+    ...(result.failure?.errorInternal
+      ? { failure_reason: traceContent(result.failure.errorInternal) }
+      : {}),
     ...(result.failure?.empty ? { failure_empty: true } : {}),
     ...(result.failure?.unreadable ? { failure_unreadable: true } : {}),
     ...(result.summary === undefined ? {} : { summary: traceContent(result.summary) }),

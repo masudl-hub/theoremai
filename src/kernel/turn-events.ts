@@ -854,6 +854,8 @@ export interface CompactionFailure {
   stop?: TurnStopKind;
   /** The error it reported, when it reported one. */
   error?: ErrorKind;
+  /** Why it failed, for the builder only: `forClient` strips it for a visitor. */
+  errorInternal?: string;
   /** It completed without a summary. */
   empty?: true;
   /** Nothing in `toCompact` was left for it to read, so it did not run. */
@@ -862,6 +864,7 @@ export interface CompactionFailure {
 const compactionFailure = z.object({
   stop: z.enum(TURN_STOP_KINDS).optional(),
   error: errorKindSchema.optional(),
+  errorInternal: z.string().optional(),
   empty: z.literal(true).optional(),
   unreadable: z.literal(true).optional(),
 });

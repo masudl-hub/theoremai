@@ -30,6 +30,8 @@ interface Expected {
   stop?: TurnStopKind;
   /** Text that must reach no label, no visitor copy and no trace (S1). */
   secrets?: string[];
+  /** The host's own detector failed, and the trace's host scrub fails closed over each stored text, the reason too (O9). */
+  traceScrubbed?: true;
 }
 
 const SECRET = String(FIXTURE_VAULT.slot_a);
@@ -73,7 +75,11 @@ function check(observed: Observed, expected: Expected): void {
   for (const reason of expected.reasons) {
     assert(builder.includes(reason), `R1.1: the builder reads "${reason}" in ${builder}`);
     if (observed.traces.length > 0) {
-      assert(trace.includes(reason), `R1.1: the trace holds "${reason}"`);
+      assertEquals(
+        trace.includes(reason),
+        !expected.traceScrubbed,
+        `R1.1, S1: the trace and "${reason}"`,
+      );
     }
     for (const label of labels(observed)) {
       assert(!label.includes(reason), `R2.2: the label "${label}" holds no reason`);
@@ -165,4 +171,117 @@ Deno.test('a profile build that fails on a host bug reads as internal and keeps 
   assertInstanceOf(thrown, TheoremError);
   assertEquals(thrown.kind, 'internal');
   assertInstanceOf(thrown.cause, TypeError);
+});
+
+function script(...events: ModelEvent[]): TurnModel {
+  return {
+    complete: () =>
+      (async function* () {
+        await Promise.resolve();
+        for (const event of events) yield event;
+      })(),
+  };
+}
+
+Deno.test('a host detector that throws stays closed and tells the builder why', async () => {
+  const profile = textProfile('matrix.detector.throws', {
+    guardrails: {
+      detect: {
+        'acme.down': {
+          label: 'Down',
+          action: 'flag',
+          find: () => {
+            throw new Error('classifier offline');
+          },
+        },
+      },
+    },
+  });
+  const observed = await turn(
+    profile,
+    script({ type: 'text', text: 'hi' }, { type: 'done', stop: { kind: 'completed' } }),
+  );
+  check(observed, { reasons: ['classifier offline'], traceScrubbed: true });
+});
+
+Deno.test('a compactor that throws tells the builder why', async () => {
+  const compactor = textProfile('matrix.compactor.compactor', {
+    maxSteps: 1,
+    guardrails: { detect: 'ignore' },
+  });
+  const speaker = 'matrix.compactor.speaker';
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 't', system: 't' },
+      id: speaker,
+      models: {
+        matrixCompactorModel: {
+          ...geminiModels('gemini35FlashLite').models.gemini35FlashLite,
+          compaction: {
+            maxTokens: 1000,
+            compactAt: 0.5,
+            previousExchanges: 2,
+            timing: 'before',
+            profile: compactor,
+          },
+        },
+      },
+      tools: { allow: [] },
+      inputs: { text: true },
+      guardrails: { detect: 'ignore' },
+    } as Parameters<typeof defineProfile>[0]),
+  );
+  const history = Array.from({ length: 8 }, (_, i) => ({
+    role: i % 2 ? ('assistant' as const) : ('user' as const),
+    content: `message ${i}`,
+  }));
+  let calls = 0;
+  const model: TurnModel = {
+    complete: () => {
+      calls++;
+      if (calls === 1) {
+        return throws(
+          new TheoremError('unavailable', 'summary call down', {
+            cause: new Error('pool drained'),
+          }),
+        ).complete({} as never);
+      }
+      return script(
+        { type: 'text', text: 'ok' },
+        { type: 'done', stop: { kind: 'completed' } },
+      ).complete({} as never);
+    },
+  };
+  const events: TurnEvent[] = [];
+  const traces: TraceRecord[] = [];
+  for await (const event of runTurn(
+    { profile: speaker, input: { text: 'q', history, historyTokens: 600 } },
+    model,
+    catalogedSink(traces),
+  )) {
+    events.push(event);
+  }
+  check({ events, traces }, { reasons: ['summary call down', 'pool drained'] });
+});
+
+Deno.test('a host detector that throws on the reply stays closed and tells the builder why', async () => {
+  const profile = textProfile('matrix.detector.reply', {
+    guardrails: {
+      detect: {
+        'acme.reply': {
+          label: 'Reply check',
+          at: { reply: 'flag' },
+          find: () => {
+            throw new Error('reply classifier offline');
+          },
+        },
+      },
+    },
+  });
+  const observed = await turn(
+    profile,
+    script({ type: 'text', text: 'hi' }, { type: 'done', stop: { kind: 'completed' } }),
+  );
+  check(observed, { reasons: ['reply classifier offline'], traceScrubbed: true });
 });

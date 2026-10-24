@@ -1466,6 +1466,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'The error the compactor failed with.',
         ERROR_KIND_OPTIONS,
       ),
+      failure_reason: attr(
+        'agent',
+        'Compactor reason',
+        'content',
+        'Why the compactor failed, in its own words.',
+      ),
       failure_empty: attr(
         'agent',
         'Empty summary',

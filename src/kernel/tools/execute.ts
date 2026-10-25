@@ -33,6 +33,7 @@ import {
   failedActivity,
   failedActivityOf,
   failureEvent,
+  type HandOff,
   messageOf,
   networkBlocked,
   networkBlockedEvent,
@@ -753,11 +754,12 @@ function waitsForPage(tool: FunctionToolDef, ctx: ToolContext): boolean {
 async function* receivePageAnswer(
   tool: FunctionToolDef,
   ctx: ToolContext,
-  claim: ToolOperationClaim | undefined,
+  handOff: HandOff,
   base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, ToolContext> {
   const execution = ctx.pageExecution;
   if (tool.answeredBy !== 'page' || !execution) return ctx;
+  const claim = await handOff.claim();
   if (!claim?.invocation) {
     throw new TheoremError(
       'config',
@@ -859,8 +861,8 @@ export async function* executeFunction(
   }
 
   throwIfAborted(ctx.signal);
-  const claim = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
-  ctx = yield* receivePageAnswer(tool, ctx, claim, base);
+  const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
+  ctx = yield* receivePageAnswer(tool, ctx, handOff, base);
   const { secret } = signedIn;
   const fail = (failure: ToolFailure) =>
     settleToolFailure(
@@ -876,6 +878,7 @@ export async function* executeFunction(
     ? { ...ctx, signedInFetch: signedInFetch(signedIn.prepared, ctx, checks) }
     : ctx;
   let output: unknown;
+  await handOff.claim();
   try {
     const shown = new HandlerEvents(base, guard.handlerEvents(stages?.drafts === true));
     output = yield* runHandler(tool.handler, input as never, handlerCtx, shown);

@@ -4,11 +4,13 @@ import { assert, assertEquals, assertInstanceOf } from '@std/assert';
 import {
   bearer,
   createKernelScope,
+  createMemoryToolExecution,
   defineProvider,
   type InvokeToolRequest,
   invokeTool,
   openAi,
   runDecision,
+  type ToolExecutionCoordinator,
   z,
 } from '../../mod.ts';
 import { describeError, errorKind, TheoremError } from '../../src/guardrails/error.ts';
@@ -554,4 +556,167 @@ Deno.test('a connection that drops mid-reply reads as network and keeps the text
     events.some((event) => event.type === 'text' && event.text === 'hi'),
     'R3: the text before the drop is kept',
   );
+});
+
+/** A memory coordinator that also notes each begin, so a cell can tell when the claim was taken. */
+function noting(begin?: () => Promise<never>): {
+  execution: ToolExecutionCoordinator;
+  begins: () => number;
+  effects: (operationId: string, callId: string) => Promise<string | undefined>;
+} {
+  const memory = createMemoryToolExecution();
+  let begins = 0;
+  return {
+    execution: {
+      ...memory,
+      begin: (operation) => {
+        begins++;
+        return begin ? begin() : memory.begin(operation);
+      },
+    },
+    begins: () => begins,
+    effects: async (operationId, callId) => {
+      const known = await memory.lookup({
+        operationId,
+        callId,
+        profileId: '',
+        toolId: '',
+        invocationHash: '',
+      });
+      return known?.kind === 'settled' ? known.outcome.effects : known?.kind;
+    },
+  };
+}
+
+Deno.test('a tool that fails before it sends takes no claim and saves as not started', async () => {
+  const name = 'matrix_http_blocked';
+  httpTool(name);
+  const coordinator = noting();
+  let sent = 0;
+  const observed = await withFetch(
+    () => {
+      sent++;
+      return Promise.resolve(new Response('{}'));
+    },
+    () =>
+      invoked(name, {
+        execution: coordinator.execution,
+        operationId: 'op-blocked',
+        callId: 'call-blocked',
+        resolveHost: () => Promise.resolve(['10.0.0.1']),
+      }),
+  );
+  check(observed, { reasons: [], kind: 'blocked' });
+  assertEquals([sent, coordinator.begins()], [0, 0]);
+  assertEquals(await coordinator.effects('op-blocked', 'call-blocked'), 'not_started');
+});
+
+Deno.test('a tool whose send fails after the claim saves its effects as unknown', async () => {
+  const name = 'matrix_http_sent';
+  httpTool(name);
+  const coordinator = noting();
+  const observed = await withFetch(
+    () => Promise.reject(new DOMException('stopped mid-send', 'AbortError')),
+    () =>
+      invoked(name, {
+        execution: coordinator.execution,
+        operationId: 'op-sent',
+        callId: 'call-sent',
+        resolveHost: publicHost,
+      }),
+  );
+  check(observed, { reasons: ['stopped mid-send'], kind: 'cancelled' });
+  assertEquals(coordinator.begins(), 1);
+  assertEquals(await coordinator.effects('op-sent', 'call-sent'), 'unknown');
+});
+
+Deno.test('a call stopped before it sends leaves no claim and reads as cancelled', async () => {
+  const name = 'matrix_http_stopped';
+  httpTool(name);
+  const coordinator = noting();
+  const stop = new AbortController();
+  const observed = await invoked(name, {
+    execution: coordinator.execution,
+    operationId: 'op-stopped',
+    callId: 'call-stopped',
+    signal: stop.signal,
+    resolveHost: () => {
+      stop.abort(new DOMException('stopped while checking', 'AbortError'));
+      return publicHost();
+    },
+  });
+  check(observed, { reasons: ['stopped while checking'], kind: 'cancelled' });
+  assertEquals(coordinator.begins(), 0);
+  assertEquals(await coordinator.effects('op-stopped', 'call-stopped'), undefined);
+});
+
+function mcpTool(name: string): void {
+  registerTool({
+    name,
+    description: 'Search the docs',
+    type: 'mcp',
+    serverUrl: 'https://mcp.example.com/mcp',
+    mcpToolName: 'search_docs',
+    category: 'docs',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.unknown(),
+  });
+  registerProfile({ type: 'host', id: name, tools: { allow: [name] } });
+}
+
+Deno.test('a coordinator that throws at the claim keeps its kind, and nothing is sent', async () => {
+  const http = 'matrix_claim_http';
+  const mcp = 'matrix_claim_mcp';
+  httpTool(http);
+  mcpTool(mcp);
+  for (const name of [http, mcp]) {
+    const coordinator = noting(() => Promise.reject(new Error('operation store down')));
+    let sent = 0;
+    const observed = await withFetch(
+      () => {
+        sent++;
+        return Promise.resolve(new Response('{}'));
+      },
+      () => invoked(name, { execution: coordinator.execution, resolveHost: publicHost }),
+    );
+    check(observed, { reasons: ['operation store down'], kind: 'internal' });
+    assertEquals([sent, coordinator.begins()], [0, 1], name);
+  }
+});
+
+Deno.test('a page dispatch that fails after the claim keeps its cause kind, with the uncertain copy', async () => {
+  const name = 'matrix_page_dropped';
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Ask the page',
+    category: 'test',
+    access: 'read-write',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    answeredBy: 'page',
+    input: z.object({}),
+    output: z.object({ text: z.string() }),
+  });
+  registerProfile({ type: 'host', id: name, tools: { allow: [name] } });
+  const coordinator = noting();
+  const observed = await invoked(name, {
+    execution: coordinator.execution,
+    operationId: 'op-page',
+    callId: 'call-page',
+    pageExecution: {
+      dispatch: () => Promise.reject(new TheoremError('network', 'page link dropped')),
+    },
+  });
+  check(observed, { reasons: ['page link dropped'], kind: 'network' });
+  const copies = observed.events.flatMap((event) =>
+    event.type === 'error' ? [event.errorCopy] : [],
+  );
+  assertEquals(copies, [{ key: 'tool.execution_uncertain' }]);
+  assertEquals(await coordinator.effects('op-page', 'call-page'), 'uncertain');
 });

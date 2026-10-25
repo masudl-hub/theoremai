@@ -983,6 +983,9 @@ If current output rules require redaction or refusal, replay fails closed. The s
 Host replay callbacks also check current resource access. Running or uncertain lookups refuse execution.
 The host coordinator must apply current resource access before returning a saved outcome.
 `begin` returns `BeginToolOperationResult`. Only an acquired claim permits the tool body.
+The executor calls `begin` at the hand-off: right before the handler runs, the page dispatch, or the first send of an HTTP or MCP call.
+Checks before the hand-off run with no claim: sign-in, a limit place, and the first hop's address check. A failure there saves as `not_started`, and a stop leaves no record.
+An error after the claim keeps the kind of its cause and reads with the `tool.execution_uncertain` copy. A running or uncertain operation reads as `unavailable`.
 `ToolOperationClaim` adds the worker's claim token. `settle` and `markUncertain` require that token.
 `settleNotStarted` records a terminal refusal before any claim. It cannot settle a running operation.
 `ToolOperationOutcome` contains a `TerminalToolEvent`, effect status, and validated replay data.

@@ -22,6 +22,7 @@ import type { TurnEvent } from '../types.ts';
 import {
   dispatchToolBody,
   guardToolTarget,
+  type HandOff,
   messageOf,
   networkBlocked,
   networkBlockedEvent,
@@ -832,9 +833,9 @@ export async function* executeHttpTool(
 
   const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
-  yield* dispatchToolBody(tool, input, ctx, base, beginBody);
+  const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
   return yield* sendWithCredential(prepared, guarded.url, (url) =>
-    sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span, shown),
+    sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span, shown, handOff),
   );
 }
 
@@ -868,6 +869,7 @@ async function* sendHttpRequest(
   base: ToolCallBase,
   span: SpanHandle | undefined,
   shown: HandlerEvents | undefined,
+  handOff: HandOff,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
   const headers: Record<string, string> = { Accept: 'application/json' };
@@ -897,6 +899,9 @@ async function* sendHttpRequest(
           originBoundHeaders: { ...tool.headers, ...authHeaders },
           resolveHost: ctx.resolveHost,
           onCheck: checks.onCheck,
+          beforeSend: async () => {
+            await handOff.claim();
+          },
         },
       ),
     );
@@ -945,6 +950,7 @@ async function* sendHttpRequest(
       outputRaw: checked.data,
     };
   } catch (err) {
+    handOff.rethrowClaimFailure();
     if (tool.timeoutMs !== undefined && timedOut?.aborted && !ctx.signal?.aborted) {
       return failureOutcome(timeoutFailure(targetUrl.hostname, tool.timeoutMs), false);
     }
@@ -1075,6 +1081,8 @@ type McpTransport = {
   signal?: AbortSignal;
   onCheck?: (ms: number) => void;
   maxResponseBytes?: number;
+  /** Takes the call's claim before its first `tools/call` is sent; never before a session opens. */
+  beforeSend?: () => Promise<void>;
 };
 
 async function fetchMcpProtocolAttempt(
@@ -1114,6 +1122,7 @@ async function fetchMcpProtocolAttempt(
       originBoundHeaders: transport.originBoundHeaders,
       resolveHost: transport.resolveHost,
       onCheck: transport.onCheck,
+      ...(transport.beforeSend ? { beforeSend: transport.beforeSend } : {}),
     },
   );
 
@@ -1526,9 +1535,9 @@ export async function* executeMcpTool(
 
   const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
-  yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
+  const handOff = yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
   return yield* sendWithCredential(prepared, guarded.url, (url) =>
-    sendMcpRequest(tool, url, prepared.input, prepared, ctx, base, stages?.span, sessions),
+    sendMcpRequest(tool, url, prepared.input, prepared, ctx, base, stages?.span, sessions, handOff),
   );
 }
 
@@ -1541,6 +1550,7 @@ async function* sendMcpRequest(
   base: ToolCallBase,
   span: SpanHandle | undefined,
   sessions: McpSessionCache,
+  handOff: HandOff,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
   try {
@@ -1556,6 +1566,9 @@ async function* sendMcpRequest(
       signal: ctx.signal,
       onCheck: checks.onCheck,
       ...(tool.maxResponseBytes === undefined ? {} : { maxResponseBytes: tool.maxResponseBytes }),
+      beforeSend: async () => {
+        await handOff.claim();
+      },
     };
     const key = await mcpSessionKey(url.href, transport.originBoundHeaders);
     const use: McpSessionUse = { tool: tool.name, ...tool.session };
@@ -1596,6 +1609,7 @@ async function* sendMcpRequest(
       outputRaw: interpreted.data,
     };
   } catch (err) {
+    handOff.rethrowClaimFailure();
     return yield* thrownOutcome(err, checks);
   } finally {
     checks.record();

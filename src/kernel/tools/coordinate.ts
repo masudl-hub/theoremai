@@ -1,4 +1,4 @@
-import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
+import { errorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import type { TurnEvent } from '../types.ts';
@@ -20,10 +20,14 @@ class ReplayedOperation {
 }
 
 function uncertainError(cause?: unknown): TheoremError {
-  return new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
-    copy: { key: 'tool.execution_uncertain' },
-    cause,
-  });
+  return new TheoremError(
+    cause === undefined ? 'unavailable' : errorKind(cause),
+    labelText('tool.execution_uncertain'),
+    {
+      copy: { key: 'tool.execution_uncertain' },
+      cause,
+    },
+  );
 }
 
 class CoordinatedExecution {

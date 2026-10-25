@@ -191,6 +191,13 @@ Each needs Masud's decision before the fix that depends on it.
   failed stop, so a host can continue without sending the whole history again.
 - **O6. A cancel during a page tool's dispatch.** `cancelled`, or "unresolved
   execution" when the page may have acted.
+  **Decided (24/10):** both, as two facts. The kind is the cause's kind, so a
+  cancel reads as `cancelled`. "Effects unknown" is the saved outcome's
+  `effects`, and the error reads with the `tool.execution_uncertain` copy. The
+  kernel takes the claim at the hand-off for every tool type: right before the
+  handler, the page dispatch, or the first HTTP or MCP send. A failure before
+  it saves as `not_started`. **Still open:** a lookup or `begin` that finds the
+  operation running or uncertain has no cause, so it keeps `unavailable`.
 - **O7. A finish reason the kernel does not know.** `provider_error`, or a stop
   that carries the native reason and says the kernel does not know it.
 - **O8. A host detector that fails on a request.** Keep `input`, or give it

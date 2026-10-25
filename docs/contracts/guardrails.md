@@ -1609,6 +1609,9 @@ DNS lookup, such as Workers. The lookup is separate from the
 connection's own, so it stops names that point inward but not a DNS server that
 changes its answer between the two (rebinding); that stays the host egress
 layer's job. `onCheck`, when given, hears how long each hop's check took.
+`beforeSend`, when given, runs once after the first hop's checks pass and before
+anything is sent. What it throws passes unchanged, so it never reads as
+`network`. HTTP and MCP tools take their execution claim there.
 
 ```ts
 guardrails: {

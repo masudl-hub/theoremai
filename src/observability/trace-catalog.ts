@@ -1322,6 +1322,12 @@ const HITS = fields('error', 'Hits', 'Each rule that matched.', {
     'How serious the rule says a match is.',
     SEVERITY_OPTIONS,
   ),
+  signal: attr(
+    'error',
+    'Signal',
+    'text',
+    "What made a `tool_instructions` match one, or how a host detector's `find` failed: `find_threw` or `find_result`.",
+  ),
   start: attr('error', 'From', 'number', 'Where the match starts in the checked text.'),
   end: attr('error', 'To', 'number', 'Where the match ends in the checked text.'),
   match: attr(
@@ -1394,6 +1400,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         ),
       }),
       error: attr('error', 'Detail', 'content', "The guardrail's internal reason."),
+      error_summary: attr(
+        'error',
+        'Failure',
+        'text',
+        "Which host detector failed, how, and its error id, in the kernel's words only. The host stream's reason ends with the same id.",
+      ),
     },
   },
   'theorem.attempt.retry': {

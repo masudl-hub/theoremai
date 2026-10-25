@@ -72,10 +72,13 @@ function stripCompactionInternal(event: TurnEvent): TurnEvent {
 }
 
 function stripGuardrailInternal(event: TurnEvent): TurnEvent {
-  if (event.type !== 'guardrail' || !event.guardrail?.errorInternal) {
+  if (
+    event.type !== 'guardrail' ||
+    !(event.guardrail?.errorInternal || event.guardrail?.errorSummary)
+  ) {
     return event;
   }
-  const { errorInternal: _internal, ...guardrail } = event.guardrail;
+  const { errorInternal: _internal, errorSummary: _summary, ...guardrail } = event.guardrail;
   return { ...event, guardrail };
 }
 

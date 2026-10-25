@@ -44,7 +44,7 @@ function readValue(
   boundary: Boundary,
   detect: ResolvedDetect,
   scope: DetectScope = {},
-): Pick<Detection, 'action' | 'hits' | 'errorInternal'> & { value?: unknown } {
+): Pick<Detection, 'action' | 'hits' | 'errorInternal' | 'errorSummary'> & { value?: unknown } {
   if (!detectReads([boundary], detect)) return { action: 'allow', hits: [], value };
   const scan = textForScan(value);
   if (scan.unscannable) {
@@ -53,7 +53,8 @@ function readValue(
   }
   const found = detectAt(scan.text, boundary, detect, scope);
   if (found.action !== 'redact') {
-    const why = found.errorInternal ? { errorInternal: found.errorInternal } : {};
+    const { errorInternal, errorSummary } = found;
+    const why = errorInternal && errorSummary ? { errorInternal, errorSummary } : {};
     return { action: found.action, hits: found.hits, value, ...why };
   }
   const redacted = mapStrings(value, (leaf) => detectAt(leaf, boundary, detect, scope).text ?? '');

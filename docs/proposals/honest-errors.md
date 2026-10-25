@@ -200,3 +200,9 @@ Each needs Masud's decision before the fix that depends on it.
   reason was. The builder reads the reason on the host stream only. (a) Keep
   this: the reason can repeat the text the detector could not check. (b) Store
   the reason without the host's clean-up, as the trace stores a provider error.
+  **Decided (24/10):** neither. The trace stores a summary in the kernel's
+  words (`error_summary`: detector, how it failed, error type, error id), and
+  the host stream's reason ends with the same id. A hash of the reason was
+  rejected: a short reason can be guessed back from its hash. A host that
+  wants the reason itself already has `observability.scrub.sensitive.host:
+  false`.

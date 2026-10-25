@@ -30,8 +30,11 @@ interface Expected {
   stop?: TurnStopKind;
   /** Text that must reach no label, no visitor copy and no trace (S1). */
   secrets?: string[];
-  /** The host's own detector failed, and the trace's host scrub fails closed over each stored text, the reason too (O9). */
-  traceScrubbed?: true;
+  /**
+   * The host's own detector failed, so the trace's host scrub fails closed over the reason. The
+   * trace holds this summary in the kernel's words instead, with the builder's error id (O9).
+   */
+  traceSummary?: string;
 }
 
 const SECRET = String(FIXTURE_VAULT.slot_a);
@@ -77,7 +80,7 @@ function check(observed: Observed, expected: Expected): void {
     if (observed.traces.length > 0) {
       assertEquals(
         trace.includes(reason),
-        !expected.traceScrubbed,
+        !expected.traceSummary,
         `R1.1, S1: the trace and "${reason}"`,
       );
     }
@@ -89,6 +92,11 @@ function check(observed: Observed, expected: Expected): void {
     assertEquals(kinds(observed).at(-1), expected.kind, 'R1.2, R1.3: the kind');
   }
   assert(!visitor.includes('errorInternal'), `R2.4: the visitor reads no errorInternal`);
+  if (expected.traceSummary) {
+    assert(trace.includes(expected.traceSummary), `O9: the trace holds "${expected.traceSummary}"`);
+    const id = /\(error ([0-9a-f]{8})\)/.exec(trace)?.[1];
+    assert(id !== undefined && builder.includes(`(error ${id})`), 'O9: one error id in both');
+  }
   if (expected.stop) {
     assertEquals(finalStop(observed.events)?.kind, expected.stop, 'R3.1, R3.2: the stop');
   }
@@ -201,7 +209,10 @@ Deno.test('a host detector that throws stays closed and tells the builder why', 
     profile,
     script({ type: 'text', text: 'hi' }, { type: 'done', stop: { kind: 'completed' } }),
   );
-  check(observed, { reasons: ['classifier offline'], traceScrubbed: true });
+  check(observed, {
+    reasons: ['classifier offline'],
+    traceSummary: "Host detector 'acme.down' find threw Error",
+  });
 });
 
 Deno.test('a compactor that throws tells the builder why', async () => {
@@ -283,5 +294,35 @@ Deno.test('a host detector that throws on the reply stays closed and tells the b
     profile,
     script({ type: 'text', text: 'hi' }, { type: 'done', stop: { kind: 'completed' } }),
   );
-  check(observed, { reasons: ['reply classifier offline'], traceScrubbed: true });
+  check(observed, {
+    reasons: ['reply classifier offline'],
+    traceSummary: "Host detector 'acme.reply' find threw Error",
+  });
+});
+
+Deno.test('a host detector that throws an error named with data puts none of it in the trace', async () => {
+  const profile = textProfile('matrix.detector.named', {
+    guardrails: {
+      detect: {
+        'acme.named': {
+          label: 'Named',
+          action: 'flag',
+          find: () => {
+            const error = new Error('named classifier down');
+            error.name = `Leak${SECRET}`;
+            throw error;
+          },
+        },
+      },
+    },
+  });
+  const observed = await turn(
+    profile,
+    script({ type: 'text', text: 'hi' }, { type: 'done', stop: { kind: 'completed' } }),
+  );
+  check(observed, {
+    reasons: ['named classifier down'],
+    traceSummary: "Host detector 'acme.named' find threw Error",
+    secrets: [SECRET],
+  });
 });

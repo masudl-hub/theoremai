@@ -959,7 +959,14 @@ detect: compileDetect({
   detector and why it failed, with what it threw, for the builder only. A
   request it stops throws with the same reason in its message. The trace
   cleans what it stores with the same `find`, so it stores `[omitted]` in
-  place of the reason.
+  place of the reason. The event's `errorSummary` says the same in the
+  kernel's words only, such as `Host detector 'harbor.pii' find threw
+  TimeoutError (error 3f9a1c2b)`: the error's type is its name when that is
+  letters only, else `Error`. The trace stores it as `error_summary`, and the
+  hit's `signal` too. A thrown error's reason ends with the same error id, so
+  the builder can match the trace to the host stream. A host that wants the
+  reason itself in the trace turns off the host's clean-up
+  (`observability.scrub.sensitive.host: false`).
 - A reply streams up to a pattern's match, as above. `find` cannot say where a
   match might still start, so with one the last `HOST_FIND_HOLD` (256)
   characters of a reply stay held, `HOST_FIND_HOLD_LIVE` (96) in a Live reply,

@@ -346,6 +346,7 @@ function guardrailAttributes(guardrail: GuardrailEvent): TraceAttributes {
     hits: guardrail.hits.map((hit) => ({
       rule: hit.rule,
       severity: hit.severity,
+      ...optional('signal', hit.signal),
       ...(hit.span ? { start: hit.span.start, end: hit.span.end } : {}),
       ...optional('match', hit.match),
       ...optional('label', hit.label),
@@ -353,6 +354,7 @@ function guardrailAttributes(guardrail: GuardrailEvent): TraceAttributes {
     })),
     ...(guardrail.provenance ? { provenance: { ...guardrail.provenance } } : {}),
     ...(guardrail.errorInternal ? { error: traceContent(guardrail.errorInternal) } : {}),
+    ...optional('error_summary', guardrail.errorSummary),
   };
 }
 

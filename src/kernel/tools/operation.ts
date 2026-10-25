@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publicError, TheoremError } from '../../guardrails/error.ts';
+import { TheoremError } from '../../guardrails/error.ts';
 import { errorKindSchema, guardrailHit, provenance } from '../../guardrails/event-schemas.ts';
 import { type JsonObject, type JsonValue, jsonObjectSchema, jsonValueSchema } from '../json.ts';
 import type { InjectUnit } from '../stages.ts';
@@ -81,10 +81,9 @@ export interface ToolExecutionCoordinator {
   markUncertain(claim: ToolOperationClaim, reason: ToolOperationUncertainty): Promise<void>;
 }
 
-export function operationUnavailable(): TheoremError {
-  const error = new TheoremError('unavailable', '');
-  error.message = publicError(error);
-  return error;
+/** A coordinator, a page dispatch or the kernel broke the tool-operation contract. */
+export function operationBroken(reason: string): TheoremError {
+  return new TheoremError('internal', reason);
 }
 
 export async function toolInvocationHash(value: unknown): Promise<string> {
@@ -160,18 +159,22 @@ export function operationWireValue(value: unknown): JsonValue {
   const ancestors = new Set<object>();
   const normalize = (item: unknown): unknown => {
     if (!item || typeof item !== 'object') return item;
-    if (ancestors.has(item)) throw operationUnavailable();
+    if (ancestors.has(item)) throw operationBroken('Tool operation value has a cycle'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const prototype = Object.getPrototypeOf(item);
     if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null) {
-      throw operationUnavailable();
+      throw operationBroken('Tool operation value holds an object that is not plain data'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    if (Object.hasOwn(item, '__proto__')) throw operationUnavailable();
+    if (Object.hasOwn(item, '__proto__')) {
+      throw operationBroken('Tool operation value has an own __proto__ key'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
     ancestors.add(item);
     try {
       if (Array.isArray(item)) return item.map(normalize);
       const entries = Object.entries(Object.getOwnPropertyDescriptors(item));
-      if (entries.some(([, descriptor]) => descriptor.get || descriptor.set))
-        throw operationUnavailable();
+      const accessor = entries.find(([, descriptor]) => descriptor.get || descriptor.set);
+      if (accessor) {
+        throw operationBroken(`Tool operation value has a getter or setter at '${accessor[0]}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      }
       return Object.fromEntries(
         entries
           .filter(([, descriptor]) => descriptor.enumerable && descriptor.value !== undefined)

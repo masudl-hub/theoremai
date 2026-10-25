@@ -692,7 +692,9 @@ not the key.
 | `denied` | `declined` |
 | A remote tool without its credential (`not_authorized`); tool HTTP 401 / 402 / 403 | `auth` |
 | Tool HTTP 429 | `rate_limit` |
-| `network_error` | `network` |
+| `network_error`: the fetch failed, or reading its body failed | `network` |
+| `timeout` | `timeout` |
+| `request_failed`: anything else a remote call threw | that error's kind; `internal` when it is not a `TheoremError` |
 | `invalid_*`, `malformed_arguments` | `bad_response` |
 | `handler_error` from a handler that threw a `TheoremError` | that error's kind |
 | any other `handler_error`, `mcp_*`, other tool HTTP statuses | `failed` |
@@ -1592,6 +1594,9 @@ It follows redirects manually, with a limit of 20 hops and Fetch-standard method
 Each target passes the same URL check before the next request. Tool auth and
 configured headers go to the configured origin only and are never re-sent once a
 redirect leaves it. OAuth discovery and token requests do not follow redirects.
+A hop whose request or body read fails throws `TheoremError` with kind
+`network`, and the error the fetch threw is its `cause`. A `dnsOverHttpsResolver`
+query that fails reads the same way.
 
 `fetchGuarded` takes an optional `resolveHost`. With it, every hop's host name
 is resolved first and the hop is refused when any address is private or the name

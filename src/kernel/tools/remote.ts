@@ -610,6 +610,13 @@ async function* remoteAuthAndPreBody(args: {
   };
 }
 
+/** A thrown request's code: a kind with a code of its own, else `request_failed`. */
+const THROWN_CODES: Partial<Record<ErrorKind, string>> = {
+  network: 'network_error',
+  cancelled: 'cancelled',
+  timeout: 'timeout',
+};
+
 function* thrownOutcome(
   err: unknown,
   checks: RequestChecks,
@@ -619,7 +626,11 @@ function* thrownOutcome(
     checks.record(blocked);
     return failureOutcome(yield* networkBlocked(err, blocked), false);
   }
-  return failureOutcome({ code: 'network_error', kind: 'network', message: messageOf(err) }, false);
+  const kind = errorKind(err);
+  return failureOutcome(
+    { code: THROWN_CODES[kind] ?? 'request_failed', kind, message: messageOf(err) },
+    false,
+  );
 }
 
 const OMIT_CREDENTIAL = '[omitted - credential]';

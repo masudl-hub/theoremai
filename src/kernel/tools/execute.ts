@@ -51,7 +51,7 @@ import type {
   ToolOperationClaim,
   ToolOperationOutcome,
 } from './operation.ts';
-import { operationUnavailable, operationWireValue } from './operation.ts';
+import { operationBroken, operationWireValue } from './operation.ts';
 import {
   checkPermission,
   gateDetails,
@@ -758,13 +758,18 @@ async function* receivePageAnswer(
 ): AsyncGenerator<TurnEvent, ToolContext> {
   const execution = ctx.pageExecution;
   if (tool.answeredBy !== 'page' || !execution) return ctx;
-  if (!claim?.invocation) throw operationUnavailable();
+  if (!claim?.invocation) {
+    throw new TheoremError(
+      'config',
+      `Page tool '${tool.name}' needs a tool execution coordinator (execution)`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
   const argumentsForPage = jsonObjectSchema.parse(
     operationWireValue(claim.invocation.preparedInput),
   );
   const dispatch = await execution.dispatch(claim, ctx.signal);
   throwIfAborted(ctx.signal);
-  if (!dispatch.grantId) throw operationUnavailable();
+  if (!dispatch.grantId) throw operationBroken('The page dispatch returned no grantId'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   yield toolEvent(base, {
     phase: 'dispatch',
     grantId: dispatch.grantId,

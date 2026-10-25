@@ -1,10 +1,20 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { assert, assertEquals, assertInstanceOf } from '@std/assert';
+import {
+  bearer,
+  createKernelScope,
+  defineProvider,
+  type InvokeToolRequest,
+  invokeTool,
+  openAi,
+  runDecision,
+  z,
+} from '../../mod.ts';
 import { describeError, errorKind, TheoremError } from '../../src/guardrails/error.ts';
 import type { ErrorKind } from '../../src/guardrails/theorem-error.ts';
 import { forClient } from '../../src/host/client-turn.ts';
-import { registerProfile } from '../../src/kernel/default-scope.ts';
+import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnStopKind } from '../../src/kernel/schema.ts';
 import type { ModelEvent, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
@@ -325,4 +335,223 @@ Deno.test('a host detector that throws an error named with data puts none of it 
     traceSummary: "Host detector 'acme.named' find threw Error",
     secrets: [SECRET],
   });
+});
+
+async function invoked(name: string, options: Partial<InvokeToolRequest> = {}): Promise<Observed> {
+  const events: TurnEvent[] = [];
+  try {
+    for await (const event of invokeTool({ profile: name, name, input: {}, ...options })) {
+      events.push(event);
+    }
+  } catch (thrown) {
+    return { events, traces: [], thrown };
+  }
+  return { events, traces: [] };
+}
+
+Deno.test('a page tool with no execution coordinator reads as config and says what is missing', async () => {
+  const name = 'matrix_page_tool';
+  registerTool({
+    type: 'function',
+    name,
+    description: 'Ask the page',
+    category: 'test',
+    access: 'read-write',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    answeredBy: 'page',
+    input: z.object({}),
+    output: z.object({ text: z.string() }),
+  });
+  registerProfile({ type: 'host', id: name, tools: { allow: [name] } });
+  const observed = await invoked(name, {
+    pageExecution: {
+      dispatch: () =>
+        Promise.resolve({ grantId: 'grant', result: Promise.resolve({ output: { text: 'ok' } }) }),
+    },
+  });
+  check(observed, { reasons: ['needs a tool execution coordinator'], kind: 'config' });
+});
+
+function httpTool(name: string): void {
+  registerTool({
+    name,
+    description: 'Fetch a thing',
+    type: 'http',
+    endpoint: 'https://api.example.com/thing',
+    method: 'GET',
+    category: 'api',
+    access: 'read-only',
+    loadTier: 'T0',
+    permission: 'auto',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.unknown(),
+    mapping: {},
+  });
+  registerProfile({ type: 'host', id: name, tools: { allow: [name] } });
+}
+
+const publicHost = () => Promise.resolve(['93.184.215.14']);
+
+async function withFetch<T>(fetchFn: typeof fetch, run: () => Promise<T>): Promise<T> {
+  const original = globalThis.fetch;
+  globalThis.fetch = fetchFn;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+Deno.test('an HTTP tool keeps the kind of what it threw', async () => {
+  const name = 'matrix_http_tool';
+  httpTool(name);
+  for (const [error, kind, reason] of [
+    [new TypeError('socket hang up'), 'network', 'socket hang up'],
+    [new DOMException('stopped by host', 'AbortError'), 'cancelled', 'stopped by host'],
+    [new TheoremError('internal', 'resolver bug'), 'internal', 'resolver bug'],
+  ] as const) {
+    const observed = await withFetch(
+      () => Promise.reject(error),
+      () => invoked(name, { resolveHost: publicHost }),
+    );
+    check(observed, { reasons: [reason], kind });
+  }
+});
+
+Deno.test('an HTTP tool whose body read fails reads as network', async () => {
+  const name = 'matrix_http_body';
+  httpTool(name);
+  const observed = await withFetch(
+    () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.error(new TypeError('body reset'));
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    () => invoked(name, { resolveHost: publicHost }),
+  );
+  check(observed, { reasons: ['body reset'], kind: 'network' });
+});
+
+function decisionProfile(id: string): string {
+  registerProfile(
+    defineProfile({
+      type: 'decision',
+      id,
+      identity: { handle: 'Decision' },
+      models: {
+        jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      },
+      inputs: { state: 'json', maxStateBytes: 1000 },
+      decision: { contract: 'test.v1' },
+    }),
+  );
+  return id;
+}
+
+Deno.test('a decision keeps the kind of what failed under it', async () => {
+  const profile = decisionProfile('matrix.decision');
+  for (const [fetchFn, kind, reason] of [
+    [
+      () =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream({
+              pull(controller) {
+                controller.error(new TypeError('decision body reset'));
+              },
+            }),
+          ),
+        ),
+      'network',
+      'decision body reset',
+    ],
+    [
+      () => Promise.reject(new TheoremError('internal', 'host fetch bug')),
+      'internal',
+      'host fetch bug',
+    ],
+  ] as const) {
+    let thrown: unknown;
+    try {
+      await runDecision(
+        {
+          profile,
+          state: { a: 1 },
+          questions: {
+            next: { type: 'choice', instructions: 'Pick.', criteria: { a: 'A.', b: 'B.' } },
+          },
+        },
+        { vault: FIXTURE_VAULT, fetch: fetchFn },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    check({ events: [], traces: [], thrown }, { reasons: [reason], kind });
+  }
+});
+
+Deno.test('a connection that drops mid-reply reads as network and keeps the text', async () => {
+  const scope = createKernelScope();
+  const provider = scope.providers.register(
+    defineProvider({
+      id: 'matrix-drop',
+      name: 'Drop',
+      description: 'Drops mid-reply',
+      key: z.string(),
+      authorize: bearer(),
+      serves: () => [{ protocol: openAi, baseUrl: 'https://drop.test/v1' }],
+    }),
+    { keySlot: 'main' },
+  );
+  scope.profiles.register(
+    defineProfile({
+      id: 'matrix.drop',
+      type: 'text',
+      identity: { handle: 'Drop' },
+      models: { main: provider.model(openAi, 'm') },
+      inputs: { text: true },
+      tools: { allow: [] },
+      maxSteps: 1,
+    }),
+  );
+  const chunk = new TextEncoder().encode(
+    'data: {"id":"x","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"hi"}}]}\n\n',
+  );
+  let sent = false;
+  const send: typeof fetch = () =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (sent) controller.error(new TypeError('connection reset'));
+            else controller.enqueue(chunk);
+            sent = true;
+          },
+        }),
+        { headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+  const events: TurnEvent[] = [];
+  const traces: TraceRecord[] = [];
+  for await (const event of scope.runTurn(
+    { profile: 'matrix.drop', input: { text: 'x' } },
+    { fetch: send, vault: { main: 'fixture-key' }, wait: () => Promise.resolve() },
+    catalogedSink(traces),
+  )) {
+    events.push(event);
+  }
+  check({ events, traces }, { reasons: ['connection reset'], kind: 'network' });
+  assert(
+    events.some((event) => event.type === 'text' && event.text === 'hi'),
+    'R3: the text before the drop is kept',
+  );
 });

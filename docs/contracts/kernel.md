@@ -961,6 +961,8 @@ Permission and sign-in resumes retain `gateKind`, so preparation that did not ru
 The shared executor accepts an optional host-owned `ToolExecutionCoordinator` through trusted `execution` options.
 `createMemoryToolExecution` is the kernel's in-process coordinator. It checks the claim token on `settle` and `markUncertain`.
 It refuses `settleNotStarted` for an operation that already has a record, and refuses new operations at the `maxOperations` of its `MemoryToolExecutionOptions`.
+A full coordinator reads as `rate_limit`. A claim token it did not issue, or a second record for one operation, reads as `internal`.
+A page tool that runs with no coordinator reads as `config`. A coordinator or page dispatch that breaks this contract reads as `internal`, and `errorInternal` says what broke.
 It holds no storage outside the process, so a host that resumes across workers supplies its own coordinator.
 The host must reserve storage before returning an acquired claim. React handlers enforce finite capacity and reserve terminal evidence.
 Capacity exhaustion must refuse dispatch. It must not remove unresolved claims to authorize another attempt.

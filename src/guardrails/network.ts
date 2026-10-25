@@ -1,4 +1,4 @@
-import { TheoremError } from './error.ts';
+import { sendOrNetworkError, TheoremError } from './error.ts';
 import type { NetworkGuardrailSpec } from './types.ts';
 
 /**
@@ -344,7 +344,7 @@ export async function fetchGuarded(
         sent.set(name, value);
       }
     }
-    const response = await fetchFn(target.href, {
+    const response = await sendOrNetworkError(fetchFn, target.href, {
       ...init,
       method,
       headers: sent,
@@ -393,7 +393,7 @@ export function dnsOverHttpsResolver(options: DnsOverHttpsOptions): ResolveHost 
     const url = new URL(options.endpoint);
     url.searchParams.set('name', hostname);
     url.searchParams.set('type', String(type));
-    const response = await fetchFn(url.href, {
+    const response = await sendOrNetworkError(fetchFn, url.href, {
       headers: { accept: 'application/dns-json' },
       ...(signal ? { signal } : {}),
     });

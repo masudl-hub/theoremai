@@ -95,6 +95,53 @@ function describeError(err: unknown): string {
   return lines.join('\n');
 }
 
+/** fetch rejects only when no response came back, so any non-abort, non-timeout rejection is `network`. */
+function networkError(err: unknown): unknown {
+  if (err instanceof TheoremError || isAbortError(err) || isTimeoutError(err)) {
+    return err;
+  }
+  return new TheoremError('network', describeError(err), { cause: err });
+}
+
+/** `response` with a body whose read that fails is named as `networkError` names it. */
+function bodyOrNetworkError(response: Response): Response {
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  const body = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        try {
+          const next = await reader.read();
+          if (next.done) controller.close();
+          else controller.enqueue(next.value);
+        } catch (err) {
+          controller.error(networkError(err));
+        }
+      },
+      cancel: (reason) => reader.cancel(reason),
+    },
+    { highWaterMark: 0 },
+  );
+  const named = new Response(body, response);
+  Object.defineProperties(named, {
+    url: { value: response.url },
+    redirected: { value: response.redirected },
+  });
+  return named;
+}
+
+/** `send`, with a failed send or body read named as `networkError` names it. */
+async function sendOrNetworkError(
+  send: typeof fetch,
+  ...args: Parameters<typeof fetch>
+): Promise<Response> {
+  try {
+    return bodyOrNetworkError(await send(...args));
+  } catch (err) {
+    throw networkError(err);
+  }
+}
+
 type ProducedError = TurnEventOf<'error'> & { errorInternal: string };
 
 /** No user wording yet: `withPublicLabels` adds it where the event reaches the host, the one place that knows the profile. */
@@ -134,7 +181,9 @@ export {
   isAbortError,
   isTimeoutError,
   kindOfHttpStatus,
+  networkError,
   publicError,
+  sendOrNetworkError,
   TheoremError,
   throwIfAborted,
   toErrorEvent,

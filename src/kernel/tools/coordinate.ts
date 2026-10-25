@@ -4,7 +4,7 @@ import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import type { TurnEvent } from '../types.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
 import {
-  operationUnavailable,
+  operationBroken,
   operationWireValue,
   type TerminalToolEvent,
   type ToolExecutionCoordinator,
@@ -49,7 +49,7 @@ class CoordinatedExecution {
     if (result.kind === 'settled') throw new ReplayedOperation(result.outcome);
     if (result.kind === 'running' || result.kind === 'uncertain') throw uncertainError();
     if (result.kind !== 'acquired' || typeof result.claimToken !== 'string' || !result.claimToken)
-      throw operationUnavailable();
+      throw operationBroken("The tool coordinator's begin returned no claim"); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     this.claim = { ...operation, claimToken: result.claimToken };
     throwIfAborted(this.signal);
     return this.claim;
@@ -70,7 +70,7 @@ class CoordinatedExecution {
       if (this.claim) throw uncertainError();
       return undefined;
     }
-    if (!this.terminal) throw operationUnavailable();
+    if (!this.terminal) throw operationBroken('The tool run ended with no terminal event'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const {
       modelResult,
       outputRaw,
@@ -112,7 +112,7 @@ class CoordinatedExecution {
       saved.event.tool.callId !== callId ||
       saved.event.tool.name !== toolId
     )
-      throw operationUnavailable();
+      throw operationBroken("The tool coordinator's saved outcome is another operation's"); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     this.committed = true;
     return saved;
   }
@@ -150,7 +150,7 @@ export async function* coordinateTool(
   throwIfAborted(signal);
   if (existing?.kind === 'running' || existing?.kind === 'uncertain') throw uncertainError();
   if (existing?.kind === 'settled') {
-    if (!authorizeReplay) throw operationUnavailable();
+    if (!authorizeReplay) throw operationBroken('A settled tool operation has no replay check'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const saved = execution.replay(new ReplayedOperation(existing.outcome));
     await authorizeReplay(saved);
     throwIfAborted(signal);
@@ -170,7 +170,7 @@ export async function* coordinateTool(
     }
   } catch (error) {
     if (error instanceof ReplayedOperation) {
-      if (!authorizeReplay) throw operationUnavailable();
+      if (!authorizeReplay) throw operationBroken('A settled tool operation has no replay check'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       const saved = execution.replay(error);
       await authorizeReplay(saved);
       yield saved.event;

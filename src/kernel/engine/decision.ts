@@ -1,4 +1,4 @@
-import { type ErrorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
+import { type ErrorKind, errorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
@@ -23,17 +23,49 @@ import { referencedAssets } from './decision-references.ts';
 
 /** Each decision failure code, and the error kind it reads as. */
 const DECISION_ERROR_KINDS = {
+  invalid_config: 'config',
   invalid_request: 'request',
+  invalid_input: 'input',
+  not_allowed: 'action',
   authentication: 'auth',
   permission: 'auth',
   rate_limited: 'rate_limit',
+  busy: 'busy',
+  unsupported: 'unsupported',
   unavailable: 'unavailable',
   network: 'network',
   timeout: 'timeout',
   cancelled: 'cancelled',
   malformed_response: 'bad_response',
+  refused: 'safety',
+  blocked: 'blocked',
   disclosure_blocked: 'blocked',
+  declined: 'declined',
+  failed: 'failed',
+  internal: 'internal',
 } as const satisfies Record<string, ErrorKind>;
+
+/** Each kind's code: a thrown failure keeps its kind. */
+const DECISION_CODES: Readonly<Record<ErrorKind, keyof typeof DECISION_ERROR_KINDS>> = {
+  config: 'invalid_config',
+  request: 'invalid_request',
+  input: 'invalid_input',
+  action: 'not_allowed',
+  auth: 'authentication',
+  rate_limit: 'rate_limited',
+  busy: 'busy',
+  unsupported: 'unsupported',
+  unavailable: 'unavailable',
+  bad_response: 'malformed_response',
+  network: 'network',
+  timeout: 'timeout',
+  safety: 'refused',
+  blocked: 'blocked',
+  declined: 'declined',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  internal: 'internal',
+};
 
 /**
  * A normalized native-decision failure; response bodies are deliberately omitted. What the
@@ -453,27 +485,11 @@ function recordResult(root: SpanHandle, result: DecisionResult): void {
 
 function decisionProviderError(error: unknown): DecisionError {
   if (error instanceof DecisionError) return error;
-  const kind =
-    error instanceof TheoremError
-      ? error.kind
-      : error instanceof TypeError
-        ? 'network'
-        : 'bad_response';
-  const codes: Partial<Record<ErrorKind, keyof typeof DECISION_ERROR_KINDS>> = {
-    auth: 'authentication',
-    rate_limit: 'rate_limited',
-    network: 'network',
-    busy: 'unavailable',
-    unavailable: 'unavailable',
-    timeout: 'timeout',
-    cancelled: 'cancelled',
-    request: 'invalid_request',
-    unsupported: 'invalid_request',
-  };
+  const kind = errorKind(error);
   const code =
     kind === 'auth' && isRecord(error) && error.status === 403
       ? 'permission'
-      : (codes[kind] ?? 'malformed_response');
+      : DECISION_CODES[kind];
   return new DecisionError(
     code,
     // why: A framework failure's message holds no response body, and says what stopped the decision.

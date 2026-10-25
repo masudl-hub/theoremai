@@ -1,6 +1,7 @@
+import { TheoremError } from '../../guardrails/error.ts';
 import {
   type BeginToolOperationResult,
-  operationUnavailable,
+  operationBroken,
   type ToolExecutionCoordinator,
   type ToolOperationClaim,
   type ToolOperationIdentity,
@@ -45,29 +46,40 @@ export function createMemoryToolExecution(
     const record = records.get(keyOf(claim));
     return record?.state === 'running' && record.claimToken === claim.claimToken;
   };
+  const full = () =>
+    new TheoremError(
+      'rate_limit',
+      `The memory tool coordinator holds its maxOperations of ${limit}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  const notHeld = () =>
+    operationBroken('The memory tool coordinator holds no running claim for this token'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   return {
     lookup: (operation) => Promise.resolve(known(operation)),
     begin: (operation) => {
       const earlier = known(operation);
       if (earlier) return Promise.resolve(earlier);
-      if (records.size >= limit) return Promise.reject(operationUnavailable());
+      if (records.size >= limit) return Promise.reject(full());
       const claimToken = crypto.randomUUID();
       records.set(keyOf(operation), { state: 'running', claimToken });
       return Promise.resolve({ kind: 'acquired', claimToken });
     },
     settle: (claim, outcome) => {
-      if (!holds(claim)) return Promise.reject(operationUnavailable());
+      if (!holds(claim)) return Promise.reject(notHeld());
       records.set(keyOf(claim), { state: 'settled', outcome });
       return Promise.resolve();
     },
     settleNotStarted: (operation, outcome) => {
-      if (records.has(keyOf(operation))) return Promise.reject(operationUnavailable());
-      if (records.size >= limit) return Promise.reject(operationUnavailable());
+      if (records.has(keyOf(operation))) {
+        return Promise.reject(
+          operationBroken('The memory tool coordinator already has a record for this operation'), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        );
+      }
+      if (records.size >= limit) return Promise.reject(full());
       records.set(keyOf(operation), { state: 'settled', outcome });
       return Promise.resolve();
     },
     markUncertain: (claim) => {
-      if (!holds(claim)) return Promise.reject(operationUnavailable());
+      if (!holds(claim)) return Promise.reject(notHeld());
       records.set(keyOf(claim), { state: 'uncertain' });
       return Promise.resolve();
     },

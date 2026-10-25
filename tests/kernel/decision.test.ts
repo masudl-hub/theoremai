@@ -218,7 +218,7 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
   clearProfiles();
   registerProfile(profile());
   for (const [status, code, kind] of [
-    [400, 'invalid_request', 'request'],
+    [400, 'unsupported', 'unsupported'],
     [401, 'authentication', 'auth'],
     [403, 'permission', 'auth'],
     [429, 'rate_limited', 'rate_limit'],
@@ -226,6 +226,7 @@ Deno.test('runDecision normalizes Jev HTTP failures', async () => {
     [504, 'timeout', 'timeout'],
     [524, 'timeout', 'timeout'],
     [500, 'unavailable', 'unavailable'],
+    [503, 'busy', 'busy'],
   ] as const) {
     const error = await assertRejects(
       () =>

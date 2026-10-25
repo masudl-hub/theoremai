@@ -1,5 +1,4 @@
-import { TheoremError } from '../../guardrails/error.ts';
-import { networkError } from './upstream-tap.ts';
+import { networkError, TheoremError } from '../../guardrails/error.ts';
 
 /** How a retry waits; a host or test may pass its own. The signal ends the wait early. */
 export type Wait = (ms: number, signal?: AbortSignal | null) => Promise<void>;

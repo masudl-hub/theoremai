@@ -2,7 +2,7 @@
 # Usage: label.py <texts.jsonl> <out.jsonl>
 import os, json, sys, time, importlib.util, torch
 spec = importlib.util.spec_from_file_location('score', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'score.py')); S = importlib.util.module_from_spec(spec); spec.loader.exec_module(S)
-src, out = sys.argv[1:3]; dev = 'mps'
+src, out = sys.argv[1:3]; dev = 'cuda' if torch.cuda.is_available() else 'mps'
 tok, m, f, pos = S.load('hz-small'); m.to(dev); rows = [json.loads(l) for l in open(src)]
 allw, owner = [], []
 for i, r in enumerate(rows):

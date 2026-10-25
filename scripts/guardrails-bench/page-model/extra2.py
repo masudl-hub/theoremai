@@ -2,8 +2,10 @@
 #   fair:  TaskTracker poisoned paragraphs (v1 and v2, 4,000 of each) with their clean paragraphs, and 3,000 SEP train items,
 #          clean and instructed. Texts with a phrase of the two nvidia-ipi templates are dropped, so nvidia-ipi stays unseen.
 #   quick: the corpus nvidia-ipi rows that no sample, screen or newsets row holds.
-# Usage: extra2.py <fair|quick> <data dir> <out.jsonl>
-import json, sys, random
+#   pages: BrowseSafe++ train pairs that newsets2.py did not draw, English pages only, both pages of each as Markdown;
+#          PAIRS of them (default 4,000) at random.
+# Usage: [PAIRS=n] extra2.py <fair|quick|pages> <data dir> <out.jsonl>
+import json, sys, random, os, glob
 mode, D, out = sys.argv[1:4]; C = f'{D}/linear-2210/clf'
 ev = set()
 for f in (f'{C}/texts.jsonl', f'{C}/sample.jsonl', f'{C}/screen.jsonl', f'{C}/newsets/rows2.jsonl'): ev |= {json.loads(l)['text'] for l in open(f)}
@@ -18,6 +20,15 @@ if mode == 'fair':
         for x in random.sample(d, 4000): put(f'tasktracker-{v}', 1, x['final_text_paragraph']); put(f'tasktracker-{v}', 0, x['orig_text'])
     for x in random.sample(json.load(open(f'{D}/sep-dl/datasets/train_dataset.json')), 3000):
         put('sep', 1, x['data_prompt_instructed']); put('sep', 0, x['data_prompt_clean'])
+elif mode == 'pages':
+    import pyarrow.parquet as pq
+    drawn = {json.loads(l).get('pair') for l in open(f'{C}/newsets/rows2.jsonl')}; bs = {}
+    for f in sorted(glob.glob(f'{D}/downloads/perplexity-ai__browsesafe-plus-plus/data/*.parquet')):
+        for r in pq.read_table(f, columns=['entry_id', 'content_markdown', 'language_page']).to_pylist():
+            k, arm = r['entry_id'].split('_')[:2]; bs.setdefault(k, {})[arm] = r
+    pairs = sorted(k for k, v in bs.items() if k not in drawn and set(v) == {'malicious', 'benign'} and all(x['language_page'] == ['en'] for x in v.values()))
+    for k in random.sample(pairs, min(int(os.environ.get('PAIRS', '4000')), len(pairs))):
+        for arm in ('malicious', 'benign'): put('bspp-train', int(arm == 'malicious'), bs[k][arm]['content_markdown'] or '')
 else:
     sample = set()
     for f in (f'{C}/sample.jsonl', f'{C}/screen.jsonl', f'{C}/newsets/rows2.jsonl'): sample |= {json.loads(l)['text'] for l in open(f)}

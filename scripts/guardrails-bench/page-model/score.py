@@ -41,7 +41,7 @@ def windows(tok, text, W=int(os.environ.get('W', '512')), overlap=64):
     parts = [ids[i:i + n] for i in range(0, max(len(ids) - overlap, 1), step)] or [[]]
     return [[tok.cls_token_id] + p + [tok.sep_token_id] for p in parts], len(ids)
 if __name__ == '__main__':
-    name, src, out = sys.argv[1:4]; dev = 'mps' if torch.backends.mps.is_available() and name.startswith(MPS) else 'cpu'  # DeBERTa runs faster on CPU
+    name, src, out = sys.argv[1:4]; dev = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() and name.startswith(MPS) else 'cpu'  # DeBERTa runs faster on CPU than MPS
     tok, m, f, pos = load(name); m.to(dev); rows = [json.loads(l) for l in open(src)]
     allw, owner, ntok = [], [], []
     for i, r in enumerate(rows):

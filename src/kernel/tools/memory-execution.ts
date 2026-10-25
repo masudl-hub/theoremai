@@ -48,7 +48,7 @@ export function createMemoryToolExecution(
   };
   const full = () =>
     new TheoremError(
-      'rate_limit',
+      'config',
       `The memory tool coordinator holds its maxOperations of ${limit}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   const notHeld = () =>

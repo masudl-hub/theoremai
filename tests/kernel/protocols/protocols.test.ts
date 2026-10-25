@@ -89,6 +89,63 @@ function sse(rows: JsonObject[]): Response {
   return new Response(text, { headers: { 'content-type': 'text/event-stream' } });
 }
 
+Deno.test('default framing puts X-Generation-Id on a binary http_body row as id', async () => {
+  const binary = defineProtocol({
+    id: 'binaryEcho',
+    name: 'Binary echo',
+    description: 'Posts and reads one binary body.',
+    endpoints: { speech: '/speak' },
+    options: z.strictObject({}),
+    create: (context) => ({
+      async *complete() {
+        for await (const _row of context.send({}, { stream: false })) {
+          yield { type: 'done', stop: { kind: 'completed' } };
+        }
+      },
+    }),
+  });
+  const speaker = defineProvider({
+    id: 'speaker',
+    name: 'Speaker',
+    description: 'Binary speech host.',
+    key: z.string(),
+    authorize: bearer(),
+    serves: () => [{ protocol: binary, baseUrl: 'https://speak.test/v1' }],
+  });
+  const registry = createProviderRegistry();
+  registry.register(speaker, { keySlot: 'main' });
+  const rows: JsonObject[] = [];
+  const call = callProtocol({
+    provider: registry.require('speaker', 'm'),
+    binding: checkBinding(
+      registry.require('speaker', 'm'),
+      { protocol: 'binaryEcho', provider: 'speaker', apiId: 'm' },
+      'speech',
+    ),
+    profileType: 'speech',
+    vault: { main: 'k' },
+    tapUpstream: (row) => {
+      if (row.eventType === 'http_body') rows.push(row);
+    },
+    fetch: () =>
+      Promise.resolve(
+        new Response(new Uint8Array([7]), {
+          headers: { 'content-type': 'audio/mpeg', 'X-Generation-Id': ' gen-from-header ' },
+        }),
+      ),
+    wait: async () => {},
+  });
+  await collect(call.complete(request));
+  assertEquals(rows, [
+    {
+      eventType: 'http_body',
+      mime_type: 'audio/mpeg',
+      data: 'Bw==',
+      id: 'gen-from-header',
+    },
+  ]);
+});
+
 interface Sent {
   url: string;
   headers: Headers;

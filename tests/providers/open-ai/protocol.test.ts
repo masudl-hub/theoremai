@@ -221,7 +221,9 @@ Deno.test('openAi reads text aloud on /audio/speech; raw PCM comes back as WAV',
   registry.register(compatible, { keySlot: 'main' });
   const provider = registry.require('compatible', 'tts-1');
   const answers = [
-    new Response(new Uint8Array([1, 2, 3, 4]), { headers: { 'content-type': 'audio/mpeg' } }),
+    new Response(new Uint8Array([1, 2, 3, 4]), {
+      headers: { 'content-type': 'audio/mpeg', 'x-generation-id': 'gen-tts-mp3' },
+    }),
     new Response(new Uint8Array([0, 0, 1, 0]), {
       headers: { 'content-type': 'audio/pcm;rate=24000;channels=1' },
     }),
@@ -255,10 +257,15 @@ Deno.test('openAi reads text aloud on /audio/speech; raw PCM comes back as WAV',
     instructions: 'Calm.',
   });
   assertEquals(mp3, [
+    { type: 'response', response: { id: 'gen-tts-mp3' } },
     { type: 'media', media: { mimeType: 'audio/mpeg', data: 'AQIDBA==' } },
     { type: 'done', stop: { kind: 'completed' } },
   ]);
   const pcm = await collect(call.complete(spoken));
+  assertEquals(
+    pcm.map((event) => event.type),
+    ['media', 'done'],
+  );
   assertEquals(pcm[0]?.type === 'media' && pcm[0].media.mimeType, 'audio/wav');
 });
 

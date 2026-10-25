@@ -464,6 +464,7 @@ if (selected.has('speech')) {
       registerProfile(profile);
       const projected = projectProfile(profile.id);
       if (projected.type !== 'speech') throw new Error(`Expected speech, got ${projected.type}`);
+      const before = traces.length;
       const events = await collect(
         runTurn(
           { profile: profile.id, input: { text: 'Your bonsai needs water today.' } },
@@ -473,6 +474,16 @@ if (selected.has('speech')) {
       );
       assertClean(events);
       assertMedia(events, 'audio');
+      const record = traces.at(-1);
+      if (!record || traces.length <= before) throw new Error('missing speech trace record');
+      const call = record.spans.find((span) => span.kind === 'CLIENT');
+      const responseId = call?.attributes['gen_ai.response.id'];
+      if (typeof responseId !== 'string' || !responseId.startsWith('gen-')) {
+        throw new Error(
+          `expected gen_ai.response.id from X-Generation-Id, got ${JSON.stringify(responseId)}`,
+        );
+      }
+      console.log(`    Call response id: ${responseId}`);
     });
   } else {
     skipTest('OpenRouter Speech', `${OPENROUTER_ENV} missing`);

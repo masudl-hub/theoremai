@@ -285,6 +285,7 @@ const graph = {
         'tests/providers/google/live/framing.test.ts',
         'tests/providers/google/live/stream.test.ts',
         'tests/providers/open-ai/protocol.test.ts',
+        'tests/providers/open-ai/speech-response-id.test.ts',
         'tests/providers/openrouter/protocol.test.ts',
         'tests/providers/openrouter/images-protocol.test.ts',
         'tests/providers/openrouter/openai/compat.test.ts',
@@ -328,6 +329,10 @@ const graph = {
         {
           paths: ['src/providers/local/provider.ts', 'src/providers/open-ai/protocol.ts'],
           sections: ['Local provider'],
+        },
+        {
+          paths: ['src/providers/open-ai/protocol.ts', 'src/kernel/protocols/runtime.ts'],
+          sections: ['Speech roles'],
         },
         {
           paths: [

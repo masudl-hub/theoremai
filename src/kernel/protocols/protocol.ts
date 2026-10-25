@@ -204,7 +204,8 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
   custom?: Readonly<Record<string, z.ZodType<JsonObject>>>;
   /**
    * Turns the reply's framing into rows. Absent: SSE for a stream, one JSON row otherwise, and a
-   * body that is not JSON as one `{ eventType: 'http_body', mime_type, data }` row, base64.
+   * body that is not JSON as one `{ eventType: 'http_body', mime_type, data }` row, base64, with
+   * `id` when the reply names itself in `X-Generation-Id`.
    */
   framing?(response: Response, stream: boolean): AsyncIterable<JsonObject>;
   /** Types a failed answer. Absent: the kind follows the HTTP status. */

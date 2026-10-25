@@ -500,6 +500,14 @@ Use a speech profile to resolve voice, format, and media settings before the pro
 | `geminiInteractions` | Interactions output audio |
 
 Protocols preserve native media details and convert supported raw PCM to WAV.
+
+When `/audio/speech` answers with a binary body, default framing copies
+`X-Generation-Id` onto the row as `id`. `openAi` speech (and `openRouterOpenAi`
+through it) emits `response` from that id, so the call span records
+`gen_ai.response.id` the same way chat Completions does from a JSON `id`. The
+host never sees the `response` event. A reply with no such header leaves the
+attribute unset.
+
 The kernel validates the profile's speech role and input kinds.
 
 ## Key vault (provider-neutral)
@@ -718,8 +726,16 @@ The root also exports the default-scope registry functions, the binding schemas,
           "path": "src/providers/open-ai/protocol.ts"
         },
         {
+          "kind": "source",
+          "path": "src/kernel/protocols/runtime.ts"
+        },
+        {
           "kind": "contract_test",
           "path": "tests/providers/open-ai/protocol.test.ts"
+        },
+        {
+          "kind": "contract_test",
+          "path": "tests/providers/openrouter/protocol.test.ts"
         }
       ]
     },

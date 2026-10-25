@@ -182,7 +182,11 @@ async function* speech(
     // why: `instructions` is the endpoint's own field for delivery, never read aloud (probe 07/10/2026: Gemini 3.8 slowed and sped by it).
     ...(spec?.style ? { instructions: spec.style } : {}),
   };
+  let known: TurnResponse | undefined;
   for await (const row of context.send(body, { stream: false })) {
+    const identity = foldResponse(known, openAiResponse(row));
+    known = identity.known;
+    if (identity.event) yield identity.event;
     const type = typeof row.mime_type === 'string' ? row.mime_type : '';
     const bytes = typeof row.data === 'string' ? base64ToBytes(row.data) : new Uint8Array();
     if (!bytes.length) throw new TheoremError('bad_response', 'no audio returned from speech');

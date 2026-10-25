@@ -155,7 +155,14 @@ async function* defaultFraming(response: Response, stream: boolean): AsyncIterab
   if (!stream && !/json/i.test(type)) {
     // why: a body that is not JSON (audio, an image) is one row; the tape keeps its hash, not its bytes.
     const bytes = new Uint8Array(await response.arrayBuffer());
-    yield { eventType: 'http_body', mime_type: type, data: bytesToBase64(bytes) };
+    // probed 2026-10-24: OpenRouter `/audio/speech` names the answer in `X-Generation-Id` (no JSON `id`).
+    const id = response.headers.get('x-generation-id')?.trim();
+    yield {
+      eventType: 'http_body',
+      mime_type: type,
+      data: bytesToBase64(bytes),
+      ...(id ? { id } : {}),
+    };
     return;
   }
   if (!stream) {

@@ -98,7 +98,7 @@ export function unresolvedOperation(
 /** The host asked to run an operation that is still running or uncertain, so the host settles it first. */
 export function heldOperation(state: 'running' | 'uncertain'): TheoremError {
   return unresolvedOperation(
-    'request',
+    'conflict',
     `The tool operation is ${state}, so it does not run again until the host settles it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }

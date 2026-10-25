@@ -1983,7 +1983,7 @@ Deno.test('live output validation failure cannot restore an executed call as an 
       TheoremError,
       'is uncertain, so it does not run again until the host settles it',
     );
-    assertEquals([again.kind, again.copy], ['request', { key: 'tool.execution_uncertain' }]);
+    assertEquals([again.kind, again.copy], ['conflict', { key: 'tool.execution_uncertain' }]);
     assertEquals(effects, 1);
     assertEquals(h.toolResponses().length, 0);
   } finally {

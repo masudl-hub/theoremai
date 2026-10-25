@@ -1056,7 +1056,7 @@ async function settlingOf(
     (operation.status === 'running' || operation.status === 'uncertain')
   ) {
     throw new TheoremError(
-      'request',
+      'conflict',
       `The tool operation is ${operation.status}, so it does not run again until the host settles it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       { copy: { key: 'tool.execution_uncertain' } },
     );

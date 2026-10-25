@@ -51,13 +51,14 @@ slot”).
 | --- | --- | --- | --- |
 | `config` | 500 | `bad_response` | 502 |
 | `request` | 400 | `network` | 502 |
-| `input` | 422 | `timeout` | 504 |
-| `action` | 403 | `safety` | 422 |
-| `auth` | 401 | `blocked` | 403 |
-| `rate_limit` | 429 | `declined` | 409 |
-| `unsupported` | 422 | `failed` | 502 |
-| `unavailable` | 503 | `cancelled` | 499 (client closed request) |
-| `busy` | 503 | `internal` | 500 |
+| `conflict` | 409 | `timeout` | 504 |
+| `input` | 422 | `safety` | 422 |
+| `action` | 403 | `blocked` | 403 |
+| `auth` | 401 | `declined` | 409 |
+| `rate_limit` | 429 | `failed` | 502 |
+| `unsupported` | 422 | `cancelled` | 499 (client closed request) |
+| `unavailable` | 503 | `internal` | 500 |
+| `busy` | 503 | | |
 
 `auth` is 401 whichever key was refused. A key the host's vault lacks (a model's
 slot left empty: `the vault has no key in slot '<slot>'`) is `auth` too; keys

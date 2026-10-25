@@ -728,6 +728,6 @@ Deno.test('a page dispatch that fails after the claim keeps its cause kind, with
         Promise.resolve({ grantId: 'grant', result: Promise.resolve({ output: { text: 'ok' } }) }),
     },
   });
-  check(again, { reasons: ['is uncertain, so it does not run again'], kind: 'request' });
+  check(again, { reasons: ['is uncertain, so it does not run again'], kind: 'conflict' });
   assertEquals(coordinator.begins(), 1);
 });

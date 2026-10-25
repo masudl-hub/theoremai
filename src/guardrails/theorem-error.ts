@@ -14,6 +14,8 @@ export const ERROR_KINDS = [
   'config',
   /** The host called THEOREM wrongly. */
   'request',
+  /** The call conflicts with the state it acts on, such as an operation that is still running or not settled. */
+  'conflict',
   /** The user sent input the profile does not accept. */
   'input',
   /** The user asked for something the profile does not allow. */

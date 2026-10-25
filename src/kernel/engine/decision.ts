@@ -25,6 +25,7 @@ import { referencedAssets } from './decision-references.ts';
 const DECISION_ERROR_KINDS = {
   invalid_config: 'config',
   invalid_request: 'request',
+  conflict: 'conflict',
   invalid_input: 'input',
   not_allowed: 'action',
   authentication: 'auth',
@@ -49,6 +50,7 @@ const DECISION_ERROR_KINDS = {
 const DECISION_CODES: Readonly<Record<ErrorKind, keyof typeof DECISION_ERROR_KINDS>> = {
   config: 'invalid_config',
   request: 'invalid_request',
+  conflict: 'conflict',
   input: 'invalid_input',
   action: 'not_allowed',
   auth: 'authentication',

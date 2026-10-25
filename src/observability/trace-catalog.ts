@@ -204,6 +204,10 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
 const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
   config: { label: 'Setup', doc: 'The profile, tool, or schema is set up wrong.' },
   request: { label: 'Host request', doc: 'The host called theorem wrongly.' },
+  conflict: {
+    label: 'Conflict',
+    doc: 'The call conflicts with the state it acts on, such as an operation that is still running or not settled.',
+  },
   input: { label: 'User input', doc: 'The user sent input the profile does not accept.' },
   action: { label: 'Not allowed', doc: 'The user asked for something the profile does not allow.' },
   auth: {

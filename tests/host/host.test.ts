@@ -53,6 +53,7 @@ Deno.test('caughtStatus replies with the status of the error kind', () => {
   assertEquals(statuses, {
     config: 500,
     request: 400,
+    conflict: 409,
     input: 422,
     action: 403,
     auth: 401,

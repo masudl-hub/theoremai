@@ -180,7 +180,8 @@ Each needs Masud's decision before the fix that depends on it.
   today (`tests/kernel/tools.adversarial.test.ts` keeps this). (b) Give the model
   a tool failure to read back, as the comment on `malformedToolCall` in
   `src/providers/shared/tool-args.ts` says.
-- **O2. HTTP 4xx kinds.** Which kind a 400, 404, 409, 413, and 422 read as.
+- **O2. HTTP 4xx kinds.** Which kind a 400, 404, 413, and 422 read as. A 409
+  reads as `conflict` since O6.
   `request` means "the host called THEOREM wrongly", so it does not fit a
   provider's refusal either. A new kind is one answer.
 - **O3. Origin.** A new `origin` field on error events and tool failures, or a
@@ -197,9 +198,18 @@ Each needs Masud's decision before the fix that depends on it.
   kernel takes the claim at the hand-off for every tool type: right before the
   handler, the page dispatch, or the first HTTP or MCP send. A failure before
   it saves as `not_started`. A call to run an operation that is still running
-  or uncertain reads as `request`: the host settles it first. `busy` was
-  rejected, because it says a later retry works, and the kernel cannot know
-  that for a lost worker or an uncertain call.
+  or uncertain reads as the new kind `conflict` (HTTP 409): the host settles
+  it first. This is what others answer for a retry of a request that is still
+  running: the [IETF Idempotency-Key draft](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-idempotency-key-header)
+  (409), [Stripe](https://docs.stripe.com/error-low-level) (409 while "another
+  request with the same key is still executing") and Google (ABORTED, HTTP
+  409, in [google.rpc.Code](https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto)). `busy` was rejected, because it says a later
+  retry works, and the kernel cannot know that for a lost worker or an
+  uncertain call. An uncertain call is `conflict` too: the page or worker may
+  still be acting, and the kernel cannot tell it from a running one. A stale
+  answer (a gate that is not pending, a turn that is not running, a page answer
+  for a call that moved on) stays `request` (400). Google maps that case,
+  FAILED_PRECONDITION, to 400.
 - **O7. A finish reason the kernel does not know.** `provider_error`, or a stop
   that carries the native reason and says the kernel does not know it.
 - **O8. A host detector that fails on a request.** Keep `input`, or give it

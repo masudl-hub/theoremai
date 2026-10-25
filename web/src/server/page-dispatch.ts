@@ -83,7 +83,7 @@ export function createMemoryPageToolBroker(maxPending = 128): PageToolBroker {
       if (!finish)
         return Promise.reject(
           new TheoremError(
-            'request',
+            'conflict',
             'No dispatch in this process waits for the page answer to this grant', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
             { copy: { key: 'tool.execution_uncertain' } },
           ),

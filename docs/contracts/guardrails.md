@@ -639,7 +639,7 @@ is guessed from message text; a value that reaches a boundary without a kind is
 | Builder | `errorKind`, `errorInternal` on error events; `TheoremError.kind`; `ToolFailure.kind` + `code`; the trace's `error.type` (the kind) |
 | User | `error` on error events and `failure.error` on failed tool steps — the labels' `error.<kind>` |
 
-Kinds (`ERROR_KINDS`): `config`, `request`, `input`, `action`, `auth`,
+Kinds (`ERROR_KINDS`): `config`, `request`, `conflict`, `input`, `action`, `auth`,
 `rate_limit`, `busy`, `unsupported`, `unavailable`, `bad_response`, `network`,
 `timeout`, `safety`, `blocked`, `declined`, `failed`, `cancelled`, `internal`.
 
@@ -669,6 +669,7 @@ leaked fragments never reach the client wire.
 | --- | --- |
 | HTTP 401 / 402 / 403 | `auth` |
 | HTTP 408 / 504 / 524 | `timeout` |
+| HTTP 409 | `conflict` |
 | HTTP 429 | `rate_limit` |
 | HTTP 503 / 529 | `busy` |
 | Other HTTP ≥ 500 | `unavailable` |

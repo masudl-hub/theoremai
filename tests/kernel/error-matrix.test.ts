@@ -719,4 +719,15 @@ Deno.test('a page dispatch that fails after the claim keeps its cause kind, with
   );
   assertEquals(copies, [{ key: 'tool.execution_uncertain' }]);
   assertEquals(await coordinator.effects('op-page', 'call-page'), 'uncertain');
+  const again = await invoked(name, {
+    execution: coordinator.execution,
+    operationId: 'op-page',
+    callId: 'call-page',
+    pageExecution: {
+      dispatch: () =>
+        Promise.resolve({ grantId: 'grant', result: Promise.resolve({ output: { text: 'ok' } }) }),
+    },
+  });
+  check(again, { reasons: ['is uncertain, so it does not run again'], kind: 'request' });
+  assertEquals(coordinator.begins(), 1);
 });

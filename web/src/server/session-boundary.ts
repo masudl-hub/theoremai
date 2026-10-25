@@ -103,9 +103,11 @@ export async function createTheoremSessionBoundary(
         providerState &&
         Object.values(state.operations).some((operation) => operation.status !== 'settled')
       ) {
-        throw new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
-          copy: { key: 'tool.execution_uncertain' },
-        });
+        throw new TheoremError(
+          'request',
+          'The session holds a tool operation that is not settled, so its provider state does not resume', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          { copy: { key: 'tool.execution_uncertain' } },
+        );
       }
       return {
         ...prepared,

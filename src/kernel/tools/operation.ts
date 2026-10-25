@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TheoremError } from '../../guardrails/error.ts';
+import { type ErrorKind, TheoremError } from '../../guardrails/error.ts';
 import { errorKindSchema, guardrailHit, provenance } from '../../guardrails/event-schemas.ts';
 import { type JsonObject, type JsonValue, jsonObjectSchema, jsonValueSchema } from '../json.ts';
 import type { InjectUnit } from '../stages.ts';
@@ -84,6 +84,23 @@ export interface ToolExecutionCoordinator {
 /** A coordinator, a page dispatch or the kernel broke the tool-operation contract. */
 export function operationBroken(reason: string): TheoremError {
   return new TheoremError('internal', reason);
+}
+
+/** The user reads that the action is unresolved; the builder reads why, under the kind of what happened. */
+export function unresolvedOperation(
+  kind: ErrorKind,
+  reason: string,
+  cause?: unknown,
+): TheoremError {
+  return new TheoremError(kind, reason, { copy: { key: 'tool.execution_uncertain' }, cause });
+}
+
+/** The host asked to run an operation that is still running or uncertain, so the host settles it first. */
+export function heldOperation(state: 'running' | 'uncertain'): TheoremError {
+  return unresolvedOperation(
+    'request',
+    `The tool operation is ${state}, so it does not run again until the host settles it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
 }
 
 export async function toolInvocationHash(value: unknown): Promise<string> {

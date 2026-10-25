@@ -209,7 +209,7 @@ for (const backend of ['memory', 'sqlite'] as const) {
       const state = (await store.load(name))?.state;
       assertEquals(state?.operations[issued.tool.operationId].status, 'uncertain');
       assertEquals(Object.hasOwn(state?.gates ?? {}, issued.tool.operationId), false);
-      assertEquals((await post(second, 'invoke', answer)).status, 503);
+      assertEquals((await post(second, 'invoke', answer)).status, 400);
       assertEquals(effects, 1);
     } finally {
       if (directory) await Deno.remove(directory, { recursive: true });
@@ -420,7 +420,7 @@ Deno.test('settlement write failure retains uncertainty before the client receiv
   const operation = (await memory.load(name))?.state.operations[issued.tool.operationId];
   assert(operation?.status === 'uncertain');
   assertEquals(operation.reason, 'settlement_write_failed');
-  assertEquals((await post(createTheoremHostHandler(options), 'invoke', answer)).status, 503);
+  assertEquals((await post(createTheoremHostHandler(options), 'invoke', answer)).status, 400);
   assertEquals(effects, 1);
 });
 

@@ -47,8 +47,8 @@ set. The code does not keep it, and no test checks it across the kernel.
 - **R1.4** Every failure names its origin (open question O3: as a field, or as
   a rule on the kind).
 - **R1.5** The reason is raw. It is never the label. A failure whose message is
-  its own label (`operationUnavailable` in `src/kernel/tools/operation.ts`)
-  tells the builder nothing.
+  its own label tells the builder nothing. The "unresolved execution" errors
+  did this until O6 was decided.
 
 ## 4. Invariant 2: the label is true and shows no internals
 
@@ -113,8 +113,8 @@ Honest detail and the guardrails meet in four places.
 - **S4. A retry never gets past a guardrail or repeats an action.** A blocked
   step is never sent again to try for a different answer. A tool call that may
   have changed something is never run twice. The "unresolved execution" failure
-  (`uncertainError` in `src/kernel/tools/coordinate.ts`) keeps this, and it
-  keeps its cause for the builder.
+  (`unresolvedOperation` in `src/kernel/tools/operation.ts`) keeps this, and
+  it keeps its cause for the builder.
 
 ## 7. Where the code breaks the rules today
 
@@ -196,8 +196,10 @@ Each needs Masud's decision before the fix that depends on it.
   `effects`, and the error reads with the `tool.execution_uncertain` copy. The
   kernel takes the claim at the hand-off for every tool type: right before the
   handler, the page dispatch, or the first HTTP or MCP send. A failure before
-  it saves as `not_started`. **Still open:** a lookup or `begin` that finds the
-  operation running or uncertain has no cause, so it keeps `unavailable`.
+  it saves as `not_started`. A call to run an operation that is still running
+  or uncertain reads as `request`: the host settles it first. `busy` was
+  rejected, because it says a later retry works, and the kernel cannot know
+  that for a lost worker or an uncertain call.
 - **O7. A finish reason the kernel does not know.** `provider_error`, or a stop
   that carries the native reason and says the kernel does not know it.
 - **O8. A host detector that fails on a request.** Keep `input`, or give it

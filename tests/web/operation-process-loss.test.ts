@@ -135,7 +135,7 @@ for (const phase of [
       );
       const replay = await post(make(), 'invoke', answer);
       if (phase === 'running' || phase === 'effect' || phase === 'in_flight') {
-        assertEquals(replay.status, 503);
+        assertEquals(replay.status, 400);
         assertEquals(effects, phase === 'effect' || phase === 'in_flight' ? 1 : 0);
       } else {
         assertEquals(replay.status, 200);

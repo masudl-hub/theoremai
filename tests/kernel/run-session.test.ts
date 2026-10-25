@@ -1972,16 +1972,18 @@ Deno.test('live output validation failure cannot restore an executed call as an 
     await h.modelCalls({ id: 'uncertain-live', name: 'live_uncertain_effect' });
     const paused = await h.session.executeTool({ callId: h.id('uncertain-live') });
     assertEquals(paused.gated?.kind, 'permission');
-    await assertRejects(
+    const sent = await assertRejects(
       () => h.session.executeTool({ callId: h.id('uncertain-live'), decision: 'approve' }),
       TheoremError,
-      labelText('tool.execution_uncertain'),
+      'did not settle, so its effects are unknown',
     );
-    await assertRejects(
+    assertEquals([sent.kind, sent.copy], ['internal', { key: 'tool.execution_uncertain' }]);
+    const again = await assertRejects(
       () => h.session.executeTool({ callId: h.id('uncertain-live'), decision: 'approve' }),
       TheoremError,
-      labelText('tool.execution_uncertain'),
+      'is uncertain, so it does not run again until the host settles it',
     );
+    assertEquals([again.kind, again.copy], ['request', { key: 'tool.execution_uncertain' }]);
     assertEquals(effects, 1);
     assertEquals(h.toolResponses().length, 0);
   } finally {

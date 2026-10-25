@@ -1,9 +1,10 @@
-import { errorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
-import { labelText } from '../../guardrails/labels.ts';
+import { errorKind, type TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
+import type { ToolGate } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
 import {
+  heldOperation,
   operationBroken,
   operationWireValue,
   type TerminalToolEvent,
@@ -13,20 +14,18 @@ import {
   type ToolOperationOutcome,
   toolInvocationHash,
   toolOperationOutcomeSchema,
+  unresolvedOperation,
 } from './operation.ts';
 
 class ReplayedOperation {
   constructor(readonly outcome: ToolOperationOutcome) {}
 }
 
-function uncertainError(cause?: unknown): TheoremError {
-  return new TheoremError(
-    cause === undefined ? 'unavailable' : errorKind(cause),
-    labelText('tool.execution_uncertain'),
-    {
-      copy: { key: 'tool.execution_uncertain' },
-      cause,
-    },
+/** A gate after the claim cannot pause a call that was already sent; only a sign-in can ask for one there. */
+function gateAfterClaim(gate: ToolGate): TheoremError {
+  return unresolvedOperation(
+    gate.kind === 'auth' ? 'auth' : 'internal',
+    `The tool asked for a ${gate.kind} gate after it was sent, so its effects are unknown`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
 }
 
@@ -51,7 +50,7 @@ class CoordinatedExecution {
     };
     const result = await this.coordinator.begin(operation);
     if (result.kind === 'settled') throw new ReplayedOperation(result.outcome);
-    if (result.kind === 'running' || result.kind === 'uncertain') throw uncertainError();
+    if (result.kind === 'running' || result.kind === 'uncertain') throw heldOperation(result.kind);
     if (result.kind !== 'acquired' || typeof result.claimToken !== 'string' || !result.claimToken)
       throw operationBroken("The tool coordinator's begin returned no claim"); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     this.claim = { ...operation, claimToken: result.claimToken };
@@ -65,13 +64,13 @@ class CoordinatedExecution {
       this.terminal = { ...event, tool: event.tool };
       return false;
     }
-    if (this.claim && event.tool.phase === 'gate') throw uncertainError();
+    if (this.claim && event.tool.phase === 'gate') throw gateAfterClaim(event.tool.gate);
     return true;
   }
 
   async finish(settlement: ToolExecuteSettlement): Promise<TerminalToolEvent | undefined> {
     if (settlement.gated) {
-      if (this.claim) throw uncertainError();
+      if (this.claim) throw gateAfterClaim(settlement.gated);
       return undefined;
     }
     if (!this.terminal) throw operationBroken('The tool run ended with no terminal event'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -122,7 +121,12 @@ class CoordinatedExecution {
   }
 
   failure(error: unknown): unknown {
-    return this.claim && !this.committed ? uncertainError(error) : error;
+    if (!this.claim || this.committed) return error;
+    return unresolvedOperation(
+      errorKind(error),
+      'The tool was sent and did not settle, so its effects are unknown', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      error,
+    );
   }
 
   async close(): Promise<void> {
@@ -152,7 +156,8 @@ export async function* coordinateTool(
   throwIfAborted(signal);
   const existing = await coordinator.lookup(operation);
   throwIfAborted(signal);
-  if (existing?.kind === 'running' || existing?.kind === 'uncertain') throw uncertainError();
+  if (existing?.kind === 'running' || existing?.kind === 'uncertain')
+    throw heldOperation(existing.kind);
   if (existing?.kind === 'settled') {
     if (!authorizeReplay) throw operationBroken('A settled tool operation has no replay check'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const saved = execution.replay(new ReplayedOperation(existing.outcome));

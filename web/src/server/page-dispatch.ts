@@ -1,4 +1,5 @@
 import {
+  type ErrorKind,
   jsonValueSchema,
   labelText,
   type PageAnswer,
@@ -40,10 +41,9 @@ export interface PageToolBroker {
   deliver(sessionId: string, grantId: string, page: PageAnswer): Promise<void>;
 }
 
-function unavailable(): never {
-  throw new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
-    copy: { key: 'tool.execution_uncertain' },
-  });
+/** The user reads that the action is unresolved; the builder reads why, under the kind of what happened. */
+function refused(kind: ErrorKind, reason: string): never {
+  throw new TheoremError(kind, reason, { copy: { key: 'tool.execution_uncertain' } });
 }
 
 export function createMemoryPageToolBroker(maxPending = 128): PageToolBroker {
@@ -54,7 +54,13 @@ export function createMemoryPageToolBroker(maxPending = 128): PageToolBroker {
   return {
     reserve(sessionId, grantId, signal) {
       const id = key(sessionId, grantId);
-      if (signal?.aborted || waiting.has(id) || waiting.size >= maxPending) unavailable();
+      if (signal?.aborted) refused('cancelled', 'The page dispatch was stopped before it was sent'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      if (waiting.has(id)) refused('internal', 'The page broker already waits for this grant'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      if (waiting.size >= maxPending)
+        refused(
+          'rate_limit',
+          `The page broker already waits for its maxPending of ${maxPending} answers`,
+        ); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       let finish: (answer: PageAnswer) => void = () => {};
       const result = new Promise<PageAnswer>((resolve) => {
         finish = resolve;
@@ -76,7 +82,11 @@ export function createMemoryPageToolBroker(maxPending = 128): PageToolBroker {
       const finish = waiting.get(key(sessionId, grantId));
       if (!finish)
         return Promise.reject(
-          new TheoremError('unavailable', labelText('tool.execution_uncertain')),
+          new TheoremError(
+            'request',
+            'No dispatch in this process waits for the page answer to this grant', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+            { copy: { key: 'tool.execution_uncertain' } },
+          ),
         );
       finish(page);
       return Promise.resolve();
@@ -95,7 +105,8 @@ export function sessionPageDispatch(
   return {
     execution: {
       async dispatch(claim: ToolOperationClaim, signal) {
-        if (!claim.invocation) unavailable();
+        if (!claim.invocation)
+          refused('internal', 'The page dispatch got a claim with no invocation'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         const grantId = crypto.randomUUID();
         const expiresAt = Date.now() + timeoutMs;
         const pending = broker.reserve(sessionId, grantId, signal);
@@ -108,7 +119,10 @@ export function sessionPageDispatch(
               record.invocationHash !== claim.invocationHash ||
               record.pageGrant
             )
-              unavailable();
+              refused(
+                'internal',
+                'The session store holds no running claim for this page dispatch', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+              );
             record.pageGrant = { grantId, expiresAt };
           });
         } catch (error) {
@@ -118,7 +132,9 @@ export function sessionPageDispatch(
         const remaining = expiresAt - Date.now();
         if (remaining <= 0 || signal?.aborted) {
           pending.cancel();
-          unavailable();
+          if (signal?.aborted)
+            refused('cancelled', 'The page dispatch was stopped before it was sent'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          refused('timeout', 'The page dispatch used its timeoutMs before it was sent'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         }
         let expire = () => {};
         const expired = new Promise<PageAnswer>((resolve) => {
@@ -147,13 +163,18 @@ export function sessionPageDispatch(
           record.callId !== result.callId ||
           record.pageGrant?.grantId !== result.grantId
         )
-          unavailable();
+          refused('request', 'The page answered a grant this session did not issue for that call'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         if (record.pageGrant.resultHash !== undefined) {
-          if (record.pageGrant.resultHash !== hash) unavailable();
-          if (record.status === 'uncertain') unavailable();
+          if (record.pageGrant.resultHash !== hash)
+            refused('request', 'The page answered this grant twice with different results'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          if (record.status === 'uncertain')
+            refused('request', 'The page answered again for a call that is uncertain'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
           return { duplicate: true, settled: record.status === 'settled' };
         }
-        if (record.status !== 'running' || Date.now() >= record.pageGrant.expiresAt) unavailable();
+        if (record.status !== 'running')
+          refused('request', `The page answered a call that is ${record.status}, not running`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        if (Date.now() >= record.pageGrant.expiresAt)
+          refused('timeout', 'The page answered after its grant expired'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         record.pageGrant.resultHash = hash;
         return { duplicate: false, settled: false };
       });

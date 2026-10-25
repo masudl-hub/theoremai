@@ -1055,9 +1055,11 @@ async function settlingOf(
     operation.profileId === ctx.profile.id &&
     (operation.status === 'running' || operation.status === 'uncertain')
   ) {
-    throw new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
-      copy: { key: 'tool.execution_uncertain' },
-    });
+    throw new TheoremError(
+      'request',
+      `The tool operation is ${operation.status}, so it does not run again until the host settles it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      { copy: { key: 'tool.execution_uncertain' } },
+    );
   }
   if (
     operation?.status === 'settled' &&

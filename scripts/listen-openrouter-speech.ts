@@ -66,7 +66,7 @@ function mediaFrom(events: TurnEvent[]): { mimeType: string; data: string } {
     if (event.type === 'media' && event.media?.data) return event.media;
   }
   const detail = events
-    .filter((e) => e.type === 'error' || e.type === 'stop')
+    .filter((e) => e.type === 'error' || e.type === 'done')
     .map((e) => JSON.stringify(e));
   throw new Error(
     `no media; types=${events.map((e) => e.type).join(',')} detail=${detail.join(' | ')}`,

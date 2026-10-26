@@ -7,6 +7,7 @@ export {
 export {
   type ChatController,
   type ChatOptions,
+  type ChatSlotDecl,
   type ChatSlots,
   type ChatState,
   type ChatUpdate,

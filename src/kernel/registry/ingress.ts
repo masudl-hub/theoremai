@@ -18,6 +18,7 @@ import type {
 } from '../types.ts';
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeEssence, profileInputs } from './catalog.ts';
+import { slotValues } from './slots.ts';
 
 type PrimaryOutputMode = 'structured' | 'image' | 'speech';
 
@@ -193,13 +194,14 @@ function assertTurnSlots(profile: Profile, req: TurnRequest): void {
   if (!slots) return;
   const declared = profileInputs(profile)?.slots ?? {};
   for (const [key, value] of Object.entries(slots)) {
-    const choices = Object.hasOwn(declared, key) ? declared[key] : undefined;
-    if (!choices) {
+    const decl = Object.hasOwn(declared, key) ? declared[key] : undefined;
+    if (!decl) {
       throw new TheoremError(
         'request',
         `Profile ${profile.id} has no slot '${key}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       );
     }
+    const choices = slotValues(decl);
     if (!choices.includes(value)) {
       throw new TheoremError(
         'request',

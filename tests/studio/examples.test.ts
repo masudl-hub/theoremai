@@ -11,6 +11,7 @@ import {
   createExampleDraft,
   createLiveExampleDraft,
   createNarratorExampleDraft,
+  createResearchScoutDraft,
   createResearchWorkspace,
   demoToolSpecs,
   duplicateAgent,
@@ -20,6 +21,7 @@ import {
   projectProfileSlice,
   projectToolSlice,
   RESEARCH_FIRST_TURN_PROMPT,
+  RESEARCH_PAGE_READER_STATE,
   rebased,
   removeAgent,
   removeLibraryTool,
@@ -64,12 +66,26 @@ Deno.test('the architect calls the narrator through its narrate tool', () => {
   assertEquals(narrate?.type === 'agent' && narrate.profile, 'studio.narrator');
 });
 
+Deno.test('the research scout starts without effort select or attachments', () => {
+  const scout = createResearchScoutDraft();
+  assertEquals(scout.inputs.attachmentsAccept, []);
+  assertEquals(scout.inputs.voiceAccept, []);
+  assertEquals(scout.inputs.maxFiles, null);
+  assertEquals(
+    scout.modelBindings.map(({ allowEffortSelect }) => allowEffortSelect),
+    [false],
+  );
+});
+
 Deno.test('the research scout links its page-reading tools to the Jev page reader', () => {
   const result = compiled(createResearchWorkspace());
   assertEquals(
     result.agents.map((agent) => agent.agentId),
     ['research.pagereader', 'research.scout'],
   );
+  const seed = JSON.parse(RESEARCH_PAGE_READER_STATE) as { question?: string; passage?: string };
+  assert(typeof seed.question === 'string' && seed.question.length > 0);
+  assert(typeof seed.passage === 'string' && seed.passage.length > 0);
   const scout = result.agents[1];
   const stageRead = scout?.customTools
     .filter((tool) => tool.type !== 'agent' && tool.stageAgent === 'research.pagereader')

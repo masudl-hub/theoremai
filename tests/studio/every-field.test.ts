@@ -268,7 +268,13 @@ const PROFILES = [
       maxBytes: 1_000_000,
       maxTurnBytes: 2_000_000,
       limitsByMime: { 'image/png': 500_000 },
-      slots: { role: ['admin', 'guest'] },
+      slots: {
+        role: ['admin', 'guest'],
+        tone: {
+          label: 'Tone',
+          choices: [{ value: 'plain', description: 'Short words.' }, { value: 'warm' }],
+        },
+      },
       context: { from: ['client', 'server'], maxChars: 4000 },
     },
     outputs: {

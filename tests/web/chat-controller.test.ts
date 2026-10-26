@@ -336,7 +336,10 @@ Deno.test('each turn carries the slots and context as they are when it is sent',
   const host = heldHost();
   const iface = {
     ...textInterface(),
-    inputs: { ...textInterface().inputs, slots: { tone: ['warm', 'dry'] } },
+    inputs: {
+      ...textInterface().inputs,
+      slots: { tone: { choices: [{ value: 'warm' }, { value: 'dry' }] } },
+    },
   };
   const chat = createChatController({ transport: host.transport, iface, context: { page: 'a' } });
   assertEquals(chat.getState().slots?.values, { tone: 'warm' });

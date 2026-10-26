@@ -71,7 +71,6 @@ import {
   createGeminiEmbeddingExampleDraft,
   createLiveExampleDraft,
   createNarratorExampleDraft,
-  createSpanExampleDraft,
   createStudioRunId,
   draftFacets,
   duplicateAgent,
@@ -677,12 +676,6 @@ const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: () => Promise<AddAgent> })
     ...STUDIO_EXAMPLES.decision,
     icon: PROFILE_TYPE_ICON.decision,
     add: addsDraft(createDecisionExampleDraft),
-  },
-  {
-    id: 'span-decision',
-    ...STUDIO_EXAMPLES['span-decision'],
-    icon: PROFILE_TYPE_ICON.decision,
-    add: addsDraft(createSpanExampleDraft),
   },
   {
     id: 'gemini-embedding-2',

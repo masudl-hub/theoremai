@@ -435,6 +435,8 @@ function MyChat() {
 
 To show the transcript and the composer, use `ChatTranscript` and `ChatComposerBar` from `/ui`. You can also draw your own from `chat.blocks`.
 
+`ChatTranscript` places `citation` blocks after the answer text by default (the Sources strip under the prose). Pass `bodyKindPlacement={{}}` when citations must stay in stream order between text segments (inline citations).
+
 The hooks and the client write no English text. They return kinds, codes, and states. You write the words.
 
 - A failure is a `ClientFailure`: `{ error, errorKind, errorInternal? }`. Show `error` to the user. It is the wording of the profile. `errorKind` and `errorInternal` are for your code.

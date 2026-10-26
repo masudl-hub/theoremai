@@ -47,6 +47,7 @@ export {
   COOKBOOK_TOOL_HANDLERS,
   COOKBOOKS,
   cookbookOpening,
+  cookbookTraceRecords,
   createArchitectWorkspace,
   createConsoleExampleDraft,
   createDecisionExampleDraft,
@@ -57,7 +58,6 @@ export {
   createPageReaderExampleDraft,
   createResearchScoutDraft,
   createResearchWorkspace,
-  createSpanExampleDraft,
   DECISION_EXAMPLE_AGENT_ID,
   DECISION_EXAMPLE_STATE,
   DEMO_ALLOWED_HOSTS,
@@ -105,6 +105,8 @@ export {
   projectToolSlice,
   RESEARCH_ALLOWED_HOSTS,
   RESEARCH_FIRST_TURN_PROMPT,
+  RESEARCH_PAGE_READER_AGENT_ID,
+  RESEARCH_PAGE_READER_STATE,
   RESEARCH_REPLY_SCHEMA_ID,
   RESEARCH_REPLY_SCHEMA_JSON,
   resolveCookbookSlice,
@@ -151,6 +153,8 @@ export {
   newModelBinding,
   newOwnDetector,
   newPattern,
+  newSlot,
+  newSlotChoice,
   newToolSpec,
   type ObservabilityDraft,
   type OutputsDraft,
@@ -159,6 +163,8 @@ export {
   type PatternSourceDraft,
   plantsCanary,
   removeModelBinding,
+  type SlotChoiceDraft,
+  type SlotDraft,
   type SpeechDraft,
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
@@ -234,7 +240,14 @@ export {
   type WorkspaceMap,
   workspaceMap,
 } from './map.ts';
-export { type AcceptSection, acceptSections, expandAccept, nextAccept } from './media-accept.ts';
+export {
+  type AcceptSection,
+  acceptSections,
+  canSize,
+  expandAccept,
+  keptLimits,
+  nextAccept,
+} from './media-accept.ts';
 export {
   type NodeOrigins,
   nodeOrigins,

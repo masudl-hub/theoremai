@@ -61,3 +61,45 @@ Deno.test('a live profile takes slots and context, and no other inputs', () => {
     'inputs.text',
   );
 });
+
+Deno.test('defineProfile normalizes string[] slots and keeps labeled choice metadata', () => {
+  const labeled = defineProfile({
+    type: 'text',
+    id: 'slot_labeled',
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: [] },
+    inputs: {
+      text: true,
+      slots: {
+        focus: {
+          label: 'Source Bias',
+          choices: [
+            { value: 'Any Source', description: 'No preferred kind.' },
+            { value: 'Academic Research' },
+          ],
+        },
+      },
+    },
+    identity: { handle: 'slots', system: 'Focus: {focus}.' },
+  });
+  assertEquals(labeled.inputs?.slots, {
+    focus: {
+      label: 'Source Bias',
+      choices: [
+        { value: 'Any Source', description: 'No preferred kind.' },
+        { value: 'Academic Research' },
+      ],
+    },
+  });
+  const legacy = defineProfile({
+    type: 'text',
+    id: 'slot_legacy_list',
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: [] },
+    inputs: { text: true, slots: { language: ['en', 'fr'] } },
+    identity: { handle: 'slots', system: 'Reply in {language}.' },
+  });
+  assertEquals(legacy.inputs?.slots, {
+    language: { choices: [{ value: 'en' }, { value: 'fr' }] },
+  });
+});

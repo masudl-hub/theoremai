@@ -19,7 +19,7 @@ const GROUNDING_REDIRECT_HOST = 'vertexaisearch.cloud.google.com';
 
 /** A citation's sources, in the order they were cited. */
 export function citationsFromBlock(block: SourceCitationBlock): SourceCitation[] {
-  return block.sources.map((source, i) => citationFromSource(source, `c-${String(i)}`));
+  return block.sources.map((source, i) => citationFromSource(source, `${block.id}-c-${String(i)}`));
 }
 
 function citationFromSource(source: Source, key: string): SourceCitation {

@@ -78,6 +78,8 @@ The site's dev-only model tape, and its uses in the site's studio turn.
 
 The research cookbook ships a recorded `.trace.json` (`studio/cookbooks/fixtures/research.trace.json`). `cookbookOpening('research')` projects it with `openingFromRecords` — the same `replayScript` → `recordedTranscript` path Replay exchange and Continue live use. The Goals landing chat starts that conversation via `startConversation`; the visitor's next message continues live. There is no second hand-written Goals exchange.
 
+`openingFromRecords` stamps each assistant `turn-done` with `workedMs` / `endedAt` from the root `invoke_agent` span (live chats use `stampWorked` the same way), so the status line can say how long the opener worked. It also emits each tool's `running` then settle phases with `at` from the `execute_tool` span start/end, so the fold sets `startedAt` / `endedAt` and the chat can show tool duration. Goals seeds View Trace with `recordedFeed(cookbookTraceRecords('research') ?? [])` into `StudioRunner` — the same `recordedFeed` Replay exchange uses.
+
 `shownEvents` folds structured replies and `theorem.grounding` citations from the record, so a structured research turn reads back as the person saw it.
 
 ## 8. Later, not in this plan

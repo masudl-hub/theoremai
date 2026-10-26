@@ -17,7 +17,6 @@ export {
   createPageReaderExampleDraft,
   createResearchScoutDraft,
   createResearchWorkspace,
-  createSpanExampleDraft,
   DECISION_EXAMPLE_AGENT_ID,
   DECISION_EXAMPLE_STATE,
   DEMO_ARCHITECT_SYSTEM,
@@ -28,10 +27,12 @@ export {
   decisionExampleDraft,
   exampleTools,
   RESEARCH_FIRST_TURN_PROMPT,
+  RESEARCH_PAGE_READER_AGENT_ID,
+  RESEARCH_PAGE_READER_STATE,
   RESEARCH_REPLY_SCHEMA_ID,
   RESEARCH_REPLY_SCHEMA_JSON,
 } from './catalog.ts';
-export { cookbookOpening } from './exchanges.ts';
+export { cookbookOpening, cookbookTraceRecords } from './exchanges.ts';
 export type {
   ProfileSliceOptions,
   StitchRecipe,

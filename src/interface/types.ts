@@ -16,6 +16,7 @@ import type {
   ProfileContextSpec,
   ProfileOutputsSpec,
   ProviderEvidence,
+  SlotDecl,
   Source,
   SpeechProfile,
   TextProfile,
@@ -82,7 +83,8 @@ export interface ProfileInputsInterface {
   maxBytes?: number;
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
-  slots?: Record<string, string[]>;
+  /** Normalized slot decls (`label?` + `choices`); legacy string lists are expanded upstream. */
+  slots?: Record<string, SlotDecl>;
   context?: ProfileContextSpec;
 }
 

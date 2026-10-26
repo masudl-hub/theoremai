@@ -528,6 +528,27 @@ export interface ProfileModelFields {
   maxSteps?: number;
 }
 
+/**
+ * One allowed value for an `inputs.slots` entry. `value` is what the turn sends and what
+ * `{name}` fills; optional `description` is visitor-facing UI copy only.
+ */
+export interface SlotChoice {
+  value: string;
+  description?: string;
+}
+
+/**
+ * One named slot: optional group `label` for the UI, and its choices. A bare `string[]` is
+ * still accepted on define and normalized to `{ choices: [{ value }] }`.
+ */
+export interface SlotDecl {
+  label?: string;
+  choices: SlotChoice[];
+}
+
+/** Authoring form for one slot: legacy value list, or a labeled declaration. */
+export type SlotDeclInput = string[] | SlotDecl;
+
 /** What a profile accepts as input. */
 export interface ProfileInputsSpec {
   text?: boolean;
@@ -537,7 +558,7 @@ export interface ProfileInputsSpec {
   maxBytes?: number;
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
-  slots?: Record<string, string[]>;
+  slots?: Record<string, SlotDeclInput>;
   context?: ProfileContextSpec;
 }
 

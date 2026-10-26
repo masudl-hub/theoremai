@@ -736,6 +736,39 @@ Deno.test('composeAssistantTurn keeps a plain reply in the body', () => {
   );
 });
 
+Deno.test('composeAssistantTurn puts citations last by default', () => {
+  const turn = composeAssistantTurn([
+    {
+      id: 'c-1',
+      kind: 'citation',
+      sources: [{ title: 'Paper', uri: 'https://example.com/a', type: 'web' }],
+    },
+    { id: 't-1', kind: 'text', text: 'Here is the answer.' },
+  ]);
+  assertEquals(
+    turn.body.map((block) => block.id),
+    ['t-1', 'c-1'],
+  );
+});
+
+Deno.test('composeAssistantTurn keeps citation stream order when placement is empty', () => {
+  const turn = composeAssistantTurn(
+    [
+      {
+        id: 'c-1',
+        kind: 'citation',
+        sources: [{ title: 'Paper', uri: 'https://example.com/a', type: 'web' }],
+      },
+      { id: 't-1', kind: 'text', text: 'Here is the answer.' },
+    ],
+    { bodyKindPlacement: {} },
+  );
+  assertEquals(
+    turn.body.map((block) => block.id),
+    ['c-1', 't-1'],
+  );
+});
+
 /** The default UI's status line for a turn's work. */
 function workLine(args: Parameters<typeof workStatus>[0]): string {
   return workStatusLabel(t, workStatus(args));

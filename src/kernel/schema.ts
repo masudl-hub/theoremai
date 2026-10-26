@@ -917,12 +917,28 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.',
   ),
   'inputs.slots': field(
-    'Record<string, string[]>',
-    'Named choices a turn or a call can make, such as language, each with its allowed values. {name} in a prompt becomes the chosen value.',
+    'Record<string, string[] | SlotDecl>',
+    'Named choices a turn or a call can make. A bare string list is the allowed values; an object may add a UI label and per-choice descriptions. {name} in a prompt becomes the chosen value string.',
   ),
   'inputs.slots.*': field(
-    'string[]',
-    'The values a turn may choose for this slot; any other is refused.',
+    'string[] | SlotDecl',
+    'Either the allowed value strings, or { label?, choices: { value, description? }[] }. Descriptions are UI-only; value is what the turn sends and what {name} fills.',
+  ),
+  'inputs.slots.*.label': field(
+    'string',
+    'Visitor-facing group title for this slot in the composer (for example Source Bias). Omit to show the slot name.',
+  ),
+  'inputs.slots.*.choices': field(
+    'SlotChoice[]',
+    'The allowed values for this slot, each with an optional UI description.',
+  ),
+  'inputs.slots.*.choices.*.value': field(
+    'string',
+    'The string the turn sends for this choice and that {name} substitutes into prompts.',
+  ),
+  'inputs.slots.*.choices.*.description': field(
+    'string',
+    'Visitor-facing blurb for this choice in the composer. Never substituted into prompts.',
   ),
   'inputs.context': field(
     '{ from: ContextSender[]; maxChars: number }',

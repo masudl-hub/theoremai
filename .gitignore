@@ -46,7 +46,11 @@ yarn-error.log*
 
 # Temp scratch
 .tmp/
-tmp/
+# Ignore tmp contents; keep the probe-runs README so the local convention is tracked.
+tmp/*
+!tmp/probe-runs/
+tmp/probe-runs/*
+!tmp/probe-runs/README.md
 
 # Local agent sessions and worktrees
 .claude/

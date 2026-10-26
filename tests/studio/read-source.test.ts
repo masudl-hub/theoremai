@@ -265,6 +265,38 @@ Deno.test('context and a tool the page answers read back', () => {
   });
 });
 
+Deno.test('slots and sizes by type read back, each slot and choice keeping its key', () => {
+  const draft = createExampleDraft();
+  draft.inputs = {
+    ...draft.inputs,
+    limitsByMime: { 'application/pdf': 2000000, 'image/*': 500000 },
+    slots: [
+      {
+        key: 'slot-tone',
+        name: 'tone',
+        label: 'Tone',
+        choices: [
+          { key: 'choice-plain', value: 'plain', description: 'Short words.' },
+          { key: 'choice-warm', value: 'warm', description: '' },
+        ],
+      },
+      {
+        key: 'slot-role',
+        name: 'role',
+        label: '',
+        choices: [{ key: 'choice-admin', value: 'admin', description: '' }],
+      },
+    ],
+  };
+  roundTrip(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
+  assert(compiled.ok);
+  const read = readStudioSource(studioSource(compiled), draft);
+  assert(read.ok);
+  assertEquals(read.draft.inputs.limitsByMime, draft.inputs.limitsByMime);
+  assertEquals(read.draft.inputs.slots, draft.inputs.slots);
+});
+
 Deno.test('who holds the conversation survives a Studio source round trip', () => {
   const draft = createExampleDraft();
   draft.models.providerHistory = 'provider';

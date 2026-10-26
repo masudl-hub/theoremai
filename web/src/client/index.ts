@@ -191,7 +191,7 @@ export type {
   ToolGateResolution,
 } from './tool-resume.ts';
 export { continueGatedToolInvocation, type PersonGateResolution } from './tool-resume.ts';
-export { createTraceFeed, type TraceFeed } from './trace-feed.ts';
+export { createTraceFeed, recordedFeed, type TraceFeed } from './trace-feed.ts';
 export {
   CHAT_LINES,
   type ChatLine,

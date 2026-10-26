@@ -68,6 +68,7 @@ import type {
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeAllowed, profileInputs } from './catalog.ts';
 import type { SchemaRegistry } from './schemas.ts';
+import { normalizeProfileInputsSlots, slotValues } from './slots.ts';
 import { soleModelId } from './sole-model.ts';
 
 /** Not shared by host profiles, which invoke tools without a model turn. */
@@ -688,7 +689,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         identity,
         ...modelFields,
         tools: input.tools,
-        inputs: input.inputs,
+        inputs: normalizeProfileInputsSlots(input.inputs),
         outputs: input.outputs,
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -704,7 +705,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         ...modelFields,
         image: input.image,
         tools: input.tools,
-        inputs: input.inputs,
+        inputs: normalizeProfileInputsSlots(input.inputs),
         outputs: input.outputs,
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -735,7 +736,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         identity,
         ...modelFields,
         live: input.live,
-        inputs: input.inputs,
+        inputs: input.inputs ? normalizeProfileInputsSlots(input.inputs) : input.inputs,
         tools: { allow: input.tools.allow, ...optionalParallel(input.tools.parallel) },
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -783,13 +784,14 @@ function assertStructuredSlot(profile: ModelProfile): void {
   if (profile.type === 'live') return;
   const structured = profile.outputs?.structured;
   if (!structured || typeof structured === 'string') return;
-  const choices = profileInputs(profile)?.slots?.[structured.by];
-  if (!choices) {
+  const decl = profileInputs(profile)?.slots?.[structured.by];
+  if (!decl) {
     throw new TheoremError(
       'config',
       `Profile ${profile.id}: outputs.structured.by '${structured.by}' is not a slot in inputs.slots`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
+  const choices = slotValues(decl);
   const unknown = Object.keys(structured.map).filter((value) => !choices.includes(value));
   if (unknown.length) {
     throw new TheoremError(

@@ -26,7 +26,6 @@ import {
   createLiveExampleDraft,
   createNarratorExampleDraft,
   createResearchWorkspace,
-  createSpanExampleDraft,
   decisionExampleDraft,
 } from './catalog.ts';
 
@@ -44,8 +43,6 @@ function syncWorkspace(cookbookId: CookbookId): StudioWorkspace {
       return workspaceFromDraft(createLiveExampleDraft());
     case 'decision':
       return workspaceFromDraft(decisionExampleDraft());
-    case 'span-decision':
-      return workspaceFromDraft(createSpanExampleDraft());
     case 'gemini-embedding-2':
       return workspaceFromDraft(createGeminiEmbeddingExampleDraft());
     case 'narrator':

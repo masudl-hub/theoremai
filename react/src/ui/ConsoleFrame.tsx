@@ -152,8 +152,8 @@ function ConsoleSingle({
 }
 
 /**
- * A console's page, for decisions and hosts alike: the trace's toggle in the
- * header, and one raised panel, flush with the host's, scrolling inside.
+ * A console's page, for decisions and hosts alike: the trace toggle floats over
+ * the content (same as chat), and one raised panel scrolls inside.
  */
 export function ConsoleFrame({
   inspector,
@@ -166,30 +166,28 @@ export function ConsoleFrame({
   children,
 }: ConsoleFrameProps) {
   const layoutRef = useRef<HTMLDivElement | null>(null);
+  const header = inspector.toggle ? (
+    <SidePanelHeader floating>{inspector.toggle}</SidePanelHeader>
+  ) : undefined;
   return (
     <WithTrace inspector={inspector}>
       <Layout
         ref={layoutRef}
         height="fill"
         className={className}
-        style={style}
-        header={
-          inspector.toggle ? <SidePanelHeader>{inspector.toggle}</SidePanelHeader> : undefined
-        }
+        style={{ position: 'relative', ...style }}
+        header={header}
         content={
           <LayoutContent padding={0} isScrollable={false}>
-            {/* why: The same 12px off the row above as a raised pane, so a console and the trace sit alike. */}
-            <VStack height="100%" paddingBlockStart={PANEL_EDGE}>
-              <ConsoleBody
-                layoutRef={layoutRef}
-                flush={flush}
-                columns={columns}
-                maxWidth={maxWidth}
-                requestLabel={requestLabel}
-              >
-                {children}
-              </ConsoleBody>
-            </VStack>
+            <ConsoleBody
+              layoutRef={layoutRef}
+              flush={flush}
+              columns={columns}
+              maxWidth={maxWidth}
+              requestLabel={requestLabel}
+            >
+              {children}
+            </ConsoleBody>
           </LayoutContent>
         }
       />

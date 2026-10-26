@@ -4,7 +4,6 @@ import {
   compileStudio,
   createDecisionExampleDraft,
   createExampleDraft,
-  createSpanExampleDraft,
   DECISION_EXAMPLE_STATE,
   decisionExampleAssets,
   draftFacets,
@@ -20,6 +19,7 @@ import {
   studioTree,
 } from '../../studio/mod.ts';
 import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
+import { spanDecisionDraft } from '../fixtures/span-decision-draft.ts';
 
 function withQuestions(
   draft: StudioDraft,
@@ -90,8 +90,8 @@ Deno.test('on keys that take no images, a Box question is an issue on that quest
   assert(compileStudio(await createDecisionExampleDraft(), ON_TEST_KEYS).ok);
 });
 
-Deno.test('the Span example compiles to the free model with Number questions', () => {
-  const result = compileStudio(createSpanExampleDraft(), ON_OWN_KEYS);
+Deno.test('a Span decision compiles to the free model with Number questions', () => {
+  const result = compileStudio(spanDecisionDraft(), ON_OWN_KEYS);
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   const { profile, questions } = result;
   assert(profile.type === 'decision');
@@ -190,10 +190,7 @@ Deno.test('switching to decision loads the original Jev model and tool-call exam
 
 Deno.test('a duplicate question id is keyed to the second question', () => {
   const found = issues(
-    withQuestions(createSpanExampleDraft(), (qs) => [
-      qs[0],
-      { ...qs[0], key: 'second', id: qs[0].id },
-    ]),
+    withQuestions(spanDecisionDraft(), (qs) => [qs[0], { ...qs[0], key: 'second', id: qs[0].id }]),
   );
   assertEquals(
     found.map(({ field, index }) => [field, index]),
@@ -202,7 +199,7 @@ Deno.test('a duplicate question id is keyed to the second question', () => {
 });
 
 Deno.test('a question without instructions or enough criteria is an issue on that question', () => {
-  const draft = createSpanExampleDraft();
+  const draft = spanDecisionDraft();
   const bare = newDecisionQuestion(draft, 'choice');
   const found = issues(
     withQuestions(draft, (qs) => [

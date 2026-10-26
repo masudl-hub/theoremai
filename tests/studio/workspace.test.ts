@@ -9,7 +9,7 @@ import {
   compileStudio,
   createBlankDraft,
   createExampleDraft,
-  createSpanExampleDraft,
+  createPageReaderExampleDraft,
   defaultToolSpec,
   duplicateAgent,
   libraryDraft,
@@ -76,7 +76,10 @@ Deno.test('migration keeps a selected tool unprefixed and moves the root under t
 });
 
 Deno.test('every tree node id names what it is under', () => {
-  const workspace = addAgent(workspaceFromDraft(createExampleDraft()), createSpanExampleDraft());
+  const workspace = addAgent(
+    workspaceFromDraft(createExampleDraft()),
+    createPageReaderExampleDraft(),
+  );
   const tree = workspaceTree(workspace);
   const ids: string[] = [];
   const walk = (node: StudioTreeNode): void => {
@@ -165,7 +168,7 @@ Deno.test('duplicate gives a fresh key and agent id, right after the source', ()
 });
 
 Deno.test('remove moves the selection and chat to a neighbour and keeps the last agent', () => {
-  let workspace = addAgent(workspaceFromDraft(createBlankDraft()), createSpanExampleDraft());
+  let workspace = addAgent(workspaceFromDraft(createBlankDraft()), createPageReaderExampleDraft());
   const [first, second] = keys(workspace).map(must);
   workspace = {
     ...workspace,
@@ -191,7 +194,7 @@ Deno.test('removing a library tool takes it off every agent', () => {
 
 Deno.test('the editor sees the whole library; a tool it adds is allowed only here, one it drops goes everywhere', () => {
   const example = workspaceFromDraft(createExampleDraft());
-  const workspace = addAgent(example, createSpanExampleDraft());
+  const workspace = addAgent(example, createPageReaderExampleDraft());
   const [first, second] = workspace.agents.map((agent) => agent.key);
   const shown = must(libraryDraft(workspace, must(second)));
   assertEquals(shown.toolSpecs, workspace.toolSpecs);

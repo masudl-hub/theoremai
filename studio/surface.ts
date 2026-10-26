@@ -29,7 +29,6 @@ import {
   createLiveExampleDraft,
   createNarratorExampleDraft,
   createResearchScoutDraft,
-  createSpanExampleDraft,
 } from './cookbooks/catalog.ts';
 import {
   createBlankDraft,
@@ -305,7 +304,6 @@ const EXAMPLE_DRAFTS = {
   narrator: createNarratorExampleDraft,
   console: createConsoleExampleDraft,
   decision: createDecisionExampleDraft,
-  'span-decision': createSpanExampleDraft,
   'gemini-embedding-2': createGeminiEmbeddingExampleDraft,
 } satisfies Record<string, () => StudioDraft | Promise<StudioDraft>>;
 

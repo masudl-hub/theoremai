@@ -253,18 +253,21 @@ export function withAgentDraft(
 /**
  * A v1 single draft as a workspace: it becomes the one agent, its tools become
  * the library and it allows them all, and the open node moves under it.
+ * Orphan stage/agent links are cleared (`sound`), same as after removeAgent.
  */
 export function workspaceFromDraft(draft: StudioDraft, selectedId = 'identity'): StudioWorkspace {
   const agent = agentFromDraft(draft);
-  return remembered({
-    v: STUDIO_WORKSPACE_VERSION,
-    agents: [agent],
-    toolSpecs: draft.toolSpecs,
-    providers: draft.providers,
-    selected: scopedNodeId(agent.key, selectedId),
-    chatWith: agent.key,
-    starts: { agents: {}, tools: {}, providers: {} },
-  });
+  return sound(
+    remembered({
+      v: STUDIO_WORKSPACE_VERSION,
+      agents: [agent],
+      toolSpecs: draft.toolSpecs,
+      providers: draft.providers,
+      selected: scopedNodeId(agent.key, selectedId),
+      chatWith: agent.key,
+      starts: { agents: {}, tools: {}, providers: {} },
+    }),
+  );
 }
 
 /** A workspace with one blank agent. */

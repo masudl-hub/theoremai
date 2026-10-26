@@ -265,7 +265,7 @@ export function decisionExampleDraft(images: DecisionImageDraft[] = []): StudioD
   const binding = draft.modelBindings[0];
   return {
     ...draft,
-    identity: { ...draft.identity, agentId: DECISION_EXAMPLE_AGENT_ID, handle: 'jev' },
+    identity: { ...draft.identity, agentId: DECISION_EXAMPLE_AGENT_ID, handle: 'pantry' },
     modelBindings: binding ? [{ ...binding, apiId: 'jev-1.14.0', options: { images: true } }] : [],
     decision: {
       ...draft.decision,
@@ -294,45 +294,6 @@ export function decisionExampleDraft(images: DecisionImageDraft[] = []): StudioD
         ]),
       ],
       images,
-    },
-  };
-}
-
-/** A tool-call safety decision using the free Span model and its Number question shape. */
-export function createSpanExampleDraft(): StudioDraft {
-  const draft = setProfileType(createBlankDraft(), 'decision', EXAMPLE_PICKS);
-  return {
-    ...draft,
-    identity: { ...draft.identity, agentId: 'guardrails.tool_call.span', handle: 'span' },
-    modelBindings: [
-      {
-        ...draft.modelBindings[0],
-        ...firstServed('openrouter', 'decision'),
-        apiId: 'respan/span-01-lite:free',
-      },
-    ],
-    decision: {
-      ...draft.decision,
-      questions: [
-        {
-          key: draftKey('question'),
-          id: 'verdict',
-          type: 'noul',
-          instructions: 'Is this tool call unsafe or beyond what the user asked for?',
-          criteria: [
-            {
-              key: draftKey('criterion'),
-              label: 'true',
-              text: 'The call is unsafe or beyond the user request.',
-            },
-            {
-              key: draftKey('criterion'),
-              label: 'false',
-              text: 'The call is safe and within the user request.',
-            },
-          ],
-        },
-      ],
     },
   };
 }
@@ -484,8 +445,8 @@ function exampleTextDraft(
       maxFiles: inputs.maxFiles,
       maxBytes: inputs.maxBytes,
       maxTurnBytes: inputs.maxTurnBytes,
-      limitsByMimeJson: '',
-      slotsJson: '',
+      limitsByMime: {},
+      slots: [],
       contextFrom: [],
       contextMaxChars: null,
     },
@@ -498,13 +459,36 @@ function exampleTextDraft(
   };
 }
 
+/** The agent id the research page-reader opens under. */
+export const RESEARCH_PAGE_READER_AGENT_ID = 'research.pagereader';
+
+/**
+ * What the page-reader's questions are asked about: a research `question` and a
+ * `passage` cut from a tool result — not the blank decision's tool-call stub.
+ */
+export const RESEARCH_PAGE_READER_STATE = JSON.stringify(
+  {
+    question:
+      'What write path do recent systems use to store episodic memory for language-model agents?',
+    passage:
+      'MemGPT (Packer et al.) pages conversational history into an external store and reloads ' +
+      'relevant spans on later turns, treating context as a virtual memory hierarchy rather than a single prompt window.',
+  },
+  null,
+  2,
+);
+
 /** The decision page-reader (`research.pagereader`) that filters passages for `research.scout` at `post_tool`. */
 export function createPageReaderExampleDraft(): StudioDraft {
   const draft = setProfileType(createBlankDraft(), 'decision', EXAMPLE_PICKS);
   const binding = draft.modelBindings[0];
   return {
     ...draft,
-    identity: { ...draft.identity, agentId: 'research.pagereader', handle: 'pagereader' },
+    identity: {
+      ...draft.identity,
+      agentId: RESEARCH_PAGE_READER_AGENT_ID,
+      handle: 'pagereader',
+    },
     modelBindings: binding ? [{ ...binding, apiId: 'jev-latest' }] : [],
     decision: {
       ...draft.decision,
@@ -536,6 +520,15 @@ export function createResearchScoutDraft(): StudioDraft {
   );
   return {
     ...base,
+    // Goals starts here: leave attachments and effort select off so examples earn them.
+    inputs: {
+      ...base.inputs,
+      attachmentsAccept: [],
+      voiceAccept: [],
+      maxFiles: null,
+      maxBytes: null,
+      maxTurnBytes: null,
+    },
     models: {
       defaultModel: 'gemini',
       allowModelSelect: false,
@@ -553,7 +546,7 @@ export function createResearchScoutDraft(): StudioDraft {
           { alias: 'deep', level: 'high' },
         ],
         defaultEffort: 'normal',
-        allowEffortSelect: true,
+        allowEffortSelect: false,
         summaries: true,
       }),
     ],
@@ -731,7 +724,6 @@ export type CookbookId =
   | 'architect'
   | 'live-concierge'
   | 'decision'
-  | 'span-decision'
   | 'gemini-embedding-2'
   | 'narrator'
   | 'console';
@@ -797,18 +789,11 @@ export const COOKBOOKS: Readonly<Record<CookbookId, CookbookEntry>> = {
   decision: {
     id: 'decision',
     kind: 'agent',
-    label: 'Jev decision',
-    description: 'Asks Jev about a pantry photo: finds things in it and answers questions.',
+    label: 'Pantry',
+    description:
+      'Jev looks at a pantry shelf photo: finds things in it (boxes) and answers questions about brunch.',
     createWorkspace: workspaceOf(createDecisionExampleDraft),
     addToWorkspace: addsDraft(createDecisionExampleDraft),
-  },
-  'span-decision': {
-    id: 'span-decision',
-    kind: 'agent',
-    label: 'Span guardrail',
-    description: 'Checks whether a proposed tool call is safe on the free Span decision model.',
-    createWorkspace: workspaceOf(createSpanExampleDraft),
-    addToWorkspace: addsDraft(createSpanExampleDraft),
   },
   'gemini-embedding-2': {
     id: 'gemini-embedding-2',

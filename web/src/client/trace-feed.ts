@@ -29,3 +29,10 @@ export function createTraceFeed(): TraceFeed {
     },
   };
 }
+
+/** A feed already holding `records` — a recording opened for View Trace. */
+export function recordedFeed(records: readonly TraceRecord[]): TraceFeed {
+  const feed = createTraceFeed();
+  for (const record of records) feed.push(record);
+  return feed;
+}

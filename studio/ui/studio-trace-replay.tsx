@@ -31,7 +31,12 @@ import {
   useLabels,
   useTraceInspector,
 } from '@theoremjs/react/ui';
-import { type ConversationView, createTraceFeed, type TraceFeed } from '@theoremjs/web/client';
+import {
+  type ConversationView,
+  createTraceFeed,
+  recordedFeed,
+  type TraceFeed,
+} from '@theoremjs/web/client';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createBrowserStudioTransport,
@@ -406,13 +411,6 @@ function StatusBanner({
       {problem ? <Banner status="error" title={problem} /> : null}
     </VStack>
   );
-}
-
-/** The recording's own records, in a feed the trace inspector reads. */
-function recordedFeed(records: readonly TraceRecord[]): TraceFeed {
-  const feed = createTraceFeed();
-  for (const record of records) feed.push(record);
-  return feed;
 }
 
 type ConsoleProps = {

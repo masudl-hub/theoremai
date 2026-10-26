@@ -11,6 +11,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { List, ListItem } from '@astryxdesign/core/List';
+import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { Section } from '@astryxdesign/core/Section';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { StackItem } from '@astryxdesign/core/Stack';
@@ -84,6 +85,7 @@ import {
   IconPlus,
   IconRefresh,
   IconRegex,
+  IconRuler,
   IconSearch,
   IconSend,
   IconServer,
@@ -166,6 +168,7 @@ import {
   agentToolTarget,
   bindingSlots,
   COMPACTION_DRAFT_DEFAULTS,
+  canSize,
   type DecisionDraft,
   type DecisionImageDraft,
   type DecisionQuestionDraft,
@@ -190,13 +193,13 @@ import {
   inputLimitsRequired,
   isGoogleRoute,
   isOpenRouterRoute,
+  keptLimits,
   kernelDefinitions,
   type LentKeys,
   LOCAL_PROVIDER_ID,
   lentCompression,
   MODEL_LIMITS,
   type ModelBindingDraft,
-  modelBindingNodeId,
   modelRoute,
   modelSlots,
   newCriteria,
@@ -205,6 +208,8 @@ import {
   newModelBinding,
   newOwnDetector,
   newPattern,
+  newSlot,
+  newSlotChoice,
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
@@ -218,6 +223,8 @@ import {
   plantsCanary,
   protocolOptionFields,
   removeModelBinding,
+  type SlotChoiceDraft,
+  type SlotDraft,
   STUDIO_TRACE_DESTINATION,
   type StudioAsks,
   type StudioDraft,
@@ -236,6 +243,7 @@ import {
   TIMER_MAX_MS,
   type ToolSpecDraft,
   takesContinueInstruction,
+  toolSpecKeyOf,
   toolSpecNodeId,
   updateModelBinding,
   withOption,
@@ -634,12 +642,51 @@ function ModelsEditor({
 }) {
   const set = patch(setDraft, 'models');
   const start = useLentKeys()?.start;
-  const addModel = () => {
-    const binding = newModelBinding(draft, start);
-    setDraft((current) => ({ ...current, modelBindings: [...current.modelBindings, binding] }));
-    onSelect(modelBindingNodeId(binding.key));
+  const { open, show, frame } = usePageSwap<string>();
+  const binding = open
+    ? draft.modelBindings.find((candidate) => candidate.key === open)
+    : undefined;
+  const backToModels = () => {
+    show(null);
   };
-  return (
+  const openBinding = (id: string) => {
+    if (id === 'models') {
+      backToModels();
+      return;
+    }
+    const key = id.startsWith('modelBinding:') ? id.slice('modelBinding:'.length) : id;
+    if (draft.modelBindings.some((candidate) => candidate.key === key)) {
+      show(key);
+      return;
+    }
+    onSelect(id);
+  };
+  const addModel = () => {
+    const next = newModelBinding(draft, start);
+    setDraft((current) => ({ ...current, modelBindings: [...current.modelBindings, next] }));
+    show(next.key);
+  };
+  if (binding) {
+    const title = binding.modelId.trim() || 'Unnamed model';
+    return frame(
+      binding.key,
+      <>
+        <PageHeader title={title} back="Back to models" onBack={backToModels} />
+        {draft.identity.profileType === 'decision' ? (
+          <DecisionModelEditor draft={draft} setDraft={setDraft} bindingKey={binding.key} />
+        ) : (
+          <ModelBindingEditor
+            draft={draft}
+            setDraft={setDraft}
+            bindingKey={binding.key}
+            onSelect={openBinding}
+          />
+        )}
+      </>,
+    );
+  }
+  return frame(
+    'list',
     <>
       <InspectorSection
         note={
@@ -648,6 +695,21 @@ function ModelsEditor({
             : sectionNote('models')
         }
       >
+        {draft.modelBindings.length > 0 && (
+          <List density="compact">
+            {draft.modelBindings.map((row) => (
+              <ListItem
+                key={row.key}
+                label={row.modelId.trim() || 'Unnamed model'}
+                description={[row.provider, row.apiId].filter(Boolean).join(' · ') || undefined}
+                startContent={<Icon icon={IconInputAi} size="sm" color="secondary" />}
+                onClick={() => {
+                  show(row.key);
+                }}
+              />
+            ))}
+          </List>
+        )}
         <Button
           label="Add model"
           variant="ghost"
@@ -664,7 +726,7 @@ function ModelsEditor({
           set={set}
         />
       )}
-    </>
+    </>,
   );
 }
 
@@ -1660,7 +1722,200 @@ interface InputsSectionProps {
   set: SetSection<'inputs'>;
 }
 
-function InputAcceptsSection({ inputs, set, image }: InputsSectionProps & { image: boolean }) {
+/** What a type picker holds: the types it takes, and the largest file of each, by type. */
+interface Accepted {
+  accept: string[];
+  limits: Record<string, number>;
+}
+
+type AcceptPicker = ReturnType<typeof acceptPicker>;
+
+/** The trigger's tokens: each type taken, a ruler on the ones with a size of their own. */
+function AcceptTokens({ accept, limits }: Accepted) {
+  const maxBadges = useContext(ListBadges);
+  const rest = accept.length - maxBadges;
+  return (
+    <HStack gap={1} vAlign="center">
+      {accept.slice(0, maxBadges).map((mime) => {
+        const bytes = limits[mime];
+        return (
+          <Token
+            key={mime}
+            size="sm"
+            label={mime}
+            icon={bytes === undefined ? undefined : <Icon icon={IconRuler} size="sm" />}
+            description={bytes === undefined ? undefined : `Up to ${COMPACT_BYTES.format(bytes)}B`}
+          />
+        );
+      })}
+      {rest > 0 && <Token size="sm" label={`+${String(rest)}`} />}
+    </HStack>
+  );
+}
+
+const COMPACT_BYTES = new Intl.NumberFormat('en-US', { notation: 'compact' });
+
+/** The picker's table: a row per type, ticked when taken, with its own largest file. */
+function AcceptGrid({
+  current,
+  change,
+  picker,
+  hasSizes,
+}: {
+  current: Accepted;
+  change: (next: Accepted) => void;
+  picker: AcceptPicker;
+  hasSizes: boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const needle = query.trim().toLowerCase();
+  const taken = expandAccept(current.accept, picker.sections);
+  const rows = picker.sections
+    .flatMap(({ wildcard, mimes }) => (wildcard ? [wildcard, ...mimes] : mimes))
+    .filter((mime) => mime.includes(needle))
+    .map((mime) => ({ mime }));
+  const tick = (mime: string, checked: boolean) => {
+    const selected = checked ? [...taken, mime] : taken.filter((each) => each !== mime);
+    const accept = nextAccept(current.accept, selected, picker.sections);
+    change({ accept, limits: keptLimits(current.limits, accept, picker.sections) });
+  };
+  const size = (mime: string, bytes: number | null) => {
+    const { [mime]: _dropped, ...others } = current.limits;
+    change({ ...current, limits: bytes === null ? others : { ...others, [mime]: bytes } });
+  };
+  return (
+    <VStack width={hasSizes ? 360 : 280} padding={2} gap={2}>
+      <TextInput
+        label="Find a type"
+        isLabelHidden
+        size="sm"
+        placeholder="Find a type"
+        value={query}
+        onChange={setQuery}
+        startIcon={IconSearch}
+        hasClear
+      />
+      <Table
+        density="compact"
+        dividers="rows"
+        idKey="mime"
+        data={rows}
+        columns={[
+          {
+            key: 'taken',
+            header: '',
+            width: pixel(36),
+            align: 'center',
+            renderCell: ({ mime }) => (
+              <CheckboxInput
+                label={`Take ${mime}`}
+                isLabelHidden
+                value={taken.includes(mime)}
+                onChange={(checked) => {
+                  tick(mime, checked);
+                }}
+              />
+            ),
+          },
+          {
+            key: 'mime',
+            header: 'Type',
+            width: proportional(1),
+            renderCell: ({ mime }) => mime,
+          },
+          ...(hasSizes
+            ? [
+                {
+                  key: 'size',
+                  header: (
+                    <Tooltip
+                      content={fieldMeta('inputs.limitsByMime.*')?.doc}
+                      hasHoverIndication={false}
+                    >
+                      Max bytes
+                    </Tooltip>
+                  ),
+                  width: pixel(128),
+                  renderCell: ({ mime }: { mime: string }) => (
+                    <NumberInput
+                      label={`Max bytes for ${mime}`}
+                      isLabelHidden
+                      size="sm"
+                      value={current.limits[mime] ?? null}
+                      placeholder={fieldMeta('inputs.limitsByMime')?.unset ?? 'Max bytes'}
+                      min={1}
+                      isIntegerOnly
+                      isWheelEnabled={false}
+                      isDisabled={!canSize(mime, current.accept, picker.sections)}
+                      onChange={(bytes) => {
+                        size(mime, bytes);
+                      }}
+                    />
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
+    </VStack>
+  );
+}
+
+/**
+ * Which types an input takes, and the largest file of each, as one picker. A family (`image/*`)
+ * takes every type in it; a size left blank keeps Max bytes.
+ */
+function AcceptRow({
+  label,
+  path,
+  value,
+  picker,
+  hasSizes,
+  onChange,
+}: {
+  label: string;
+  path: string;
+  value: Accepted;
+  picker: AcceptPicker;
+  hasSizes: boolean;
+  onChange: (next: Accepted) => void;
+}) {
+  const status = useFieldStatus()('limitsByMime');
+  const unset = fieldMeta(path)?.unset;
+  return (
+    <InspectorRow
+      label={label}
+      path={path}
+      hasIssue={status !== undefined}
+      hasNote={Boolean(status?.message)}
+    >
+      <StackItem size="fill">
+        <ComplexSelector
+          label={label}
+          isLabelHidden
+          size="sm"
+          placement="below"
+          status={status}
+          value={value}
+          triggerLabel={value.accept.length ? <AcceptTokens {...value} /> : undefined}
+          placeholder={unset}
+          onChange={onChange}
+        >
+          {(current, change) => (
+            <AcceptGrid current={current} change={change} picker={picker} hasSizes={hasSizes} />
+          )}
+        </ComplexSelector>
+      </StackItem>
+    </InspectorRow>
+  );
+}
+
+function InputAcceptsSection({
+  inputs,
+  set,
+  image,
+  hasSizes,
+}: InputsSectionProps & { image: boolean; hasSizes: boolean }) {
   const attachmentPicker = image ? IMAGE_ATTACHMENT_PICKER : ATTACHMENT_PICKER;
   return (
     <InspectorSection title="Accepts" path="inputs">
@@ -1672,29 +1927,25 @@ function InputAcceptsSection({ inputs, set, image }: InputsSectionProps & { imag
           set({ text });
         }}
       />
-      <ListRow
+      <AcceptRow
         label="Attachments"
         path="inputs.attachments.accept"
-        value={expandAccept(inputs.attachmentsAccept, attachmentPicker.sections)}
-        options={attachmentPicker.options}
-        onChange={(selected) => {
-          set({
-            attachmentsAccept: nextAccept(
-              inputs.attachmentsAccept,
-              selected,
-              attachmentPicker.sections,
-            ),
-          });
+        value={{ accept: inputs.attachmentsAccept, limits: inputs.limitsByMime }}
+        picker={attachmentPicker}
+        hasSizes={hasSizes}
+        onChange={({ accept, limits }) => {
+          set({ attachmentsAccept: accept, limitsByMime: limits });
         }}
       />
       {!image && (
-        <ListRow
+        <AcceptRow
           label="Voice"
           path="inputs.voice.accept"
-          value={expandAccept(inputs.voiceAccept, VOICE_PICKER.sections)}
-          options={VOICE_PICKER.options}
-          onChange={(selected) => {
-            set({ voiceAccept: nextAccept(inputs.voiceAccept, selected, VOICE_PICKER.sections) });
+          value={{ accept: inputs.voiceAccept, limits: inputs.limitsByMime }}
+          picker={VOICE_PICKER}
+          hasSizes={hasSizes}
+          onChange={({ accept, limits }) => {
+            set({ voiceAccept: accept, limitsByMime: limits });
           }}
         />
       )}
@@ -1743,18 +1994,6 @@ function InputLimitsSection({ inputs, set }: InputsSectionProps) {
         isIntegerOnly
         onChange={(maxTurnBytes) => {
           set({ maxTurnBytes });
-        }}
-      />
-      <TextAreaRow
-        label="By type"
-        path="inputs.limitsByMime"
-        field="limitsByMimeJson"
-        value={inputs.limitsByMimeJson}
-        rows={3}
-        hasSpellCheck={false}
-        placeholder={LIMITS_BY_MIME_PLACEHOLDER}
-        onChange={(limitsByMimeJson) => {
-          set({ limitsByMimeJson });
         }}
       />
     </InspectorSection>
@@ -1840,13 +2079,12 @@ function ContextPreviewRow() {
 }
 
 /** The value the studio's page sends for each slot declared so far. Kept in this tab. */
-function SlotPreviewRows({ slotsJson }: { slotsJson: string }) {
+function SlotPreviewRows({ slots }: { slots: readonly SlotDraft[] }) {
   const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
-  const slots = draftSlots(slotsJson);
-  return Object.entries(slots).map(([name, allowed]) => (
+  return draftSlots(slots).map(({ name, label, values: allowed }) => (
     <ChoiceRow
       key={name}
-      label={name}
+      label={label}
       path="inputs.slots"
       isRequired
       value={allowed.find((value) => value === values.slots[name]) ?? allowed[0]}
@@ -1858,6 +2096,206 @@ function SlotPreviewRows({ slotsJson }: { slotsJson: string }) {
   ));
 }
 
+/** One of a slot's choices: the value a turn sends, what the page says of it, and a remove button. */
+function SlotChoiceRow({
+  choice,
+  at,
+  onChange,
+  onRemove,
+}: {
+  choice: SlotChoiceDraft;
+  at: number;
+  onChange: (change: Partial<SlotChoiceDraft>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <HStack gap={1} vAlign="center">
+      <div className="criterion-label">
+        <TextInput
+          label={`Choice ${String(at + 1)} value`}
+          isLabelHidden
+          size="sm"
+          value={choice.value}
+          placeholder="value"
+          onChange={(value) => {
+            onChange({ value });
+          }}
+        />
+      </div>
+      <StackItem size="fill">
+        <TextInput
+          label={`Choice ${String(at + 1)} description`}
+          isLabelHidden
+          size="sm"
+          value={choice.description}
+          placeholder="What the page says of it"
+          onChange={(description) => {
+            onChange({ description });
+          }}
+        />
+      </StackItem>
+      <IconButton
+        label={`Remove choice ${String(at + 1)}`}
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={IconX} size="sm" />}
+        onClick={onRemove}
+      />
+    </HStack>
+  );
+}
+
+/** A head over a slot's choices, with its field's description on hover. */
+function SlotChoiceHead({ title, doc }: { title: string; doc: string | undefined }) {
+  return (
+    <Tooltip content={doc} hasHoverIndication={false}>
+      <Text type="supporting" color="secondary">
+        {title}
+      </Text>
+    </Tooltip>
+  );
+}
+
+function SlotChoiceHeads() {
+  return (
+    <HStack gap={1}>
+      <div className="criterion-label">
+        <SlotChoiceHead title="Value" doc={fieldMeta('inputs.slots.*.choices.*.value')?.doc} />
+      </div>
+      <StackItem size="fill">
+        <SlotChoiceHead
+          title="Description"
+          doc={fieldMeta('inputs.slots.*.choices.*.description')?.doc}
+        />
+      </StackItem>
+    </HStack>
+  );
+}
+
+/** One slot: its name, its label, its choices, and the buttons that add a choice and remove it. */
+function SlotSection({
+  slot,
+  at,
+  onChange,
+  onRemove,
+}: {
+  slot: SlotDraft;
+  at: number;
+  onChange: (change: Partial<SlotDraft>) => void;
+  onRemove: () => void;
+}) {
+  const status = useFieldStatus()('slots', at);
+  const name = slot.name.trim() || `Slot ${String(at + 1)}`;
+  const setChoice = (key: string, change: Partial<SlotChoiceDraft>) => {
+    onChange({
+      choices: slot.choices.map((choice) =>
+        choice.key === key ? { ...choice, ...change } : choice,
+      ),
+    });
+  };
+  return (
+    <InspectorSection title={slot.label.trim() || name} path="inputs.slots.*">
+      <TextRow
+        label="Name"
+        path="inputs.slots.*"
+        status={status}
+        value={slot.name}
+        placeholder="language"
+        onChange={(next) => {
+          onChange({ name: next });
+        }}
+      />
+      <TextRow
+        label="Label"
+        path="inputs.slots.*.label"
+        value={slot.label}
+        placeholder={slot.name.trim() || undefined}
+        onChange={(label) => {
+          onChange({ label });
+        }}
+      />
+      <VStack gap={1}>
+        <Tooltip content={fieldMeta('inputs.slots.*.choices')?.doc} hasHoverIndication={false}>
+          <Text type="label" weight="semibold">
+            Choices
+          </Text>
+        </Tooltip>
+        <SlotChoiceHeads />
+        {slot.choices.map((choice, index) => (
+          <SlotChoiceRow
+            key={choice.key}
+            choice={choice}
+            at={index}
+            onChange={(change) => {
+              setChoice(choice.key, change);
+            }}
+            onRemove={() => {
+              onChange({ choices: slot.choices.filter((each) => each.key !== choice.key) });
+            }}
+          />
+        ))}
+      </VStack>
+      <HStack gap={1}>
+        <Button
+          label="Add choice"
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconPlus} size="sm" />}
+          onClick={() => {
+            onChange({ choices: [...slot.choices, newSlotChoice()] });
+          }}
+        />
+        <Button
+          label={`Remove ${name}`}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconTrash} size="sm" />}
+          onClick={onRemove}
+        />
+      </HStack>
+    </InspectorSection>
+  );
+}
+
+/** Every slot, each in its own section, and the page's pick for each above them. */
+function InputSlotsSections({ inputs, set }: InputsSectionProps) {
+  const { slots } = inputs;
+  const setSlot = (key: string, change: Partial<SlotDraft>) => {
+    set({ slots: slots.map((slot) => (slot.key === key ? { ...slot, ...change } : slot)) });
+  };
+  return (
+    <>
+      <InspectorSection path="inputs.slots" note={sectionNote('slots')}>
+        <SlotPreviewRows slots={slots} />
+        <HStack>
+          <Button
+            label="Add slot"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconPlus} size="sm" />}
+            onClick={() => {
+              set({ slots: [...slots, newSlot(slots)] });
+            }}
+          />
+        </HStack>
+      </InspectorSection>
+      {slots.map((slot, at) => (
+        <SlotSection
+          key={slot.key}
+          slot={slot}
+          at={at}
+          onChange={(change) => {
+            setSlot(slot.key, change);
+          }}
+          onRemove={() => {
+            set({ slots: slots.filter((each) => each.key !== slot.key) });
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { inputs } = draft;
   const set = patch(setDraft, 'inputs');
@@ -1866,39 +2304,22 @@ function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
   return (
     <>
       {draftAllows(draft, 'inputs.attachments.accept') && (
-        <InputAcceptsSection inputs={inputs} set={set} image={image} />
+        <InputAcceptsSection
+          inputs={inputs}
+          set={set}
+          image={image}
+          hasSizes={draftAllows(draft, 'inputs.limitsByMime')}
+        />
       )}
       {draftAllows(draft, 'inputs.maxFiles') && <InputLimitsSection inputs={inputs} set={set} />}
       {draftAllows(draft, 'inputs.context') && <InputContextSection inputs={inputs} set={set} />}
-      <InspectorSection path="inputs.slots" note={sectionNote('slots')}>
-        <TextAreaRow
-          label="Slots"
-          path="inputs.slots"
-          field="slotsJson"
-          value={inputs.slotsJson}
-          rows={3}
-          hasSpellCheck={false}
-          placeholder={SLOTS_PLACEHOLDER}
-          onChange={(slotsJson) => {
-            set({ slotsJson });
-          }}
-        />
-        <SlotPreviewRows slotsJson={inputs.slotsJson} />
-      </InspectorSection>
+      <InputSlotsSections inputs={inputs} set={set} />
     </>
   );
 }
 
 const SYSTEM_BY_ROLE_PLACEHOLDER = `{
   "support": "Answer as the support desk."
-}`;
-
-const LIMITS_BY_MIME_PLACEHOLDER = `{
-  "application/pdf": 5000000
-}`;
-
-const SLOTS_PLACEHOLDER = `{
-  "language": ["en", "fr"]
 }`;
 
 type SetBinding = (change: Partial<ModelBindingDraft>) => void;
@@ -4450,13 +4871,15 @@ function PageFrame({
   children: ReactNode;
 }) {
   const shown = useRef(viewKey);
-  // Before either fades in.
+  // Before either fades in. Scroll only the editor scroller — never scrollIntoView,
+  // which walks ancestors (Goals `.home-scroll` snap would jump to the next beat).
   useLayoutEffect(() => {
     const node = view.current;
     if (!node || shown.current === viewKey) return;
     shown.current = viewKey;
-    if (viewKey === 'list') scrollerOf(node)?.scrollTo({ top: listScroll.current });
-    else node.scrollIntoView({ block: 'start' });
+    const scroller = scrollerOf(node);
+    if (viewKey === 'list') scroller?.scrollTo({ top: listScroll.current });
+    else scroller?.scrollTo({ top: 0 });
   }, [viewKey, view, listScroll]);
   return (
     <div key={viewKey} ref={view} className="editor-page">
@@ -4940,6 +5363,7 @@ function ToolsEditor({
   const set = patch(setDraft, 'tools');
   const workspace = useContext(WorkspaceContext);
   const isHost = draft.identity.profileType === 'host';
+  const { open, show, frame } = usePageSwap<string>();
   /** In a workspace, the library's tools this agent allows; on its own, every tool it has. */
   const allowed = workspace
     ? draft.toolSpecs.filter((tool) => workspace.allowed.includes(tool.key))
@@ -4950,6 +5374,35 @@ function ToolsEditor({
   // Any custom tool it allows can load T2 tools: one that answers with the ids to load.
   const loaders = allowed.map((tool) => tool.toolName.trim()).filter(Boolean);
   const note = isHost ? sectionNote('tools.host') : undefined;
+  const backToTools = () => {
+    show(null);
+  };
+  const openTool = (id: string) => {
+    if (id === 'tools') {
+      backToTools();
+      return;
+    }
+    const key = toolSpecKeyOf(id) ?? id;
+    if (draft.toolSpecs.some((tool) => tool.key === key)) {
+      show(key);
+      return;
+    }
+    onSelect(id);
+  };
+  const tool = open ? draft.toolSpecs.find((candidate) => candidate.key === open) : undefined;
+  if (tool) {
+    return frame(
+      tool.key,
+      <>
+        <PageHeader
+          title={tool.toolName.trim() || 'Unnamed tool'}
+          back="Back to tools"
+          onBack={backToTools}
+        />
+        <ToolSpecEditor draft={draft} setDraft={setDraft} toolKey={tool.key} onSelect={openTool} />
+      </>,
+    );
+  }
   const addTool = (
     <Button
       label="Add tool"
@@ -4957,11 +5410,12 @@ function ToolsEditor({
       size="sm"
       icon={<Icon icon={IconPlus} size="sm" />}
       onClick={() => {
-        addToolSpec(draft, setDraft, onSelect);
+        addToolSpec(draft, setDraft, openTool);
       }}
     />
   );
-  return (
+  return frame(
+    'list',
     <>
       {workspace ? (
         // This agent's tools. Ones it does not use stay in the library, closed.
@@ -4971,7 +5425,7 @@ function ToolsEditor({
               tools={allowed}
               allowed={allowed}
               workspace={workspace}
-              onSelect={onSelect}
+              onSelect={openTool}
             />
           )}
           {unused.length > 0 && (
@@ -4988,7 +5442,7 @@ function ToolsEditor({
                   tools={unused}
                   allowed={[]}
                   workspace={workspace}
-                  onSelect={onSelect}
+                  onSelect={openTool}
                 />
               </Collapsible>
             </CollapsibleGroup>
@@ -4997,7 +5451,7 @@ function ToolsEditor({
         </InspectorSection>
       ) : (
         <InspectorSection path={isHost ? undefined : 'tools'} note={note}>
-          {draft.toolSpecs.length > 0 && <ToolList tools={draft.toolSpecs} onSelect={onSelect} />}
+          {draft.toolSpecs.length > 0 && <ToolList tools={draft.toolSpecs} onSelect={openTool} />}
           {addTool}
         </InspectorSection>
       )}
@@ -5017,7 +5471,7 @@ function ToolsEditor({
           />
         </InspectorSection>
       )}
-    </>
+    </>,
   );
 }
 

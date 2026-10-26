@@ -60,6 +60,7 @@ import {
   type ProfileOutputsSpec,
   type ProfileSpeechSpec,
   type ProviderLimits,
+  type SlotDeclInput,
   type SystemPrompt,
   systemPromptProblem,
 } from '@theoremjs/agents/kernel';
@@ -86,6 +87,7 @@ import type {
   OwnDetectorDraft,
   PatternDraft,
   PatternSourceDraft,
+  SlotDraft,
   SpeechDraft,
   StudioDraft,
   StudioProfileType,
@@ -923,11 +925,11 @@ function compileTool(
   const common = toolCommon(tool, fail, agentInputOf);
   const labels = toolLabels(tool, common, fail);
   const compiled = TOOL_COMPILERS[tool.toolType](tool, common, fail, agentIdOf);
+  // why: stageAgentKey is an optional post_tool reader on a library tool. A
+  // dangling key must not fail the tool — the tool still runs; only the filter
+  // is dropped (same as sound() / removeAgent clearing the link).
   const stageKey = tool.toolType !== 'agent' ? (tool.stageAgentKey?.trim() ?? '') : '';
   const stageAgent = stageKey ? agentIdOf(stageKey) : undefined;
-  if (stageKey && !stageAgent) {
-    fail('The agent that reads this tool is gone. Pick another.', 'stageAgentKey');
-  }
   return failed
     ? undefined
     : {
@@ -1006,13 +1008,7 @@ function compileInputs(
   checkWhole(report, 'inputs', 'maxFiles', 'Max files', inputs.maxFiles, 1);
   checkWhole(report, 'inputs', 'maxBytes', 'Max bytes', inputs.maxBytes, 1);
   checkWhole(report, 'inputs', 'maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes, 1);
-  const limitsByMime = recordField(inputs.limitsByMimeJson, isPositiveWhole, () => {
-    report(
-      'inputs',
-      'Limits by type must be a JSON object of positive whole numbers.',
-      'limitsByMimeJson',
-    );
-  });
+  const limitsByMime = compileLimitsByMime(inputs, report);
   const slots = compileSlots(inputs, report);
   const context = compileContext(inputs, report);
   return {
@@ -1040,10 +1036,69 @@ function compileContext(inputs: InputsDraft, report: Report): ProfileContextSpec
   return { from: [...inputs.contextFrom], maxChars: inputs.contextMaxChars ?? 0 };
 }
 
-function compileSlots(inputs: InputsDraft, report: Report): Record<string, string[]> | undefined {
-  return recordField(inputs.slotsJson, isValueList, () => {
-    report('inputs', 'Slots must be a JSON object of lists of text.', 'slotsJson');
+/** Each type's largest file; a type left blank keeps `maxBytes`. */
+function compileLimitsByMime(
+  inputs: InputsDraft,
+  report: Report,
+): Record<string, number> | undefined {
+  const entries = Object.entries(inputs.limitsByMime);
+  for (const [mime, bytes] of entries) {
+    if (Number.isInteger(bytes) && bytes >= 1) continue;
+    report('inputs', `Max size for ${mime} must be a whole number of at least 1.`, 'limitsByMime');
+  }
+  return entries.length ? { ...inputs.limitsByMime } : undefined;
+}
+
+/** One slot's problems, each on its row: a missing or repeated name or value. */
+function slotProblems(slot: SlotDraft, at: number, slots: readonly SlotDraft[]): string[] {
+  const name = slot.name.trim();
+  const problems: string[] = [];
+  if (!name) problems.push('Name this slot.');
+  else if (slots.findIndex((other) => other.name.trim() === name) < at) {
+    problems.push(`Another slot is called ${name}.`);
+  }
+  const values = slot.choices.map((choice) => choice.value.trim());
+  if (!values.some(Boolean)) problems.push('Give this slot a choice.');
+  if (slot.choices.some((choice, index) => !values[index] && choice.description.trim())) {
+    problems.push('Every choice with a description needs a value.');
+  }
+  const repeated = values.filter((value, index) => value && values.indexOf(value) < index);
+  for (const value of new Set(repeated)) problems.push(`${value} is a choice twice.`);
+  return problems;
+}
+
+/**
+ * Each slot by name. A slot with no label and no descriptions is its list of values; any other
+ * is `{ label?, choices }`. A choice left blank is left out.
+ */
+function compileSlots(
+  inputs: InputsDraft,
+  report: Report,
+): Record<string, SlotDeclInput> | undefined {
+  if (!inputs.slots.length) return undefined;
+  inputs.slots.forEach((slot, at) => {
+    for (const problem of slotProblems(slot, at, inputs.slots)) {
+      report('inputs', problem, 'slots', at);
+    }
   });
+  return Object.fromEntries(
+    inputs.slots.map((slot) => {
+      const label = slot.label.trim();
+      const choices = slot.choices
+        .filter((choice) => choice.value.trim())
+        .map((choice) => ({ value: choice.value.trim(), description: choice.description.trim() }));
+      const plain = !label && choices.every((choice) => !choice.description);
+      const decl: SlotDeclInput = plain
+        ? choices.map((choice) => choice.value)
+        : {
+            ...(label ? { label } : {}),
+            choices: choices.map(({ value, description }) =>
+              description ? { value, description } : { value },
+            ),
+          };
+      return [slot.name.trim(), decl];
+    }),
+  );
 }
 
 /** A call profile's inputs are its slots and context, and are left out when it has neither. */
@@ -1053,13 +1108,6 @@ function compileLiveInputs(inputs: InputsDraft, report: Report): { inputs?: Live
   if (!slots && !context) return {};
   return { inputs: { ...(slots ? { slots } : {}), ...(context ? { context } : {}) } };
 }
-
-const isPositiveWhole = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isInteger(value) && value > 0;
-const isValueList = (value: unknown): value is string[] =>
-  Array.isArray(value) &&
-  value.length > 0 &&
-  value.every((item) => typeof item === 'string' && item.trim() !== '');
 
 /** `shaped`: the type takes a structured reply and its validation (text only). */
 function compileOutputs(

@@ -84,8 +84,18 @@ const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 /** The effort selector's icon. The studio's Agents list shows the same one. */
 export const EFFORT_ICON = IconBrain;
 
+export type SlotChoiceOption = {
+  value: string;
+  description?: string;
+};
+
+export type SlotDeclView = {
+  label?: string;
+  choices: readonly SlotChoiceOption[];
+};
+
 export type SlotChoices = {
-  declared: Readonly<Record<string, readonly string[]>>;
+  declared: Readonly<Record<string, SlotDeclView>>;
   values: Readonly<Record<string, string>>;
   onChange: (name: string, value: string) => void;
 };
@@ -335,21 +345,32 @@ function EffortSelector(props: {
 function SlotSelectors(props: { choices?: SlotChoices; isDisabled: boolean }) {
   if (!props.choices) return null;
   const { declared, values, onChange } = props.choices;
-  return Object.entries(declared).map(([name, allowed]) => (
-    <Selector
-      key={name}
-      label={name}
-      isLabelHidden
-      size="sm"
-      variant="ghost"
-      startIcon={<IconAdjustmentsHorizontal size={14} />}
-      placement="above"
-      isDisabled={props.isDisabled}
-      value={values[name] ?? ''}
-      options={allowed.map((value) => ({ value, label: value }))}
-      onChange={(value) => onChange(name, value)}
-    />
-  ));
+  return Object.entries(declared).map(([name, decl]) => {
+    // why: Group title belongs in the open menu (section heading), not beside the
+    // closed trigger — same chrome as Model/Effort. Descriptions stay Astryx
+    // secondary + one-line ellipsis; wrap would blow the composer dropdown open.
+    const title = decl.label?.trim() || name;
+    const choices = decl.choices.map((choice) => ({
+      value: choice.value,
+      label: choice.value,
+      description: choice.description,
+    }));
+    return (
+      <Selector
+        key={name}
+        label={title}
+        isLabelHidden
+        size="sm"
+        variant="ghost"
+        startIcon={<IconAdjustmentsHorizontal size={14} />}
+        placement="above"
+        isDisabled={props.isDisabled}
+        value={values[name] ?? ''}
+        options={[{ type: 'section', title, options: choices }]}
+        onChange={(value) => onChange(name, value)}
+      />
+    );
+  });
 }
 
 function GenerationSelect(props: {

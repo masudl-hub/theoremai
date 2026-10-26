@@ -24,10 +24,6 @@ export const STUDIO_EXAMPLES: Readonly<
     label: COOKBOOKS.decision.label,
     description: COOKBOOKS.decision.description,
   },
-  'span-decision': {
-    label: COOKBOOKS['span-decision'].label,
-    description: COOKBOOKS['span-decision'].description,
-  },
   'gemini-embedding-2': {
     label: COOKBOOKS['gemini-embedding-2'].label,
     description: COOKBOOKS['gemini-embedding-2'].description,

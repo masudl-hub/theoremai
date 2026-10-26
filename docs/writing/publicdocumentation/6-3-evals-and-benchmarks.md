@@ -149,6 +149,7 @@ Each trial's outcome is recorded as a standard trace record, allowing evaluation
 
 ## Related Guides
 
+* **[Command-Line Evals & Testing](6-4-command-line-evals-and-testing.md)**: Running eval suites, stress matrices, and cassette grading from the `agents` binary.
 * **[Trace Spans & Semantic Conventions](6-1-trace-spans-catalog.md)**: The pure trace record schema (`TraceRecord`) inspected by graders.
 * **[Telemetry Sinks & Exporters](6-2-telemetry-destinations.md)**: Exporting evaluation run records to external dashboards and JSONL sinks.
 * **[Profiles & Modalities](2-1-profiles.md)**: Defining target agent profiles and model bindings evaluated by test suites.

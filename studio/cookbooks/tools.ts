@@ -1573,6 +1573,18 @@ function toRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
 
+/** Each unit `convert_units` knows, as `(value + offset) * scale` onto its family's base: °C or km. */
+const UNITS: ReadonlyMap<
+  string,
+  { family: 'temperature' | 'distance'; offset: number; scale: number }
+> = new Map([
+  ['c', { family: 'temperature', offset: 0, scale: 1 }],
+  ['f', { family: 'temperature', offset: -32, scale: 5 / 9 }],
+  ['k', { family: 'temperature', offset: -273.15, scale: 1 }],
+  ['km', { family: 'distance', offset: 0, scale: 1 }],
+  ['mi', { family: 'distance', offset: 0, scale: 1 / 0.621371 }],
+]);
+
 /** Portable handlers for the cookbook function tools, shared by Studio and the website. */
 export const COOKBOOK_TOOL_HANDLERS: StudioToolHandlers = {
   convert_units(input) {
@@ -1582,29 +1594,13 @@ export const COOKBOOK_TOOL_HANDLERS: StudioToolHandlers = {
     if (from === to) {
       return { value, from, to, result: value };
     }
-
-    let celsius = value;
-    if (from === 'f') celsius = ((value - 32) * 5) / 9;
-    else if (from === 'k') celsius = value - 273.15;
-    else if (from === 'c') celsius = value;
-    else if (from === 'km') {
-      const km = value;
-      const result = to === 'mi' ? km * 0.621371 : km;
-      return { value, from, to, result: Math.round(result * 1000) / 1000 };
-    } else if (from === 'mi' && to === 'km') {
-      const result = value / 0.621371;
-      return { value, from, to, result: Math.round(result * 1000) / 1000 };
-    } else {
+    const source = UNITS.get(from);
+    const target = UNITS.get(to);
+    if (!source || !target || source.family !== target.family) {
       throw new Error(`Unsupported conversion: ${from} → ${to}`);
     }
-
-    let result = celsius;
-    if (to === 'f') result = (celsius * 9) / 5 + 32;
-    else if (to === 'k') result = celsius + 273.15;
-    else if (to !== 'c') {
-      throw new Error(`Unsupported conversion: ${from} → ${to}`);
-    }
-
+    const base = (value + source.offset) * source.scale;
+    const result = base / target.scale - target.offset;
     return { value, from, to, result: Math.round(result * 1000) / 1000 };
   },
 

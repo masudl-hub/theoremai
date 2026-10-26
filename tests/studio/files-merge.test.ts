@@ -103,7 +103,7 @@ Deno.test('a setting the files added, among the others, leaves no edit here', ()
   const merge = mergedWithFiles(old, files, old);
   assertEquals(
     merge.workspace.toolSpecs.map((tool) => tool.activityFailed),
-    old.toolSpecs.map(() => "couldn't do it"),
+    old.toolSpecs.map((tool) => tool.activityFailed ?? "couldn't do it"),
   );
   assertEquals(merge.conflicts, []);
   assert(atStart(merge.workspace));

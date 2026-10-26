@@ -85,11 +85,6 @@ export {
   ollamaModelThinks,
 } from './providers.ts';
 export {
-  judgeResearchOpening,
-  type ResearchOpeningAccepted,
-  type ResearchOpeningRefusal,
-} from './research-opening.ts';
-export {
   COOKBOOK_TOOL_HANDLERS,
   DEMO_ALLOWED_HOSTS,
   DEMO_ARCHITECT_TOOLS,

@@ -55,13 +55,13 @@ function syncWorkspace(cookbookId: CookbookId): StudioWorkspace {
   }
 }
 
+function compileFailed(what: string, issues: readonly { message: string }[]): Error {
+  return new Error(`${what} failed to compile: ${issues.map((i) => i.message).join('; ')}`);
+}
+
 function compiledCookbook(cookbookId: CookbookId): CompiledWorkspace {
   const compiled = compileWorkspace(syncWorkspace(cookbookId), ON_OWN_KEYS);
-  if (!compiled.ok) {
-    throw new Error(
-      `Cookbook '${cookbookId}' failed to compile: ${compiled.issues.map((i) => i.message).join('; ')}`,
-    );
-  }
+  if (!compiled.ok) throw compileFailed(`Cookbook '${cookbookId}'`, compiled.issues);
   return compiled;
 }
 
@@ -234,11 +234,7 @@ export function stitchCookbook(
       }
     : baseDraft;
   const compiled = compileStudio(draft, ON_OWN_KEYS);
-  if (!compiled.ok) {
-    throw new Error(
-      `Stitched cookbook '${cookbookId}' failed to compile: ${compiled.issues.map((i) => i.message).join('; ')}`,
-    );
-  }
+  if (!compiled.ok) throw compileFailed(`Stitched cookbook '${cookbookId}'`, compiled.issues);
   let code = studioSource(compiled);
   if (recipe.runner) {
     const { exportName, prompt, keySlot = 'gemini' } = recipe.runner;

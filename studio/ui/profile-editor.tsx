@@ -5532,19 +5532,25 @@ function HttpRequestSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
         }}
       />
       <HeadersRow tool={tool} set={set} />
-      <NumberRow
-        label="Max response"
-        path="registerTool.maxResponseBytes"
-        units="bytes"
-        field="maxResponseBytes"
-        value={tool.maxResponseBytes ?? null}
-        min={1}
-        isIntegerOnly
-        onChange={(maxResponseBytes) => {
-          set({ maxResponseBytes });
-        }}
-      />
+      <MaxResponseRow tool={tool} set={set} />
     </InspectorSection>
+  );
+}
+
+function MaxResponseRow({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
+  return (
+    <NumberRow
+      label="Max response"
+      path="registerTool.maxResponseBytes"
+      units="bytes"
+      field="maxResponseBytes"
+      value={tool.maxResponseBytes ?? null}
+      min={1}
+      isIntegerOnly
+      onChange={(maxResponseBytes) => {
+        set({ maxResponseBytes });
+      }}
+    />
   );
 }
 
@@ -5653,18 +5659,7 @@ function McpServerSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) 
         }}
       />
       <HeadersRow tool={tool} set={set} />
-      <NumberRow
-        label="Max response"
-        path="registerTool.maxResponseBytes"
-        units="bytes"
-        field="maxResponseBytes"
-        value={tool.maxResponseBytes ?? null}
-        min={1}
-        isIntegerOnly
-        onChange={(maxResponseBytes) => {
-          set({ maxResponseBytes });
-        }}
-      />
+      <MaxResponseRow tool={tool} set={set} />
     </InspectorSection>
   );
 }

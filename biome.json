@@ -11,6 +11,7 @@
       "!package-lock.json",
       "!**/built",
       "!tests/cassettes/recorded",
+      "!studio/cookbooks/fixtures",
       "!tests/fixtures/studio-project"
     ]
   },

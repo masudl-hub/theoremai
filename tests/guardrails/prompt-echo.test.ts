@@ -25,6 +25,7 @@ import {
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
+import { OMIT_PROMPT } from '../../src/observability/spans.ts';
 import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
@@ -255,7 +256,7 @@ const dumpsPrompt: TurnModel = {
       yield { type: 'text', text: `${word} ` };
   },
 };
-Deno.test('runTurn stops a reply that dumps the system prompt without the canary', async () => {
+Deno.test('runTurn takes the system prompt out of a reply that dumps it without the canary', async () => {
   const profile = registerEchoProfile('echo_dump');
   const events = await collect(runTurn({ profile, input: { text: 'hi' } }, dumpsPrompt));
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
@@ -263,10 +264,10 @@ Deno.test('runTurn stops a reply that dumps the system prompt without the canary
     native: 'egress',
   });
   assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
+    events.some((event) => event.type === 'error'),
+    false,
   );
-  // At most 11 of the prompt's words went out before the stop.
+  assertEquals(replyText(events).includes(OMIT_PROMPT), true);
   assertEquals(scanTextForPromptEcho(replyText(events), [SYSTEM]), false);
 });
 Deno.test('runTurn releases a quoting reply when the profile allows prompt echo', async () => {
@@ -512,15 +513,13 @@ async function liveSays(id: string, said: string): Promise<TurnEvent[]> {
   await drain.catch(() => undefined);
   return events;
 }
-Deno.test('a Live session lets the model say a shareable line and withholds a private one', async () => {
+Deno.test('a Live session lets the model say a shareable line and takes a private one out', async () => {
   const shared = await liveSays('echo_live_voice', VOICE);
   assertEquals(
     shared.some((event) => event.type === 'error'),
     false,
   );
   const leaked = await liveSays('echo_live_rules', PRIVATE_RULES);
-  assertEquals(
-    leaked.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
-  );
+  assertEquals(scanTextForPromptEcho(replyText(leaked), [PRIVATE_RULES]), false);
+  assertEquals(replyText(leaked).includes(OMIT_PROMPT), true);
 });

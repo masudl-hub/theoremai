@@ -94,6 +94,7 @@ Deno.test('runTurn emits egress guardrail events on block', async () => {
       id: 'chat-egress-obs',
       guardrails: {
         ...base.guardrails,
+        detect: { marker_leak: 'block' },
         blockedReply: { onBlock: 'refuse' },
       },
     }),

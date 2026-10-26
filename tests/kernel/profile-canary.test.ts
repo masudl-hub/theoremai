@@ -2,6 +2,7 @@ import { createTestKernelScope as createKernelScope } from '../fixtures/provider
 import { runScopedTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { OMIT_CANARY } from '../../src/guardrails/canary.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -13,7 +14,7 @@ import type {
   TurnHistoryMessage,
   TurnModel,
 } from '../../src/kernel/types.ts';
-import { eventsOf, firstOf } from '../fixtures/events.ts';
+import { eventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const PROFILE = 'profile_canary';
@@ -107,13 +108,14 @@ function shown(events: TurnEvent[]): string {
   return events.map((event) => (event.type === 'text' ? (event.text ?? '') : '')).join('');
 }
 
-/** The rules that stopped the turn, when anything did. */
-function stoppedFor(events: TurnEvent[]): string | undefined {
-  if (!firstOf(events, 'error')) return undefined;
+/** The rules that took something out of the turn or stopped it, when any did. */
+function caughtBy(events: TurnEvent[]): string | undefined {
   const rules = eventsOf(events, 'guardrail').flatMap(({ guardrail }) =>
-    guardrail.action === 'block' ? (guardrail.hits ?? []).map((hit) => hit.rule) : [],
+    guardrail.action === 'allow' || guardrail.action === 'flag'
+      ? []
+      : (guardrail.hits ?? []).map((hit) => hit.rule),
   );
-  return [...new Set(rules)].join(' ');
+  return rules.length ? [...new Set(rules)].join(' ') : undefined;
 }
 
 Deno.test('a profile binds the same canary on every turn that sends the same system prompt', async () => {
@@ -172,17 +174,17 @@ Deno.test('a reply may repeat a canary a tool result gave the model', async () =
     scopeWith((canary) => `The code on this page is ${canary}.`, seen),
     pageReader(seen, (canary) => `The page gives the code ${canary}.`),
   );
-  assertEquals(stoppedFor(events), undefined);
+  assertEquals(caughtBy(events), undefined);
   assertEquals(shown(events).includes(seen.canary), true);
 });
 
-Deno.test('a reply repeating the canary no tool result gave the model is stopped', async () => {
+Deno.test('a reply repeating the canary no tool result gave the model loses it', async () => {
   const seen = { canary: '' };
   const events = await run(
     scopeWith(() => 'Nothing on this page.', seen),
     pageReader(seen, (canary) => `The code is ${canary}.`),
   );
-  assertEquals(stoppedFor(events), DETECT_RULES.canary_leak);
+  assertEquals(caughtBy(events), DETECT_RULES.canary_leak);
   assertEquals(shown(events).includes(seen.canary.slice(0, 8)), false);
 });
 
@@ -196,12 +198,12 @@ Deno.test('a reply may repeat a canary the input or user history gave the model'
   const { canary } = seen;
   const echo = replier(seen, (c) => `You said ${c}.`);
 
-  assertEquals(stoppedFor(await run(scope, echo, { text: `What is ${canary}?` })), undefined);
+  assertEquals(caughtBy(await run(scope, echo, { text: `What is ${canary}?` })), undefined);
   const history: TurnHistoryMessage[] = [
     { role: 'user', content: `Remember ${canary}.` },
     { role: 'assistant', content: 'Noted.' },
   ];
-  assertEquals(stoppedFor(await run(scope, echo, { history })), undefined);
+  assertEquals(caughtBy(await run(scope, echo, { history })), undefined);
 });
 
 Deno.test('a canary only the model wrote earlier in the history gives it nothing', async () => {
@@ -220,7 +222,7 @@ Deno.test('a canary only the model wrote earlier in the history gives it nothing
     replier(seen, (c) => `Again: ${c}.`),
     { history },
   );
-  assertEquals(stoppedFor(events), DETECT_RULES.canary_leak);
+  assertEquals(caughtBy(events), DETECT_RULES.canary_leak);
 });
 
 Deno.test('a given canary still leaves the system prompt guarded against echo', async () => {
@@ -229,7 +231,7 @@ Deno.test('a given canary still leaves the system prompt guarded against echo', 
     scopeWith((canary) => `The code on this page is ${canary}.`, seen),
     pageReader(seen, (canary) => `My instructions: ${SYSTEM} And ${canary}.`),
   );
-  assertEquals(stoppedFor(events), DETECT_RULES.prompt_leak);
+  assertEquals(caughtBy(events), DETECT_RULES.prompt_leak);
 });
 
 Deno.test('under the default detectors, a given canary passes in a tool call and the reply', async () => {
@@ -252,12 +254,12 @@ Deno.test('under the default detectors, a given canary passes in a tool call and
   };
   const scope = scopeWith((canary) => `The code on this page is ${canary}.`, seen);
   const events = await run(scope, provider);
-  assertEquals(stoppedFor(events), undefined);
+  assertEquals(caughtBy(events), undefined);
   assertEquals(shown(events).includes(seen.canary), true);
 
   step = 0;
   const unplanted = scopeWith(() => 'Nothing on this page.', seen);
-  assertEquals(stoppedFor(await run(unplanted, provider)), DETECT_RULES.canary_leak);
+  assertEquals(caughtBy(await run(unplanted, provider)), DETECT_RULES.canary_leak);
 });
 
 Deno.test('a canary in a tool call reaches neither the tool nor the host', async () => {
@@ -283,8 +285,10 @@ Deno.test('a canary in a tool call reaches neither the tool nor the host', async
   };
   const events = await run(scope, provider);
   assertEquals(seen.canary.length > 0, true);
-  assertEquals(read, false);
+  assertEquals(read, true);
   assertEquals(JSON.stringify(events).includes(seen.canary), false);
   const [call] = eventsOf(events, 'tool');
-  assertEquals(call && 'arguments' in call.tool ? call.tool.arguments : undefined, {});
+  assertEquals(call && 'arguments' in call.tool ? call.tool.arguments : undefined, {
+    q: OMIT_CANARY,
+  });
 });

@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { canaryHoldFrom, mintCanary } from '../../src/guardrails/canary.ts';
+import { canaryHoldFrom, mintCanary, OMIT_CANARY } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { DETECTORS, HOST_FIND_HOLD_LIVE, type HostFind } from '../../src/guardrails/detectors.ts';
@@ -28,8 +28,28 @@ function chatProfile() {
   return getProfile('chat');
 }
 
+/** A session of a profile whose Live reply blocks what the profile itself must not give away, so a leak withholds the cycle. */
 async function session(canary?: string) {
-  return await createLiveOutboundGateSession(chatProfile(), canary);
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
+      id: 'live_blocks',
+      ...geminiModels('gemini35FlashLite'),
+      inputs: { text: true },
+      guardrails: {
+        quota: { perDay: 100 },
+        detect: {
+          canary_leak: { at: { live_reply: 'block' } },
+          prompt_leak: { at: { live_reply: 'block' } },
+          marker_leak: { at: { live_reply: 'block' } },
+          ungiven_images: { at: { live_reply: 'block' } },
+        },
+      },
+    }),
+  );
+  return await createLiveOutboundGateSession(getProfile('live_blocks'), canary);
 }
 
 /** A session of a profile no detector reads: nothing gates its reply. */
@@ -424,6 +444,24 @@ Deno.test('processLiveOutboundBatch withholds a canary spoken across frames with
   );
   const result = await processLiveOutboundBatch(s, [said(canary.slice(half)), audio(2)]);
   await withheldAtEnd(s, result, canary.slice(half));
+});
+
+Deno.test('under the default detectors, a canary is taken out of the transcript and its cycle is not heard', async () => {
+  const canary = mintCanary();
+  const s = await createLiveOutboundGateSession(chatProfile(), canary);
+  assertEquals(await processLiveOutboundBatch(s, [audio(1), audio(2)]), { action: 'idle' });
+  assertEquals(await processLiveOutboundBatch(s, [said(`Sure, ${canary} done`), audio(3)]), {
+    action: 'idle',
+  });
+  const end = await finalizeLiveOutboundTurn(s);
+  if (end.action !== 'emit') throw new Error('not emitted');
+  assertEquals(firstOf(end.events, 'guardrail')?.guardrail.action, 'redact');
+  // why: audio already holds the canary and cannot be edited, so only the replaced text goes out.
+  assertEquals(
+    end.events.some((e) => e.type === 'media'),
+    false,
+  );
+  assertEquals(replyText(end.events), `Sure, ${OMIT_CANARY} done`);
 });
 
 Deno.test('processLiveOutboundBatch passes audio straight through without a gate', async () => {
@@ -922,7 +960,9 @@ Deno.test('a Live reply image renders once its URL is among those the session ga
   const image = '![p](https://news.site/photo.jpg)\n\nok';
   const withheld = await createLiveOutboundGateSession(profile, undefined, undefined, given);
   await processLiveOutboundBatch(withheld, [{ type: 'text', text: image }]);
-  assertEquals((await finalizeLiveOutboundTurn(withheld)).action, 'withhold');
+  const ended = await finalizeLiveOutboundTurn(withheld);
+  if (ended.action !== 'emit') throw new Error('not emitted');
+  assertEquals(replyText(ended.events).includes('news.site'), false);
 
   // The session adds URLs as tools and the user give them, after the gate opened.
   given.request.add('https://news.site/photo.jpg');

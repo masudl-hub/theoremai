@@ -5,6 +5,7 @@ import { runTurn } from '../fixtures/registered-runner.ts';
  * provider-side tool already carried is reported as one.
  */
 import '../fixtures/test-host.ts';
+import { OMIT_CANARY } from '../../src/guardrails/canary.ts';
 import {
   createCanaryGateSession,
   filterCanaryGatedEvents,
@@ -68,10 +69,7 @@ Deno.test('runTurn never releases a canary a host policy allows', async () => {
     runTurn({ profile: register('invariant_allow_all'), input: { text: 'hi' } }, leaksCanary),
   );
   assertEquals(/[0-9a-f]{16}/.test(replyText(events)), false);
-  assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
-  );
+  assertEquals(replyText(events).includes(OMIT_CANARY), true);
 });
 
 Deno.test('runTurn answers a pinned leak with the host policy refusal', async () => {
@@ -93,9 +91,12 @@ Deno.test('finalizeLiveOutboundTurn never releases a leak a host policy allows',
   const s = await createLiveOutboundGateSession(getProfile(register('invariant_live')), canary, [
     SYSTEM,
   ]);
-  await processLiveOutboundBatch(s, [{ type: 'text', text: `say ${canary}` }]);
+  const batch = await processLiveOutboundBatch(s, [{ type: 'text', text: `say ${canary}` }]);
   const end = await finalizeLiveOutboundTurn(s);
-  assertEquals(end.action, 'withhold');
+  const out = [batch, end].flatMap((result) =>
+    result.action === 'idle' ? [] : (result.events ?? []),
+  );
+  assertEquals(JSON.stringify(out).includes(canary), false);
 });
 
 Deno.test('a provider tool report carrying the canary is an incident, not a prevented leak', async () => {

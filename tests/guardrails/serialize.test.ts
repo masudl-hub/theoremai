@@ -12,12 +12,17 @@ import type { TurnEvent } from '../../src/kernel/types.ts';
 /** A profile that sets no guardrails. */
 const POLICY = resolveGuardrailPolicy(undefined);
 
-/** The hits a reply of `structured` output is blocked on under {@linkcode POLICY}, if it is. */
-function blockedOn(structured: unknown, canary?: string): GuardrailHit[] | undefined {
+/** A reply of `structured` output, read under {@linkcode POLICY}. */
+function read(structured: unknown, canary?: string) {
   return readReply({ text: 'ok', structured }, POLICY.detect, {
     boundary: 'reply',
     scope: scopeOf(POLICY, canary ? { canary } : {}),
-  }).blocked;
+  });
+}
+
+/** The hits a reply of `structured` output is blocked on under {@linkcode POLICY}, if it is. */
+function blockedOn(structured: unknown, canary?: string): GuardrailHit[] | undefined {
+  return read(structured, canary).blocked;
 }
 
 Deno.test('textForScan renders plain values', () => {
@@ -68,14 +73,17 @@ Deno.test('egress survives a circular structured payload', () => {
   assertEquals(blockedOn(circular), undefined);
 });
 
-Deno.test('egress still finds a leak inside a circular payload', () => {
+Deno.test('egress still finds a leak inside a circular payload, and takes it out', () => {
   const canary = mintCanary();
   const circular: Record<string, unknown> = { answer: `token ${canary}` };
   circular.self = circular;
+  const reply = read(circular, canary);
   assertEquals(
-    blockedOn(circular, canary)?.some((h) => h.rule === DETECT_RULES.canary_leak),
+    reply.events.some((event) => event.hits.some((h) => h.rule === DETECT_RULES.canary_leak)),
     true,
   );
+  assertEquals(reply.blocked, undefined);
+  assertEquals(textForScan(reply.payload.structured).text.includes(canary), false);
 });
 
 Deno.test('egress fails closed on a payload it cannot inspect', () => {

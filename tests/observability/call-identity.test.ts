@@ -1,7 +1,9 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 
+import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
+import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { turnEventSchema } from '../../src/kernel/turn-events.ts';
 import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import type { TraceRecord } from '../../src/observability/trace-record.ts';
@@ -10,14 +12,23 @@ import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const IDENTITY = { id: 'gen-1', model: 'vendor/model-a' };
 
-/** Run one chat turn on `provider`; the host's events and the call span's identity attributes. */
+registerProfile(
+  defineProfile({
+    ...getProfile('chat'),
+    id: 'chat_canary_block',
+    guardrails: { detect: { canary_leak: 'block' } },
+  }),
+);
+
+/** Run one turn of `profile` on `provider`; the host's events and the call span's identity attributes. */
 async function traced(
   provider: TurnModel,
+  profile = 'chat',
 ): Promise<{ events: TurnEvent[]; id: unknown; model: unknown }> {
   const into: TraceRecord[] = [];
   const events: TurnEvent[] = [];
   for await (const event of runTurn(
-    { profile: 'chat', input: { text: 'hi' } },
+    { profile, input: { text: 'hi' } },
     provider,
     catalogedSink(into),
   )) {
@@ -41,7 +52,7 @@ Deno.test('a call cut by a canary leak still records which model served it', asy
       yield { type: 'text', text: 'never reached' };
     },
   };
-  const { events, id, model } = await traced(provider);
+  const { events, id, model } = await traced(provider, 'chat_canary_block');
   assertEquals(
     firstOf(events, 'error')?.errorInternal,
     'Turn withheld: egress disclosure violation',

@@ -238,8 +238,8 @@ at `reply`, `reply_structured`, `live_reply`, and `thought`:
 
 | Detector | Default | Finds |
 | --- | --- | --- |
-| `marker_leak` | `block` in a reply, `redact` in a thought | The fence the kernel puts around user data (a `user_data` tag, closed or not), and the canary note's own words, as the profile's `canary.bind_note` words it |
-| `ungiven_images` | `block` in a reply, `redact` in a thought | An image that loads a URL the model was not given |
+| `marker_leak` | `redact` | The fence the kernel puts around user data (a `user_data` tag, closed or not), and the canary note's own words, as the profile's `canary.bind_note` words it |
+| `ungiven_images` | `redact` | An image that loads a URL the model was not given |
 | `ungiven_links` | `ignore` | A link to a URL the model was not given |
 
 `ungiven_images` and `ungiven_links` also take `allow: { hosts?, fromTools? }`:
@@ -423,8 +423,9 @@ than the tail is read when the attempt ends.
 scan detects. A window that ends on a possible leak opening of any length
 carries it (`canaryCarry`) into the next window of the same canary — the next provider
 call of a `runTurn`, the next Live cycle — so a token split across tool steps
-or cycles is one match: the turn or session ends when it completes, and only
-the chunks before the completing one were released. The same constructor backs
+or cycles is one match. Only the chunks before the completing one were
+released. Under `block` the turn or session ends there. Under `redact`, what
+goes out after them has the token replaced. The same constructor backs
 `runTurn` and
 Live (`processLiveOutboundBatch`). The detectors of what is the profile's own
 (`canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`,
@@ -433,8 +434,8 @@ action `guardrails.detect` gives it for the boundary: `ignore` is not read,
 `flag` is reported once and shown, `redact` and `block` hold the rest of the
 reply and the end of the attempt replaces the match or stops the reply. A leak
 the end-of-attempt read cannot place still stops the reply. A model's tool call is read at
-`tool_arguments` (default: the canary refuses the call, the prompt is
-flagged), and structured output at `reply_structured`. Any other event
+`tool_arguments` (default: the canary is replaced in the call's arguments, the
+prompt is flagged), and structured output at `reply_structured`. Any other event
 carrying a leak follows the reply's action, where `redact` stops the turn as
 `block` does, since an event has no text to replace. A provider-side tool's
 report of one always ends the turn: that call already ran.

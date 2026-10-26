@@ -1453,7 +1453,10 @@ Deno.test('a prompt leak action, schemes, taint, and trace resource compile when
   });
   assertEquals(profile.observability?.resource, { 'service.name': 'concierge' });
   const plain = compiled(draft).profile;
-  assertEquals(promptLeak(plain.guardrails?.detect), undefined);
+  // The example blocks at every reply boundary, where the default takes the leak out.
+  assertEquals(promptLeak(plain.guardrails?.detect), {
+    at: { reply: 'block', reply_structured: 'block', live_reply: 'block' },
+  });
   assertEquals(plain.guardrails?.taint, undefined);
   assertEquals(plain.observability?.resource, undefined);
   const bad = compileStudio(

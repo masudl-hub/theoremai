@@ -33,7 +33,7 @@ import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.
 import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { lastOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
-import { structuredDraftText } from '../fixtures/reply.ts';
+import { replyText, structuredDraftText } from '../fixtures/reply.ts';
 
 const CANARY_RE = /^[0-9a-f]{32}$/;
 
@@ -88,7 +88,7 @@ Deno.test('resolveTurn wraps user text and binds the canary into the system text
   assertEquals(request.system.includes(wrapUserData('hi')), false);
   assertEquals(Object.hasOwn(request, 'canary'), false);
 });
-Deno.test('runTurn errors when the model echoes the canary', async () => {
+Deno.test('runTurn takes the canary out when the model echoes it', async () => {
   async function* leak(req: ModelRequest): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
     yield { type: 'text', text: req.system };
@@ -98,17 +98,13 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
   const events = await Array.fromAsync(
     runTurn({ profile: 'chat', input: { text: 'hi' } }, provider),
   );
-  const wire = JSON.stringify(events);
   assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
-  );
-  // The leaking fragment is withheld whole: nothing it carried reaches the host.
-  assertEquals(
-    events.some((event) => event.type === 'text'),
+    events.some((event) => event.type === 'error'),
     false,
   );
-  assertEquals(CANARY_RE.test(wire), false);
+  // The reply goes out whole, with the leak taken out: no hex run of a canary reaches the host.
+  assertEquals(/[0-9a-f]{16}/.test(JSON.stringify(events.filter((e) => e.type === 'text'))), false);
+  assertEquals(replyText(events).endsWith('after leak'), true);
   assertEquals(lastOf(events, 'done')?.stop, {
     kind: 'filtered',
     native: 'egress',
@@ -808,10 +804,9 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
     runTurn({ profile: 'canary_split_steps', input: { text: 'hi' } }, provider),
   );
   assertEquals(call, 2);
-  assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
-  );
+  // The opening went out before the tool ran; the reply is sent again whole, with the canary taken out.
+  assertEquals(replyText(events).endsWith(`One: ${OMIT_CANARY}`), true);
+  assertEquals(/[0-9a-f]{16}/.test(replyText(events)), false);
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
     kind: 'filtered',
     native: 'egress',

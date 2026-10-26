@@ -22,6 +22,8 @@ export {
 export type {
   CookbookEntry,
   CookbookId,
+  CookbookIncludeTag,
+  CookbookTags,
   GoogleBindingViolation,
   GoogleFreeTierGrounding,
   GoogleImageAspectRatio,

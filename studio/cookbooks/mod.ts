@@ -1,6 +1,8 @@
 export type {
   CookbookEntry,
   CookbookId,
+  CookbookIncludeTag,
+  CookbookTags,
 } from './catalog.ts';
 export {
   addArchitectExample,

@@ -728,11 +728,43 @@ export type CookbookId =
   | 'narrator'
   | 'console';
 
+/**
+ * Searchable pieces a cookbook recipe includes. Closed for chips and search.
+ * The cookbook screen shows the build kind (`system` → multi-agent, `agent` →
+ * agent) plus a short slice of these, with the rest collapsed as `+N`.
+ */
+export type CookbookIncludeTag =
+  | 'text'
+  | 'decision'
+  | 'live'
+  | 'speech'
+  | 'embedding'
+  | 'host'
+  | 'http-tools'
+  | 'mcp-tools'
+  | 'agent-tools'
+  | 'function-tools'
+  | 'guardrails'
+  | 'post-tool';
+
+/** Tags the cookbook screen and search project; do not invent chips in the UI. */
+export interface CookbookTags {
+  includes: readonly CookbookIncludeTag[];
+}
+
 export interface CookbookEntry {
   id: CookbookId;
   kind: 'agent' | 'system';
+  /** Short phrase that grounds the recipe on the cookbook screen (e.g. verified research). */
+  verb: string;
   label: string;
   description: string;
+  tags: CookbookTags;
+  /**
+   * What this recipe actually demonstrates in its workspace — for MCP paste briefs.
+   * Only patterns present in the draft; do not invent.
+   */
+  teaches: readonly string[];
   question?: string;
   createWorkspace: () => StudioWorkspace | Promise<StudioWorkspace>;
   addToWorkspace: (workspace: StudioWorkspace) => StudioWorkspace | Promise<StudioWorkspace>;
@@ -755,9 +787,20 @@ export const COOKBOOKS: Readonly<Record<CookbookId, CookbookEntry>> = {
   research: {
     id: 'research',
     kind: 'system',
+    verb: 'every claim checked',
     label: 'Research scout',
     description:
-      'Searches papers, repos, and model cards; Jev filters pages and a check verifies quotes.',
+      'Ask a hard question about models, papers, or memory. It searches the Hub, arXiv, and GitHub, cuts each page to the passages that bear on the question, and will not let a quote through unchecked.',
+    tags: {
+      includes: ['text', 'decision', 'http-tools', 'mcp-tools', 'guardrails', 'post-tool'],
+    },
+    teaches: [
+      'A multi-agent system: text agent `research.scout` plus decision agent `research.pagereader` (Jev).',
+      'Staging page-read tools at `post_tool` via `stageAgentKey`: `read_pages`, `read_model_card`, `read_dataset_card`, `read_readme`, and `read_library_docs` are filtered by the page-reader before the scout sees them.',
+      'Parallel tool calls (`tools.parallel: true`) across HTTP tools (arXiv, GitHub, Hub cards) and MCP tools (Exa `search_web` / `read_pages`, Context7 library docs, DeepWiki `ask_repo_docs`).',
+      'Guardrails that flag every detector on untrusted page text, with `allowedHosts` limited to the research hosts.',
+      'Turn behaviour with resume, auto-continue on length / stream_incomplete / provider_error, and steering.',
+    ],
     question: RESEARCH_FIRST_TURN_PROMPT,
     createWorkspace: createResearchWorkspace,
     addToWorkspace: addResearchExample,
@@ -765,57 +808,128 @@ export const COOKBOOKS: Readonly<Record<CookbookId, CookbookEntry>> = {
   concierge: {
     id: 'concierge',
     kind: 'agent',
+    verb: 'travel from the facts',
     label: 'Travel concierge',
-    description: 'Text agent with weather, places, currency, and trip tools.',
+    description:
+      'Hand it a destination, a ticket, or a photo of your boarding pass. It checks weather, places, and currency before it plans — and never invents a forecast.',
+    tags: {
+      includes: ['text', 'http-tools', 'mcp-tools', 'function-tools', 'guardrails'],
+    },
+    teaches: [
+      'A text agent that takes attachments (images, PDF, text) and optional voice, then grounds weather, places, and currency in tools before it answers.',
+      'A turn-time tool loader (`t2Loader: discover_tools`) that can pull in extra demo tools during the turn.',
+      'Mixing HTTP tools (geocode, weather, currency, Wikipedia), MCP (`search_web`), and local function tools (distances, day plan, packing, budget).',
+      'Silent tool use in the system prompt: no narrating tool names; findings land in the reply.',
+      'Reply-side detect set to block sensitive and injection phrasing, with `allowedHosts` for the travel hosts.',
+    ],
     createWorkspace: workspaceOf(createExampleDraft),
     addToWorkspace: addsDraft(createExampleDraft),
   },
   architect: {
     id: 'architect',
     kind: 'system',
+    verb: 'advise from the repo',
     label: 'Code architect',
-    description: 'Reads repos and docs. Brings a Narrator it calls for audio.',
+    description:
+      'Point it at a repository or a library. It reads the docs and the code before it advises, then can send a Narrator to record a short spoken briefing of what it found.',
+    tags: {
+      includes: ['text', 'speech', 'http-tools', 'mcp-tools', 'agent-tools', 'guardrails'],
+    },
+    teaches: [
+      'A multi-agent system: text agent `code.architect` plus speech agent `studio.narrator`.',
+      'An agent tool (`narrate`) that lets the architect call the narrator and get audio back.',
+      'Grounding advice in repo and package tools before answering (`ask_repo_docs`, `read_repo_file`, `lookup_package`, Context7 `find_library` / `read_library_docs`).',
+      'Vendor docs over MCP (Microsoft, Cloudflare, AWS, Hugging Face, Astro) alongside web search.',
+      'A speech profile with a fixed spoken style for briefings.',
+    ],
     createWorkspace: createArchitectWorkspace,
     addToWorkspace: addArchitectExample,
   },
   'live-concierge': {
     id: 'live-concierge',
     kind: 'agent',
+    verb: 'travel on the call',
     label: 'Live concierge',
-    description: 'The concierge as a voice call, with the same tools.',
+    description:
+      'The same concierge, on a voice call. It still grounds weather, places, and money in the tools — it just answers out loud, in short sentences.',
+    tags: {
+      includes: ['live', 'http-tools', 'mcp-tools', 'function-tools', 'guardrails'],
+    },
+    teaches: [
+      'The travel concierge tools on a `live` profile instead of text.',
+      'Spoken replies: short sentences, no markdown lists, still grounded in the same weather / places / currency tools.',
+    ],
     createWorkspace: workspaceOf(createLiveExampleDraft),
     addToWorkspace: addsDraft(createLiveExampleDraft),
   },
   decision: {
     id: 'decision',
     kind: 'agent',
+    verb: 'ask the photograph',
     label: 'Pantry',
     description:
-      'Jev looks at a pantry shelf photo: finds things in it (boxes) and answers questions about brunch.',
+      'Show Jev a pantry shelf. It draws boxes around what it finds and answers brunch questions from what is actually there — not from what it remembers.',
+    tags: {
+      includes: ['decision', 'guardrails'],
+    },
+    teaches: [
+      'A `decision` profile on TypeSafe Jev 1.14 with `images: true`.',
+      'Question kinds in one contract (`pantry.v1`): `box`, `noul`, and `choice`.',
+      'State image `photo` (the shelf) plus decision-owned reference images (`<ginger>`, `<apple_ripeness>`, `<union_jack>`) named from questions.',
+      'Box questions that locate things in `photo` or on a reference chart; choice for brunch from what is on the shelf.',
+    ],
     createWorkspace: workspaceOf(createDecisionExampleDraft),
     addToWorkspace: addsDraft(createDecisionExampleDraft),
   },
   'gemini-embedding-2': {
     id: 'gemini-embedding-2',
     kind: 'agent',
+    verb: 'embed what you see',
     label: 'Gemini Embeddings 2',
-    description: 'Multimodal embedding preview with Gemini Embeddings 2.',
+    description:
+      'Drop in text, images, or files. Gemini Embeddings 2 turns them into vectors you can search and compare — multimodal, on the free preview.',
+    tags: {
+      includes: ['embedding'],
+    },
+    teaches: [
+      'An `embedding` profile on Gemini Embeddings 2 preview.',
+      'Multimodal inputs: every media kind that model accepts, capped at six files.',
+      'Output dimensionality set on the binding (`outputDimensionality: 768`).',
+    ],
     createWorkspace: workspaceOf(createGeminiEmbeddingExampleDraft),
     addToWorkspace: addsDraft(createGeminiEmbeddingExampleDraft),
   },
   narrator: {
     id: 'narrator',
     kind: 'agent',
+    verb: 'hear the briefing',
     label: 'Narrator',
-    description: 'Reads a script aloud.',
+    description:
+      'Give it a short script in plain sentences. It reads the briefing aloud — warm, unhurried, as if it were speaking to one listener.',
+    tags: {
+      includes: ['speech', 'guardrails'],
+    },
+    teaches: [
+      'A standalone `speech` profile with guardrails included.',
+      'A fixed speech style string for how the briefing should sound.',
+    ],
     createWorkspace: workspaceOf(createNarratorExampleDraft),
     addToWorkspace: addsDraft(createNarratorExampleDraft),
   },
   console: {
     id: 'console',
     kind: 'agent',
+    verb: 'tools, no model',
     label: 'Tool console',
-    description: 'No model. Run its tools by hand.',
+    description:
+      'No language model in the loop. Press a tool, watch the result — HTTP, MCP, and functions side by side, for when you want the wiring without the chat.',
+    tags: {
+      includes: ['host', 'http-tools', 'mcp-tools', 'function-tools'],
+    },
+    teaches: [
+      'A `host` profile with no model — tools only.',
+      'A small set of demo tools spanning HTTP and other result shapes, run by hand from the console.',
+    ],
     createWorkspace: workspaceOf(createConsoleExampleDraft),
     addToWorkspace: addsDraft(createConsoleExampleDraft),
   },

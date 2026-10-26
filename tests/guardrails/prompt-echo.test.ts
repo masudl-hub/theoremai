@@ -27,6 +27,7 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { OMIT_PROMPT } from '../../src/observability/spans.ts';
 import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
+import { CHAT_TAKES_OUT_LEAKS, TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
@@ -241,9 +242,7 @@ function registerEchoProfile(id: string, promptEcho?: boolean): string {
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
-      ...(promptEcho === false
-        ? { guardrails: { detect: { prompt_leak: 'ignore' } } as const }
-        : {}),
+      guardrails: { detect: promptEcho === false ? { prompt_leak: 'ignore' } : TAKE_OUT_LEAKS },
     }),
   );
   return id;
@@ -349,7 +348,9 @@ Deno.test('a tool call that carries the system prompt is refused where prompt_le
   assertEquals(replyText(events), 'Done.');
 });
 Deno.test('processLiveOutboundBatch withholds a spoken dump of the system prompt across cycles', async () => {
-  const s = await createLiveOutboundGateSession(getProfile('chat'), mintCanary(), [SYSTEM]);
+  const s = await createLiveOutboundGateSession(getProfile(CHAT_TAKES_OUT_LEAKS), mintCanary(), [
+    SYSTEM,
+  ]);
   const said = (text: string): TurnEvent => ({
     type: 'evidence',
     text,
@@ -398,6 +399,7 @@ function registerMarkedProfile(id: string): string {
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
+      guardrails: { detect: TAKE_OUT_LEAKS },
     }),
   );
   return id;
@@ -440,6 +442,7 @@ Deno.test("runTurn stops a reply repeating Theorem's notes after a shareable par
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
+      guardrails: { detect: TAKE_OUT_LEAKS },
     }),
   );
   let notes = '';
@@ -483,6 +486,7 @@ async function liveSays(id: string, said: string): Promise<TurnEvent[]> {
       models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'slotA' } },
       live: { voice: 'Aoede' },
       tools: { allow: [] },
+      guardrails: { detect: TAKE_OUT_LEAKS },
     }),
   );
   let mock: MockLiveWebSocket | undefined;

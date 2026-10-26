@@ -1,5 +1,5 @@
 import '../fixtures/test-host.ts';
-import { canaryHoldFrom, mintCanary, OMIT_CANARY } from '../../src/guardrails/canary.ts';
+import { canaryHoldFrom, mintCanary } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { DETECTORS, HOST_FIND_HOLD_LIVE, type HostFind } from '../../src/guardrails/detectors.ts';
@@ -18,6 +18,7 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { eventsOf, firstOf } from '../fixtures/events.ts';
+import { STOP_LEAKS, TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
@@ -28,7 +29,7 @@ function chatProfile() {
   return getProfile('chat');
 }
 
-/** A session of a profile whose Live reply blocks what the profile itself must not give away, so a leak withholds the cycle. */
+/** A session of a profile that stops what it must not give away: a leak withholds the cycle, and a thought loses it. */
 async function session(canary?: string) {
   registerProfile(
     defineProfile({
@@ -40,12 +41,7 @@ async function session(canary?: string) {
       inputs: { text: true },
       guardrails: {
         quota: { perDay: 100 },
-        detect: {
-          canary_leak: { at: { live_reply: 'block' } },
-          prompt_leak: { at: { live_reply: 'block' } },
-          marker_leak: { at: { live_reply: 'block' } },
-          ungiven_images: { at: { live_reply: 'block' } },
-        },
+        detect: STOP_LEAKS,
       },
     }),
   );
@@ -74,7 +70,7 @@ function hostProfile(
   find: HostFind,
   extras: {
     onBlock?: 'refuse';
-    leaks?: 'ignore';
+    leaks?: 'ignore' | 'take_out';
     labels?: LabelOverrides;
   } = {},
 ) {
@@ -91,7 +87,9 @@ function hostProfile(
         detect: {
           ...(extras.leaks === 'ignore'
             ? ({ canary_leak: 'ignore', prompt_leak: 'ignore' } as const)
-            : {}),
+            : extras.leaks === 'take_out'
+              ? TAKE_OUT_LEAKS
+              : {}),
           'test.own': { label: 'Test', at: { live_reply: 'block' }, find },
         },
         ...(extras.onBlock ? { blockedReply: { onBlock: extras.onBlock } } : {}),
@@ -446,22 +444,17 @@ Deno.test('processLiveOutboundBatch withholds a canary spoken across frames with
   await withheldAtEnd(s, result, canary.slice(half));
 });
 
-Deno.test('under the default detectors, a canary is taken out of the transcript and its cycle is not heard', async () => {
+Deno.test('under the default detectors, a canary is flagged and its cycle is heard as said', async () => {
   const canary = mintCanary();
   const s = await createLiveOutboundGateSession(chatProfile(), canary);
   assertEquals(await processLiveOutboundBatch(s, [audio(1), audio(2)]), { action: 'idle' });
-  assertEquals(await processLiveOutboundBatch(s, [said(`Sure, ${canary} done`), audio(3)]), {
-    action: 'idle',
-  });
-  const end = await finalizeLiveOutboundTurn(s);
-  if (end.action !== 'emit') throw new Error('not emitted');
-  assertEquals(firstOf(end.events, 'guardrail')?.guardrail.action, 'redact');
-  // why: audio already holds the canary and cannot be edited, so only the replaced text goes out.
+  const result = await processLiveOutboundBatch(s, [said(`Sure, ${canary} done`), audio(3)]);
+  if (result.action !== 'emit') throw new Error('not emitted');
+  assertEquals(firstOf(result.events, 'guardrail')?.guardrail.action, 'flag');
   assertEquals(
-    end.events.some((e) => e.type === 'media'),
-    false,
+    result.events.filter((e) => e.type !== 'guardrail'),
+    [audio(1), audio(2), said(`Sure, ${canary} done`), audio(3)],
   );
-  assertEquals(replyText(end.events), `Sure, ${OMIT_CANARY} done`);
 });
 
 Deno.test('processLiveOutboundBatch passes audio straight through without a gate', async () => {
@@ -954,8 +947,8 @@ Deno.test("a Live reply holds HOST_FIND_HOLD_LIVE for a find of the host's", asy
 });
 
 Deno.test('a Live reply image renders once its URL is among those the session gave the model', async () => {
-  // The host's own detector matches nothing: ungiven_images, left at its default, is what reads the image.
-  const profile = hostProfile('live_egress_images', findNothing);
+  // The host's own detector matches nothing: ungiven_images is what takes the image out.
+  const profile = hostProfile('live_egress_images', findNothing, { leaks: 'take_out' });
   const given = givenUrlSets();
   const image = '![p](https://news.site/photo.jpg)\n\nok';
   const withheld = await createLiveOutboundGateSession(profile, undefined, undefined, given);

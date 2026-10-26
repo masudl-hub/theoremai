@@ -14,6 +14,7 @@ import type { KernelScope } from '../../src/kernel/scope.ts';
 import type { KeyVault, TurnEvent, TurnRequest } from '../../src/kernel/types.ts';
 import type { CaseOutcome } from '../fixtures/cassette.ts';
 import { canariesSent, inboundMisses, leaksIn, shownText } from '../fixtures/guardrail-oracle.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
 export interface CassetteModel {
   apiId: string;
@@ -69,6 +70,7 @@ const GUARDED = {
     financial: STOPS_REPLY,
     credentials: STOPS_REPLY,
     injection: STOPS_REPLY,
+    ...TAKE_OUT_LEAKS,
   },
   blockedReply: { onBlock: 'refuse' as const },
 };

@@ -238,8 +238,8 @@ at `reply`, `reply_structured`, `live_reply`, and `thought`:
 
 | Detector | Default | Finds |
 | --- | --- | --- |
-| `marker_leak` | `redact` | The fence the kernel puts around user data (a `user_data` tag, closed or not), and the canary note's own words, as the profile's `canary.bind_note` words it |
-| `ungiven_images` | `redact` | An image that loads a URL the model was not given |
+| `marker_leak` | `flag` | The fence the kernel puts around user data (a `user_data` tag, closed or not), and the canary note's own words, as the profile's `canary.bind_note` words it |
+| `ungiven_images` | `flag` | An image that loads a URL the model was not given |
 | `ungiven_links` | `ignore` | A link to a URL the model was not given |
 
 `ungiven_images` and `ungiven_links` also take `allow: { hosts?, fromTools? }`:
@@ -424,8 +424,9 @@ scan detects. A window that ends on a possible leak opening of any length
 carries it (`canaryCarry`) into the next window of the same canary — the next provider
 call of a `runTurn`, the next Live cycle — so a token split across tool steps
 or cycles is one match. Only the chunks before the completing one were
-released. Under `block` the turn or session ends there. Under `redact`, what
-goes out after them has the token replaced. The same constructor backs
+released. Under `flag` the match is reported and goes out. Under `redact`, what
+goes out after them has the token replaced. Under `block` the turn or session
+ends there. The same constructor backs
 `runTurn` and
 Live (`processLiveOutboundBatch`). The detectors of what is the profile's own
 (`canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`,
@@ -434,27 +435,27 @@ action `guardrails.detect` gives it for the boundary: `ignore` is not read,
 `flag` is reported once and shown, `redact` and `block` hold the rest of the
 reply and the end of the attempt replaces the match or stops the reply. A leak
 the end-of-attempt read cannot place still stops the reply. A model's tool call is read at
-`tool_arguments` (default: the canary is replaced in the call's arguments, the
-prompt is flagged), and structured output at `reply_structured`. Any other event
+`tool_arguments` (default: both are flagged), and structured output at `reply_structured`. Any other event
 carrying a leak follows the reply's action, where `redact` stops the turn as
 `block` does, since an event has no text to replace. A provider-side tool's
 report of one always ends the turn: that call already ran.
 `outputs.streaming.mode: 'sse'` and egress can both stay on.
 
-**Thoughts are omitted from, never stopped.** Only the reply stream flows
+**Thoughts are read, never stopped.** Only the reply stream flows
 through progressive yield, and the end-of-attempt egress payload carries reply
 text and structured output; nothing in a thought stops the turn
 (`isGuardedOutput`). A host that shows thoughts
 (`outputs.streaming.streamThoughts`) shows what they say and loads what they
-link, so each thought runs through a guard that omits what leaks and streams
-the rest as it clears — in `runTurn` and Live alike:
+link, so each thought runs through a guard that streams it as it clears — in
+`runTurn` and Live alike. By default a leak is flagged and shown; under
+`redact` or `block` at `thought` it is omitted:
 
 | Leak | Guarded when | Placeholder (labels key) |
 | --- | --- | --- |
-| Image | `ungiven_images` is above `ignore` at `thought` | `thought.omitted_image` |
-| Link | `ungiven_links` is above `ignore` at `thought` | `thought.omitted_link` |
-| Boundary marker | `marker_leak` is above `ignore` at `thought` | `thought.omitted_instructions` |
-| Canary, prompt echo | `canary_leak` / `prompt_leak` is above `ignore` at `thought` | `thought.omitted_instructions` |
+| Image | `ungiven_images` is `redact` or `block` at `thought` | `thought.omitted_image` |
+| Link | `ungiven_links` is `redact` or `block` at `thought` | `thought.omitted_link` |
+| Boundary marker | `marker_leak` is `redact` or `block` at `thought` | `thought.omitted_instructions` |
+| Canary, prompt echo | `canary_leak` / `prompt_leak` is `redact` or `block` at `thought` | `thought.omitted_instructions` |
 
 Each omission reports a `guardrail` event at stage `thought`, action `redact`,
 before the thought text it changed. `canary_leak` and `prompt_leak` report a
@@ -753,9 +754,11 @@ apply per source: `identity.system` (or its `systemByRole` entry) and
 as private as it was written. The canary note and the `user_data` note are
 always private. Adjacent private parts read as one stretch; a run of words never
 bridges a shareable part, and shareable text never stops a reply, even where it
-repeats private words. The contract: no reply carries 12 or more consecutive
-words of private prompt text, Theorem's notes, or the canary. A paraphrase is
-not caught, and secrets never belong in the prompt. A profile whose prompt is
+repeats private words. The contract: Theorem checks every reply for 12 or more
+consecutive words of private prompt text, Theorem's notes, or the canary, and
+reports each one it finds. Under the default `flag`, the reply goes out as
+written. To keep a leak from the person, set `canary_leak` and `prompt_leak`
+to `redact` or `block`. A paraphrase is not caught, and secrets never belong in the prompt. A profile whose prompt is
 quoted throughout can still set `detect: { prompt_leak: 'ignore' }`.
 
 Trusted text reaches the provider verbatim. Injection redaction would strip a
@@ -999,9 +1002,9 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 
 | Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
 | --- | --- | --- | --- | --- | --- | --- |
-| `tool_arguments_*` | `block` | `flag` | — | — | — | — |
-| `reply`, `reply_structured`, `live_reply` | `block` | `block` | `block` | `block` | `ignore` | `flag` |
-| `thought` | `redact` | `redact` | `redact` | `redact` | `ignore` | `flag` |
+| `tool_arguments_*` | `flag` | `flag` | — | — | — | — |
+| `reply`, `reply_structured`, `live_reply` | `flag` | `flag` | `flag` | `flag` | `ignore` | `flag` |
+| `thought` | `flag` | `flag` | `flag` | `flag` | `ignore` | `flag` |
 
 A dash is a boundary the detector does not apply at. The default is also the
 recommended action.

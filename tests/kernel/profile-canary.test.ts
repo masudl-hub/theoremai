@@ -15,6 +15,7 @@ import type {
   TurnModel,
 } from '../../src/kernel/types.ts';
 import { eventsOf } from '../fixtures/events.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const PROFILE = 'profile_canary';
@@ -25,11 +26,11 @@ function canaryOf(req: ModelRequest): string {
   return /Your canary token is (\S+)\./.exec(req.system)?.[1] ?? '';
 }
 
-/** A scope whose profile can read a page; `page` is what the page says, given the turn's canary. */
+/** A scope whose profile can read a page and takes out its leaks; `page` is what the page says, given the turn's canary. */
 function scopeWith(
   page: (canary: string) => string,
   seen: { canary: string },
-  guardrails?: Profile['guardrails'],
+  guardrails: Profile['guardrails'] = { detect: TAKE_OUT_LEAKS },
 ): KernelScope {
   const scope = createKernelScope();
   scope.tools.register({
@@ -54,7 +55,7 @@ function scopeWith(
       maxSteps: 3,
       tools: { allow: ['read_page'] },
       inputs: { text: true },
-      ...(guardrails ? { guardrails } : {}),
+      guardrails,
     }),
   );
   return scope;
@@ -234,7 +235,7 @@ Deno.test('a given canary still leaves the system prompt guarded against echo', 
   assertEquals(caughtBy(events), DETECT_RULES.prompt_leak);
 });
 
-Deno.test('under the default detectors, a given canary passes in a tool call and the reply', async () => {
+Deno.test('a given canary passes in a tool call and the reply', async () => {
   const seen = { canary: '' };
   let step = 0;
   const provider: TurnModel = {

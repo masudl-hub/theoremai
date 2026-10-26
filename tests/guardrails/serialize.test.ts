@@ -8,9 +8,10 @@ import { CIRCULAR, scanTextOf, textForScan } from '../../src/guardrails/serializ
 import type { GuardrailHit } from '../../src/guardrails/types.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 
-/** A profile that sets no guardrails. */
-const POLICY = resolveGuardrailPolicy(undefined);
+/** A profile that takes out what it must not give away. */
+const POLICY = resolveGuardrailPolicy({ detect: TAKE_OUT_LEAKS });
 
 /** A reply of `structured` output, read under {@linkcode POLICY}. */
 function read(structured: unknown, canary?: string) {

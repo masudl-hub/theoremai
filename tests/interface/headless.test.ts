@@ -623,14 +623,14 @@ Deno.test('the interface reports what a profile detects, allows and does with a 
     ungiven_links: { hosts: ['docs.acme.io'], fromTools: false },
   });
   assertEquals(view?.detect.ungiven_links.reply, 'block');
-  assertEquals(view?.detect.marker_leak.reply, 'redact');
+  assertEquals(view?.detect.marker_leak.reply, 'flag');
   assertEquals(view?.blockedReply, { onBlock: 'refuse', maxRetries: 1 });
   const off = guardrailsOf({ detect: { marker_leak: 'ignore', ungiven_images: 'ignore' } });
   assertEquals(off?.detect.ungiven_images.reply, 'ignore');
   const unset = composerIface(ATTACHMENT_PROFILE).guardrails;
   assertEquals(unset?.allow, NO_URL_ALLOW);
   assertEquals(unset?.blockedReply, { onBlock: 'retry', maxRetries: 1 });
-  assertEquals(unset?.detect.ungiven_images.reply, 'redact');
+  assertEquals(unset?.detect.ungiven_images.reply, 'flag');
 });
 Deno.test('sanitizeUserDraft redacts injection spans under the default detect', () => {
   const draft = sanitizeUserDraft(

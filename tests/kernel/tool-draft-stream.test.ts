@@ -6,6 +6,7 @@ import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelEvent, ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 interface ToolProfileOptions {
@@ -92,7 +93,7 @@ Deno.test('a draft reaches the host before its call, and adds up to it', async (
 });
 
 Deno.test('a canary written into a draft stops it before any of it shows', async () => {
-  const profile = registerToolProfile('tool_draft_canary');
+  const profile = registerToolProfile('tool_draft_canary', { detect: TAKE_OUT_LEAKS });
   let canary = '';
   const events = await collect(
     profile,

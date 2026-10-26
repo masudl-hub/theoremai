@@ -1,14 +1,20 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
+import type { DetectSpec } from '../../src/guardrails/detectors.ts';
 import { registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { structuredDraftText } from '../fixtures/reply.ts';
 
-function registerStructuredProfile(id: string, mode?: 'sse' | 'buffered'): string {
+function registerStructuredProfile(
+  id: string,
+  mode?: 'sse' | 'buffered',
+  detect?: DetectSpec,
+): string {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -19,7 +25,7 @@ function registerStructuredProfile(id: string, mode?: 'sse' | 'buffered'): strin
       tools: { allow: [] },
       inputs: { text: true },
       outputs: { structured: 'chatTurn', ...(mode ? { streaming: { mode } } : {}) },
-      guardrails: { quota: { perDay: 100 } },
+      guardrails: { quota: { perDay: 100 }, ...(detect ? { detect } : {}) },
     }),
   );
   return id;
@@ -63,7 +69,7 @@ Deno.test('under sse a structured reply previews as drafts, and the reply still 
 });
 
 Deno.test('a canary written into a structured reply never shows in its drafts', async () => {
-  const profile = registerStructuredProfile('structured_draft_canary');
+  const profile = registerStructuredProfile('structured_draft_canary', undefined, TAKE_OUT_LEAKS);
   let canary = '';
   const events = await collect(
     profile,

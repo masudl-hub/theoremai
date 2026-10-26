@@ -106,8 +106,8 @@ Deno.test('a policy resolves its detectors, what they allow, and what a blocked 
   assertEquals(unset.detect, DETECT_DEFAULTS);
   assertEquals(unset.allow, NO_ALLOW);
   assertEquals(unset.blockedReply, { onBlock: 'retry', maxRetries: 1 });
-  assertEquals(unset.detect.marker_leak.reply, 'redact');
-  assertEquals(unset.detect.ungiven_images.reply, 'redact');
+  assertEquals(unset.detect.marker_leak.reply, 'flag');
+  assertEquals(unset.detect.ungiven_images.reply, 'flag');
   assertEquals(unset.detect.ungiven_links.reply, 'ignore');
 
   const set = resolveGuardrailPolicy({
@@ -120,7 +120,7 @@ Deno.test('a policy resolves its detectors, what they allow, and what a blocked 
   assertEquals(set.blockedReply, { onBlock: 'refuse', maxRetries: 1 });
   assertEquals(set.detect.ungiven_links.reply, 'block');
   assertEquals(set.detect.marker_leak.reply, 'ignore');
-  assertEquals(set.detect.ungiven_images.reply, 'redact');
+  assertEquals(set.detect.ungiven_images.reply, 'flag');
   assertEquals(set.allow.ungiven_links.hosts, ['docs.example.com']);
   assertEquals(resolveGuardrailPolicy({ blockedReply: { maxRetries: 0 } }).blockedReply, {
     onBlock: 'retry',

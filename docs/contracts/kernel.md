@@ -529,7 +529,7 @@ The kernel validates protocol events before it releases them or executes client 
 
 | `type` | Payload highlights |
 | --- | --- |
-| `thought` | Model reasoning stream (leaks omitted, never stopped: images, links, canary, prompt echo, boundary markers; dropped when `streamThoughts: false`) |
+| `thought` | Model reasoning stream (read for images, links, canary, prompt echo and boundary markers, and never stopped: a leak is flagged by default and omitted where the profile sets `redact` or `block`; dropped when `streamThoughts: false`) |
 | `text` | User-visible assistant text |
 | `tool_draft` | A piece of a tool call the model is still writing: `callId`, `name`, `text` (the next piece of its arguments' JSON). A preview only: the `tool` event with the same `callId` is the call. A draft stops when its call's check would redact or block what it holds, or when its `name` changes. Sent only when the provider streams the reply |
 | `tool` | Tool call (`phase`: `running` / `progress` / `draft` / `complete` / `gate` / `error` / `cancel`, …; `pause` deprecated). A function tool's stream handler yields `{ kind: 'draft', text }` to preview its output as it writes it; each piece goes out as a `draft` phase, read first at the call's `tool_output_<kind>` boundary. An HTTP tool's successful text or JSON body goes out the same way as it arrives, with its credential replaced before any piece shows; an MCP tool's result arrives whole. A match there stops the drafts, and the `complete` output is still read whole. A function or agent tool's `progress` is read whole at that boundary too: one a check stops is not sent, and its `guardrail` event is. Drafts are sent only under `sse`, and the model never reads them |

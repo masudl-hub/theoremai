@@ -101,10 +101,10 @@ const LEAKS: readonly Detector[] = ['canary_leak', 'prompt_leak'];
 /** The detectors of what carries data out of a reply: they read only what the model says or thinks. */
 const SHOWN: readonly Detector[] = ['marker_leak', 'ungiven_images', 'ungiven_links', 'tool_leak'];
 
-Deno.test('a marker or an ungiven image is taken out of the reply by default, and a link is not read', () => {
+Deno.test('a marker or an ungiven image is flagged in the reply by default, and a link is not read', () => {
   const replies: Boundary[] = ['reply', 'reply_structured', 'live_reply'];
   for (const detector of ['marker_leak', 'ungiven_images'] as const) {
-    assertEquals(where(undefined, detector, 'redact'), [...replies, 'thought']);
+    assertEquals(where(undefined, detector, 'flag'), [...replies, 'thought']);
   }
   assertEquals(where(undefined, 'ungiven_links', 'ignore'), [...BOUNDARIES]);
   for (const detector of SHOWN) {
@@ -144,13 +144,11 @@ Deno.test('what comes in is redacted by default, and nothing the model writes is
   }
 });
 
-Deno.test('a leak is taken out of what the model writes by default, and a prompt leak in a tool call is flagged', () => {
+Deno.test('a leak is flagged in all the model writes by default', () => {
   const calls = TOOL_BOUNDARIES.filter((boundary) => boundary.startsWith('tool_arguments_'));
   const replies: Boundary[] = ['reply', 'reply_structured', 'live_reply'];
-  assertEquals(where(undefined, 'canary_leak', 'redact'), [...calls, ...replies, 'thought']);
-  assertEquals(where(undefined, 'prompt_leak', 'redact'), [...replies, 'thought']);
-  assertEquals(where(undefined, 'prompt_leak', 'flag'), calls);
   for (const detector of LEAKS) {
+    assertEquals(where(undefined, detector, 'flag'), [...calls, ...replies, 'thought']);
     assertEquals(where(undefined, detector, 'block'), []);
     for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'ignore');
   }

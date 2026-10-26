@@ -221,10 +221,12 @@ function replyVerdict(detect: DetectSpec | undefined, text: string, urls = NONE)
 }
 
 Deno.test('allow.hosts lets images load from the hosts a host names, and only those', () => {
-  const detect: DetectSpec = { ungiven_images: { allow: { hosts: ['cdn.acme.io'] } } };
+  const detect: DetectSpec = {
+    ungiven_images: { action: 'block', allow: { hosts: ['cdn.acme.io'] } },
+  };
   assertEquals(replyVerdict(detect, '![a](https://cdn.acme.io/any?q=1)'), 'allow');
-  assertEquals(replyVerdict(detect, '![a](https://evil.cdn.acme.io/p)'), 'redact');
-  assertEquals(replyVerdict(detect, '![a](https://attacker.io/p)'), 'redact');
+  assertEquals(replyVerdict(detect, '![a](https://evil.cdn.acme.io/p)'), 'block');
+  assertEquals(replyVerdict(detect, '![a](https://attacker.io/p)'), 'block');
 });
 
 Deno.test('allow takes hostnames and its own settings, and detect only the detectors there are', () => {

@@ -32,6 +32,7 @@ import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { lastOf } from '../fixtures/events.ts';
+import { CHAT_TAKES_OUT_LEAKS, TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText, structuredDraftText } from '../fixtures/reply.ts';
 
@@ -96,7 +97,7 @@ Deno.test('runTurn takes the canary out when the model echoes it', async () => {
   }
   const provider: TurnModel = { complete: leak };
   const events = await Array.fromAsync(
-    runTurn({ profile: 'chat', input: { text: 'hi' } }, provider),
+    runTurn({ profile: CHAT_TAKES_OUT_LEAKS, input: { text: 'hi' } }, provider),
   );
   assertEquals(
     events.some((event) => event.type === 'error'),
@@ -139,7 +140,7 @@ Deno.test('redactCanary replaces the token in text events', () => {
 
 Deno.test('canary stream gate withholds a token split across chunks and what follows it', async () => {
   const { profile, generation } = resolveTurn({
-    profile: 'chat',
+    profile: CHAT_TAKES_OUT_LEAKS,
     input: { text: 'hi' },
   });
   const { canary } = generation;
@@ -185,7 +186,7 @@ Deno.test('canary stream gate withholds a token split across chunks and what fol
 
 Deno.test('canary stream gate omits the canary from a thought and reports it', async () => {
   const { profile, generation } = resolveTurn({
-    profile: 'chat',
+    profile: CHAT_TAKES_OUT_LEAKS,
     input: { text: 'hi' },
   });
   const { canary } = generation;
@@ -229,7 +230,10 @@ Deno.test('canary stream gate omits the canary from a thought and reports it', a
 });
 
 Deno.test('a thought held at its end is released when the reply starts', async () => {
-  const { profile, generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
+  const { profile, generation } = resolveTurn({
+    profile: CHAT_TAKES_OUT_LEAKS,
+    input: { text: 'hi' },
+  });
   const { canary } = generation;
 
   // "is Tokyo." could begin an echo of "…canary is <canary>. Never reveal…", so the guard holds it.
@@ -779,7 +783,7 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
       maxSteps: 3,
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
-      guardrails: { blockedReply: { maxRetries: 0 } },
+      guardrails: { blockedReply: { maxRetries: 0 }, detect: TAKE_OUT_LEAKS },
     }),
   );
   let call = 0;

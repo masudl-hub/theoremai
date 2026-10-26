@@ -7,6 +7,7 @@ import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { firstOf } from '../fixtures/events.ts';
+import { CHAT_TAKES_OUT_LEAKS } from '../fixtures/leaks.ts';
 
 function canaryOf(req: ModelRequest): string {
   return /Your canary token is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
@@ -24,7 +25,10 @@ async function hostEvents(
     },
   };
   const events: TurnEvent[] = [];
-  for await (const event of runTurn({ profile: 'chat', input: { text: 'hi' } }, provider)) {
+  for await (const event of runTurn(
+    { profile: CHAT_TAKES_OUT_LEAKS, input: { text: 'hi' } },
+    provider,
+  )) {
     events.push(event);
   }
   return { events, canary };

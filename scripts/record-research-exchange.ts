@@ -9,7 +9,7 @@
  * `google/gemini-3.8-flash`, medium default). Override with `THEOREM_RECORD_MODEL`. Theorem
  * itself never reads env; this script alone fills the vault.
  */
-import type { Profile } from '@theoremjs/agents';
+import type { ProfileDefinition } from '@theoremjs/agents';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import type { TraceRecord } from '../src/observability/trace-record.ts';
 import { judgeResearchOpening } from '../studio/cookbooks/research-opening.ts';
@@ -78,13 +78,14 @@ if (!compiled.ok) {
   console.error('Research workspace did not compile:', compiled.issues);
   Deno.exit(1);
 }
-const run = workspaceRunAgent(compiled, 'research.scout');
-if (!run) {
+const scout = workspaceRunAgent(compiled, 'research.scout');
+if (!scout) {
   console.error('No research.scout in the compiled workspace.');
   Deno.exit(1);
 }
+const run = scout;
 
-function withRecordModel(definition: Profile, apiId: string): Profile {
+function withRecordModel(definition: ProfileDefinition, apiId: string): ProfileDefinition {
   if (definition.type !== 'text') return definition;
   const current = definition.defaultModel ? definition.models[definition.defaultModel] : undefined;
   if (
@@ -171,7 +172,7 @@ async function recordOnce(
       },
     },
   )) {
-    if (event.type === 'tool' && event.tool.phase === 'start') {
+    if (event.type === 'tool' && event.tool.phase === 'running') {
       console.log(`  tool ${event.tool.name}`);
     }
     if (

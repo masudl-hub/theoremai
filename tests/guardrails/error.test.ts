@@ -32,6 +32,7 @@ const LOCKED: Record<ErrorKind, string> = {
   config: 'Sorry, something went wrong.',
   request: 'Sorry, something went wrong.',
   conflict: 'Sorry, something else is still in progress. Please try again shortly.',
+  not_found: "Sorry, that couldn't be found.",
   input: "Sorry, that file can't be used here.",
   action: "Sorry, that isn't available here.",
   auth: "Sorry, the assistant can't connect at the moment.",

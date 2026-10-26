@@ -208,6 +208,10 @@ const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
     label: 'Conflict',
     doc: 'The call conflicts with the state it acts on, such as an operation that is still running or not settled.',
   },
+  not_found: {
+    label: 'Not found',
+    doc: 'Something the call names by id is not there, such as a conversation the store no longer holds.',
+  },
   input: { label: 'User input', doc: 'The user sent input the profile does not accept.' },
   action: { label: 'Not allowed', doc: 'The user asked for something the profile does not allow.' },
   auth: {

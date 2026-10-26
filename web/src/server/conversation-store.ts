@@ -118,7 +118,7 @@ export interface TheoremConversationStore {
 
 /** Refuses a ref the store does not know or cannot open: the browser reads `session.conversation_unknown`. */
 export function unknownConversation(cause?: unknown): TheoremError {
-  return new TheoremError('request', labelText('session.conversation_unknown'), {
+  return new TheoremError('not_found', labelText('session.conversation_unknown'), {
     copy: { key: 'session.conversation_unknown' },
     ...(cause === undefined ? {} : { cause }),
   });

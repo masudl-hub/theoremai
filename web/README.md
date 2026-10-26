@@ -282,7 +282,7 @@ The session store keeps gates, permissions, and operations. The two stores are s
 | `createSealedConversationStore({ keys, keyVersion })` | Nowhere on the server. The ref is the conversation itself, encrypted and signed with your key, and bound to the session. The browser cannot read it or change it. |
 | Your own `TheoremConversationStore` | Your database. |
 
-A ref that the store cannot open fails with `session.conversation_unknown`. This includes a ref from another session.
+A ref that the store cannot open fails with `session.conversation_unknown`, kind `not_found` (HTTP 404). This includes a ref from another session. A route or method the handler does not serve also answers 404 with kind `not_found`.
 
 The sealed store:
 

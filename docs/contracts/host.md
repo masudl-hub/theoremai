@@ -43,22 +43,22 @@ slot”).
 | `HTTP_OK` | `200` |
 | `HTTP_BUSY` | `429` |
 | `HTTP_NOT_FOUND` | `404` |
-| `HTTP_METHOD` | `405` |
+| `HTTP_METHOD` | `405`. The web handlers do not send it: a route or method they do not serve gets `404` with kind `not_found`, as the Gemini API answers an unknown path or method. |
 
 `caughtStatus` by kind:
 
 | Kind | Status | Kind | Status |
 | --- | --- | --- | --- |
-| `config` | 500 | `bad_response` | 502 |
-| `request` | 400 | `network` | 502 |
-| `conflict` | 409 | `timeout` | 504 |
+| `config` | 500 | `unavailable` | 503 |
+| `request` | 400 | `bad_response` | 502 |
+| `conflict` | 409 | `network` | 502 |
+| `not_found` | 404 | `timeout` | 504 |
 | `input` | 422 | `safety` | 422 |
 | `action` | 403 | `blocked` | 403 |
 | `auth` | 401 | `declined` | 409 |
 | `rate_limit` | 429 | `failed` | 502 |
 | `unsupported` | 422 | `cancelled` | 499 (client closed request) |
-| `unavailable` | 503 | `internal` | 500 |
-| `busy` | 503 | | |
+| `busy` | 503 | `internal` | 500 |
 
 `auth` is 401 whichever key was refused. A key the host's vault lacks (a model's
 slot left empty: `the vault has no key in slot '<slot>'`) is `auth` too; keys

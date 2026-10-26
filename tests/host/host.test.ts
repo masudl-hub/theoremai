@@ -54,6 +54,7 @@ Deno.test('caughtStatus replies with the status of the error kind', () => {
     config: 500,
     request: 400,
     conflict: 409,
+    not_found: 404,
     input: 422,
     action: 403,
     auth: 401,

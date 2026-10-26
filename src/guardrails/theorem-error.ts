@@ -16,6 +16,8 @@ export const ERROR_KINDS = [
   'request',
   /** The call conflicts with the state it acts on, such as an operation that is still running or not settled. */
   'conflict',
+  /** Something the call names by id is not there, such as a conversation the store no longer holds. */
+  'not_found',
   /** The user sent input the profile does not accept. */
   'input',
   /** The user asked for something the profile does not allow. */

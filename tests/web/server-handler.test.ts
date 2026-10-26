@@ -452,6 +452,15 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
     }),
   );
   assertEquals(steerWithoutId.status, 400);
+  const unknownRef = await handler(
+    new Request(`${BASE}/conversation`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ conversation: 'never-written' }),
+    }),
+  );
+  assertEquals(unknownRef.status, 404);
+  assertEquals((await unknownRef.json()).errorKind, 'not_found');
   const malformed: [string, unknown][] = [
     ['invoke', { gateId: 'g' }],
     ['invoke', { gateId: 'g', decision: 'maybe' }],
@@ -484,11 +493,15 @@ Deno.test('bad requests get 4xx JSON errors', async () => {
     errorKind: 'request',
   });
   const wrongMethod = await handler(new Request(`${BASE}/turn`));
-  assertEquals(wrongMethod.status, 405);
+  assertEquals(wrongMethod.status, 404);
   assertEquals(await wrongMethod.json(), {
-    error: labelDefault('error.request'),
-    errorKind: 'request',
+    error: labelDefault('error.not_found'),
+    errorKind: 'not_found',
   });
+  const unknownRoute = await handler(
+    new Request(`${BASE}/turnn`, { method: 'POST', headers: json, body: '{}' }),
+  );
+  assertEquals(unknownRoute.status, 404);
 });
 Deno.test('live profiles are rejected at construction', () => {
   assertThrows(() =>

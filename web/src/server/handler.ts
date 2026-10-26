@@ -66,7 +66,7 @@ import {
   caughtStatus,
   clientError,
   forClient,
-  HTTP_METHOD,
+  HTTP_NOT_FOUND,
 } from '@theoremjs/agents/host';
 import {
   type ComposerProfileInterface,
@@ -982,9 +982,9 @@ function answerRequest(body: TheoremInvokeRequest): GateAnswerRequest & GateRefe
 
 /** A route this profile doesn't serve. */
 function refused(ctx: HandlerContext): Response {
-  return jsonResponse(HTTP_METHOD, {
-    error: labelText('error.request', {}, ctx.profile.labels),
-    errorKind: 'request',
+  return jsonResponse(HTTP_NOT_FOUND, {
+    error: labelText('error.not_found', {}, ctx.profile.labels),
+    errorKind: 'not_found',
   });
 }
 

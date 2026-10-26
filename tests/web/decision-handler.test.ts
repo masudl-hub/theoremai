@@ -206,8 +206,8 @@ Deno.test('other methods and paths are refused', async () => {
     vault: { slot_a: 'k' },
     fetch: jev().fetch,
   });
-  assertEquals((await handler(new Request(`${BASE}/decide`))).status, 405);
-  assertEquals((await handler(new Request(BASE, { method: 'POST', body: '{}' }))).status, 405);
+  assertEquals((await handler(new Request(`${BASE}/decide`))).status, 404);
+  assertEquals((await handler(new Request(BASE, { method: 'POST', body: '{}' }))).status, 404);
 });
 Deno.test('the turn handler refuses a decision profile and names the decision handler', () => {
   assertThrows(

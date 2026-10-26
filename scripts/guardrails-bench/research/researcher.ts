@@ -418,7 +418,7 @@ const evidenceSchema = z.object({
 });
 
 const candidateSchema = z.object({
-  kind: z.enum(['model', 'dataset', 'paper', 'repo', 'method']),
+  kind: z.enum(['model', 'dataset', 'paper', 'repo', 'method', 'product']),
   name: z
     .string()
     .describe('Its id as published: a Hub id, an arXiv id, owner/repo, or a short name.'),
@@ -547,7 +547,13 @@ registerProfile(
       main: openRouter.model('openRouterOpenAi', MODEL, { builtInTools: [] }),
     },
     maxSteps: MAX_STEPS,
-    turnBehaviour: { atStepLimit: 'answer' },
+    turnBehaviour: {
+      atStepLimit: 'answer',
+      resumption: {
+        autoContinue: ['length', 'stream_incomplete', 'provider_error'],
+        maxContinues: 3,
+      },
+    },
     inputs: { text: true },
     tools: { allow: TOOLS, parallel: true },
     // The pages it reads are about injection and full of it: every detector records, none acts.

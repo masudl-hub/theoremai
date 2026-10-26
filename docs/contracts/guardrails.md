@@ -992,12 +992,12 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 
 | Boundaries | Sensitive detectors | `injection` | `tool_instructions` |
 | --- | --- | --- | --- |
-| `user` … `live_user` | `redact` | `redact` | — |
-| `tool_output_function`, `tool_failure_function` | `redact` | `redact` | `ignore` |
-| `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `redact` | `redact` | `flag` |
+| `user` … `live_user` | `flag` | `flag` | — |
+| `tool_output_function`, `tool_failure_function` | `flag` | `flag` | `ignore` |
+| `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `flag` | `flag` | `flag` |
 | `tool_arguments_*` | `flag` | `ignore` | — |
-| `tool_shown_*` | `ignore`; `credentials` `redact` | `ignore` | — |
-| `reply`, `reply_structured` | `ignore`; `credentials` `redact` | `ignore` | — |
+| `tool_shown_*` | `ignore`; `credentials` `flag` | `ignore` | — |
+| `reply`, `reply_structured` | `ignore`; `credentials` `flag` | `ignore` | — |
 | `live_reply`, `thought` | `ignore` | `ignore` | — |
 
 | Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
@@ -1210,8 +1210,8 @@ that it cannot convert exactly.
 
 `sensitiveSpans` finds, and never itself replaces. A selection is `true` (every
 group), `false` (none), or an object switching the groups it names, the rest at
-their default. Inbound, `guardrails.detect` (default `redact` for every group)
-replaces them in untrusted and assembled text; trusted text is left verbatim
+their default. Inbound, `guardrails.detect` (default `flag` for every group)
+reports them in untrusted and assembled text, and replaces them where the profile sets `redact`; trusted text is left verbatim
 (see [Trust levels](#trust-levels)). IPv4 and IPv6 addresses count inbound,
 where they are the user's personal data; no group reads the reply by default,
 because an address in a reply is not a secret (see [Egress](#egress)). A

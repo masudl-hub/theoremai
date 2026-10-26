@@ -4,6 +4,7 @@ import type { DetectSpec } from '../../src/guardrails/detectors.ts';
 import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../../src/kernel/registry/resolve.ts';
+import { TAKE_OUT_INBOUND } from './take-out.ts';
 
 /** What a profile that stops what it must not give away sets: a reply carrying it is stopped, a thought loses it. */
 export const STOP_LEAKS = {
@@ -30,12 +31,14 @@ export const TAKE_OUT_LEAKS = {
 } as const satisfies DetectSpec;
 
 /** The test host's `chat` under `detect`, registered as `id`. */
-function chatWith(id: string, detect: DetectSpec): string {
+export function chatWith(id: string, detect: DetectSpec): string {
   const chat = requireModelProfile(getProfile('chat'), 'test');
   registerProfile(defineProfile({ ...chat, id, guardrails: { ...chat.guardrails, detect } }));
   return id;
 }
 
+/** `chat` taking out data and injection on the way in (`TAKE_OUT_INBOUND`). */
+export const CHAT_TAKES_OUT_INBOUND = chatWith('chat_takes_out_inbound', TAKE_OUT_INBOUND);
 /** `chat` stopping what it must not give away (`STOP_LEAKS`). */
 export const CHAT_STOPS_LEAKS = chatWith('chat_stops_leaks', STOP_LEAKS);
 /** `chat` taking out what it must not give away (`TAKE_OUT_LEAKS`). */

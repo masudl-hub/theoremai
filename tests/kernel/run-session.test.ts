@@ -27,6 +27,7 @@ import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { geminiLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 function registerLiveProfile(id: string) {
   const profile = defineProfile({
@@ -387,6 +388,7 @@ Deno.test('sendContext refuses a sender the profile does not list, and reads the
     {
       inputs: { context: { from: ['client'], maxChars: 200 }, slots: { language: ['fr'] } },
       identity: { handle: 'live', system: 'hi' },
+      guardrails: { detect: TAKE_OUT_INBOUND },
     },
   );
   await assertRejects(
@@ -774,6 +776,7 @@ async function openToolSession(
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow },
+    guardrails: { detect: TAKE_OUT_INBOUND },
   });
   registerProfile(profile);
   const sockets: MockLiveWebSocket[] = [];

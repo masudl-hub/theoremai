@@ -124,23 +124,29 @@ Deno.test('tool_instructions reads what a tool returns: flagged from a remote to
   assertEquals(where(undefined, 'tool_instructions', 'redact'), []);
 });
 
-Deno.test('a credential is redacted from a reply by default, and not read in a thought or a Live reply', () => {
-  for (const boundary of TOOL_BOUNDARIES.filter((b) => b.startsWith('tool_shown_'))) {
-    assertEquals(DETECT_DEFAULTS.credentials[boundary], 'redact');
+Deno.test('no detector redacts or blocks anywhere by default', () => {
+  for (const detector of DETECTORS) {
+    assertEquals(where(undefined, detector, 'redact'), []);
+    assertEquals(where(undefined, detector, 'block'), []);
   }
-  assertEquals(where(undefined, 'credentials', 'redact').includes('reply'), true);
-  assertEquals(where(undefined, 'credentials', 'redact').includes('reply_structured'), true);
+});
+
+Deno.test('a credential is flagged in a reply by default, and not read in a thought or a Live reply', () => {
+  for (const boundary of TOOL_BOUNDARIES.filter((b) => b.startsWith('tool_shown_'))) {
+    assertEquals(DETECT_DEFAULTS.credentials[boundary], 'flag');
+  }
+  assertEquals(where(undefined, 'credentials', 'flag').includes('reply'), true);
+  assertEquals(where(undefined, 'credentials', 'flag').includes('reply_structured'), true);
   assertEquals(where(undefined, 'credentials', 'ignore').includes('thought'), true);
   assertEquals(where(undefined, 'credentials', 'ignore').includes('live_reply'), true);
 });
 
-Deno.test('what comes in is redacted by default, and nothing the model writes is read for it', () => {
+Deno.test('what comes in is flagged by default, and nothing the model writes is read for it', () => {
   const others = [...LEAKS, ...SHOWN, 'tool_instructions', 'credentials'];
   for (const detector of DETECTORS.filter((d) => !others.includes(d))) {
-    assertEquals(where(undefined, detector, 'block'), []);
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     assertEquals(where(undefined, detector, 'ignore').includes('thought'), true);
-    for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'redact');
+    for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'flag');
   }
 });
 
@@ -156,8 +162,7 @@ Deno.test('a leak is flagged in all the model writes by default', () => {
 
 Deno.test('a tool call is flagged for data by default and not read for injection', () => {
   const calls = TOOL_BOUNDARIES.filter((boundary) => boundary.startsWith('tool_arguments_'));
-  assertEquals(where(undefined, 'credentials', 'flag'), calls);
-  assertEquals(where(undefined, 'injection', 'flag'), []);
+  for (const boundary of calls) assertEquals(DETECT_DEFAULTS.credentials[boundary], 'flag');
   for (const boundary of calls) assertEquals(DETECT_DEFAULTS.injection[boundary], 'ignore');
 });
 
@@ -178,7 +183,7 @@ Deno.test('a detector takes one action everywhere or an action per boundary', ()
   };
   assertEquals(where(spec, 'credentials', 'block'), [...BOUNDARIES]);
   assertEquals(where(spec, 'ids', 'block'), ['tool_arguments_mcp', 'reply']);
-  assertEquals(resolveGuardrailPolicy(spec).detect.ids.user, 'redact');
+  assertEquals(resolveGuardrailPolicy(spec).detect.ids.user, 'flag');
   assertEquals(resolveGuardrailPolicy(spec).detect.network, DETECT_DEFAULTS.network);
 });
 

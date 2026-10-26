@@ -1,7 +1,7 @@
 import '../fixtures/test-host.ts';
 import type { Boundary } from '../../src/guardrails/boundaries.ts';
 import { boundaryReader } from '../../src/guardrails/detect-at.ts';
-import { DETECT_DEFAULTS } from '../../src/guardrails/detectors.ts';
+import { resolveDetect } from '../../src/guardrails/detectors.ts';
 import {
   sanitizeHistory,
   sanitizeTurnRequest,
@@ -12,6 +12,8 @@ import { getProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import type { Profile, TurnRequest } from '../../src/kernel/types.ts';
 import { readAt } from '../fixtures/detect.ts';
+import { CHAT_TAKES_OUT_INBOUND } from '../fixtures/leaks.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
@@ -25,7 +27,7 @@ const unique = (rules: string[]) => [...new Set(rules)].sort();
 
 Deno.test('detectAt names each catch for its detector, and an ignored detector adds none', () => {
   const text = `${INJECTION} and ${SENSITIVE}`;
-  const both = readAt(text, 'user');
+  const both = readAt(text, 'user', TAKE_OUT_INBOUND);
   assertEquals(both.action, 'redact');
   assertEquals(unique(both.hits.map((hit) => hit.rule)), ['detect.ids', 'detect.injection']);
   for (const hit of both.hits) assertEquals(hit.severity, 'high');
@@ -34,9 +36,9 @@ Deno.test('detectAt names each catch for its detector, and an ignored detector a
   assertEquals(injection?.match?.toLowerCase().includes('ignore'), true);
   assertEquals(sensitive?.match?.includes('000-11-2222'), true);
 
-  const sensitiveOnly = readAt(text, 'user', { injection: 'ignore' });
+  const sensitiveOnly = readAt(text, 'user', { ...TAKE_OUT_INBOUND, injection: 'ignore' });
   assertEquals(unique(sensitiveOnly.hits.map((hit) => hit.rule)), ['detect.ids']);
-  const injectionOnly = readAt(text, 'user', { ids: 'ignore' });
+  const injectionOnly = readAt(text, 'user', { ...TAKE_OUT_INBOUND, ids: 'ignore' });
   assertEquals(unique(injectionOnly.hits.map((hit) => hit.rule)), ['detect.injection']);
 
   const neither = readAt(text, 'user', 'ignore');
@@ -48,19 +50,24 @@ Deno.test('the strongest action among the matches is the one taken', () => {
   const text = `${INJECTION} and ${SENSITIVE}`;
   const flagged = readAt(text, 'user', 'flag');
   assertEquals([flagged.action, flagged.text], ['flag', text]);
+  const byDefault = readAt(text, 'user');
+  assertEquals([byDefault.action, byDefault.text], ['flag', text]);
 
-  const mixed = readAt(text, 'user', { injection: 'flag' });
+  const mixed = readAt(text, 'user', { ...TAKE_OUT_INBOUND, injection: 'flag' });
   assertEquals(mixed.action, 'redact');
   assertEquals(mixed.text?.includes(INJECTION), true);
   assertEquals(mixed.text?.includes('000-11-2222'), false);
 
-  const blocked = readAt(text, 'user', { ids: 'block' });
+  const blocked = readAt(text, 'user', { ...TAKE_OUT_INBOUND, ids: 'block' });
   assertEquals(blocked.action, 'block');
   assertEquals('text' in blocked, false);
   assertEquals(unique(blocked.hits.map((hit) => hit.rule)), ['detect.ids', 'detect.injection']);
 
   // A boundary set apart from the rest is the only one that changes.
-  const elsewhere = readAt(text, 'history', { ids: { at: { user: 'block' } } });
+  const elsewhere = readAt(text, 'history', {
+    ...TAKE_OUT_INBOUND,
+    ids: { at: { user: 'block' } },
+  });
   assertEquals(elsewhere.action, 'redact');
 });
 
@@ -72,7 +79,7 @@ type Field = [
   boundary: Boundary,
 ];
 
-const base = { profile: 'chat' };
+const base = { profile: CHAT_TAKES_OUT_INBOUND };
 const FIELDS: Field[] = [
   ['text', (bad) => ({ ...base, input: { text: bad } }), 'input', 'untrusted', 'user'],
   ['slot', (bad) => ({ ...base, input: { slots: { a: bad } } }), 'input', 'untrusted', 'slots'],
@@ -126,7 +133,10 @@ Deno.test('every field of a turn request reports its catches at its own boundary
       [INJECTION, 'detect.injection'],
       [SENSITIVE, 'detect.ids'],
     ] as const) {
-      const { events } = sanitizeTurnRequestWithEvents(request(bad), getProfile('chat'));
+      const { events } = sanitizeTurnRequestWithEvents(
+        request(bad),
+        getProfile(CHAT_TAKES_OUT_INBOUND),
+      );
       const guardrails = events.flatMap((event) =>
         event.type === 'guardrail' ? [event.guardrail] : [],
       );
@@ -160,7 +170,7 @@ Deno.test('a clean turn request reports nothing, and an empty guidance adds noth
 });
 
 Deno.test('a reader keeps what it found across everything it read', () => {
-  const reader = boundaryReader('history', DETECT_DEFAULTS);
+  const reader = boundaryReader('history', resolveDetect(TAKE_OUT_INBOUND));
   const out = sanitizeHistory(
     [
       { role: 'user', content: INJECTION },

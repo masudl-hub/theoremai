@@ -20,6 +20,7 @@ import {
 } from '../../src/observability/trace-span.ts';
 import { eventsOf, toolEventsOf, toolSnapshot } from '../fixtures/events.ts';
 import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 type Call = Parameters<typeof executeRegisteredTool>[0];
 type Stages = NonNullable<Call['stages']>;
@@ -1368,7 +1369,7 @@ Deno.test('a host edit at post_tool is re-parsed by the remote tool schema and k
     );
   });
 });
-Deno.test('a failure message is redacted by default, and follows the profile when it says otherwise', async () => {
+Deno.test('a failure message is redacted when the profile takes it out, and follows the profile when it says otherwise', async () => {
   const throwing = (message: string) =>
     fnTool('fails', {
       handler: () => {
@@ -1378,7 +1379,7 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
   const OMITTED = '[omitted - injection]';
   const injected = await run({
     scope: scopeOf(throwing(`lookup failed: ${INJ_IGNORE}`)),
-    profile: profileOf(['fails']),
+    profile: profileOf(['fails'], { detect: TAKE_OUT_INBOUND }),
     name: 'fails',
   });
   const injectedText = injected.settlement.modelResult?.modelText ?? '';
@@ -1397,7 +1398,7 @@ Deno.test('a failure message is redacted by default, and follows the profile whe
   check(injected.settlement.failure?.message, `lookup failed: ${INJ_IGNORE}`, 'raw failure kept');
   const leaked = await run({
     scope: scopeOf(throwing(`rejected ${KEY_IN_ARGS}`)),
-    profile: profileOf(['fails']),
+    profile: profileOf(['fails'], { detect: TAKE_OUT_INBOUND }),
     name: 'fails',
   });
   const leakedText = leaked.settlement.modelResult?.modelText ?? '';

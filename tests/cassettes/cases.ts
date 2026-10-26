@@ -16,6 +16,7 @@ import type { CaseOutcome } from '../fixtures/cassette.ts';
 import { canariesSent, inboundMisses, leaksIn, shownText } from '../fixtures/guardrail-oracle.ts';
 import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { createTestKernelScope as createKernelScope } from '../fixtures/provider-scope.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 export interface CassetteModel {
   apiId: string;
   protocol: 'geminiInteractions' | 'openRouterOpenAi' | 'geminiLive';
@@ -66,10 +67,11 @@ const STOPS_REPLY = {
 const GUARDED = {
   quota: { perDay: 100000 },
   detect: {
-    ids: STOPS_REPLY,
-    financial: STOPS_REPLY,
-    credentials: STOPS_REPLY,
-    injection: STOPS_REPLY,
+    ...TAKE_OUT_INBOUND,
+    ids: { at: { ...TAKE_OUT_INBOUND.ids.at, ...STOPS_REPLY.at } },
+    financial: { at: { ...TAKE_OUT_INBOUND.financial.at, ...STOPS_REPLY.at } },
+    credentials: { at: { ...TAKE_OUT_INBOUND.credentials.at, ...STOPS_REPLY.at } },
+    injection: { at: { ...TAKE_OUT_INBOUND.injection.at, ...STOPS_REPLY.at } },
     ...TAKE_OUT_LEAKS,
   },
   blockedReply: { onBlock: 'refuse' as const },

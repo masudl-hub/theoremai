@@ -11,6 +11,7 @@ import { prepareLiveInboundText } from '../../src/kernel/engine/live-inbound.ts'
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnModel } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 const OMITTED_INJECTION = '[omitted - injection]';
 
@@ -22,13 +23,14 @@ Deno.test('Live ingress and the turn path agree when detect is left out', () => 
   const live = prepareLiveInboundText(profile, INJ_IGNORE);
   const turn = detectAt(INJ_IGNORE, 'user', resolveGuardrailPolicy(profile.guardrails).detect);
 
-  assertEquals(live.text?.includes(OMITTED_INJECTION), true);
-  assertEquals(turn.text?.includes(OMITTED_INJECTION), true);
-  assertEquals(live.text?.includes(INJ_IGNORE), false);
+  assertEquals(turn.action, 'flag');
+  assertEquals(turn.text, INJ_IGNORE);
+  assertEquals(live.text?.includes(INJ_IGNORE), true);
+  assertEquals(live.text?.includes(OMITTED_INJECTION), false);
 });
 
 Deno.test('per-turn system text is read at its own boundary', () => {
-  const { detect } = resolveGuardrailPolicy(undefined);
+  const { detect } = resolveGuardrailPolicy({ detect: TAKE_OUT_INBOUND });
   const assembled = detectAt(INJ_IGNORE, 'system', detect);
   assertEquals(assembled.action, 'redact');
   assertEquals(assembled.text?.includes(OMITTED_INJECTION), true);
@@ -57,7 +59,7 @@ Deno.test('identity.system reaches the provider verbatim; req.system does not', 
       tools: { allow: [] },
       inputs: { text: true },
       outputs: {},
-      guardrails: { quota: { perDay: 50 } },
+      guardrails: { quota: { perDay: 50 }, detect: TAKE_OUT_INBOUND },
     }),
   );
 

@@ -18,6 +18,7 @@ import { createSchemaRegistry } from '../../src/kernel/registry/schemas.ts';
 import { resolveTurnSystemPrompt } from '../../src/kernel/registry/system-prompt.ts';
 import { pickSystemRole } from '../../src/kernel/registry/system-role.ts';
 import { systemText } from '../../src/kernel/system-parts.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 /** The kind and message a call throws as a TheoremError, or 'returned'. */
 function thrown(body: () => unknown): string {
@@ -191,8 +192,8 @@ Deno.test('a system role picks its own prompt, falls back to the profile prompt,
 
 Deno.test("the profile prompt is the host's own text, so the profile guardrails do not redact it", () => {
   const probe = `mail ops@example.com, key ${TEST_OPENAI_KEY}`;
-  const guardrails = {};
-  const policy = resolveGuardrailPolicy(guardrails as never);
+  const guardrails = { detect: TAKE_OUT_INBOUND };
+  const policy = resolveGuardrailPolicy(guardrails);
   check(
     detectAt(probe, 'user', policy.detect).text !== probe,
     true,

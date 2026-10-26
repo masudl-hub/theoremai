@@ -419,8 +419,8 @@ Live sessions emit the same stage names around utterance cycles and
    (`'interactions'` for Google Interactions, `'openAiCompat'` for OpenRouter/local),
    thinking, tools, structured schema, streaming mode (`outputs.streaming.mode`
    → SSE vs buffered), canary token (minted; the runner replaces it at step 4).
-2. **Sanitize** — `sanitizeTurnRequest` strips injection/sensitive spans per
-   profile guardrails (unless disabled).
+2. **Sanitize** — `sanitizeTurnRequest` reads injection/sensitive spans and acts on
+   each per profile guardrails (unless disabled).
 3. **Compaction (before)** — when `timing: 'before'` and threshold fires, kernel
    runs the compaction profile turn synchronously, then continues with the
    history it leaves (see [Compaction](#compaction)). The history meter counts text only;

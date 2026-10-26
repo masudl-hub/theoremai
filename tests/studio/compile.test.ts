@@ -893,10 +893,10 @@ Deno.test('detect compiles to the actions the draft changes, at the boundaries t
       ?.detect;
   assertEquals(spec(detect), undefined);
   detect.credentials.reply = 'block';
-  detect.injection.tool_output_http = 'flag';
+  detect.injection.tool_output_http = 'redact';
   assertEquals(spec(detect), {
     credentials: { at: { reply: 'block' } },
-    injection: { at: { tool_output_http: 'flag' } },
+    injection: { at: { tool_output_http: 'redact' } },
   });
   const host = includeFacet(setProfileType(createExampleDraft(), 'host'), 'guardrails');
   const hosted = compileStudio(
@@ -905,7 +905,7 @@ Deno.test('detect compiles to the actions the draft changes, at the boundaries t
   );
   assert(hosted.ok);
   assertEquals(hosted.profile.guardrails?.detect, {
-    injection: { at: { tool_output_http: 'flag' } },
+    injection: { at: { tool_output_http: 'redact' } },
   });
 });
 Deno.test('a host draft compiles to its tools, with no model or identity', () => {

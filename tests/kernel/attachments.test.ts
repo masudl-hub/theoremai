@@ -13,6 +13,7 @@ import {
 } from '../../src/kernel/registry/attachments.ts';
 import type { MediaLimits, Profile, TurnBlob } from '../../src/kernel/types.ts';
 import { sanitizeBlobs } from '../fixtures/detect.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
@@ -32,6 +33,7 @@ const profile = (over: Record<string, unknown> = {}): Profile =>
       voice: { accept: ['audio/*'] },
       ...LIMITS,
     },
+    guardrails: { detect: TAKE_OUT_INBOUND },
     ...over,
   }) as unknown as Profile;
 

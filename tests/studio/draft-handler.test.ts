@@ -514,11 +514,11 @@ Deno.test("a probed text a boundary lets through is kept as sent, with every bou
   assertEquals(response.status, 200);
   const { answers } = (await response.json()) as { answers: GuardrailProbeAnswer[] };
   assertEquals(statuses(answers), {
-    user: 'redacted',
-    history: 'redacted',
-    system: 'redacted',
-    tool_result_local: 'redacted',
-    tool_result_remote: 'redacted',
+    user: 'flagged',
+    history: 'flagged',
+    system: 'flagged',
+    tool_result_local: 'flagged',
+    tool_result_remote: 'flagged',
     tool_arguments: 'passed',
     reply: 'blocked',
     thought: 'passed',

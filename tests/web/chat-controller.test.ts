@@ -1,11 +1,12 @@
 import { assert, assertEquals } from '@std/assert';
 import type { ComposerProfileInterface } from '../../src/interface/mod.ts';
 import { createComposerPendingMessage, interfaceFromProfile } from '../../src/interface/mod.ts';
+import { registerTools } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { failureEvent } from '../../src/kernel/tools/events.ts';
 import type { TurnEvent } from '../../src/kernel/turn-events.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { createChatController } from '../../web/src/client/chat.ts';
 import {
   type ChatLineSink,
@@ -19,7 +20,7 @@ import {
 import { toolSnapshot } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 
 /** A stateless text profile that allows steering: the page keeps the transcript. */
 function textInterface(): ComposerProfileInterface {

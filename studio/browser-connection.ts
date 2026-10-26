@@ -1,6 +1,6 @@
 import { type KeyVault, TheoremError, z } from '@theoremjs/agents';
-import { GEMINI_MODELS_URL } from '@theoremjs/agents/presets/google';
 import type { StudioBrowserRuntime } from './browser-transport.ts';
+import { GEMINI_MODELS_URL } from './cookbooks/providers.ts';
 
 /** Browser-only host configuration. Never part of a compiled profile or persisted run payload. */
 export interface StudioBrowserConnection {

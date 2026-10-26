@@ -6,7 +6,7 @@ import {
   DEMO_ALLOWED_HOSTS,
   DEMO_HTTP_SAMPLE_INPUT,
   demoToolSpecs,
-} from '../../studio/concierge-demo.ts';
+} from '../../studio/cookbooks/tools.ts';
 import { zodFromJsonSchema } from '../../studio/tool-schema.ts';
 
 const profile: TextProfile = {

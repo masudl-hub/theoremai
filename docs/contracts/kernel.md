@@ -26,11 +26,10 @@ first-party protocols or providers.
 products can run the same unforked kernel version; no end user and no model
 may observe a decision the host did not make.
 
-**Facts vs policy.** Provider facts may ship (prices, wire shapes,
-protocol metadata — presets/google). Product policy may not (prompts, personas,
+**Facts vs policy.** Provider wire shapes and protocol metadata may ship in `@theoremjs/agents/providers`. Product policy may not (prompts, personas,
 end-user copy, demo apps, channel behavior). The kernel may ship overridable
 defaults for mechanism text via the guardrails labels; it may not ship
-unreplaceable copy or bundled product. Demo fixtures live in the repo-private
+unreplaceable copy or bundled product. Demo fixtures and cookbooks live in the repo-private
 `studio/` package (`@theoremjs/studio`), never in the published artifact.
 Package verification checks both agents and React output for Studio modules.
 The React build type-checks the local Studio prototype, then removes it from the emitted package.
@@ -258,8 +257,7 @@ A request can say what its inputs are for with `task`: `'query'` for what
 someone asks, `'document'` for what is searched. The kernel refuses any other
 value and records it on the trace as `theorem.embedding.task`. The protocol
 tells the model in the model's own way, and a model that embeds both the same
-way ignores it. The kernel does not choose an output dimension. Provider
-presets validate that option and declare model capabilities.
+way ignores it. The kernel does not choose an output dimension. The protocol's options schema validates `outputDimensionality` and `embeddingLimits` declares model media capabilities.
 
 Embedding model bindings must not assume a network endpoint. A binding can name
 an in-process model, a worker, a native inference library, or a local service.
@@ -649,7 +647,7 @@ There is no per-turn stream override.
 
 Tools, profiles, and structured schemas live in a kernel scope (see
 [Kernel scope](#kernel-scope)). A host with one tenant registers at startup into the
-default scope via `registerTool` (Google builtins via `registerGooglePreset`). Profiles declare **custom** tools on `tools.allow` and **provider builtins** on
+default scope via `registerTool` or `registerTools`. Profiles declare **custom** tools on `tools.allow` and **provider builtins** on
 `models.*.builtInTools`. On `text` / `image` turns visibility is `loadTier` (T0 at
 turn start; T2 on demand, picked at turn start by `tools.t1Policy` or loaded
 mid-turn by `tools.t2Loader`). On `live` every
@@ -694,9 +692,8 @@ seeing the other's.
 The global functions (`registerTool`, `registerProfile`, `registerStructured`,
 `runTurn`, …) are `defaultKernelScope`'s methods. There is no ambient or
 request-local lookup: a host serving many tenants, such as the studio, builds
-a scope per request and runs on it. `registerHarnessTools()` and
-`registerGooglePreset()` fill the default scope; another scope registers
-`askUserTool` and `GOOGLE_BUILTIN_TOOLS` itself.
+a scope per request and runs on it. `registerHarnessTools()` fills the default
+scope; another scope registers `askUserTool` itself.
 
 Register a scope's tools and schemas before its profiles: a profile is checked
 against them when it registers. An `outputs.structured` id that names no
@@ -1120,7 +1117,7 @@ HTTP and MCP tools, and function tools that declare `auth`, integrate with:
 - **A service's timeout**: an HTTP tool may declare `timeoutMs`, how long its service may take to answer, its body read included; registration refuses anything but a finite number of ms above 0. It starts at send, so a wait for a place in the limit is not counted. Past it the call fails `timeout` (kind `timeout`) and its place frees as if answered. Left out, a call waits as long as the caller's signal lets it.
 - **A response's size**: an HTTP or MCP tool may declare `maxResponseBytes`, the most of a response body the kernel reads; registration refuses anything but a whole number above 0. Past it the kernel stops reading and the call fails `response_too_large` (kind `bad_response`). Left out, the kernel reads the whole body, however large, and holds it in memory.
 
-Catalog `conflictsWith` is an optional mutual exclusion on registered builtins: the kernel drops a builtin when a turn also carries one it conflicts with. The Google preset sets it on `googleMaps`, against `googleSearch` and `urlContext`.
+Catalog `conflictsWith` is an optional mutual exclusion on registered builtins: the kernel drops a builtin when a turn also carries one it conflicts with. For example, `googleMaps` sets `conflictsWith: ['googleSearch', 'urlContext']`.
 MIME classification (`MEDIA_INPUT_KINDS`, `ATTACHMENT_ACCEPT_MIMES`, …) lives in
 `schema.ts`. Tool catalog constants: `TOOL_LOAD_TIERS`, `TOOL_ACCESS`,
 `TOOL_PERMISSION`, `TOOL_TYPES`, `HTTP_METHODS`, `TOOL_AUTH_TYPES`,
@@ -1164,7 +1161,7 @@ Top-level modality pins (after `model`, not under `outputs`):
 | Block | Effect |
 | --- | --- |
 | `image` | Optional aspect ratio, resolution, mime, max input images (type `'image'` only) |
-| `speech` | TTS voice + `format` (unset sends none, so the provider picks; `pcm` → WAV; the kernel holds the `SPEECH_AUDIO_FORMATS` vocabulary; Gemini speech takes only `GOOGLE_SPEECH_FORMATS` and its provider refuses `mp3`) (type `'speech'` only) |
+| `speech` | TTS voice + `format` (unset sends none, so the provider picks; `pcm` → WAV; the kernel holds the `SPEECH_AUDIO_FORMATS` vocabulary; Gemini speech takes only `pcm` and its provider refuses `mp3`) (type `'speech'` only) |
 | `live` | Voice, VAD, transcription, sessionResumption, contextCompression (type `'live'` only; omit → provider defaults) |
 
 ### Live profile (`type: 'live'`)
@@ -1643,7 +1640,7 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
   The kernel reads the credential from the vault when an operation runs.
 - Each `efforts` level is one of `THINKING_LEVELS`. Which of those a model
   takes is not the kernel's to say: the Gemini protocols refuse a level
-  outside `GOOGLE_THINKING_LEVELS` (`unsupported`).
+  outside `minimal`, `low`, `medium`, or `high` (`unsupported`).
 - A slot-mapped `outputs.structured` names a slot in `inputs.slots`, and its
   `map` keys are that slot's choices. At turn time `resolveTurn` rejects a slot
   the profile does not declare, or a value outside its choices (`request`).

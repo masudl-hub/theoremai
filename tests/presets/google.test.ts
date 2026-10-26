@@ -5,7 +5,7 @@ import {
   GOOGLE_BUILTIN_TOOLS,
   googleBindingViolation,
   googleFreeTierBuiltins,
-} from '../../src/presets/google.ts';
+} from '../../studio/cookbooks/providers.ts';
 
 // Refusals recorded from Live setup on 01/10/2026: 3.8 Live closes 1007 on a thinking level
 // (and takes includeThoughts, 04/10/2026),

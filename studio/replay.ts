@@ -11,7 +11,13 @@
  */
 import { type Profile, TheoremError, traceRecordSchema } from '@theoremjs/agents';
 import { foldConversationTurn, type TranscriptBlock } from '@theoremjs/agents/interface';
-import type { ModelEvent, ModelRequest, TurnEvent, TurnModel } from '@theoremjs/agents/kernel';
+import type {
+  ModelEvent,
+  ModelRequest,
+  Source,
+  TurnEvent,
+  TurnModel,
+} from '@theoremjs/agents/kernel';
 import {
   inlineContent,
   recordRoot,
@@ -222,6 +228,34 @@ function userMessage(record: TraceRecord, root: TraceSpan): { text: string; atta
   };
 }
 
+/** Sources a tool span recorded on `theorem.grounding`, when the record still holds them. */
+function groundingSources(record: TraceRecord, span: TraceSpan): TurnEvent[] {
+  const events: TurnEvent[] = [];
+  for (const event of span.events ?? []) {
+    if (event.name !== 'theorem.grounding') continue;
+    const raw = event.attributes.sources;
+    if (raw === undefined) continue;
+    const sources = inlineContent(record, raw);
+    if (!Array.isArray(sources)) continue;
+    const held: Source[] = [];
+    for (const source of sources) {
+      if (!isRecord(source)) continue;
+      if (typeof source.title !== 'string' || typeof source.uri !== 'string') continue;
+      held.push({
+        title: source.title,
+        uri: source.uri,
+        type: source.type === 'maps' ? 'maps' : 'web',
+        ...(typeof source.placeId === 'string' ? { placeId: source.placeId } : {}),
+      });
+    }
+    if (held.length) {
+      const callId = stringAttribute(span, 'gen_ai.tool.call.id');
+      events.push({ type: 'citation', sources: held, ...(callId ? { callId } : {}) });
+    }
+  }
+  return events;
+}
+
 /** The events the person was shown in a turn, from what it delivered and the tools it ran. */
 function shownEvents(record: TraceRecord, root: TraceSpan): TurnEvent[] {
   const tools = record.spans.filter((span) => operation(span) === 'execute_tool').toSorted(byStart);
@@ -239,6 +273,8 @@ function shownEvents(record: TraceRecord, root: TraceSpan): TurnEvent[] {
     for (const part of partsOf(message)) {
       const said = saidOf(part);
       if (said) events.push(said);
+      else if (part.type === 'structured' && part.content !== undefined)
+        events.push({ type: 'structured', structured: part.content });
       else if (part.type === 'tool_call' && typeof part.name === 'string') {
         const callId = typeof part.id === 'string' ? part.id : `call-${String(events.length)}`;
         events.push(...toolEvents(record, part.name, callId, argumentsOf(part), toolSpan));
@@ -267,6 +303,8 @@ function toolEvents(
   const at = Number(startOf(span) / 1_000_000n);
   const result = contentText(record, span, 'gen_ai.tool.call.result');
   const failed = stringAttribute(span, 'theorem.tool.outcome') === 'error';
+  // why: historyFromTranscriptBlocks replays settled calls via `readBack`; a live turn sets it on
+  // every complete/error event, so a recording must too or startConversation refuses the exchange.
   const settled = failed
     ? {
         phase: 'error' as const,
@@ -275,9 +313,14 @@ function toolEvents(
           kind: 'internal' as const,
           message: result,
         },
+        readBack: result,
       }
-    : { phase: 'complete' as const, output: parsed(result) };
-  return [made, { type: 'tool', tool: { name, callId, at, ...settled } }];
+    : { phase: 'complete' as const, output: parsed(result), readBack: result };
+  return [
+    made,
+    { type: 'tool', tool: { name, callId, at, ...settled } },
+    ...groundingSources(record, span),
+  ];
 }
 
 function parsed(text: string): unknown {
@@ -466,6 +509,30 @@ export function recordedTranscript(script: ReplayScript): TranscriptBlock[] {
 }
 
 /**
+ * The conversation a recording opens as history: the same blocks Replay exchange shows and
+ * Continue live seeds. Goals and any host that starts on a `.trace.json` use this, not a second
+ * hand-written exchange.
+ */
+export function openingFromRecords(records: readonly TraceRecord[]): TranscriptBlock[] {
+  return recordedTranscript(replayScript(records));
+}
+
+/**
+ * The records a parsed trace value holds: a JSON array of `TraceRecord`s, as the studio
+ * downloads them, or one record. Throws, saying why, for anything else.
+ */
+export function parseTraceRecords(value: unknown): TraceRecord[] {
+  const records = Array.isArray(value) ? value : [value];
+  return records.map((record, index) => {
+    const parsed = traceRecordSchema.safeParse(record);
+    if (parsed.success) return parsed.data;
+    const where = records.length > 1 ? ` (record ${String(index + 1)})` : '';
+    // labels-exempt: builder diagnostic
+    throw new TheoremError('request', `This file is not a Theorem trace${where}.`);
+  });
+}
+
+/**
  * The records a trace file holds: a JSON array of `TraceRecord`s, as the studio downloads them,
  * or one record. Throws, saying why, for anything else.
  */
@@ -476,12 +543,5 @@ export function parseTraceFile(text: string): TraceRecord[] {
   } catch {
     throw new TheoremError('request', 'This file is not JSON.'); // labels-exempt: builder diagnostic
   }
-  const records = Array.isArray(value) ? value : [value];
-  return records.map((record, index) => {
-    const parsed = traceRecordSchema.safeParse(record);
-    if (parsed.success) return parsed.data;
-    const where = records.length > 1 ? ` (record ${String(index + 1)})` : '';
-    // labels-exempt: builder diagnostic
-    throw new TheoremError('request', `This file is not a Theorem trace${where}.`);
-  });
+  return parseTraceRecords(value);
 }

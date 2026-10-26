@@ -64,7 +64,6 @@ import {
   systemPromptProblem,
 } from '@theoremjs/agents/kernel';
 import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
-import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '@theoremjs/agents/presets/google';
 import {
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
@@ -73,6 +72,7 @@ import {
 } from '@theoremjs/agents/schema';
 import { isCredentialName, MASK } from '@theoremjs/agents/surface';
 import { STUDIO_KEY_SLOT_CAP } from './browser-connection.ts';
+import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from './cookbooks/providers.ts';
 import type {
   DecisionDraft,
   GuardrailsDraft,
@@ -923,7 +923,18 @@ function compileTool(
   const common = toolCommon(tool, fail, agentInputOf);
   const labels = toolLabels(tool, common, fail);
   const compiled = TOOL_COMPILERS[tool.toolType](tool, common, fail, agentIdOf);
-  return failed ? undefined : { ...compiled, ...(labels ? { labels } : {}) };
+  const stageKey = tool.toolType !== 'agent' ? (tool.stageAgentKey?.trim() ?? '') : '';
+  const stageAgent = stageKey ? agentIdOf(stageKey) : undefined;
+  if (stageKey && !stageAgent) {
+    fail('The agent that reads this tool is gone. Pick another.', 'stageAgentKey');
+  }
+  return failed
+    ? undefined
+    : {
+        ...compiled,
+        ...(labels ? { labels } : {}),
+        ...(stageAgent && compiled.type !== 'agent' ? { stageAgent } : {}),
+      };
 }
 
 function compileTools(

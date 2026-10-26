@@ -1,8 +1,8 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { createSurfaceRuntime } from '../../src/surface/runtime.ts';
 import { createBlankDraft, type StudioDraft, setProfileType } from '../../studio/draft.ts';
-import { createExampleDraft } from '../../studio/example.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { createExampleDraft } from '../../studio/mod.ts';
 import {
   type StudioDraftChange,
   type StudioSurfaceHost,

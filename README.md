@@ -407,9 +407,6 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/interface` / `@theoremjs/agents/interface` | Headless interface projection of a profile (transcript, composer, gates) that UI packages such as `@theoremjs/react` render. |
 | `jsr:@theoremjs/agents/surface` / `@theoremjs/agents/surface` | Surfaces: the agent sees and works in a client's screen through two tools, `look` and `act`. Secrets reach the agent only as cards. |
 | `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
-| `jsr:@theoremjs/agents/presets` / `@theoremjs/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
-| `jsr:@theoremjs/agents/presets/google` / `@theoremjs/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) as tool-list entries. |
-| `jsr:@theoremjs/agents/presets/google/speech-voices` / `@theoremjs/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
 | `jsr:@theoremjs/agents/evals` / `@theoremjs/agents/evals` | Graders that read trace records and write their results as trace records through the same sink. |
 
@@ -465,7 +462,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket`, `plainWebSocket` |
 | Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderStateRebuilt`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
 | Provider limits | `ProviderLimits`, `providerLimitsSchema` |
-| Re-exported whole | Everything that `@theoremjs/agents/providers` and `@theoremjs/agents/presets` export. Their contracts list each name. |
+| Re-exported whole | Everything that `@theoremjs/agents/providers` exports. Its contract lists each name. |
 
 </details>
 
@@ -492,7 +489,7 @@ live_sessions = "registered provider via runSession; host owns mic, camera, and 
 session_memory_in_kernel = false
 ```
 
-**Facts and policy.** Provider facts may ship, such as prices, wire shapes, and protocol metadata. For example, see `@theoremjs/agents/presets/google`. Product policy may not ship: prompts, personas, end-user copy, demo apps, and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
+**Facts and policy.** Provider wire shapes and protocol metadata may ship in `@theoremjs/agents/providers`. Product policy may not ship: prompts, personas, end-user copy, demo apps, and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
 
 Four properties are invariant. Where a test or a lint checks one, the table names it.
 

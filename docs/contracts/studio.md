@@ -4,10 +4,11 @@ For maintainers of `studio/`. The package README (`studio/README.md`) speaks to 
 
 ## Ownership
 
-The studio's authoring logic and demo fixtures: the editable profile draft,
+The studio's authoring logic and cookbooks: the editable profile draft,
 its tree, the compiler that turns it into a kernel profile, TypeScript source
-export, the travel concierge demo (tool seeds, sample HTTP inputs, local
-function handlers), and the run-tab handoff.
+export, the cookbook catalog (research scout, travel concierge, code architect,
+tool seeds, sample HTTP inputs, portable function handlers, and item checks),
+and the run-tab handoff.
 
 The logic lives here, not in the frontend, so it is type-checked and tested
 against the kernel it compiles for.

@@ -9,12 +9,13 @@ import {
   getProfile,
   registerProfile,
   registerStructured,
+  registerTools,
   runTurn,
 } from '../src/kernel/default-scope.ts';
 import { defineProfile } from '../src/kernel/registry/profiles.ts';
 import { requireModelProfile } from '../src/kernel/registry/resolve.ts';
 import type { BuiltinToolId, ModelBinding, TurnEvent, TurnRequest } from '../src/kernel/types.ts';
-import { registerGooglePreset } from '../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../studio/cookbooks/providers.ts';
 import { hostVault, loadHostEnv, vaultEnv } from './host-env.ts';
 import { scriptProviderOptions } from './provider-options.ts';
 
@@ -33,7 +34,7 @@ if (!vault.slot_a) {
   );
   Deno.exit(1);
 }
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 registerStructured('liveCodeAnswer', {
   jsonSchema: {
     type: 'object',

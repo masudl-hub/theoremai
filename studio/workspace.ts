@@ -380,7 +380,9 @@ export function removeAgent(workspace: StudioWorkspace, key: string): StudioWork
   return remembered({
     ...workspace,
     agents,
-    toolSpecs: workspace.toolSpecs.filter((tool) => !ranIt.has(tool.key)),
+    toolSpecs: workspace.toolSpecs
+      .filter((tool) => !ranIt.has(tool.key))
+      .map((tool) => (tool.stageAgentKey === key ? { ...tool, stageAgentKey: undefined } : tool)),
     selected: gone ? agentNodeId(neighbour.key) : workspace.selected,
     chatWith: workspace.chatWith === key ? neighbour.key : workspace.chatWith,
   });
@@ -972,9 +974,13 @@ function mergedValue(
 function sound(workspace: StudioWorkspace): StudioWorkspace {
   const agentKeys = new Set(workspace.agents.map((agent) => agent.key));
   // An agent tool whose agent is gone has nothing to run.
-  const toolSpecs = workspace.toolSpecs.filter(
-    (tool) => tool.toolType !== 'agent' || agentKeys.has(tool.agentKey ?? ''),
-  );
+  const toolSpecs = workspace.toolSpecs
+    .filter((tool) => tool.toolType !== 'agent' || agentKeys.has(tool.agentKey ?? ''))
+    .map((tool) =>
+      tool.stageAgentKey && !agentKeys.has(tool.stageAgentKey)
+        ? { ...tool, stageAgentKey: undefined }
+        : tool,
+    );
   const library = new Set(toolSpecs.map((tool) => tool.key));
   const agents = workspace.agents.map((agent): AgentDraft => {
     const allow = agent.tools.allow.filter((toolKey) => library.has(toolKey));

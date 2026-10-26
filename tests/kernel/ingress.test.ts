@@ -9,6 +9,7 @@ import {
   clearProfiles,
   getProfile,
   registerProfile,
+  registerTools,
   resolveTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -20,9 +21,9 @@ import {
   resolveInputParts,
 } from '../../src/kernel/registry/ingress.ts';
 import type { Profile, TurnRequest } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });

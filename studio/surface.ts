@@ -22,6 +22,16 @@ import {
 import { z } from 'zod';
 import { compileStudio } from './compile.ts';
 import {
+  createConsoleExampleDraft,
+  createDecisionExampleDraft,
+  createExampleDraft,
+  createGeminiEmbeddingExampleDraft,
+  createLiveExampleDraft,
+  createNarratorExampleDraft,
+  createResearchScoutDraft,
+  createSpanExampleDraft,
+} from './cookbooks/catalog.ts';
+import {
   createBlankDraft,
   defaultModelBinding,
   defaultToolSpec,
@@ -38,13 +48,6 @@ import {
   setProfileType,
   updateModelBinding,
 } from './draft.ts';
-import {
-  createConsoleExampleDraft,
-  createDecisionExampleDraft,
-  createExampleDraft,
-  createLiveExampleDraft,
-  createNarratorExampleDraft,
-} from './example.ts';
 import type { StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
 import { modelRoute } from './providers.ts';
@@ -296,11 +299,14 @@ const typeInput = z.enum(STUDIO_PROFILE_TYPES as unknown as [StudioProfileType])
 
 /** The worked examples one draft holds. The code architect is two agents, so the page loads it. */
 const EXAMPLE_DRAFTS = {
-  travel: createExampleDraft,
-  live: createLiveExampleDraft,
+  research: createResearchScoutDraft,
+  concierge: createExampleDraft,
+  'live-concierge': createLiveExampleDraft,
   narrator: createNarratorExampleDraft,
   console: createConsoleExampleDraft,
   decision: createDecisionExampleDraft,
+  'span-decision': createSpanExampleDraft,
+  'gemini-embedding-2': createGeminiEmbeddingExampleDraft,
 } satisfies Record<string, () => StudioDraft | Promise<StudioDraft>>;
 
 const exampleInput = z.enum(Object.keys(EXAMPLE_DRAFTS) as [keyof typeof EXAMPLE_DRAFTS]);

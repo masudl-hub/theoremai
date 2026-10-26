@@ -59,6 +59,7 @@ import {
   addAgent,
   addArchitectExample,
   addProvider,
+  addResearchExample,
   agentNodeId,
   type CompiledStudio,
   type CompiledWorkspace,
@@ -70,6 +71,7 @@ import {
   createGeminiEmbeddingExampleDraft,
   createLiveExampleDraft,
   createNarratorExampleDraft,
+  createSpanExampleDraft,
   createStudioRunId,
   draftFacets,
   duplicateAgent,
@@ -644,13 +646,25 @@ const addsDraft =
     return (workspace) => addAgent(workspace, made);
   };
 
-/** The examples, in the order the menu lists them. The architect brings its narrator. */
+/** The examples, in the order the menu lists them. Research and the architect bring their subagents. */
 const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: () => Promise<AddAgent> })[] = [
+  {
+    id: 'research',
+    ...STUDIO_EXAMPLES.research,
+    icon: PROFILE_TYPE_ICON.text,
+    add: () => Promise.resolve(addResearchExample),
+  },
   {
     id: 'concierge',
     ...STUDIO_EXAMPLES.concierge,
     icon: PROFILE_TYPE_ICON.text,
     add: addsDraft(createExampleDraft),
+  },
+  {
+    id: 'architect',
+    ...STUDIO_EXAMPLES.architect,
+    icon: PROFILE_TYPE_ICON.text,
+    add: () => Promise.resolve(addArchitectExample),
   },
   {
     id: 'live-concierge',
@@ -659,10 +673,22 @@ const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: () => Promise<AddAgent> })
     add: addsDraft(createLiveExampleDraft),
   },
   {
-    id: 'architect',
-    ...STUDIO_EXAMPLES.architect,
-    icon: PROFILE_TYPE_ICON.text,
-    add: () => Promise.resolve(addArchitectExample),
+    id: 'decision',
+    ...STUDIO_EXAMPLES.decision,
+    icon: PROFILE_TYPE_ICON.decision,
+    add: addsDraft(createDecisionExampleDraft),
+  },
+  {
+    id: 'span-decision',
+    ...STUDIO_EXAMPLES['span-decision'],
+    icon: PROFILE_TYPE_ICON.decision,
+    add: addsDraft(createSpanExampleDraft),
+  },
+  {
+    id: 'gemini-embedding-2',
+    ...STUDIO_EXAMPLES['gemini-embedding-2'],
+    icon: PROFILE_TYPE_ICON.embedding,
+    add: addsDraft(createGeminiEmbeddingExampleDraft),
   },
   {
     id: 'narrator',
@@ -675,18 +701,6 @@ const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: () => Promise<AddAgent> })
     ...STUDIO_EXAMPLES.console,
     icon: PROFILE_TYPE_ICON.host,
     add: addsDraft(createConsoleExampleDraft),
-  },
-  {
-    id: 'decision',
-    ...STUDIO_EXAMPLES.decision,
-    icon: PROFILE_TYPE_ICON.decision,
-    add: addsDraft(createDecisionExampleDraft),
-  },
-  {
-    id: 'gemini-embedding-2',
-    ...STUDIO_EXAMPLES['gemini-embedding-2'],
-    icon: PROFILE_TYPE_ICON.embedding,
-    add: addsDraft(createGeminiEmbeddingExampleDraft),
   },
 ];
 

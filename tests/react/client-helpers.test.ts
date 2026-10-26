@@ -40,12 +40,13 @@ import {
 } from '../../react/src/ui/labels.ts';
 import { transcriptBlockCopyText } from '../../react/src/ui/transcript-copy-text.ts';
 import { interfaceFromProfile, type TranscriptBlock } from '../../src/interface/mod.ts';
+import { registerTools } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.ts';
 import type { ProviderEvidence, Source } from '../../src/kernel/turn-events.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
 import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { composerDrawerSummary } from '../../web/src/client/composer-drawer.ts';
 import { isStashShortcut, resolveComposerHint } from '../../web/src/client/composer-hints.ts';
 import { composerActionState } from '../../web/src/client/composer-primary.ts';
@@ -62,7 +63,7 @@ import { foldedCall } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 import { defaultLabels as t } from './default-labels.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 
 const CALC = { name: 'calc', callId: 'c6' };
 

@@ -7,8 +7,8 @@ import { assertEquals } from '@std/assert';
 import { type DecisionQuestion, registerProfile } from '../../mod.ts';
 import { compileWorkspace } from '../../studio/compile-workspace.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
-import { createDecisionExampleDraft } from '../../studio/example.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { createDecisionExampleDraft } from '../../studio/mod.ts';
 import {
   createStudioHandler,
   noQuestions,

@@ -93,8 +93,13 @@ Deno.test('the example draft compiles to the travel concierge', () => {
 Deno.test('what a URL detector allows compiles to what differs from the defaults, where it reads', () => {
   const draft = createExampleDraft();
   type GuardrailsOf = StudioDraft['guardrails'];
+  const reading = structuredClone(draft.guardrails.detect);
+  for (const boundary of ['reply', 'reply_structured', 'live_reply'] as const) {
+    reading.ungiven_images[boundary] = 'block';
+    reading.ungiven_links[boundary] = 'block';
+  }
   /** The `allow` of `ungiven_images` and of `ungiven_links`, as compiled. */
-  const allows = (allow: Partial<GuardrailsOf['allow']>, detect = draft.guardrails.detect) => {
+  const allows = (allow: Partial<GuardrailsOf['allow']>, detect = reading) => {
     const { guardrails } = draft;
     const spec = compiled({
       ...draft,
@@ -130,11 +135,14 @@ Deno.test('what a URL detector allows compiles to what differs from the defaults
 Deno.test('a blank allowed host is reported at its detector', () => {
   const draft = createExampleDraft();
   const { guardrails } = draft;
+  const detect = structuredClone(guardrails.detect);
+  detect.ungiven_links.reply = 'block';
   const result = compileStudio(
     {
       ...draft,
       guardrails: {
         ...guardrails,
+        detect,
         allow: {
           ...guardrails.allow,
           ungiven_links: { hosts: ['docs.acme.io', ' '], fromTools: true },

@@ -6,6 +6,7 @@ import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import { compileStudio, createExampleDraft } from '../../studio/mod.ts';
 import {
   createReplay,
+  openingFromRecords,
   parseTraceFile,
   type ReplayDivergence,
   recordedTools,
@@ -109,6 +110,10 @@ Deno.test('a recorded turn reads back as what was sent, each model call, and eac
   );
   const kinds = recordedTranscript(script).map((block) => block.kind);
   assertEquals(kinds, ['user-text', 'thought', 'tool', 'text', 'turn-done']);
+  assertEquals(
+    openingFromRecords(records).map((block) => block.kind),
+    kinds,
+  );
 });
 
 Deno.test("a turn under the host's own span, which the record does not hold, reads back the same", async () => {

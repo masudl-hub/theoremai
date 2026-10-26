@@ -1,8 +1,8 @@
 import { assertEquals } from '@std/assert';
 import { differingSettings } from '../../studio/agreement.ts';
 import { compileStudio } from '../../studio/compile.ts';
-import { createExampleDraft } from '../../studio/example.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { createExampleDraft } from '../../studio/mod.ts';
 import { withoutStudioFills } from '../../studio/policy.ts';
 import { agentModule } from '../../studio/source.ts';
 

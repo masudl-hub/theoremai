@@ -40,18 +40,18 @@ import {
   validateProfileInputs,
 } from '../../src/interface/mod.ts';
 import type { ProfileGuardrailsView } from '../../src/interface/types.ts';
-import { projectProfile, registerProfile } from '../../src/kernel/default-scope.ts';
+import { projectProfile, registerProfile, registerTools } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { toolCallRequestEvent, toolEvent } from '../../src/kernel/tools/events.ts';
 import type { ModelBinding, Profile, TextProfile, TurnEvent } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { callEvents, foldedCall, outputOf, toolSnapshot } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { checkpointFixture } from '../fixtures/provider-checkpoint.ts';
 import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 /** What the URL detectors let through when a profile sets no `allow`. */
 const NO_URL_ALLOW: ProfileGuardrailsView['allow'] = {
   ungiven_images: { hosts: [], fromTools: true },

@@ -5,10 +5,17 @@
 
 import type { KernelRegistry, Profile } from '@theoremjs/agents';
 import type { ToolRegistry } from '@theoremjs/agents/kernel';
-import { GOOGLE_BUILTIN_TOOLS } from '@theoremjs/agents/presets/google';
+import { GOOGLE_BUILTIN_TOOLS, OPENROUTER_BUILTIN_TOOLS } from './cookbooks/providers.ts';
+import { cookbookToolSources } from './cookbooks/sources.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { stubOutputFromSchema } from './stub.ts';
 import { zodFromJsonSchema } from './tool-schema.ts';
+
+/** Adds the cookbook `sources` hook when `name` cites what it returns. */
+function citing<T>(name: string, registration: T): T {
+  const sources = cookbookToolSources(name);
+  return sources ? { ...registration, sources } : registration;
+}
 
 /** Answers a function tool's call, for a host that runs its own tools in the studio. */
 export type StudioToolHandler = (input: Record<string, unknown>) => Record<string, unknown>;
@@ -47,29 +54,33 @@ export function registerCustomTool(
     output: zodFromJsonSchema(tool.outputSchema),
   };
   if (tool.type === 'http') {
-    tools.register({
-      ...shared,
-      type: 'http',
-      endpoint: tool.endpoint,
-      method: tool.method,
-      headers: tool.headers,
-      mapping: tool.mapping,
-      auth: tool.auth,
-      maxResponseBytes: tool.maxResponseBytes,
-    });
+    tools.register(
+      citing(tool.name, {
+        ...shared,
+        type: 'http',
+        endpoint: tool.endpoint,
+        method: tool.method,
+        headers: tool.headers,
+        mapping: tool.mapping,
+        auth: tool.auth,
+        maxResponseBytes: tool.maxResponseBytes,
+      }),
+    );
     return;
   }
   if (tool.type === 'mcp') {
-    tools.register({
-      ...shared,
-      type: 'mcp',
-      serverUrl: tool.serverUrl,
-      mcpToolName: tool.mcpToolName,
-      headers: tool.headers,
-      auth: tool.auth,
-      maxResponseBytes: tool.maxResponseBytes,
-      session: tool.session,
-    });
+    tools.register(
+      citing(tool.name, {
+        ...shared,
+        type: 'mcp',
+        serverUrl: tool.serverUrl,
+        mcpToolName: tool.mcpToolName,
+        headers: tool.headers,
+        auth: tool.auth,
+        maxResponseBytes: tool.maxResponseBytes,
+        session: tool.session,
+      }),
+    );
     return;
   }
   if (tool.answeredBy === 'page') {
@@ -99,7 +110,7 @@ export function registerStudioTools(
   customTools: readonly ToolRegistration[],
   handlers?: StudioToolHandlers,
 ): void {
-  tools.registerMany(GOOGLE_BUILTIN_TOOLS);
+  tools.registerMany([...GOOGLE_BUILTIN_TOOLS, ...OPENROUTER_BUILTIN_TOOLS]);
   for (const tool of customTools) registerCustomTool(tools, tool, handlers);
 }
 

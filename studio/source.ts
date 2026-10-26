@@ -154,7 +154,10 @@ function toolSource(tool: ToolRegistration, indent = 0): string {
     const pad = '  '.repeat(indent);
     return `${pad}registerTool(${literal(fields, indent)});\n`;
   };
-  const { inputSchema, outputSchema, ...fields } = tool;
+  const { inputSchema, outputSchema, ...rawFields } = tool;
+  const { stageAgent: _stageAgent, ...fields } = rawFields as typeof rawFields & {
+    stageAgent?: string;
+  };
   // The kernel fixes an agent tool's schemas.
   if (fields.type === 'agent') return call(fields);
   // The schema as it is, read by zod: hand-written zod would keep its shape and lose the rest.

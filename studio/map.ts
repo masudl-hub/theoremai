@@ -194,7 +194,10 @@ export function workspaceMap(
 
   const tools = workspace.toolSpecs.map((tool): MapNode => {
     const id = toolSpecNodeId(tool.key);
-    const asked = tool.toolType === 'agent' ? agentIds.get(tool.agentKey ?? '') : undefined;
+    const asked =
+      tool.toolType === 'agent'
+        ? agentIds.get(tool.agentKey ?? '')
+        : agentIds.get(tool.stageAgentKey ?? '');
     if (asked) links.push({ from: id, to: asked, kind: 'asks' });
     return {
       id,

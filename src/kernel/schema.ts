@@ -21,7 +21,6 @@ import {
   DESTINATION_GATES,
   TAINT_GATES,
 } from '../guardrails/types.ts';
-import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
 import { isProfileRootField, profileFieldScope } from './profile-scope.ts';
 
@@ -1021,12 +1020,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'live.ingress.audio': field('boolean', 'Whether the session accepts microphone audio.'),
   'live.ingress.video': field('boolean', 'Whether the session accepts camera frames.'),
   'live.ingress.text': field('boolean', 'Whether the session accepts typed text.'),
-  'live.voice': field(
-    'string',
-    'The voice the model speaks in.',
-    GOOGLE_SPEECH_VOICES,
-    'Voice names to pick from; any other name is sent as written.',
-  ),
+  'live.voice': field('string', 'The voice the model speaks in.'),
   'live.vad': field(
     'LiveVadSpec',
     'How the session detects when the user starts and stops speaking.',

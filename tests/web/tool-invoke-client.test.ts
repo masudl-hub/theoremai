@@ -5,6 +5,7 @@ import {
   type InterfaceTurnSession,
   interfaceFromProfile,
 } from '../../src/interface/mod.ts';
+import { registerTools } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import {
@@ -14,7 +15,7 @@ import {
 import { checkPermission } from '../../src/kernel/tools/permission.ts';
 import type { ToolGate } from '../../src/kernel/tools/types.ts';
 import type { ModelBinding } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { filesToPending } from '../../web/src/client/encode-files.ts';
 import { continueGatedToolInvocation } from '../../web/src/client/tool-resume.ts';
 import {
@@ -25,7 +26,7 @@ import { buildInvokeRequest, buildTurnRequest } from '../../web/src/client/turn-
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
 import { checkpointFixture } from '../fixtures/provider-checkpoint.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 const DELETE_GATE: ToolGate = {
   kind: 'permission',
   tool: 'delete_resource',

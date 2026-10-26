@@ -57,6 +57,8 @@ export type StudioToolSpecSeed = {
   sessionMax?: number | null;
   /** An agent tool's agent, by its workspace key. */
   agentKey?: string;
+  /** A decision or text agent that filters this tool's output at `post_tool`, by its workspace key. */
+  stageAgentKey?: string;
   /** An agent tool's calls in one turn of its caller; `null` or absent: no cap but max steps. */
   maxCallsPerTurn?: number | null;
   authType?: StudioAuthType;

@@ -6,9 +6,10 @@ import {
   interfaceFromProfile,
   type TranscriptBlock,
 } from '../../src/interface/mod.ts';
+import { registerTools } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { streamInterfaceTurn } from '../../web/src/client/run-session.ts';
 import {
   hostError,
@@ -18,7 +19,7 @@ import {
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
 import { unskippedView } from '../fixtures/stream-view.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 function textInterface(): ComposerProfileInterface {
   const iface = interfaceFromProfile(
     defineProfile({

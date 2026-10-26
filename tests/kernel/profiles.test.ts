@@ -10,6 +10,7 @@ import {
   registerProfile,
   registerProfiles,
   registerTool,
+  registerTools,
   resolveTurn,
   runSession,
 } from '../../src/kernel/default-scope.ts';
@@ -18,7 +19,7 @@ import { isModelProfile, requireModelProfile } from '../../src/kernel/registry/r
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { resolveTurnTools } from '../../src/kernel/tools/resolve.ts';
 import type { ModelBinding, TurnModel } from '../../src/kernel/types.ts';
-import { googleEfforts, registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS, googleEfforts } from '../../studio/cookbooks/providers.ts';
 import {
   geminiModels,
   HOST_BINDINGS,
@@ -28,7 +29,7 @@ import {
 import { createTestKernelScope } from '../fixtures/provider-scope.ts';
 import { runTurn } from '../fixtures/registered-runner.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 Deno.test('googleEfforts passes the levels Gemini takes and refuses the rest when the binding is built', () => {
   const efforts = { quick: 'low', deep: 'high' } as const;
   assertEquals(googleEfforts(efforts), efforts);

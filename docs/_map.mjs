@@ -567,61 +567,6 @@ const graph = {
       ],
     },
 
-    presets: {
-      export: './presets',
-      doc: 'docs/contracts/presets.md',
-      owns: [
-        'src/presets/mod.ts',
-        'src/presets/facts.ts',
-        'src/presets/local.ts',
-        'src/presets/openrouter.ts',
-        'src/presets/openrouter-facts.ts',
-        'src/presets/typesafe.ts',
-      ],
-      watches: [
-        {
-          path: 'src/presets/google.ts',
-          reason: 'Presets barrel re-exports Google pack',
-          sections: ['Exported API', 'Role in the package'],
-        },
-      ],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: [
-        'Export',
-        'Ownership',
-        'Role in the package',
-        'When to use',
-        'Exported API',
-      ],
-    },
-
-    'presets-google': {
-      export: './presets/google',
-      doc: 'docs/contracts/presets-google.md',
-      owns: [
-        'src/presets/google.ts',
-        'src/presets/google-limits.ts',
-        'src/presets/google/media-tokens.ts',
-      ],
-      watches: [
-        {
-          path: 'src/presets/google/speech-voices.ts',
-          reason: 'Speech voice vocabulary consumed by the Google preset pack',
-          sections: ['Vocabularies', 'Exported API'],
-        },
-      ],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: ['Export', 'Ownership', 'Builtins', 'Vocabularies', 'Exported API'],
-    },
-
-    'presets-google-speech-voices': {
-      export: './presets/google/speech-voices',
-      doc: 'docs/contracts/presets-google.md',
-      owns: ['src/presets/google/speech-voices.ts'],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: ['Export', 'Ownership', 'Vocabularies', 'Exported API'],
-    },
-
     interface: {
       export: './interface',
       doc: 'docs/contracts/kernel.md',

@@ -36,6 +36,7 @@ export interface StudioProviderOptions extends ProviderHostOptions {
 }
 
 import { STUDIO_KEY_SLOT_CAP, studioKeySlots } from './browser-connection.ts';
+import { resolveDraftItemCheck } from './cookbooks/checks.ts';
 import { lentCompression, runtimeNetwork, type StudioRunsOn } from './lent-keys.ts';
 import { modelBindingViolation } from './policy.ts';
 import { localProviderAddress, registerStudioProvider, STUDIO_PROVIDERS } from './providers.ts';
@@ -212,6 +213,30 @@ function runtimeGuardrails<G extends { network?: unknown }>(
   }
 }
 
+function withDraftItemChecks<D extends ProfileDefinition>(def: D): D {
+  if (def.type !== 'text') return def;
+  const outputs = def.outputs;
+  const validation = outputs?.validation;
+  const items = validation?.items;
+  if (!outputs || !validation || !items) return def;
+  const resolved = Object.fromEntries(
+    Object.entries(items).map(([list, rule]) => [
+      list,
+      {
+        ...rule,
+        check: typeof rule.check === 'function' ? rule.check : resolveDraftItemCheck(def.id, list),
+      },
+    ]),
+  );
+  return {
+    ...def,
+    outputs: {
+      ...outputs,
+      validation: { ...validation, items: resolved },
+    },
+  };
+}
+
 function runtimeProfileDefinition(
   def: ProfileDefinition,
   runtime: StudioRuntime,
@@ -225,10 +250,10 @@ function runtimeProfileDefinition(
       guardrails: runtimeGuardrails(def.guardrails ?? {}, runtime),
     };
   }
-  return {
+  return withDraftItemChecks({
     ...withLentCompression(def, runtime),
     guardrails: withHeldTaint(runtimeGuardrails(def.guardrails ?? {}, runtime), runtime),
-  };
+  });
 }
 
 /** A Live profile on lent keys runs with the compression sizes the editor shows for them. */
@@ -429,7 +454,7 @@ export async function writtenScope(drafts: readonly StudioDependency[]): Promise
     await refuseSlowSchemaPatterns(draft.customTools);
     profile = registerDefined(
       scope,
-      defineDraft(await withCompiledPatterns(draft.profile)),
+      defineDraft(withDraftItemChecks(await withCompiledPatterns(draft.profile))),
       draft.customTools,
       draft.structured,
     );

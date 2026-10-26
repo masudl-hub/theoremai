@@ -5,6 +5,7 @@ import {
   registerProfile,
   registerStructured,
   registerTool,
+  registerTools,
   resolveTurn,
   runSession,
   runTurn,
@@ -22,7 +23,7 @@ import type {
 } from '../src/kernel/types.ts';
 import { memorySink } from '../src/observability/trace.ts';
 import type { TraceRecord } from '../src/observability/trace-record.ts';
-import { registerGooglePreset } from '../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../studio/cookbooks/providers.ts';
 import { hostOpenRouterKey, hostVault, loadHostEnv, OPENROUTER_ENV, vaultEnv } from './host-env.ts';
 import { scriptProviderOptions } from './provider-options.ts';
 
@@ -36,7 +37,7 @@ console.log(
   `  OpenRouter Key: ${openRouterKey ? `Present (len=${openRouterKey.length})` : 'MISSING'}`,
 );
 console.log('════════════════════════════════════════════════════════════════════════\n');
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 registerTool({
   type: 'function',
   name: 'calculate_sum',

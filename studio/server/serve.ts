@@ -226,6 +226,7 @@ const session = createSaveSession<Loaded>(
     },
     stop,
     opened: (loaded) => loaded.description.workspace,
+    unopened: (loaded) => loaded.description.problems.map((problem) => problem.profile),
   },
   first,
 );

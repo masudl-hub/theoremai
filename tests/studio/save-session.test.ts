@@ -592,6 +592,19 @@ Deno.test('a file left with nothing of its own is taken away, and comes back on 
   assertEquals([text(), files.get(OWN)], [SPLIT, MOVED]);
 });
 
+Deno.test('a profile the project registered and the studio could not open is not named as unregistered', async () => {
+  const [agent] = opened.workspace.agents;
+  if (!agent) throw new Error('The example changed.');
+  const id = agent.identity.agentId;
+  const loaded = { ...opened.workspace, agents: opened.workspace.agents.slice(1) };
+  const names = async (over: Partial<SaveHost<StudioWorkspace>>) =>
+    (await project({ opened: () => loaded, ...over }).session.read()).unregistered.map(
+      ({ name }) => name,
+    );
+  assertEquals(await names({}), [id]);
+  assertEquals(await names({ unopened: () => [id] }), []);
+});
+
 Deno.test('a tool the files define and the project did not register is named, with where it is defined', async () => {
   assertEquals((await project().session.read()).unregistered, []);
   const removal = opened.workspace.toolSpecs.find((tool) => tool.toolName === 'remove_plant');

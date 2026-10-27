@@ -775,7 +775,10 @@ export function createStudioHandler(
   const peoplePath = `${base}/people`;
   // The screen's own requests (the guardrail probe, the key and connection tests) need no project.
   // This server is the builder's alone, so a connection test reaches what the draft's runs reach.
-  const draft = createStudioDraftHandler({ draftNetwork: true });
+  const draft = createStudioDraftHandler({
+    draftNetwork: true,
+    projectProvider: (id) => listProviders().find((provider) => provider.id === id),
+  });
 
   const run = async (request: Request, path: string): Promise<Response> => {
     const cors = corsFor(request);

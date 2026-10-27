@@ -1,93 +1,77 @@
 /**
- * Asks a key's provider whether it accepts the key, so the builder can tell a bad key
- * from a bad setting. The key is used for this one request: never logged, kept, or echoed back.
+ * Asks a key's provider whether it accepts the key, with the check the provider's definition
+ * declares, so the builder can tell a bad key from a bad setting. The key is used for this one
+ * request: never logged, kept, or echoed back.
+ *
+ * @module
  */
-import { z } from '@theoremjs/agents';
+import { checkKey, fetchGuarded, type ResolveHost, z } from '@theoremjs/agents';
+import { clientError } from '@theoremjs/agents/host';
+import { createProviderRegistry, type RegisteredProvider } from '@theoremjs/agents/kernel';
 import { readBody } from '@theoremjs/web/server';
+import { kernelDefinition, registerStudioProvider } from '../providers.ts';
 
-const TIMEOUT_MS = 8000;
 const MAX_KEY_LENGTH = 512;
-const SAID_CAP = 300;
 
-type KeyCheck = {
-  ok: boolean;
-  provider?: string;
-  status?: number;
-  /** What the provider said, with the key taken out. */
-  said?: string;
-  error?: string;
-};
+const slotName = z.string().min(1).max(128);
 
-const PROVIDERS = [
-  {
-    provider: 'google',
-    matches: (key: string) => key.startsWith('AIza'),
-    request: (key: string) =>
-      new Request('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', {
-        headers: { 'x-goog-api-key': key },
-      }),
-  },
-  {
-    provider: 'openrouter',
-    matches: (key: string) => key.startsWith('sk-or-'),
-    request: (key: string) =>
-      new Request('https://openrouter.ai/api/v1/key', {
-        headers: { Authorization: `Bearer ${key}` },
-      }),
-  },
-] as const;
+/** What the page sends: the key, and the provider a model reading its slot is served by. */
+const testKeySchema = z
+  .object({
+    key: z.string().max(MAX_KEY_LENGTH),
+    provider: z
+      .object({
+        id: z.string().min(1).max(128),
+        definition: z.string().min(1).max(128),
+        connection: z.record(z.string(), z.string().max(2048)).optional(),
+        keySlot: slotName.optional(),
+        fallbackKeySlot: slotName.optional(),
+      })
+      .strict(),
+  })
+  .strict();
 
-/** The provider's own error message, if it sent one, without the key. */
-async function providerSaid(response: Response, key: string): Promise<string | undefined> {
-  try {
-    const body: unknown = await response.json();
-    const error = (body as { error?: { message?: unknown } | unknown[] } | null)?.error;
-    const first = Array.isArray(error) ? error[0] : error;
-    const message = (first as { message?: unknown } | undefined)?.message;
-    if (typeof message !== 'string') return undefined;
-    return message.replaceAll(key, '[the key]').slice(0, SAID_CAP);
-  } catch {
-    return undefined;
-  }
+export interface TestKeyOptions {
+  /** A provider the project registers from a definition of its own, by id. */
+  projectProvider?: (id: string) => RegisteredProvider | undefined;
+  /** Resolves the provider's host, so a check from a shared server reaches public addresses only. */
+  resolveHost?: ResolveHost;
+  /** The server is the builder's alone: the check reaches whatever the provider names. */
+  draftNetwork?: boolean;
 }
 
-/** `POST <base>/test-key` `{ key }`. */
-export async function testKey(request: Request): Promise<Response> {
-  if (request.method !== 'POST') return new Response(null, { status: 405 });
-  let key = '';
+/** `POST <base>/test-key` `{ key, provider }`: a `KeyCheck`. */
+export async function testKey(request: Request, options: TestKeyOptions = {}): Promise<Response> {
+  let asked: z.infer<typeof testKeySchema>;
   try {
-    const body = await readBody(request, z.unknown());
-    const value = (body as { key?: unknown } | null)?.key;
-    key = typeof value === 'string' ? value.trim() : '';
-  } catch {
-    return Response.json({ ok: false, error: 'Send { key }.' } satisfies KeyCheck, { status: 400 });
+    asked = await readBody(request, testKeySchema);
+  } catch (error) {
+    return Response.json(clientError(error), { status: 400 });
   }
-  if (!key || key.length > MAX_KEY_LENGTH) {
-    return Response.json({ ok: false, error: 'No key to test.' } satisfies KeyCheck, {
-      status: 400,
-    });
-  }
-  const match = PROVIDERS.find((candidate) => candidate.matches(key));
-  if (!match) {
-    return Response.json({
-      ok: false,
-      error: 'Only Google (AIza…) and OpenRouter (sk-or-…) keys can be tested here.',
-    } satisfies KeyCheck);
-  }
+  let provider: RegisteredProvider | undefined;
   try {
-    const response = await fetch(match.request(key), { signal: AbortSignal.timeout(TIMEOUT_MS) });
-    const result: KeyCheck = {
-      ok: response.ok,
-      provider: match.provider,
-      status: response.status,
-      ...(response.ok ? {} : { said: await providerSaid(response, key) }),
-    };
-    return Response.json(result);
-  } catch {
-    return Response.json({
-      ok: false,
-      provider: match.provider,
-      error: `Couldn't reach ${match.provider}.`,
-    } satisfies KeyCheck);
+    const definition = kernelDefinition(asked.provider.definition);
+    provider = definition
+      ? registerStudioProvider(createProviderRegistry(), asked.provider, definition)
+      : options.projectProvider?.(asked.provider.id);
+  } catch (error) {
+    return Response.json(clientError(error), { status: 400 });
   }
+  if (!provider) return Response.json({ provider: asked.provider.id, state: 'unchecked' });
+  const { resolveHost } = options;
+  const guarded: typeof fetch = (url, init) =>
+    fetchGuarded(
+      String(url),
+      { headers: init?.headers, signal: init?.signal },
+      {
+        followRedirects: false,
+        ...(resolveHost ? { resolveHost } : {}),
+      },
+    );
+  return Response.json(
+    await checkKey(provider, {
+      key: asked.key,
+      ...(options.draftNetwork ? {} : { fetch: guarded }),
+    }),
+  );
 }

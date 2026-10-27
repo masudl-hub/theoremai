@@ -374,12 +374,55 @@ Deno.test("the studio command's server answers the screen's own requests too", a
         origin: 'http://127.0.0.1:4984',
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ key: 'nothing-known' }),
+      body: JSON.stringify({
+        key: 'nothing-known',
+        provider: {
+          id: 'local',
+          definition: 'local',
+          connection: { baseUrl: 'http://localhost:11434/v1' },
+        },
+      }),
     }),
   );
   assertEquals(response.status, 200);
   assertEquals(response.headers.get('access-control-allow-origin'), 'http://127.0.0.1:4984');
-  assertEquals((await response.json()).ok, false);
+  assertEquals((await response.json()).state, 'unchecked');
+});
+
+Deno.test("a key test asks the provider's own check, and reaches a private address only on the builder's own server", async () => {
+  const local = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, (request) =>
+    request.headers.get('authorization') === 'Bearer good'
+      ? Response.json({ data: {} })
+      : Response.json(
+          { error: { message: `No key ${request.headers.get('authorization')}` } },
+          { status: 401 },
+        ),
+  );
+  try {
+    const provider = {
+      id: 'openrouter',
+      definition: 'openrouter',
+      connection: { baseUrl: `http://127.0.0.1:${local.addr.port}/api/v1` },
+    };
+    const own = createStudioDraftHandler({ draftNetwork: true });
+    const good = await (await own(post('test-key', { key: 'good', provider }))).json();
+    assertEquals([good.provider, good.state, good.status], ['openrouter', 'accepted', 200]);
+    const bad = await (await own(post('test-key', { key: 'bad-key-9', provider }))).json();
+    assertEquals([bad.state, bad.status], ['refused', 401]);
+    assertEquals(JSON.stringify(bad).includes('bad-key-9'), false);
+    const shared = await (
+      await createStudioDraftHandler()(post('test-key', { key: 'good', provider }))
+    ).json();
+    assertEquals(shared.state, 'unreachable');
+    const theirs = await (
+      await own(
+        post('test-key', { key: 'good', provider: { id: 'gateway', definition: 'gateway' } }),
+      )
+    ).json();
+    assertEquals(theirs.state, 'unchecked');
+  } finally {
+    await local.shutdown();
+  }
 });
 
 const SECRET = 'upstream said: key sk-live-123 rejected at 10.0.0.4';

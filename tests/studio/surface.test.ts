@@ -57,9 +57,15 @@ function setup(start: StudioDraft = setProfileType(createBlankDraft(), 'text', T
     testKey: (slot) => {
       seen.tested.push(slot);
       return Promise.resolve({
-        ok: false,
-        status: 400,
-        said: `API key not valid: ${vault[slot] ?? ''}`,
+        slot,
+        checks: [
+          {
+            provider: 'gemini',
+            state: 'refused',
+            status: 400,
+            said: `API key not valid: ${vault[slot] ?? ''}`,
+          },
+        ],
       });
     },
     send: () => Promise.resolve(null),

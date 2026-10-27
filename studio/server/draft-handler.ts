@@ -14,6 +14,7 @@
 import { type ProfileDefinition, type ResolveHost, TheoremError, z } from '@theoremjs/agents';
 import { clientError } from '@theoremjs/agents/host';
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { RegisteredProvider } from '@theoremjs/agents/kernel';
 import {
   checkRequest,
   createMemoryPageToolBroker,
@@ -103,6 +104,8 @@ export type StudioDraftHandlerOptions = {
    * whatever the draft says, so no visitor reaches the host's own network.
    */
   draftNetwork?: boolean;
+  /** A provider the project registers from a definition of its own, so its key can be checked. */
+  projectProvider?: (id: string) => RegisteredProvider | undefined;
 };
 
 /**
@@ -393,7 +396,12 @@ export function createStudioDraftHandler(
     const route = path.startsWith(`${STUDIO_BASE}/`) ? path.slice(STUDIO_BASE.length + 1) : '';
     const routes: Record<string, (request: Request) => Promise<Response>> = {
       probe: (asked) => draftProbe(asked, options.onProbePassed, defer ?? (() => {})),
-      'test-key': testKey,
+      'test-key': (asked) =>
+        testKey(asked, {
+          resolveHost,
+          draftNetwork: options.draftNetwork,
+          projectProvider: options.projectProvider,
+        }),
       'test-connection': (asked) =>
         testConnection(asked, { resolveHost, draftNetwork: options.draftNetwork }),
       ...(lent ? lentRoutes(lent) : {}),

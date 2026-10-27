@@ -220,7 +220,7 @@ The handler takes a Web `Request` and returns a `Response`. It serves no project
 Without lent keys, the handler answers three requests:
 
 - the guardrail probe, on a scripted model, so no model is called;
-- the key test, for a key the builder types;
+- the key test: one request to the check the key's provider declares (`checkKey`), to public hosts only;
 - the tool connection test, which reaches public hosts only.
 
 Drafts then run in the browser, on the builder's own keys.

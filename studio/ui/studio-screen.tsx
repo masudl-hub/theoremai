@@ -137,6 +137,7 @@ import {
   writeAsk,
 } from '../mod.ts';
 import type { StudioActingAs } from '../people.ts';
+import { slotProviders } from '../requirements.ts';
 import type { OpenAnswer, SettingOrigin } from '../server/save-wire.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import './studio.css';
@@ -1253,17 +1254,30 @@ function keyAndToolMembers(
     },
     testKey: async (slot) => {
       const key = page.current.connection.vault[slot]?.trim();
-      if (!key) return { ok: false, error: 'No key in this slot.' };
-      try {
-        const response = await fetch(`${screenEndpoint()}/test-key`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key }),
-        });
-        return await response.json<unknown>();
-      } catch {
-        return { ok: false, error: "Couldn't reach the studio server." };
+      if (!key) return { slot, checks: [], note: 'No key in this slot.' };
+      const providers = slotProviders(store.getDraft(), slot);
+      if (providers.length === 0) {
+        return {
+          slot,
+          checks: [],
+          note: "No model reads this slot. A tool's key is checked by testing the tool.",
+        };
       }
+      const checks = await Promise.all(
+        providers.map(async (provider) => {
+          try {
+            const response = await fetch(`${screenEndpoint()}/test-key`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key, provider }),
+            });
+            return await response.json<object>();
+          } catch {
+            return { provider: provider.id, error: "Couldn't reach the studio server." };
+          }
+        }),
+      );
+      return { slot, checks };
     },
     toolCredential,
     testTool: async (key, input) => {

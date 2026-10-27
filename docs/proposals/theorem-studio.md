@@ -24,10 +24,9 @@ and they are firm.
 
 **The moments he wants it.** All of these:
 
-- **To test tools.** "Just being able to load all the tools into the host
-  profile and using the playground's UI to test them and see what comes back
-  would be blissful. That's why we built the host page." He added this one
-  himself.
+- **To test tools.** Load every tool into a host profile, run each one in
+  the playground's console, and see what comes back. This is why the host
+  page exists. He added this one himself.
 - A conversation went wrong, and he wants to see why and fix it.
 - He wants to change how the agent talks, and hear the difference.
 - He cannot see what a profile does without reading many files.
@@ -38,14 +37,15 @@ tree the playground already has. The tree needs a search.
 
 **What makes him hesitate before Save.** Three things: he does not know what
 else the edit changes, he has tried it only once or twice, and he cannot undo
-it easily. He did not choose "I cannot see the exact change to my code".
+it easily. Seeing the exact change to the code was not one of them.
 
 **How he uses it.** Mostly to look. Then open all day beside the editor.
 Then in and out for one job.
 
 **Where the line is between the studio and the IDE.** To build a tool is to
 write its input and its output, and that is JSON. He goes back to the IDE for
-that. In the studio: "I'd mostly be tweaking reasonable things from the UI."
+that. In the studio he mostly adjusts settings that are reasonable to change
+from a form.
 
 So the studio changes words and settings. The IDE changes structure and
 logic. For a tool, Claude reads that as:
@@ -57,13 +57,12 @@ logic. For a tool, Claude reads that as:
 | Read-only, read-write, or destructive | A new tool |
 | When the tool loads, and who may call it | |
 
-Masud checked the table on 8 Oct: "the table looks right". The one change
+Masud agreed the table on 8 Oct. The one change
 is the last row of the right column, below.
 
-**Adding a tool.** Masud (8 Oct): "I'd wanna be able to add a tool to the
-studio, don't get me wrong. But the function wiring and JSON and stuff will
-probably be agent work (for me) in an IDE." So the table's last row is wrong
-for him: a new tool can start in the studio.
+**Adding a tool.** Masud (8 Oct): a builder adds a tool in the studio. The
+function wiring and the schemas are work for a coding agent in an IDE. So the
+table's last row is wrong: a new tool can start in the studio.
 
 Claude's reading of what that means:
 
@@ -76,9 +75,8 @@ Claude's reading of what that means:
   handler in the IDE. The studio sees the change and the builder tests the
   tool in the host console.
 
-**Two kinds of builder.** Masud: "I can't speak for actual engineers." He
-directs a coding agent and does not write the JSON himself. An engineer may
-want to write it in the studio. The doc is written from Masud's experience.
+**Two kinds of builder.** Masud builds by directing a coding agent, which
+writes the schemas. An engineer may want to write them in the studio. The doc is written from Masud's experience.
 An engineer has not been asked.
 
 **What follows (Claude's reading, not Masud's words):**
@@ -120,8 +118,8 @@ has two ways in:
   the profiles that use it. The builder opens it and edits it once, with the
   same rows the profile editor has.
 
-Masud (9 Oct): "something to consider is a visual map to show how
-constants, profiles, tools, etc are connected". Not designed. The studio
+Masud (9 Oct) asked for a visual map of how constants, profiles and tools
+are connected. Not designed. The studio
 already reads what the map needs: for each constant, the profiles, tools and
 other constants that read it.
 
@@ -164,14 +162,14 @@ Open about shared settings:
 | D13 | The application gives the studio a setup file. The file says how to build the context of a run. | 7 Oct |
 | D14 | The builder can test four ways: chat by hand, before and after side by side, pinned turns, and the project's evals. | 7 Oct |
 | D15 | The studio changes existing profiles and adds a profile. The builder can also add a tool in the studio (section 1.1). The wiring of a function tool, and its input and output, are done in the IDE. | 7 Oct; changed 8 Oct in Masud's words |
-| D16 | No Rust at the start. The core loads TypeScript profiles and runs JavaScript handlers, and the wait is the model. | 7 Oct, Claude's advice; Masud did not object |
-| D17 | We do not rush to build. Changed the same day: "let's get started". The first slice is being built, and the open pieces are resolved as it runs. | 8 Oct, twice |
+| D16 | No Rust at the start. The core loads TypeScript profiles and runs JavaScript handlers, and the wait is the model. | 7 Oct, Claude's advice |
+| D17 | Building starts with a first slice, and the open pieces are resolved as it runs. | 8 Oct |
 | D18 | A setting that several profiles share is a thing of its own in the studio (section 2.1). The editor and the preview stay the playground's (D3). | 8 Oct |
 | D19 | A shared setting shows the name of its constant, made readable (`STANDARD_GUARDRAILS` as "Standard guardrails"), with the real name and the file beside it. | 8 Oct |
 | D20 | A constant that one profile uses is a part of that profile. It becomes a shared setting when a second profile uses it. | 8 Oct |
 | D21 | A check that needs no model call runs by itself as the builder edits, for every profile that uses the setting. A run that needs the model waits: the studio lists the runs and the builder picks the profiles. | 8 Oct |
 | D22 | A pinned turn keeps its text: the input, the reply, and the tool results. It is saved in the project's test files. The checks that need no model call read pinned turns. | 8 Oct |
-| D23 | Before a turn is pinned, the studio shows what it will save: the input, the reply, and each tool result, with the replacements of D24, D25, and D29 already made and marked. The builder can change any text. Nothing is written until the builder confirms. | 8 Oct, Claude's choice; Masud said "go with what makes sense" |
+| D23 | Before a turn is pinned, the studio shows what it will save: the input, the reply, and each tool result, with the replacements of D24, D25, and D29 already made and marked. The builder can change any text. Nothing is written until the builder confirms. | 8 Oct, Claude's choice |
 | D24 | Personal text that a Theorem detector matches is replaced by a fake of the same kind: an email by another email, a card number by a published test number. One real value becomes the same fake everywhere in the turn. The builder's rules then act on the pinned turn as on the real one. | 8 Oct |
 | D25 | A real credential is never written, and the builder cannot override this. The studio writes a made-up key of the same format, and says so. | 8 Oct |
 | D26 | A pinned turn keeps each tool result in full, after the replacements. It does not copy a photo or a voice note. It records that one was there (its type and size), and the builder can attach a stand-in file. | 8 Oct |
@@ -189,19 +187,13 @@ Open about shared settings:
 | D38 | The walk finds everything the entry point reaches that comes from Theorem's packages, by what each name refers to, not how it is written: an alias, a re-export or a cast is still found. It also finds the code the agents need to run as designed. | 27 Oct |
 | D39 | A studio run uses the application's own run wiring, its stage handlers (`onStage`) included. This answers the open question in 5.1. | 27 Oct |
 
-**How firm each decision is.** Masud said on 8 Oct that many of the
-questions behind this table were not ones he could judge. So the table has
-two kinds of row:
+**How firm each decision is.** The table has two kinds of row:
 
 - **In Masud's own words:** D4, D6, D10, D17, D18, D30, D36 to D39. These are firm.
 - **Claude's recommendation, which Masud accepted:** all the others. These
   are defaults. Claude owns them, must be able to explain each one by what
   the builder sees, and brings one back to Masud only when it changes what
   the builder experiences.
-
-Build order, as Masud gave it: "open and run, but also all of it". Open and
-run comes first. The rest follows. Section 5 asks what "the rest" needs
-before it starts.
 
 ## 4. What we know about Bonsai
 
@@ -362,9 +354,8 @@ tree with a search, test a tool in the host console, read each profile.
 - Against the published 0.3.0, Bonsai's current code does not register
   either: it uses a label placeholder that 0.3.0 does not know.
 
-**Who the builder is in a test.** Masud (8 Oct): "generally a tester
-account we've signed into". He asked how the studio handles Bonsai's
-sign-in.
+**Who the builder is in a test.** Masud (8 Oct): usually a test account
+that is signed in. He asked how the studio handles Bonsai's sign-in.
 
 - The studio does not sign in. Read on 8 Oct: a Bonsai tool does not read a
   login. It reads a context that `buildBonsaiToolHost` makes from a database
@@ -588,7 +579,7 @@ unasked.
   set. The tool's Policy section says the studio asks, and that the
   application runs it as Permission says.
 
-Built (Masud, 9 Oct: "3a"): Save writes a profile or a tool the builder
+Built (Masud, 9 Oct): Save writes a profile or a tool the builder
 added in the studio.
 
 - Each new one is a new file next to the project's other profile and tool
@@ -608,7 +599,7 @@ added in the studio.
   when it cannot tell where the setup file would register it, and when no
   agent allows a new tool.
 
-Built (Masud, 9 Oct: "4a"): while the studio holds edits the files do not,
+Built (Masud, 9 Oct): while the studio holds edits the files do not,
 one message is answered twice, side by side.
 
 - The left side is "Saved (your files)". The right side is "Edited
@@ -634,7 +625,7 @@ answer. Edits that take a profile away cannot run before they are saved,
 and the edited side says so. A tool taken away does run: no agent on the
 edited side allows it. Unsaved edits are lost when the page is loaded again.
 
-Built (Masud, 9 Oct: "5a"): a decision profile in a project runs in the
+Built (Masud, 9 Oct): a decision profile in a project runs in the
 studio. It shows the form for its state and the verdict for each question,
 the same view the website has.
 
@@ -853,8 +844,8 @@ Checked on 8 Oct:
 
 **Built on 8 Oct:**
 
-A first page of its own was built and thrown away the same day. Masud:
-"studio uses the exact same playground implementation." What stands:
+A first page of its own was built and thrown away the same day. The rule:
+the studio is the playground's own implementation. What stands:
 
 - The studio is the website's playground at `/studio`, on the site's dev
   server only. Same page, tree, editor, and preview. Nothing is copied.

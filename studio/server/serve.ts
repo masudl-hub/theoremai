@@ -352,15 +352,17 @@ async function described(said?: (step: ReadStep) => void): Promise<StudioDescrip
 
 /** Whether the command was started without printing what the project has to look at. */
 const quiet = Deno.args.includes('--quiet');
-let told: string | undefined;
+/** What was printed last: `null` before the first print, so a clean project still says so. */
+let told: string | undefined | null = null;
 
 /** Prints what the builder should look at when it is not what was printed last. */
 function tellTerminal(description: StudioDescription): void {
   if (quiet) return;
   const text = alertText(description);
   if (text === told) return;
+  const first = told === null;
   told = text;
-  console.error(text ?? 'theorem studio: nothing left to look at');
+  console.error(text ?? `theorem studio: nothing ${first ? '' : 'left '}to look at`);
 }
 
 /** Whether the request asks for the project as the page opens it, and whether for the steps of reading it first. */

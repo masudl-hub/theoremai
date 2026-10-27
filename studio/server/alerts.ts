@@ -51,7 +51,7 @@ export function keyLine(check: KeyCheck): string {
     empty: check.slot ? 'is empty' : 'is in no slot: no model or registration names one',
     unchecked: check.said ? `could not be checked${said}` : 'has no check to ask',
   }[check.state];
-  return `theorem studio: key for ${check.provider}${slot} ${what}`;
+  return `key for ${check.provider}${slot} ${what}`;
 }
 
 /** How many of a difference's settings a line names before it says how many more. */

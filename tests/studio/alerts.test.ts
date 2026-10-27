@@ -88,12 +88,12 @@ Deno.test('each key check is one line, with what the provider said and never mor
       keyLine({ provider: 'gateway', state: 'unchecked' }),
     ],
     [
-      'theorem studio: key for gemini (GEMINI) works',
-      'theorem studio: key for openrouter refused 401: No auth credentials',
-      'theorem studio: key for typesafe could not be checked: no answer',
-      'theorem studio: key for gemini (GEMINI) is empty',
-      'theorem studio: key for spaced is in no slot: no model or registration names one',
-      'theorem studio: key for gateway has no check to ask',
+      'key for gemini (GEMINI) works',
+      'key for openrouter refused 401: No auth credentials',
+      'key for typesafe could not be checked: no answer',
+      'key for gemini (GEMINI) is empty',
+      'key for spaced is in no slot: no model or registration names one',
+      'key for gateway has no check to ask',
     ],
   );
 });

@@ -359,6 +359,30 @@ Deno.test(
           spaced: 'empty',
         });
       });
+      await step(
+        'keeps what the page met and what to look at, for the errors command',
+        async () => {
+          assertEquals(
+            (await studio.post('/api/studio/events', { text: 'TypeError: x is undefined' })).status,
+            200,
+          );
+          assertEquals((await studio.post('/api/studio/events', { text: ' ' })).status, 400);
+          const foreign = await studio.call('/api/studio/events', {
+            method: 'POST',
+            origin: 'https://elsewhere.example',
+            body: JSON.stringify({ text: 'planted' }),
+          });
+          assertEquals(foreign.status, 403);
+          const kept: { kind: string; text: string }[] = await (
+            await studio.call('/api/studio/events')
+          ).json();
+          assertEquals(
+            kept.filter((event) => event.kind === 'page').map((event) => event.text),
+            ['the page: TypeError: x is undefined'],
+          );
+          assert(kept.some((event) => event.kind === 'look'));
+        },
+      );
       await step('opens the project with every provider and agent it registers', () => {
         const agents = opened.workspace.agents.map((agent) => [
           agent.identity.agentId,

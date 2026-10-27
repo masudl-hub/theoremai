@@ -49,6 +49,8 @@ A Studio chat keeps its conversation in a sealed store. A run in the page seals 
 A key test names the provider whose models read the slot, and asks that provider's declared `check` through `checkKey`. The studio knows no key prefixes. A provider from a project's own definition is checked through the project's registration; with no `check` the answer is `unchecked`. The shared handler reaches public hosts only. The key is never logged, kept, or sent back.
 
 When a project opens, the command asks each provider an agent's models name about its key once, with the project's own vault (`GET <base>/keys`). Each answer is one line; `--offline` leaves the requests out, and `--quiet` leaves out every line.
+
+The command keeps the last 200 events of a studio run: what to look at, each key check, each run that fails (an `error` line in its stream, or a reply that is not 2xx), and each error the page meets (it `POST`s `{ text }` to `<base>/events`). A repeat of the last event is counted, not kept again. `GET <base>/events` lists them, and `GET <base>/events?follow` streams them as server-sent events: the kept ones, then each new one. A run that ends well is not an event. The run's reply reaches the page unchanged.
 Its authority remains in that browser. It does not provide recovery after a browser restart.
 Text and live browser transports save checkpoint ownership before delivery and check it before resumption.
 Runtime methods retain their original receiver, including methods that read private class fields.

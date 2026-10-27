@@ -11,6 +11,8 @@ import { createRoot } from 'react-dom/client';
 import kernel from '../../package.json' with { type: 'json' };
 import { BootMark, holdBoot } from '../ui/boot-mark.tsx';
 import { theoremStudioTheme } from '../ui/built/theorem-studio.js';
+import { errorText, reportPageErrors, tellServer } from '../ui/lib/page-errors.ts';
+import { projectEndpoint } from '../ui/lib/project-address.ts';
 import { onceAnswering } from '../ui/lib/project-starting.ts';
 import { createReading } from '../ui/lib/read-progress.ts';
 import { openStudioProject } from '../ui/lib/studio-open.ts';
@@ -88,9 +90,17 @@ function Opened() {
   return here;
 }
 
+reportPageErrors(projectEndpoint());
+
 const root = document.getElementById('root');
 if (root) {
-  createRoot(root).render(
+  // why: an error boundary catches what a component throws, so the window never sees it; the
+  // terminal should. One React does not catch reaches the window's own listener.
+  const caught = (error: unknown) => {
+    console.error(error);
+    tellServer(projectEndpoint(), errorText(error));
+  };
+  createRoot(root, { onCaughtError: caught }).render(
     <StrictMode>
       <Theme theme={theoremStudioTheme} mode="dark">
         <LayerProvider toast={TOASTS}>

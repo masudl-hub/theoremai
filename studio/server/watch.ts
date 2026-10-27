@@ -65,10 +65,13 @@ export function watchFiles(options: FileWatchOptions): { stop(): void } {
   };
 }
 
-/** The page's subscriptions to file changes, as server-sent events. */
-export function createWatchFeed(): {
-  tell(files: string[]): void;
-  subscribe(headers: Record<string, string>): Response;
+/**
+ * Subscriptions to a stream of values, as server-sent events: each value a line of JSON. A new
+ * subscription is sent `first()` before anything new.
+ */
+export function createEventFeed<T>(): {
+  tell(value: T): void;
+  subscribe(headers: Record<string, string>, first?: readonly T[]): Response;
 } {
   const encoder = new TextEncoder();
   const pages = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -79,11 +82,12 @@ export function createWatchFeed(): {
       pages.delete(page);
     }
   };
+  const line = (value: T) => `data: ${JSON.stringify(value)}\n\n`;
   return {
-    tell: (files) => {
-      for (const page of pages) send(page, `data: ${JSON.stringify({ files })}\n\n`);
+    tell: (value) => {
+      for (const page of pages) send(page, line(value));
     },
-    subscribe: (headers) => {
+    subscribe: (headers, first = []) => {
       let mine: ReadableStreamDefaultController<Uint8Array> | undefined;
       let beat: ReturnType<typeof setInterval> | undefined;
       const body = new ReadableStream<Uint8Array>({
@@ -91,6 +95,7 @@ export function createWatchFeed(): {
           mine = controller;
           pages.add(controller);
           send(controller, ': watching\n\n');
+          for (const value of first) send(controller, line(value));
           // A line now and then keeps a quiet connection open.
           beat = setInterval(() => send(controller, ': still watching\n\n'), 25_000);
         },
@@ -104,4 +109,13 @@ export function createWatchFeed(): {
       });
     },
   };
+}
+
+/** The page's subscriptions to file changes, as server-sent events. */
+export function createWatchFeed(): {
+  tell(files: string[]): void;
+  subscribe(headers: Record<string, string>): Response;
+} {
+  const feed = createEventFeed<{ files: string[] }>();
+  return { tell: (files) => feed.tell({ files }), subscribe: (headers) => feed.subscribe(headers) };
 }

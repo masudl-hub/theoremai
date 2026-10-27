@@ -29,7 +29,9 @@ import {
   runDecision,
   runTurn,
   type StageHandler,
+  type TurnWiring,
 } from '../../../mod.ts';
+import type { DecisionQuestionsBuilder } from '../../../web/src/server/mod.ts';
 import { hostVault, loadHostEnv } from '../../host-env.ts';
 import { registerScriptProviders } from '../../provider-options.ts';
 
@@ -339,7 +341,7 @@ function batches(passages: readonly string[]): string[][] {
   return out;
 }
 
-function passageQuestion(id: string): DecisionQuestion {
+export function passageQuestion(id: string): DecisionQuestion {
   return {
     type: 'choice',
     instructions: `Does state.passages.${id} state a fact a careful researcher would want when answering state.question, including facts about the subject that do not settle it and anything contradictory?`,
@@ -351,13 +353,22 @@ function passageQuestion(id: string): DecisionQuestion {
   };
 }
 
+/** The page reader's questions for one call: one per passage in its state. A studio builds them the same way. */
+export const passageQuestions: DecisionQuestionsBuilder = {
+  build: ({ state }) => {
+    const passages = (state as { passages?: Record<string, unknown> }).passages ?? {};
+    return Object.fromEntries(Object.keys(passages).map((id) => [id, passageQuestion(id)]));
+  },
+};
+
 async function relevantOf(q: string, batch: readonly string[]): Promise<string[]> {
   const ids = batch.map((_, index) => `p${index + 1}`);
+  const state = { question: q, passages: Object.fromEntries(ids.map((id, i) => [id, batch[i]])) };
   const result = await runDecision(
     {
       profile: READER_PROFILE,
-      state: { question: q, passages: Object.fromEntries(ids.map((id, i) => [id, batch[i]])) },
-      questions: Object.fromEntries(ids.map((id) => [id, passageQuestion(id)])),
+      state,
+      questions: await passageQuestions.build({ state, input: undefined }),
     },
     { vault },
   );
@@ -409,6 +420,12 @@ const onStage: StageHandler = async (ctx) => {
       : `Source: ${sourceOf(ctx.tool, input)}\n\n${await readFor(ctx.outputRaw, q)}`;
   return { mutate: { output } };
 };
+
+/** How the researcher runs its turns: its keys, and the page reader at each read. A studio opens it from here. */
+export const theorem = {
+  provider: { vault },
+  prepare: (turn) => ({ ...turn, onStage }),
+} satisfies TurnWiring;
 
 // ---------- the reply and its check ----------
 
@@ -580,142 +597,148 @@ async function seen(): Promise<string[]> {
   return names.sort();
 }
 
-// ---------- `--tools`: one call of each source, no model ----------
+// Run only when started as a script, so a studio setup can load the agent without running it.
+if (import.meta.main) {
+  // ---------- `--tools`: one call of each source, no model ----------
 
-const SAMPLES: Record<string, Record<string, unknown>> = {
-  search_web: { query: 'indirect prompt injection classifier web pages' },
-  read_pages: {
-    urls: ['https://huggingface.co/Horizon-Labs/prompt-injection-guard-small'],
-    question: 'What was it trained on?',
-  },
-  search_papers: { query: 'indirect prompt injection detection', from: '2026-06-01' },
-  read_paper: { id: 'arxiv:2610.28988', query: 'Which datasets are evaluated?' },
-  related_papers: { id: 'arxiv:2410.05451', mode: 'citers', intent: 'prompt injection detection' },
-  list_arxiv: { search_query: 'all:"prompt injection" AND all:detection' },
-  search_models: { search: 'prompt injection' },
-  search_datasets: { search: 'indirect prompt injection' },
-  read_model_card: {
-    owner: 'Horizon-Labs',
-    name: 'prompt-injection-guard-small',
-    question: 'What was it trained on?',
-  },
-  read_dataset_card: {
-    owner: 'microsoft',
-    name: 'llmail-inject-challenge',
-    question: 'How many emails?',
-  },
-  search_github: { q: 'indirect prompt injection detector' },
-  read_readme: { owner: 'microsoft', repo: 'BIPIA', question: 'What attack categories?' },
-  find_library: { libraryName: 'transformers', query: 'ModernBERT classification' },
-  library_docs: {
-    libraryId: '/huggingface/transformers',
-    query: 'ModernBERT sequence classification pooling',
-  },
-  [DEEPWIKI]: { repoName: 'microsoft/BIPIA', question: 'What attack categories does it include?' },
-};
+  const SAMPLES: Record<string, Record<string, unknown>> = {
+    search_web: { query: 'indirect prompt injection classifier web pages' },
+    read_pages: {
+      urls: ['https://huggingface.co/Horizon-Labs/prompt-injection-guard-small'],
+      question: 'What was it trained on?',
+    },
+    search_papers: { query: 'indirect prompt injection detection', from: '2026-06-01' },
+    read_paper: { id: 'arxiv:2610.28988', query: 'Which datasets are evaluated?' },
+    related_papers: {
+      id: 'arxiv:2410.05451',
+      mode: 'citers',
+      intent: 'prompt injection detection',
+    },
+    list_arxiv: { search_query: 'all:"prompt injection" AND all:detection' },
+    search_models: { search: 'prompt injection' },
+    search_datasets: { search: 'indirect prompt injection' },
+    read_model_card: {
+      owner: 'Horizon-Labs',
+      name: 'prompt-injection-guard-small',
+      question: 'What was it trained on?',
+    },
+    read_dataset_card: {
+      owner: 'microsoft',
+      name: 'llmail-inject-challenge',
+      question: 'How many emails?',
+    },
+    search_github: { q: 'indirect prompt injection detector' },
+    read_readme: { owner: 'microsoft', repo: 'BIPIA', question: 'What attack categories?' },
+    find_library: { libraryName: 'transformers', query: 'ModernBERT classification' },
+    library_docs: {
+      libraryId: '/huggingface/transformers',
+      query: 'ModernBERT sequence classification pooling',
+    },
+    [DEEPWIKI]: {
+      repoName: 'microsoft/BIPIA',
+      question: 'What attack categories does it include?',
+    },
+  };
 
-if (Deno.args.includes('--tools')) {
-  for (const name of TOOLS) {
-    let result = 'no result';
-    for await (const event of invokeTool({
-      profile: 'research.scout',
-      name,
-      input: SAMPLES[name],
-      onStage,
-    })) {
-      if (event.type !== 'tool') continue;
-      const call = event.tool;
-      if (call.phase === 'complete') {
-        const text = typeof call.output === 'string' ? call.output : JSON.stringify(call.output);
-        result = `ok ${text.length} chars: ${text.slice(0, 120).replace(/\s+/g, ' ')}`;
+  if (Deno.args.includes('--tools')) {
+    for (const name of TOOLS) {
+      let result = 'no result';
+      for await (const event of invokeTool({
+        profile: 'research.scout',
+        name,
+        input: SAMPLES[name],
+        onStage,
+      })) {
+        if (event.type !== 'tool') continue;
+        const call = event.tool;
+        if (call.phase === 'complete') {
+          const text = typeof call.output === 'string' ? call.output : JSON.stringify(call.output);
+          result = `ok ${text.length} chars: ${text.slice(0, 120).replace(/\s+/g, ' ')}`;
+        }
+        if (call.phase === 'error') result = `FAIL ${JSON.stringify(call).slice(0, 300)}`;
       }
-      if (call.phase === 'error') result = `FAIL ${JSON.stringify(call).slice(0, 300)}`;
+      console.log(name.padEnd(18), result);
     }
-    console.log(name.padEnd(18), result);
+    console.log({ readerUsd });
+    Deno.exit(0);
   }
-  console.log({ readerUsd });
-  Deno.exit(0);
-}
 
-// ---------- the run ----------
+  // ---------- the run ----------
 
-const briefPath = flag('--brief');
-if (!briefPath) throw new Error('Pass --brief <file>');
-const known = await seen();
-const brief = KNOWN_ANSWER
-  ? await Deno.readTextFile(briefPath)
-  : `${await Deno.readTextFile(briefPath)}\n\nThe bench already has these; find others, or say why one deserves another look:\n${known.map((name) => `- ${name}`).join('\n')}`;
+  const briefPath = flag('--brief');
+  if (!briefPath) throw new Error('Pass --brief <file>');
+  const known = await seen();
+  const brief = KNOWN_ANSWER
+    ? await Deno.readTextFile(briefPath)
+    : `${await Deno.readTextFile(briefPath)}\n\nThe bench already has these; find others, or say why one deserves another look:\n${known.map((name) => `- ${name}`).join('\n')}`;
 
-await Deno.mkdir(OUT, { recursive: true });
-const events = await Deno.open(`${OUT}/events.jsonl`, {
-  write: true,
-  create: true,
-  truncate: true,
-});
-const encoder = new TextEncoder();
-let reply: z.infer<typeof replySchema> | undefined;
-let stop = '';
-let usd = 0;
-let tokens = { input: 0, output: 0 };
-let removed = 0;
-let flagged = 0;
-const started = performance.now();
+  await Deno.mkdir(OUT, { recursive: true });
+  const events = await Deno.open(`${OUT}/events.jsonl`, {
+    write: true,
+    create: true,
+    truncate: true,
+  });
+  const encoder = new TextEncoder();
+  let reply: z.infer<typeof replySchema> | undefined;
+  let stop = '';
+  let usd = 0;
+  let tokens = { input: 0, output: 0 };
+  let removed = 0;
+  let flagged = 0;
+  const started = performance.now();
 
-for await (const event of runTurn(
-  {
-    profile: 'research.scout',
-    input: { text: brief },
-    onStage,
-  },
-  { vault },
-)) {
-  await events.write(encoder.encode(`${JSON.stringify(event)}\n`));
-  if (event.type === 'structured') {
-    reply = replySchema.parse(event.structured);
-    removed += event.removed?.length ?? 0;
+  for await (const event of runTurn(
+    theorem.prepare({ profile: 'research.scout', input: { text: brief } }),
+    theorem.provider,
+  )) {
+    await events.write(encoder.encode(`${JSON.stringify(event)}\n`));
+    if (event.type === 'structured') {
+      reply = replySchema.parse(event.structured);
+      removed += event.removed?.length ?? 0;
+    }
+    if (event.type === 'guardrail') flagged++;
+    if (event.type === 'done') {
+      stop = event.stop.kind;
+      usd = event.tokens?.cost?.usd ?? 0;
+      tokens = { input: event.tokens?.input ?? 0, output: event.tokens?.output ?? 0 };
+    }
+    if (event.type === 'error') console.error('error:', JSON.stringify(event).slice(0, 400));
   }
-  if (event.type === 'guardrail') flagged++;
-  if (event.type === 'done') {
-    stop = event.stop.kind;
-    usd = event.tokens?.cost?.usd ?? 0;
-    tokens = { input: event.tokens?.input ?? 0, output: event.tokens?.output ?? 0 };
-  }
-  if (event.type === 'error') console.error('error:', JSON.stringify(event).slice(0, 400));
-}
-events.close();
+  events.close();
 
-if (reply) {
-  await Deno.writeTextFile(`${OUT}/reply.json`, JSON.stringify(reply, null, 2));
-  const at = new Date().toISOString();
-  const keys = known.map(sourceKey);
-  const lines = reply.candidates.map((candidate) =>
+  if (reply) {
+    await Deno.writeTextFile(`${OUT}/reply.json`, JSON.stringify(reply, null, 2));
+    const at = new Date().toISOString();
+    const keys = known.map(sourceKey);
+    const lines = reply.candidates.map((candidate) =>
+      JSON.stringify({
+        run: RUN,
+        at,
+        model: MODEL,
+        seen: keys.includes(sourceKey(candidate.url)),
+        ...candidate,
+      }),
+    );
+    if (lines.length > 0)
+      await Deno.writeTextFile(`${DATA}/research/ledger.jsonl`, `${lines.join('\n')}\n`, {
+        append: true,
+      });
+  }
+
+  console.log(
     JSON.stringify({
       run: RUN,
-      at,
       model: MODEL,
-      seen: keys.includes(sourceKey(candidate.url)),
-      ...candidate,
+      reader: READER,
+      stop,
+      seconds: Math.round((performance.now() - started) / 1000),
+      tokens,
+      usd: Number(usd.toFixed(4)),
+      readerUsd: Number(readerUsd.toFixed(4)),
+      candidates: reply?.candidates.length ?? 0,
+      removed,
+      guardrailEvents: flagged,
+      out: OUT,
     }),
   );
-  if (lines.length > 0)
-    await Deno.writeTextFile(`${DATA}/research/ledger.jsonl`, `${lines.join('\n')}\n`, {
-      append: true,
-    });
 }
-
-console.log(
-  JSON.stringify({
-    run: RUN,
-    model: MODEL,
-    reader: READER,
-    stop,
-    seconds: Math.round((performance.now() - started) / 1000),
-    tokens,
-    usd: Number(usd.toFixed(4)),
-    readerUsd: Number(readerUsd.toFixed(4)),
-    candidates: reply?.candidates.length ?? 0,
-    removed,
-    guardrailEvents: flagged,
-    out: OUT,
-  }),
-);

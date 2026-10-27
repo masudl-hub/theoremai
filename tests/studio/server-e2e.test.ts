@@ -396,6 +396,21 @@ Deno.test(
           lines.slice(1, 5).map((line) => line.trim().split(/\s+/)[0]),
           ['setup', 'agents', 'tools', 'keys'],
         );
+        const model = join(studio.root, 'model.ts');
+        Deno.writeTextFileSync(model, "\nthrow new Error('the setup cannot load');\n", {
+          append: true,
+        });
+        try {
+          const now = await (await studio.call('/api/studio/status')).text();
+          assert(now.includes('The files stopped loading'), now);
+        } finally {
+          Deno.writeFileSync(model, bytesOf('model.ts'));
+        }
+        assert(
+          (await (await studio.call('/api/studio/status')).text()).includes(
+            'theorem studio: nothing to look at',
+          ),
+        );
       });
       await step('opens the project with every provider and agent it registers', () => {
         const agents = opened.workspace.agents.map((agent) => [

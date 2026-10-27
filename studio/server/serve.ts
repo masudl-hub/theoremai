@@ -473,9 +473,10 @@ function watching(request: Request): Response | undefined {
  * `GET <base>/status`: what the command printed when the project opened, as it is now: what
  * loaded, what the keys said, and what to look at. Plain text, for `theorem-studio status`.
  */
-function answerStatus(request: Request): Response | undefined {
+async function answerStatus(request: Request): Promise<Response | undefined> {
   if (request.method !== 'GET' || new URL(request.url).pathname !== STATUS) return undefined;
-  const description = { ...session.project().description, setup: relative(root, setupFile) };
+  // why: the files are read again, so status agrees with them even when no page has asked since.
+  const description = await described();
   const keys = offline ? 'offline' : (keysSaid ?? 'checking');
   const look = alertText(description) ?? 'theorem studio: nothing to look at';
   return new Response(`${loadedText(description, { ...entryAt(), keys })}\n${look}\n`, {
@@ -536,7 +537,7 @@ Deno.serve({ hostname: '127.0.0.1', port, onListen: () => {} }, async (request) 
     running(request) ??
     watching(request) ??
     openedSaying(request) ??
-    answerStatus(request) ??
+    (await answerStatus(request)) ??
     (await answerEvents(request)) ??
     (await answered(request)) ??
     (await answerEdited(request)) ??

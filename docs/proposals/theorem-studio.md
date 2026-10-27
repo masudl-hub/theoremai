@@ -188,6 +188,7 @@ Open about shared settings:
 | D39 | A studio run uses the application's own run wiring, its stage handlers (`onStage`) included. This answers the open question in 5.1. | 27 Oct |
 | D40 | The entry exports `theorem`, a `TurnWiring`: `register`, `provider`, and `prepare`, the turn the app runs from the one it is given. The app's own call sites and the studio use the same value (section 5.8). | 27 Oct, Claude's choice |
 | D41 | A decision whose questions the app builds per call opens with a form for the builder's input, and the studio builds the questions with the app's own function. | 27 Oct, Masud agreed |
+| D42 | The builder is `{ input?, build({ state, input }) }`, and the web decision handler takes it as `questions`, so an app and the studio serve it the same way. `input` is an optional zod schema; the reply carries the questions built. Read from the two apps: Bonsai's page reader needs input beyond the state, and the researcher's questions follow from the state alone. | 27 Oct, Claude's choice |
 
 **How firm each decision is.** The table has two kinds of row:
 
@@ -1068,16 +1069,18 @@ below.
   `credentials`, the handler reads a slot from it first and from its session
   store when the app has none. A sign-in at a gate is written to the session
   store, so the next call finds it.
-- **A decision's questions are the app's, built from a form.** An app that
-  builds questions per call gives the setup its builder and the builder's
-  input as a zod schema. The studio shows the input as a form and builds the
-  questions from what the builder enters. Fixed questions stay a plain record:
+- **A decision's questions are the app's, built per call (D42).** An app
+  that builds questions per call gives `createTheoremDecisionHandler` a
+  builder in place of the record, and the setup exports the same value. The
+  builder reads the state and, when it declares one, an input: a zod schema
+  the page shows as a form above the state, and the handler checks. Fixed
+  questions stay a plain record:
 
   ```ts
-  export const questions = {
-    'research.pagereader': {
-      input: z.object({ passages: z.number().int().min(1).max(12) }),
-      build: ({ passages }) => Object.fromEntries(range(passages).map((n) => [`p${n}`, passageQuestion(`p${n}`)])),
+  export const passageQuestions: DecisionQuestionsBuilder = {
+    build: ({ state }) => {
+      const passages = (state as { passages?: Record<string, unknown> }).passages ?? {};
+      return Object.fromEntries(Object.keys(passages).map((id) => [id, passageQuestion(id)]));
     },
   };
   ```
@@ -1087,25 +1090,26 @@ below.
   What those functions import is not listed: it runs because the entry is
   loaded. No separate list of infrastructure is kept.
 - **Not fixed by this:** a project that reads its keys as it loads (the
-  researcher) still needs them set before the setup imports it. A vault slot
-  that is a function reads the key when a call needs it, and is the answer.
+  researcher) still needs them in the environment the studio starts in. A
+  vault slot that is a function reads the key when a call needs it, and
+  avoids that.
 
 **The sketches.** Each is the whole of what the builder writes.
 
 The researcher, `researcher.ts` (registers its profiles and tools as it loads):
 
 ```ts
-export const theorem: TurnWiring = {
-  provider: { vault: { openrouter: () => hostVault().openrouter ?? '' } },
+export const theorem = {
+  provider: { vault },
   prepare: (turn) => ({ ...turn, onStage }),
-};
+} satisfies TurnWiring;
 ```
 
 `research.studio.setup.ts`:
 
 ```ts
 export const entry = './researcher.ts';
-export const questions = { 'research.pagereader': { input: …, build: … } }; // as above
+export const questions = { 'research.pagereader': passageQuestions };
 ```
 
 Bonsai, `backend/infrastructure/theorem/wiring.ts`, which

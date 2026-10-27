@@ -100,7 +100,7 @@ export type SetupExport = 'questions' | 'images';
 /** The setup module's `export const <name>`, when it writes one. */
 export function setupExport(
   source: ts.SourceFile,
-  name: SetupExport,
+  name: SetupExport | 'entry',
 ): ts.VariableDeclaration | undefined {
   for (const statement of source.statements) {
     if (!ts.isVariableStatement(statement)) continue;
@@ -1253,19 +1253,9 @@ function theoremEntries(root: string, read: ReadFile): Set<string> {
 
 /** The path the setup's `entry` export names, as it writes it: a string the walk follows as an import. */
 function namedEntry(setup: ts.SourceFile): string | undefined {
-  for (const statement of setup.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
-      continue;
-    }
-    for (const declaration of statement.declarationList.declarations) {
-      const value = declaration.initializer && unwrapped(declaration.initializer);
-      if (ts.isIdentifier(declaration.name) && declaration.name.text === 'entry' && value) {
-        if (ts.isStringLiteralLike(value)) return value.text;
-      }
-    }
-  }
-  return undefined;
+  const initializer = setupExport(setup, 'entry')?.initializer;
+  const value = initializer && unwrapped(initializer);
+  return value && ts.isStringLiteralLike(value) ? value.text : undefined;
 }
 
 /** The application entry the setup at `setupFile` names, as a path, read from the file as it is now. */

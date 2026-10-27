@@ -144,28 +144,7 @@ export interface StudioRunnerProps {
  * A runner is one conversation. The chat keeps its transcript when an edit recompiles the draft,
  * so its trace feed outlives each transport too; remount the runner (a new `key`) to start over.
  */
-export function StudioRunner({
-  payload,
-  mode,
-  runtime,
-  trace,
-  className,
-  flush,
-  columns,
-  onActivity,
-  conversation,
-  conversationView,
-  initialText,
-  initialFiles,
-  initialVoice,
-  initialPending,
-  onConversationChange,
-  chatRef,
-  slots,
-  context,
-  tested,
-  traces: given,
-}: StudioRunnerProps) {
+export function StudioRunner({ onActivity, traces: given, ...props }: StudioRunnerProps) {
   const [own] = useState(createTraceFeed);
   const traces = given ?? own;
   const activity = useRef(onActivity);
@@ -177,29 +156,7 @@ export function StudioRunner({
   }, []);
   return (
     <Suspense fallback={<RunLoading />}>
-      <Run
-        payload={payload}
-        mode={mode}
-        runtime={runtime}
-        trace={trace}
-        className={className}
-        flush={flush}
-        columns={columns}
-        conversation={conversation}
-        conversationView={conversationView}
-        initialText={initialText}
-        initialFiles={initialFiles}
-        initialVoice={initialVoice}
-        initialPending={initialPending}
-        onConversationChange={onConversationChange}
-        chatRef={chatRef}
-        slots={slots}
-        context={context}
-        tested={tested}
-        project={project}
-        traces={traces}
-        note={note}
-      />
+      <Run {...props} project={project} traces={traces} note={note} />
     </Suspense>
   );
 }

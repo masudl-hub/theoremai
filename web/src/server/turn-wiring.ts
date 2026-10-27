@@ -15,7 +15,7 @@ import type {
 import type { ToolCredentialSource } from '@theoremjs/agents/kernel';
 
 /** The fields a handler sets on every turn, which `prepare` cannot replace. */
-type HandlerOwned = Pick<
+export type HandlerOwned = Pick<
   TurnRequest,
   'profile' | 'execution' | 'pageExecution' | 'providerState' | 'signal'
 >;

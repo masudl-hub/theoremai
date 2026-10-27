@@ -266,13 +266,18 @@ async function forward(
   } catch {
     return json(502, {}, corsHeaders(request, pageOrigins));
   }
+  return request.method === 'OPTIONS' ? response : watchedRun(request.method, to, response);
+}
+
+/** A run's answer, watched for a failure to tell the terminal of; any other answer as it is. */
+function watchedRun(method: string, to: string, response: Response): Response {
   const profile = to.startsWith(PROFILES)
     ? decodeURIComponent(to.slice(PROFILES.length).split('/')[0] ?? '')
     : undefined;
-  if (profile === undefined || request.method === 'OPTIONS') return response;
+  if (profile === undefined) return response;
   if (verbose)
     console.error(
-      `theorem studio: run ${profile} ${request.method} ${to.slice(PROFILES.length + profile.length) || '/'} → ${response.status}`,
+      `theorem studio: run ${profile} ${method} ${to.slice(PROFILES.length + profile.length) || '/'} → ${response.status}`,
     );
   return watchRun(response, (said) => tell('run', `run ${profile} failed: ${said}`));
 }
@@ -502,16 +507,20 @@ async function answerEvents(request: Request): Promise<Response | undefined> {
   if (request.method !== 'POST') return json(405, {}, cors);
   const sent = await request.text();
   if (sent.length > PAGE_ERROR_BYTES) return json(413, {}, cors);
-  const text = (() => {
-    try {
-      return (JSON.parse(sent) as { text?: unknown }).text;
-    } catch {
-      return undefined;
-    }
-  })();
-  if (typeof text !== 'string' || !text.trim()) return json(400, {}, cors);
-  tell('page', `the page: ${text.trim()}`);
+  const text = pageError(sent);
+  if (!text) return json(400, {}, cors);
+  tell('page', `the page: ${text}`);
   return json(200, {}, cors);
+}
+
+/** The error a page sent as `{ text }`, trimmed; nothing when it sent no text. */
+function pageError(sent: string): string | undefined {
+  try {
+    const { text } = JSON.parse(sent) as { text?: unknown };
+    return typeof text === 'string' ? text.trim() || undefined : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The setup this studio is open on, for a second studio command to find it already running. */
@@ -531,18 +540,24 @@ async function answered(request: Request): Promise<Response | undefined> {
   return 'workspace' in answer ? json(200, answer, cors) : json(answer.status, answer.body, cors);
 }
 
+/** The studio's own routes, in the order they are asked; a request none answers goes to the project. */
+const ROUTES: ((request: Request) => Response | undefined | Promise<Response | undefined>)[] = [
+  running,
+  watching,
+  openedSaying,
+  answerStatus,
+  answerEvents,
+  answered,
+  answerEdited,
+];
+
 Deno.serve({ hostname: '127.0.0.1', port, onListen: () => {} }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
-  return (
-    running(request) ??
-    watching(request) ??
-    openedSaying(request) ??
-    (await answerStatus(request)) ??
-    (await answerEvents(request)) ??
-    (await answered(request)) ??
-    (await answerEdited(request)) ??
-    forward(request)
-  );
+  for (const route of ROUTES) {
+    const response = await route(request);
+    if (response) return response;
+  }
+  return forward(request);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

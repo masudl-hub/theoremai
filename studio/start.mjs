@@ -94,40 +94,9 @@ const setup = await setupToOpen();
 async function read(command, rest) {
   const follow = command === 'errors' && rest.includes('--follow');
   const named = rest.filter((arg) => arg !== '--follow' || command !== 'errors');
-  if (named.length > 1 || named.some((arg) => arg.startsWith('--'))) {
-    console.error(USAGE);
-    process.exit(2);
-  }
+  if (named.length > 1 || named.some((arg) => arg.startsWith('--'))) stopWith(2, USAGE);
   const [name] = named;
-  const setups =
-    name !== undefined && existsSync(path.resolve(from, name))
-      ? [name]
-      : (name === undefined ? findSetups(from) : setupsNamed(findSetups(from), name)).map(
-          (one) => one.file,
-        );
-  const open = studiosOn(
-    await heldPairs(),
-    new Set(setups.map((file) => realpathSync(path.resolve(from, file)))),
-  );
-  if (name !== undefined && setups.length === 0) {
-    console.error(
-      `theorem studio: no setup is named ${name}. This project has:\n\n${setupLines(findSetups(from)).join('\n')}`,
-    );
-    process.exit(2);
-  }
-  if (open.length === 0) {
-    console.error(
-      `theorem studio: no studio is open on ${name ?? from}. Open one: ${COMMAND}${name ? ` ${name}` : ''}`,
-    );
-    process.exit(1);
-  }
-  if (open.length > 1) {
-    console.error(
-      `theorem studio: more than one studio is open here. Name the setup:\n\n${open.map((one) => `  ${path.relative(from, one.setup)}`).join('\n')}`,
-    );
-    process.exit(2);
-  }
-  const [studio] = open;
+  const studio = await studioToRead(name);
   if (command === 'status') {
     console.log(
       `theorem studio: ${path.relative(from, studio.setup)} on ${pageAddress(studio.pair)}/studio/`,
@@ -136,10 +105,50 @@ async function read(command, rest) {
   try {
     await readStudio(studio, command, { follow });
   } catch (error) {
-    console.error(`theorem studio: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
+    stopWith(1, `theorem studio: ${error instanceof Error ? error.message : String(error)}`);
   }
   process.exit(0);
+}
+
+/** The setups a read may mean: the file named, else the ones with the name, else all of them. */
+function setupsToRead(name) {
+  if (name !== undefined && existsSync(path.resolve(from, name))) return [name];
+  const found = findSetups(from);
+  return (name === undefined ? found : setupsNamed(found, name)).map((one) => one.file);
+}
+
+/** The one studio open on those setups; says why there is none, or more than one, and stops. */
+async function studioToRead(name) {
+  const setups = setupsToRead(name);
+  if (name !== undefined && setups.length === 0) {
+    stopWith(
+      2,
+      `theorem studio: no setup is named ${name}. This project has:\n\n${setupLines(findSetups(from)).join('\n')}`,
+    );
+  }
+  const open = studiosOn(
+    await heldPairs(),
+    new Set(setups.map((file) => realpathSync(path.resolve(from, file)))),
+  );
+  if (open.length === 0) {
+    stopWith(
+      1,
+      `theorem studio: no studio is open on ${name ?? from}. Open one: ${COMMAND}${name ? ` ${name}` : ''}`,
+    );
+  }
+  if (open.length > 1) {
+    stopWith(
+      2,
+      `theorem studio: more than one studio is open here. Name the setup:\n\n${open.map((one) => `  ${path.relative(from, one.setup)}`).join('\n')}`,
+    );
+  }
+  return open[0];
+}
+
+/** Says why the command stops, and stops with `code`. */
+function stopWith(code, message) {
+  console.error(message);
+  process.exit(code);
 }
 
 /** Says why no setup opens, and stops. */

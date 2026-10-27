@@ -1227,6 +1227,31 @@ export interface FileStep {
 }
 
 /**
+ * The entry modules of Theorem's own package, when the project is that package: a file there
+ * imports `./mod.ts` where an application imports `@theoremjs/agents`. The walk stops at them, as
+ * it stops at `node_modules`.
+ */
+function theoremEntries(root: string, read: ReadFile): Set<string> {
+  const text = read(resolve(root, 'deno.json'));
+  if (text === undefined) return new Set();
+  let config: { name?: unknown; exports?: unknown };
+  try {
+    config = JSON.parse(text);
+  } catch {
+    return new Set();
+  }
+  if (typeof config.name !== 'string' || !config.name.startsWith('@theoremjs/')) return new Set();
+  const { exports } = config;
+  const entries =
+    typeof exports === 'string'
+      ? [exports]
+      : exports !== null && typeof exports === 'object'
+        ? Object.values(exports).filter((entry) => typeof entry === 'string')
+        : [];
+  return new Set(entries.map((entry) => resolve(root, entry)));
+}
+
+/**
  * Walks the project's files from `entry`, the setup module, following each import. Yields each
  * file as it is read, so a caller can say where the walk is. Returns every file read.
  */
@@ -1236,6 +1261,7 @@ export function* walkProject(
   read: ReadFile,
 ): Generator<FileStep, Map<string, ts.SourceFile>> {
   const files = new Map<string, ts.SourceFile>();
+  const theorem = theoremEntries(root, read);
   const queue: FileStep[] = [{ file: resolve(entry) }];
   for (let step = queue.shift(); step !== undefined; step = queue.shift()) {
     const path = step.file;
@@ -1247,7 +1273,7 @@ export function* walkProject(
     yield step;
     for (const specifier of specifiers(source)) {
       const next = importedFile(path, specifier, (file) => read(file) !== undefined, root);
-      if (next && !files.has(next)) queue.push({ file: next, from: path });
+      if (next && !files.has(next) && !theorem.has(next)) queue.push({ file: next, from: path });
     }
   }
   return files;

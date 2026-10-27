@@ -996,16 +996,32 @@ constants through imports. What the new walk finds is shown the same way.
 3. The view: each part the walk finds, edited where it is a value the studio
    writes today, shown with `file:line` and Open where it is code.
 
+**Settled (27 Oct, Claude's choice).**
+
+- **The entry point is a path.** The setup names it relative to the setup
+  file. The walk reads files, and a module that is loaded does not say which
+  file it came from. The studio loads the same path to run it. The entry must
+  load without starting a server: it exports, and another file listens. When
+  it listens on load, the studio says so and names the line.
+- **The run options are the value the application already writes.** The web
+  handler takes one object, `TheoremHandlerOptions`. What changes per request
+  is already a function of the request in it: `host`, `context`, `provider`.
+  The entry exports that object, and the studio runs with it. Two changes:
+  - The object takes the builder's `onStage`. The handler runs it, then its
+    own steering.
+  - Named studio policy: the studio keeps its own session and conversation
+    stores, so a studio chat never writes to the application's. Every other
+    option runs as the application wrote it.
+- **The walk follows the values Theorem is given, and stops there.** Each
+  function passed to Theorem (a tool handler, `onStage`, `host`, `context`, a
+  provider factory, an item check) is shown with its `file:line` and Open.
+  What those functions import is not listed: it runs because the entry is
+  loaded. No separate list of infrastructure is kept.
+
 **Open.**
 
-- What the entry point is in the setup: a path, or the module itself.
-- How the studio gets the application's run options when the application
-  builds them inside a request handler. The kernel may need one value that
-  holds them, which the application passes and the studio imports. Not
-  designed.
-- Which "code the agents need" the walk follows beyond Theorem's own names:
-  the host context, the session store, the provider settings. To list with
-  Bonsai.
+- An application that calls `runTurn` itself, as Bonsai does, has no handler
+  options to export. To take up with Bonsai.
 
 ## 6. Not this doc
 

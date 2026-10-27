@@ -94,6 +94,8 @@ export const theorem: TurnWiring = {
 
 The studio's chat keeps its own conversation and never writes to your app's stores. `prepare` can change the history it is given.
 
+The studio loads your entry in the environment you start it in. If the entry reads its keys as it loads, from `Deno.env` or a file an environment variable names, set them on the command that starts the studio, as you do for your app: `THEOREM_ENV_FILE=./app.env theorem-studio`.
+
 ### What a setup file exports
 
 The studio reads only these exports. `entry` is required; the others are optional.

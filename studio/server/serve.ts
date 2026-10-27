@@ -248,25 +248,30 @@ async function forward(
   path?: string,
 ): Promise<Response> {
   const url = new URL(request.url);
+  const to = path ?? url.pathname;
   if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-    return forwardSocket(request, `${loaded.origin}${path ?? url.pathname}${url.search}`);
+    return forwardSocket(request, `${loaded.origin}${to}${url.search}`);
   }
   const headers = new Headers(request.headers);
   headers.delete('host');
-  const body =
-    request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
-  const to = path ?? url.pathname;
   let response: Response;
   try {
     response = await fetch(`${loaded.origin}${to}${url.search}`, {
       method: request.method,
       headers,
-      body,
+      body: await bodyOf(request),
     });
   } catch {
     return json(502, {}, corsHeaders(request, pageOrigins));
   }
   return request.method === 'OPTIONS' ? response : watchedRun(request.method, to, response);
+}
+
+/** What a request carries on: nothing for a read. */
+async function bodyOf(request: Request): Promise<ArrayBuffer | undefined> {
+  return request.method === 'GET' || request.method === 'HEAD'
+    ? undefined
+    : await request.arrayBuffer();
 }
 
 /** A run's answer, watched for a failure to tell the terminal of; any other answer as it is. */
@@ -504,7 +509,11 @@ async function answerEvents(request: Request): Promise<Response | undefined> {
   if (request.method === 'GET') {
     return url.searchParams.has('follow') ? events.follow(cors) : json(200, events.list(), cors);
   }
-  if (request.method !== 'POST') return json(405, {}, cors);
+  return request.method === 'POST' ? await keepPageError(request, cors) : json(405, {}, cors);
+}
+
+/** Keeps the error a page `POST`s as `{ text }`. */
+async function keepPageError(request: Request, cors: Record<string, string>): Promise<Response> {
   const sent = await request.text();
   if (sent.length > PAGE_ERROR_BYTES) return json(413, {}, cors);
   const text = pageError(sent);

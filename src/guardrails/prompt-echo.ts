@@ -122,11 +122,14 @@ interface RunSet {
   slotted: Set<string>;
   /** Where in a run the slot can stand. */
   slots: Set<number>;
+  /** Every word a run can hold but the canary's stand-in. */
+  words: Set<string>;
 }
 
 /** A run may not start on the canary's place unless `leading`: a stand-in for it is not prompt text. */
 function addRuns(set: RunSet, readings: PromptReadings, lengths: number[], leading: boolean): void {
   for (const words of readings.plain) {
+    for (const word of words) set.words.add(word);
     for (const length of lengths) {
       for (let from = 0; from + length <= words.length; from++) {
         set.plain.add(words.slice(from, from + length).join(' '));
@@ -170,7 +173,12 @@ function promptGrams(stretches: readonly string[], canary?: string): RunSet {
   ) {
     return gramsCache.grams;
   }
-  const grams: RunSet = { plain: new Set(), slotted: new Set(), slots: new Set() };
+  const grams: RunSet = {
+    plain: new Set(),
+    slotted: new Set(),
+    slots: new Set(),
+    words: new Set(),
+  };
   addRuns(grams, promptReadings(stretches, canary), [PROMPT_ECHO_WORDS], true);
   gramsCache = { stretches, canary, grams };
   return grams;
@@ -197,7 +205,7 @@ function promptShape(stretches: readonly string[], canary?: string): PromptShape
   }
   const readings = promptReadings(stretches, canary);
   const shape: PromptShape = {
-    runs: { plain: new Set(), slotted: new Set(), slots: new Set() },
+    runs: { plain: new Set(), slotted: new Set(), slots: new Set(), words: new Set() },
     prefixes: new Set(),
     longest: 0,
   };
@@ -330,7 +338,14 @@ function echoRanges(
   }
   const words = echoWords(text);
   const ranges: Array<[number, number]> = [];
+  // why: A run holds no word the prompt lacks but the canary's stand-in, so a window with more is skipped unread.
+  const strange = grams.slots.size > 0 ? 1 : 0;
+  const foreign = words.map((entry) => (grams.words.has(entry.word) ? 0 : 1));
+  let outside = foreign.slice(0, PROMPT_ECHO_WORDS - 1).reduce((sum: number, n) => sum + n, 0);
   for (let from = 0; from + PROMPT_ECHO_WORDS <= words.length; from++) {
+    outside += foreign[from + PROMPT_ECHO_WORDS - 1] as number;
+    if (from > 0) outside -= foreign[from - 1] as number;
+    if (outside > strange) continue;
     const run = words.slice(from, from + PROMPT_ECHO_WORDS).map((entry) => entry.word);
     const slot = matchRun(grams, run);
     if (slot === undefined) continue;

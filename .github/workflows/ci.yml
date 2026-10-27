@@ -116,6 +116,7 @@ jobs:
           npm ci
           npm --prefix web ci
           npm --prefix react ci
+          npm --prefix studio ci
 
       - name: Type check tests
         run: deno check $(node scripts/test-shard.mjs 0 1)

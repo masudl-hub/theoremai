@@ -184,12 +184,16 @@ Open about shared settings:
 | D33 | Removing a fresh person is the app's. The studio keeps nothing `fresh` returns. | 16 Oct |
 | D34 | Which existing people to list is the app's: it can name specific people or none. Apps sign in differently. | 16 Oct |
 | D35 | The pick is made in Settings, under People. The chat's header shows who runs act as and opens it. Each person keeps their own chat with each agent, and their own session, so one person cannot answer another's held call. | 16 Oct |
+| D36 | The studio is a projection of the builder's system, never a second truth. Theorem's parts are shown and edited. Code the studio cannot change safely is shown, named, pointed to (`file:line`, Open), and run. Nothing is hidden, and nothing is left out of a run. | 27 Oct |
+| D37 | The setup file names the application's entry point, and the studio walks from there. The studio does not scan the project or guess where the application starts. | 27 Oct |
+| D38 | The walk finds everything the entry point reaches that comes from Theorem's packages, by what each name refers to, not how it is written: an alias, a re-export or a cast is still found. It also finds the code the agents need to run as designed. | 27 Oct |
+| D39 | A studio run uses the application's own run wiring, its stage handlers (`onStage`) included. This answers the open question in 5.1. | 27 Oct |
 
 **How firm each decision is.** Masud said on 8 Oct that many of the
 questions behind this table were not ones he could judge. So the table has
 two kinds of row:
 
-- **In Masud's own words:** D4, D6, D10, D17, D18, D30. These are firm.
+- **In Masud's own words:** D4, D6, D10, D17, D18, D30, D36 to D39. These are firm.
 - **Claude's recommendation, which Masud accepted:** all the others. These
   are defaults. Claude owns them, must be able to explain each one by what
   the builder sees, and brings one back to Masud only when it changes what
@@ -402,6 +406,8 @@ Open questions:
 
 - Does the setup file give the studio the application's own "run a turn"
   function, or only a context?
+  Answered on 27 Oct (D39): the application's own wiring. Section 5.8 says what
+  stands in the way.
 - How many runs make a comparison? Do the tool results stay fixed between
   the two sides?
 
@@ -951,6 +957,64 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
 - A place for what the CLI already does: probe a text, fuzz, bench.
 - Other setups: Deno, Node, a monorepo, and how the command finds the
   project's profiles.
+
+### 5.8 The projection (D36 to D39)
+
+Masud, 27 Oct: the builder names an entry point in the setup. The studio
+walks from it and finds everything imported from Theorem, and the code the
+agents need to run as designed. Theorem's parts are shown and edited. The
+rest is shown, pointed to, and run.
+
+A scan of the whole project was considered and dropped. It finds tests,
+evals, and scripts that import Theorem as well, and cannot say which of them
+the application runs. Guessing that is a second truth. The entry point is
+one line, and a wrong one shows at once.
+
+**What stands in the way today.** Three things.
+
+1. **The walk knows three names.** `studio/server/project-source.ts` reads
+   the project as syntax, with no type checker. It starts at the setup file,
+   follows relative imports only, and finds a call by the name it is written
+   with: `defineProfile`, `registerProfile`, `registerTool`. A stage handler,
+   a guardrail check, a provider, an alias, or a cast is not found. To
+   change: read with the type checker, and find each name that refers to a
+   declaration in `@theoremjs/*`.
+2. **The walk starts at the setup file.** The setup usually registers
+   profiles. The application's run wiring (its session, `runTurn`, or handler
+   call, where `onStage` is passed) is in server code the setup does not
+   import, so the walk never reaches it. To change: the setup names the entry
+   point (D37), and the walk starts there.
+3. **A studio run is the studio's own.** A chat runs through
+   `studio/runtime.ts`. A project load (`studio/server/project.ts`) takes no
+   stage handler from the setup. The web handler takes none from the builder
+   either: it passes only its own steering (`web/src/server/handler.ts`). So
+   a `pre_tool` that refuses a call in the application does not refuse it in
+   the studio. To change: the studio runs with the application's run options,
+   and the web handler takes the builder's `onStage` beside its steering.
+
+**Already built, and kept.** Code in a profile is shown greyed, with
+`Set in code · stepsFor(PLAN) · setup.ts:34` and Open (D12). Save follows
+constants through imports. What the new walk finds is shown the same way.
+
+**Order.**
+
+1. The walk: from the named entry point, with the type checker, listing each
+   Theorem name it reaches and where it is used.
+2. The run: studio runs take the application's run options, `onStage`
+   first, and the web handler takes the builder's `onStage`.
+3. The view: each part the walk finds, edited where it is a value the studio
+   writes today, shown with `file:line` and Open where it is code.
+
+**Open.**
+
+- What the entry point is in the setup: a path, or the module itself.
+- How the studio gets the application's run options when the application
+  builds them inside a request handler. The kernel may need one value that
+  holds them, which the application passes and the studio imports. Not
+  designed.
+- Which "code the agents need" the walk follows beyond Theorem's own names:
+  the host context, the session store, the provider settings. To list with
+  Bonsai.
 
 ## 6. Not this doc
 

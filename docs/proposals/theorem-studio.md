@@ -186,6 +186,8 @@ Open about shared settings:
 | D37 | The setup file names the application's entry point, and the studio walks from there. The studio does not scan the project or guess where the application starts. | 27 Oct |
 | D38 | The walk finds everything the entry point reaches that comes from Theorem's packages, by what each name refers to, not how it is written: an alias, a re-export or a cast is still found. It also finds the code the agents need to run as designed. | 27 Oct |
 | D39 | A studio run uses the application's own run wiring, its stage handlers (`onStage`) included. This answers the open question in 5.1. | 27 Oct |
+| D40 | The entry exports `theorem`, a `TurnWiring`: `register`, `provider`, and `prepare`, the turn the app runs from the one it is given. The app's own call sites and the studio use the same value (section 5.8). | 27 Oct, Claude's choice |
+| D41 | A decision whose questions the app builds per call opens with a form for the builder's input, and the studio builds the questions with the app's own function. | 27 Oct, Masud agreed |
 
 **How firm each decision is.** The table has two kinds of row:
 
@@ -996,32 +998,133 @@ constants through imports. What the new walk finds is shown the same way.
 3. The view: each part the walk finds, edited where it is a value the studio
    writes today, shown with `file:line` and Open where it is code.
 
-**Settled (27 Oct, Claude's choice).**
+**Settled (27 Oct, Claude's choice; the questions form agreed by Masud).**
 
-- **The entry point is a path.** The setup names it relative to the setup
-  file. The walk reads files, and a module that is loaded does not say which
-  file it came from. The studio loads the same path to run it. The entry must
-  load without starting a server: it exports, and another file listens. When
-  it listens on load, the studio says so and names the line.
-- **The run options are the value the application already writes.** The web
-  handler takes one object, `TheoremHandlerOptions`. What changes per request
-  is already a function of the request in it: `host`, `context`, `provider`.
-  The entry exports that object, and the studio runs with it. Two changes:
-  - The object takes the builder's `onStage`. The handler runs it, then its
-    own steering.
-  - Named studio policy: the studio keeps its own session and conversation
-    stores, so a studio chat never writes to the application's. Every other
-    option runs as the application wrote it.
+Two fresh agents wrote a setup for Bonsai and for the researcher from the
+docs alone (27 Oct). Both opened clean on the second launch. Both runs
+would still differ from the app: the Bonsai agent had no place for
+`credentials`, `onStage` and `onAgentCall`, and both guessed the questions a
+decision profile asks. The design below closes those two gaps. The rerun of
+the same trial is its test: a fresh agent should arrive at the sketches
+below.
+
+- **One sentence for the builder.** The setup names the app's entry and holds
+  only what the studio needs that the app does not have: who a run acts as
+  (`people`, `host`), the inputs of a decision's questions, and pictures.
+- **The entry is a path.** The setup exports `entry`, relative to the setup
+  file. The walk reads files, and a loaded module does not say which file it
+  came from. The studio loads the same path to run it. The entry must load
+  without starting a server or a run: it exports, and another file listens.
+- **The entry exports `theorem`, a `TurnWiring` from the kernel.** It is the
+  one value the app's own call sites use, so the studio and the app cannot
+  disagree:
+
+  ```ts
+  export interface TurnWiring {
+    /** Registers the app's profiles and tools. Called once, before the first turn. */
+    register?: () => void | Promise<void>;
+    /** The keys, network and limits each model call runs on. */
+    provider?: ProviderHostOptions;
+    /**
+     * The turn the app runs, from the one it is given: the profile, the input with the
+     * conversation's history, and the app's context as `host`. Set what the app sets per
+     * turn: `system`, `credentials`, `onStage`, `onAgentCall`, `path`, `metadata`.
+     */
+    prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
+  }
+  ```
+
+  An app that calls `runTurn` itself writes
+  `runTurn(await theorem.prepare(turn), theorem.provider)`. The web handler
+  takes `register`, `provider` and `prepare` as options of the same names. This
+  replaces the earlier choice of exporting `TheoremHandlerOptions`: an app
+  that calls `runTurn` itself has none.
+- **`prepare` takes the app's context, not a request.** A `runTurn` call site
+  has no `Request`. The handler already turns a request into the context
+  (`host`), and in the studio the setup's `host(request, actingAs)` does the
+  same from the people pick. `prepare` reads `turn.host`.
+- **History: the studio's chat is its own.** Bonsai fetches history from its
+  own database. The named policy (the studio never writes to the app's
+  stores, D35) means a studio chat keeps its own conversation, and that is the
+  history `prepare` is given. `prepare` may shape it (trim, add context) and
+  return it in `input`. It is not the app's thread for that person, and the
+  page says so.
+- **The app's `onStage` runs first.** The handler runs the app's stage
+  handler, and its own steering when the app's returns nothing. A steer the
+  app's result held back lands at the next stage that allows it.
+- **Credentials: the app's, when `prepare` sets them.** Otherwise the
+  handler's session store, as today.
+- **A decision's questions are the app's, built from a form.** An app that
+  builds questions per call gives the setup its builder and the builder's
+  input as a zod schema. The studio shows the input as a form and builds the
+  questions from what the builder enters. Fixed questions stay a plain record:
+
+  ```ts
+  export const questions = {
+    'research.pagereader': {
+      input: z.object({ passages: z.number().int().min(1).max(12) }),
+      build: ({ passages }) => Object.fromEntries(range(passages).map((n) => [`p${n}`, passageQuestion(`p${n}`)])),
+    },
+  };
+  ```
 - **The walk follows the values Theorem is given, and stops there.** Each
-  function passed to Theorem (a tool handler, `onStage`, `host`, `context`, a
+  function passed to Theorem (a tool handler, `onStage`, `prepare`, `host`, a
   provider factory, an item check) is shown with its `file:line` and Open.
   What those functions import is not listed: it runs because the entry is
   loaded. No separate list of infrastructure is kept.
+- **Not fixed by this:** a project that reads its keys as it loads (the
+  researcher) still needs them set before the setup imports it. A vault slot
+  that is a function reads the key when a call needs it, and is the answer.
 
-**Open.**
+**The sketches.** Each is the whole of what the builder writes.
 
-- An application that calls `runTurn` itself, as Bonsai does, has no handler
-  options to export. To take up with Bonsai.
+The researcher, `researcher.ts` (registers its profiles and tools as it loads):
+
+```ts
+export const theorem: TurnWiring = {
+  provider: { vault: { openrouter: () => hostVault().openrouter ?? '' } },
+  prepare: (turn) => ({ ...turn, onStage }),
+};
+```
+
+`research.studio.setup.ts`:
+
+```ts
+export const entry = './researcher.ts';
+export const questions = { 'research.pagereader': { input: …, build: … } }; // as above
+```
+
+Bonsai, `backend/infrastructure/theorem/wiring.ts`, which
+`runOrchestratorTheoremTurn` also uses:
+
+```ts
+export const theorem: TurnWiring = {
+  register: () => {
+    ensureBonsaiTheoremProfiles();
+    registerPageReaderProfile();
+  },
+  provider: { vault: readBonsaiKeyVault((name) => Deno.env.get(name)) },
+  prepare: async (turn) => {
+    const host = turn.host as BonsaiToolHost;
+    return {
+      ...turn,
+      system: await bonsaiSystemPrompt(host),
+      credentials: bonsaiCredentialSource({ supabase: host.supabase, profileId: host.profileId, actor: turn.path }),
+      onStage: bonsaiToolStage,
+      onAgentCall: bonsaiAgentCall(host),
+    };
+  },
+};
+```
+
+`studio.setup.ts` keeps `people` and `host` as they are, adds
+`export const entry = './backend/infrastructure/theorem/wiring.ts'`, and
+gives the page reader's questions as a builder. Bonsai's keyed plan model
+(`model: billing.tier`) is set in `prepare` too.
+
+**Order of the build.** The run wiring and the questions form first: they are
+what the trial measured. The walk with the type checker (D38) after; the
+trial did not test origins.
 
 ## 6. Not this doc
 

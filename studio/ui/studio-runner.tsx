@@ -3,7 +3,13 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
 import { IconKey } from '@tabler/icons-react';
-import { PaneLoading, PaneState, TheoremChat, useLabels } from '@theoremjs/react/ui';
+import {
+  PaneLoading,
+  PaneState,
+  TheoremChat,
+  TheoremLabelsProvider,
+  useLabels,
+} from '@theoremjs/react/ui';
 import {
   createDecisionTransport,
   createEmbeddingTransport,
@@ -77,6 +83,15 @@ const ProjectLive = lazy(() => liveRun().then((run) => ({ default: run.ProjectLi
 
 /** While a type's runner loads: blank, then the chat's own loading pane if it takes a while. */
 function RunLoading() {
+  // The fallback renders before the runner's own labels provider, so it brings one.
+  return (
+    <TheoremLabelsProvider>
+      <RunLoadingPane />
+    </TheoremLabelsProvider>
+  );
+}
+
+function RunLoadingPane() {
   const t = useLabels();
   return <PaneLoading label={t('@theorem.chat.loading')} />;
 }

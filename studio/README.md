@@ -60,7 +60,7 @@ The command starts two servers that only this machine reaches: your project's se
 Add `"studio": "theorem-studio"` to your scripts to run it as `npm run studio`.
 
 ```text
-theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
+theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet]
 ```
 
 | Option | What it does |
@@ -69,6 +69,7 @@ theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
 | `--editor <command>` | The editor the studio opens a line of your files in. Default: `$VISUAL` or `$EDITOR` when it opens a window, else `code`. |
 | `--deno-config <file>` | The Deno config your project loads with. Default: the `deno.json` or `deno.jsonc` in the folder you ran the command in, else the studio's. |
 | `--no-watch` | Do not watch the files the setup reads. The studio reads them again when you come back to it. |
+| `--quiet` | Do not print what the project has to look at. Without it, the command prints each problem, difference and unregistered profile or tool the page flags, when the project opens and when the list changes. |
 
 ### What a setup file exports
 

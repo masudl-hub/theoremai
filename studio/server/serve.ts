@@ -26,6 +26,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { newConversationKey } from '../conversation-key.ts';
 import { RUNNING_PATH } from '../ports.mjs';
 import { READ_STEPS, type ReadStep } from '../read-steps.ts';
+import { alertText } from './alerts.ts';
 import { createEditedSession } from './edited-session.ts';
 import type { ProjectEdits } from './edits.ts';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
@@ -45,7 +46,7 @@ const setupPath = Deno.args.find(
 );
 if (!setupPath) {
   console.error(
-    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code] [--no-watch]',
+    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code] [--no-watch] [--quiet]',
   );
   Deno.exit(2);
 }
@@ -338,12 +339,27 @@ const editor: EditorHost = {
  */
 async function described(said?: (step: ReadStep) => void): Promise<StudioDescription> {
   const files = await session.read(said);
-  return {
+  const description = {
     ...session.project().description,
     ...files,
     editor: defaultEditor(editor),
     setup: relative(root, setupFile),
   };
+  tellTerminal(description);
+  return description;
+}
+
+/** Whether the command was started without printing what the project has to look at. */
+const quiet = Deno.args.includes('--quiet');
+let told: string | undefined;
+
+/** Prints what the builder should look at when it is not what was printed last. */
+function tellTerminal(description: StudioDescription): void {
+  if (quiet) return;
+  const text = alertText(description);
+  if (text === told) return;
+  told = text;
+  console.error(text ?? 'theorem studio: nothing left to look at');
 }
 
 /** Whether the request asks for the project as the page opens it, and whether for the steps of reading it first. */
@@ -446,3 +462,5 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 console.log(`Theorem Studio: open ${pageOrigins[0]}/studio (server on http://127.0.0.1:${port})`);
+// The project is read once now, so what it has to look at reaches the terminal before the page opens.
+described().catch((error) => console.error(error instanceof Error ? error.message : error));

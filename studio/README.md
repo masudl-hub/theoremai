@@ -73,6 +73,23 @@ theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] 
 | `--offline` | Do not check the keys. Without it, the command sends each provider its models use one request, the `check` its definition declares, and prints whether the key works, is refused, is empty, or could not be checked. It never prints a key. |
 | `--verbose` | Also print a line for every run, as it answers. Without it, only a run that fails prints, with what it said. |
 
+### Reading an open studio
+
+Two more commands read a studio that is open on your project. They change nothing, so you, a script or a coding agent can run them at any time from another terminal:
+
+```text
+theorem-studio status [setup]
+theorem-studio errors [setup] [--follow]
+```
+
+| Command | What it prints |
+| --- | --- |
+| `status` | Where the studio is open, what it loaded, what each key check said, and what to look at now. |
+| `errors` | The last 200 lines the studio printed about the project (what to look at, each key that does not work, each run that fails, each error the page meets), each with its time. |
+| `errors --follow` | The same, then each new line as it comes, until the studio stops. |
+
+With several setups open, name the one to read. The `agents` command runs the same commands through the studio you installed: `npx agents studio status`.
+
 ### The app's entry
 
 The studio runs your agents the way your app runs them. Your app's entry point exports `theorem`, a `TurnWiring` from `@theoremjs/agents`, and your app's own server uses the same object:

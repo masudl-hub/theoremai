@@ -16,6 +16,7 @@ const launchers = [
   'installed.mjs',
   'ports.mjs',
   'setups.mjs',
+  'read-studio.mjs',
   'page.mjs',
   'serve-page.mjs',
 ];

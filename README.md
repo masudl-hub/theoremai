@@ -422,7 +422,7 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/host` / `@theoremjs/agents/host` | Optional Deno HTTP helpers (`json`, status mapping, cutout mint flush). |
 | `jsr:@theoremjs/agents/interface` / `@theoremjs/agents/interface` | Headless interface projection of a profile (transcript, composer, gates) that UI packages such as `@theoremjs/react` render. |
 | `jsr:@theoremjs/agents/surface` / `@theoremjs/agents/surface` | Surfaces: the agent sees and works in a client's screen through two tools, `look` and `act`. Secrets reach the agent only as cards. |
-| `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
+| `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). `agents studio …` runs the studio the project installed. |
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
 | `jsr:@theoremjs/agents/evals` / `@theoremjs/agents/evals` | Graders that read trace records and write their results as trace records through the same sink. |
 

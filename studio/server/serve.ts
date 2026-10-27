@@ -310,6 +310,7 @@ function forwardSocket(request: Request, to: string): Response {
 /** Where the project serves each profile's runs. */
 const PROFILES = `${STUDIO_BASE}/profiles/`;
 const EVENTS = `${STUDIO_BASE}/events`;
+const STATUS = `${STUDIO_BASE}/status`;
 const SAVE = `${STUDIO_BASE}/save`;
 const WATCH = `${STUDIO_BASE}/watch`;
 const OPEN = `${STUDIO_BASE}/open`;
@@ -378,6 +379,16 @@ async function described(said?: (step: ReadStep) => void): Promise<StudioDescrip
 const quiet = Deno.args.includes('--quiet');
 /** Whether the command also prints each run as it ends, not only the ones that fail. */
 const verbose = Deno.args.includes('--verbose');
+/** Whether the command was started without asking each provider whether its key works. */
+const offline = Deno.args.includes('--offline');
+/** What the key checks said: none until they answer. */
+let keysSaid: string[] | undefined;
+
+/** The entry the setup names, from the folder the command ran in. */
+function entryAt(): { entry?: string } {
+  const entry = entryOf(setupFile);
+  return entry ? { entry: relative(root, entry) } : {};
+}
 /** What happened that the builder should know of, for `theorem-studio errors` to read. */
 const events = createEventLog();
 /** What was printed last: `null` before the first print, so a clean project still says so. */
@@ -395,7 +406,8 @@ function tellTerminal(description: StudioDescription): void {
   const first = told === null;
   told = text;
   const said = text ?? `theorem studio: nothing ${first ? '' : 'left '}to look at`;
-  events.add('look', said);
+  // why: a project that opens clean has nothing to keep; one that comes clean later does.
+  if (!(first && text === undefined)) events.add('look', said);
   if (!quiet) console.error(said);
 }
 
@@ -457,6 +469,20 @@ function watching(request: Request): Response | undefined {
   return feed ? feed.subscribe(cors) : new Response(null, { status: 204, headers: cors });
 }
 
+/**
+ * `GET <base>/status`: what the command printed when the project opened, as it is now: what
+ * loaded, what the keys said, and what to look at. Plain text, for `theorem-studio status`.
+ */
+function answerStatus(request: Request): Response | undefined {
+  if (request.method !== 'GET' || new URL(request.url).pathname !== STATUS) return undefined;
+  const description = { ...session.project().description, setup: relative(root, setupFile) };
+  const keys = offline ? 'offline' : (keysSaid ?? 'checking');
+  const look = alertText(description) ?? 'theorem studio: nothing to look at';
+  return new Response(`${loadedText(description, { ...entryAt(), keys })}\n${look}\n`, {
+    headers: { 'content-type': 'text/plain; charset=utf-8', ...corsHeaders(request, pageOrigins) },
+  });
+}
+
 /** The longest error the page may send. */
 const PAGE_ERROR_BYTES = 8000;
 
@@ -510,6 +536,7 @@ Deno.serve({ hostname: '127.0.0.1', port, onListen: () => {} }, async (request) 
     running(request) ??
     watching(request) ??
     openedSaying(request) ??
+    answerStatus(request) ??
     (await answerEvents(request)) ??
     (await answered(request)) ??
     (await answerEdited(request)) ??
@@ -530,17 +557,11 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 console.log(`Theorem Studio: open ${pageOrigins[0]}/studio (server on http://127.0.0.1:${port})`);
-/** Whether the command was started without asking each provider whether its key works. */
-const offline = Deno.args.includes('--offline');
 if (!quiet) {
-  const entry = entryOf(setupFile);
   console.error(
     loadedText(
       { ...first.description, setup: relative(root, setupFile) },
-      {
-        ...(entry ? { entry: relative(root, entry) } : {}),
-        keys: offline ? 'offline' : 'checking',
-      },
+      { ...entryAt(), keys: offline ? 'offline' : 'checking' },
     ),
   );
 }
@@ -551,7 +572,17 @@ if (!offline) {
   fetch(session.project().origin + KEYS_PATH)
     .then((response) => response.json() as Promise<KeyCheck[]>)
     .then((checks) => {
-      for (const check of checks) tell('key', keyLine(check));
+      keysSaid = checks.map(keyLine);
+      for (const [at, check] of checks.entries()) {
+        const line = keysSaid[at] ?? '';
+        // A key that works is said once, here, and is not kept as something that went wrong.
+        if (check.state === 'accepted') {
+          if (!quiet) console.error(`theorem studio: ${line}`);
+        } else tell('key', line);
+      }
     })
-    .catch((error) => tell('key', `the keys were not checked: ${error}`));
+    .catch((error) => {
+      keysSaid = [`not checked: ${error}`];
+      tell('key', `the keys were not checked: ${error}`);
+    });
 }

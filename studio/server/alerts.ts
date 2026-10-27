@@ -9,10 +9,13 @@
 import type { KeyCheck } from '@theoremjs/agents';
 import type { StudioDescription } from './handler.ts';
 
-/** What the project loaded, and from where, as the lines the command prints first. */
+/**
+ * What the project loaded, and from where, as the lines the command prints first. `keys` is
+ * what the checks said, once they have.
+ */
 export function loadedText(
   description: StudioDescription,
-  at: { entry?: string; keys: 'checking' | 'offline' },
+  at: { entry?: string; keys: 'checking' | 'offline' | readonly string[] },
 ): string {
   const { agents, toolSpecs } = description.workspace;
   const agentList = agents.map((agent) => {
@@ -29,7 +32,9 @@ export function loadedText(
       ? 'no model names a provider'
       : at.keys === 'offline'
         ? 'not checked (--offline)'
-        : `checking ${[...named].join(', ')}…`;
+        : at.keys === 'checking'
+          ? `checking ${[...named].join(', ')}…`
+          : at.keys.join('\n          ');
   return [
     `theorem studio: ${description.project}`,
     `  setup   ${description.setup ?? 'none'}${at.entry ? ` → entry ${at.entry}` : ''}`,

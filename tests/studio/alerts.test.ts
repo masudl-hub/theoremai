@@ -70,6 +70,12 @@ Deno.test('the command first says what loaded: the setup, its entry, each agent,
     loadedText(LOADED, { keys: 'offline' }).split('\n')[4],
     '  keys    not checked (--offline)',
   );
+  assertEquals(
+    loadedText(LOADED, { keys: ['key for gemini (GEMINI) works', 'key for openrouter is empty'] })
+      .split('\n')
+      .slice(4),
+    ['  keys    key for gemini (GEMINI) works', '          key for openrouter is empty'],
+  );
 });
 
 Deno.test('each key check is one line, with what the provider said and never more', () => {

@@ -360,7 +360,7 @@ Deno.test(
         });
       });
       await step(
-        'keeps what the page met and what to look at, for the errors command',
+        'keeps what the page met, and not a clean opening, for the errors command',
         async () => {
           assertEquals(
             (await studio.post('/api/studio/events', { text: 'TypeError: x is undefined' })).status,
@@ -380,9 +380,23 @@ Deno.test(
             kept.filter((event) => event.kind === 'page').map((event) => event.text),
             ['the page: TypeError: x is undefined'],
           );
-          assert(kept.some((event) => event.kind === 'look'));
+          // why: the project opened with nothing to look at, which is not worth keeping.
+          assertEquals(
+            kept.filter((event) => event.kind === 'look'),
+            [],
+          );
         },
       );
+      await step('says what it loaded, as the status command prints it', async () => {
+        const status = await studio.call('/api/studio/status');
+        assertEquals(status.headers.get('content-type'), 'text/plain; charset=utf-8');
+        const lines = (await status.text()).split('\n');
+        assertEquals(lines[0]?.startsWith('theorem studio: '), true);
+        assertEquals(
+          lines.slice(1, 5).map((line) => line.trim().split(/\s+/)[0]),
+          ['setup', 'agents', 'tools', 'keys'],
+        );
+      });
       await step('opens the project with every provider and agent it registers', () => {
         const agents = opened.workspace.agents.map((agent) => [
           agent.identity.agentId,

@@ -6,7 +6,7 @@
  * @module
  */
 
-import { argv, exit } from 'node:process';
+import { argv, cwd, exit } from 'node:process';
 import { benchCommand } from './commands/bench.ts';
 import { detectCompileCommand } from './commands/detect-compile.ts';
 import { evalCommand } from './commands/eval.ts';
@@ -14,6 +14,7 @@ import { fuzzCanaryCommand } from './commands/fuzz-canary.ts';
 import { fuzzGuardrailsCommand } from './commands/fuzz-guardrails.ts';
 import { listProfilesCommand, showProfileCommand } from './commands/profile.ts';
 import { runCommand } from './commands/run.ts';
+import { studioCommand } from './commands/studio.ts';
 import { testProfileCommand } from './commands/test.ts';
 
 function printHelp(): void {
@@ -54,6 +55,10 @@ COMMANDS:
     --verbose, -v      Print errorInternal and evidence.raw while running
     --trace            Capture a TraceRecord and print it after the turn
     --trace-dir <path> Also append trace JSONL under this directory
+
+  studio [args]        Run the studio this project installed (@theoremjs/studio), with its arguments
+    status [setup]     What the open studio loaded, what its keys said, what to look at
+    errors [setup]     What the open studio told the terminal; --follow keeps printing
 
   test                 Run stress matrix or custom profile tests
     --profile, -p <id> Target profile ID registered by your host app
@@ -255,6 +260,10 @@ async function handleDetectCompile(flags: ParsedFlags): Promise<void> {
 
 /** Unknown or omitted commands print help; a command that cannot continue exits 1. */
 export async function main(cliArgs: string[] = argv.slice(2)): Promise<void> {
+  // why: the studio parses its own arguments, so they go to it as they were given.
+  if (cliArgs[0] === 'studio') {
+    exit(await studioCommand(cliArgs.slice(1), cwd()));
+  }
   const flags = parseFlags(cliArgs);
   const command = flags._[0] || (flags.help ? 'help' : 'help');
 

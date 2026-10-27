@@ -163,6 +163,20 @@ for await (const event of runTurn(
 
 Every event is typed. A `structured` event arrives only after validation and the egress checks pass. The `done` event carries a normalized `stop`: `completed`, `length`, `gate`, `cancelled`, or another kind. Read `stop` to decide whether to continue, resume, or stop.
 
+When your app adds to each turn (a system prompt, credentials, a stage handler), write it once as a `TurnWiring` and use it at every call site. A web handler takes the same `prepare`, and Theorem Studio runs your turns with it:
+
+```ts
+import { runTurn, type TurnWiring } from "@theoremjs/agents";
+
+export const theorem = {
+  provider: { vault: { openrouter: apiKey } },
+  prepare: (turn) => ({ ...turn, system: "Answer in the customer's language." }),
+} satisfies TurnWiring;
+
+const turn = { profile: "support.agent", input: { text: "Why did the export fail?" } };
+for await (const event of runTurn(await theorem.prepare(turn), theorem.provider)) send(event);
+```
+
 ---
 
 ## Profile types

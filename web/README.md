@@ -236,6 +236,7 @@ const transport = withPageToolDispatch(
 | `provider` | Host options, including the credential vault. A function can return these options per request, for example for tenant-specific credentials. |
 | `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie that lasts 30 days. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
+| `prepare` | Your app's own turn, from the one the handler builds (`TurnWiring.prepare` from `@theoremjs/agents`). Set what your app sets per turn, such as `system`, `credentials`, `onStage` and `onAgentCall`; read your app data as `turn.host`. The handler keeps its profile, its tool execution and its abort. Your `onStage` runs before the handler's steering, and your `credentials` are read before the session's. |
 | `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
 | `conversationStore` | Where the conversation is kept. Required, except for a stateless profile, which must not have one. See [Keep the conversation](#keep-the-conversation). |
 | `sessionStore`, `steerInbox` | Where open gates are kept, and where steers and stops reach a running turn. Default: process memory, which reaches only turns this process runs. On more than one instance, give a shared `SteerInbox`. |

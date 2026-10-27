@@ -1039,7 +1039,8 @@ below.
 
   An app that calls `runTurn` itself writes
   `runTurn(await theorem.prepare(turn), theorem.provider)`. The web handler
-  takes `register`, `provider` and `prepare` as options of the same names. This
+  takes `provider` and `prepare` as options of the same names; the app calls
+  `register` before it creates the handler, which registers its profile then. This
   replaces the earlier choice of exporting `TheoremHandlerOptions`: an app
   that calls `runTurn` itself has none.
 - **The handler keeps its own fields.** Whatever `prepare` returns, the

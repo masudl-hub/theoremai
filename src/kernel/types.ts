@@ -208,6 +208,7 @@ export interface ProfileImageSpec {
 }
 
 import type { DecisionModelBinding, ModelBinding } from './protocols/binding.ts';
+import type { ProviderHostOptions } from './protocols/runtime.ts';
 
 export type { DecisionModelBinding, ModelBinding };
 
@@ -1058,6 +1059,25 @@ export interface TurnRequest {
    * refuse the call. Omit it: the agent runs on what the model sent.
    */
   onAgentCall?: AgentCallHook;
+}
+
+/**
+ * How an application runs its turns: the one value its own call sites, its web handler and the
+ * studio all use, so they cannot run a turn differently. An app that calls `runTurn` itself
+ * writes `runTurn(await wiring.prepare(turn), wiring.provider)`.
+ */
+export interface TurnWiring {
+  /** Registers the application's profiles and tools. Called once, before the first turn. */
+  register?: () => void | Promise<void>;
+  /** The keys, network and limits each model call runs on. */
+  provider?: ProviderHostOptions;
+  /**
+   * The turn the application runs, from the one it is given: the profile, the input with the
+   * conversation's history, and the application's context as `host`. Set what the application
+   * sets per turn, such as `system`, `credentials`, `onStage`, `onAgentCall`, `path` and
+   * `metadata`. Text, image and speech turns run through it.
+   */
+  prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
 }
 
 /** A profile projected for a client, with its secrets and server-only fields removed. */

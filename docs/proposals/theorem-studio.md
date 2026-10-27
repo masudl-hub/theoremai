@@ -1011,6 +1011,9 @@ below.
 - **One sentence for the builder.** The setup names the app's entry and holds
   only what the studio needs that the app does not have: who a run acts as
   (`people`, `host`), the inputs of a decision's questions, and pictures.
+- **The setup's `default()` goes.** Registration is the app's, so it moves to
+  the entry's `register`. A setup that still exports `default()` fails at
+  open and names the move.
 - **The entry is a path.** The setup exports `entry`, relative to the setup
   file. The walk reads files, and a loaded module does not say which file it
   came from. The studio loads the same path to run it. The entry must load
@@ -1039,21 +1042,31 @@ below.
   takes `register`, `provider` and `prepare` as options of the same names. This
   replaces the earlier choice of exporting `TheoremHandlerOptions`: an app
   that calls `runTurn` itself has none.
+- **The handler keeps its own fields.** Whatever `prepare` returns, the
+  handler runs the turn with its own `profile`, `execution`, `pageExecution`,
+  `providerState` and `signal`: a `prepare` that leaves out `...turn` cannot
+  break gates or swap the profile. `prepare` sets everything else.
+- **`prepare` is for turns.** Text, image and speech turns run through it.
+  A decision, an embedding and a live session take `provider` alone.
 - **`prepare` takes the app's context, not a request.** A `runTurn` call site
   has no `Request`. The handler already turns a request into the context
   (`host`), and in the studio the setup's `host(request, actingAs)` does the
   same from the people pick. `prepare` reads `turn.host`.
+- **Named studio policy: the studio keeps its own session and conversation
+  stores,** so a studio chat never writes to the application's. Every other
+  option runs as the application wrote it.
 - **History: the studio's chat is its own.** Bonsai fetches history from its
-  own database. The named policy (the studio never writes to the app's
-  stores, D35) means a studio chat keeps its own conversation, and that is the
-  history `prepare` is given. `prepare` may shape it (trim, add context) and
+  own database. Under the policy above, a studio chat keeps its own
+  conversation, and that is the history `prepare` is given. `prepare` may shape it (trim, add context) and
   return it in `input`. It is not the app's thread for that person, and the
   page says so.
 - **The app's `onStage` runs first.** The handler runs the app's stage
   handler, and its own steering when the app's returns nothing. A steer the
   app's result held back lands at the next stage that allows it.
-- **Credentials: the app's, when `prepare` sets them.** Otherwise the
-  handler's session store, as today.
+- **Credentials: the app's first, then the session's.** When `prepare` sets
+  `credentials`, the handler reads a slot from it first and from its session
+  store when the app has none. A sign-in at a gate is written to the session
+  store, so the next call finds it.
 - **A decision's questions are the app's, built from a form.** An app that
   builds questions per call gives the setup its builder and the builder's
   input as a zod schema. The studio shows the input as a form and builds the
@@ -1116,6 +1129,13 @@ export const theorem: TurnWiring = {
   },
 };
 ```
+
+`bonsaiSystemPrompt` is a function Bonsai would write; it does not exist
+today. Bonsai's prompt assembly (`assembleHostTurnPrompt`) takes the inbound
+message's state as well: media, a group payload, a proactive wake. To use
+the wiring, Bonsai carries that state on its context (`host`), optional, and
+moves the assembly behind `prepare`. A studio run's context has none of it,
+so it is a plain web turn for the keeper picked.
 
 `studio.setup.ts` keeps `people` and `host` as they are, adds
 `export const entry = './backend/infrastructure/theorem/wiring.ts'`, and

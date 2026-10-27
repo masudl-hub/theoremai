@@ -4,7 +4,7 @@ import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 registerFixtureProviders(defaultKernelScope);
 
 import { assertEquals } from '@std/assert';
-import { type DecisionQuestion, registerProfile } from '../../mod.ts';
+import { type DecisionQuestion, registerProfile, z } from '../../mod.ts';
 import { compileWorkspace } from '../../studio/compile-workspace.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
@@ -17,6 +17,7 @@ import {
 } from '../../studio/server/handler.ts';
 import { projectDiffers } from '../../studio/server/save.ts';
 import { workspaceFromDraft } from '../../studio/workspace.ts';
+import type { DecisionQuestionsBuilder } from '../../web/src/server/mod.ts';
 
 const HOST = '127.0.0.1:4983';
 const BASE = `http://${HOST}/api/studio`;
@@ -192,4 +193,92 @@ Deno.test('a decision made in the studio loads from its files as what was tested
   assertEquals(await differs(made.questions ?? {}), []);
   // Files that ask something else are not what was tested.
   assertEquals(await differs(questions), [made.agentId]);
+});
+
+registerProfile({
+  type: 'decision',
+  id: 'reader-desk',
+  identity: { handle: 'reader' },
+  models: {
+    jev: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+  },
+  inputs: { state: 'json', maxStateBytes: 400 },
+  decision: { contract: 'reader.v1' },
+});
+
+/** One question per passage in the state, about the topic the run's form names. */
+const topic = z.object({ topic: z.string().min(1) });
+const perPassage: DecisionQuestionsBuilder<unknown> = {
+  input: topic,
+  build: ({ state, input }) =>
+    Object.fromEntries(
+      Object.keys((state as { passages: Record<string, string> }).passages).map((id) => [
+        id,
+        {
+          type: 'choice' as const,
+          instructions: `Does state.passages.${id} speak to ${topic.parse(input).topic}?`,
+          criteria: { ask_user: 'It does.', execute: 'It does not.' },
+        },
+      ]),
+    ),
+};
+
+const built = createStudioHandler({
+  conversationKey: newConversationKey(),
+  project: 'decisions',
+  pageOrigins: [],
+  listenHost: HOST,
+  questions: { 'reader-desk': perPassage },
+  provider: {
+    vault: { slot_a: 'k' },
+    fetch: (_url, init) => {
+      asked.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(Response.json(jevReply));
+    },
+  },
+});
+
+function callBuilt(path: string, body?: unknown): Promise<Response> {
+  return built(
+    new Request(`${BASE}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { host: HOST, 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+  );
+}
+
+Deno.test('a decision whose questions the app builds opens holding none, and compiles', async () => {
+  const described: StudioDescription = await (await callBuilt('')).json();
+  const agent = described.workspace.agents.find((held) => held.identity.agentId === 'reader-desk');
+  assertEquals([agent?.decision.questionsBuilt, agent?.decision.questions], [true, []]);
+  assertEquals(
+    described.problems.some((problem) => problem.profile === 'reader-desk'),
+    false,
+  );
+  const compiled = compileWorkspace(described.workspace, ON_OWN_KEYS);
+  assertEquals(compiled.ok, true);
+});
+
+Deno.test("a built decision shows the page its builder's input, and asks what it builds", async () => {
+  const { interface: iface } = await (await callBuilt('/profiles/reader-desk')).json();
+  assertEquals([iface.questions, iface.build.input.required], [[], ['topic']]);
+  asked.length = 0;
+  const response = await callBuilt('/profiles/reader-desk/decide', {
+    state: { passages: { next: 'Ferns like shade.' } },
+    input: { topic: 'light' },
+  });
+  const { result } = await response.json();
+  assertEquals(response.status, 200);
+  assertEquals(result.questions, [{ id: 'next', type: 'choice', labels: ['ask_user', 'execute'] }]);
+  assertEquals(JSON.stringify(asked).includes('speak to light'), true);
+});
+
+Deno.test('a builder whose input is not a zod schema is named, not run', () => {
+  assertEquals(questionsFault('desk', perPassage), undefined);
+  assertEquals(questionsFault('desk', { build: () => ({}) }), undefined);
+  assertEquals(
+    questionsFault('desk', { input: { topic: 'string' }, build: () => ({}) }),
+    'The questions the setup file exports for desk build from an `input` that is not a zod schema.',
+  );
 });

@@ -275,7 +275,7 @@ import { TheoremDecision } from '@theoremjs/react/ui';
 <TheoremDecision endpoint="/api/decision" />
 ```
 
-- `questions` maps each question id to its definition.
+- `questions` maps each question id to its definition. When the questions depend on the decision, such as one question for each passage in the state, pass a builder instead (below).
 - `images` is optional. It holds pictures a decision can send, by reference, such as `<ghs02>` in "Which item matches <ghs02>?". The kernel sends only the ones that the state or a question references. The page sees them and refuses its own image under one of their names.
 - `vault` holds the keys of the profile, by slot.
 - `metadata` is optional. It adds data, such as the signed-in user, to the trace record of each decision.
@@ -292,7 +292,29 @@ Pass `onQuestion` to open a question where it is set up, such as in an editor. E
 
 Pass `questionText`, each question's text by its id, to show it under its answer's title, cut to two lines with the rest on hover. The page is never sent a question's instructions, so it shows only the text you give it.
 
-For your own UI, use `useTheoremDecision`. Its `decide(state, assets)` takes the images by reference.
+When the questions change from one decision to the next, `questions` can be a builder, `{ input?, build }`. `build({ state, input })` returns the questions of one decision. `input` is optional: a zod schema for what the page fills in beside the state. The handler checks the posted input against it before `build` runs, and refuses a decision whose input does not fit. `TheoremDecision` shows the input as a form above the state. Each answer shows the questions that the builder made for its decision:
+
+```ts
+import { z } from '@theoremjs/agents';
+import type { DecisionQuestionsBuilder } from '@theoremjs/web/server';
+
+const perPassage: DecisionQuestionsBuilder<{ topic: string }> = {
+  input: z.object({ topic: z.string() }),
+  build: ({ state, input }) =>
+    Object.fromEntries(
+      Object.keys((state as { passages: Record<string, string> }).passages).map((id) => [
+        id,
+        {
+          type: 'choice',
+          instructions: `Does state.passages.${id} speak to ${input.topic}?`,
+          criteria: { yes: 'It does.', no: 'It does not.' },
+        },
+      ]),
+    ),
+};
+```
+
+For your own UI, use `useTheoremDecision`. Its `decide(state, assets, input)` takes the images by reference, and the builder's input when the profile's interface has `build.input`. A result from a builder carries the `questions` it answers.
 
 ### Embedding
 

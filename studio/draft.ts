@@ -424,6 +424,8 @@ export interface DecisionDraft {
   /** `null` is the studio's most. */
   maxStateBytes: number | null;
   questions: DecisionQuestionDraft[];
+  /** The application builds the questions for each decision, with the builder the setup's `questions` names. The draft holds none. */
+  questionsBuilt?: true;
   images: DecisionImageDraft[];
 }
 

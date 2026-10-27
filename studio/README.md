@@ -102,7 +102,7 @@ The studio reads only these exports. `entry` is required; the others are optiona
 |---|---|
 | `entry` | The path of your app's entry point, from the setup file: `export const entry = './server/theorem.ts'`. The studio loads its `theorem`, and reads the files it imports as part of the project. |
 | `people`, `host` | Who a run's tools act for (below). |
-| `questions` | What each decision profile asks, by the profile's id: `{ [profileId]: { [questionId]: DecisionQuestion } }`. |
+| `questions` | What each decision profile asks, by the profile's id: `{ [profileId]: { [questionId]: DecisionQuestion } }`. When your app builds a profile's questions for each decision, export the builder your app passes to `createTheoremDecisionHandler` instead, `{ input?, build }`: the run shows a form for `input` above the state, and each answer shows the questions `build` made. The editor shows where the builder is and lists no questions. |
 | `images` | The pictures each decision profile can send, by the profile's id. A decision sends only those its state or questions name: `{ [profileId]: { [reference]: DecisionAsset } }`, where a reference is the name its questions write, such as `'<ghs02>'`. |
 
 A setup file that still exports `default()` or `provider` does not open: the command names the move to the entry.

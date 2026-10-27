@@ -4,6 +4,9 @@ import {
   createDecisionTransport,
   type DecisionInterface,
   type DecisionTransport,
+  type JsonSchema,
+  missingFields,
+  sampleFromSchema,
 } from '@theoremjs/web/client';
 import { type ReactNode, useMemo, useRef, useState } from 'react';
 import {
@@ -28,6 +31,7 @@ import { ImageDrop } from './DecisionImages.tsx';
 import type { LabelText } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { PaneFailure, PaneLoading } from './PaneState.tsx';
+import { SchemaFields } from './SchemaFields.tsx';
 import { StateFields, StateImages } from './StateFields.tsx';
 import { useTraceInspector } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
@@ -122,22 +126,35 @@ function useDecisionState(defaultState: string, maxStateBytes: DecisionInterface
   return { text, setText, check, shown, setView };
 }
 
-/** The state, as fields or JSON, and Decide. */
+/** What the host's question builder takes beside the state, and the fields it still needs. */
+function useBuildInput(schema: JsonSchema | undefined) {
+  const [input, setInput] = useState<Record<string, unknown>>(() =>
+    schema ? sampleFromSchema(schema) : {},
+  );
+  const missing = schema ? missingFields(schema, input) : [];
+  return { schema, input, setInput, missing };
+}
+
+/** The builder's input, then the state, as fields or JSON, and Decide. */
 function DecisionRequest({
   form,
+  built,
   iface,
   images,
   onImages,
   note,
+  isReady,
   isRunning,
   onRun,
   onStop,
 }: {
   form: ReturnType<typeof useDecisionState>;
+  built: ReturnType<typeof useBuildInput>;
   iface: DecisionInterface;
   images: DecisionImages;
   onImages: (next: DecisionImages) => void;
   note: string | null;
+  isReady: boolean;
   isRunning: boolean;
   onRun: () => void;
   onStop: () => void;
@@ -156,6 +173,9 @@ function DecisionRequest({
       onView={setView}
       onRun={onRun}
     >
+      {built.schema ? (
+        <SchemaFields schema={built.schema} value={built.input} onChange={built.setInput} />
+      ) : null}
       {fields !== undefined ? (
         <StateImages value={{ images, onImages }}>
           <StateFields
@@ -185,7 +205,7 @@ function DecisionRequest({
       ) : null}
       <RunBar
         note={note}
-        isReady={check.ok}
+        isReady={isReady}
         isRunning={isRunning}
         runLabel={t('@theorem.decision.decide')}
         runningLabel={t('@theorem.decision.deciding')}
@@ -223,7 +243,9 @@ function DecisionAnswered({
       ) : null}
       {decision.result ? (
         <TheoremDecisionAnswers
-          iface={iface}
+          iface={
+            decision.result.questions ? { ...iface, questions: decision.result.questions } : iface
+          }
           result={decision.result}
           asked={asked}
           onQuestion={onQuestion}
@@ -275,6 +297,7 @@ function DecisionBody({
   const t = useLabels();
   const bytes = useBytes();
   const form = useDecisionState(defaultState, iface.maxStateBytes);
+  const built = useBuildInput(iface.build?.input);
   const { check } = form;
   const [images, setImages] = useState<DecisionImages>(defaultImages ?? {});
   /** The images and state the answers were asked about, kept with them: later edits don't redraw them. */
@@ -282,10 +305,14 @@ function DecisionBody({
   const inspector = useTraceInspector(iface, transport.traces, trace);
 
   const decide = () => {
-    if (!check.ok) return;
+    if (!check.ok || built.missing.length > 0) return;
     const sent = namedImages(images, check.state);
     setAsked({ images: { ...iface.images, ...sent }, state: check.state });
-    void decision.decide(check.state, Object.keys(sent).length > 0 ? sent : undefined);
+    void decision.decide(
+      check.state,
+      Object.keys(sent).length > 0 ? sent : undefined,
+      built.schema ? built.input : undefined,
+    );
   };
 
   return (
@@ -300,10 +327,16 @@ function DecisionBody({
     >
       <DecisionRequest
         form={form}
+        built={built}
         iface={iface}
         images={images}
         onImages={setImages}
-        note={stateNote(t, check, iface.maxStateBytes, bytes)}
+        note={
+          built.missing.length > 0
+            ? t('@theorem.host.missing', { fields: built.missing.join(', ') })
+            : stateNote(t, check, iface.maxStateBytes, bytes)
+        }
+        isReady={check.ok && built.missing.length === 0}
         isRunning={decision.status === 'deciding'}
         onRun={decide}
         onStop={decision.cancel}

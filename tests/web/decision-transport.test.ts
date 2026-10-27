@@ -1,6 +1,9 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../mod.ts';
-import { readDecisionReply } from '../../web/src/client/decision-transport.ts';
+import {
+  createDecisionTransport,
+  readDecisionReply,
+} from '../../web/src/client/decision-transport.ts';
 import { readEmbeddingReply } from '../../web/src/client/embedding-transport.ts';
 
 Deno.test('decision wire replies reject a shape the page cannot draw: out-of-range numbers and invalid usage', () => {
@@ -48,4 +51,28 @@ Deno.test('embedding wire replies preserve vectors and reject malformed dimensio
     ).kind,
     'bad_response',
   );
+});
+
+Deno.test("a decision sends the builder's input, and reads the questions the host built", async () => {
+  const sent: unknown[] = [];
+  const transport = createDecisionTransport({
+    endpoint: 'http://host.test/api/decision',
+    fetch: (_url, init) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return Promise.resolve(
+        Response.json({
+          result: {
+            model: 'jev',
+            answers: {},
+            questions: [{ id: 'p1', type: 'choice', labels: ['yes', 'no'] }],
+          },
+        }),
+      );
+    },
+  });
+  const reply = await transport.decide({ passages: { p1: 'x' } }, undefined, undefined, {
+    topic: 'light',
+  });
+  assertEquals(sent, [{ state: { passages: { p1: 'x' } }, input: { topic: 'light' } }]);
+  assertEquals(reply.result.questions, [{ id: 'p1', type: 'choice', labels: ['yes', 'no'] }]);
 });

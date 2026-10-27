@@ -7404,13 +7404,20 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
       <InspectorSection title="Questions" note={sectionNote('decision.questions')}>
         {inFiles && !inFiles.said && <OriginLine origin={inFiles.origin} onOpen={inFiles.open} />}
         {listStatus && <Banner status="error" title={listStatus.message} />}
-        {inCode(
-          <>
-            {decision.questions.length > 0 && (
-              <QuestionList questions={decision.questions} onOpen={show} />
-            )}
-            <AddQuestionButton draft={draft} setDraft={setDraft} onOpen={show} />
-          </>,
+        {decision.questionsBuilt ? (
+          <Text type="supporting" color="secondary">
+            Your app builds these for each decision. A run asks the ones it builds from the state
+            and its input.
+          </Text>
+        ) : (
+          inCode(
+            <>
+              {decision.questions.length > 0 && (
+                <QuestionList questions={decision.questions} onOpen={show} />
+              )}
+              <AddQuestionButton draft={draft} setDraft={setDraft} onOpen={show} />
+            </>,
+          )
         )}
       </InspectorSection>
       <DecisionImagesSection draft={draft} setDraft={setDraft} />

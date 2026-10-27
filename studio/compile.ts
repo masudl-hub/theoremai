@@ -1869,6 +1869,7 @@ function compileQuestions(
   report: Report,
 ): Record<string, DecisionQuestion> {
   const questions: Record<string, DecisionQuestion> = Object.create(null);
+  if (decision.questionsBuilt) return questions;
   if (!decision.questions.length) {
     report('decision', 'Add at least one question.', 'questions');
   }
@@ -2141,7 +2142,7 @@ function compileDecision(
   return {
     profile,
     customTools: [],
-    questions,
+    ...(decision.questionsBuilt ? {} : { questions }),
     ...(Object.keys(images).length ? { images: { ...images } } : {}),
   };
 }

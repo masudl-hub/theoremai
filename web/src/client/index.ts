@@ -36,11 +36,13 @@ export {
   type DecisionInterface,
   type DecisionQuestionView,
   type DecisionReply,
+  type DecisionReplyResult,
   type DecisionTransport,
   decisionAssets,
   decisionInterface,
   failedTraces,
   postDecision,
+  questionViews,
   readDecisionReply,
   withFailedTraces,
 } from './decision-transport.ts';

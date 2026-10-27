@@ -4,7 +4,7 @@ import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
 registerFixtureProviders(defaultKernelScope);
 
 import { assertEquals, assertStringIncludes, assertThrows } from '@std/assert';
-import { type DecisionQuestion, labelDefault } from '../../mod.ts';
+import { type DecisionQuestion, labelDefault, z } from '../../mod.ts';
 import type { DecisionProfileDefinition } from '../../src/kernel/mod.ts';
 import { createTheoremDecisionHandler, createTheoremHandler } from '../../web/src/server/mod.ts';
 
@@ -341,4 +341,92 @@ Deno.test("the host's images go with every decision, and a page image may not ta
   assertEquals(clash.status, 400);
   assertEquals((await clash.json()).errorKind, 'request');
   assertEquals(mock.calls.length, 1);
+});
+
+/** One question per passage the state holds, each about the topic the page fills in. */
+const perPassage = {
+  input: z.object({ topic: z.string().min(1) }),
+  build: ({ state, input }: { state: unknown; input: { topic: string } }) =>
+    Object.fromEntries(
+      Object.keys((state as { passages: Record<string, string> }).passages).map((id) => [
+        id,
+        {
+          type: 'choice' as const,
+          instructions: `SECRET does state.passages.${id} speak to ${input.topic}?`,
+          criteria: { yes: 'It does.', no: 'It does not.' },
+        },
+      ]),
+    ),
+};
+
+function decideWith(body: unknown): Request {
+  return new Request(`${BASE}/decide`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+Deno.test('a builder: GET describes its input, and no questions until a decision builds them', async () => {
+  const handler = createTheoremDecisionHandler({
+    profile: profile('decision-builder-describe'),
+    questions: perPassage,
+    vault: { slot_a: 'k' },
+    fetch: jev().fetch,
+  });
+  const { interface: iface } = await (await handler(new Request(BASE))).json();
+  assertEquals(iface.questions, []);
+  assertEquals(iface.build.input.properties.topic.type, 'string');
+  assertEquals(iface.build.input.required, ['topic']);
+});
+
+Deno.test('a builder: each decision asks the questions built from its state and input, and names them', async () => {
+  const p1 = {
+    type: 'choice',
+    choice: 'yes',
+    confidence: 0.9,
+    probabilities: { yes: 0.9, no: 0.1 },
+  };
+  const mock = jev(200, { ...jevReply, answers: { p1, p2: { ...p1, choice: 'no' } } });
+  const handler = createTheoremDecisionHandler({
+    profile: profile('decision-builder-decide'),
+    questions: perPassage,
+    vault: { slot_a: 'k' },
+    fetch: mock.fetch,
+  });
+  const response = await handler(
+    decideWith({
+      state: { passages: { p1: 'Ferns like shade.', p2: 'Menu' } },
+      input: { topic: 'light' },
+    }),
+  );
+  assertEquals(response.status, 200);
+  const text = await response.text();
+  assertEquals(text.includes('SECRET'), false);
+  const { result } = JSON.parse(text);
+  assertEquals(result.questions, [
+    { id: 'p1', type: 'choice', labels: ['yes', 'no'] },
+    { id: 'p2', type: 'choice', labels: ['yes', 'no'] },
+  ]);
+  assertStringIncludes(JSON.stringify(mock.calls[0]), 'speak to light');
+});
+
+Deno.test('a builder: an input that does not fit, or no state, is a request error before any call', async () => {
+  const mock = jev();
+  const handler = createTheoremDecisionHandler({
+    profile: profile('decision-builder-refuse'),
+    questions: perPassage,
+    vault: { slot_a: 'k' },
+    fetch: mock.fetch,
+  });
+  for (const body of [
+    { state: { passages: { p1: 'x' } }, input: { topic: '' } },
+    { state: { passages: { p1: 'x' } } },
+    { state: null, input: { topic: 'light' } },
+  ]) {
+    const response = await handler(decideWith(body));
+    assertEquals(response.status, 400, JSON.stringify(body));
+    assertEquals((await response.json()).errorKind, 'request');
+  }
+  assertEquals(mock.calls.length, 0);
 });

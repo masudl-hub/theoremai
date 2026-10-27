@@ -14,11 +14,11 @@ import {
 } from '@theoremjs/agents';
 import {
   BOUNDARIES,
-  type Boundary,
   DETECTORS,
-  type DetectAction,
   type Detector,
+  type DetectSpec,
   recordOf,
+  resolveDetect,
 } from '@theoremjs/agents/guardrails';
 import { type JsonObject, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
 import {
@@ -706,8 +706,6 @@ function readAllow(into: DetectDraft, detector: Detector, spec: unknown): void {
 }
 
 function readDetector(into: DetectDraft, detector: Detector, rule: Record<string, unknown>): void {
-  const at = record(rule.at) ?? {};
-  into.detect[detector] = { ...into.detect[detector], ...(at as Record<Boundary, DetectAction>) };
   const source = into.sources[detector];
   if (source) {
     if (rule.theorem === false) source.theorem = false;
@@ -732,8 +730,11 @@ function ownDetector(key: string, rule: Record<string, unknown>): GuardrailsDraf
 function guardrailsOf(spec: unknown): GuardrailsDraft {
   const blank = createBlankDraft().guardrails;
   if (!isRecord(spec)) return blank;
+  // The actions are the kernel's own reading, so one action for every detector, one for a
+  // detector, and a detector's `action` under its `at` all open as the kernel runs them.
+  const actions = resolveDetect(spec.detect as DetectSpec | undefined);
   const read: DetectDraft = {
-    detect: structuredClone(blank.detect),
+    detect: recordOf(DETECTORS, (detector) => ({ ...actions[detector] })),
     sources: structuredClone(blank.sources),
     allow: structuredClone(blank.allow),
     innocentNames: [...blank.innocentNames],

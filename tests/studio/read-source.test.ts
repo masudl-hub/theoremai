@@ -1,4 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
+import { DETECTORS, type DetectSpec, recordOf, resolveDetect } from '@theoremjs/agents/guardrails';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   agentDraft,
@@ -78,6 +79,32 @@ Deno.test('both taint settings in the file come back into the draft', () => {
   assertEquals(read.draft.guardrails.taintAfterRemoteRead, 'write');
   assertEquals(read.draft.guardrails.taintRemoteDestination, 'block');
 });
+
+const SHORT_DETECTS: [string, DetectSpec][] = [
+  [`'flag'`, 'flag'],
+  [
+    `{ ids: 'flag', financial: { action: 'block', at: { reply: 'ignore' } } }`,
+    { ids: 'flag', financial: { action: 'block', at: { reply: 'ignore' } } },
+  ],
+];
+for (const [detect, spec] of SHORT_DETECTS) {
+  Deno.test(`detect written as ${detect} opens as the kernel reads it`, () => {
+    const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
+    assert(compiled.ok);
+    const source = studioSource(compiled).replace(
+      /detect: \{[\s\S]*?\n {4}\},\n(?= {4}blockedReply)/,
+      `detect: ${detect},\n`,
+    );
+    assert(source.includes(`detect: ${detect},`));
+    const read = readStudioSource(source, createExampleDraft());
+    assert(read.ok);
+    const kernel = resolveDetect(spec);
+    assertEquals(
+      read.draft.guardrails.detect,
+      recordOf(DETECTORS, (detector) => ({ ...kernel[detector] })),
+    );
+  });
+}
 
 Deno.test('an unknown tool type is marked and does not become the draft', () => {
   const draft = createExampleDraft();

@@ -338,12 +338,14 @@ const gateway = defineProvider({
   connection: z.strictObject({ baseUrl: z.string() }),
   key: z.string().trim().min(1),
   authorize: bearer(),
+  check: { protocol: openAi, path: "/models" },
   serves: (at) => [{ protocol: openAi, baseUrl: at.baseUrl }],
 });
 registerProvider(gateway, { connection: { baseUrl: "https://gateway.example/v1" }, keySlot: "gateway" });
 ```
 
 Use `defineProvider` for a server that speaks a protocol that Theorem has. `bearer`, `header`, and `query` put the key on each request.
+`check` names a GET that answers 2xx for a key that works and 400, 401 or 403 for one that does not. `checkKey(provider, { vault })` sends it once and returns a `KeyCheck`: `accepted`, `refused`, `unreachable`, `empty`, or `unchecked` for a provider with no `check`. The Gemini, OpenRouter and TypeSafe providers have one.
 Use `extendProtocol` for an API that nearly matches a protocol. Use `defineProtocol` for a new API shape.
 A protocol never holds a key or an address. The kernel signs and sends each request.
 
@@ -473,7 +475,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `LiveToolResult`, `callProtocol`, `ProtocolCall`, `CallSetup` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `keySlotSchema`, `checkBinding`, `keySlotsOf`, `RuntimeAbilities` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |
-| Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket`, `plainWebSocket` |
+| Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket`, `plainWebSocket`, `checkKey`, `KeyCheck` |
 | Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderStateRebuilt`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
 | Provider limits | `ProviderLimits`, `providerLimitsSchema` |
 | Re-exported whole | Everything that `@theoremjs/agents/providers` exports. Its contract lists each name. |

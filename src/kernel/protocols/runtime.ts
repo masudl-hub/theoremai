@@ -29,7 +29,13 @@ import type {
   ProtocolSocket,
   SendInit,
 } from './protocol.ts';
-import type { Outgoing, RegisteredProvider, Serve, Signer } from './provider.ts';
+import {
+  type Outgoing,
+  type RegisteredProvider,
+  type Serve,
+  type Signer,
+  served,
+} from './provider.ts';
 
 /** Opens a WebSocket with the headers and subprotocols a sign-in put on it. */
 export type OpenWebSocket = (
@@ -105,44 +111,163 @@ function vaultEntry(vault: KeyVault | undefined, slot: string): KeyVault[string]
   return vault && Object.hasOwn(vault, slot) ? vault[slot] : undefined;
 }
 
-async function signerFor(
-  setup: CallSetup,
-  serve: Serve,
+/** A slot's entry as a call reads it: the vault's own entry, or what its resolver returns. */
+async function rawKeyIn(
+  provider: RegisteredProvider,
+  vault: KeyVault | undefined,
   slot: KeySlot | undefined,
-): Promise<Signer | undefined> {
-  const { definition } = setup.provider;
-  const authorize = serve.authorize ?? definition.authorize;
-  if (!definition.key || !authorize) return undefined;
-  const entry = slot ? vaultEntry(setup.vault, slot) : undefined;
-  const raw =
-    typeof entry === 'function'
-      ? await entry({
-          providerId: setup.provider.id,
-          apiId: setup.binding.apiId,
-          keySlot: slot as KeySlot,
-          ...(setup.signal ? { signal: setup.signal } : {}),
-        })
-      : entry;
+  at: { apiId?: string; signal?: AbortSignal },
+): Promise<unknown> {
+  const entry = slot ? vaultEntry(vault, slot) : undefined;
+  return typeof entry === 'function'
+    ? await entry({
+        providerId: provider.id,
+        ...(at.apiId === undefined ? {} : { apiId: at.apiId }),
+        keySlot: slot as KeySlot,
+        ...(at.signal ? { signal: at.signal } : {}),
+      })
+    : entry;
+}
+
+/** A key checked against the provider's key schema; an `auth` error names the slot when it is not one. */
+function parsedKey(provider: RegisteredProvider, slot: KeySlot | undefined, raw: unknown): unknown {
+  const key = provider.definition.key;
+  if (!key) return undefined;
   const value = typeof raw === 'string' ? raw.trim() || undefined : raw;
-  const parsed = definition.key.safeParse(value);
+  const parsed = key.safeParse(value);
   // invariant: a named slot promises a key, even where the provider's key is optional.
   if (!parsed.success || (slot && value === undefined))
     throw new TheoremError(
       'auth',
       value === undefined
         ? labelText('provider.credential_missing', { slot: slot ?? '' })
-        : labelText('protocol.key_invalid', { slot: slot ?? '', provider: setup.provider.id }),
+        : labelText('protocol.key_invalid', { slot: slot ?? '', provider: provider.id }),
     );
-  if (parsed.data === undefined) return undefined;
-  setup.onKey?.(slot, parsed.data);
+  return parsed.data;
+}
+
+async function signerFor(
+  setup: CallSetup,
+  serve: Serve,
+  slot: KeySlot | undefined,
+): Promise<Signer | undefined> {
+  const authorize = serve.authorize ?? setup.provider.definition.authorize;
+  if (!authorize) return undefined;
+  const raw = setup.provider.definition.key
+    ? await rawKeyIn(setup.provider, setup.vault, slot, {
+        apiId: setup.binding.apiId,
+        ...(setup.signal ? { signal: setup.signal } : {}),
+      })
+    : undefined;
+  const key = parsedKey(setup.provider, slot, raw);
+  if (key === undefined) return undefined;
+  setup.onKey?.(slot, key);
   const cacheKey = `${serve.protocol.id}\u0000${slot ?? ''}`;
   const cache = signers.get(setup.provider) ?? new Map();
   signers.set(setup.provider, cache);
   const held = cache.get(cacheKey);
-  if (held && JSON.stringify(held.key) === JSON.stringify(parsed.data)) return held.signer;
-  const signer = authorize(parsed.data);
-  cache.set(cacheKey, { key: parsed.data, signer });
+  if (held && JSON.stringify(held.key) === JSON.stringify(key)) return held.signer;
+  const signer = authorize(key);
+  cache.set(cacheKey, { key, signer });
   return signer;
+}
+
+/** What a provider said about a key when asked with its `check`. */
+export interface KeyCheck {
+  provider: string;
+  slot?: KeySlot;
+  /**
+   * `accepted`: the provider answered 2xx. `refused`: it answered 400, 401 or 403, or the key is
+   * not one the provider takes. `unreachable`: no answer in time, or another status. `empty`: the
+   * slot holds no key. `unchecked`: the provider declares no `check`.
+   */
+  state: 'accepted' | 'refused' | 'unreachable' | 'empty' | 'unchecked';
+  status?: number;
+  /** The provider's own words on a refusal, with the key taken out. */
+  said?: string;
+}
+
+/** Characters of a provider's refusal a key check keeps. */
+const SAID_CAP = 300;
+const CHECK_TIMEOUT_MS = 8000;
+
+/** The provider's message from a refusal's body, with the key taken out. */
+async function refusalSaid(response: Response, key: unknown): Promise<string | undefined> {
+  const text = await response.text().catch(() => '');
+  const body = failureBody(text);
+  const message =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? ((body.error as JsonObject | undefined)?.message ?? body.message ?? body.detail)
+      : body;
+  const said = typeof message === 'string' ? message : JSON.stringify(message ?? '');
+  const secret = typeof key === 'string' ? key : '';
+  return (secret ? said.replaceAll(secret, '…') : said).slice(0, SAID_CAP) || undefined;
+}
+
+/**
+ * Asks a registered provider whether it takes a key, with the GET its definition's `check`
+ * names: `key` when given, else its key slot in `vault`. One request, never retried; the key is
+ * not kept or logged.
+ */
+export async function checkKey(
+  provider: RegisteredProvider,
+  options: {
+    key?: unknown;
+    vault?: KeyVault;
+    fetch?: typeof fetch;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  } = {},
+): Promise<KeyCheck> {
+  const slot = provider.keySlot;
+  const base = { provider: provider.id, ...(slot ? { slot } : {}) };
+  const { check, authorize } = provider.definition;
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(options.timeoutMs ?? CHECK_TIMEOUT_MS),
+    ...(options.signal ? [options.signal] : []),
+  ]);
+  const raw =
+    options.key !== undefined
+      ? options.key
+      : provider.definition.key
+        ? await rawKeyIn(provider, options.vault, slot, { signal })
+        : undefined;
+  if (raw === undefined || (typeof raw === 'string' && !raw.trim()))
+    return { ...base, state: 'empty' };
+  if (!check) return { ...base, state: 'unchecked' };
+  const serve = served(provider, check.protocol.id);
+  let key: unknown;
+  try {
+    key = parsedKey(provider, slot, raw);
+  } catch (error) {
+    if (error instanceof TheoremError && error.kind === 'auth')
+      return { ...base, state: 'refused' };
+    throw error;
+  }
+  const outgoing: Outgoing = {
+    transport: 'http',
+    url: urlFor({ ...serve, url: undefined }, check.path, '', false),
+    headers: new Headers(serve.headers),
+    protocols: [],
+  };
+  await (serve.authorize ?? authorize)?.(key).sign(outgoing);
+  let response: Response;
+  try {
+    response = await (options.fetch ?? fetch)(outgoing.url, { headers: outgoing.headers, signal });
+  } catch {
+    return { ...base, state: 'unreachable' };
+  }
+  if (response.ok) {
+    await response.body?.cancel();
+    return { ...base, state: 'accepted', status: response.status };
+  }
+  const said = await refusalSaid(response, key);
+  return {
+    ...base,
+    state: [400, 401, 403].includes(response.status) ? 'refused' : 'unreachable',
+    status: response.status,
+    ...(said ? { said } : {}),
+  };
 }
 
 function urlFor(serve: Serve, path: string, apiId: string, stream: boolean): URL {

@@ -359,6 +359,7 @@ The protocol must have an endpoint for the profile type (`unsupported` otherwise
 Cache, storage, and persistence settings belong to protocol options.
 The registration owns credential defaults (`keySlot`, `fallbackKeySlot`), and a binding may override them.
 Provider vault lookup requires an own property for the selected slot. Inherited credentials and resolvers do not grant access.
+A provider may declare `check: { protocol, path }`, a GET on where it serves `protocol`, signed as a call is. `checkKey(provider, { vault })` reads the slot the way a call does and sends that GET once, with an 8-second limit. A 2xx is `accepted`; 400, 401 or 403 is `refused`; no answer or any other status is `unreachable`. An empty slot is `empty`, and a provider with no `check` is `unchecked`. `said` is the refusal body, with the key removed and cut to 300 characters.
 
 `registerProvider` returns a `RegisteredProvider` with typed `.model()` and `.decisionModel()` helpers.
 The helpers check `options` against the protocol when the binding is made.
@@ -1770,7 +1771,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Runner | `registerProvider`, `getProvider`, `listProviders`, `ProviderHostOptions`, `providerCheckpointSchema`, `runTurn`, `runSession`, `runDecision`, `runEmbedding`, `validateDecisionRequest`, `RunSessionOptions`, `SignInGatePolicy`, `RunDecisionOptions`, `RunEmbeddingOptions`, `DecisionError`, `prepareLiveInboundText`, `liveIngressEnabled`, `liveIngressEnabledFromSpec`, `liveIngressChannelDefault`, `hasAnyLiveIngress`, `assertLiveIngress`, `assertLiveIngressConfigured`, `LiveIngressChannel` |
 | Providers | `defineProvider`, `registerProvider`, `createProviderRegistry`, `getProvider`, `listProviders`, `listProtocols`, `Provider`, `ProviderDefinition`, `RegisteredProvider`, `Registration`, `ProviderRegistry`, `ProviderTransport`, `Serve`, `PriceTable`, `ModelPrice`, `Rates`, `costFromPrices` |
 | Provider sign-in | `Authorize`, `Signer`, `bearer`, `header`, `query`, `KeyCredential`, `ApiKeyCredential`, `BearerCredential`, `RuntimeAbilities`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `callProtocol`, `carriesTo`, `modelOptions`, `plainWebSocket`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `Continuation` |
+| Protocols | `defineProtocol`, `extendProtocol`, `callProtocol`, `checkKey`, `KeyCheck`, `carriesTo`, `modelOptions`, `plainWebSocket`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `Continuation` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding`, `ModelProfileType`, `ProviderGenerationConfig`, `ProviderBuiltin`, `checkBinding`, `keySlotsOf`, `modelBindingSchema`, `decisionModelBindingSchema`, `commonModelSettingsSchema`, `DecisionModelSettings`, `ModelSettings` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `EstimatedCost` |
 | Provider vault | `KeySlot`, `keySlotSchema`, `KeyVault`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket` |

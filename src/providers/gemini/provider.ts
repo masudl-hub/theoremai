@@ -39,6 +39,8 @@ export const geminiProvider: Provider<GeminiConnection, string> = defineProvider
   key: z.string().trim().min(1),
   authorize: header('x-goog-api-key'),
   prices: geminiPrices,
+  // probed 2026-10-27: a working key answers 200; a wrong one 400 (`API_KEY_INVALID`), none 403.
+  check: { protocol: geminiInteractions, path: '/models?pageSize=1' },
   serves(at) {
     const host = new URL(at.host ?? 'https://generativelanguage.googleapis.com');
     const origin = host.origin;

@@ -151,11 +151,12 @@ export {
 } from './protocols/provider.ts';
 export type {
   CallSetup,
+  KeyCheck,
   OpenWebSocket,
   ProtocolCall,
   ProviderHostOptions,
 } from './protocols/runtime.ts';
-export { callProtocol, plainWebSocket } from './protocols/runtime.ts';
+export { callProtocol, checkKey, plainWebSocket } from './protocols/runtime.ts';
 export type { MediaInputChannel } from './registry/catalog.ts';
 export {
   clampThinkingLevel,

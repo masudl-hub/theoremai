@@ -47,6 +47,8 @@ export const openRouterProvider: Provider<OpenRouterConnection, string> = define
   connection: connection.default({}),
   key: z.string().trim().min(1),
   authorize: bearer(),
+  // probed 2026-10-27: a working key answers 200; a wrong one or none 401.
+  check: { protocol: openRouterOpenAi, path: '/key' },
   serves(at) {
     const baseUrl = at.baseUrl ?? 'https://openrouter.ai/api/v1';
     const headers: Record<string, string> = {};

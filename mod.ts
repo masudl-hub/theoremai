@@ -271,8 +271,8 @@ export {
   modelBindingSchema,
 } from './src/kernel/protocols/binding.ts';
 export { providerLimitsSchema } from './src/kernel/protocols/limits.ts';
-export type { CallSetup, ProtocolCall } from './src/kernel/protocols/runtime.ts';
-export { callProtocol, plainWebSocket } from './src/kernel/protocols/runtime.ts';
+export type { CallSetup, KeyCheck, ProtocolCall } from './src/kernel/protocols/runtime.ts';
+export { callProtocol, checkKey, plainWebSocket } from './src/kernel/protocols/runtime.ts';
 export type { AttachmentFacts, AttachmentRules } from './src/kernel/registry/attachments.ts';
 export {
   assertTurnAttachments,

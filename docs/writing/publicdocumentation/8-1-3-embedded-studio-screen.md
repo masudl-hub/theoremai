@@ -46,7 +46,7 @@ Embedding the Studio screen creates an interactive workbench where visitors can 
 Install `@theoremjs/studio`, `@theoremjs/react`, and the required design peer packages:
 
 ```bash
-npm install @theoremjs/studio @theoremjs/react @astryxdesign/core@0.7.1 @astryxdesign/theme-neutral@0.7.1 @stylexjs/stylex@0.19.0
+npm install @theoremjs/studio @theoremjs/react @astryxdesign/core@0.7.4 @astryxdesign/theme-neutral@0.7.4 @stylexjs/stylex@0.19.0
 ```
 
 Add the `studioVite` plugin to your `vite.config.ts`. It resolves shared dependencies and serves the Monaco editor's web workers and type definitions:

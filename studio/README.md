@@ -46,7 +46,7 @@ The command needs [Deno](https://deno.com). The installed `@theoremjs/studio`, `
 To show the screen in your app, also install `@theoremjs/react` at the same version, and React 19 and the design packages at the versions `@theoremjs/react` lists in `peerDependencies`:
 
 ```bash
-npm install @theoremjs/react react react-dom @astryxdesign/core@0.7.1 @astryxdesign/theme-neutral@0.7.1 @stylexjs/stylex@0.19.0
+npm install @theoremjs/react react react-dom @astryxdesign/core@0.7.4 @astryxdesign/theme-neutral@0.7.4 @stylexjs/stylex@0.19.0
 ```
 
 ## Open your project

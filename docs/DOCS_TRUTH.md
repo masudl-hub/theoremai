@@ -92,11 +92,11 @@ The `web-package` entry monitors `web/src/` and `web/package.json` the same way.
 | `npm run lint` | Runs `lint:docs` first, then `deno lint`, biome, ast-grep, and fallow |
 | `deno task lint` | Same as `npm run lint` |
 | `npm run check:ci` / `deno task ci` | Full CI gate: docs-truth, deno lint, biome, ast-grep, verify:publish, fallow, typecheck (`mod.ts`, the subprocess probe fixtures the tests spawn unchecked, `scripts/*.ts`, and `web/` and `react/` each via its own `tsc`, since each builds against the kernel as the `@theoremjs/agents` package), and the tests, run once with coverage for fallow (`lint:fallow`, last) |
-| CI | `lint` job: `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, `lint:biome`, `lint:ast-grep`. `check` job: typechecks, `verify:publish`, studio tests, then `lint:fallow` (`FALLOW_AUDIT_BASE=origin/<base>`), which runs the test suite once with coverage |
+| CI | `lint` job: `lint:docs` (with `THEOREM_DOCS_BASE`), `deno lint`, `lint:biome`, `lint:ast-grep`. `check` job: typechecks, `verify:publish`, studio tests. `test-types` job: typechecks the test files once. `test` jobs: three shards (`scripts/test-shard.mjs`) run the suite unchecked, with coverage. `fallow` job: gathers the shards' coverage (`scripts/coverage.sh <dir>`), then `fallow:audit` (`FALLOW_AUDIT_BASE=origin/<base>`) |
 | Pre-commit | `npm run lint:docs` (auto-installed by `prepare` / `hooks:install`) |
 | Pre-push | `fallow audit` against the branch's upstream, or `FALLOW_AUDIT_BASE` (uses the generated coverage report when present) |
 
-`lint:fallow` runs the test suite once, in parallel, with coverage (`npm run coverage`), then `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`) against it. `lint:fallow:deep` runs full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
+`lint:fallow` runs the test suite once, in parallel, with coverage (`npm run coverage`), then `fallow:audit`: `fallow audit --base $FALLOW_AUDIT_BASE` (default `origin/main`) against it. `lint:fallow:deep` runs full-tree `health` / `dupes` / `dead-code`. No threshold waivers.
 
 Fallow: `docs/_map.mjs` is listed under `dynamicallyLoaded` in `.fallowrc.jsonc`
 (docs-truth imports it at runtime; static analysis cannot see the edge).

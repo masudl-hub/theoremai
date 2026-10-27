@@ -47,6 +47,8 @@ Text and host browser transports retain the same execution authority.
 A Studio chat keeps its conversation in a sealed store. A run in the page seals with a key that the tab keeps. A project run seals with one key that `serve.ts` makes for each Studio run and hands to every load, so a chat survives a Save or an edit. Quitting Studio ends the chats. The key is never written to disk.
 
 A key test names the provider whose models read the slot, and asks that provider's declared `check` through `checkKey`. The studio knows no key prefixes. A provider from a project's own definition is checked through the project's registration; with no `check` the answer is `unchecked`. The shared handler reaches public hosts only. The key is never logged, kept, or sent back.
+
+When a project opens, the command asks each provider an agent's models name about its key once, with the project's own vault (`GET <base>/keys`). Each answer is one line; `--offline` leaves the requests out, and `--quiet` leaves out every line.
 Its authority remains in that browser. It does not provide recovery after a browser restart.
 Text and live browser transports save checkpoint ownership before delivery and check it before resumption.
 Runtime methods retain their original receiver, including methods that read private class fields.

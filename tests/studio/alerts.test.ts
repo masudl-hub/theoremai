@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { alertLines, alertText } from '../../studio/server/alerts.ts';
+import { alertLines, alertText, keyLine, loadedText } from '../../studio/server/alerts.ts';
 import type { StudioDescription } from '../../studio/server/handler.ts';
 
 const OPEN = {
@@ -35,5 +35,65 @@ Deno.test('the message heads the lines with how many there are', () => {
   assertEquals(
     alertText({ ...OPEN, peopleProblem: 'existing() threw.' }),
     'theorem studio: 1 thing to look at in bench\n  - people: existing() threw.',
+  );
+});
+
+const LOADED = {
+  ...OPEN,
+  setup: 'research.studio.setup.ts',
+  workspace: {
+    agents: [
+      {
+        key: 'a',
+        identity: { agentId: 'research.scout', profileType: 'text' },
+        modelBindings: [{ provider: 'gemini' }, { provider: 'gemini' }],
+      },
+      {
+        key: 'b',
+        identity: { agentId: '', profileType: 'decision' },
+        modelBindings: [{ provider: 'openrouter' }],
+      },
+    ],
+    toolSpecs: [{ toolType: 'function' }, { toolType: 'http' }, { toolType: 'function' }],
+  },
+} as unknown as StudioDescription;
+
+Deno.test('the command first says what loaded: the setup, its entry, each agent, the tools, the keys', () => {
+  assertEquals(loadedText(LOADED, { entry: 'src/research.ts', keys: 'checking' }).split('\n'), [
+    'theorem studio: bench',
+    '  setup   research.studio.setup.ts → entry src/research.ts',
+    '  agents  research.scout (text, gemini); b (decision, openrouter)',
+    '  tools   2 function, 1 http',
+    '  keys    checking gemini, openrouter…',
+  ]);
+  assertEquals(
+    loadedText(LOADED, { keys: 'offline' }).split('\n')[4],
+    '  keys    not checked (--offline)',
+  );
+});
+
+Deno.test('each key check is one line, with what the provider said and never more', () => {
+  assertEquals(
+    [
+      keyLine({ provider: 'gemini', slot: 'GEMINI', state: 'accepted', status: 200 }),
+      keyLine({
+        provider: 'openrouter',
+        state: 'refused',
+        status: 401,
+        said: 'No auth\ncredentials',
+      }),
+      keyLine({ provider: 'typesafe', state: 'unreachable' }),
+      keyLine({ provider: 'gemini', slot: 'GEMINI', state: 'empty' }),
+      keyLine({ provider: 'spaced', state: 'empty' }),
+      keyLine({ provider: 'gateway', state: 'unchecked' }),
+    ],
+    [
+      'theorem studio: key for gemini (GEMINI) works',
+      'theorem studio: key for openrouter refused 401: No auth credentials',
+      'theorem studio: key for typesafe could not be checked: no answer',
+      'theorem studio: key for gemini (GEMINI) is empty',
+      'theorem studio: key for spaced is in no slot: no model or registration names one',
+      'theorem studio: key for gateway has no check to ask',
+    ],
   );
 });

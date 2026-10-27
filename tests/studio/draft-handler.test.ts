@@ -389,6 +389,20 @@ Deno.test("the studio command's server answers the screen's own requests too", a
   assertEquals((await response.json()).state, 'unchecked');
 });
 
+Deno.test("a project's key checks are asked only for the providers its agents' models name", async () => {
+  const handler = createStudioHandler({
+    project: 'empty',
+    pageOrigins: ['http://127.0.0.1:4984'],
+    listenHost: '127.0.0.1:4983',
+    conversationKey: 'k',
+  });
+  const response = await handler(
+    new Request('http://127.0.0.1:4983/api/studio/keys', { headers: { host: '127.0.0.1:4983' } }),
+  );
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), []);
+});
+
 Deno.test("a key test asks the provider's own check, and reaches a private address only on the builder's own server", async () => {
   const local = Deno.serve({ hostname: '127.0.0.1', port: 0, onListen: () => {} }, (request) =>
     request.headers.get('authorization') === 'Bearer good'

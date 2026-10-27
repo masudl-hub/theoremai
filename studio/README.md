@@ -60,7 +60,7 @@ The command starts two servers that only this machine reaches: your project's se
 Add `"studio": "theorem-studio"` to your scripts to run it as `npm run studio`.
 
 ```text
-theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet]
+theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet] [--offline]
 ```
 
 | Option | What it does |
@@ -69,7 +69,8 @@ theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] 
 | `--editor <command>` | The editor the studio opens a line of your files in. Default: `$VISUAL` or `$EDITOR` when it opens a window, else `code`. |
 | `--deno-config <file>` | The Deno config your project loads with. Default: the `deno.json` or `deno.jsonc` in the folder you ran the command in, else the studio's. |
 | `--no-watch` | Do not watch the files the setup reads. The studio reads them again when you come back to it. |
-| `--quiet` | Do not print what the project has to look at. Without it, the command prints each problem, difference and unregistered profile or tool the page flags, when the project opens and when the list changes. A project with nothing to look at prints `theorem studio: nothing to look at`. |
+| `--quiet` | Print nothing about the project. Without it, the command prints what loaded (the setup, its entry, each agent with its type and providers, the tools by kind), then each problem, difference and unregistered profile or tool the page flags, when the project opens and when the list changes, then one line for each provider's key. A project with nothing to look at prints `theorem studio: nothing to look at`. |
+| `--offline` | Do not check the keys. Without it, the command sends each provider its models use one request, the `check` its definition declares, and prints whether the key works, is refused, is empty, or could not be checked. It never prints a key. |
 
 ### The app's entry
 

@@ -2,7 +2,7 @@
  * Starts the studio's local server for one project.
  *
  *   deno run -A studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174]
- *     [--deno-config <deno.json>] [--editor <command>]
+ *     [--deno-config <deno.json>] [--editor <command>] [--no-watch] [--quiet] [--offline]
  *
  * The setup module is the project's: its default export registers the project's
  * tools, profiles, and providers; an optional `host` export gives tool handlers
@@ -23,13 +23,21 @@
 
 import { dirname, relative, resolve } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import type { KeyCheck } from '@theoremjs/agents';
 import { newConversationKey } from '../conversation-key.ts';
 import { RUNNING_PATH } from '../ports.mjs';
 import { READ_STEPS, type ReadStep } from '../read-steps.ts';
-import { alertText } from './alerts.ts';
+import { alertText, keyLine, loadedText } from './alerts.ts';
 import { createEditedSession } from './edited-session.ts';
 import type { ProjectEdits } from './edits.ts';
-import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
+import {
+  corsHeaders,
+  isForeign,
+  json,
+  KEYS_PATH,
+  STUDIO_BASE,
+  type StudioDescription,
+} from './handler.ts';
 import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY, type ProjectLoad } from './project.ts';
 import { entryOf, isInside } from './project-source.ts';
@@ -46,7 +54,7 @@ const setupPath = Deno.args.find(
 );
 if (!setupPath) {
   console.error(
-    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code] [--no-watch] [--quiet]',
+    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code] [--no-watch] [--quiet] [--offline]',
   );
   Deno.exit(2);
 }
@@ -441,7 +449,7 @@ async function answered(request: Request): Promise<Response | undefined> {
   return 'workspace' in answer ? json(200, answer, cors) : json(answer.status, answer.body, cors);
 }
 
-Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
+Deno.serve({ hostname: '127.0.0.1', port, onListen: () => {} }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
   return (
     running(request) ??
@@ -466,5 +474,28 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 console.log(`Theorem Studio: open ${pageOrigins[0]}/studio (server on http://127.0.0.1:${port})`);
+/** Whether the command was started without asking each provider whether its key works. */
+const offline = Deno.args.includes('--offline');
+if (!quiet) {
+  const entry = entryOf(setupFile);
+  console.error(
+    loadedText(
+      { ...first.description, setup: relative(root, setupFile) },
+      {
+        ...(entry ? { entry: relative(root, entry) } : {}),
+        keys: offline ? 'offline' : 'checking',
+      },
+    ),
+  );
+}
 // The project is read once now, so what it has to look at reaches the terminal before the page opens.
-described().catch((error) => console.error(error instanceof Error ? error.message : error));
+await described().catch((error) => console.error(error instanceof Error ? error.message : error));
+// One request for each provider's key, once: the keys are read as the project loads.
+if (!quiet && !offline) {
+  fetch(session.project().origin + KEYS_PATH)
+    .then((response) => response.json() as Promise<KeyCheck[]>)
+    .then((checks) => {
+      for (const check of checks) console.error(keyLine(check));
+    })
+    .catch((error) => console.error(`theorem studio: the keys were not checked: ${error}`));
+}

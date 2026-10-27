@@ -359,7 +359,7 @@ The protocol must have an endpoint for the profile type (`unsupported` otherwise
 Cache, storage, and persistence settings belong to protocol options.
 The registration owns credential defaults (`keySlot`, `fallbackKeySlot`), and a binding may override them.
 Provider vault lookup requires an own property for the selected slot. Inherited credentials and resolvers do not grant access.
-A provider may declare `check: { protocol, path }`, a GET on where it serves `protocol`, signed as a call is. `checkKey(provider, { vault })` reads the slot the way a call does and sends that GET once, with an 8-second limit. A 2xx is `accepted`; 400, 401 or 403 is `refused`; no answer or any other status is `unreachable`. An empty slot is `empty`, and a provider with no `check` is `unchecked`. `said` is the refusal body, with the key removed and cut to 300 characters.
+A provider may declare `check: { protocol, path }`, a GET on where it serves `protocol`, signed as a call is. `checkKey(provider, { vault, slot? })` reads the slot (the provider's, unless `slot` names a model's own) the way a call does and sends that GET once, with an 8-second limit. A 2xx is `accepted`; 400, 401 or 403 is `refused`; no answer or any other status is `unreachable`. An empty slot is `empty`, and a provider with no `check` is `unchecked`. `said` is the refusal body, with the key removed and cut to 300 characters.
 
 `registerProvider` returns a `RegisteredProvider` with typed `.model()` and `.decisionModel()` helpers.
 The helpers check `options` against the protocol when the binding is made.

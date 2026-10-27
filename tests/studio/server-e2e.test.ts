@@ -346,6 +346,19 @@ Deno.test(
           }
         });
 
+      await step("asks each named provider's key with the project's own vault", async () => {
+        const response = await studio.call('/api/studio/keys');
+        assertEquals(response.status, 200);
+        const checks: { provider: string; state: string }[] = await response.json();
+        assertEquals(Object.fromEntries(checks.map((check) => [check.provider, check.state])), {
+          house: 'unchecked',
+          router: 'empty',
+          left: 'unchecked',
+          odd: 'unreachable',
+          own: 'empty',
+          spaced: 'empty',
+        });
+      });
       await step('opens the project with every provider and agent it registers', () => {
         const agents = opened.workspace.agents.map((agent) => [
           agent.identity.agentId,

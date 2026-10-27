@@ -44,6 +44,11 @@ Deno.test('a server error or no answer is unreachable, not a refusal', async () 
   assertEquals((await checkKey(openRouter(), { key: 'k', fetch: down })).state, 'unreachable');
 });
 
+Deno.test('a refusal that says nothing has no said', async () => {
+  const check = await checkKey(openRouter(), { key: 'k', ...answering(401) });
+  assertEquals(check, { provider: 'openrouter', slot: 'or', state: 'refused', status: 401 });
+});
+
 Deno.test('an empty slot is empty, and a resolver is read the way a call reads it', async () => {
   const { sent, fetch } = answering(200);
   assertEquals((await checkKey(openRouter(), { vault: { or: '  ' }, fetch })).state, 'empty');
@@ -71,4 +76,11 @@ Deno.test('a provider with no check is unchecked, and Gemini asks on its own hos
   await checkKey(gemini, { key: 'AIza-good', fetch });
   assertEquals(sent[0]?.url, 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1');
   assertEquals(sent[0]?.headers.get('x-goog-api-key'), 'AIza-good');
+});
+
+Deno.test("a slot a model names is read in place of the provider's", async () => {
+  const { sent, fetch } = answering(200);
+  const check = await checkKey(openRouter(), { vault: { own: 'sk-or-own' }, slot: 'own', fetch });
+  assertEquals([check.slot, check.state], ['own', 'accepted']);
+  assertEquals(sent[0]?.headers.get('authorization'), 'Bearer sk-or-own');
 });

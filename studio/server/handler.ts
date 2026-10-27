@@ -14,10 +14,12 @@
  */
 
 import {
+  checkKey,
   type DecisionAsset,
   type DecisionQuestion,
   defineProfile,
   getStructured,
+  type KeyCheck,
   listProfiles,
   listProviders,
   listTools,
@@ -58,7 +60,12 @@ import {
   type StudioPeopleOffer,
 } from '../people.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
-import { kernelDefinition, registerStudioProvider, type StudioProvider } from '../providers.ts';
+import {
+  kernelDefinition,
+  modelSlots,
+  registerStudioProvider,
+  type StudioProvider,
+} from '../providers.ts';
 import { readStudioSource } from '../read-source.ts';
 import { STUDIO_READER } from '../reader.ts';
 import type { ToolRegistration } from '../registrations.ts';
@@ -752,6 +759,54 @@ async function withCors(
  * Serves the studio for the tools and profiles registered when it is called.
  * Register the project first.
  */
+/** Where the studio asks the project's keys: one check for each provider an agent's models name. */
+export const KEYS_PATH = `${STUDIO_BASE}/keys`;
+
+/**
+ * The key check of each slot a model of `workspace` reads, first or as fallback, on the registered
+ * provider that serves it, with the vault the project's turns read. A provider whose check cannot
+ * be sent is `unchecked`, with why.
+ */
+async function keyChecks(
+  workspace: StudioWorkspace,
+  provider: ProviderHostOptions = {},
+): Promise<KeyCheck[]> {
+  const registered = new Map(listProviders().map((each) => [each.id, each]));
+  const read = new Map<string, { on: RegisteredProvider; slot: string | undefined }>();
+  for (const agent of workspace.agents) {
+    for (const binding of agent.modelBindings) {
+      const on = registered.get(binding.provider);
+      if (!on) continue;
+      const slots = modelSlots(workspace.providers, {
+        provider: binding.provider,
+        keySlot: binding.keySlot || agent.models.key,
+        fallbackKeySlot: binding.fallbackKeySlot || agent.models.fallbackKey,
+      });
+      const named = [slots.keySlot, slots.fallbackKeySlot].filter(Boolean);
+      for (const slot of named.length ? named : [undefined]) {
+        read.set(`${on.id}\u0000${slot ?? ''}`, { on, slot });
+      }
+    }
+  }
+  const { vault, fetch } = provider;
+  return await Promise.all(
+    [...read.values()].map(({ on, slot }) =>
+      checkKey(on, {
+        ...(slot ? { slot } : {}),
+        ...(vault ? { vault } : {}),
+        ...(fetch ? { fetch } : {}),
+      }).catch(
+        (error: unknown): KeyCheck => ({
+          provider: on.id,
+          ...(slot ? { slot } : {}),
+          state: 'unchecked',
+          said: error instanceof Error ? error.message : String(error),
+        }),
+      ),
+    ),
+  );
+}
+
 export function createStudioHandler(
   options: StudioHandlerOptions,
 ): (request: Request) => Promise<Response> {
@@ -799,6 +854,11 @@ export function createStudioHandler(
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const path = new URL(request.url).pathname;
     if (path === base && request.method === 'GET') return json(200, description, cors);
+    if (path === KEYS_PATH && request.method === 'GET') {
+      return keyChecks(description.workspace, options.provider).then((checks) =>
+        json(200, checks, cors),
+      );
+    }
     if (path.startsWith(prefix)) return run(request, path);
     if (path === peoplePath && request.method === 'GET')
       return existingPeople(people, request, cors);

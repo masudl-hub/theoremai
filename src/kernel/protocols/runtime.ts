@@ -199,14 +199,15 @@ async function refusalSaid(response: Response, key: unknown): Promise<string | u
     body && typeof body === 'object' && !Array.isArray(body)
       ? ((body.error as JsonObject | undefined)?.message ?? body.message ?? body.detail)
       : body;
-  const said = typeof message === 'string' ? message : JSON.stringify(message ?? '');
+  const said =
+    typeof message === 'string' ? message : message == null ? '' : JSON.stringify(message);
   const secret = typeof key === 'string' ? key : '';
   return (secret ? said.replaceAll(secret, '…') : said).slice(0, SAID_CAP) || undefined;
 }
 
 /**
  * Asks a registered provider whether it takes a key, with the GET its definition's `check`
- * names: `key` when given, else its key slot in `vault`. One request, never retried; the key is
+ * names: `key` when given, else `slot` (by default its key slot) in `vault`. One request, never retried; the key is
  * not kept or logged.
  */
 export async function checkKey(
@@ -214,12 +215,14 @@ export async function checkKey(
   options: {
     key?: unknown;
     vault?: KeyVault;
+    /** The slot to read, when a model names its own. Default: the provider's `keySlot`. */
+    slot?: string;
     fetch?: typeof fetch;
     signal?: AbortSignal;
     timeoutMs?: number;
   } = {},
 ): Promise<KeyCheck> {
-  const slot = provider.keySlot;
+  const slot = options.slot ?? provider.keySlot;
   const base = { provider: provider.id, ...(slot ? { slot } : {}) };
   const { check, authorize } = provider.definition;
   const signal = AbortSignal.any([

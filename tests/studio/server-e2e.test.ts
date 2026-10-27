@@ -932,13 +932,9 @@ Deno.test(
             studio,
             removeLibraryTool(opened.workspace, toolKey(opened.workspace, 'wipe_desk')),
           );
-          assertEquals([...written].sort(), [
-            'adv.studio.setup.ts',
-            'agents/team.ts',
-            'tools/danger.ts',
-          ]);
-          const setup = Deno.readTextFileSync(join(studio.root, SETUP));
-          assert(!setup.includes('wipe'), setup);
+          assertEquals([...written].sort(), ['agents/team.ts', 'app.ts', 'tools/danger.ts']);
+          const app = Deno.readTextFileSync(join(studio.root, 'app.ts'));
+          assert(!app.includes('wipe'), app);
           assertEquals(snapshot(studio.root).has('tools/danger.ts'), false);
           const reopened = await open(studio);
           assertEquals(

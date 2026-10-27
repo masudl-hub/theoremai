@@ -71,27 +71,45 @@ theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] 
 | `--no-watch` | Do not watch the files the setup reads. The studio reads them again when you come back to it. |
 | `--quiet` | Do not print what the project has to look at. Without it, the command prints each problem, difference and unregistered profile or tool the page flags, when the project opens and when the list changes. A project with nothing to look at prints `theorem studio: nothing to look at`. |
 
+### The app's entry
+
+The studio runs your agents the way your app runs them. Your app's entry point exports `theorem`, a `TurnWiring` from `@theoremjs/agents`, and your app's own server uses the same object:
+
+```ts
+// server/theorem.ts
+import type { TurnWiring } from '@theoremjs/agents';
+
+export const theorem: TurnWiring = {
+  register: () => registerSupport(),
+  provider: { vault: { openai: Deno.env.get('OPENAI_API_KEY') ?? '' } },
+  prepare: (turn) => ({ ...turn, system: systemPromptFor(turn.host) }),
+};
+```
+
+| Field | What the studio does with it |
+|---|---|
+| `register()` | Calls it once as it loads the project, before anything runs: register the project's profiles and tools here. It may be `async`. |
+| `provider` | The keys, network, and limits every model call runs on. Without it, a run's model call fails for want of a key. |
+| `prepare(turn)` | Gives it each text, image and speech turn, and runs the turn it returns: add the system prompt, history, credentials or `onStage` your app adds. The studio keeps the profile and the context the run was given. |
+
+The studio's chat keeps its own conversation and never writes to your app's stores. `prepare` can change the history it is given.
+
 ### What a setup file exports
 
-Every export is optional. The studio reads only these:
+The studio reads only these exports. `entry` is required; the others are optional.
 
 | Export | What the studio does with it |
 |---|---|
-| `default()` | Calls it once as it loads the project, before anything runs: register the project's profiles and tools here. It may be `async`. |
-| `provider` | The keys, network, and limits every model call runs on (`ProviderHostOptions` from `@theoremjs/agents/kernel`). Without it, a run's model call fails for want of a key. |
+| `entry` | The path of your app's entry point, from the setup file: `export const entry = './server/theorem.ts'`. The studio loads its `theorem`, and reads the files it imports as part of the project. |
 | `people`, `host` | Who a run's tools act for (below). |
 | `questions` | What each decision profile asks, by the profile's id: `{ [profileId]: { [questionId]: DecisionQuestion } }`. |
 | `images` | The pictures each decision profile can send, by the profile's id. A decision sends only those its state or questions name: `{ [profileId]: { [reference]: DecisionAsset } }`, where a reference is the name its questions write, such as `'<ghs02>'`. |
 
+A setup file that still exports `default()` or `provider` does not open: the command names the move to the entry.
+
 ### Keys a run uses
 
-A profile's model names a key slot. `provider.vault` holds a key for each slot, so a studio run signs with the key the same profile uses in your app. Load the keys however your start script does, and read them when the setup file loads; the studio never writes them down:
-
-```ts
-export const provider = {
-  vault: { openai: Deno.env.get('OPENAI_API_KEY') ?? '' },
-};
-```
+A profile's model names a key slot. `theorem.provider.vault` holds a key for each slot, so a studio run signs with the key the same profile uses in your app. Load the keys however your start script does, and read them when the entry loads; the studio never writes them down.
 
 For a key that comes from a secret store, a slot can hold a function instead. The studio calls it with the provider and slot when a call needs the key. A slot left out or empty fails that run with the slot's name, not a guess at another key.
 

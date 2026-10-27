@@ -32,7 +32,7 @@ import type { ProjectEdits } from './edits.ts';
 import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
 import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY, type ProjectLoad } from './project.ts';
-import { isInside } from './project-source.ts';
+import { entryOf, isInside } from './project-source.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
 import { createWatchFeed, watchFiles } from './watch.ts';
 
@@ -150,10 +150,11 @@ async function stop(loaded: Loaded): Promise<void> {
   await loaded.process.status;
 }
 
-/** Whether the project type-checks as it is on disk, and what the checker printed. */
+/** Whether the project type-checks as it is on disk, from the setup and the entry it names, and what the checker printed. */
 async function typeChecks(): Promise<{ ok: boolean; output: string }> {
+  const entry = entryOf(setupFile);
   const { success, stderr, stdout } = await new Deno.Command(Deno.execPath(), {
-    args: ['check', ...configArgs, setupFile],
+    args: ['check', ...configArgs, setupFile, ...(entry ? [entry] : [])],
     cwd: root,
     env: { NO_COLOR: '1' },
     stdin: 'null',

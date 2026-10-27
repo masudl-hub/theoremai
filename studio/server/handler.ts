@@ -25,6 +25,7 @@ import {
   type ProviderHostOptions,
   type RegisteredProvider,
   registerTool,
+  type TurnWiring,
 } from '@theoremjs/agents';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
 import { createProviderRegistry } from '@theoremjs/agents/kernel';
@@ -136,6 +137,8 @@ export type StudioHandlerOptions = {
   people?: StudioPeople;
   /** How the project's registered providers find their keys. Default: as the project registered them. */
   provider?: ProviderHostOptions;
+  /** The application's own turn, from the one a chat builds: its entry's `theorem.prepare`. */
+  prepare?: TurnWiring['prepare'];
   /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
   questions?: ProjectQuestions;
   /** The pictures each decision profile sends, by the profile's id: the images the application passes when it decides. */
@@ -695,6 +698,7 @@ function profileHandlers(
             : createTheoremHandler({
                 profile: tracedToPage(profile),
                 provider: options.provider ?? {},
+                ...(options.prepare ? { prepare: options.prepare } : {}),
                 // A stateless profile keeps no conversation, so it takes no store.
                 ...(profile.providerContinuation?.history === 'stateless'
                   ? {}

@@ -15,6 +15,8 @@ against the kernel it compiles for.
 
 ## Runs and sessions
 
+A project run takes its wiring from the app: the setup names the entry in `entry`, and the entry exports `theorem`, a `TurnWiring`. The studio calls `register` once at load, runs every model call on `provider`, and passes `prepare` to the web handler, so a studio turn is the turn the app runs. The handler keeps its own profile, execution, page execution, provider state and signal; the app's `onStage` answers first; credentials are read from the app before the session.
+A setup that exports `default` or `provider` fails to load and names the move; there is no fallback.
 Studio runs resolve their models through an isolated kernel scope's provider registry.
 Provider host options can set `limits` for deadlines and upstream output. Studio uses the same kernel enforcement.
 The runtime resolves only own entries in the host's provider vault. Inherited credentials and resolvers are unavailable.

@@ -1251,9 +1251,39 @@ function theoremEntries(root: string, read: ReadFile): Set<string> {
   return new Set(entries.map((entry) => resolve(root, entry)));
 }
 
+/** The path the setup's `entry` export names, as it writes it: a string the walk follows as an import. */
+function namedEntry(setup: ts.SourceFile): string | undefined {
+  for (const statement of setup.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      continue;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      const value = declaration.initializer && unwrapped(declaration.initializer);
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === 'entry' && value) {
+        if (ts.isStringLiteralLike(value)) return value.text;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** The application entry the setup at `setupFile` names, as a path, read from the file as it is now. */
+export function entryOf(setupFile: string): string | undefined {
+  const setup = ts.createSourceFile(
+    setupFile,
+    Deno.readTextFileSync(setupFile),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const named = namedEntry(setup);
+  return named === undefined ? undefined : resolve(dirname(setupFile), named);
+}
+
 /**
- * Walks the project's files from `entry`, the setup module, following each import. Yields each
- * file as it is read, so a caller can say where the walk is. Returns every file read.
+ * Walks the project's files from `entry`, the setup module, following each import and the
+ * application entry the setup names. Yields each file as it is read, so a caller can say where
+ * the walk is. Returns every file read.
  */
 export function* walkProject(
   entry: string,
@@ -1271,7 +1301,8 @@ export function* walkProject(
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
     files.set(path, source);
     yield step;
-    for (const specifier of specifiers(source)) {
+    const app = files.size === 1 ? namedEntry(source) : undefined;
+    for (const specifier of app ? [app, ...specifiers(source)] : specifiers(source)) {
       const next = importedFile(path, specifier, (file) => read(file) !== undefined, root);
       if (next && !files.has(next) && !theorem.has(next)) queue.push({ file: next, from: path });
     }

@@ -285,6 +285,7 @@ const graph = {
         'tests/providers/google/live/framing.test.ts',
         'tests/providers/google/live/stream.test.ts',
         'tests/providers/open-ai/protocol.test.ts',
+        'tests/providers/open-ai/speech-response-id.test.ts',
         'tests/providers/openrouter/protocol.test.ts',
         'tests/providers/openrouter/images-protocol.test.ts',
         'tests/providers/openrouter/openai/compat.test.ts',
@@ -328,6 +329,10 @@ const graph = {
         {
           paths: ['src/providers/local/provider.ts', 'src/providers/open-ai/protocol.ts'],
           sections: ['Local provider'],
+        },
+        {
+          paths: ['src/providers/open-ai/protocol.ts', 'src/kernel/protocols/runtime.ts'],
+          sections: ['Speech roles'],
         },
         {
           paths: [
@@ -568,61 +573,6 @@ const graph = {
         { paths: ['src/cli/event-log.ts'], sections: ['Commands'] },
         { paths: ['src/cli/matrix/'], sections: ['Matrix and fixtures'] },
       ],
-    },
-
-    presets: {
-      export: './presets',
-      doc: 'docs/contracts/presets.md',
-      owns: [
-        'src/presets/mod.ts',
-        'src/presets/facts.ts',
-        'src/presets/local.ts',
-        'src/presets/openrouter.ts',
-        'src/presets/openrouter-facts.ts',
-        'src/presets/typesafe.ts',
-      ],
-      watches: [
-        {
-          path: 'src/presets/google.ts',
-          reason: 'Presets barrel re-exports Google pack',
-          sections: ['Exported API', 'Role in the package'],
-        },
-      ],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: [
-        'Export',
-        'Ownership',
-        'Role in the package',
-        'When to use',
-        'Exported API',
-      ],
-    },
-
-    'presets-google': {
-      export: './presets/google',
-      doc: 'docs/contracts/presets-google.md',
-      owns: [
-        'src/presets/google.ts',
-        'src/presets/google-limits.ts',
-        'src/presets/google/media-tokens.ts',
-      ],
-      watches: [
-        {
-          path: 'src/presets/google/speech-voices.ts',
-          reason: 'Speech voice vocabulary consumed by the Google preset pack',
-          sections: ['Vocabularies', 'Exported API'],
-        },
-      ],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: ['Export', 'Ownership', 'Builtins', 'Vocabularies', 'Exported API'],
-    },
-
-    'presets-google-speech-voices': {
-      export: './presets/google/speech-voices',
-      doc: 'docs/contracts/presets-google.md',
-      owns: ['src/presets/google/speech-voices.ts'],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: ['Export', 'Ownership', 'Vocabularies', 'Exported API'],
     },
 
     interface: {

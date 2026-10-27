@@ -3,13 +3,13 @@
  * lent keys allow is the page's own (`LentKeys`); nothing here knows a hosted model list.
  */
 
-import { GOOGLE_BUILTIN_TOOLS } from '@theoremjs/agents/presets/google';
 import {
   geminiInteractions,
   geminiLive,
   openRouterImages,
   openRouterOpenAi,
 } from '@theoremjs/agents/providers';
+import { GOOGLE_BUILTIN_TOOLS } from './cookbooks/providers.ts';
 import type { ModelBindingDraft } from './draft.ts';
 import type {
   LentBinding,

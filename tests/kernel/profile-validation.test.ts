@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { registerTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { createProfileRegistry, defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { createSchemaRegistry } from '../../src/kernel/registry/schemas.ts';
 import { createToolRegistry } from '../../src/kernel/tools/mod.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });

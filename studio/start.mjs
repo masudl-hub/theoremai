@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 /**
  * Opens the studio on a project, with one command:
  *
- *   theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch]
+ *   theorem-studio [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet]
  *
  * That is the installed package's command (`npx theorem-studio`); in the repo it is
  * `node studio/start.mjs`.
@@ -23,6 +23,8 @@ import { fileURLToPath } from 'node:url';
  * does not start, the machine's default editor opens the file.
  * The studio watches the files the setup reads and takes in what the builder's editor changes;
  * `--no-watch` turns that off, and the studio then reads them when the builder comes back to it.
+ * The command prints what the project has to look at, as the page flags it, when the project
+ * opens and when that changes; `--quiet` turns that off.
  * The project loads with its own Deno config: the one `--deno-config` names, else the `deno.json`
  * or `deno.jsonc` in the folder the command ran in, else the studio's.
  * A project already open in a studio is not opened twice: the command says where it is. A second
@@ -35,17 +37,19 @@ import { chooseSetup, findSetups, setupLines, setupsNamed } from './setups.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-const USAGE = `usage: ${builtPage ? 'theorem-studio' : 'node studio/start.mjs'} [setup] [--editor <command>] [--deno-config <file>] [--no-watch]`;
+const USAGE = `usage: ${builtPage ? 'theorem-studio' : 'node studio/start.mjs'} [setup] [--editor <command>] [--deno-config <file>] [--no-watch] [--quiet]`;
 /** The value after each flag that takes one. A flag with none, a second setup, or anything else, is a mistake. */
 const VALUED = ['--editor', '--deno-config'];
 const given = {};
 let wanted;
 let noWatch = false;
+let quiet = false;
 let mistaken = false;
 const args = process.argv.slice(2);
 for (let at = 0; at < args.length; at += 1) {
   const arg = args[at];
   if (arg === '--no-watch') noWatch = true;
+  else if (arg === '--quiet') quiet = true;
   else if (VALUED.includes(arg)) {
     const value = args[at + 1];
     if (!value || value.startsWith('--')) mistaken = true;
@@ -125,6 +129,7 @@ const server = spawn(
     projectConfig,
     ...(editor ? ['--editor', editor] : []),
     ...(noWatch ? ['--no-watch'] : []),
+    ...(quiet ? ['--quiet'] : []),
   ],
   { cwd: from, stdio: ['ignore', 'ignore', 'inherit'] },
 );

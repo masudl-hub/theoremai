@@ -145,12 +145,30 @@ function browserFile(
   };
 }
 
+/** Allowed value strings from a slot declaration (legacy list or `{ choices }`). */
+function slotChoiceValues(decl: unknown): string[] {
+  if (Array.isArray(decl)) {
+    return decl.filter((value): value is string => typeof value === 'string');
+  }
+  if (!decl || typeof decl !== 'object' || Array.isArray(decl)) return [];
+  const choices = (decl as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) return [];
+  return choices.flatMap((choice) => {
+    if (!choice || typeof choice !== 'object' || Array.isArray(choice)) return [];
+    const value = (choice as { value?: unknown }).value;
+    return typeof value === 'string' ? [value] : [];
+  });
+}
+
 /** What the agent takes from its page and its server: `inputs.slots` and `inputs.context`. */
 function pageInputs({ profile }: CompiledStudio) {
   const inputs = 'inputs' in profile ? profile.inputs : undefined;
-  const slots: Record<string, string[]> = inputs && 'slots' in inputs ? (inputs.slots ?? {}) : {};
+  const raw = inputs && 'slots' in inputs ? (inputs.slots ?? {}) : {};
+  const slots = Object.entries(raw).map(
+    ([name, decl]) => [name, slotChoiceValues(decl)] as [string, string[]],
+  );
   const context = inputs && 'context' in inputs ? inputs.context : undefined;
-  return { slots: Object.entries(slots), from: context?.from ?? [] };
+  return { slots, from: context?.from ?? [] };
 }
 
 /** The chat's prop for the tools this page answers: a function per tool, returning its output. */

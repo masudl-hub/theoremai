@@ -2,6 +2,8 @@ import { assert, assertEquals } from '@std/assert';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   addArchitectExample,
+  addResearchExample,
+  COOKBOOKS,
   compileStudio,
   compileWorkspace,
   createArchitectWorkspace,
@@ -9,11 +11,17 @@ import {
   createExampleDraft,
   createLiveExampleDraft,
   createNarratorExampleDraft,
+  createResearchScoutDraft,
+  createResearchWorkspace,
   demoToolSpecs,
   duplicateAgent,
   editedSince,
   filesPrint,
   libraryDraft,
+  projectProfileSlice,
+  projectToolSlice,
+  RESEARCH_FIRST_TURN_PROMPT,
+  RESEARCH_PAGE_READER_STATE,
   rebased,
   removeAgent,
   removeLibraryTool,
@@ -21,8 +29,10 @@ import {
   resetAgent,
   resetAll,
   resetLibraryTool,
+  resolveCookbookSlice,
   type StudioWorkspace,
   startedHere,
+  stitchCookbook,
   withLibraryDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
@@ -56,8 +66,77 @@ Deno.test('the architect calls the narrator through its narrate tool', () => {
   assertEquals(narrate?.type === 'agent' && narrate.profile, 'studio.narrator');
 });
 
+Deno.test('the research scout starts without effort select or attachments', () => {
+  const scout = createResearchScoutDraft();
+  assertEquals(scout.inputs.attachmentsAccept, []);
+  assertEquals(scout.inputs.voiceAccept, []);
+  assertEquals(scout.inputs.maxFiles, null);
+  assertEquals(
+    scout.modelBindings.map(({ allowEffortSelect }) => allowEffortSelect),
+    [false],
+  );
+});
+
+Deno.test('the research scout links its page-reading tools to the Jev page reader', () => {
+  const result = compiled(createResearchWorkspace());
+  assertEquals(
+    result.agents.map((agent) => agent.agentId),
+    ['research.pagereader', 'research.scout'],
+  );
+  const seed = JSON.parse(RESEARCH_PAGE_READER_STATE) as { question?: string; passage?: string };
+  assert(typeof seed.question === 'string' && seed.question.length > 0);
+  assert(typeof seed.passage === 'string' && seed.passage.length > 0);
+  const scout = result.agents[1];
+  const stageRead = scout?.customTools
+    .filter((tool) => tool.type !== 'agent' && tool.stageAgent === 'research.pagereader')
+    .map((tool) => tool.name);
+  assertEquals(stageRead, [
+    'read_pages',
+    'read_model_card',
+    'read_dataset_card',
+    'read_readme',
+    'read_library_docs',
+  ]);
+  const added = addResearchExample(workspaceFromDraft(createExampleDraft()));
+  assertEquals(
+    added.agents.map((agent) => agent.identity.agentId),
+    ['travel.concierge', 'research.scout', 'research.pagereader'],
+  );
+  compiled(added);
+});
+
+Deno.test('every cookbook in COOKBOOKS compiles and slices cleanly', async () => {
+  for (const cookbook of Object.values(COOKBOOKS)) {
+    compiled(await cookbook.createWorkspace());
+  }
+  const identitySlice = projectProfileSlice('research', 'research.scout', {
+    pick: ['identity', 'inputs'],
+  });
+  assert(identitySlice.includes('identity:'));
+  assert(identitySlice.includes('inputs:'));
+  assert(!identitySlice.includes('guardrails:'));
+
+  const toolSlice = projectToolSlice('research', 'search_github', {
+    pick: ['endpoint', 'mapping'],
+  });
+  assert(toolSlice.includes('endpoint:'));
+  assert(toolSlice.includes('mapping:'));
+
+  const resolved = resolveCookbookSlice('research:tool:search_github#endpoint,mapping');
+  assertEquals(resolved, toolSlice);
+
+  const stitched = stitchCookbook('research', {
+    agentId: 'research.scout',
+    toolsAllow: ['search_github', 'read_readme'],
+    runner: { exportName: 'firstTurn', prompt: RESEARCH_FIRST_TURN_PROMPT },
+  });
+  assert(stitched.code.includes('export async function firstTurn'));
+  compiled(stitched.workspace);
+});
+
 Deno.test('the examples between them use every demo tool', () => {
   const used = new Set([
+    ...toolNames(createResearchWorkspace()),
     ...toolNames(workspaceFromDraft(createExampleDraft())),
     ...toolNames(createArchitectWorkspace()),
     ...toolNames(workspaceFromDraft(createConsoleExampleDraft())),

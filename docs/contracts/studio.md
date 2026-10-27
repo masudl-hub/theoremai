@@ -4,16 +4,20 @@ For maintainers of `studio/`. The package README (`studio/README.md`) speaks to 
 
 ## Ownership
 
-The studio's authoring logic and demo fixtures: the editable profile draft,
+The studio's authoring logic and cookbooks: the editable profile draft,
 its tree, the compiler that turns it into a kernel profile, TypeScript source
-export, the travel concierge demo (tool seeds, sample HTTP inputs, local
-function handlers), and the run-tab handoff.
+export, the cookbook catalog (research scout, travel concierge, code architect,
+tool seeds, sample HTTP inputs, portable function handlers, and item checks),
+and the run-tab handoff.
 
 The logic lives here, not in the frontend, so it is type-checked and tested
 against the kernel it compiles for.
 
 ## Runs and sessions
 
+A project run takes its wiring from the app: the setup names the entry in `entry`, and the entry exports `theorem`, a `TurnWiring`. The studio calls `register` once at load, runs every model call on `provider`, and passes `prepare` to the web handler, so a studio turn is the turn the app runs. The handler keeps its own profile, execution, page execution, provider state and signal; the app's `onStage` answers first; credentials are read from the app before the session.
+A setup that exports `default` or `provider` fails to load and names the move; there is no fallback.
+A decision whose setup `questions` entry is a builder (`{ input?, build }`) opens with `decision.questionsBuilt` and no questions; it compiles without them, and Save never writes questions for it. Its project run is served by `createTheoremDecisionHandler` with that builder, so the page's input form and the questions each answer names come from the same code the app runs.
 Studio runs resolve their models through an isolated kernel scope's provider registry.
 Provider host options can set `limits` for deadlines and upstream output. Studio uses the same kernel enforcement.
 The runtime resolves only own entries in the host's provider vault. Inherited credentials and resolvers are unavailable.

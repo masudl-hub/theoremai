@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
+import { slotValues } from '../registry/slots.ts';
 import { interactionPartSchema, keptReply, sourceSchema } from '../turn-events.ts';
 import type {
   Profile,
@@ -72,10 +73,13 @@ const speechInput = z.strictObject({
 });
 
 /** One choice per declared slot; a slot or a value the profile does not declare is refused. */
-function slotsInput(slots: Record<string, string[]>) {
+function slotsInput(slots: NonNullable<ProfileInputsSpec['slots']>) {
   return z.strictObject(
     Object.fromEntries(
-      Object.entries(slots).map(([slot, choices]) => [slot, z.enum(choices).optional()]),
+      Object.entries(slots).map(([slot, decl]) => {
+        const choices = slotValues(decl);
+        return [slot, z.enum(choices as [string, ...string[]]).optional()];
+      }),
     ),
   );
 }

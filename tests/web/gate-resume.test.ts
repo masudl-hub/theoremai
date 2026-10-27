@@ -7,11 +7,12 @@ import {
   interfaceFromProfile,
   type TranscriptBlock,
 } from '../../src/interface/mod.ts';
+import { registerTools } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { failureEvent } from '../../src/kernel/tools/events.ts';
 import type { ToolFailure } from '../../src/kernel/turn-events.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { sessionAfter } from '../../web/src/client/run-commit.ts';
 import {
   type RunOutcome,
@@ -29,7 +30,7 @@ import { toolSnapshot } from '../fixtures/events.ts';
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
 import { unskippedView } from '../fixtures/stream-view.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 function textInterface(): ComposerProfileInterface {
   const iface = interfaceFromProfile(
     defineProfile({

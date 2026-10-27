@@ -1,3 +1,5 @@
+import { assertInstanceOf, assertRejects as stdRejects } from '@std/assert';
+import { TheoremError } from '../../src/guardrails/error.ts';
 import {
   computeCodeChallenge,
   fromBase64Url,
@@ -440,11 +442,13 @@ Deno.test('discoverAuthServerMetadata refuses incomplete metadata and surfaces n
     'authorization_endpoint is missing',
   );
   const exploding: typeof fetch = () => Promise.reject(new TypeError('network down'));
-  await assertRejects(
+  const down = await stdRejects(
     () => discoverAuthServerMetadata(ISSUER, { fetchFn: exploding }),
-    TypeError,
+    TheoremError,
     'network down',
   );
+  assertEquals(down.kind, 'network');
+  assertInstanceOf(down.cause, TypeError);
   const nothing = routes({});
   await assertRejects(
     () => discoverAuthServerMetadata(ISSUER, { fetchFn: nothing.fetchFn }),

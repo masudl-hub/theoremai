@@ -27,6 +27,7 @@ import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { geminiLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 function registerLiveProfile(id: string) {
   const profile = defineProfile({
@@ -387,6 +388,7 @@ Deno.test('sendContext refuses a sender the profile does not list, and reads the
     {
       inputs: { context: { from: ['client'], maxChars: 200 }, slots: { language: ['fr'] } },
       identity: { handle: 'live', system: 'hi' },
+      guardrails: { detect: TAKE_OUT_INBOUND },
     },
   );
   await assertRejects(
@@ -808,6 +810,7 @@ async function openToolSession(
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow },
+    guardrails: { detect: TAKE_OUT_INBOUND },
   });
   registerProfile(profile);
   const sockets: MockLiveWebSocket[] = [];
@@ -2006,16 +2009,18 @@ Deno.test('live output validation failure cannot restore an executed call as an 
     await h.modelCalls({ id: 'uncertain-live', name: 'live_uncertain_effect' });
     const paused = await h.session.executeTool({ callId: h.id('uncertain-live') });
     assertEquals(paused.gated?.kind, 'permission');
-    await assertRejects(
+    const sent = await assertRejects(
       () => h.session.executeTool({ callId: h.id('uncertain-live'), decision: 'approve' }),
       TheoremError,
-      labelText('tool.execution_uncertain'),
+      'did not settle, so its effects are unknown',
     );
-    await assertRejects(
+    assertEquals([sent.kind, sent.copy], ['internal', { key: 'tool.execution_uncertain' }]);
+    const again = await assertRejects(
       () => h.session.executeTool({ callId: h.id('uncertain-live'), decision: 'approve' }),
       TheoremError,
-      labelText('tool.execution_uncertain'),
+      'is uncertain, so it does not run again until the host settles it',
     );
+    assertEquals([again.kind, again.copy], ['conflict', { key: 'tool.execution_uncertain' }]);
     assertEquals(effects, 1);
     assertEquals(h.toolResponses().length, 0);
   } finally {

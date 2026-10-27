@@ -58,6 +58,8 @@ export interface SaveHost<Loaded> {
   stop(loaded: Loaded): Promise<void>;
   /** The workspace a load opened as. */
   opened(loaded: Loaded): StudioWorkspace;
+  /** The profiles a load registered that the studio could not open, by id. They are not unregistered. */
+  unopened?(loaded: Loaded): string[];
 }
 
 /** What one read of the project's files says. Each file is named from the project's folder. */
@@ -478,13 +480,19 @@ export function createSaveSession<Loaded>(
     const loaded = await refresh(first, said);
     const files = loaded ? source() : first;
     const opened = host.opened(project);
+    const names = projectNames(opened);
+    // A profile the studio could not open is still registered: the page says why it did not open.
+    const registered = {
+      ...names,
+      profiles: [...names.profiles, ...(host.unopened?.(project) ?? [])],
+    };
     const decisions = opened.agents
       .filter((agent) => agent.identity.profileType === 'decision')
       .map((agent) => agent.identity.agentId);
     return {
       shared: sharedSettings(files).map((setting) => ({ ...setting, file: inRoot(setting.file) })),
       origins: pageOrigins(sourceOrigins(files, decisions), projectNames(opened), files, inRoot),
-      unregistered: unregisteredIn(files, projectNames(opened), inRoot),
+      unregistered: unregisteredIn(files, registered, inRoot),
       providerPlaces: providerPlaces(files, projectNames(opened), inRoot),
       ...(unloaded === undefined ? {} : { unloaded: unloaded.printed }),
     };

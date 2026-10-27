@@ -216,3 +216,14 @@ Deno.test('agents detect-compile writes the table each detector’s patterns nee
   );
   await Deno.remove(dir, { recursive: true });
 });
+
+Deno.test('a detector takes as many patterns as the host gives it, each as long as it is written', () => {
+  const many: HostPattern[] = Array.from({ length: 80 }, (_, i) => ({
+    name: `code-${i}`,
+    pattern: `CODE-${i}-\\d{4}`,
+  }));
+  const long: HostPattern = { name: 'long', pattern: `REF-${'x'.repeat(1_500)}` };
+  const spec = { ids: { theorem: false, patterns: [...many, long] } } satisfies DetectSpec;
+  assertEquals(detectProblem('guardrails.detect', compileDetect(spec)), undefined);
+  assertEquals(found(spec, 'see CODE-79-1234'), [`${DETECT_RULES.ids}:code-79`]);
+});

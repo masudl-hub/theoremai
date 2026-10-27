@@ -229,7 +229,6 @@ async function assertPublicEntrypointsOmitTestHooks(): Promise<void> {
     'src/guardrails/mod.ts',
     'src/observability/mod.ts',
     'src/host/mod.ts',
-    'src/presets/mod.ts',
   ];
   const hits: string[] = [];
   for (const rel of entrypoints) {

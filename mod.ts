@@ -560,5 +560,4 @@ export {
   traceSpanMeta,
   writeTrace,
 } from './src/observability/mod.ts';
-export * from './src/presets/mod.ts';
 export * from './src/providers/mod.ts';

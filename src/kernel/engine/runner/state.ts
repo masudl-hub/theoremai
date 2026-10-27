@@ -36,6 +36,10 @@ interface StepExecutionState {
   agents?: AgentCaller;
   trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
+  /** Where this turn begins in `currentHistory`: what came before is the conversation the host passed. */
+  turnStart: number;
+  /** Set by a retry: from then on the model reads this turn only, from `turnStart`. */
+  turnOnly?: boolean;
   stepCount: number;
   /** Model calls sent again this turn under the profile's resumption (`executeResumedStep`). */
   resumes: number;
@@ -138,6 +142,7 @@ function openTurnState(args: {
     tools: args.tools,
     trace: args.trace,
     currentHistory: [...(generation.history ?? [])],
+    turnStart: generation.history?.length ?? 0,
     stepCount: 0,
     resumes: 0,
     toolResults: [],
@@ -160,5 +165,15 @@ function openTurnState(args: {
   return state;
 }
 
+/** The history the next model call reads: this turn alone once a retry has cut it. */
+function modelHistory(state: StepExecutionState): TurnHistoryMessage[] {
+  return state.turnOnly ? state.currentHistory.slice(state.turnStart) : state.currentHistory;
+}
+
+/** Whether the turn's checkpoint covers less than the conversation the host keeps. */
+function cutConversation(state: StepExecutionState): boolean {
+  return state.turnOnly === true && state.turnStart > 0;
+}
+
 export type { AttemptFlowState, PendingItemFix, StepExecutionState, TurnTraceState };
-export { appendUserInput, openTurnState, recordStepEvent };
+export { appendUserInput, cutConversation, modelHistory, openTurnState, recordStepEvent };

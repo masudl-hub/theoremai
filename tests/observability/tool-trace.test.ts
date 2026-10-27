@@ -24,6 +24,7 @@ import { asProtocolEvent } from '../../src/providers/shared/protocol-events.ts';
 import { malformedToolCall } from '../../src/providers/shared/tool-args.ts';
 import { lastOf, rawCallsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 import { catalogedSink, catalogGate } from '../fixtures/trace-catalog.ts';
 
 const PROFILE = 'tool_trace_probe';
@@ -145,7 +146,7 @@ registerProfile(
       ],
     },
     inputs: { text: true },
-    guardrails: { quota: { perDay: 10_000 } },
+    guardrails: { quota: { perDay: 10_000 }, detect: TAKE_OUT_INBOUND },
   }),
 );
 

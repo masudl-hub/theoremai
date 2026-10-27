@@ -214,6 +214,11 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Sources',
     description: 'The row of source chips (screen readers).',
   },
+  '@theorem.transcript.sources_more': {
+    defaultMessage: '{count, plural, one {+# other} other {+# others}}',
+    description: 'Overflow chip that opens the menu of remaining source citations.',
+    params: ['count'],
+  },
   '@theorem.transcript.tool_input': {
     defaultMessage: 'Input',
     description: "A tool call's arguments, in its detail.",

@@ -1,7 +1,6 @@
-import { TheoremError } from '../../../src/guardrails/error.ts';
+import { networkError, TheoremError } from '../../../src/guardrails/error.ts';
 import { assertEquals, assertRejects } from '../../../src/kernel/engine/assert.ts';
 import {
-  networkError,
   networkFetch,
   tapeHeaders,
   tapeHeaderValue,

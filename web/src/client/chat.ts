@@ -108,9 +108,15 @@ export type ChatOptions = {
  */
 export type MessageDelivery = 'sending' | 'sent' | 'delivered' | 'read';
 
+/** One declared slot as the composer shows it (group label + choices with optional blurbs). */
+export type ChatSlotDecl = {
+  label?: string;
+  choices: readonly { value: string; description?: string }[];
+};
+
 /** The slots the profile declares, and the value of each: the page's, else the picked one, else the first allowed. */
 export type ChatSlots = {
-  declared: Record<string, string[]>;
+  declared: Record<string, ChatSlotDecl>;
   values: Record<string, string>;
 };
 
@@ -272,8 +278,9 @@ function slotsOf(
 ): { values: Record<string, string> | undefined; slots: ChatSlots | undefined } {
   const declared = iface?.inputs.slots ?? {};
   const values: Record<string, string> = { ...fixed };
-  for (const [name, allowed] of Object.entries(declared)) {
-    const value = fixed?.[name] ?? picked[name] ?? allowed[0];
+  for (const [name, decl] of Object.entries(declared)) {
+    const first = decl.choices[0]?.value;
+    const value = fixed?.[name] ?? picked[name] ?? first;
     if (value !== undefined) values[name] = value;
   }
   const chosen = Object.keys(declared).length > 0;

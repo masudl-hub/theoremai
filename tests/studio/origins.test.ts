@@ -1,6 +1,6 @@
 import { assertEquals } from '@std/assert';
 import { defaultModelBinding } from '../../studio/draft.ts';
-import { createExampleDraft } from '../../studio/example.ts';
+import { createExampleDraft } from '../../studio/mod.ts';
 import {
   nodeOrigins,
   openOutcome,

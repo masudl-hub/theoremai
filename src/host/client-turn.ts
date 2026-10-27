@@ -63,11 +63,22 @@ function stripErrorInternal(event: TurnEvent): TurnEvent {
   return rest;
 }
 
-function stripGuardrailInternal(event: TurnEvent): TurnEvent {
-  if (event.type !== 'guardrail' || !event.guardrail?.errorInternal) {
+function stripCompactionInternal(event: TurnEvent): TurnEvent {
+  if (event.type !== 'compaction' || event.failure?.errorInternal === undefined) {
     return event;
   }
-  const { errorInternal: _internal, ...guardrail } = event.guardrail;
+  const { errorInternal: _internal, ...failure } = event.failure;
+  return { ...event, failure };
+}
+
+function stripGuardrailInternal(event: TurnEvent): TurnEvent {
+  if (
+    event.type !== 'guardrail' ||
+    !(event.guardrail?.errorInternal || event.guardrail?.errorSummary)
+  ) {
+    return event;
+  }
+  const { errorInternal: _internal, errorSummary: _summary, ...guardrail } = event.guardrail;
   return { ...event, guardrail };
 }
 
@@ -87,7 +98,7 @@ function forClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
   let out =
     options?.reader === 'builder'
       ? builderWording(event)
-      : stripGuardrailInternal(stripErrorInternal(event));
+      : stripCompactionInternal(stripGuardrailInternal(stripErrorInternal(event)));
   if (!options?.includeEvidenceRaw) {
     out = stripEvidenceRaw(out);
   }

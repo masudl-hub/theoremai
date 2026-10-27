@@ -74,14 +74,23 @@ The view is loaded lazily (`studio/ui/studio-trace-replay.tsx`). All of it uses 
 
 The site's dev-only model tape, and its uses in the site's studio turn.
 
-## 7. Later, not in this plan
+## 7. Goals opening (same path)
+
+The research cookbook ships a recorded `.trace.json` (`studio/cookbooks/fixtures/research.trace.json`). `cookbookOpening('research')` projects it with `openingFromRecords` — the same `replayScript` → `recordedTranscript` path Replay exchange and Continue live use. The Goals landing chat starts that conversation via `startConversation`; the visitor's next message continues live. There is no second hand-written Goals exchange.
+
+`openingFromRecords` stamps each assistant `turn-done` with `workedMs` / `endedAt` from the root `invoke_agent` span (live chats use `stampWorked` the same way), so the status line can say how long the opener worked. It also emits each tool's `running` then settle phases with `at` from the `execute_tool` span start/end, so the fold sets `startedAt` / `endedAt` and the chat can show tool duration. Goals seeds View Trace with `recordedFeed(cookbookTraceRecords('research') ?? [])` into `StudioRunner` — the same `recordedFeed` Replay exchange uses.
+
+`shownEvents` folds structured replies and `theorem.grounding` citations from the record, so a structured research turn reads back as the person saw it.
+
+## 8. Later, not in this plan
 
 - Other formats: a kernel cassette and chat formats (OpenAI/Anthropic messages, a Theorem transcript) converted to a replay script. Chat formats hold only final replies, so they replay at reply level.
 - Continue live from the call that diverged, not the turn.
 - Evals: `runSuite({ replay })` on the same `replayScript`, and "Save as eval case" from the studio.
 - Side-by-side compare.
 
-## 8. Verification
+## 9. Verification
 
-- **Tests:** `tests/studio/replay.test.ts` (readback, same-profile replay, a removed tool, more calls than recorded, files, missing content, a failed turn, recorded tools, `parseTraceFile`, turn resume); `tests/studio/draft-handler.test.ts` (the start route on lent keys, and 404 without).
+- **Tests:** `tests/studio/replay.test.ts` (readback, same-profile replay, a removed tool, more calls than recorded, files, missing content, a failed turn, recorded tools, `parseTraceFile`, `openingFromRecords`, turn resume); `tests/studio/cookbook-opening.test.ts` (research fixture); `tests/studio/draft-handler.test.ts` (the start route on lent keys, and 404 without).
 - **Studio, in the browser:** download a run’s trace and import it; replay it unchanged; turn Live tools on; remove a tool the recording calls and Continue live; dark and light.
+- **Record again:** `THEOREM_ENV_FILE=… deno run -A scripts/record-research-exchange.ts` writes the research fixture.

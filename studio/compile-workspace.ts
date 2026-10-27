@@ -38,13 +38,14 @@ export type WorkspaceCompileResult =
 
 /** The agents an agent tool can run, and the one type that can summarise. */
 const CALLABLE_TYPES = new Set(['text', 'image', 'speech']);
+const STAGE_READER_TYPES = new Set(['decision', 'text']);
 
 /** A reference from one agent to another, and the node and field that hold it. */
 interface Reference {
   from: AgentDraft;
   to: string;
   nodeId: string;
-  field: 'agentKey' | 'compactWith';
+  field: 'agentKey' | 'stageAgentKey' | 'compactWith';
 }
 
 function references(workspace: StudioWorkspace): Reference[] {
@@ -52,9 +53,20 @@ function references(workspace: StudioWorkspace): Reference[] {
   return workspace.agents.flatMap((agent) => [
     ...agent.tools.allow.flatMap((key): Reference[] => {
       const tool = tools.get(key);
-      return tool?.toolType === 'agent' && tool.agentKey
-        ? [{ from: agent, to: tool.agentKey, nodeId: toolSpecNodeId(key), field: 'agentKey' }]
-        : [];
+      if (tool?.toolType === 'agent' && tool.agentKey) {
+        return [{ from: agent, to: tool.agentKey, nodeId: toolSpecNodeId(key), field: 'agentKey' }];
+      }
+      if (tool?.toolType !== 'agent' && tool?.stageAgentKey) {
+        return [
+          {
+            from: agent,
+            to: tool.stageAgentKey,
+            nodeId: toolSpecNodeId(key),
+            field: 'stageAgentKey',
+          },
+        ];
+      }
+      return [];
     }),
     ...agent.modelBindings.flatMap((binding): Reference[] =>
       binding.compactTiming && binding.compactWith
@@ -107,12 +119,12 @@ function circleMessage(ref: Reference, path: readonly string[], idOf: AgentIdOf)
   const from = `'${idOf(ref.from.key) ?? ''}'`;
   const to = `'${idOf(ref.to) ?? ''}'`;
   if (ref.from.key === ref.to) {
-    return ref.field === 'agentKey'
+    return ref.field === 'agentKey' || ref.field === 'stageAgentKey'
       ? `${from} has this tool on, and the tool runs ${from} itself. Choose another agent for it to run, or turn it off for ${from}.`
       : `${from} can't summarise its own conversation. Choose another text agent.`;
   }
   const circle = [ref.from.key, ...path].map((key) => idOf(key) ?? '').join(' → ');
-  return ref.field === 'agentKey'
+  return ref.field === 'agentKey' || ref.field === 'stageAgentKey'
     ? `${from} has this tool on, and it runs ${to}, which leads back to ${from} (${circle}). Agents can't run each other in a circle: turn this tool off for ${from}, or remove the way back.`
     : `${to} summarises for ${from}, and ${to} leads back to ${from} (${circle}). Agents can't run each other in a circle: choose another agent to summarise, or remove the way back.`;
 }
@@ -187,6 +199,9 @@ function wrongTypeMessage(ref: Reference, target: AgentDraft | undefined): strin
   const id = target.identity.agentId.trim();
   if (ref.field === 'agentKey' && !CALLABLE_TYPES.has(type)) {
     return `'${id}' is a ${type} agent. An agent tool runs a text, image, or speech agent.`;
+  }
+  if (ref.field === 'stageAgentKey' && !STAGE_READER_TYPES.has(type)) {
+    return `'${id}' is a ${type} agent. A tool reader runs a decision or text agent.`;
   }
   if (ref.field === 'compactWith' && type !== 'text') {
     return `'${id}' is a ${type} agent. Only a text agent summarises.`;
@@ -348,9 +363,12 @@ export function workspaceRunAgent(
   return { ...chatted, dependencies };
 }
 
-/** The agent ids a compiled agent names: its agent tools' and its compaction's. */
+/** The agent ids a compiled agent names: its agent tools', stage readers', and its compaction's. */
 function namedAgents(agent: CompiledStudio): string[] {
-  const tools = agent.customTools.flatMap((tool) => (tool.type === 'agent' ? [tool.profile] : []));
+  const tools = agent.customTools.flatMap((tool) => {
+    if (tool.type === 'agent') return [tool.profile];
+    return tool.stageAgent ? [tool.stageAgent] : [];
+  });
   const models = 'models' in agent.profile ? Object.values(agent.profile.models) : [];
   const compactors = models.flatMap((binding) =>
     binding.compaction?.profile ? [binding.compaction.profile] : [],

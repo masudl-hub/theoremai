@@ -81,7 +81,12 @@ import {
   resumeForAnswer,
 } from '../../tools/gate-answer.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
-import type { PageToolExecution, ToolExecutionCoordinator } from '../../tools/operation.ts';
+import {
+  heldOperation,
+  type PageToolExecution,
+  type ToolExecutionCoordinator,
+  unresolvedOperation,
+} from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
@@ -1003,14 +1008,11 @@ function buildLiveSession(args: {
       // invariant: A dispatched call with no outcome cannot regain approval authority.
       const unresolved = dispatched || isUnresolvedOperationError(err);
       held.state = unresolved ? 'uncertain' : waiting;
-      if (unresolved)
-        throw new TheoremError(
-          'unavailable',
-          labelText('tool.execution_uncertain', {}, profile.labels),
-          {
-            copy: { key: 'tool.execution_uncertain' },
-            cause: err,
-          },
+      if (unresolved && !isUnresolvedOperationError(err))
+        throw unresolvedOperation(
+          errorKind(err),
+          'The held call was dispatched and did not settle, so its effects are unknown', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          err,
         );
       throw err;
     } finally {
@@ -1109,14 +1111,7 @@ function buildLiveSession(args: {
         copy: { key: 'session.gate_expired' },
       });
     }
-    if (held.state === 'uncertain')
-      throw new TheoremError(
-        'unavailable',
-        labelText('tool.execution_uncertain', {}, profile.labels),
-        {
-          copy: { key: 'tool.execution_uncertain' },
-        },
-      );
+    if (held.state === 'uncertain') throw heldOperation('uncertain');
     if (gateLapsed(held)) {
       if (isReleased(held)) lapseReleased(callId, held);
       else

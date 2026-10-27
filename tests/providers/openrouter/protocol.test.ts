@@ -163,13 +163,21 @@ Deno.test('openRouterOpenAi sends speech as openAi does', async () => {
     fetch: (_input, init) => {
       sent.push(JSON.parse(String(init?.body)) as JsonObject);
       return Promise.resolve(
-        new Response(new Uint8Array([1]), { headers: { 'content-type': 'audio/mpeg' } }),
+        new Response(new Uint8Array([1]), {
+          headers: {
+            'content-type': 'audio/mpeg',
+            'x-generation-id': 'gen-tts-openrouter',
+          },
+        }),
       );
     },
     wait: async () => {},
   });
-  await collect(call.complete({ ...request, history: [] } as unknown as ProtocolRequest));
+  const events = await collect(
+    call.complete({ ...request, history: [] } as unknown as ProtocolRequest),
+  );
   assertEquals(sent[0], { model: 'tts-1', input: 'And tomorrow?' });
+  assertEquals(events[0], { type: 'response', response: { id: 'gen-tts-openrouter' } });
 });
 
 Deno.test('a busy model moves to the fallback slot once the primary key has had its tries', async () => {

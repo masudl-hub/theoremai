@@ -345,8 +345,9 @@ Reading the result:
   error kind (`rate_limit`, `unavailable`, …) and still links its trace.
 - Injection in the judged record is handled twice for a text judge: the
   stored record is scrubbed by default (`scrub.injection`), and the judge
-  turn's input guardrail redacts anything left (`theorem.guardrail` on the
-  judge root, `action: redact`). A decision judge reads the state as data to
+  turn's input guardrail reads anything left (`theorem.guardrail` on the
+  judge root). It flags by default; a judge profile that sets
+  `detect: { injection: 'redact' }` has it replaced (`action: redact`). A decision judge reads the state as data to
   classify, not instructions, and its answer can only be one of the labels.
 - Judge calls cost: `TrialReport.judgeCostUsd` carries a trial's judge
   spend, and `run.costUsd` and `maxCostUsd` count agent and judge together.

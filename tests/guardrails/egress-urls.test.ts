@@ -221,7 +221,9 @@ function replyVerdict(detect: DetectSpec | undefined, text: string, urls = NONE)
 }
 
 Deno.test('allow.hosts lets images load from the hosts a host names, and only those', () => {
-  const detect: DetectSpec = { ungiven_images: { allow: { hosts: ['cdn.acme.io'] } } };
+  const detect: DetectSpec = {
+    ungiven_images: { action: 'block', allow: { hosts: ['cdn.acme.io'] } },
+  };
   assertEquals(replyVerdict(detect, '![a](https://cdn.acme.io/any?q=1)'), 'allow');
   assertEquals(replyVerdict(detect, '![a](https://evil.cdn.acme.io/p)'), 'block');
   assertEquals(replyVerdict(detect, '![a](https://attacker.io/p)'), 'block');
@@ -256,7 +258,7 @@ Deno.test('each detector of a reply is off when a host sets it to ignore, and on
     ungiven_images: '<img src="//attacker.io/p?d=1">',
     ungiven_links: '[go](https://attacker.io/g?d=1)',
   };
-  const on: DetectSpec = { ungiven_links: 'block' };
+  const on: DetectSpec = { marker_leak: 'block', ungiven_images: 'block', ungiven_links: 'block' };
   for (const [detector, text] of Object.entries(reply)) {
     assertEquals([detector, replyVerdict(on, text)], [detector, 'block']);
     assertEquals(

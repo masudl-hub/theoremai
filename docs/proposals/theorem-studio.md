@@ -24,10 +24,9 @@ and they are firm.
 
 **The moments he wants it.** All of these:
 
-- **To test tools.** "Just being able to load all the tools into the host
-  profile and using the playground's UI to test them and see what comes back
-  would be blissful. That's why we built the host page." He added this one
-  himself.
+- **To test tools.** Load every tool into a host profile, run each one in
+  the playground's console, and see what comes back. This is why the host
+  page exists. He added this one himself.
 - A conversation went wrong, and he wants to see why and fix it.
 - He wants to change how the agent talks, and hear the difference.
 - He cannot see what a profile does without reading many files.
@@ -38,14 +37,15 @@ tree the playground already has. The tree needs a search.
 
 **What makes him hesitate before Save.** Three things: he does not know what
 else the edit changes, he has tried it only once or twice, and he cannot undo
-it easily. He did not choose "I cannot see the exact change to my code".
+it easily. Seeing the exact change to the code was not one of them.
 
 **How he uses it.** Mostly to look. Then open all day beside the editor.
 Then in and out for one job.
 
 **Where the line is between the studio and the IDE.** To build a tool is to
 write its input and its output, and that is JSON. He goes back to the IDE for
-that. In the studio: "I'd mostly be tweaking reasonable things from the UI."
+that. In the studio he mostly adjusts settings that are reasonable to change
+from a form.
 
 So the studio changes words and settings. The IDE changes structure and
 logic. For a tool, Claude reads that as:
@@ -57,13 +57,12 @@ logic. For a tool, Claude reads that as:
 | Read-only, read-write, or destructive | A new tool |
 | When the tool loads, and who may call it | |
 
-Masud checked the table on 8 Oct: "the table looks right". The one change
+Masud agreed the table on 8 Oct. The one change
 is the last row of the right column, below.
 
-**Adding a tool.** Masud (8 Oct): "I'd wanna be able to add a tool to the
-studio, don't get me wrong. But the function wiring and JSON and stuff will
-probably be agent work (for me) in an IDE." So the table's last row is wrong
-for him: a new tool can start in the studio.
+**Adding a tool.** Masud (8 Oct): a builder adds a tool in the studio. The
+function wiring and the schemas are work for a coding agent in an IDE. So the
+table's last row is wrong: a new tool can start in the studio.
 
 Claude's reading of what that means:
 
@@ -76,9 +75,8 @@ Claude's reading of what that means:
   handler in the IDE. The studio sees the change and the builder tests the
   tool in the host console.
 
-**Two kinds of builder.** Masud: "I can't speak for actual engineers." He
-directs a coding agent and does not write the JSON himself. An engineer may
-want to write it in the studio. The doc is written from Masud's experience.
+**Two kinds of builder.** Masud builds by directing a coding agent, which
+writes the schemas. An engineer may want to write them in the studio. The doc is written from Masud's experience.
 An engineer has not been asked.
 
 **What follows (Claude's reading, not Masud's words):**
@@ -120,8 +118,8 @@ has two ways in:
   the profiles that use it. The builder opens it and edits it once, with the
   same rows the profile editor has.
 
-Masud (9 Oct): "something to consider is a visual map to show how
-constants, profiles, tools, etc are connected". Not designed. The studio
+Masud (9 Oct) asked for a visual map of how constants, profiles and tools
+are connected. Not designed. The studio
 already reads what the map needs: for each constant, the profiles, tools and
 other constants that read it.
 
@@ -164,14 +162,14 @@ Open about shared settings:
 | D13 | The application gives the studio a setup file. The file says how to build the context of a run. | 7 Oct |
 | D14 | The builder can test four ways: chat by hand, before and after side by side, pinned turns, and the project's evals. | 7 Oct |
 | D15 | The studio changes existing profiles and adds a profile. The builder can also add a tool in the studio (section 1.1). The wiring of a function tool, and its input and output, are done in the IDE. | 7 Oct; changed 8 Oct in Masud's words |
-| D16 | No Rust at the start. The core loads TypeScript profiles and runs JavaScript handlers, and the wait is the model. | 7 Oct, Claude's advice; Masud did not object |
-| D17 | We do not rush to build. Changed the same day: "let's get started". The first slice is being built, and the open pieces are resolved as it runs. | 8 Oct, twice |
+| D16 | No Rust at the start. The core loads TypeScript profiles and runs JavaScript handlers, and the wait is the model. | 7 Oct, Claude's advice |
+| D17 | Building starts with a first slice, and the open pieces are resolved as it runs. | 8 Oct |
 | D18 | A setting that several profiles share is a thing of its own in the studio (section 2.1). The editor and the preview stay the playground's (D3). | 8 Oct |
 | D19 | A shared setting shows the name of its constant, made readable (`STANDARD_GUARDRAILS` as "Standard guardrails"), with the real name and the file beside it. | 8 Oct |
 | D20 | A constant that one profile uses is a part of that profile. It becomes a shared setting when a second profile uses it. | 8 Oct |
 | D21 | A check that needs no model call runs by itself as the builder edits, for every profile that uses the setting. A run that needs the model waits: the studio lists the runs and the builder picks the profiles. | 8 Oct |
 | D22 | A pinned turn keeps its text: the input, the reply, and the tool results. It is saved in the project's test files. The checks that need no model call read pinned turns. | 8 Oct |
-| D23 | Before a turn is pinned, the studio shows what it will save: the input, the reply, and each tool result, with the replacements of D24, D25, and D29 already made and marked. The builder can change any text. Nothing is written until the builder confirms. | 8 Oct, Claude's choice; Masud said "go with what makes sense" |
+| D23 | Before a turn is pinned, the studio shows what it will save: the input, the reply, and each tool result, with the replacements of D24, D25, and D29 already made and marked. The builder can change any text. Nothing is written until the builder confirms. | 8 Oct, Claude's choice |
 | D24 | Personal text that a Theorem detector matches is replaced by a fake of the same kind: an email by another email, a card number by a published test number. One real value becomes the same fake everywhere in the turn. The builder's rules then act on the pinned turn as on the real one. | 8 Oct |
 | D25 | A real credential is never written, and the builder cannot override this. The studio writes a made-up key of the same format, and says so. | 8 Oct |
 | D26 | A pinned turn keeps each tool result in full, after the replacements. It does not copy a photo or a voice note. It records that one was there (its type and size), and the builder can attach a stand-in file. | 8 Oct |
@@ -184,20 +182,20 @@ Open about shared settings:
 | D33 | Removing a fresh person is the app's. The studio keeps nothing `fresh` returns. | 16 Oct |
 | D34 | Which existing people to list is the app's: it can name specific people or none. Apps sign in differently. | 16 Oct |
 | D35 | The pick is made in Settings, under People. The chat's header shows who runs act as and opens it. Each person keeps their own chat with each agent, and their own session, so one person cannot answer another's held call. | 16 Oct |
+| D36 | The studio is a projection of the builder's system, never a second truth. Theorem's parts are shown and edited. Code the studio cannot change safely is shown, named, pointed to (`file:line`, Open), and run. Nothing is hidden, and nothing is left out of a run. | 27 Oct |
+| D37 | The setup file names the application's entry point, and the studio walks from there. The studio does not scan the project or guess where the application starts. | 27 Oct |
+| D38 | The walk finds everything the entry point reaches that comes from Theorem's packages, by what each name refers to, not how it is written: an alias, a re-export or a cast is still found. It also finds the code the agents need to run as designed. | 27 Oct |
+| D39 | A studio run uses the application's own run wiring, its stage handlers (`onStage`) included. This answers the open question in 5.1. | 27 Oct |
+| D40 | The entry exports `theorem`, a `TurnWiring`: `register`, `provider`, and `prepare`, the turn the app runs from the one it is given. The app's own call sites and the studio use the same value (section 5.8). | 27 Oct, Claude's choice |
+| D41 | A decision whose questions the app builds per call opens with a form for the builder's input, and the studio builds the questions with the app's own function. | 27 Oct, Masud agreed |
 
-**How firm each decision is.** Masud said on 8 Oct that many of the
-questions behind this table were not ones he could judge. So the table has
-two kinds of row:
+**How firm each decision is.** The table has two kinds of row:
 
-- **In Masud's own words:** D4, D6, D10, D17, D18, D30. These are firm.
+- **In Masud's own words:** D4, D6, D10, D17, D18, D30, D36 to D39. These are firm.
 - **Claude's recommendation, which Masud accepted:** all the others. These
   are defaults. Claude owns them, must be able to explain each one by what
   the builder sees, and brings one back to Masud only when it changes what
   the builder experiences.
-
-Build order, as Masud gave it: "open and run, but also all of it". Open and
-run comes first. The rest follows. Section 5 asks what "the rest" needs
-before it starts.
 
 ## 4. What we know about Bonsai
 
@@ -358,9 +356,8 @@ tree with a search, test a tool in the host console, read each profile.
 - Against the published 0.3.0, Bonsai's current code does not register
   either: it uses a label placeholder that 0.3.0 does not know.
 
-**Who the builder is in a test.** Masud (8 Oct): "generally a tester
-account we've signed into". He asked how the studio handles Bonsai's
-sign-in.
+**Who the builder is in a test.** Masud (8 Oct): usually a test account
+that is signed in. He asked how the studio handles Bonsai's sign-in.
 
 - The studio does not sign in. Read on 8 Oct: a Bonsai tool does not read a
   login. It reads a context that `buildBonsaiToolHost` makes from a database
@@ -402,6 +399,8 @@ Open questions:
 
 - Does the setup file give the studio the application's own "run a turn"
   function, or only a context?
+  Answered on 27 Oct (D39): the application's own wiring. Section 5.8 says what
+  stands in the way.
 - How many runs make a comparison? Do the tool results stay fixed between
   the two sides?
 
@@ -582,7 +581,7 @@ unasked.
   set. The tool's Policy section says the studio asks, and that the
   application runs it as Permission says.
 
-Built (Masud, 9 Oct: "3a"): Save writes a profile or a tool the builder
+Built (Masud, 9 Oct): Save writes a profile or a tool the builder
 added in the studio.
 
 - Each new one is a new file next to the project's other profile and tool
@@ -602,7 +601,7 @@ added in the studio.
   when it cannot tell where the setup file would register it, and when no
   agent allows a new tool.
 
-Built (Masud, 9 Oct: "4a"): while the studio holds edits the files do not,
+Built (Masud, 9 Oct): while the studio holds edits the files do not,
 one message is answered twice, side by side.
 
 - The left side is "Saved (your files)". The right side is "Edited
@@ -628,7 +627,7 @@ answer. Edits that take a profile away cannot run before they are saved,
 and the edited side says so. A tool taken away does run: no agent on the
 edited side allows it. Unsaved edits are lost when the page is loaded again.
 
-Built (Masud, 9 Oct: "5a"): a decision profile in a project runs in the
+Built (Masud, 9 Oct): a decision profile in a project runs in the
 studio. It shows the form for its state and the verdict for each question,
 the same view the website has.
 
@@ -847,8 +846,8 @@ Checked on 8 Oct:
 
 **Built on 8 Oct:**
 
-A first page of its own was built and thrown away the same day. Masud:
-"studio uses the exact same playground implementation." What stands:
+A first page of its own was built and thrown away the same day. The rule:
+the studio is the playground's own implementation. What stands:
 
 - The studio is the website's playground at `/studio`, on the site's dev
   server only. Same page, tree, editor, and preview. Nothing is copied.
@@ -951,6 +950,202 @@ Masud chose one name: studio everywhere. The paths above are the old ones.
 - A place for what the CLI already does: probe a text, fuzz, bench.
 - Other setups: Deno, Node, a monorepo, and how the command finds the
   project's profiles.
+
+### 5.8 The projection (D36 to D39)
+
+Masud, 27 Oct: the builder names an entry point in the setup. The studio
+walks from it and finds everything imported from Theorem, and the code the
+agents need to run as designed. Theorem's parts are shown and edited. The
+rest is shown, pointed to, and run.
+
+A scan of the whole project was considered and dropped. It finds tests,
+evals, and scripts that import Theorem as well, and cannot say which of them
+the application runs. Guessing that is a second truth. The entry point is
+one line, and a wrong one shows at once.
+
+**What stands in the way today.** Three things.
+
+1. **The walk knows three names.** `studio/server/project-source.ts` reads
+   the project as syntax, with no type checker. It starts at the setup file,
+   follows relative imports only, and finds a call by the name it is written
+   with: `defineProfile`, `registerProfile`, `registerTool`. A stage handler,
+   a guardrail check, a provider, an alias, or a cast is not found. To
+   change: read with the type checker, and find each name that refers to a
+   declaration in `@theoremjs/*`.
+2. **The walk starts at the setup file.** The setup usually registers
+   profiles. The application's run wiring (its session, `runTurn`, or handler
+   call, where `onStage` is passed) is in server code the setup does not
+   import, so the walk never reaches it. To change: the setup names the entry
+   point (D37), and the walk starts there.
+3. **A studio run is the studio's own.** A chat runs through
+   `studio/runtime.ts`. A project load (`studio/server/project.ts`) takes no
+   stage handler from the setup. The web handler takes none from the builder
+   either: it passes only its own steering (`web/src/server/handler.ts`). So
+   a `pre_tool` that refuses a call in the application does not refuse it in
+   the studio. To change: the studio runs with the application's run options,
+   and the web handler takes the builder's `onStage` beside its steering.
+
+**Already built, and kept.** Code in a profile is shown greyed, with
+`Set in code · stepsFor(PLAN) · setup.ts:34` and Open (D12). Save follows
+constants through imports. What the new walk finds is shown the same way.
+
+**Order.**
+
+1. The walk: from the named entry point, with the type checker, listing each
+   Theorem name it reaches and where it is used.
+2. The run: studio runs take the application's run options, `onStage`
+   first, and the web handler takes the builder's `onStage`.
+3. The view: each part the walk finds, edited where it is a value the studio
+   writes today, shown with `file:line` and Open where it is code.
+
+**Settled (27 Oct, Claude's choice; the questions form agreed by Masud).**
+
+Two fresh agents wrote a setup for Bonsai and for the researcher from the
+docs alone (27 Oct). Both opened clean on the second launch. Both runs
+would still differ from the app: the Bonsai agent had no place for
+`credentials`, `onStage` and `onAgentCall`, and both guessed the questions a
+decision profile asks. The design below closes those two gaps. The rerun of
+the same trial is its test: a fresh agent should arrive at the sketches
+below.
+
+- **One sentence for the builder.** The setup names the app's entry and holds
+  only what the studio needs that the app does not have: who a run acts as
+  (`people`, `host`), the inputs of a decision's questions, and pictures.
+- **The setup's `default()` goes.** Registration is the app's, so it moves to
+  the entry's `register`. A setup that still exports `default()` fails at
+  open and names the move.
+- **The entry is a path.** The setup exports `entry`, relative to the setup
+  file. The walk reads files, and a loaded module does not say which file it
+  came from. The studio loads the same path to run it. The entry must load
+  without starting a server or a run: it exports, and another file listens.
+- **The entry exports `theorem`, a `TurnWiring` from the kernel.** It is the
+  one value the app's own call sites use, so the studio and the app cannot
+  disagree:
+
+  ```ts
+  export interface TurnWiring {
+    /** Registers the app's profiles and tools. Called once, before the first turn. */
+    register?: () => void | Promise<void>;
+    /** The keys, network and limits each model call runs on. */
+    provider?: ProviderHostOptions;
+    /**
+     * The turn the app runs, from the one it is given: the profile, the input with the
+     * conversation's history, and the app's context as `host`. Set what the app sets per
+     * turn: `system`, `credentials`, `onStage`, `onAgentCall`, `path`, `metadata`.
+     */
+    prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
+  }
+  ```
+
+  An app that calls `runTurn` itself writes
+  `runTurn(await theorem.prepare(turn), theorem.provider)`. The web handler
+  takes `provider` and `prepare` as options of the same names; the app calls
+  `register` before it creates the handler, which registers its profile then. This
+  replaces the earlier choice of exporting `TheoremHandlerOptions`: an app
+  that calls `runTurn` itself has none.
+- **The handler keeps its own fields.** Whatever `prepare` returns, the
+  handler runs the turn with its own `profile`, `execution`, `pageExecution`,
+  `providerState` and `signal`: a `prepare` that leaves out `...turn` cannot
+  break gates or swap the profile. `prepare` sets everything else.
+- **`prepare` is for turns.** Text, image and speech turns run through it.
+  A decision, an embedding and a live session take `provider` alone.
+- **`prepare` takes the app's context, not a request.** A `runTurn` call site
+  has no `Request`. The handler already turns a request into the context
+  (`host`), and in the studio the setup's `host(request, actingAs)` does the
+  same from the people pick. `prepare` reads `turn.host`.
+- **Named studio policy: the studio keeps its own session and conversation
+  stores,** so a studio chat never writes to the application's. Every other
+  option runs as the application wrote it.
+- **History: the studio's chat is its own.** Bonsai fetches history from its
+  own database. Under the policy above, a studio chat keeps its own
+  conversation, and that is the history `prepare` is given. `prepare` may shape it (trim, add context) and
+  return it in `input`. It is not the app's thread for that person, and the
+  page says so.
+- **The app's `onStage` runs first.** The handler runs the app's stage
+  handler, and its own steering when the app's returns nothing. A steer the
+  app's result held back lands at the next stage that allows it.
+- **Credentials: the app's first, then the session's.** When `prepare` sets
+  `credentials`, the handler reads a slot from it first and from its session
+  store when the app has none. A sign-in at a gate is written to the session
+  store, so the next call finds it.
+- **A decision's questions are the app's, built from a form.** An app that
+  builds questions per call gives the setup its builder and the builder's
+  input as a zod schema. The studio shows the input as a form and builds the
+  questions from what the builder enters. Fixed questions stay a plain record:
+
+  ```ts
+  export const questions = {
+    'research.pagereader': {
+      input: z.object({ passages: z.number().int().min(1).max(12) }),
+      build: ({ passages }) => Object.fromEntries(range(passages).map((n) => [`p${n}`, passageQuestion(`p${n}`)])),
+    },
+  };
+  ```
+- **The walk follows the values Theorem is given, and stops there.** Each
+  function passed to Theorem (a tool handler, `onStage`, `prepare`, `host`, a
+  provider factory, an item check) is shown with its `file:line` and Open.
+  What those functions import is not listed: it runs because the entry is
+  loaded. No separate list of infrastructure is kept.
+- **Not fixed by this:** a project that reads its keys as it loads (the
+  researcher) still needs them set before the setup imports it. A vault slot
+  that is a function reads the key when a call needs it, and is the answer.
+
+**The sketches.** Each is the whole of what the builder writes.
+
+The researcher, `researcher.ts` (registers its profiles and tools as it loads):
+
+```ts
+export const theorem: TurnWiring = {
+  provider: { vault: { openrouter: () => hostVault().openrouter ?? '' } },
+  prepare: (turn) => ({ ...turn, onStage }),
+};
+```
+
+`research.studio.setup.ts`:
+
+```ts
+export const entry = './researcher.ts';
+export const questions = { 'research.pagereader': { input: …, build: … } }; // as above
+```
+
+Bonsai, `backend/infrastructure/theorem/wiring.ts`, which
+`runOrchestratorTheoremTurn` also uses:
+
+```ts
+export const theorem: TurnWiring = {
+  register: () => {
+    ensureBonsaiTheoremProfiles();
+    registerPageReaderProfile();
+  },
+  provider: { vault: readBonsaiKeyVault((name) => Deno.env.get(name)) },
+  prepare: async (turn) => {
+    const host = turn.host as BonsaiToolHost;
+    return {
+      ...turn,
+      system: await bonsaiSystemPrompt(host),
+      credentials: bonsaiCredentialSource({ supabase: host.supabase, profileId: host.profileId, actor: turn.path }),
+      onStage: bonsaiToolStage,
+      onAgentCall: bonsaiAgentCall(host),
+    };
+  },
+};
+```
+
+`bonsaiSystemPrompt` is a function Bonsai would write; it does not exist
+today. Bonsai's prompt assembly (`assembleHostTurnPrompt`) takes the inbound
+message's state as well: media, a group payload, a proactive wake. To use
+the wiring, Bonsai carries that state on its context (`host`), optional, and
+moves the assembly behind `prepare`. A studio run's context has none of it,
+so it is a plain web turn for the keeper picked.
+
+`studio.setup.ts` keeps `people` and `host` as they are, adds
+`export const entry = './backend/infrastructure/theorem/wiring.ts'`, and
+gives the page reader's questions as a builder. Bonsai's keyed plan model
+(`model: billing.tier`) is set in `prepare` too.
+
+**Order of the build.** The run wiring and the questions form first: they are
+what the trial measured. The walk with the type checker (D38) after; the
+trial did not test origins.
 
 ## 6. Not this doc
 

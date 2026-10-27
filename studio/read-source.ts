@@ -14,11 +14,11 @@ import {
 } from '@theoremjs/agents';
 import {
   BOUNDARIES,
-  type Boundary,
   DETECTORS,
-  type DetectAction,
   type Detector,
+  type DetectSpec,
   recordOf,
+  resolveDetect,
 } from '@theoremjs/agents/guardrails';
 import { type JsonObject, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
 import {
@@ -38,8 +38,10 @@ import {
   type GuardrailsDraft,
   type ImageReferenceDraft,
   INLINE_LABELS,
+  MODEL_LIMITS,
   type ModelBindingDraft,
   type PatternDraft,
+  type SlotDraft,
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
   type StudioProfileType,
@@ -704,8 +706,6 @@ function readAllow(into: DetectDraft, detector: Detector, spec: unknown): void {
 }
 
 function readDetector(into: DetectDraft, detector: Detector, rule: Record<string, unknown>): void {
-  const at = record(rule.at) ?? {};
-  into.detect[detector] = { ...into.detect[detector], ...(at as Record<Boundary, DetectAction>) };
   const source = into.sources[detector];
   if (source) {
     if (rule.theorem === false) source.theorem = false;
@@ -730,8 +730,11 @@ function ownDetector(key: string, rule: Record<string, unknown>): GuardrailsDraf
 function guardrailsOf(spec: unknown): GuardrailsDraft {
   const blank = createBlankDraft().guardrails;
   if (!isRecord(spec)) return blank;
+  // The actions are the kernel's own reading, so one action for every detector, one for a
+  // detector, and a detector's `action` under its `at` all open as the kernel runs them.
+  const actions = resolveDetect(spec.detect as DetectSpec | undefined);
   const read: DetectDraft = {
-    detect: structuredClone(blank.detect),
+    detect: recordOf(DETECTORS, (detector) => ({ ...actions[detector] })),
     sources: structuredClone(blank.sources),
     allow: structuredClone(blank.allow),
     innocentNames: [...blank.innocentNames],
@@ -799,6 +802,11 @@ function applyLabels(draft: StudioDraft, labels: unknown): void {
   draft.labels = entries;
 }
 
+function limitsOf(value: unknown): ModelBindingDraft['limits'] {
+  if (!isRecord(value)) return undefined;
+  return Object.fromEntries(MODEL_LIMITS.map(({ name }) => [name, whole(value[name])]));
+}
+
 function bindingOf(
   modelId: string,
   spec: unknown,
@@ -825,6 +833,7 @@ function bindingOf(
     apiId: text(spec.apiId),
     options: (record(spec.options) ?? {}) as JsonObject,
     timeoutMs: timeout,
+    limits: limitsOf(spec.limits),
     efforts,
     defaultEffort: text(spec.defaultEffort),
     allowEffortSelect: spec.allowEffortSelect === true,
@@ -884,6 +893,9 @@ function toolRoute(spec: Record<string, unknown>) {
     bodyParam: filled(mapping.bodyParam),
     serverUrl: filled(spec.serverUrl),
     mcpToolName: filled(spec.mcpToolName),
+    maxResponseBytes: whole(spec.maxResponseBytes),
+    sessionIdleMs: whole(record(spec.session)?.idleMs),
+    sessionMax: whole(record(spec.session)?.max),
   } satisfies Partial<ToolSpecDraft>;
 }
 
@@ -1108,7 +1120,42 @@ function isContextSender(value: string): value is ContextSender {
   return (CONTEXT_SENDERS as readonly string[]).includes(value);
 }
 
-function inputsOf(inputs: Record<string, unknown>): StudioDraft['inputs'] {
+/** The byte counts a file wrote by type; anything else is left out. */
+function limitsByMimeOf(value: unknown): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(record(value) ?? {}).filter(
+      (entry): entry is [string, number] => typeof entry[1] === 'number',
+    ),
+  );
+}
+
+/** A file's slots as rows, each keeping the key the slot of its name had. */
+function slotsOf(value: unknown, current: readonly SlotDraft[]): SlotDraft[] {
+  const byName = new Map(current.map((slot) => [slot.name, slot]));
+  return Object.entries(record(value) ?? {}).map(([name, decl]) => {
+    const previous = byName.get(name);
+    const rich = record(decl);
+    const entries: unknown[] = Array.isArray(decl)
+      ? decl
+      : Array.isArray(rich?.choices)
+        ? rich.choices
+        : [];
+    const choices = entries.map((entry, index) => {
+      const choice = record(entry);
+      return {
+        key: previous?.choices[index]?.key ?? draftKey('choice'),
+        value: choice ? text(choice.value) : text(entry),
+        description: text(choice?.description),
+      };
+    });
+    return { key: previous?.key ?? draftKey('slot'), name, label: text(rich?.label), choices };
+  });
+}
+
+function inputsOf(
+  inputs: Record<string, unknown>,
+  current: StudioDraft['inputs'],
+): StudioDraft['inputs'] {
   const context = record(inputs.context);
   return {
     text: inputs.text !== false,
@@ -1117,8 +1164,8 @@ function inputsOf(inputs: Record<string, unknown>): StudioDraft['inputs'] {
     maxFiles: whole(inputs.maxFiles),
     maxBytes: whole(inputs.maxBytes),
     maxTurnBytes: whole(inputs.maxTurnBytes),
-    limitsByMimeJson: jsonText(inputs.limitsByMime),
-    slotsJson: jsonText(inputs.slots),
+    limitsByMime: limitsByMimeOf(inputs.limitsByMime),
+    slots: slotsOf(inputs.slots, current.slots),
     contextFrom: strings(context?.from).filter(isContextSender),
     contextMaxChars: whole(context?.maxChars),
   };
@@ -1355,7 +1402,7 @@ function draftFrom(
     ),
     tools: { t2Loader: text(tools.t2Loader), parallel: tools.parallel === true },
     toolSpecs: [],
-    inputs: inputs && type !== 'decision' ? inputsOf(inputs) : current.inputs,
+    inputs: inputs && type !== 'decision' ? inputsOf(inputs, current.inputs) : current.inputs,
     outputs: outputs || parsed.structured ? outputsOf(outputs, parsed.structured) : current.outputs,
     turnBehaviour: section(profile.turnBehaviour, turnOf, current.turnBehaviour),
     guardrails: section(profile.guardrails, guardrailsOf, current.guardrails),

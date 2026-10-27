@@ -78,8 +78,8 @@ for (const permission of ['auto', 'always_confirm', 'confirmation'] as const) {
           grantId: grant.grantId,
           page: { output: { ok: true } },
         };
-        assertEquals((await post('page-result', result, 'other')).status, 503);
-        assertEquals((await post('page-result', { ...result, grantId: 'forged' })).status, 503);
+        assertEquals((await post('page-result', result, 'other')).status, 400);
+        assertEquals((await post('page-result', { ...result, grantId: 'forged' })).status, 400);
         effects++;
         assertEquals((await post('page-result', result)).status, 200);
         assertEquals((await post('page-result', result)).status, 200);

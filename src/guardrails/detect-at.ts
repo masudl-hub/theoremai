@@ -20,6 +20,7 @@ import {
 import { boundaryNote, type LeakScope } from './egress.ts';
 import { notePattern, SYSTEM_BOUNDARY } from './egress-patterns.ts';
 import { imageLeakSpans, linkLeakSpans, type UrlScope } from './egress-urls.ts';
+import { describeError } from './error.ts';
 import type { GuardrailEvent, GuardrailHit } from './event-schemas.ts';
 import { CANARY_HIT, hitFromSpan, promptEchoHit } from './hits.ts';
 import type { HostMatcher } from './host-patterns.ts';
@@ -48,6 +49,21 @@ interface Detection {
   text?: string;
   /** Every match, each named for its detector. */
   hits: GuardrailHit[];
+  /** Why a host's `find` failed, for the builder only: it reaches `guardrail.errorInternal`. */
+  errorInternal?: string;
+  /** The same failure in the kernel's words only, with no text from the host: what the trace stores. */
+  errorSummary?: string;
+}
+
+/** What a reading keeps of why its detectors failed. */
+type FailureText = Pick<Detection, 'errorInternal' | 'errorSummary'>;
+
+function failureText(failures: readonly Required<FailureText>[]): FailureText {
+  if (failures.length === 0) return {};
+  return {
+    errorInternal: failures.map(({ errorInternal }) => errorInternal).join('\n'),
+    errorSummary: failures.map(({ errorSummary }) => errorSummary).join('\n'),
+  };
 }
 
 const STRENGTH: readonly DetectOutcome[] = ['allow', 'flag', 'redact', 'block'];
@@ -232,7 +248,7 @@ interface Reader {
   label?: string;
   chosen: Exclude<DetectAction, 'ignore'>;
   /** Its matches in `text`, or how a host's `find` failed: the text does not cross. */
-  spans(text: string): RedactSpan[] | FindFailure;
+  spans(text: string): RedactSpan[] | FailedFind;
   hit(text: string, span: RedactSpan): GuardrailHit;
 }
 
@@ -242,11 +258,29 @@ interface Reader {
  */
 type FindFailure = 'find_threw' | 'find_result';
 
+/** A host's `find` that failed: how, as its hit's `signal`, and why, for the builder. */
+interface FailedFind {
+  signal: FindFailure;
+  /** With what the host's code threw. */
+  reason: string;
+  /** In the kernel's words only, with the same error id as `reason`. */
+  summary: string;
+}
+
+/** A thrown value's type: a name of letters only, else `Error`, so no host text gets through. */
+function thrownType(err: unknown): string {
+  const name = err instanceof Error ? err.name : typeof err;
+  return /^[A-Za-z]{1,64}$/.test(name) ? name : 'Error';
+}
+
 /** What a host's `find` matched in `text`, or how it failed. */
-function foundBy(find: HostFind, text: string, boundary?: Boundary): RedactSpan[] | FindFailure {
+function foundBy(find: HostFind, text: string, boundary?: Boundary): RedactSpan[] | FailedFind {
   try {
     const spans = find(text, boundary ? { boundary } : {});
-    if (!Array.isArray(spans)) return 'find_result';
+    // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    const said = 'find returned no list of stretches inside the text';
+    const outside = { signal: 'find_result', reason: said, summary: said } as const;
+    if (!Array.isArray(spans)) return outside;
     const inside = spans.every(
       ({ start, end }) =>
         Number.isInteger(start) &&
@@ -255,10 +289,15 @@ function foundBy(find: HostFind, text: string, boundary?: Boundary): RedactSpan[
         start < end &&
         end <= text.length,
     );
-    return inside ? spans.map(({ start, end }) => ({ start, end, kind: 'host' })) : 'find_result';
-  } catch {
+    return inside ? spans.map(({ start, end }) => ({ start, end, kind: 'host' })) : outside;
+  } catch (err) {
     // why: A reading that failed found nothing it can vouch for, so the text does not cross.
-    return 'find_threw';
+    const id = crypto.randomUUID().slice(0, 8);
+    return {
+      signal: 'find_threw',
+      reason: `find threw: ${describeError(err)} (error ${id})`,
+      summary: `find threw ${thrownType(err)} (error ${id})`,
+    };
   }
 }
 
@@ -273,7 +312,11 @@ function hostReader(host: HostDetector, boundary: Boundary, chosen: Reader['chos
       const matched = hostSpans(text, host.matchers, 'host');
       if (!host.find) return matched;
       const found = foundBy(host.find, text, boundary);
-      return typeof found === 'string' ? found : [...matched, ...found];
+      if (!Array.isArray(found)) {
+        const by = `Host detector '${host.id}'`;
+        return { ...found, reason: `${by} ${found.reason}`, summary: `${by} ${found.summary}` };
+      }
+      return [...matched, ...found];
     },
     hit: (text, span) => ({ ...hitFromSpan(text, span, rule, 'high'), label: host.label }),
   };
@@ -332,11 +375,13 @@ function detectAt(
 ): Detection {
   const hits: GuardrailHit[] = [];
   const redact: RedactSpan[] = [];
+  const failures: Required<FailureText>[] = [];
   let action: DetectOutcome = 'allow';
   for (const reader of readersAt(boundary, detect, scope)) {
     const spans = reader.spans(text);
-    if (typeof spans === 'string') {
-      hits.push(failedHit(reader, spans));
+    if (!Array.isArray(spans)) {
+      hits.push(failedHit(reader, spans.signal));
+      failures.push({ errorInternal: spans.reason, errorSummary: spans.summary });
       action = 'block';
       continue;
     }
@@ -345,7 +390,9 @@ function detectAt(
     if (reader.chosen === 'redact') for (const span of spans) redact.push(span);
     action = stronger(action, reader.chosen);
   }
-  if (action === 'block') return { action, hits };
+  if (action === 'block') {
+    return { action, hits, ...failureText(failures) };
+  }
   if (redact.length === 0) return { action, text, hits };
   const replaced = applySpans(text, redact);
   // why: Replacing a match can join what was around it into a new one: that text does not cross.
@@ -367,7 +414,7 @@ function leftAfterRedact(
   return readersAt(boundary, detect, scope, detectors).some(({ chosen, spans }) => {
     if (chosen === 'flag') return false;
     const left = spans(replaced);
-    return !left || left.length > 0;
+    return !Array.isArray(left) || left.length > 0;
   });
 }
 
@@ -433,14 +480,21 @@ function detectRelease(
   { detectors, scope }: StreamRead,
 ): Release {
   const failed: GuardrailHit[] = [];
+  const failures: Required<FailureText>[] = [];
   const found = readersAt(boundary, detect, scope, detectors).flatMap((reader) => {
     const spans = reader.spans(window);
-    if (typeof spans === 'string') failed.push(failedHit(reader, spans));
-    return (typeof spans === 'string' ? [] : spans)
+    if (!Array.isArray(spans)) {
+      failed.push(failedHit(reader, spans.signal));
+      failures.push({ errorInternal: spans.reason, errorSummary: spans.summary });
+      return [];
+    }
+    return spans
       .filter((span) => span.end > from && span.start < to)
       .map((span) => ({ span, rule: reader.rule, label: reader.label, chosen: reader.chosen }));
   });
-  if (failed.length > 0) return { action: 'block', hits: failed, taken: 0 };
+  if (failed.length > 0) {
+    return { action: 'block', hits: failed, taken: 0, ...failureText(failures) };
+  }
   const hitOf = ({ span, rule, label }: (typeof found)[number]): GuardrailHit => ({
     ...hitFromSpan(window, span, rule, 'high'),
     ...(label === undefined ? {} : { label }),
@@ -519,9 +573,9 @@ function storedHostSpans(text: string, detect?: ResolvedDetect): RedactSpan[] {
     const matched = hostSpans(text, host.matchers, 'host');
     if (!host.find || !text) return matched;
     const found = foundBy(host.find, text);
-    return typeof found === 'string'
-      ? [{ start: 0, end: text.length, kind: 'host' }]
-      : [...matched, ...found];
+    return Array.isArray(found)
+      ? [...matched, ...found]
+      : [{ start: 0, end: text.length, kind: 'host' }];
   });
 }
 
@@ -529,21 +583,28 @@ function storedHostSpans(text: string, detect?: ResolvedDetect): RedactSpan[] {
 interface BoundaryReader {
   /** The text to let through, or `''` once a match blocks: the caller reads `found().action`. */
   read(text: string): string;
-  found(): Pick<Detection, 'action' | 'hits'>;
+  found(): Pick<Detection, 'action' | 'hits' | 'errorInternal' | 'errorSummary'>;
 }
 
 /** A reader for everything crossing `boundary` in one request. */
 function boundaryReader(boundary: Boundary, detect: ResolvedDetect): BoundaryReader {
   const hits: GuardrailHit[] = [];
+  const failures: Required<FailureText>[] = [];
   let action: DetectOutcome = 'allow';
   return {
     read(text) {
       const detected = detectAt(text, boundary, detect);
       for (const hit of detected.hits) hits.push(hit);
+      if (detected.errorInternal && detected.errorSummary) {
+        failures.push({
+          errorInternal: detected.errorInternal,
+          errorSummary: detected.errorSummary,
+        });
+      }
       action = stronger(action, detected.action);
       return detected.text ?? '';
     },
-    found: () => ({ action, hits }),
+    found: () => ({ action, hits, ...failureText(failures) }),
   };
 }
 
@@ -584,7 +645,7 @@ function trustAt(boundary: Boundary): TrustLevel {
  */
 function detectEvent(
   boundary: Boundary,
-  found: Pick<Detection, 'action' | 'hits'>,
+  found: Pick<Detection, 'action' | 'hits' | 'errorInternal' | 'errorSummary'>,
   provenance?: Provenance,
   stage: GuardrailStage = BOUNDARY_STAGE[boundary],
 ): GuardrailEvent | undefined {
@@ -596,6 +657,10 @@ function detectEvent(
     action: found.action,
     hits: found.hits,
     ...(provenance ? { provenance } : {}),
+    ...(found.action === 'block' && found.errorInternal
+      ? { errorInternal: found.errorInternal }
+      : {}),
+    ...(found.action === 'block' && found.errorSummary ? { errorSummary: found.errorSummary } : {}),
   };
 }
 

@@ -53,7 +53,7 @@ import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
 import { applyStageInjects, recordReply } from './stages.ts';
-import { recordStepEvent, type StepExecutionState } from './state.ts';
+import { modelHistory, recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
 import {
   isWithheldOnBlock,
@@ -73,7 +73,7 @@ function generationForProviderStep(
   state: StepExecutionState,
   answerOnly: boolean,
 ): ResolvedGeneration {
-  const forStep = { ...generation, history: state.currentHistory };
+  const forStep = { ...generation, history: modelHistory(state) };
   if (!answerOnly) return forStep;
   return { ...forStep, builtins: [], tools: { ...generation.tools, wire: [] } };
 }
@@ -125,7 +125,7 @@ function startProviderCall(
   labels: Profile['labels'],
 ) {
   const usage = startCallUsage(system.text, {
-    history: state.currentHistory,
+    history: modelHistory(state),
     input: generation.input,
   });
   state.lastCall = usage;

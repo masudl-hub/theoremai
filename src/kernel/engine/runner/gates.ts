@@ -284,7 +284,8 @@ function updateFlowForRetry(
   flow.currentReq = nextReq;
   const safe = sanitizeTurnRequest(nextReq, profile);
   if (profile.type === 'text') {
-    // why: The conversation is already in turn history: the repair is its next user message.
+    // why: The repair is the turn's next user message, and the retry reads this turn alone.
+    state.turnOnly = true;
     const before = state.currentHistory.length;
     appendUserInput(
       state,

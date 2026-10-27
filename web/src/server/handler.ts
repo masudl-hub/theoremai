@@ -57,6 +57,7 @@ import {
   type ToolGate,
   type TurnEvent,
   type TurnInput,
+  type TurnWiring,
   toolInvocationHash,
   type z,
 } from '@theoremjs/agents';
@@ -66,7 +67,7 @@ import {
   caughtStatus,
   clientError,
   forClient,
-  HTTP_METHOD,
+  HTTP_NOT_FOUND,
 } from '@theoremjs/agents/host';
 import {
   type ComposerProfileInterface,
@@ -147,6 +148,7 @@ import {
   stopOnRequest,
 } from './steer-inbox.ts';
 import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
+import { preparedTurn } from './turn-wiring.ts';
 
 export type TheoremRequestContext = {
   request: Request;
@@ -175,6 +177,14 @@ export type TheoremHandlerOptions = {
    * request and is read as untrusted; this one is the host's.
    */
   context?: (request: Request) => unknown;
+  /**
+   * The application's own turn, from the one the handler builds: `TurnWiring.prepare`, the
+   * value the application's other call sites use too. The handler keeps its profile, its tool
+   * execution and its abort. The application's `onStage` runs before the handler's steering, and
+   * its `credentials` are read before the session's. A call held at a gate runs on, once
+   * answered, with the `onStage` and `credentials` it gives for that call's turn.
+   */
+  prepare?: TurnWiring['prepare'];
   /**
    * Resolve the caller's session id — e.g. `${userId}:${conversationId}` from your
    * auth. Return `undefined` to refuse the request (401). Default: an opaque id
@@ -242,7 +252,7 @@ export type TheoremHandlerOptions = {
 /** A host profile runs no model, and takes no turns to steer. */
 export type TheoremHostHandlerOptions = Omit<
   TheoremHandlerOptions,
-  'profile' | 'provider' | 'steerInbox' | 'conversationStore'
+  'profile' | 'provider' | 'steerInbox' | 'conversationStore' | 'prepare'
 > & {
   /** Host profile to serve. Registered with the kernel when the handler is created. */
   profile: Extract<Profile, { type: 'host' }> | Extract<ProfileDefinition, { type: 'host' }>;
@@ -682,6 +692,12 @@ async function* invokeAnswered(
   { callId, pending, answer }: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
   const host = await ctx.options.host?.(request);
+  // why: The held call goes on with what the application set for its turn: its stage handler and credentials.
+  const { credentials, onStage } = await preparedTurn(
+    ctx.options.prepare,
+    { profile: ctx.profile.id, input: pending.turnInput ?? {}, host, signal: request.signal },
+    { credentials: sessionCredentials(ctx, sessionId) },
+  );
   yield* invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, sessionId),
@@ -696,7 +712,8 @@ async function* invokeAnswered(
       ? { page: answer.page ?? { unanswered: true } }
       : {}),
     sessionPermissions: answer.sessionPermissions,
-    credentials: sessionCredentials(ctx, sessionId),
+    credentials,
+    ...(onStage ? { onStage } : {}),
     turnInput: pending.turnInput,
     snapshot: pending.snapshot,
     promoted: pending.promoted,
@@ -728,7 +745,8 @@ async function* chatTurn(
     stopOnRequest(ctx.inbox, key, stop);
   }
   try {
-    const events = runTurn(
+    const prepared = await preparedTurn(
+      ctx.options.prepare,
       {
         profile: ctx.profile.id,
         execution: sessionToolCoordinator(ctx.sessions, session.id),
@@ -736,15 +754,17 @@ async function* chatTurn(
         input: turn.input,
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
-        credentials: sessionCredentials(ctx, session.id),
         signal: AbortSignal.any([request.signal, stop.signal]),
         host,
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.effort ? { effort: turn.effort } : {}),
+      },
+      {
+        credentials: sessionCredentials(ctx, session.id),
         ...(key ? { onStage: steerStage(ctx.inbox, key) } : {}),
       },
-      provider,
     );
+    const events = runTurn(prepared, provider);
     yield* recorded(
       ctx.sessions,
       session.id,
@@ -982,9 +1002,9 @@ function answerRequest(body: TheoremInvokeRequest): GateAnswerRequest & GateRefe
 
 /** A route this profile doesn't serve. */
 function refused(ctx: HandlerContext): Response {
-  return jsonResponse(HTTP_METHOD, {
-    error: labelText('error.request', {}, ctx.profile.labels),
-    errorKind: 'request',
+  return jsonResponse(HTTP_NOT_FOUND, {
+    error: labelText('error.not_found', {}, ctx.profile.labels),
+    errorKind: 'not_found',
   });
 }
 
@@ -1055,9 +1075,11 @@ async function settlingOf(
     operation.profileId === ctx.profile.id &&
     (operation.status === 'running' || operation.status === 'uncertain')
   ) {
-    throw new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
-      copy: { key: 'tool.execution_uncertain' },
-    });
+    throw new TheoremError(
+      'conflict',
+      `The tool operation is ${operation.status}, so it does not run again until the host settles it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      { copy: { key: 'tool.execution_uncertain' } },
+    );
   }
   if (
     operation?.status === 'settled' &&

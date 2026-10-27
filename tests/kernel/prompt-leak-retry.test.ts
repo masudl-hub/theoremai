@@ -24,7 +24,11 @@ Deno.test('a reply stopped for repeating the private instruction is retried with
       tools: { allow: [] },
       inputs: { text: true },
       outputs: {},
-      guardrails: { quota: { perDay: 10 }, blockedReply: { onBlock: 'retry', maxRetries: 1 } },
+      guardrails: {
+        quota: { perDay: 10 },
+        detect: { prompt_leak: 'block' },
+        blockedReply: { onBlock: 'retry', maxRetries: 1 },
+      },
     }),
   );
   const repairs: string[] = [];

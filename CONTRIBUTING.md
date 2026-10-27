@@ -87,8 +87,6 @@ Provider and session changes can also require specific sections of that README.
 | [`docs/contracts/observability.md`](docs/contracts/observability.md) | `@theoremjs/agents/observability` and its `jsonl`, `openinference`, and `phoenix` entrypoints |
 | [`docs/contracts/host.md`](docs/contracts/host.md) | `@theoremjs/agents/host` |
 | [`docs/contracts/cli.md`](docs/contracts/cli.md) | `@theoremjs/agents/cli` |
-| [`docs/contracts/presets.md`](docs/contracts/presets.md) | `@theoremjs/agents/presets` |
-| [`docs/contracts/presets-google.md`](docs/contracts/presets-google.md) | `@theoremjs/agents/presets/google` |
 
 Two migration notes explain past cuts: [`docs/MIGRATION-tool-system.md`](docs/MIGRATION-tool-system.md) (the old per-turn dynamic tools) and [`docs/MIGRATION-boundary.md`](docs/MIGRATION-boundary.md) (studio, quota, labels, and composer moved out of the package).
 

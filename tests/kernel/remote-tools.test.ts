@@ -15,7 +15,7 @@ import {
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
 import { executeRegisteredTool, parseMcpRpcResponse } from '../../src/kernel/tools/mod.ts';
-import { buildHttpToolTarget, MAX_TOOL_RESPONSE_BYTES } from '../../src/kernel/tools/remote.ts';
+import { buildHttpToolTarget } from '../../src/kernel/tools/remote.ts';
 import type { ToolAuthConfig } from '../../src/kernel/tools/types.ts';
 import type { Profile } from '../../src/kernel/types.ts';
 import { isRecord } from '../../src/kernel/util/record.ts';
@@ -633,9 +633,10 @@ Deno.test('parseMcpRpcResponse parses plain JSON bodies', () => {
   const tools = parsed.result?.tools;
   assertEquals(Array.isArray(tools) && tools.length === 0, true);
 });
-function registerLinearMcpFixture() {
+function registerLinearMcpFixture(maxResponseBytes?: number) {
   resetTools();
   registerTool({
+    ...(maxResponseBytes === undefined ? {} : { maxResponseBytes }),
     name: 'linear_issue',
     description: 'Create linear issue via MCP',
     type: 'mcp',
@@ -1443,6 +1444,7 @@ Deno.test('Declarative HTTP Tool fails, without reading on, when the response is
     input: z.object({}),
     output: z.unknown(),
     mapping: {},
+    maxResponseBytes: 4 * 1024 * 1024,
   });
   const chunk = new Uint8Array(1024 * 1024).fill(32);
   let pulled = 0;
@@ -1473,7 +1475,7 @@ Deno.test('Declarative HTTP Tool fails, without reading on, when the response is
       events.push(next.value);
     }
     assertEquals(toolEventsOf(events, 'error')[0]?.failure?.code, 'response_too_large');
-    assertEquals(pulled <= MAX_TOOL_RESPONSE_BYTES / chunk.byteLength + 2, true);
+    assertEquals(pulled <= 4 + 2, true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1499,6 +1501,24 @@ async function withMcpResult<T>(result: unknown, run: () => Promise<T>): Promise
   }
 }
 const LINEAR_INPUT = { title: 'Bug', description: 'Investigate' };
+Deno.test('an MCP result past the tool’s maxResponseBytes fails as too large', async () => {
+  registerLinearMcpFixture(64);
+  const issue = { issueId: 'LIN-9', url: `https://linear.app/issue/${'9'.repeat(100)}` };
+  const { settlement } = await withMcpResult({ structuredContent: issue }, () =>
+    collectToolRun('linear_issue', LINEAR_INPUT, 'call_mcp_too_large'),
+  );
+  assertEquals(settlement?.failure?.code, 'response_too_large');
+});
+Deno.test('registration refuses a read limit that is not a whole number above 0', () => {
+  for (const maxResponseBytes of [0, -1, 1.5, Number.NaN]) {
+    assertThrows(
+      () => registerLinearMcpFixture(maxResponseBytes),
+      Error,
+      'maxResponseBytes needs a whole number above 0',
+    );
+  }
+  resetTools();
+});
 Deno.test('an MCP result is its structured content when that fits the declared output', async () => {
   registerLinearMcpFixture();
   const issue = { issueId: 'LIN-7', url: 'https://linear.app/issue/LIN-7' };

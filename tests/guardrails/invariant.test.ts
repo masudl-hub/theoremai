@@ -1,25 +1,29 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 /**
- * The guardrail invariant (`docs/contracts/guardrails.md#invariant`): a host
- * policy adds checks but never releases a system-prompt leak, and a leak a
+ * The guardrail invariant (`docs/contracts/guardrails.md#invariant`): a reply
+ * is read before the host gets it, so a system-prompt leak is always found and
+ * reported, and the profile's action decides what happens to it. A leak a
  * provider-side tool already carried is reported as one.
  */
 import '../fixtures/test-host.ts';
+import { OMIT_CANARY } from '../../src/guardrails/canary.ts';
 import {
   createCanaryGateSession,
   filterCanaryGatedEvents,
 } from '../../src/guardrails/canary-gate.ts';
+import type { DetectSpec } from '../../src/guardrails/detectors.ts';
 import {
   createLiveOutboundGateSession,
   finalizeLiveOutboundTurn,
   processLiveOutboundBatch,
 } from '../../src/guardrails/live-outbound-gate.ts';
-import { EGRESS_RULES } from '../../src/guardrails/rules.ts';
+import { DETECT_RULES, EGRESS_RULES } from '../../src/guardrails/rules.ts';
 import { getProfile, registerProfile } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { eventsOf } from '../fixtures/events.ts';
+import { STOP_LEAKS, TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
@@ -38,7 +42,10 @@ function canaryIn(system: string): string {
   return /[0-9a-f]{32}/.exec(system)?.[0] ?? '';
 }
 
-function register(id: string, onBlock?: 'refuse'): string {
+function register(
+  id: string,
+  guardrails: { detect?: DetectSpec; onBlock?: 'refuse' } = {},
+): string {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -47,10 +54,20 @@ function register(id: string, onBlock?: 'refuse'): string {
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
-      ...(onBlock ? { guardrails: { blockedReply: { onBlock } } } : {}),
+      guardrails: {
+        ...(guardrails.detect ? { detect: guardrails.detect } : {}),
+        ...(guardrails.onBlock ? { blockedReply: { onBlock: guardrails.onBlock } } : {}),
+      },
     }),
   );
   return id;
+}
+
+/** The actions the turn's guardrail events took on a canary leak. */
+function canaryActions(events: TurnEvent[]): string[] {
+  return eventsOf(events, 'guardrail')
+    .filter((event) => event.guardrail.hits.some((hit) => hit.rule === DETECT_RULES.canary_leak))
+    .map((event) => event.guardrail.action);
 }
 
 /** Streams the canary a few characters at a time. */
@@ -63,39 +80,72 @@ const leaksCanary: TurnModel = {
   },
 };
 
-Deno.test('runTurn never releases a canary a host policy allows', async () => {
+Deno.test('runTurn reports a canary under the default detectors and releases it as written', async () => {
+  let canary = '';
   const events = await collect(
-    runTurn({ profile: register('invariant_allow_all'), input: { text: 'hi' } }, leaksCanary),
+    runTurn(
+      { profile: register('invariant_default'), input: { text: 'hi' } },
+      {
+        async *complete(req) {
+          canary = canaryIn(req.system ?? '');
+          yield* leaksCanary.complete(req);
+        },
+      },
+    ),
   );
-  assertEquals(/[0-9a-f]{16}/.test(replyText(events)), false);
+  assertEquals(canaryActions(events).length > 0, true);
+  assertEquals(new Set(canaryActions(events)), new Set(['flag']));
+  assertEquals(replyText(events).includes(canary), true);
   assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
+    events.some((event) => event.type === 'error'),
+    false,
   );
 });
 
-Deno.test('runTurn answers a pinned leak with the host policy refusal', async () => {
+Deno.test('runTurn takes a canary out where the profile says to', async () => {
   const events = await collect(
     runTurn(
-      { profile: register('invariant_refuse', 'refuse'), input: { text: 'hi' } },
+      {
+        profile: register('invariant_take_out', { detect: TAKE_OUT_LEAKS }),
+        input: { text: 'hi' },
+      },
       leaksCanary,
     ),
   );
   assertEquals(/[0-9a-f]{16}/.test(replyText(events)), false);
-  assertEquals(
-    events.some((event) => event.type === 'guardrail'),
-    true,
-  );
+  assertEquals(replyText(events).includes(OMIT_CANARY), true);
 });
 
-Deno.test('finalizeLiveOutboundTurn never releases a leak a host policy allows', async () => {
+Deno.test('runTurn answers a stopped leak with the profile refusal', async () => {
+  const events = await collect(
+    runTurn(
+      {
+        profile: register('invariant_refuse', { detect: STOP_LEAKS, onBlock: 'refuse' }),
+        input: { text: 'hi' },
+      },
+      leaksCanary,
+    ),
+  );
+  assertEquals(/[0-9a-f]{16}/.test(replyText(events)), false);
+  assertEquals(canaryActions(events).includes('block'), true);
+});
+
+Deno.test('finalizeLiveOutboundTurn reports a leak by default and withholds one the profile stops', async () => {
   const canary = '0123456789abcdef0123456789abcdef';
-  const s = await createLiveOutboundGateSession(getProfile(register('invariant_live')), canary, [
-    SYSTEM,
-  ]);
-  await processLiveOutboundBatch(s, [{ type: 'text', text: `say ${canary}` }]);
-  const end = await finalizeLiveOutboundTurn(s);
-  assertEquals(end.action, 'withhold');
+  const spoken = async (id: string, detect?: DetectSpec) => {
+    const profile = getProfile(register(id, detect ? { detect } : {}));
+    const s = await createLiveOutboundGateSession(profile, canary, [SYSTEM]);
+    const batch = await processLiveOutboundBatch(s, [{ type: 'text', text: `say ${canary}` }]);
+    const end = await finalizeLiveOutboundTurn(s);
+    return [batch, end].flatMap((result) =>
+      result.action === 'idle' ? [] : (result.events ?? []),
+    );
+  };
+  const flagged = await spoken('invariant_live');
+  assertEquals(canaryActions(flagged), ['flag']);
+  assertEquals(replyText(flagged), `say ${canary}`);
+  const stopped = await spoken('invariant_live_stops', STOP_LEAKS);
+  assertEquals(JSON.stringify(stopped).includes(canary), false);
 });
 
 Deno.test('a provider tool report carrying the canary is an incident, not a prevented leak', async () => {

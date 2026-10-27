@@ -1,4 +1,4 @@
-import { TheoremError } from './error.ts';
+import { sendOrNetworkError, TheoremError } from './error.ts';
 import type { NetworkGuardrailSpec } from './types.ts';
 
 /**
@@ -268,6 +268,8 @@ export interface GuardedFetchOptions {
   fetchFn?: typeof fetch;
   /** Told how long each hop's checks took: its address, and its lookup when `resolveHost` is set. */
   onCheck?: (ms: number) => void;
+  /** Awaited once, after the first hop's checks pass and before anything is sent; what it throws passes unchanged. */
+  beforeSend?: () => Promise<void>;
 }
 
 /** A host name's IPv4 and IPv6 addresses; empty when the name does not exist. */
@@ -332,6 +334,7 @@ export async function fetchGuarded(
     }
   };
   let target = await clearHop(url);
+  await options.beforeSend?.();
   const origin = target.origin;
   const headers = new Headers(init.headers);
   let method = init.method ?? 'GET';
@@ -344,7 +347,7 @@ export async function fetchGuarded(
         sent.set(name, value);
       }
     }
-    const response = await fetchFn(target.href, {
+    const response = await sendOrNetworkError(fetchFn, target.href, {
       ...init,
       method,
       headers: sent,
@@ -393,7 +396,7 @@ export function dnsOverHttpsResolver(options: DnsOverHttpsOptions): ResolveHost 
     const url = new URL(options.endpoint);
     url.searchParams.set('name', hostname);
     url.searchParams.set('type', String(type));
-    const response = await fetchFn(url.href, {
+    const response = await sendOrNetworkError(fetchFn, url.href, {
       headers: { accept: 'application/dns-json' },
       ...(signal ? { signal } : {}),
     });

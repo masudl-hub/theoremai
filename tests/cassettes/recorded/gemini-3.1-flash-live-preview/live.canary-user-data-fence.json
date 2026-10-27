@@ -214,10 +214,10 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_outbound block detect.prompt_leak+detect.prompt_leak+detect.marker_leak"
+   "live_outbound redact detect.prompt_leak+detect.marker_leak"
   ],
-  "error": "safety",
-  "shown": "\"You are",
+  "error": null,
+  "shown": "\"You are\n\n\n\"[omitted - instructions].\n\n[omitted - instructions].\"\n\nThat's the text.",
   "toolsRun": [],
   "effects": []
  }

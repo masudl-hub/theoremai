@@ -253,18 +253,21 @@ export function withAgentDraft(
 /**
  * A v1 single draft as a workspace: it becomes the one agent, its tools become
  * the library and it allows them all, and the open node moves under it.
+ * Orphan stage/agent links are cleared (`sound`), same as after removeAgent.
  */
 export function workspaceFromDraft(draft: StudioDraft, selectedId = 'identity'): StudioWorkspace {
   const agent = agentFromDraft(draft);
-  return remembered({
-    v: STUDIO_WORKSPACE_VERSION,
-    agents: [agent],
-    toolSpecs: draft.toolSpecs,
-    providers: draft.providers,
-    selected: scopedNodeId(agent.key, selectedId),
-    chatWith: agent.key,
-    starts: { agents: {}, tools: {}, providers: {} },
-  });
+  return sound(
+    remembered({
+      v: STUDIO_WORKSPACE_VERSION,
+      agents: [agent],
+      toolSpecs: draft.toolSpecs,
+      providers: draft.providers,
+      selected: scopedNodeId(agent.key, selectedId),
+      chatWith: agent.key,
+      starts: { agents: {}, tools: {}, providers: {} },
+    }),
+  );
 }
 
 /** A workspace with one blank agent. */
@@ -380,7 +383,9 @@ export function removeAgent(workspace: StudioWorkspace, key: string): StudioWork
   return remembered({
     ...workspace,
     agents,
-    toolSpecs: workspace.toolSpecs.filter((tool) => !ranIt.has(tool.key)),
+    toolSpecs: workspace.toolSpecs
+      .filter((tool) => !ranIt.has(tool.key))
+      .map((tool) => (tool.stageAgentKey === key ? { ...tool, stageAgentKey: undefined } : tool)),
     selected: gone ? agentNodeId(neighbour.key) : workspace.selected,
     chatWith: workspace.chatWith === key ? neighbour.key : workspace.chatWith,
   });
@@ -972,9 +977,13 @@ function mergedValue(
 function sound(workspace: StudioWorkspace): StudioWorkspace {
   const agentKeys = new Set(workspace.agents.map((agent) => agent.key));
   // An agent tool whose agent is gone has nothing to run.
-  const toolSpecs = workspace.toolSpecs.filter(
-    (tool) => tool.toolType !== 'agent' || agentKeys.has(tool.agentKey ?? ''),
-  );
+  const toolSpecs = workspace.toolSpecs
+    .filter((tool) => tool.toolType !== 'agent' || agentKeys.has(tool.agentKey ?? ''))
+    .map((tool) =>
+      tool.stageAgentKey && !agentKeys.has(tool.stageAgentKey)
+        ? { ...tool, stageAgentKey: undefined }
+        : tool,
+    );
   const library = new Set(toolSpecs.map((tool) => tool.key));
   const agents = workspace.agents.map((agent): AgentDraft => {
     const allow = agent.tools.allow.filter((toolKey) => library.has(toolKey));

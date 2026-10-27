@@ -19,6 +19,7 @@ import {
   traceRecordSchema,
   z,
 } from '@theoremjs/agents';
+import type { JsonSchema } from './schema-fields.ts';
 import type { TraceFeed } from './trace-feed.ts';
 import { fetchJson, type HttpOptions } from './transport.ts';
 import { checkWire } from './wire-line.ts';
@@ -39,17 +40,41 @@ export type DecisionInterface = {
   identity: { handle: string };
   contract: string;
   maxStateBytes?: number;
+  /** The questions every decision asks. Empty when the host builds them for each decision. */
   questions: DecisionQuestionView[];
+  /**
+   * Set when the host builds the questions for each decision, from its state and, when `input`
+   * is set, from what the page fills in by that JSON Schema. Each result names the questions it answers.
+   */
+  build?: { input?: JsonSchema };
   /** The host's own images, by the reference its questions write, sent with every decision. */
   images?: Record<string, DecisionAsset>;
   observability?: { record: boolean };
 };
+
+/** A decision's result: the answers and, when the host built its questions for it, those questions. */
+export type DecisionReplyResult = DecisionResult & { questions?: DecisionQuestionView[] };
 
 /** A score level's name: its text, or the first text inside a structured entry. */
 function entryLabel(entry: DecisionEntry, fallback: string): string {
   if (typeof entry === 'string') return entry;
   const entries = Array.isArray(entry) ? entry : Object.keys(entry);
   return entries.length ? entryLabel(entries[0], fallback) : fallback;
+}
+
+/** Questions as the page sees them: their answer types and labels, never their instructions. */
+export function questionViews(questions: Record<string, DecisionQuestion>): DecisionQuestionView[] {
+  return Object.entries(questions).map(([id, question]) => ({
+    id,
+    type: question.type,
+    labels:
+      question.type === 'choice'
+        ? Object.keys(question.criteria)
+        : question.type === 'score'
+          ? question.criteria.map((entry, level) => entryLabel(entry, String(level)))
+          : [],
+    ...(question.type === 'box' && question.image !== undefined ? { image: question.image } : {}),
+  }));
 }
 
 /** The page's view of a decision profile, the questions its host asks, and the host's own images. */
@@ -65,17 +90,7 @@ export function decisionInterface(
     ...(profile.inputs.maxStateBytes === undefined
       ? {}
       : { maxStateBytes: profile.inputs.maxStateBytes }),
-    questions: Object.entries(questions).map(([id, question]) => ({
-      id,
-      type: question.type,
-      labels:
-        question.type === 'choice'
-          ? Object.keys(question.criteria)
-          : question.type === 'score'
-            ? question.criteria.map((entry, level) => entryLabel(entry, String(level)))
-            : [],
-      ...(question.type === 'box' && question.image !== undefined ? { image: question.image } : {}),
-    })),
+    questions: questionViews(questions),
     ...(images && Object.keys(images).length > 0 ? { images } : {}),
     ...(profile.observability
       ? { observability: { record: resolveObservabilityPolicy(profile.observability).record } }
@@ -103,15 +118,16 @@ export function decisionAssets(
 }
 
 /** A decision's reply: the answers, and the trace records a host that delivers them sent back. */
-export type DecisionReply = { result: DecisionResult; traces?: TraceRecord[] };
+export type DecisionReply = { result: DecisionReplyResult; traces?: TraceRecord[] };
 
 export interface DecisionTransport {
   describe(signal?: AbortSignal): Promise<DecisionInterface>;
-  /** `assets` are the images the state names, by reference. */
+  /** `assets` are the images the state names, by reference; `input` is what the host's question builder takes. */
   decide(
     state: Exclude<DecisionJson, null>,
     signal?: AbortSignal,
     assets?: Record<string, DecisionAsset>,
+    input?: unknown,
   ): Promise<DecisionReply>;
   /** Where the host's trace records land, for the inspector. */
   traces?: TraceFeed;
@@ -141,9 +157,16 @@ const answerSchema: z.ZodType<DecisionAnswer> = z.discriminatedUnion('type', [
     probabilities,
   }),
 ]);
+const questionViewSchema = z.object({
+  id: z.string(),
+  type: z.enum(['choice', 'noul', 'score', 'box']),
+  labels: z.array(z.string()),
+  image: z.string().optional(),
+});
 const replySchema = z.object({
   result: z.object({
     model: z.string().min(1),
+    questions: z.array(questionViewSchema).optional(),
     answers: z.record(z.string(), answerSchema),
     usage: z
       .object({
@@ -213,14 +236,8 @@ const describedSchema = z.object({
     identity: z.object({ handle: z.string() }),
     contract: z.string(),
     maxStateBytes: z.number().optional(),
-    questions: z.array(
-      z.object({
-        id: z.string(),
-        type: z.enum(['choice', 'noul', 'score', 'box']),
-        labels: z.array(z.string()),
-        image: z.string().optional(),
-      }),
-    ),
+    questions: z.array(questionViewSchema),
+    build: z.object({ input: z.record(z.string(), z.unknown()).optional() }).optional(),
     images: z
       .record(
         z.string(),
@@ -244,7 +261,12 @@ export function createDecisionTransport(
         'the decision description', // labels-exempt: internal diagnostic; the user reads error.bad_response
       ).interface;
     },
-    decide: (state, signal, assets) =>
-      postDecision(`${base}/decide`, { state, ...(assets ? { assets } : {}) }, signal, options),
+    decide: (state, signal, assets, input) =>
+      postDecision(
+        `${base}/decide`,
+        { state, ...(assets ? { assets } : {}), ...(input === undefined ? {} : { input }) },
+        signal,
+        options,
+      ),
   };
 }

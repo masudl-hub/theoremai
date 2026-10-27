@@ -9,7 +9,7 @@ import {
   connectionFields,
   createBlankDraft,
   createExampleDraft,
-  createSpanExampleDraft,
+  createPageReaderExampleDraft,
   defaultToolSpec,
   includeFacet,
   modelBindingNodeId,
@@ -145,13 +145,37 @@ Deno.test('an agent tool naming a removed agent shows on the tool', () => {
   );
 });
 
+Deno.test('a tool whose post_tool reader is gone still compiles; the filter is dropped', () => {
+  const base = workspaceFromDraft(createExampleDraft());
+  const first = must(base.toolSpecs[0]);
+  const workspace: StudioWorkspace = {
+    ...base,
+    toolSpecs: [{ ...first, stageAgentKey: 'missing-reader' }, ...base.toolSpecs.slice(1)],
+  };
+  const result = compileWorkspace(workspace, ON_OWN_KEYS);
+  assert(result.ok, JSON.stringify(!result.ok && result.issues));
+  const tools = result.agents.flatMap((agent) => agent.customTools);
+  const compiled = must(tools.find((each) => each.name === first.toolName));
+  assertEquals('stageAgent' in compiled && compiled.stageAgent, false);
+});
+
+Deno.test('workspaceFromDraft clears a stage reader that is not in the workspace', () => {
+  const draft = createExampleDraft();
+  const first = must(draft.toolSpecs[0]);
+  const workspace = workspaceFromDraft({
+    ...draft,
+    toolSpecs: [{ ...first, stageAgentKey: 'missing-reader' }, ...draft.toolSpecs.slice(1)],
+  });
+  assertEquals(must(workspace.toolSpecs[0]).stageAgentKey, undefined);
+});
+
 Deno.test('an agent tool runs only a text, image, or speech agent', () => {
-  const issues = issuesOf(conciergeCallingHelper(createSpanExampleDraft()));
+  const issues = issuesOf(conciergeCallingHelper(createPageReaderExampleDraft()));
   assert(
     issues.some(
       (issue) =>
         issue.field === 'agentKey' &&
-        issue.message.startsWith("'guardrails.tool_call.span' is a decision agent"),
+        issue.message.startsWith("'research.pagereader' is a decision agent"),
     ),
     JSON.stringify(issues),
   );

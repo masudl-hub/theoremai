@@ -74,6 +74,8 @@ export const LABEL_KEYS = [
   'quota.busy',
   'error.config',
   'error.request',
+  'error.conflict',
+  'error.not_found',
   'error.input',
   'error.action',
   'error.auth',
@@ -239,6 +241,8 @@ export const CLIENT_LABEL_KEYS = [
   'detect.blocked',
   'error.config',
   'error.request',
+  'error.conflict',
+  'error.not_found',
   'error.input',
   'error.action',
   'error.auth',
@@ -433,6 +437,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'quota.busy': 'Sorry, your last message is still being answered. Please wait for it to finish.',
   'error.config': 'Sorry, something went wrong.',
   'error.request': 'Sorry, something went wrong.',
+  'error.conflict': 'Sorry, something else is still in progress. Please try again shortly.',
+  'error.not_found': "Sorry, that couldn't be found.",
   'error.input': "Sorry, that file can't be used here.",
   'error.action': "Sorry, that isn't available here.",
   'error.auth': "Sorry, the assistant can't connect at the moment.",
@@ -695,6 +701,10 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     "Shown to the user when the turn fails because the agent's profile, a tool, or a schema is set up wrong. Takes {tool} when one step failed.",
   'error.request':
     'Shown to the user when the turn fails because the host called Theorem wrongly. Takes {tool} when one step failed.',
+  'error.conflict':
+    'Shown to the user when the call conflicts with something still in progress, such as a step that is not settled (HTTP 409). Takes {tool} when one step failed.',
+  'error.not_found':
+    'Shown to the user when something the call names is not there, such as a conversation that is no longer kept (HTTP 404). Takes {tool} when one step failed.',
   'error.input':
     'Shown to the user when they sent something the agent does not accept. Takes {tool} when one step failed.',
   'error.action':

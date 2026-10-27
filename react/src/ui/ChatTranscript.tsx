@@ -12,12 +12,14 @@ import {
 import { Citation } from '@astryxdesign/core/Citation';
 import { ClickableCard } from '@astryxdesign/core/ClickableCard';
 import { Collapsible } from '@astryxdesign/core/Collapsible';
+import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
 import { Markdown, type MarkdownComponents } from '@astryxdesign/core/Markdown';
+import { OverflowList } from '@astryxdesign/core/OverflowList';
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
@@ -29,7 +31,7 @@ import { IconCheck, IconCopy } from '@tabler/icons-react';
 import type { LabelOverrides } from '@theoremjs/agents';
 import { stopText, type TranscriptBlock } from '@theoremjs/agents/interface';
 import type { AnsweringGate } from '@theoremjs/web/client';
-import { citationsFromBlock, type SourceCitationBlock } from '@theoremjs/web/client';
+import { citationsFromBlock, type SourceCitation } from '@theoremjs/web/client';
 import {
   type CSSProperties,
   createContext,
@@ -45,6 +47,7 @@ import {
 import {
   assistantTurnCopyText,
   assistantTurnTiming,
+  type ComposeAssistantTurnOptions,
   composeAssistantTurn,
   groupTranscriptBlocks,
   pendingPromptOf,
@@ -99,6 +102,11 @@ export type ChatTranscriptProps = {
    * on an agent tool's call row what the agent it ran used. Off by default.
    */
   usage?: boolean;
+  /**
+   * Where body kinds sit in a reply. Default puts `citation` last (Sources under
+   * the prose). Pass `{}` to keep stream order for inline citations.
+   */
+  bodyKindPlacement?: ComposeAssistantTurnOptions['bodyKindPlacement'];
   /** The profile's labels (`iface.labels`): a stopped turn says why in its words. */
   labels?: LabelOverrides;
 };
@@ -517,27 +525,121 @@ function MediaBlock({ block }: { block: MediaTranscriptBlock }) {
 
 type BodyRow =
   | { kind: 'block'; block: TranscriptBlock }
-  | { kind: 'gallery'; items: GalleryItem[] };
+  | { kind: 'gallery'; items: GalleryItem[] }
+  | { kind: 'sources'; citations: SourceCitation[] };
 
-/** Runs of images/videos become one gallery row; everything else is a row of its own. */
+/**
+ * Runs of images/videos become one gallery row; consecutive citation blocks
+ * become one sources row; everything else is a row of its own.
+ */
 function bodyRows(t: LabelText, body: readonly TranscriptBlock[]): BodyRow[] {
   const rows: BodyRow[] = [];
   for (const block of body) {
     const item = galleryItemOf(t, block);
-    const last = rows.at(-1);
-    if (item && last?.kind === 'gallery') last.items.push(item);
-    else if (item) rows.push({ kind: 'gallery', items: [item] });
+    if (item) addToGallery(rows, item);
+    else if (block.kind === 'citation') addToSources(rows, citationsFromBlock(block));
     else rows.push({ kind: 'block', block });
   }
   return rows;
 }
 
-function Sources({ block }: { block: SourceCitationBlock }) {
+function addToGallery(rows: BodyRow[], item: GalleryItem): void {
+  const last = rows.at(-1);
+  if (last?.kind === 'gallery') last.items.push(item);
+  else rows.push({ kind: 'gallery', items: [item] });
+}
+
+function addToSources(rows: BodyRow[], citations: readonly SourceCitation[]): void {
+  if (citations.length === 0) return;
+  const last = rows.at(-1);
+  if (last?.kind === 'sources') last.citations.push(...citations);
+  else rows.push({ kind: 'sources', citations: [...citations] });
+}
+
+/** Keeps the overflow chip looking like a Citation, not a default button. */
+const SOURCES_MORE_TRIGGER: CSSProperties = {
+  appearance: 'none',
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  margin: 0,
+  font: 'inherit',
+  color: 'inherit',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  verticalAlign: 'baseline',
+};
+
+/** Favicon size matches Citation’s icon slot. */
+const SOURCE_FAVICON: CSSProperties = {
+  width: 16,
+  height: 16,
+  borderRadius: 9999,
+  display: 'block',
+};
+
+/**
+ * As wide as the row, and no wider — same as studio’s Add agent menu
+ * (`studio/ui/studio-screen.tsx` `ROW_WIDE` / `oneLine`).
+ */
+const SOURCE_TITLE_WIDE: CSSProperties = { inlineSize: 0, minInlineSize: '100%' };
+
+/** One-line source title; what does not fit shows on hover. */
+function sourceTitle(title: string) {
+  return (
+    <Text maxLines={1} hasTruncateTooltip="end" style={SOURCE_TITLE_WIDE}>
+      {title}
+    </Text>
+  );
+}
+
+/** One chip; the rest open in a scrollable DropdownMenu with favicons. */
+function Sources({ citations }: { citations: readonly SourceCitation[] }) {
   const t = useLabels();
-  const citations = citationsFromBlock(block);
   if (citations.length === 0) return null;
   return (
-    <HStack gap={1} wrap="wrap" aria-label={t('@theorem.transcript.sources')}>
+    <OverflowList
+      gap={1}
+      maxVisibleItems={1}
+      aria-label={t('@theorem.transcript.sources')}
+      overflowRenderer={(hidden) => {
+        const more = hidden.flatMap(({ index }) => {
+          const citation = citations[index];
+          return citation ? [citation] : [];
+        });
+        if (more.length === 0) return null;
+        const favicon = more.find((citation) => citation.icon)?.icon;
+        const moreLabel = t('@theorem.transcript.sources_more', { count: more.length });
+        return (
+          <DropdownMenu
+            hasChevron={false}
+            // why: menuWidth is a floor; a fixed width is what makes titles ellipsize.
+            style={{ width: 280 }}
+            placement="below"
+            alignment="start"
+            renderTrigger={(props) => (
+              <button type="button" {...props} style={SOURCES_MORE_TRIGGER} aria-label={moreLabel}>
+                <Citation
+                  source={{
+                    title: moreLabel,
+                    ...(favicon ? { src: favicon } : {}),
+                  }}
+                  number={citations.length - more.length + 1}
+                />
+              </button>
+            )}
+            items={more.map((citation) => ({
+              id: citation.key,
+              label: sourceTitle(citation.title),
+              ...(citation.icon
+                ? { icon: <img src={citation.icon} alt="" style={SOURCE_FAVICON} /> }
+                : {}),
+              ...(citation.href ? { href: citation.href, target: '_blank' as const } : {}),
+            }))}
+          />
+        );
+      }}
+    >
       {citations.map((citation, i) => (
         <Citation
           key={citation.key}
@@ -545,7 +647,7 @@ function Sources({ block }: { block: SourceCitationBlock }) {
           number={i + 1}
         />
       ))}
-    </HStack>
+    </OverflowList>
   );
 }
 
@@ -579,13 +681,12 @@ function BodyBlock({ block, streaming }: { block: TranscriptBlock; streaming: bo
   return <ResultBlock block={block} />;
 }
 
-/** Non-streaming answer rows: errors, sources, structured output, and media. */
+/** Non-streaming answer rows: errors, structured output, and media. Citations coalesce in bodyRows. */
 function ResultBlock({ block }: { block: TranscriptBlock }) {
   switch (block.kind) {
     case 'error':
-      return null;
     case 'citation':
-      return <Sources block={block} />;
+      return null;
     case 'structured':
       return <ShapedData value={block.value} />;
     case 'media':
@@ -595,21 +696,12 @@ function ResultBlock({ block }: { block: TranscriptBlock }) {
   }
 }
 
-// why: Astryx sets a call's name in the code font; labels are sentences, so the row takes the body
-// font and the detail restores the code font kept on the wrapper.
-const CODE_FONT_KEPT = {
-  display: 'contents',
-  '--theorem-font-code': 'var(--font-family-code)',
-} as CSSProperties;
+// why: Astryx draws call names in the code font; labels are sentences, so the
+// whole tool call (row and expanded detail) uses the body font instead.
 const CODE_FONT_AS_BODY = { '--font-family-code': 'var(--font-family-body)' } as CSSProperties;
-const CODE_FONT_RESTORED = { '--font-family-code': 'var(--theorem-font-code)' } as CSSProperties;
 
 function ToolCalls({ calls }: { calls: ChatToolCallItem[] }) {
-  return (
-    <div style={CODE_FONT_KEPT}>
-      <ChatToolCalls calls={calls} style={CODE_FONT_AS_BODY} />
-    </div>
-  );
+  return <ChatToolCalls calls={calls} style={CODE_FONT_AS_BODY} />;
 }
 
 /** A call's detail: what it ran with, then what came back. */
@@ -620,8 +712,8 @@ function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): 
     <ShapedData value={tool.arguments} title={t('@theorem.transcript.tool_input')} />
   );
   return (
-    <VStack gap={2} style={CODE_FONT_RESTORED}>
-      <Text type="code" size="sm" color="secondary">
+    <VStack gap={2}>
+      <Text size="sm" color="secondary">
         {tool.name}
       </Text>
       {input}
@@ -852,6 +944,7 @@ function BodyRowView({
   imageOutput?: ImageOutput;
 }) {
   if (row.kind === 'block') return <BodyBlock block={row.block} streaming={streaming} />;
+  if (row.kind === 'sources') return <Sources citations={row.citations} />;
   if (imageOutput) return <GeneratedGallery items={row.items} ratio={imageOutput.ratio} />;
   return <MediaGallery items={row.items} />;
 }
@@ -886,12 +979,18 @@ function AssistantTurn(props: {
   usage?: TurnUsage;
   /** Whether it is the transcript's last message. */
   isNewest?: boolean;
+  bodyKindPlacement?: ComposeAssistantTurnOptions['bodyKindPlacement'];
 }) {
   const t = useLabels();
   const chrome = useChromeReveal(props.isNewest === true);
   const showUsage = useContext(ShowUsage);
   const elapsedMs = useTurnElapsed(props.streaming, props.startedAt, props.workedMs);
-  const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(props.blocks);
+  const { trace, gatedTools, body, hasTrace } = composeAssistantTurn(
+    props.blocks,
+    props.bodyKindPlacement !== undefined
+      ? { bodyKindPlacement: props.bodyKindPlacement }
+      : undefined,
+  );
   const rows = bodyRows(t, body);
   const status = workStatusLabel(
     t,
@@ -923,18 +1022,18 @@ function AssistantTurn(props: {
         {gatedTools.map((block) => (
           <GateCard key={block.id} block={block} handle={props.handle} handlers={props.handlers} />
         ))}
-        {keyedByContent(rows, (row) => (row.kind === 'gallery' ? 'gallery' : row.block.kind)).map(
-          ({ item: row, index: i, key }) => (
-            <BodyRowView
-              // why: Not the block id: the committed turn re-mints ids, and a
-              // remount would cut the text reveal short.
-              key={key}
-              row={row}
-              streaming={props.streaming && i === rows.length - 1}
-              imageOutput={props.imageOutput}
-            />
-          ),
-        )}
+        {keyedByContent(rows, (row) =>
+          row.kind === 'gallery' || row.kind === 'sources' ? row.kind : row.block.kind,
+        ).map(({ item: row, index: i, key }) => (
+          <BodyRowView
+            // why: Not the block id: the committed turn re-mints ids, and a
+            // remount would cut the text reveal short.
+            key={key}
+            row={row}
+            streaming={props.streaming && i === rows.length - 1}
+            imageOutput={props.imageOutput}
+          />
+        ))}
         <PendingImage imageOutput={props.imageOutput} streaming={props.streaming} rows={rows} />
       </VStack>
     </ChatMessage>
@@ -1018,6 +1117,7 @@ function ChatTranscriptBody({
   emptyState,
   dividers,
   imageOutput,
+  bodyKindPlacement,
   labels,
 }: ChatTranscriptProps) {
   const groups = useMemo(
@@ -1037,7 +1137,7 @@ function ChatTranscriptBody({
     onToolDecision,
     onAuthenticated,
   };
-  const turn = { handle, handlers, imageOutput };
+  const turn = { handle, handlers, imageOutput, bodyKindPlacement };
 
   const lastUser = groups.findLastIndex((group) => group.kind === 'user');
 

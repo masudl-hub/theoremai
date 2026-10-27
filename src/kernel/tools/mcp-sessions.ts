@@ -3,46 +3,60 @@
  * lives in memory on one tool registry, is never persisted, and losing it costs one reopen.
  */
 
-const MAX_SESSIONS = 256;
-const IDLE_MS = 30 * 60 * 1000;
+import type { McpSessionLimits } from './types.ts';
+
 // why: The spec allows visible ASCII only; the cap keeps a server from bloating every later request.
 const SESSION_ID = /^[\x21-\x7E]{1,256}$/;
 
 export type McpSession = { id: string; protocolVersion: string };
 
+/** The tool a session is used for, and that tool's own `session` limits. */
+export interface McpSessionUse extends McpSessionLimits {
+  tool: string;
+}
+
 export interface McpSessionCache {
-  get(key: string): McpSession | undefined;
+  get(key: string, use: McpSessionUse): McpSession | undefined;
   /** Parallel callers for one key share a single `open`. */
-  open(key: string, open: () => Promise<McpSession>): Promise<McpSession>;
+  open(key: string, use: McpSessionUse, open: () => Promise<McpSession>): Promise<McpSession>;
   /** Only drops the session if it's still `id`, so a late expiry can't evict a newer one. */
   drop(key: string, id: string): void;
   clear(): void;
 }
 
 export function createMcpSessionCache(now: () => number = Date.now): McpSessionCache {
-  const sessions = new Map<string, McpSession & { usedAt: number }>();
+  const sessions = new Map<string, McpSession & { usedAt: number; tool: string }>();
   const pending = new Map<string, Promise<McpSession>>();
+  /** Drops the tool's least recently used sessions past its `max`. */
+  const trim = ({ tool, max }: McpSessionUse) => {
+    if (max === undefined) return;
+    let held = [...sessions.values()].filter((entry) => entry.tool === tool).length;
+    for (const [key, entry] of sessions) {
+      if (held <= max) break;
+      if (entry.tool !== tool) continue;
+      sessions.delete(key);
+      held--;
+    }
+  };
   return {
-    get(key) {
+    get(key, use) {
       const entry = sessions.get(key);
       if (!entry) return undefined;
       sessions.delete(key);
-      if (now() - entry.usedAt > IDLE_MS) return undefined;
+      if (use.idleMs !== undefined && now() - entry.usedAt > use.idleMs) return undefined;
       // why: Re-inserting keeps the map in least-recently-used order for eviction.
-      sessions.set(key, { ...entry, usedAt: now() });
+      sessions.set(key, { ...entry, usedAt: now(), tool: use.tool });
+      trim(use);
       return { id: entry.id, protocolVersion: entry.protocolVersion };
     },
-    open(key, open) {
+    open(key, use, open) {
       const inFlight = pending.get(key);
       if (inFlight) return inFlight;
       const opening = open()
         .then((session) => {
           sessions.delete(key);
-          sessions.set(key, { ...session, usedAt: now() });
-          for (const oldest of sessions.keys()) {
-            if (sessions.size <= MAX_SESSIONS) break;
-            sessions.delete(oldest);
-          }
+          sessions.set(key, { ...session, usedAt: now(), tool: use.tool });
+          trim(use);
           return session;
         })
         .finally(() => pending.delete(key));

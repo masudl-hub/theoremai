@@ -11,7 +11,7 @@ import {
   type ClientTurnOptions,
   caughtStatus,
   clientError,
-  HTTP_METHOD,
+  HTTP_NOT_FOUND,
 } from '@theoremjs/agents/host';
 import { jsonResponse } from './json-response.ts';
 
@@ -36,9 +36,9 @@ export function singleActionHandler(
       if (request.method === 'GET' && !isAction(request))
         return jsonResponse(200, { interface: iface });
       if (request.method !== 'POST' || !isAction(request)) {
-        return jsonResponse(HTTP_METHOD, {
-          error: labelText('error.request', {}, labels),
-          errorKind: 'request',
+        return jsonResponse(HTTP_NOT_FOUND, {
+          error: labelText('error.not_found', {}, labels),
+          errorKind: 'not_found',
         });
       }
       return jsonResponse(200, { result: await run(request) });

@@ -70,6 +70,33 @@ export function nextAccept(
   return [...next, ...selected.filter((mime) => !known.has(mime))];
 }
 
+/**
+ * Whether a type can take a size of its own: a type when it is taken, a family when any type in it
+ * is, and a type no section lists always.
+ */
+export function canSize(
+  mime: string,
+  accept: readonly string[],
+  sections: readonly AcceptSection[],
+): boolean {
+  const section = sections.find((each) => each.wildcard === mime || each.mimes.includes(mime));
+  if (!section) return true;
+  const taken = expandAccept(accept, sections);
+  if (mime !== section.wildcard) return taken.includes(mime);
+  return section.mimes.some((each) => taken.includes(each));
+}
+
+/** The sizes left once the types taken change: a size stays where it can still apply. */
+export function keptLimits(
+  limits: Record<string, number>,
+  accept: readonly string[],
+  sections: readonly AcceptSection[],
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(limits).filter(([mime]) => canSize(mime, accept, sections)),
+  );
+}
+
 function wildcardKind(mime: string): MediaInputKind | undefined {
   if (!mime.endsWith('/*')) return undefined;
   const prefix = mime.slice(0, -1);

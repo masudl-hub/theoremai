@@ -2,7 +2,7 @@
  * The judge profiles the judge tests and the judged examples run. `eval.judge`
  * is a text turn that answers through the `evalJudgment` schema;
  * `eval.judge.jev` is a decision profile that puts a rubric's question to
- * Jev. Importing this module registers both; the judge suites import it so
+ * Jev. The text judges take injection out of what they read. Importing this module registers both; the judge suites import it so
  * `agents eval` finds them.
  */
 import { EVAL_JUDGMENT } from '../../../src/evals/graders/judge.ts';
@@ -25,6 +25,7 @@ registerProfile({
   tools: { allow: [] },
   inputs: { text: true },
   outputs: { structured: EVAL_JUDGMENT },
+  guardrails: { detect: { injection: 'redact' } },
 });
 registerProfile({
   type: 'text',
@@ -45,6 +46,7 @@ registerProfile({
     maxTurnBytes: 20000000,
   },
   outputs: { structured: EVAL_JUDGMENT },
+  guardrails: { detect: { injection: 'redact' } },
 });
 registerProfile({
   type: 'decision',

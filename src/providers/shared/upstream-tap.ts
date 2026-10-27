@@ -1,9 +1,4 @@
-import {
-  describeError,
-  isAbortError,
-  isTimeoutError,
-  TheoremError,
-} from '../../guardrails/error.ts';
+import { sendOrNetworkError } from '../../guardrails/error.ts';
 import type { KeySlot, ModelRequest } from '../../kernel/types.ts';
 
 const SECRET_HEADER = /key|auth|cookie|secret|token/i;
@@ -81,20 +76,6 @@ export function tapFetch(
   };
 }
 
-/** fetch rejects only when no response came back, so any non-abort, non-timeout rejection is `network`. */
-export function networkError(err: unknown): unknown {
-  if (err instanceof TheoremError || isAbortError(err) || isTimeoutError(err)) {
-    return err;
-  }
-  return new TheoremError('network', describeError(err), { cause: err });
-}
-
 export function networkFetch(send: typeof fetch = fetch): typeof fetch {
-  return async (url, init) => {
-    try {
-      return await send(url, init);
-    } catch (err) {
-      throw networkError(err);
-    }
-  };
+  return (url, init) => sendOrNetworkError(send, url, init);
 }

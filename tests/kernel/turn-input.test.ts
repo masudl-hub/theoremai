@@ -14,6 +14,7 @@ import type {
 } from '../../src/kernel/types.ts';
 import { blockNaming, TERM_HINT } from '../fixtures/detect.ts';
 import { eventsOf } from '../fixtures/events.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { CHAT_MEDIA_LIMITS, geminiModels } from '../fixtures/models.ts';
 
 const PNG = { mimeType: 'image/png', data: btoa('px') };
@@ -163,10 +164,10 @@ Deno.test('turn input: a retry keeps the canary-bound system prompt and the tool
       maxSteps: 2,
       tools: { allow: ['turn_input_t1_tool'], t1Policy: () => ['turn_input_t1_tool'] },
       inputs: { text: true },
-      guardrails: { ...blockFirstReply },
+      guardrails: { ...blockFirstReply, detect: { ...blockFirstReply.detect, ...TAKE_OUT_LEAKS } },
     }),
   );
-  // The retry leaks the canary bound into the system prompt; it must still be caught.
+  // The retry leaks the canary bound into the system prompt; it must still be taken out.
   let canary = '';
   const { seen, events } = await requestsFor(
     { profile: 'input.retry.t1', input: { text: 'hello' } },

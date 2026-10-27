@@ -6,9 +6,10 @@ import {
   interfaceFromProfile,
   type TranscriptBlock,
 } from '../../src/interface/mod.ts';
+import { registerTools } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { streamInterfaceTurn } from '../../web/src/client/run-session.ts';
 import {
   hostError,
@@ -18,7 +19,7 @@ import {
 import { CHAT_MEDIA_LIMITS, HOST_BINDINGS } from '../fixtures/models.ts';
 import { unskippedView } from '../fixtures/stream-view.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 function textInterface(): ComposerProfileInterface {
   const iface = interfaceFromProfile(
     defineProfile({
@@ -134,8 +135,8 @@ const EARLIER: TranscriptBlock[] = [{ id: 'u0', kind: 'user-text', text: 'Earlie
 /** The host's answer to a ref it can't open, as the wire carries it. */
 const lost = () =>
   hostError(
-    { errorKind: 'request', errorCopy: { key: 'session.conversation_unknown' } },
-    'request',
+    { errorKind: 'not_found', errorCopy: { key: 'session.conversation_unknown' } },
+    'not_found',
   );
 /** A run on conversation `ref-0`, with the page's transcript before the message. */
 async function runOnLostRef(turn: TheoremTransport['turn']) {
@@ -176,7 +177,7 @@ Deno.test('a host that still can’t open the conversation fails the message aft
   });
   assertEquals(tries, 2);
   assertEquals(outcome.posted, false);
-  assertEquals(outcome.failure?.errorKind, 'request');
+  assertEquals(outcome.failure?.errorKind, 'not_found');
 });
 Deno.test('any other refused message is not sent again', async () => {
   let tries = 0;

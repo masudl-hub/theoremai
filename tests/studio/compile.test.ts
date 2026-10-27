@@ -27,6 +27,7 @@ import {
   newPattern,
   newToolSpec,
   removeModelBinding,
+  type SlotDraft,
   type StudioCompileResult,
   type StudioDraft,
   setProfileType,
@@ -66,6 +67,16 @@ Deno.test('removing the default binding clears the default and leaves model sele
   assertEquals(removeModelBinding(draft, 'missing'), draft);
 });
 /** A turn draft's compile; decision and host drafts have their own tests. */
+/** A slot row with a choice per value, none described. */
+function slotRow(name: string, values: string[], label = ''): SlotDraft {
+  return {
+    key: `slot-${name}`,
+    name,
+    label,
+    choices: values.map((value) => ({ key: `choice-${value}`, value, description: '' })),
+  };
+}
+
 function compiled(draft: StudioDraft) {
   const result = compileStudio(draft, ON_OWN_KEYS);
   if (!result.ok) throw new Error(`unexpected issues: ${JSON.stringify(result.issues)}`);
@@ -93,8 +104,13 @@ Deno.test('the example draft compiles to the travel concierge', () => {
 Deno.test('what a URL detector allows compiles to what differs from the defaults, where it reads', () => {
   const draft = createExampleDraft();
   type GuardrailsOf = StudioDraft['guardrails'];
+  const reading = structuredClone(draft.guardrails.detect);
+  for (const boundary of ['reply', 'reply_structured', 'live_reply'] as const) {
+    reading.ungiven_images[boundary] = 'block';
+    reading.ungiven_links[boundary] = 'block';
+  }
   /** The `allow` of `ungiven_images` and of `ungiven_links`, as compiled. */
-  const allows = (allow: Partial<GuardrailsOf['allow']>, detect = draft.guardrails.detect) => {
+  const allows = (allow: Partial<GuardrailsOf['allow']>, detect = reading) => {
     const { guardrails } = draft;
     const spec = compiled({
       ...draft,
@@ -130,11 +146,14 @@ Deno.test('what a URL detector allows compiles to what differs from the defaults
 Deno.test('a blank allowed host is reported at its detector', () => {
   const draft = createExampleDraft();
   const { guardrails } = draft;
+  const detect = structuredClone(guardrails.detect);
+  detect.ungiven_links.reply = 'block';
   const result = compileStudio(
     {
       ...draft,
       guardrails: {
         ...guardrails,
+        detect,
         allow: {
           ...guardrails.allow,
           ungiven_links: { hosts: ['docs.acme.io', ' '], fromTools: true },
@@ -893,10 +912,10 @@ Deno.test('detect compiles to the actions the draft changes, at the boundaries t
       ?.detect;
   assertEquals(spec(detect), undefined);
   detect.credentials.reply = 'block';
-  detect.injection.tool_output_http = 'flag';
+  detect.injection.tool_output_http = 'redact';
   assertEquals(spec(detect), {
     credentials: { at: { reply: 'block' } },
-    injection: { at: { tool_output_http: 'flag' } },
+    injection: { at: { tool_output_http: 'redact' } },
   });
   const host = includeFacet(setProfileType(createExampleDraft(), 'host'), 'guardrails');
   const hosted = compileStudio(
@@ -905,7 +924,7 @@ Deno.test('detect compiles to the actions the draft changes, at the boundaries t
   );
   assert(hosted.ok);
   assertEquals(hosted.profile.guardrails?.detect, {
-    injection: { at: { tool_output_http: 'flag' } },
+    injection: { at: { tool_output_http: 'redact' } },
   });
 });
 Deno.test('a host draft compiles to its tools, with no model or identity', () => {
@@ -1221,15 +1240,15 @@ Deno.test('an image draft pins references and output settings, and reports what 
     ],
   );
 });
-Deno.test('instructions by role, slots, and limits by type compile from their JSON fields', () => {
+Deno.test('instructions by role, slots, and limits by type compile from their fields', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
     ...draft,
     identity: { ...draft.identity, systemByRoleJson: '{"support":"Answer as support."}' },
     inputs: {
       ...draft.inputs,
-      limitsByMimeJson: '{"application/pdf":2000000}',
-      slotsJson: '{"language":["en","fr"]}',
+      limitsByMime: { 'application/pdf': 2000000 },
+      slots: [slotRow('language', ['en', 'fr'])],
     },
   });
   assert(profile.type === 'text');
@@ -1240,15 +1259,79 @@ Deno.test('instructions by role, slots, and limits by type compile from their JS
     {
       ...draft,
       identity: { ...draft.identity, systemByRoleJson: '{"support":1}' },
-      inputs: { ...draft.inputs, limitsByMimeJson: '{"image/*":0}', slotsJson: '{"language":[]}' },
+      inputs: {
+        ...draft.inputs,
+        limitsByMime: { 'image/*': 0 },
+        slots: [slotRow('language', [])],
+      },
     },
     ON_OWN_KEYS,
   );
   assert(!bad.ok);
   assertEquals(bad.issues.map((issue) => issue.field).sort(), [
-    'limitsByMimeJson',
-    'slotsJson',
+    'limitsByMime',
+    'slots',
     'systemByRoleJson',
+  ]);
+});
+Deno.test('a slot with a label or a described choice compiles to its labeled form', () => {
+  const draft = createExampleDraft();
+  const tone = slotRow('tone', ['plain', 'warm', ''], 'Tone');
+  const { profile } = compiled({
+    ...draft,
+    inputs: {
+      ...draft.inputs,
+      slots: [
+        tone,
+        {
+          ...slotRow('size', ['s', 'm']),
+          choices: [
+            { key: 'c1', value: ' s ', description: 'Small' },
+            { key: 'c2', value: 'm', description: '' },
+          ],
+        },
+      ],
+    },
+  });
+  assert(profile.type === 'text');
+  assertEquals(profile.inputs?.slots, {
+    tone: { label: 'Tone', choices: [{ value: 'plain' }, { value: 'warm' }] },
+    size: { choices: [{ value: 's', description: 'Small' }, { value: 'm' }] },
+  });
+});
+Deno.test('a slot without a name, a repeated name or value, or a value-less description fails on its row', () => {
+  const draft = createExampleDraft();
+  const described = {
+    ...slotRow('size', ['s']),
+    choices: [
+      { key: 'c1', value: 's', description: '' },
+      { key: 'c2', value: '', description: 'Medium' },
+    ],
+  };
+  const result = compileStudio(
+    {
+      ...draft,
+      inputs: {
+        ...draft.inputs,
+        slots: [
+          slotRow(' ', ['a']),
+          slotRow('tone', ['plain', 'plain']),
+          slotRow('tone', ['warm']),
+          described,
+        ],
+      },
+    },
+    ON_OWN_KEYS,
+  );
+  assert(!result.ok);
+  const slotIssues = result.issues
+    .filter((issue) => issue.field === 'slots')
+    .map((issue) => [issue.index, issue.message]);
+  assertEquals(slotIssues, [
+    [0, 'Name this slot.'],
+    [1, 'plain is a choice twice.'],
+    [2, 'Another slot is called tone.'],
+    [3, 'Every choice with a description needs a value.'],
   ]);
 });
 Deno.test('context compiles for a chat agent and a call, and needs its limit', () => {

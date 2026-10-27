@@ -119,8 +119,6 @@ export {
 export type { CompiledPatterns, HostPattern } from './host-patterns.ts';
 export {
   listsPatterns,
-  MAX_PATTERN_LENGTH,
-  MAX_PATTERNS,
   patternListProblem,
 } from './host-patterns.ts';
 export { injectionSpans } from './injection.ts';

@@ -43,20 +43,21 @@ slot”).
 | `HTTP_OK` | `200` |
 | `HTTP_BUSY` | `429` |
 | `HTTP_NOT_FOUND` | `404` |
-| `HTTP_METHOD` | `405` |
+| `HTTP_METHOD` | `405`. The web handlers do not send it: a route or method they do not serve gets `404` with kind `not_found`, as the Gemini API answers an unknown path or method. |
 
 `caughtStatus` by kind:
 
 | Kind | Status | Kind | Status |
 | --- | --- | --- | --- |
-| `config` | 500 | `bad_response` | 502 |
-| `request` | 400 | `network` | 502 |
-| `input` | 422 | `timeout` | 504 |
-| `action` | 403 | `safety` | 422 |
-| `auth` | 401 | `blocked` | 403 |
-| `rate_limit` | 429 | `declined` | 409 |
-| `unsupported` | 422 | `failed` | 502 |
-| `unavailable` | 503 | `cancelled` | 499 (client closed request) |
+| `config` | 500 | `unavailable` | 503 |
+| `request` | 400 | `bad_response` | 502 |
+| `conflict` | 409 | `network` | 502 |
+| `not_found` | 404 | `timeout` | 504 |
+| `input` | 422 | `safety` | 422 |
+| `action` | 403 | `blocked` | 403 |
+| `auth` | 401 | `declined` | 409 |
+| `rate_limit` | 429 | `failed` | 502 |
+| `unsupported` | 422 | `cancelled` | 499 (client closed request) |
 | `busy` | 503 | `internal` | 500 |
 
 `auth` is 401 whichever key was refused. A key the host's vault lacks (a model's
@@ -156,7 +157,7 @@ late answer is then refused like any `executeTool` for a settled call.
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event for its reader. For a visitor (the default), without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, and guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match`. With `reader: 'builder'`, the raw reason stands where the visitor's wording did: an error event's `error` and an ended session's `message` are their `errorInternal`, a tool call's `failure.error` is its `failure.message`, and a guardrail decision keeps its `errorInternal` |
+| `forClient(event, options?)` | Copy one event for its reader. For a visitor (the default), without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, guardrail decisions, and a compaction's `failure`; `errorKind` and the user's `error` stay) and a guardrail decision's `errorSummary`; strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match`. With `reader: 'builder'`, the raw reason stands where the visitor's wording did: an error event's `error` and an ended session's `message` are their `errorInternal`, a tool call's `failure.error` is its `failure.message`, and a guardrail decision keeps its `errorInternal` and `errorSummary` |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `clientError(err, labels?, options?)` | A caught failure as `{ error, errorKind }`, by the same rule as `forClient`: the profile's wording for a visitor, the raw reason for a builder. The body of an error reply |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean; reader?: 'visitor' \| 'builder' }` |

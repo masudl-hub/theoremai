@@ -9,6 +9,8 @@ import {
   decisionExampleAssets,
   EXAMPLE_DECISION_STATE,
   EXAMPLE_SPAN_DECISION_STATE,
+  RESEARCH_PAGE_READER_AGENT_ID,
+  RESEARCH_PAGE_READER_STATE,
   type StudioRunPayload,
 } from '../mod.ts';
 import { QuestionLink } from './inspector-context.ts';
@@ -28,6 +30,9 @@ function useDecisionSeed(payload: StudioRunPayload) {
   if (payload.agentId === DECISION_EXAMPLE_AGENT_ID) {
     exampleAssets ??= decisionExampleAssets();
     return { defaultState: DECISION_EXAMPLE_STATE, defaultImages: { ...use(exampleAssets) } };
+  }
+  if (payload.agentId === RESEARCH_PAGE_READER_AGENT_ID) {
+    return { defaultState: RESEARCH_PAGE_READER_STATE };
   }
   const { profile } = payload;
   const model = profile.type === 'decision' ? Object.values(profile.models)[0] : undefined;

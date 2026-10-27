@@ -9,6 +9,7 @@ Deno.test('structured output: structuredEvent parses JSON and fails loudly other
   assertEquals(structuredEvent('not json'), {
     type: 'error',
     errorKind: 'bad_response',
-    errorInternal: 'structured output was not valid JSON',
+    errorInternal:
+      'structured output was not valid JSON\ncaused by: SyntaxError: Unexpected token \'o\', "not json" is not valid JSON',
   });
 });

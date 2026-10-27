@@ -21,7 +21,6 @@ import {
   DESTINATION_GATES,
   TAINT_GATES,
 } from '../guardrails/types.ts';
-import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
 import { isProfileRootField, profileFieldScope } from './profile-scope.ts';
 
@@ -918,12 +917,28 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.',
   ),
   'inputs.slots': field(
-    'Record<string, string[]>',
-    'Named choices a turn or a call can make, such as language, each with its allowed values. {name} in a prompt becomes the chosen value.',
+    'Record<string, string[] | SlotDecl>',
+    'Named choices a turn or a call can make. A bare string list is the allowed values; an object may add a UI label and per-choice descriptions. {name} in a prompt becomes the chosen value string.',
   ),
   'inputs.slots.*': field(
-    'string[]',
-    'The values a turn may choose for this slot; any other is refused.',
+    'string[] | SlotDecl',
+    'Either the allowed value strings, or { label?, choices: { value, description? }[] }. Descriptions are UI-only; value is what the turn sends and what {name} fills.',
+  ),
+  'inputs.slots.*.label': field(
+    'string',
+    'Visitor-facing group title for this slot in the composer (for example Source Bias). Omit to show the slot name.',
+  ),
+  'inputs.slots.*.choices': field(
+    'SlotChoice[]',
+    'The allowed values for this slot, each with an optional UI description.',
+  ),
+  'inputs.slots.*.choices.*.value': field(
+    'string',
+    'The string the turn sends for this choice and that {name} substitutes into prompts.',
+  ),
+  'inputs.slots.*.choices.*.description': field(
+    'string',
+    'Visitor-facing blurb for this choice in the composer. Never substituted into prompts.',
   ),
   'inputs.context': field(
     '{ from: ContextSender[]; maxChars: number }',
@@ -1021,12 +1036,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'live.ingress.audio': field('boolean', 'Whether the session accepts microphone audio.'),
   'live.ingress.video': field('boolean', 'Whether the session accepts camera frames.'),
   'live.ingress.text': field('boolean', 'Whether the session accepts typed text.'),
-  'live.voice': field(
-    'string',
-    'The voice the model speaks in.',
-    GOOGLE_SPEECH_VOICES,
-    'Voice names to pick from; any other name is sent as written.',
-  ),
+  'live.voice': field('string', 'The voice the model speaks in.'),
   'live.vad': field(
     'LiveVadSpec',
     'How the session detects when the user starts and stops speaking.',
@@ -1489,6 +1499,34 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       ['page'],
     ),
     unset: 'Its handler',
+  },
+  'registerTool.maxResponseBytes': {
+    ...field(
+      'number',
+      'The most bytes of a response body an HTTP or MCP tool reads; past it the call fails with response_too_large.',
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.session': {
+    ...field(
+      'McpSessionLimits',
+      "How long and how many of an MCP tool's server sessions the kernel keeps.",
+    ),
+    unset: 'No limits',
+  },
+  'registerTool.session.idleMs': {
+    ...field(
+      'number',
+      'How long a session may sit unused before the next call opens a new one, in milliseconds.',
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.session.max': {
+    ...field(
+      'number',
+      'The most sessions the tool keeps open; past it the least recently used is dropped.',
+    ),
+    unset: 'No limit',
   },
   'registerTool.maxCallsPerTurn': {
     ...field('number', 'How many times one turn of the calling agent may run this tool.'),

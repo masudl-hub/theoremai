@@ -185,6 +185,12 @@ export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
 export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';
 export type { SchemaRegistry } from './registry/schemas.ts';
 export { createSchemaRegistry } from './registry/schemas.ts';
+export {
+  normalizeProfileInputsSlots,
+  normalizeSlotDecl,
+  normalizeSlots,
+  slotValues,
+} from './registry/slots.ts';
 export type { CredentialContext, CredentialResolver, KeyCredential } from './registry/vault.ts';
 export type {
   AuthUnauthenticatedPolicy,

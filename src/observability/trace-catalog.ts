@@ -204,6 +204,14 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
 const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
   config: { label: 'Setup', doc: 'The profile, tool, or schema is set up wrong.' },
   request: { label: 'Host request', doc: 'The host called theorem wrongly.' },
+  conflict: {
+    label: 'Conflict',
+    doc: 'The call conflicts with the state it acts on, such as an operation that is still running or not settled.',
+  },
+  not_found: {
+    label: 'Not found',
+    doc: 'Something the call names by id is not there, such as a conversation the store no longer holds.',
+  },
   input: { label: 'User input', doc: 'The user sent input the profile does not accept.' },
   action: { label: 'Not allowed', doc: 'The user asked for something the profile does not allow.' },
   auth: {
@@ -1334,6 +1342,12 @@ const HITS = fields('error', 'Hits', 'Each rule that matched.', {
     'How serious the rule says a match is.',
     SEVERITY_OPTIONS,
   ),
+  signal: attr(
+    'error',
+    'Signal',
+    'text',
+    "What made a `tool_instructions` match one, or how a host detector's `find` failed: `find_threw` or `find_result`.",
+  ),
   start: attr('error', 'From', 'number', 'Where the match starts in the checked text.'),
   end: attr('error', 'To', 'number', 'Where the match ends in the checked text.'),
   match: attr(
@@ -1406,6 +1420,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         ),
       }),
       error: attr('error', 'Detail', 'content', "The guardrail's internal reason."),
+      error_summary: attr(
+        'error',
+        'Failure',
+        'text',
+        "Which host detector failed, how, and its error id, in the kernel's words only. The host stream's reason ends with the same id.",
+      ),
     },
   },
   'theorem.attempt.retry': {
@@ -1477,6 +1497,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'text',
         'The error the compactor failed with.',
         ERROR_KIND_OPTIONS,
+      ),
+      failure_reason: attr(
+        'agent',
+        'Compactor reason',
+        'content',
+        'Why the compactor failed, in its own words.',
       ),
       failure_empty: attr(
         'agent',

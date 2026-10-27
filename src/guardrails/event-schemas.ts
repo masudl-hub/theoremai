@@ -109,6 +109,11 @@ export interface GuardrailEvent {
   provenance?: Provenance;
   /** The block verdict's `errorInternal`: builder-only, stripped by `forClient`. */
   errorInternal?: string;
+  /**
+   * A failed host detector's `errorInternal` in the kernel's words only, with the same error id:
+   * what the trace stores. Builder-only, stripped by `forClient`.
+   */
+  errorSummary?: string;
 }
 const guardrailEvent = z.object({
   stage: z.enum(GUARDRAIL_STAGES),
@@ -118,6 +123,7 @@ const guardrailEvent = z.object({
   hits: z.array(guardrailHit),
   provenance: provenance.optional(),
   errorInternal: z.string().optional(),
+  errorSummary: z.string().optional(),
 });
 true satisfies Equals<z.infer<typeof guardrailEvent>, GuardrailEvent>;
 /** The schema a guardrail event parses against. */

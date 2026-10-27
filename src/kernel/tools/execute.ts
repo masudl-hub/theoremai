@@ -33,6 +33,7 @@ import {
   failedActivity,
   failedActivityOf,
   failureEvent,
+  type HandOff,
   messageOf,
   networkBlocked,
   networkBlockedEvent,
@@ -51,7 +52,7 @@ import type {
   ToolOperationClaim,
   ToolOperationOutcome,
 } from './operation.ts';
-import { operationUnavailable, operationWireValue } from './operation.ts';
+import { operationBroken, operationWireValue } from './operation.ts';
 import {
   checkPermission,
   gateDetails,
@@ -753,18 +754,24 @@ function waitsForPage(tool: FunctionToolDef, ctx: ToolContext): boolean {
 async function* receivePageAnswer(
   tool: FunctionToolDef,
   ctx: ToolContext,
-  claim: ToolOperationClaim | undefined,
+  handOff: HandOff,
   base: ToolCallBase,
 ): AsyncGenerator<TurnEvent, ToolContext> {
   const execution = ctx.pageExecution;
   if (tool.answeredBy !== 'page' || !execution) return ctx;
-  if (!claim?.invocation) throw operationUnavailable();
+  const claim = await handOff.claim();
+  if (!claim?.invocation) {
+    throw new TheoremError(
+      'config',
+      `Page tool '${tool.name}' needs a tool execution coordinator (execution)`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
   const argumentsForPage = jsonObjectSchema.parse(
     operationWireValue(claim.invocation.preparedInput),
   );
   const dispatch = await execution.dispatch(claim, ctx.signal);
   throwIfAborted(ctx.signal);
-  if (!dispatch.grantId) throw operationUnavailable();
+  if (!dispatch.grantId) throw operationBroken('The page dispatch returned no grantId'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   yield toolEvent(base, {
     phase: 'dispatch',
     grantId: dispatch.grantId,
@@ -854,8 +861,8 @@ export async function* executeFunction(
   }
 
   throwIfAborted(ctx.signal);
-  const claim = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
-  ctx = yield* receivePageAnswer(tool, ctx, claim, base);
+  const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
+  ctx = yield* receivePageAnswer(tool, ctx, handOff, base);
   const { secret } = signedIn;
   const fail = (failure: ToolFailure) =>
     settleToolFailure(
@@ -871,6 +878,7 @@ export async function* executeFunction(
     ? { ...ctx, signedInFetch: signedInFetch(signedIn.prepared, ctx, checks) }
     : ctx;
   let output: unknown;
+  await handOff.claim();
   try {
     const shown = new HandlerEvents(base, guard.handlerEvents(stages?.drafts === true));
     output = yield* runHandler(tool.handler, input as never, handlerCtx, shown);
@@ -1122,7 +1130,10 @@ async function* settleBodyOutcome(args: {
     provisional: { outputRaw: outcome.outputRaw, modelResult: outcome.modelResult },
     sources: tool.sources,
     ...(tool.type !== 'function' && tool.images
-      ? { images: (output: unknown) => fetchToolImages(tool.images as never, output, ctx) }
+      ? {
+          images: (output: unknown) =>
+            fetchToolImages(tool.images as never, output, ctx, tool.imageLimits),
+        }
       : {}),
     labels: tool.labels,
     reproject: makeReproject(

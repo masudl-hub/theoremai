@@ -58,6 +58,46 @@ export type ComposedAssistantTurn = {
   hasTrace: boolean;
 };
 
+/** Pin a body kind before or after kinds with no placement (stream order among peers). */
+export type BodyKindPlacement = 'first' | 'last';
+
+export type ComposeAssistantTurnOptions = {
+  /**
+   * Where body kinds sit relative to each other. Omit a kind (or pass `null`)
+   * to keep stream order among peers. Pass `{}` for pure stream order.
+   * When the option is omitted entirely, {@link DEFAULT_BODY_KIND_PLACEMENT} applies.
+   */
+  bodyKindPlacement?: Partial<
+    Record<TranscriptBlock['kind'], BodyKindPlacement | null | undefined>
+  >;
+};
+
+/**
+ * Theorem's Sources strip: citations under the answer. For inline citations that
+ * must stay between text segments, pass `{ bodyKindPlacement: {} }`.
+ */
+const DEFAULT_BODY_KIND_PLACEMENT: Partial<Record<TranscriptBlock['kind'], BodyKindPlacement>> = {
+  citation: 'last',
+};
+
+/** Stable-partition body blocks by {@link BodyKindPlacement}; peers keep stream order. */
+function placeBodyBlocks(
+  body: readonly TranscriptBlock[],
+  placement: ComposeAssistantTurnOptions['bodyKindPlacement'],
+): TranscriptBlock[] {
+  if (!placement) return [...body];
+  const first: TranscriptBlock[] = [];
+  const middle: TranscriptBlock[] = [];
+  const last: TranscriptBlock[] = [];
+  for (const block of body) {
+    const place = placement[block.kind];
+    if (place === 'first') first.push(block);
+    else if (place === 'last') last.push(block);
+    else middle.push(block);
+  }
+  return [...first, ...middle, ...last];
+}
+
 const WORDED: ReadonlySet<string> = new Set(WORDED_STOP_KINDS);
 
 const USER_KINDS = new Set(['user-text', 'user-attachment', 'user-voice']);
@@ -210,8 +250,13 @@ function classifyNonGateBlock(
  * - `text` before/between tools → narration; text and answer kinds after the
  *   latest tool → body (while streaming too, so the answer streams formatted)
  * - No tools: thoughts still go to trace; remaining kinds → body
+ * - Body kinds then follow {@link ComposeAssistantTurnOptions.bodyKindPlacement}
+ *   (default: citations last)
  */
-export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): ComposedAssistantTurn {
+export function composeAssistantTurn(
+  blocks: readonly TranscriptBlock[],
+  options?: ComposeAssistantTurnOptions,
+): ComposedAssistantTurn {
   const visible = blocks.filter((block) => !isHiddenTranscriptBlock(block));
   // why: One card at a time: the gate answered next. The step's later gates wait in the trace.
   const nextGate = visible.find(isGatedTool);
@@ -226,10 +271,11 @@ export function composeAssistantTurn(blocks: readonly TranscriptBlock[]): Compos
     classifyNonGateBlock(block, { hasTools, index, lastToolIndex }, trace, body);
   }
 
+  const placement = options?.bodyKindPlacement ?? DEFAULT_BODY_KIND_PLACEMENT;
   return {
     trace,
     gatedTools,
-    body,
+    body: placeBodyBlocks(body, placement),
     hasTrace: trace.length > 0,
   };
 }

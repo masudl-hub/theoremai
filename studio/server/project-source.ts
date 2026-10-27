@@ -1227,8 +1227,63 @@ export interface FileStep {
 }
 
 /**
- * Walks the project's files from `entry`, the setup module, following each import. Yields each
- * file as it is read, so a caller can say where the walk is. Returns every file read.
+ * The entry modules of Theorem's own package, when the project is that package: a file there
+ * imports `./mod.ts` where an application imports `@theoremjs/agents`. The walk stops at them, as
+ * it stops at `node_modules`.
+ */
+function theoremEntries(root: string, read: ReadFile): Set<string> {
+  const text = read(resolve(root, 'deno.json'));
+  if (text === undefined) return new Set();
+  let config: { name?: unknown; exports?: unknown };
+  try {
+    config = JSON.parse(text);
+  } catch {
+    return new Set();
+  }
+  if (typeof config.name !== 'string' || !config.name.startsWith('@theoremjs/')) return new Set();
+  const { exports } = config;
+  const entries =
+    typeof exports === 'string'
+      ? [exports]
+      : exports !== null && typeof exports === 'object'
+        ? Object.values(exports).filter((entry) => typeof entry === 'string')
+        : [];
+  return new Set(entries.map((entry) => resolve(root, entry)));
+}
+
+/** The path the setup's `entry` export names, as it writes it: a string the walk follows as an import. */
+function namedEntry(setup: ts.SourceFile): string | undefined {
+  for (const statement of setup.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
+      continue;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      const value = declaration.initializer && unwrapped(declaration.initializer);
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === 'entry' && value) {
+        if (ts.isStringLiteralLike(value)) return value.text;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** The application entry the setup at `setupFile` names, as a path, read from the file as it is now. */
+export function entryOf(setupFile: string): string | undefined {
+  const setup = ts.createSourceFile(
+    setupFile,
+    Deno.readTextFileSync(setupFile),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const named = namedEntry(setup);
+  return named === undefined ? undefined : resolve(dirname(setupFile), named);
+}
+
+/**
+ * Walks the project's files from `entry`, the setup module, following each import and the
+ * application entry the setup names. Yields each file as it is read, so a caller can say where
+ * the walk is. Returns every file read.
  */
 export function* walkProject(
   entry: string,
@@ -1236,6 +1291,7 @@ export function* walkProject(
   read: ReadFile,
 ): Generator<FileStep, Map<string, ts.SourceFile>> {
   const files = new Map<string, ts.SourceFile>();
+  const theorem = theoremEntries(root, read);
   const queue: FileStep[] = [{ file: resolve(entry) }];
   for (let step = queue.shift(); step !== undefined; step = queue.shift()) {
     const path = step.file;
@@ -1245,9 +1301,10 @@ export function* walkProject(
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
     files.set(path, source);
     yield step;
-    for (const specifier of specifiers(source)) {
+    const app = files.size === 1 ? namedEntry(source) : undefined;
+    for (const specifier of app ? [app, ...specifiers(source)] : specifiers(source)) {
       const next = importedFile(path, specifier, (file) => read(file) !== undefined, root);
-      if (next && !files.has(next)) queue.push({ file: next, from: path });
+      if (next && !files.has(next) && !theorem.has(next)) queue.push({ file: next, from: path });
     }
   }
   return files;

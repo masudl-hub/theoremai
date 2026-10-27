@@ -31,7 +31,6 @@ import {
   type AutomatonData,
   type CompiledPatterns,
   type HostPattern,
-  MAX_PATTERNS,
   PATTERN_COMPILER_VERSION,
   patternProblem,
   patternSources,
@@ -398,9 +397,6 @@ function slowPatternProblem(source: string, flags = ''): string | undefined {
  * backreference to text that varies).
  */
 function compilePatterns(patterns: readonly HostPattern[]): CompiledPatterns {
-  if (patterns.length > MAX_PATTERNS) {
-    throw patternError(`${patterns.length} patterns; a detector takes at most ${MAX_PATTERNS}`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
   patterns.forEach((pattern, index) => {
     const problem = patternProblem(`patterns[${index}]`, pattern);
     if (problem !== undefined) throw patternError(problem);

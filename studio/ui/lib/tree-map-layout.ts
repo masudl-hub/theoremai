@@ -1588,7 +1588,13 @@ function makeRoom(layout: TreeMapLayout, runs: Runs, width: (id: string) => numb
     at: comes(id) - (layout.anchors.has(id) ? SHOW * MET : 0),
     edges: box(id, grownPlace(layout, id)),
   }));
-  const groups = Map.groupBy(runs.gather.keys(), (id) => runs.from.get(id) ?? id);
+  const groups = new Map<string, string[]>();
+  for (const id of runs.gather.keys()) {
+    const key = runs.from.get(id) ?? id;
+    const members = groups.get(key);
+    if (members) members.push(id);
+    else groups.set(key, [id]);
+  }
   for (const members of groups.values()) {
     const own = Math.min(...members.map(comes));
     const before = members.flatMap((id) => {

@@ -7,6 +7,7 @@ export {
 export {
   type ChatController,
   type ChatOptions,
+  type ChatSlotDecl,
   type ChatSlots,
   type ChatState,
   type ChatUpdate,
@@ -35,11 +36,13 @@ export {
   type DecisionInterface,
   type DecisionQuestionView,
   type DecisionReply,
+  type DecisionReplyResult,
   type DecisionTransport,
   decisionAssets,
   decisionInterface,
   failedTraces,
   postDecision,
+  questionViews,
   readDecisionReply,
   withFailedTraces,
 } from './decision-transport.ts';
@@ -191,7 +194,7 @@ export type {
   ToolGateResolution,
 } from './tool-resume.ts';
 export { continueGatedToolInvocation, type PersonGateResolution } from './tool-resume.ts';
-export { createTraceFeed, type TraceFeed } from './trace-feed.ts';
+export { createTraceFeed, recordedFeed, type TraceFeed } from './trace-feed.ts';
 export {
   CHAT_LINES,
   type ChatLine,

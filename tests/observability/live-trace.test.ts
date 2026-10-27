@@ -13,6 +13,7 @@ import {
 } from '../../src/observability/trace-record.ts';
 import type { TraceAttributes, TraceSpan } from '../../src/observability/trace-span.ts';
 import { eventsOf, firstOf, sessionEventOf } from '../fixtures/events.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { geminiLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
@@ -56,6 +57,7 @@ registerProfile(
       sessionResumption: true,
     },
     tools: { allow: [TOOL] },
+    guardrails: { detect: TAKE_OUT_LEAKS },
   }),
 );
 /** The same live profile with its own ended-call wording. */

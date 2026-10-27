@@ -1,4 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
+import { DETECTORS, type DetectSpec, recordOf, resolveDetect } from '@theoremjs/agents/guardrails';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   agentDraft,
@@ -78,6 +79,32 @@ Deno.test('both taint settings in the file come back into the draft', () => {
   assertEquals(read.draft.guardrails.taintAfterRemoteRead, 'write');
   assertEquals(read.draft.guardrails.taintRemoteDestination, 'block');
 });
+
+const SHORT_DETECTS: [string, DetectSpec][] = [
+  [`'flag'`, 'flag'],
+  [
+    `{ ids: 'flag', financial: { action: 'block', at: { reply: 'ignore' } } }`,
+    { ids: 'flag', financial: { action: 'block', at: { reply: 'ignore' } } },
+  ],
+];
+for (const [detect, spec] of SHORT_DETECTS) {
+  Deno.test(`detect written as ${detect} opens as the kernel reads it`, () => {
+    const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
+    assert(compiled.ok);
+    const source = studioSource(compiled).replace(
+      /detect: \{[\s\S]*?\n {4}\},\n(?= {4}blockedReply)/,
+      `detect: ${detect},\n`,
+    );
+    assert(source.includes(`detect: ${detect},`));
+    const read = readStudioSource(source, createExampleDraft());
+    assert(read.ok);
+    const kernel = resolveDetect(spec);
+    assertEquals(
+      read.draft.guardrails.detect,
+      recordOf(DETECTORS, (detector) => ({ ...kernel[detector] })),
+    );
+  });
+}
 
 Deno.test('an unknown tool type is marked and does not become the draft', () => {
   const draft = createExampleDraft();
@@ -263,6 +290,38 @@ Deno.test('context and a tool the page answers read back', () => {
   assertEquals(pageTools[first.toolName]?.({}, { callId: 'call-1', operationId: 'operation-1' }), {
     output: { ok: true },
   });
+});
+
+Deno.test('slots and sizes by type read back, each slot and choice keeping its key', () => {
+  const draft = createExampleDraft();
+  draft.inputs = {
+    ...draft.inputs,
+    limitsByMime: { 'application/pdf': 2000000, 'image/*': 500000 },
+    slots: [
+      {
+        key: 'slot-tone',
+        name: 'tone',
+        label: 'Tone',
+        choices: [
+          { key: 'choice-plain', value: 'plain', description: 'Short words.' },
+          { key: 'choice-warm', value: 'warm', description: '' },
+        ],
+      },
+      {
+        key: 'slot-role',
+        name: 'role',
+        label: '',
+        choices: [{ key: 'choice-admin', value: 'admin', description: '' }],
+      },
+    ],
+  };
+  roundTrip(draft);
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
+  assert(compiled.ok);
+  const read = readStudioSource(studioSource(compiled), draft);
+  assert(read.ok);
+  assertEquals(read.draft.inputs.limitsByMime, draft.inputs.limitsByMime);
+  assertEquals(read.draft.inputs.slots, draft.inputs.slots);
 });
 
 Deno.test('who holds the conversation survives a Studio source round trip', () => {

@@ -6,7 +6,15 @@
  * @module
  */
 
-import { type DetectSpec, resolveAllow, resolveDetect } from '@theoremjs/agents/guardrails';
+import {
+  BOUNDARIES,
+  type Boundary,
+  DETECTORS,
+  type DetectSpec,
+  resolveAllow,
+  resolveDetect,
+  TOOL_BOUNDARIES,
+} from '@theoremjs/agents/guardrails';
 import { unsetValue } from '@theoremjs/agents/kernel';
 import { STUDIO_POLICY_UNSET } from './policy.ts';
 
@@ -24,13 +32,25 @@ function isPolicyFill(path: readonly string[], ours: unknown, theirs: unknown): 
 /** `held` without the table the kernel works out from its patterns. */
 const uncompiled = <T extends { compiled?: unknown }>({ compiled: _, ...held }: T) => held;
 
+/** `actions` at only the boundaries in `boundaries`. */
+function onlyAt<T>(actions: Readonly<Record<Boundary, T>>, boundaries: readonly Boundary[]) {
+  return Object.fromEntries(boundaries.map((boundary) => [boundary, actions[boundary]]));
+}
+
 /**
- * What the kernel reads `detect` as: each detector's action at each boundary, whose patterns it
- * reads with, and what it lets through. Two settings the kernel reads the same are the same here.
+ * What the kernel reads `detect` as: each detector's action at each boundary it reads, whose
+ * patterns it reads with, and what it lets through. Two settings the kernel reads the same are the
+ * same here. A host profile runs tools and no model turn, so it reads only the tool boundaries.
  */
-function detectAsRead(detect: unknown): unknown {
+function detectAsRead(detect: unknown, boundaries: readonly Boundary[]): unknown {
   if (detect === undefined) return undefined;
-  const { sources = {}, host = [], ...read } = resolveDetect(detect as DetectSpec);
+  const { sources = {}, host = [], ...resolved } = resolveDetect(detect as DetectSpec);
+  const read = {
+    ...resolved,
+    ...Object.fromEntries(
+      DETECTORS.map((detector) => [detector, onlyAt(resolved[detector], boundaries)]),
+    ),
+  };
   const allow = Object.entries(resolveAllow(detect as DetectSpec)).map(([detector, held]) => [
     detector,
     {
@@ -44,7 +64,12 @@ function detectAsRead(detect: unknown): unknown {
     sources: Object.fromEntries(
       Object.entries(sources).map(([detector, source]) => [detector, uncompiled(source)]),
     ),
-    host: Object.fromEntries(host.map(({ id, ...rule }) => [id, uncompiled(rule)])),
+    host: Object.fromEntries(
+      host.map(({ id, ...rule }) => [
+        id,
+        uncompiled({ ...rule, actions: onlyAt(rule.actions, boundaries) }),
+      ]),
+    ),
     allow: Object.fromEntries(allow),
   };
 }
@@ -59,7 +84,13 @@ function asRead(profile: unknown): unknown {
     return profile;
   return {
     ...profile,
-    guardrails: { ...profile.guardrails, detect: detectAsRead(profile.guardrails.detect) },
+    guardrails: {
+      ...profile.guardrails,
+      detect: detectAsRead(
+        profile.guardrails.detect,
+        profile.type === 'host' ? TOOL_BOUNDARIES : BOUNDARIES,
+      ),
+    },
   };
 }
 

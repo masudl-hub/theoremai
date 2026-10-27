@@ -245,14 +245,14 @@ and chat response decoding. Embedding options describe vector input and output.
 
 The first provider protocols are implemented:
 
-| Protocol | Upstream operation | Preset-owned options |
+| Protocol | Upstream operation | Protocol-owned options |
 | --- | --- | --- |
 | Google embedding | `models/*:embedContent` and the synchronous batch operation | Task type, output dimensions, truncation, OCR, and audio extraction |
 | OpenRouter embedding | `/api/v1/embeddings` | Encoding format and model-specific multimodal input |
 | Ollama embedding | `/api/embed` | Truncation and output dimensions |
 
-Google presets can declare model-specific support for text, image, audio, video,
-and document input. They can also declare supported task types and dimensions.
+The Google embedding protocol declares model-specific support for text, image, audio, video,
+and document input. It also declares supported task types and dimensions.
 The direct API currently lists `gemini-embedding-2`, its preview model, and
 `gemini-embedding-001`. The first implementation targets
 `gemini-embedding-2`; it must not invent a Gemma embedding model ID.
@@ -267,7 +267,7 @@ with Google's formats `task: search result | query: …` and
 advises. A binding that sets `taskType` on Gemini Embedding 2 fails with a
 `config` error. The OpenRouter and Ollama protocols send no task.
 
-OpenRouter presets can declare text and image content support for the selected
+The OpenRouter embedding protocol declares text and image content support for the selected
 embedding model. On 2026-10-16, the embedding model catalog listed
 `liquid/lfm-2.5-embedding-350m:free`,
 `nvidia/nemotron-3-embed-1b:free`, and
@@ -500,6 +500,14 @@ Use a speech profile to resolve voice, format, and media settings before the pro
 | `geminiInteractions` | Interactions output audio |
 
 Protocols preserve native media details and convert supported raw PCM to WAV.
+
+When `/audio/speech` answers with a binary body, default framing copies
+`X-Generation-Id` onto the row as `id`. `openAi` speech (and `openRouterOpenAi`
+through it) emits `response` from that id, so the call span records
+`gen_ai.response.id` the same way chat Completions does from a JSON `id`. The
+host never sees the `response` event. A reply with no such header leaves the
+attribute unset.
+
 The kernel validates the profile's speech role and input kinds.
 
 ## Key vault (provider-neutral)
@@ -718,8 +726,16 @@ The root also exports the default-scope registry functions, the binding schemas,
           "path": "src/providers/open-ai/protocol.ts"
         },
         {
+          "kind": "source",
+          "path": "src/kernel/protocols/runtime.ts"
+        },
+        {
           "kind": "contract_test",
           "path": "tests/providers/open-ai/protocol.test.ts"
+        },
+        {
+          "kind": "contract_test",
+          "path": "tests/providers/openrouter/protocol.test.ts"
         }
       ]
     },

@@ -59,6 +59,8 @@ export {
 } from './credential-store.ts';
 export {
   createTheoremDecisionHandler,
+  type DecisionQuestionsBuilder,
+  isQuestionsBuilder,
   type TheoremDecisionHandlerOptions,
 } from './decision-handler.ts';
 export {

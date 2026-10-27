@@ -163,6 +163,20 @@ for await (const event of runTurn(
 
 Every event is typed. A `structured` event arrives only after validation and the egress checks pass. The `done` event carries a normalized `stop`: `completed`, `length`, `gate`, `cancelled`, or another kind. Read `stop` to decide whether to continue, resume, or stop.
 
+When your app adds to each turn (a system prompt, credentials, a stage handler), write it once as a `TurnWiring` and use it at every call site. A web handler takes the same `prepare`, and Theorem Studio runs your turns with it:
+
+```ts
+import { runTurn, type TurnWiring } from "@theoremjs/agents";
+
+export const theorem = {
+  provider: { vault: { openrouter: apiKey } },
+  prepare: (turn) => ({ ...turn, system: "Answer in the customer's language." }),
+} satisfies TurnWiring;
+
+const turn = { profile: "support.agent", input: { text: "Why did the export fail?" } };
+for await (const event of runTurn(await theorem.prepare(turn), theorem.provider)) send(event);
+```
+
 ---
 
 ## Profile types
@@ -277,8 +291,8 @@ Theorem scans each piece of text according to where it came from.
 | `assembled` | `TurnRequest.system`, built by your code per turn | Full scan |
 | `untrusted` | User text, history, slots, attachments, steering, stage injections | Full injection and sensitive-data scan |
 
-- **Coming in.** `guardrails.detect` replaces prompt-injection phrasing, secrets, and personal data with a placeholder before the model sees them.
-- **Going out.** A **canary** is a secret token that Theorem hides in the system prompt. If the token appears in a reply, the prompt leaked, and the `canary_leak` detector stops the reply. The `prompt_leak` detector also stops a reply that repeats 12 words of the prompt. Both are set in `guardrails.detect`, like every other detector. When a check blocks a reply, `guardrails.blockedReply` decides what happens: the model rewrites it (`retry`) or the user gets a refusal (`refuse`).
+- **Coming in.** `guardrails.detect` finds prompt-injection phrasing, secrets, and personal data before the model sees them. By default it flags each one and the text goes in as written. Set a detector to `redact` to replace it with a placeholder, or to `block` to stop the turn.
+- **Going out.** A **canary** is a secret token that Theorem hides in the system prompt. If the token appears in a reply, the prompt leaked, and the `canary_leak` detector reports it. The `prompt_leak` detector also reports a reply that repeats 12 or more words of the prompt. By default, both flag the leak and the reply goes out as written. Set them to `redact` or `block` in `guardrails.detect` to keep the leak from the user. When a check blocks a reply, `guardrails.blockedReply` decides what happens: the model rewrites it (`retry`) or the user gets a refusal (`refuse`).
 - **Tool results.** Remote content is data. Theorem fences it, scans it, and refuses destructive calls after a remote read when `guardrails.taint.afterRemoteRead` is set. `guardrails.taint.remoteDestination` gates a call that sends to an address only remote content named.
 - **Network.** HTTP and MCP tools cannot reach private and metadata addresses by default. `guardrails.network.allowedHosts` names the hosts that may resolve to a private address, and `guardrails.network.allowPrivateNetworks` lifts the rule for local development.
 
@@ -407,9 +421,6 @@ Import from the narrowest entrypoint that has what you need. Each row gives the 
 | `jsr:@theoremjs/agents/interface` / `@theoremjs/agents/interface` | Headless interface projection of a profile (transcript, composer, gates) that UI packages such as `@theoremjs/react` render. |
 | `jsr:@theoremjs/agents/surface` / `@theoremjs/agents/surface` | Surfaces: the agent sees and works in a client's screen through two tools, `look` and `act`. Secrets reach the agent only as cards. |
 | `jsr:@theoremjs/agents/cli` / `@theoremjs/agents/cli` | Profile inspection and stress-test CLI (`agents` binary on npm). |
-| `jsr:@theoremjs/agents/presets` / `@theoremjs/agents/presets` | Optional convenience packs (`registerGooglePreset`, …). |
-| `jsr:@theoremjs/agents/presets/google` / `@theoremjs/agents/presets/google` | Google builtins (search/maps/urlContext/codeExecution) as tool-list entries. |
-| `jsr:@theoremjs/agents/presets/google/speech-voices` / `@theoremjs/agents/presets/google/speech-voices` | Gemini TTS voice names for `speech.voice` (`GOOGLE_SPEECH_VOICES`); no registry imports. |
 | `jsr:@theoremjs/agents/schema` / `@theoremjs/agents/schema` | Profile vocabulary and field catalog (closed unions, field metadata) for host UIs and docs; no Deno APIs. |
 | `jsr:@theoremjs/agents/evals` / `@theoremjs/agents/evals` | Graders that read trace records and write their results as trace records through the same sink. |
 
@@ -465,7 +476,7 @@ Named exports from the root barrel (same symbols hosts get from `@theoremjs/agen
 | Provider vault | `ProviderHostOptions`, `KeyVault`, `KeyCredential`, `CredentialContext`, `CredentialResolver`, `OpenWebSocket`, `plainWebSocket` |
 | Provider output | `ProviderCheckpoint`, `ProviderWarning`, `ProviderStateRebuilt`, `ProviderContinuationPolicy`, `providerCheckpointSchema`, `providerWarningSchema`, `providerContinuationSchema` |
 | Provider limits | `ProviderLimits`, `providerLimitsSchema` |
-| Re-exported whole | Everything that `@theoremjs/agents/providers` and `@theoremjs/agents/presets` export. Their contracts list each name. |
+| Re-exported whole | Everything that `@theoremjs/agents/providers` exports. Its contract lists each name. |
 
 </details>
 
@@ -492,7 +503,7 @@ live_sessions = "registered provider via runSession; host owns mic, camera, and 
 session_memory_in_kernel = false
 ```
 
-**Facts and policy.** Provider facts may ship, such as prices, wire shapes, and protocol metadata. For example, see `@theoremjs/agents/presets/google`. Product policy may not ship: prompts, personas, end-user copy, demo apps, and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
+**Facts and policy.** Provider wire shapes and protocol metadata may ship in `@theoremjs/agents/providers`. Product policy may not ship: prompts, personas, end-user copy, demo apps, and channel behaviour. Every string that a user or a model reads is either supplied by the host or is an overridable default in the kernel labels (`overrideLabels`). Behavioural defaults are typed profile-schema fields. Optional packages, such as `studio/`, are inert extras. If you delete one, no kernel behaviour changes.
 
 Four properties are invariant. Where a test or a lint checks one, the table names it.
 

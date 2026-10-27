@@ -122,9 +122,10 @@ function sanitizeHistory(
 }
 
 /** The error a turn ends on when a detector set to `block` matched at `boundary`. */
-function requestRefused(boundary: Boundary): TheoremError {
+function requestRefused(boundary: Boundary, reason?: string): TheoremError {
+  const why = reason ? `: ${reason}` : '';
   // labels-exempt: developer contract / internal diagnostic — the user's wording is `detect.blocked`
-  return new TheoremError('input', `guardrails.detect blocked the request at ${boundary}`, {
+  return new TheoremError('input', `guardrails.detect blocked the request at ${boundary}${why}`, {
     copy: { key: 'detect.blocked' },
   });
 }
@@ -168,7 +169,7 @@ function sanitizeTurnRequestWithEvents(req: TurnRequest, profile: Profile): Sani
     const found = at[boundary].found();
     const event = detectEvent(boundary, found);
     if (event) events.push(guardrailTurnEvent(event));
-    if (found.action === 'block') refusal ??= requestRefused(boundary);
+    if (found.action === 'block') refusal ??= requestRefused(boundary, found.errorInternal);
   }
   events.push(...told.events.map(guardrailTurnEvent));
   if (told.blocked) refusal ??= requestRefused('context');

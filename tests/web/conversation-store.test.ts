@@ -124,6 +124,6 @@ Deno.test('a sealed store without the key it seals with is refused at creation',
 
 Deno.test('an unknown conversation reads as the labels line for it', () => {
   const refused = unknownConversation();
-  assertEquals(refused.kind, 'request');
+  assertEquals(refused.kind, 'not_found');
   assertEquals(refused.message, labelDefault('session.conversation_unknown'));
 });

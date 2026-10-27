@@ -103,6 +103,7 @@ export {
   mergeSpans,
   OMIT_CANARY,
   OMIT_INJECTION,
+  OMIT_PROMPT,
   OMIT_SENSITIVE,
   spansFromPatterns,
 };

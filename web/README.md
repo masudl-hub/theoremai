@@ -236,6 +236,7 @@ const transport = withPageToolDispatch(
 | `provider` | Host options, including the credential vault. A function can return these options per request, for example for tenant-specific credentials. |
 | `session` | Returns the session id of the caller, for example `${userId}:${conversationId}`. Return `undefined` to refuse the request with a 401. Default: a random id in an HttpOnly, SameSite=Lax cookie that lasts 30 days. |
 | `host` | App data for the tool handlers (`ctx.host`), such as the signed-in user. |
+| `prepare` | Your app's own turn, from the one the handler builds (`TurnWiring.prepare` from `@theoremjs/agents`). Set what your app sets per turn, such as `system`, `credentials`, `onStage` and `onAgentCall`; read your app data as `turn.host`. The handler keeps its profile, its tool execution and its abort. Your `onStage` runs before the handler's steering, and your `credentials` are read before the session's. |
 | `pageToolBroker` | Delivers results to active page dispatches. Default: bounded process memory. |
 | `conversationStore` | Where the conversation is kept. Required, except for a stateless profile, which must not have one. See [Keep the conversation](#keep-the-conversation). |
 | `sessionStore`, `steerInbox` | Where open gates are kept, and where steers and stops reach a running turn. Default: process memory, which reaches only turns this process runs. On more than one instance, give a shared `SteerInbox`. |
@@ -282,7 +283,7 @@ The session store keeps gates, permissions, and operations. The two stores are s
 | `createSealedConversationStore({ keys, keyVersion })` | Nowhere on the server. The ref is the conversation itself, encrypted and signed with your key, and bound to the session. The browser cannot read it or change it. |
 | Your own `TheoremConversationStore` | Your database. |
 
-A ref that the store cannot open fails with `session.conversation_unknown`. This includes a ref from another session.
+A ref that the store cannot open fails with `session.conversation_unknown`, kind `not_found` (HTTP 404). This includes a ref from another session. A route or method the handler does not serve also answers 404 with kind `not_found`.
 
 The sealed store:
 

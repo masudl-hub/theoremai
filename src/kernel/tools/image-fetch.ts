@@ -2,26 +2,14 @@ import { fetchGuarded } from '../../guardrails/network.ts';
 import type { InteractionPart, ToolWarning } from '../turn-events.ts';
 import { bytesToBase64 } from '../util/base64.ts';
 import { toolNetworkPolicy } from './events.ts';
-import type { ToolContext } from './types.ts';
-
-/** The most pictures one call hands the model. */
-export const MAX_TOOL_IMAGES = 4;
-
-/** The largest picture fetched; a larger one is left out, not cut. */
-const MAX_TOOL_IMAGE_BYTES = 5 * 1024 * 1024;
-
-/** The most one call hands the model in all, so pictures cannot crowd a request past a provider's limit. */
-const MAX_TOOL_IMAGES_TOTAL_BYTES = 10 * 1024 * 1024;
-
-/** How long each picture may take, so a slow host cannot hold the call. */
-const IMAGE_FETCH_TIMEOUT_MS = 15_000;
+import type { ToolContext, ToolImageLimits } from './types.ts';
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
-/** The body, read up to `maxBytes`; `undefined` when it runs past. */
+/** The body, read up to `maxBytes` when set; `undefined` when it runs past. */
 async function readCappedBytes(
   response: Response,
-  maxBytes: number,
+  maxBytes = Number.POSITIVE_INFINITY,
 ): Promise<Uint8Array | undefined> {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -51,9 +39,19 @@ async function readCappedBytes(
   return bytes;
 }
 
-async function fetchOne(url: string, ctx: ToolContext): Promise<InteractionPart> {
-  const timeout = AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS);
-  const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeout]) : timeout;
+/** The call's signal, joined by the picture's own timeout when the tool sets one. */
+function fetchSignal(ctx: ToolContext, timeoutMs: number | undefined): AbortSignal | undefined {
+  if (timeoutMs === undefined) return ctx.signal;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return ctx.signal ? AbortSignal.any([ctx.signal, timeout]) : timeout;
+}
+
+async function fetchOne(
+  url: string,
+  ctx: ToolContext,
+  limits: ToolImageLimits,
+): Promise<InteractionPart> {
+  const signal = fetchSignal(ctx, limits.timeoutMs);
   const response = await fetchGuarded(
     url,
     { method: 'GET', headers: { Accept: 'image/*' }, signal },
@@ -69,8 +67,8 @@ async function fetchOne(url: string, ctx: ToolContext): Promise<InteractionPart>
     await response.body?.cancel().catch(() => {});
     throw new Error(`not a png, jpeg, gif or webp image (${mimeType || 'no type'})`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  const bytes = await readCappedBytes(response, MAX_TOOL_IMAGE_BYTES);
-  if (!bytes) throw new Error(`larger than ${MAX_TOOL_IMAGE_BYTES} bytes`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  const bytes = await readCappedBytes(response, limits.bytes);
+  if (!bytes) throw new Error(`larger than ${limits.bytes} bytes`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   return { type: 'image', mimeType, data: bytesToBase64(bytes) };
 }
 
@@ -95,6 +93,7 @@ export async function fetchToolImages(
   images: (output: never) => string[],
   output: unknown,
   ctx: ToolContext,
+  limits: ToolImageLimits = {},
 ): Promise<{ parts: InteractionPart[]; urls: string[]; warning?: ToolWarning }> {
   const reasons: string[] = [];
   const named: string[] = [];
@@ -112,8 +111,9 @@ export async function fetchToolImages(
       warning: unfetched([`the images hook threw: ${String(err)}`]), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     };
   }
-  const wanted = named.slice(0, MAX_TOOL_IMAGES);
-  const settled = await Promise.allSettled(wanted.map((url) => fetchOne(url, ctx)));
+  const wanted = named.slice(0, limits.count);
+  const settled = await Promise.allSettled(wanted.map((url) => fetchOne(url, ctx, limits)));
+  const totalBytes = limits.totalBytes ?? Number.POSITIVE_INFINITY;
   const parts: InteractionPart[] = [];
   const urls: string[] = [];
   let total = 0;
@@ -125,8 +125,8 @@ export async function fetchToolImages(
       return;
     }
     const size = 'data' in result.value ? result.value.data.length : 0;
-    if (total + size > MAX_TOOL_IMAGES_TOTAL_BYTES) {
-      reasons.push(`${new URL(url).hostname}: past the ${MAX_TOOL_IMAGES_TOTAL_BYTES} byte total`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    if (total + size > totalBytes) {
+      reasons.push(`${new URL(url).hostname}: past the ${totalBytes} byte total`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       return;
     }
     total += size;

@@ -25,6 +25,7 @@ import {
   type ProviderHostOptions,
   type RegisteredProvider,
   registerTool,
+  type TurnWiring,
 } from '@theoremjs/agents';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
 import { createProviderRegistry } from '@theoremjs/agents/kernel';
@@ -34,6 +35,8 @@ import {
   createTheoremEmbeddingHandler,
   createTheoremHandler,
   createTheoremHostHandler,
+  type DecisionQuestionsBuilder,
+  isQuestionsBuilder,
   type TheoremConversationStore,
 } from '@theoremjs/web/server';
 import { differingSettings } from '../agreement.ts';
@@ -136,6 +139,8 @@ export type StudioHandlerOptions = {
   people?: StudioPeople;
   /** How the project's registered providers find their keys. Default: as the project registered them. */
   provider?: ProviderHostOptions;
+  /** The application's own turn, from the one a chat builds: its entry's `theorem.prepare`. */
+  prepare?: TurnWiring['prepare'];
   /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
   questions?: ProjectQuestions;
   /** The pictures each decision profile sends, by the profile's id: the images the application passes when it decides. */
@@ -149,8 +154,14 @@ export type StudioHandlerOptions = {
   conversationKey: string;
 };
 
-/** A project's decision questions: for each decision profile's id, its questions by their ids. */
-export type ProjectQuestions = Record<string, Record<string, DecisionQuestion>>;
+/**
+ * A project's decision questions: for each decision profile's id, its questions by their ids, or
+ * a builder that makes them for each decision.
+ */
+export type ProjectQuestions = Record<
+  string,
+  Record<string, DecisionQuestion> | DecisionQuestionsBuilder<unknown>
+>;
 
 /** A project's decision pictures: for each decision profile's id, its images by reference. */
 export type ProjectImages = Record<string, Record<string, DecisionAsset>>;
@@ -248,6 +259,7 @@ function readProfile(
   tools: readonly ToolRegistration[],
   questions: Record<string, DecisionQuestion> | undefined,
   images: Record<string, DecisionAsset> | undefined,
+  built = false,
 ): ProfileRead {
   try {
     const structured = replySchema(profile);
@@ -263,7 +275,10 @@ function readProfile(
     const read = readStudioSource(source, createBlankDraft());
     if (!read.ok)
       return { ok: false, message: read.errors.map((error) => error.message).join(' ') };
-    return { ok: true, draft: read.draft, registered: read.registered };
+    const draft = built
+      ? { ...read.draft, decision: { ...read.draft.decision, questionsBuilt: true as const } }
+      : read.draft;
+    return { ok: true, draft, registered: read.registered };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
@@ -372,7 +387,8 @@ function describeStudio(
       problems.push({ profile: profile.id, message: fault });
       continue;
     }
-    const read = readProfile(profile, tools, asked, images[profile.id]);
+    const built = isQuestionsBuilder(asked);
+    const read = readProfile(profile, tools, built ? undefined : asked, images[profile.id], built);
     if (!read.ok) {
       problems.push({ profile: profile.id, message: read.message });
       continue;
@@ -549,7 +565,7 @@ export function corsHeaders(
 
 /** Why a decision profile is not run: the setup file does not name its questions. */
 export function noQuestions(profileId: string): string {
-  return `The studio does not know what ${profileId} asks. Export the questions your application passes it from the setup file: export const questions = { '${profileId}': { ... } }.`;
+  return `The studio does not know what ${profileId} asks. Export the questions your application passes it from the setup file: export const questions = { '${profileId}': { ... } }, or, when they change with each decision, the builder that makes them: { '${profileId}': { input, build } }.`;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -601,6 +617,13 @@ function questionFault(question: unknown): string | undefined {
  * type-checked, so the studio reads what it exports before it trusts it.
  */
 export function questionsFault(profileId: string, questions: unknown): string | undefined {
+  if (isQuestionsBuilder(questions)) {
+    const { input } = questions as { input?: unknown };
+    const zod = isRecord(input) && typeof input.safeParse === 'function';
+    return input === undefined || zod
+      ? undefined
+      : `The questions the setup file exports for ${profileId} build from an \`input\` that is not a zod schema.`;
+  }
   if (!isRecord(questions) || !Object.keys(questions).length) return noQuestions(profileId);
   for (const [id, question] of Object.entries(questions)) {
     const fault = questionFault(question);
@@ -695,6 +718,7 @@ function profileHandlers(
             : createTheoremHandler({
                 profile: tracedToPage(profile),
                 provider: options.provider ?? {},
+                ...(options.prepare ? { prepare: options.prepare } : {}),
                 // A stateless profile keeps no conversation, so it takes no store.
                 ...(profile.providerContinuation?.history === 'stateless'
                   ? {}

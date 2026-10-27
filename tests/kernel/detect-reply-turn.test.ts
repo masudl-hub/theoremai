@@ -66,12 +66,9 @@ function guardrails(events: readonly TurnEvent[]): string[] {
   );
 }
 
-Deno.test('a reply is redacted by default: the user sees the placeholder, with one report', async () => {
+Deno.test('a reply is flagged by default: the user sees it as written, with one report', async () => {
   const events = await turn('detect_reply_default', {}, said(TEXT));
-  assertEquals(
-    [replyText(events), guardrails(events)],
-    [TEXT.replace(KEY, PLACEHOLDER), ['output_delta reply redact']],
-  );
+  assertEquals([replyText(events), guardrails(events)], [TEXT, ['output_delta reply flag']]);
 });
 
 Deno.test('flag at reply: the reply reaches the user as written, with one report', async () => {

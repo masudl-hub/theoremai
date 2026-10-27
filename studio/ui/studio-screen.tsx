@@ -59,6 +59,7 @@ import {
   addAgent,
   addArchitectExample,
   addProvider,
+  addResearchExample,
   agentNodeId,
   type CompiledStudio,
   type CompiledWorkspace,
@@ -644,19 +645,19 @@ const addsDraft =
     return (workspace) => addAgent(workspace, made);
   };
 
-/** The examples, in the order the menu lists them. The architect brings its narrator. */
+/** The examples, in the order the menu lists them. Research and the architect bring their subagents. */
 const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: () => Promise<AddAgent> })[] = [
+  {
+    id: 'research',
+    ...STUDIO_EXAMPLES.research,
+    icon: PROFILE_TYPE_ICON.text,
+    add: () => Promise.resolve(addResearchExample),
+  },
   {
     id: 'concierge',
     ...STUDIO_EXAMPLES.concierge,
     icon: PROFILE_TYPE_ICON.text,
     add: addsDraft(createExampleDraft),
-  },
-  {
-    id: 'live-concierge',
-    ...STUDIO_EXAMPLES['live-concierge'],
-    icon: PROFILE_TYPE_ICON.live,
-    add: addsDraft(createLiveExampleDraft),
   },
   {
     id: 'architect',
@@ -665,16 +666,10 @@ const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: () => Promise<AddAgent> })
     add: () => Promise.resolve(addArchitectExample),
   },
   {
-    id: 'narrator',
-    ...STUDIO_EXAMPLES.narrator,
-    icon: PROFILE_TYPE_ICON.speech,
-    add: addsDraft(createNarratorExampleDraft),
-  },
-  {
-    id: 'console',
-    ...STUDIO_EXAMPLES.console,
-    icon: PROFILE_TYPE_ICON.host,
-    add: addsDraft(createConsoleExampleDraft),
+    id: 'live-concierge',
+    ...STUDIO_EXAMPLES['live-concierge'],
+    icon: PROFILE_TYPE_ICON.live,
+    add: addsDraft(createLiveExampleDraft),
   },
   {
     id: 'decision',
@@ -687,6 +682,18 @@ const EXAMPLE_AGENTS: readonly (ExampleEntry & { add: () => Promise<AddAgent> })
     ...STUDIO_EXAMPLES['gemini-embedding-2'],
     icon: PROFILE_TYPE_ICON.embedding,
     add: addsDraft(createGeminiEmbeddingExampleDraft),
+  },
+  {
+    id: 'narrator',
+    ...STUDIO_EXAMPLES.narrator,
+    icon: PROFILE_TYPE_ICON.speech,
+    add: addsDraft(createNarratorExampleDraft),
+  },
+  {
+    id: 'console',
+    ...STUDIO_EXAMPLES.console,
+    icon: PROFILE_TYPE_ICON.host,
+    add: addsDraft(createConsoleExampleDraft),
   },
 ];
 

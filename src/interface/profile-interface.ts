@@ -132,7 +132,20 @@ const inputs = z.object({
   maxBytes: z.number().optional(),
   maxTurnBytes: z.number().optional(),
   limitsByMime: z.record(z.string(), z.number()).optional(),
-  slots: z.record(z.string(), z.array(z.string())).optional(),
+  slots: z
+    .record(
+      z.string(),
+      z.object({
+        label: z.string().optional(),
+        choices: z.array(
+          z.object({
+            value: z.string(),
+            description: z.string().optional(),
+          }),
+        ),
+      }),
+    )
+    .optional(),
   context: z.object({ from: z.array(z.enum(CONTEXT_SENDERS)), maxChars: z.number() }).optional(),
 });
 

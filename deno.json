@@ -29,9 +29,6 @@
     "./interface": "./src/interface/mod.ts",
     "./surface": "./src/surface/mod.ts",
     "./cli": "./src/cli/index.ts",
-    "./presets": "./src/presets/mod.ts",
-    "./presets/google": "./src/presets/google.ts",
-    "./presets/google/speech-voices": "./src/presets/google/speech-voices.ts",
     "./schema": "./src/kernel/schema.ts",
     "./evals": "./src/evals/mod.ts"
   },

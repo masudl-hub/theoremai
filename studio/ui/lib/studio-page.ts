@@ -4,7 +4,7 @@
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
-import { type StudioRunPayload, studioPageTools } from '../../mod.ts';
+import { type SlotDraft, type StudioRunPayload, studioPageTools } from '../../mod.ts';
 import { isRecord, session } from './studio-session.ts';
 
 const PAGE_PREFIX = 'theorem.studio.v2.page:';
@@ -17,6 +17,7 @@ export interface PageValues {
 
 /** What the agent takes from a page. */
 export interface PageInputs {
+  /** Allowed values per slot name (descriptions stay on the profile / chat UI). */
   slots: Record<string, readonly string[]>;
   takesContext: boolean;
   /** The tools the page answers. Only a call asks the page. */
@@ -30,22 +31,39 @@ export const CONTEXT_PLACEHOLDER = `{
   "page": "Checkout"
 }`;
 
-/** The slots a draft's JSON declares so far: each name with a list of text. Anything else is left out. */
-export function draftSlots(slotsJson: string): Record<string, readonly string[]> {
-  try {
-    const typed: unknown = JSON.parse(slotsJson.trim() || '{}');
-    if (!isRecord(typed)) return {};
-    return Object.fromEntries(
-      Object.entries(typed).filter(
-        (entry): entry is [string, string[]] =>
-          Array.isArray(entry[1]) &&
-          entry[1].length > 0 &&
-          entry[1].every((value) => typeof value === 'string'),
-      ),
-    );
-  } catch {
-    return {};
+function choiceValues(decl: unknown): string[] | undefined {
+  if (
+    Array.isArray(decl) &&
+    decl.length > 0 &&
+    decl.every((value) => typeof value === 'string' && value.trim() !== '')
+  ) {
+    return decl;
   }
+  if (!isRecord(decl) || !Array.isArray(decl.choices) || decl.choices.length === 0) {
+    return undefined;
+  }
+  const values: string[] = [];
+  for (const choice of decl.choices) {
+    if (!isRecord(choice) || typeof choice.value !== 'string' || choice.value.trim() === '') {
+      return undefined;
+    }
+    values.push(choice.value);
+  }
+  return values;
+}
+
+/** The slots a draft has so far that a page can pick from: each named, with a value, once. */
+export function draftSlots(
+  slots: readonly SlotDraft[],
+): { name: string; label: string; values: string[] }[] {
+  const seen = new Set<string>();
+  return slots.flatMap((slot) => {
+    const name = slot.name.trim();
+    const values = slot.choices.map((choice) => choice.value.trim()).filter(Boolean);
+    if (!name || !values.length || seen.has(name)) return [];
+    seen.add(name);
+    return [{ name, label: slot.label.trim() || name, values }];
+  });
 }
 
 /** Why typed context is not sent, when it is not JSON. */
@@ -63,10 +81,17 @@ export function contextErrorOf(contextJson: string): string | undefined {
 /** What the compiled agent takes from a page, or null when it takes nothing. */
 export function pageInputsOf(payload: StudioRunPayload): PageInputs | null {
   const { profile } = payload;
-  if (profile.type === 'decision' || profile.type === 'host' || profile.type === 'embedding')
+  if (profile.type === 'decision' || profile.type === 'host' || profile.type === 'embedding') {
     return null;
+  }
   const inputs = 'inputs' in profile ? profile.inputs : undefined;
-  const slots = inputs?.slots ?? {};
+  const raw = inputs?.slots ?? {};
+  const slots = Object.fromEntries(
+    Object.entries(raw).flatMap(([name, decl]) => {
+      const values = choiceValues(decl);
+      return values ? [[name, values] as const] : [];
+    }),
+  );
   const takesContext = inputs?.context?.from.includes('client') ?? false;
   const pageTools = Object.keys(studioPageTools(payload));
   if (!Object.keys(slots).length && !takesContext && !pageTools.length) return null;

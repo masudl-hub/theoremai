@@ -13,6 +13,7 @@ import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent, TurnModel, TurnRequest } from '../../src/kernel/types.ts';
 import { eventsOf } from '../fixtures/events.ts';
+import { TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 
@@ -44,6 +45,7 @@ registerProfile(
     guardrails: {
       quota: { perDay: 50 },
       blockedReply: { onBlock: 'refuse' },
+      detect: TAKE_OUT_LEAKS,
     },
   }),
 );
@@ -157,7 +159,7 @@ async function liveReply(
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'slotA' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: ['image_lookup'] },
-    guardrails: { blockedReply: { onBlock: 'refuse' } },
+    guardrails: { blockedReply: { onBlock: 'refuse' }, detect: TAKE_OUT_LEAKS },
   });
   registerProfile(profile);
   let mock: MockLiveWebSocket | undefined;

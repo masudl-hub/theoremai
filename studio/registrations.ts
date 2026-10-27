@@ -31,10 +31,12 @@ export type FunctionToolRegistration = {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;
-  /** Overrides the generic stub. */
+  /**Overrides the generic stub. */
   stubResponse?: Record<string, unknown>;
   /** The page answers the call: the kernel supplies the handler, and the page sends the output. */
   answeredBy?: 'page';
+  /** The decision or text profile that reads this tool's output at `post_tool`. */
+  stageAgent?: string;
 };
 
 export type HttpToolRegistration = {
@@ -55,9 +57,12 @@ export type HttpToolRegistration = {
     bodyParam?: string;
   };
   auth?: StudioToolAuth;
+  maxResponseBytes?: number;
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;
+  /** The decision or text profile that reads this tool's output at `post_tool`. */
+  stageAgent?: string;
 };
 
 export type McpToolRegistration = {
@@ -73,9 +78,13 @@ export type McpToolRegistration = {
   mcpToolName: string;
   headers?: Record<string, string>;
   auth?: StudioToolAuth;
+  maxResponseBytes?: number;
+  session?: { idleMs?: number; max?: number };
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;
+  /** The decision or text profile that reads this tool's output at `post_tool`. */
+  stageAgent?: string;
 };
 
 /** Runs one turn of another registered agent; its schemas are the kernel's fixed ones. */

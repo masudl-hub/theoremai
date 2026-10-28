@@ -459,7 +459,47 @@ function listProblem(entries: readonly Entry[]): string | undefined {
  * Why a label can't be used with these JSON schemas, as a sentence for its author, or `undefined`
  * when it can. Pass `output` for a Done label. A list must end on a line that always fits.
  */
+/** The schemas' outputs, when a check names none. */
+const NO_OUTPUT = {};
+/** Answers by input schema, then output schema, then template: a schema object is read, never changed. */
+const answered = new WeakMap<object, WeakMap<object, Map<string, string | undefined>>>();
+
+/** The answers already given for these schemas, when both are objects that can key them. */
+function answersFor(schemas: {
+  input: unknown;
+  output?: unknown;
+}): Map<string, string | undefined> | undefined {
+  const { input } = schemas;
+  const output = 'output' in schemas ? schemas.output : NO_OUTPUT;
+  if (typeof input !== 'object' || input === null) return undefined;
+  if (typeof output !== 'object' || output === null) return undefined;
+  let byOutput = answered.get(input);
+  if (!byOutput) {
+    byOutput = new WeakMap();
+    answered.set(input, byOutput);
+  }
+  let byTemplate = byOutput.get(output);
+  if (!byTemplate) {
+    byTemplate = new Map();
+    byOutput.set(output, byTemplate);
+  }
+  return byTemplate;
+}
+
+// why: A studio compile checks every tool's labels for every agent that uses the tool, again on each edit that settles.
 export function activityLabelProblem(
+  template: LabelTemplate,
+  schemas: { input: unknown; output?: unknown },
+): string | undefined {
+  const answers = answersFor(schemas);
+  const key = JSON.stringify(template);
+  if (answers?.has(key)) return answers.get(key);
+  const problem = templateProblem(template, schemas);
+  answers?.set(key, problem);
+  return problem;
+}
+
+function templateProblem(
   template: LabelTemplate,
   schemas: { input: unknown; output?: unknown },
 ): string | undefined {

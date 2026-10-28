@@ -6,7 +6,12 @@ import { activityLabelProblem } from './activity-label.ts';
 import { agentToolInputFor, agentToolOutput, agentToolProfile, normalizeAgent } from './agent.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import { pageAnswerHandler } from './page-answer.ts';
-import { assertFixedEndpointOrigin, jsonSchemaFromZod, validateToolSchema } from './schema.ts';
+import {
+  assertFixedEndpointOrigin,
+  type JsonSchema,
+  jsonSchemaFromZod,
+  validateToolSchema,
+} from './schema.ts';
 import type {
   FunctionToolDef,
   FunctionToolInput,
@@ -20,16 +25,39 @@ import type {
   ToolLabels,
 } from './types.ts';
 
+/** Each zod pair's JSON Schemas, as converted and checked: a zod schema is never changed. */
+const converted = new WeakMap<
+  z.ZodType,
+  WeakMap<z.ZodType, { inputSchema: JsonSchema; outputSchema: JsonSchema }>
+>();
+
+/** The pair's JSON Schemas, converted and checked once; registering the same schemas again reads them back. */
+function checkedSchemas(input: z.ZodType, output: z.ZodType) {
+  let byOutput = converted.get(input);
+  if (!byOutput) {
+    byOutput = new WeakMap();
+    converted.set(input, byOutput);
+  }
+  let schemas = byOutput.get(output);
+  if (!schemas) {
+    const inputSchema = jsonSchemaFromZod(input, 'input');
+    validateToolSchema(inputSchema, 'input');
+    const outputSchema = jsonSchemaFromZod(output, 'output');
+    validateToolSchema(outputSchema, 'output');
+    schemas = { inputSchema, outputSchema };
+    byOutput.set(output, schemas);
+  }
+  return schemas;
+}
+
 function schemasFromZod<TIn, TOut>(def: {
   name: string;
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
   labels?: ToolLabels;
 }) {
-  const inputSchema = jsonSchemaFromZod(def.input, 'input');
-  validateToolSchema(inputSchema, 'input');
-  const outputSchema = jsonSchemaFromZod(def.output, 'output');
-  validateToolSchema(outputSchema, 'output');
+  // why: A studio compile registers each tool once for every agent that uses it, again on each edit that settles.
+  const { inputSchema, outputSchema } = checkedSchemas(def.input, def.output);
   const labels = {
     activity: { input: inputSchema },
     activityPast: { input: inputSchema, output: outputSchema },
@@ -46,7 +74,8 @@ function schemasFromZod<TIn, TOut>(def: {
       );
     }
   }
-  return { inputSchema, outputSchema };
+  // invariant: Each registration gets its own copy, so nothing a tool does to its schemas reaches another.
+  return { inputSchema: structuredClone(inputSchema), outputSchema: structuredClone(outputSchema) };
 }
 
 /** The person is told which service they sign in to; the tool's builder names it, never the model or the server. */

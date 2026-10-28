@@ -433,7 +433,7 @@ export function removeLibraryTool(workspace: StudioWorkspace, toolKey: string): 
 }
 
 /** The same settings with the same values. The order they are held in is not a difference. */
-const same = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+const same = (a: unknown, b: unknown) => a === b || canonical(a) === canonical(b);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);

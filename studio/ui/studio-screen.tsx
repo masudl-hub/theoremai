@@ -411,6 +411,7 @@ function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
   return workspace.agents.map((agent) => {
     const draft = libraryDraft(workspace, agent.key) ?? createBlankDraft();
     const name = agent.identity.agentId || 'this agent';
+    const whole = resetAgent(workspace, agent.key);
     return agentItem(
       {
         draft,
@@ -418,13 +419,16 @@ function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
         selectedId,
         onSelect,
         setDraft,
+        // why: An agent at its start has every section at its start, so its rows need no reset each.
         resetOf: (ref, label) =>
-          reset(resetAgentNode(workspace, agent.key, ref), `Reset ${label} to how it started.`),
+          whole === workspace
+            ? undefined
+            : reset(resetAgentNode(workspace, agent.key, ref), `Reset ${label} to how it started.`),
       },
       agent.key === focus,
       rowActions(
         name,
-        reset(resetAgent(workspace, agent.key), `Reset ${name} to how it started.`),
+        reset(whole, `Reset ${name} to how it started.`),
         actionButton(`Duplicate ${name}`, IconCopyPlus, () => {
           update((current) => duplicateAgent(current, agent.key));
         }),

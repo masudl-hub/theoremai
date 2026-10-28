@@ -21,6 +21,7 @@ import {
   use,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
 } from 'react';
 import type { TheoremLabels } from './labels.ts';
@@ -214,7 +215,7 @@ function ConsoleBody({
   const paired = columns && drawn > 1;
   if (paired && !narrow) {
     return (
-      <ConsoleColumns requestLabel={requestLabel} basisWidth={layoutRef.current?.clientWidth ?? 0}>
+      <ConsoleColumns requestLabel={requestLabel} layoutRef={layoutRef}>
         {children}
       </ConsoleColumns>
     );
@@ -234,12 +235,12 @@ function ConsoleBody({
  */
 function ConsoleColumns({
   requestLabel = 'Request',
-  basisWidth,
+  layoutRef,
   children,
 }: {
   requestLabel?: string;
-  /** The outer layout's width. The pair is not measurable on this first render. */
-  basisWidth: number;
+  /** The outer layout, measured once when the pair first draws. The pair is not measurable yet. */
+  layoutRef: RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
   const t = useLabels();
@@ -249,6 +250,8 @@ function ConsoleColumns({
   // reflowing the request. This layout is already on screen, so the first
   // width is two fifths of it. 70% leaves the response a readable share, and a
   // percentage maximum follows the pair when the trace opens.
+  // why: Read once. Reading layout on every render forces a reflow of each streamed event's commit.
+  const [basisWidth] = useState(() => layoutRef.current?.clientWidth ?? 0);
   const requestPanel = useResizable({
     defaultSize: basisWidth > 0 ? Math.round(basisWidth * 0.4) : '40%',
     minSize: 280,

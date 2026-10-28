@@ -227,6 +227,10 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'Input (edited)',
     description: "A tool call's arguments after the user edited them on approval.",
   },
+  '@theorem.transcript.tool_steps': {
+    defaultMessage: 'Calls',
+    description: 'The calls the agent an agent tool ran made, in its detail.',
+  },
   '@theorem.transcript.tool_output': {
     defaultMessage: 'Output',
     description: "A tool call's result, in its detail.",

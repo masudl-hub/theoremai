@@ -717,7 +717,26 @@ function toolDetail(t: LabelText, tool: ToolBlock['tool'], result?: ReactNode): 
         {tool.name}
       </Text>
       {input}
+      {tool.steps?.length ? <ToolSteps steps={tool.steps} /> : null}
       {result}
+    </VStack>
+  );
+}
+
+/** The calls an agent tool's agent made, each a call row of its own. */
+function ToolSteps({ steps }: { steps: readonly ToolBlock['tool'][] }) {
+  const t = useLabels();
+  const showUsage = useContext(ShowUsage);
+  return (
+    <VStack gap={2}>
+      <Text type="supporting" color="secondary">
+        {t('@theorem.transcript.tool_steps')}
+      </Text>
+      <ToolCalls
+        calls={steps.map((step) =>
+          toolCallItem(t, step.operationId ?? step.callId, step, showUsage),
+        )}
+      />
     </VStack>
   );
 }

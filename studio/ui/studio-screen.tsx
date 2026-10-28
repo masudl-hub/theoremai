@@ -3720,26 +3720,16 @@ function SharedLine({
 }
 
 /** Over a node one place in the project's files sets whole: what sets it, where, and the way there. */
-function OriginBanner({
-  origin,
-  partly,
-  onOpen,
-}: {
-  origin: SettingOrigin;
-  /** The origin sets only the rows the files do not write themselves. */
-  partly: boolean;
-  onOpen: () => void;
-}) {
+function OriginBanner({ origin, onOpen }: { origin: SettingOrigin; onOpen: () => void }) {
   const place = originPlace(origin);
   // The cause is the title. Here: what it does to this page, then the way out.
-  const effect = partly ? 'The greyed rows are read-only here.' : 'Read-only here.';
   const way = place ? `Edit it at ${place}.` : originWay(origin);
   return (
     <Section variant="transparent" padding={3}>
       <Banner
         status="info"
         title={originLabel(origin)}
-        description={`${effect} ${way}`}
+        description={`Read-only here. ${way}`}
         endContent={place && <Button label="Open" variant="ghost" size="sm" onClick={onOpen} />}
       />
     </Section>
@@ -3785,8 +3775,7 @@ function EditorColumn({
     const scope = state.origins && nodeOrigins(state.workspace, state.origins, selected);
     return scope ? { scope, open: openOrigin } : null;
   }, [state.origins, state.workspace, selected, openOrigin]);
-  const whole = rowOrigins?.scope.section;
-  const said = over ? undefined : (whole ?? rowOrigins?.scope.partly);
+  const said = over ? undefined : rowOrigins?.scope.section;
   return (
     <VStack height="100%">
       <EditorToolbar
@@ -3837,7 +3826,6 @@ function EditorColumn({
       {said && (
         <OriginBanner
           origin={said}
-          partly={!whole}
           onOpen={() => {
             openOrigin(said);
           }}

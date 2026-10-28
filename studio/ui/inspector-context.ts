@@ -70,7 +70,7 @@ export function useRowOrigin(
   if (!held || !origin) return undefined;
   return {
     origin,
-    said: origin === held.scope.section || origin === held.scope.partly || origin === above,
+    said: origin === held.scope.section || origin === above,
     open: () => {
       held.open(origin);
     },

@@ -271,8 +271,8 @@ Deno.test("a turn carries the page's slots and context, and the host's context a
     ),
   );
   assertEquals(seen[0]?.system?.includes('Reply in fr.'), true);
-  assertEquals(seen[0]?.sent?.includes('<page_context from="server">\n{"tier":"pro"}'), true);
-  assertEquals(seen[0]?.sent?.includes('<page_context from="client">\n{"page":"Pricing"}'), true);
+  assertEquals(seen[0]?.sent?.includes('<turn_context from="server">\n{"tier":"pro"}'), true);
+  assertEquals(seen[0]?.sent?.includes('<turn_context from="client">\n{"page":"Pricing"}'), true);
 });
 Deno.test('provider failures reach the client in the labels wording for their kind', async () => {
   const handler = handlerFor({

@@ -18,14 +18,14 @@ const USER_OPEN = '<user_data>';
 /** The tag that closes the fence around user content. */
 const USER_CLOSE = '</user_data>';
 /** The tag that closes the fence around context. */
-const CONTEXT_CLOSE = '</page_context>';
+const CONTEXT_CLOSE = '</turn_context>';
 const CANARY_BYTES = 16;
 const HEX_RADIX = 16;
 const HEX_PAD = 2;
 /** What replaces canary text a reply or event would have carried. */
 /** A fence tag as a model could read one: spacing, case and closing `>` aside. */
 const FENCE =
-  /<\s*(?:\/\s*)?(?:user[\s_-]*data|page[\s_-]*context)\b(?:[^<>\n]{0,40}>|\s*(?:\/\s*)?>)?/gi;
+  /<\s*(?:\/\s*)?(?:user[\s_-]*data|turn[\s_-]*context)\b(?:[^<>\n]{0,40}>|\s*(?:\/\s*)?>)?/gi;
 
 /** Creates a 128-bit, cryptographically random token for one turn's canary binding. */
 function mintCanary(): string {
@@ -89,7 +89,7 @@ function wrapUserData(text: string): string {
  * neither the page nor the person can pass text off as the host's.
  */
 function wrapContext(sender: ContextSender, text: string): string {
-  return `<page_context from="${sender}">\n${stripUserFences(text)}\n${CONTEXT_CLOSE}`;
+  return `<turn_context from="${sender}">\n${stripUserFences(text)}\n${CONTEXT_CLOSE}`;
 }
 
 /** The labels' `context.note`, which tells the model what `wrapContext`'s tags mean. */

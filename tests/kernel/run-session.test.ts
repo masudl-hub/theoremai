@@ -307,8 +307,8 @@ Deno.test('a new call sends its context, then its greeting with the slot filled'
     { context: { client: { page: 'Checkout' }, server: 'tier: pro' } },
   );
   assertEquals(live.contexts(), [
-    '<page_context from="server">\ntier: pro\n</page_context>',
-    '<page_context from="client">\n{"page":"Checkout"}\n</page_context>',
+    '<turn_context from="server">\ntier: pro\n</turn_context>',
+    '<turn_context from="client">\n{"page":"Checkout"}\n</turn_context>',
   ]);
   assertEquals(live.spoken(), ['Greet the visitor in fr.']);
   await live.done();
@@ -377,7 +377,7 @@ Deno.test('live.resumed needs session resumption, and its prompt', () => {
 Deno.test('sendContext sends each package in its fence, opens no turn, and needs no text channel', async () => {
   const live = await openLive({ ingress: { text: false } });
   await live.session.sendContext({ client: '(page) /docs' });
-  assertEquals(live.contexts(), ['<page_context from="client">\n(page) /docs\n</page_context>']);
+  assertEquals(live.contexts(), ['<turn_context from="client">\n(page) /docs\n</turn_context>']);
   assertEquals(live.spoken(), []);
   await live.done();
 });

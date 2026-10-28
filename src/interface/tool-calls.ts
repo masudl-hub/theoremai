@@ -66,11 +66,8 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       return { ...call, outputDraft: (call.outputDraft ?? '') + tool.text };
     case 'artifact':
       return { ...call, artifacts: [...call.artifacts, tool.artifact] };
-    case 'progress': {
-      const step = agentStep(tool.data);
-      const steps = step && withStep(call.steps ?? [], step);
-      return steps ? { ...call, steps } : call;
-    }
+    case 'progress':
+      return withAgentStep(call, tool.data);
     case 'dispatch':
     case 'trace':
     case 'warning':
@@ -137,6 +134,13 @@ function agentStep(data: unknown): ToolCallEventOf | undefined {
   if (event?.type !== 'tool' && event?.type !== 'tool_draft') return undefined;
   const parsed = turnEventSchema.safeParse(event);
   return parsed.success ? (parsed.data as ToolCallEventOf) : undefined;
+}
+
+/** `call` with the agent step its progress carries, if it carries one that fits. */
+function withAgentStep(call: ToolCall, data: unknown): ToolCall {
+  const step = agentStep(data);
+  const steps = step && withStep(call.steps ?? [], step);
+  return steps ? { ...call, steps } : call;
 }
 
 /**

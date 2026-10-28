@@ -91,7 +91,7 @@ export function studioAsks(
 }
 
 /** What a question the studio puts before a tool that writes says. */
-export const STUDIO_ASK_SUMMARY = 'The studio asks before every run of a tool that writes.';
+const STUDIO_ASK_SUMMARY = 'The studio asks before every run of a tool that writes.';
 
 /**
  * The studio's question before each run of an `asked` tool, as a stage. The tool's registration

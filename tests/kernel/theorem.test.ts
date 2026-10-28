@@ -928,6 +928,100 @@ Deno.test('runTurn retries when required field is missing', async () => {
   assertEquals(callCount, 2);
   assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
 });
+function unparsedReplyProfile(id: string, maxRetries?: number): void {
+  registerProfile({
+    type: 'text',
+    id,
+    identity: { handle: id },
+    ...geminiModels('gemini35FlashLite'),
+    maxSteps: 1,
+    tools: { allow: [] },
+    inputs: { text: true },
+    outputs: {
+      structured: 'validTurn',
+      validation: maxRetries === undefined ? {} : { maxRetries },
+    },
+    guardrails: { quota: { perDay: 10 } },
+  });
+}
+Deno.test('a structured reply cut at length is sent back with why, and the retry answers', async () => {
+  unparsedReplyProfile('cutOffProfile', 1);
+  const repairs: string[] = [];
+  async function* mockComplete(req: ModelRequest): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    if (repairs.length === 0) {
+      repairs.push('');
+      yield { type: 'text', text: '{"code": "go"  \n\n\n' };
+      yield { type: 'done', stop: { kind: 'length' } };
+      return;
+    }
+    repairs.push(String(req.history?.at(-1)?.content));
+    yield { type: 'structured', structured: { code: 'good' } };
+  }
+  const events = await Array.fromAsync(
+    runTurn({ profile: 'cutOffProfile', input: { text: 'make code' } }, { complete: mockComplete }),
+  );
+  assertEquals(repairs.length, 2);
+  assertStringIncludes(repairs[1] ?? '', '{"code": "go"');
+  assertStringIncludes(repairs[1] ?? '', 'cut off at the output limit before its JSON ended');
+  assertEquals(
+    eventsOf(events, 'attempt').map((e) => e.reason),
+    ['validation'],
+  );
+  assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
+  assertEquals(lastOf(events, 'done')?.stop?.kind, 'completed');
+});
+Deno.test('a structured reply that is not JSON is sent back with why, and the retry answers', async () => {
+  unparsedReplyProfile('notJsonProfile', 1);
+  const repairs: string[] = [];
+  async function* mockComplete(req: ModelRequest): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    if (repairs.length === 0) {
+      repairs.push('');
+      yield { type: 'text', text: 'code: go' };
+      yield {
+        type: 'error',
+        errorKind: 'bad_response',
+        error: 'structured output was not valid JSON',
+      };
+      return;
+    }
+    repairs.push(String(req.history?.at(-1)?.content));
+    yield { type: 'structured', structured: { code: 'good' } };
+  }
+  const events = await Array.fromAsync(
+    runTurn(
+      { profile: 'notJsonProfile', input: { text: 'make code' } },
+      { complete: mockComplete },
+    ),
+  );
+  assertEquals(repairs.length, 2);
+  assertStringIncludes(repairs[1] ?? '', 'code: go');
+  assertStringIncludes(repairs[1] ?? '', 'The reply was not valid JSON.');
+  assertEquals(eventsOf(events, 'error'), []);
+  assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
+  assertEquals(lastOf(events, 'done')?.stop?.kind, 'completed');
+});
+Deno.test('a structured reply cut at length with no retry left ends at length', async () => {
+  unparsedReplyProfile('cutOffNoRetryProfile');
+  let calls = 0;
+  async function* mockComplete(): AsyncGenerator<TurnEvent> {
+    await Promise.resolve();
+    calls++;
+    yield { type: 'text', text: '{"code": "go"  \n\n\n' };
+    yield { type: 'done', stop: { kind: 'length' } };
+  }
+  const events = await Array.fromAsync(
+    runTurn(
+      { profile: 'cutOffNoRetryProfile', input: { text: 'make code' } },
+      { complete: mockComplete },
+    ),
+  );
+  assertEquals(calls, 1);
+  assertEquals(eventsOf(events, 'attempt'), []);
+  assertEquals(eventsOf(events, 'structured'), []);
+  assertEquals(lastOf(events, 'done')?.stop?.kind, 'length');
+});
 Deno.test('runTurn validates nested required under present optional object', async () => {
   let mermaidCalls = 0;
   registerProfile({

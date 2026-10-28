@@ -1164,6 +1164,13 @@ On a turn that answers by tool:
 - The tool's description is the label `structured.answer_tool`.
 - A profile with `outputs.structured` cannot offer a tool of its own named as `ANSWER_TOOL`. The turn throws a `config` error.
 
+On a turn that answers by response format, a reply that does not parse is repaired like any other reply that fails validation, while `outputs.validation.maxRetries` has a retry left. The repair carries the reply's text and says what went wrong:
+
+- A reply cut at `length` has the rejection `structured.cut_off`.
+- A reply that ended but is not valid JSON has the rejection `structured.not_json`.
+
+With no retry left, the turn ends as it would without validation: at `length` with no `structured` event, or with the `bad_response` error and the stop `provider_error`.
+
 Top-level modality pins (after `model`, not under `outputs`):
 
 | Block | Effect |
@@ -1585,7 +1592,8 @@ the provider's reason. When no re-send is left, the turn ends with that `error`
 and stop as before.
 
 A call that gave part of its reply, and a reply cut at `length`, are not sent again
-by the turn: the host continues them with `continueFrom`. A `continueFrom` turn is a
+by the turn: the host continues them with `continueFrom`. A structured reply that does
+not parse is the exception: validation repairs it ([Structured output](#structured-output)). A `continueFrom` turn is a
 new turn, so it starts with no record of what the stopped turn read.
 
 An agent tool's called profile follows the same rule under its own

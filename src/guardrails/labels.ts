@@ -104,6 +104,8 @@ export const LABEL_KEYS = [
   'repair.section_instructions',
   'structured.answer_tool',
   'structured.answer_missing',
+  'structured.cut_off',
+  'structured.not_json',
   'compaction.request',
   'compaction.tool_call',
   'compaction.tool_result',
@@ -472,6 +474,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'structured.answer_tool':
     'Call this once your work is done, with your final answer as its input. Text you write outside this call is shown as progress, not taken as the answer.',
   'structured.answer_missing': 'The reply did not call {tool}. Call {tool} with your final answer.',
+  'structured.cut_off': 'The reply was cut off at the output limit before its JSON ended.',
+  'structured.not_json': 'The reply was not valid JSON.',
   'compaction.request':
     'Summarize the conversation above, including any earlier summary in it. Call the participants the user and the assistant, and keep every name, number, fact, and decision either may need later. Reply with the summary only.',
   'compaction.tool_call': 'Called {tool} with {arguments}',
@@ -758,6 +762,10 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     "The description of the answer tool: on a structured turn that has tools, the model calls it with its final answer, and the tool's input is the structured output.",
   'structured.answer_missing':
     'The validator rejection in the repair request when a structured turn with tools ended without calling the answer tool. Takes {tool}.',
+  'structured.cut_off':
+    'The validator rejection in the repair request when a structured reply was cut off at the output limit before its JSON ended.',
+  'structured.not_json':
+    'The validator rejection in the repair request when a structured reply ended but was not valid JSON.',
   'compaction.request':
     'Sent to the compactor after the messages it compacts, asking for the summary.',
   'compaction.tool_call':

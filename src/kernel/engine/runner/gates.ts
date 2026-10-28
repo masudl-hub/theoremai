@@ -533,6 +533,38 @@ function startItemFix(args: {
   return attempt;
 }
 
+/** A structured reply the attempt wrote that never parsed, and what went wrong with it. */
+function unparsedReply(
+  state: StepExecutionState,
+  generation: ResolvedGeneration,
+  profile: Profile,
+): { text: string; rejection: string } | undefined {
+  if (!generation.structured || answersByTool(generation)) return undefined;
+  const text = collectAttemptText(state.attemptEvents);
+  if (!text.trim()) return undefined;
+  if (state.lastStop?.kind === 'length') {
+    return { text, rejection: labelText('structured.cut_off', {}, profile.labels) };
+  }
+  const error = findLast(state.attemptEvents, (event) => event.type === 'error');
+  if (
+    state.lastStop?.kind === 'provider_error' &&
+    error?.errorKind === 'bad_response' &&
+    !parsesAsJson(text)
+  ) {
+    return { text, rejection: labelText('structured.not_json', {}, profile.labels) };
+  }
+  return undefined;
+}
+
+function parsesAsJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function handleValidationGate(
   validation: NonNullable<ProfileOutputsSpec['validation']>,
   flow: AttemptFlowState,
@@ -549,6 +581,12 @@ async function handleValidationGate(
     flow.currentGen = { ...flow.currentGen, structured: fix.structured };
     reply = withRewrittenItems(fix, latestStructured);
     holdReply(state, reply, []);
+  }
+  const unparsed =
+    reply === undefined && canRetry ? unparsedReply(state, flow.currentGen, profile) : undefined;
+  if (unparsed) {
+    const nextRequest = buildRepairRequest(flow.currentReq, unparsed.text, unparsed.rejection);
+    return updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
   }
   const outcome = await evaluateValidationOutcome({
     validation,

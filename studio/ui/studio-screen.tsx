@@ -144,6 +144,7 @@ import './studio.css';
 import { type ConversationView, createTraceFeed, type TraceFeed } from '@theoremjs/web/client';
 import {
   type CSSProperties,
+  createContext,
   type Dispatch,
   lazy,
   memo,
@@ -152,6 +153,7 @@ import {
   type SetStateAction,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -270,13 +272,48 @@ interface TreeState {
   setDraft: (next: StudioDraft | ((draft: StudioDraft) => StudioDraft)) => void;
   /** Puts the row `ref` names back to its start; undefined while it is at its start. */
   resetOf: (ref: StudioNodeRef, label: string) => (() => void) | undefined;
+  presses: RowPresses;
+}
+
+/** One render's row actions, in the order the tree drew them. */
+interface RowPresses {
+  /** Keeps this render's handler and gives its place. */
+  add: (press: () => void) => number;
+}
+
+/** Runs the handler the tree's last render drew at a place. */
+const RowPress = createContext<(slot: number) => void>(() => undefined);
+
+/**
+ * The tree's row actions for one render, and the press that runs the latest of them.
+ * why: A click re-renders every row; a button whose place, label and icon are the same is not
+ * drawn again, and it still runs the handler of the render on screen.
+ */
+function useRowPresses(): { presses: RowPresses; press: (slot: number) => void } {
+  const shown = useRef<(() => void)[]>([]);
+  const drawn: (() => void)[] = [];
+  useLayoutEffect(() => {
+    shown.current = drawn;
+  });
+  const press = useCallback((slot: number) => {
+    shown.current[slot]?.();
+  }, []);
+  return { presses: { add: (onPress) => drawn.push(onPress) - 1 }, press };
 }
 
 /** A row's hover action: stops at the button so the row itself isn't selected. */
-function actionButton(label: string, icon: IconType, onPress: () => void) {
+const RowButton = memo(function RowButton({
+  slot,
+  label,
+  icon,
+}: {
+  slot: number;
+  label: string;
+  icon: IconType;
+}) {
+  const press = useContext(RowPress);
   return (
     <IconButton
-      key={label}
       label={label}
       variant="ghost"
       size="sm"
@@ -284,36 +321,45 @@ function actionButton(label: string, icon: IconType, onPress: () => void) {
       tooltip={label}
       onClick={(event) => {
         event.stopPropagation();
-        onPress();
+        press(slot);
       }}
     />
   );
+});
+
+function actionButton(presses: RowPresses, label: string, icon: IconType, onPress: () => void) {
+  return <RowButton key={label} slot={presses.add(onPress)} label={label} icon={icon} />;
 }
 
-function rowAction(label: string, icon: IconType, onPress: () => void) {
-  return <span className="studio-tree-action">{actionButton(label, icon, onPress)}</span>;
+function rowAction(presses: RowPresses, label: string, icon: IconType, onPress: () => void) {
+  return <span className="studio-tree-action">{actionButton(presses, label, icon, onPress)}</span>;
 }
 
 /** A row's hover actions: Reset, while it differs from its start, then the others, the x last. */
 function rowActions(
+  presses: RowPresses,
   label: string,
   reset: (() => void) | undefined,
   ...actions: ReactNode[]
 ): ReactNode {
-  const shown = [reset && actionButton(`Reset ${label}`, IconRotateClockwise, reset), ...actions];
+  const shown = [
+    reset && actionButton(presses, `Reset ${label}`, IconRotateClockwise, reset),
+    ...actions,
+  ];
   return shown.some(Boolean) ? <span className="studio-tree-action">{shown}</span> : undefined;
 }
 
 function treeItem(tree: TreeState, node: StudioTreeNode, isTop = false): TreeListItemData {
-  const { draft, scope, selectedId, onSelect, setDraft } = tree;
+  const { draft, scope, selectedId, onSelect, setDraft, presses } = tree;
   const facet = node.ref.facet;
   const id = scope(node.id);
   const isOptional = isTop && facet !== 'toolSpec' && profileGraphFacet(facet)?.optional === true;
   const actions = rowActions(
+    presses,
     node.label,
     tree.resetOf(node.ref, node.label),
     isOptional &&
-      actionButton(`Remove ${node.label}`, IconX, () => {
+      actionButton(presses, `Remove ${node.label}`, IconX, () => {
         setDraft((current) => excludeFacet(current, facet));
       }),
   );
@@ -336,7 +382,7 @@ function treeItem(tree: TreeState, node: StudioTreeNode, isTop = false): TreeLis
 
 /** An optional section the type allows but the draft leaves out: dimmed; a click adds it. */
 function offItem(
-  { scope, onSelect, setDraft }: TreeState,
+  { scope, onSelect, setDraft, presses }: TreeState,
   facet: ProfileGraphFacetId,
 ): TreeListItemData {
   const label = profileGraphFacet(facet)?.label ?? facet;
@@ -350,7 +396,7 @@ function offItem(
     startContent: (
       <Icon icon={FACET_ICON[facet as keyof typeof FACET_ICON]} size="sm" color="disabled" />
     ),
-    endContent: rowAction(`Add ${label}`, IconPlus, add),
+    endContent: rowAction(presses, `Add ${label}`, IconPlus, add),
     className: 'studio-tree-row',
     onClick: add,
   };
@@ -405,8 +451,8 @@ interface WorkspaceTreeState {
   keys: { open: boolean; toggle: () => void } | null;
 }
 
-function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
-  const { workspace, focus, selectedId, onSelect, update, setDraft, reset } = state;
+function agentItems(state: DrawnTree): TreeListItemData[] {
+  const { workspace, focus, selectedId, onSelect, update, setDraft, reset, presses } = state;
   const isOnly = workspace.agents.length === 1;
   return workspace.agents.map((agent) => {
     const draft = libraryDraft(workspace, agent.key) ?? createBlankDraft();
@@ -416,6 +462,7 @@ function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
       {
         draft,
         scope: (id) => scopedNodeId(agent.key, id),
+        presses,
         selectedId,
         onSelect,
         setDraft,
@@ -427,13 +474,14 @@ function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
       },
       agent.key === focus,
       rowActions(
+        presses,
         name,
         reset(whole, `Reset ${name} to how it started.`),
-        actionButton(`Duplicate ${name}`, IconCopyPlus, () => {
+        actionButton(presses, `Duplicate ${name}`, IconCopyPlus, () => {
           update((current) => duplicateAgent(current, agent.key));
         }),
         !isOnly &&
-          actionButton(`Remove ${name}`, IconX, () => {
+          actionButton(presses, `Remove ${name}`, IconX, () => {
             update((current) => removeAgent(current, agent.key));
           }),
       ),
@@ -443,7 +491,7 @@ function agentItems(state: WorkspaceTreeState): TreeListItemData[] {
 
 /** The tool library, every agent picks its tools from these: those whose name or description holds `query`. */
 function toolItems(
-  { workspace, selectedId, onSelect, update, reset }: WorkspaceTreeState,
+  { workspace, selectedId, onSelect, update, reset, presses }: DrawnTree,
   query: string,
 ) {
   const needle = query.trim().toLowerCase();
@@ -459,10 +507,11 @@ function toolItems(
           <Icon icon={tool ? toolTypeIcon(tool.toolType) : IconTool} size="sm" color="secondary" />
         ),
         endContent: rowActions(
+          presses,
           node.label,
           tool &&
             reset(resetLibraryTool(workspace, tool.key), `Reset ${node.label} to how it started.`),
-          actionButton(`Remove ${node.label}`, IconX, () => {
+          actionButton(presses, `Remove ${node.label}`, IconX, () => {
             if (tool) update((current) => removeLibraryTool(current, tool.key));
           }),
         ),
@@ -486,8 +535,8 @@ function declaredAt({ setting }: SharedEntry): string {
  * The providers every agent's models pick from, each over the agents with a model on it. A
  * provider's row opens its own settings; an agent's opens its first model there.
  */
-function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
-  const { workspace, selectedId, onSelect, update, ownsProviders, reset } = tree;
+function providerItems(tree: DrawnTree): TreeListItemData[] {
+  const { workspace, selectedId, onSelect, update, ownsProviders, reset, presses } = tree;
   return workspace.providers.map((provider) => {
     const id = providerNodeId(provider.id);
     // One a model runs on stays: its row lists the agents to move first.
@@ -513,10 +562,11 @@ function providerItems(tree: WorkspaceTreeState): TreeListItemData[] {
       ];
     });
     const actions = rowActions(
+      presses,
       provider.id,
       reset(resetProvider(workspace, provider.id), `Reset ${provider.id} to how it started.`),
       isFree &&
-        actionButton(`Remove ${provider.id}`, IconX, () => {
+        actionButton(presses, `Remove ${provider.id}`, IconX, () => {
           update((current) => removeProvider(current, provider.id));
           const [first] = workspace.agents;
           if (selectedId === id && first) onSelect(agentNodeId(first.key));
@@ -784,6 +834,9 @@ function ToolSearchInput({ query, onChange }: { query: string; onChange: (next: 
   );
 }
 
+/** The workspace's tree as one render draws it, with that render's row actions. */
+type DrawnTree = WorkspaceTreeState & { presses: RowPresses };
+
 /** The shown list's rows, or why there are none. */
 function WorkspaceListBody({
   tree,
@@ -792,7 +845,7 @@ function WorkspaceListBody({
   query,
   listRef,
 }: {
-  tree: WorkspaceTreeState;
+  tree: DrawnTree;
   list: WorkspaceList;
   tools: TreeListItemData[];
   query: string;
@@ -834,42 +887,52 @@ function WorkspaceTreeLists({
 }) {
   const { list, setList } = tree;
   const { query, setQuery, revealSelected } = useWorkspaceList(tree.selectedId, listRef);
-  const tools = list === 'tools' ? toolItems(tree, query) : [];
+  const { presses, press } = useRowPresses();
+  const drawn: DrawnTree = { ...tree, presses };
+  const tools = list === 'tools' ? toolItems(drawn, query) : [];
   return (
-    <VStack gap={2} height="100%">
-      <WorkspaceListToggle
-        workspace={tree.workspace}
-        list={list}
-        onChange={(next) => {
-          setList(next);
-          revealSelected();
-        }}
-      />
-      {list === 'agents' ? <AddAgentMenu onAddAgent={onAddAgent} /> : null}
-      {list === 'tools' && (
-        <ToolSearchInput
-          query={query}
+    <RowPress.Provider value={press}>
+      <VStack gap={2} height="100%">
+        <WorkspaceListToggle
+          workspace={tree.workspace}
+          list={list}
           onChange={(next) => {
-            setQuery(next);
+            setList(next);
             revealSelected();
           }}
         />
-      )}
-      {list === 'tools' ? <AddToolButton tree={tree} draft={draft} /> : null}
-      {list === 'providers' && tree.keys ? <ManageKeysButton keys={tree.keys} /> : null}
-      {list === 'providers' && tree.ownsProviders ? (
-        <AddProviderButton
-          taken={tree.workspace.providers.map((provider) => provider.id)}
-          onAdd={(provider) => {
-            tree.update((current) => addProvider(current, provider));
-            tree.onSelect(providerNodeId(provider.id));
-          }}
-        />
-      ) : null}
-      <StackItem size="fill">
-        <WorkspaceListBody tree={tree} list={list} tools={tools} query={query} listRef={listRef} />
-      </StackItem>
-    </VStack>
+        {list === 'agents' ? <AddAgentMenu onAddAgent={onAddAgent} /> : null}
+        {list === 'tools' && (
+          <ToolSearchInput
+            query={query}
+            onChange={(next) => {
+              setQuery(next);
+              revealSelected();
+            }}
+          />
+        )}
+        {list === 'tools' ? <AddToolButton tree={tree} draft={draft} /> : null}
+        {list === 'providers' && tree.keys ? <ManageKeysButton keys={tree.keys} /> : null}
+        {list === 'providers' && tree.ownsProviders ? (
+          <AddProviderButton
+            taken={tree.workspace.providers.map((provider) => provider.id)}
+            onAdd={(provider) => {
+              tree.update((current) => addProvider(current, provider));
+              tree.onSelect(providerNodeId(provider.id));
+            }}
+          />
+        ) : null}
+        <StackItem size="fill">
+          <WorkspaceListBody
+            tree={drawn}
+            list={list}
+            tools={tools}
+            query={query}
+            listRef={listRef}
+          />
+        </StackItem>
+      </VStack>
+    </RowPress.Provider>
   );
 }
 
@@ -1390,7 +1453,10 @@ function useLeftIssues(issues: readonly StudioIssue[], page: string, revealed: u
   const leavePage = useCallback(() => {
     const keys = new Set(before.current.map(issueKey));
     return () => {
-      setLeft(keys);
+      // why: A move that leaves the same issues behind draws the editor nothing new.
+      setLeft((was) =>
+        was.size === keys.size && [...keys].every((key) => was.has(key)) ? was : keys,
+      );
     };
   }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a move or a press of the pill is what lets them show
@@ -1881,7 +1947,7 @@ function useWorkspaceCompile(
   connection: StudioConnectionState,
 ) {
   const { mode, on } = connection;
-  const settled = useSameContent(useDebounced(workspace, COMPILE_DEBOUNCE_MS));
+  const settled = useDebounced(useSameContent(workspace), COMPILE_DEBOUNCE_MS);
   const { agents, toolSpecs, providers } = settled;
   const result = useMemo(
     () => compileWorkspace({ agents, toolSpecs, providers }, on),

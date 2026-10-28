@@ -35,6 +35,8 @@ export interface SessionBoundaryOptions {
   gateTtlMs?: number;
   operationRetentionMs?: number;
   pageToolBroker?: PageToolBroker;
+  /** How long the page has to answer a tool call it runs, in milliseconds. Unset, it waits. */
+  pageToolTimeoutMs?: number;
 }
 
 export type PreparedLiveOpen = Pick<
@@ -79,6 +81,7 @@ export async function createTheoremSessionBoundary(
     store,
     id,
     options.pageToolBroker ?? createMemoryPageToolBroker(),
+    options.pageToolTimeoutMs,
   );
   return {
     pageExecution: page.execution,

@@ -136,8 +136,9 @@ export interface RunSessionOptions extends ProviderHostOptions {
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault?: KeyVault;
   /**
-   * Milliseconds a gated call waits for its decision (default 30 minutes). A later decision is
-   * refused (`session.gate_expired`), and the model reads the call as abandoned.
+   * Milliseconds a gated call waits for its decision. A later decision is refused
+   * (`session.gate_expired`), and the model reads the call as abandoned. Unset, the call waits
+   * until it is decided or the session closes.
    */
   gateTtlMs?: number;
   /**
@@ -543,7 +544,7 @@ function buildLiveSession(args: {
   trace: LiveTrace;
   /** Runs the agent tools this session's calls reach. */
   agents: AgentCaller;
-  gateTtlMs: number;
+  gateTtlMs: number | undefined;
   signInGate: SignInGatePolicy;
 }): LiveSession {
   const {
@@ -720,8 +721,8 @@ function buildLiveSession(args: {
 
   /**
    * A call that ran into `gate`. A sign-in gate this session answers at once tells the model its
-   * pending note and releases the call; a call already released stays released. Either waits
-   * `gateTtlMs` for its outcome. False: the call is not released, and the caller holds it.
+   * pending note and releases the call; a call already released stays released. Either waits for
+   * its outcome, for `gateTtlMs` when it is set. False: the call is not released, and the caller holds it.
    */
   const releaseGated = (
     callId: string,
@@ -735,7 +736,10 @@ function buildLiveSession(args: {
     if (answersNow) answerModel(callId, held, readBack);
     clearTimeout(held.lapse);
     held.state = { gate, createdAt: Date.now(), released: true };
-    held.lapse = setTimeout(() => lapseReleased(callId, held), gateTtlMs);
+    held.lapse =
+      gateTtlMs === undefined
+        ? undefined
+        : setTimeout(() => lapseReleased(callId, held), gateTtlMs);
     return true;
   };
 

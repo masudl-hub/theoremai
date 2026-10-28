@@ -45,7 +45,7 @@ export type TheoremMcpHandlerOptions = {
   origins?: readonly string[];
   /** Handed to each tool as `ctx.host`. */
   host?: (request: Request) => unknown;
-  /** Largest request body read, in bytes. */
+  /** Largest request body read, in bytes. Unset, a body of any size is read. */
   maxRequestBytes?: number;
   /** Who reads this host's replies: forwarded to `clientError` for a failure the handler catches. */
   clientEvents?: ClientTurnOptions;

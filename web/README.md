@@ -243,9 +243,25 @@ const transport = withPageToolDispatch(
 | `sessionStore`, `steerInbox` | Where open gates are kept, and where steers and stops reach a running turn. Default: process memory, which reaches only turns this process runs. On more than one instance, give a shared `SteerInbox`. |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
-| `gateTtlMs` | How long a gate waits for an answer. Default: 30 minutes. A later answer fails with `session.gate_expired`. |
+| `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`. Unset, a gate waits until it is answered. |
+| `maxRequestBytes` | The largest browser request body, in bytes. Unset, a body of any size is read. |
+| `pageToolTimeoutMs` | How long the page has to answer a tool call it runs. A call it has not answered by then settles as timed out. Unset, the call waits until the page answers or the turn stops. |
+| `operationRetentionMs` | How long a settled tool result is kept. Default: 24 hours. |
 | `clientEvents` | Options for `forClient` and `clientError`, which prepare each event and each caught failure for the browser. `reader: 'builder'` sends the raw reason in place of the wording of the profile. Use it only in a development tool on your own machine. |
 | `onError` | Receives each error that the handler catches. A visitor sees the wording of the profile for that kind of error, never the error. |
+
+### Defaults
+
+A limit that stops a turn or refuses a request is unset unless you set it: `gateTtlMs`, `maxRequestBytes`, `pageToolTimeoutMs`, and a session store's `capacity`. Only what keeps stored data from growing without end has a default:
+
+| What | Default | Set it with |
+| --- | --- | --- |
+| A settled tool result | Kept 24 hours | `operationRetentionMs` |
+| A session in `createMemorySessionStore` | Dropped after 24 idle hours; at most 10,000 kept | `ttlMs`, `maxSessions` |
+| A conversation in `createMemoryConversationStore` | Dropped after 24 hours unsaved; at most 10,000 kept | `ttlMs`, `maxSessions` |
+| The session cookie | Lasts 30 days | `session` |
+
+A model profile that leaves out `maxSteps` makes at most 20 model calls a turn.
 
 ### Start a conversation with content
 
@@ -388,7 +404,7 @@ A session store with a real limit declares its `capacity`: what it holds for one
 
 A store that declares no `capacity` holds any size. `createMemorySessionStore` declares none unless you pass `capacity`, with both fields. A store you write declares the capacity of its own storage, if it has one.
 
-Set `maxRequestBytes` to bound browser JSON before parsing. Its default is 16 MiB.
+Set `maxRequestBytes` to bound browser JSON before parsing. Unset, a body of any size is read. A relay passes the same number to `parseLiveOpenMessage` and `parseLiveClientMessage`.
 The handler rejects oversized requests before provider access or tool preparation.
 Provider host options also accept `limits` for deadlines and upstream output.
 When the store declares a capacity, the handler keeps room for one `maxOutcomeBytes` result for each gate and each call that has not settled.
@@ -413,7 +429,7 @@ Forward live page results to `answerPageResult`. Preserve checkpoint ownership t
 The default `PageToolBroker` keeps active result waiters in process memory. Several workers need a shared broker or request affinity.
 Use `pageToolBroker` to supply that broker. It carries results; the atomic session store retains execution authority.
 Lost result delivery does not permit another dispatch. The operation retains its claim or an uncertain outcome.
-The default result deadline is 20 seconds. An expired or interrupted result cannot reopen approval.
+Set `pageToolTimeoutMs` to give the page a deadline for a result. Unset, a dispatch waits until the page answers or the turn stops. An expired or interrupted result cannot reopen approval.
 
 ## Build your own server
 

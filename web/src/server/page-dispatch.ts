@@ -94,21 +94,29 @@ export function createMemoryPageToolBroker(maxPending = 128): PageToolBroker {
   };
 }
 
+/** Refuses a page tool timeout that is not a whole number of milliseconds a timer can hold. */
+export function checkPageToolTimeout(timeoutMs: number | undefined): void {
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2147483647)
+  )
+    throw new TheoremError('config', labelText('error.config'));
+}
+
 export function sessionPageDispatch(
   store: MutableStore<TheoremSessionState>,
   sessionId: string,
   broker: PageToolBroker,
-  timeoutMs = 20_000,
+  timeoutMs?: number,
 ): { execution: PageToolExecution; answer(result: PageToolResult): Promise<boolean> } {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2147483647)
-    throw new TheoremError('config', labelText('error.config'));
+  checkPageToolTimeout(timeoutMs);
   return {
     execution: {
       async dispatch(claim: ToolOperationClaim, signal) {
         if (!claim.invocation)
           refused('internal', 'The page dispatch got a claim with no invocation'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         const grantId = crypto.randomUUID();
-        const expiresAt = Date.now() + timeoutMs;
+        const expiresAt = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
         const pending = broker.reserve(sessionId, grantId, signal);
         try {
           await store.mutate(sessionId, (state) => {
@@ -123,14 +131,14 @@ export function sessionPageDispatch(
                 'internal',
                 'The session store holds no running claim for this page dispatch', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
               );
-            record.pageGrant = { grantId, expiresAt };
+            record.pageGrant = { grantId, ...(expiresAt === undefined ? {} : { expiresAt }) };
           });
         } catch (error) {
           pending.cancel();
           throw error;
         }
-        const remaining = expiresAt - Date.now();
-        if (remaining <= 0 || signal?.aborted) {
+        const remaining = expiresAt === undefined ? undefined : expiresAt - Date.now();
+        if ((remaining !== undefined && remaining <= 0) || signal?.aborted) {
           pending.cancel();
           if (signal?.aborted)
             refused('cancelled', 'The page dispatch was stopped before it was sent'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
@@ -140,7 +148,7 @@ export function sessionPageDispatch(
         const expired = new Promise<PageAnswer>((resolve) => {
           expire = () => resolve({ timedOut: true });
         });
-        const timer = setTimeout(expire, remaining);
+        const timer = remaining === undefined ? undefined : setTimeout(expire, remaining);
         signal?.addEventListener('abort', expire, { once: true });
         return {
           grantId,
@@ -173,7 +181,7 @@ export function sessionPageDispatch(
         }
         if (record.status !== 'running')
           refused('request', `The page answered a call that is ${record.status}, not running`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-        if (Date.now() >= record.pageGrant.expiresAt)
+        if (record.pageGrant.expiresAt !== undefined && Date.now() >= record.pageGrant.expiresAt)
           refused('timeout', 'The page answered after its grant expired'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         record.pageGrant.resultHash = hash;
         return { duplicate: false, settled: false };

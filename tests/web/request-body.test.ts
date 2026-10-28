@@ -35,6 +35,24 @@ Deno.test('request decoding preserves multibyte characters fragmented across chu
   assertEquals(await boundedRequestJson(request, bytes.byteLength), { value: '😀' });
 });
 
+Deno.test('with no byte limit set, a body of any size is read', async () => {
+  const value = 'x'.repeat(17 * 1024 * 1024);
+  const request = new Request('https://fixture.test', {
+    method: 'POST',
+    body: JSON.stringify({ value }),
+  });
+  assertEquals(requestByteLimit(undefined), undefined);
+  assertEquals(
+    ((await boundedRequestJson(request, undefined)) as { value: string }).value.length,
+    value.length,
+  );
+  assertEquals(parseLiveClientMessage(JSON.stringify({ type: 'text', text: value })), {
+    type: 'text',
+    text: value,
+  });
+  assertThrows(() => parseLiveClientMessage(JSON.stringify({ type: 'text', text: value }), 1024));
+});
+
 Deno.test('request byte limit cannot be disabled with zero or an unsafe integer', () => {
   for (const value of [0, -1, NaN, Infinity, 0.5, Number.MAX_SAFE_INTEGER + 1])
     assertThrows(() => requestByteLimit(value));

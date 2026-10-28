@@ -1,5 +1,6 @@
 import { withPublicLabels } from '@theoremjs/agents/guardrails';
 import {
+  checkPageToolTimeout,
   createMemoryPageToolBroker,
   type PageToolBroker,
   pageToolResultSchema,
@@ -215,14 +216,19 @@ export type TheoremHandlerOptions = {
   /**
    * How long a gate (permission, confirmation, sign-in) waits for its answer, in
    * milliseconds. An answer after that is refused with `session.gate_expired`.
-   * Default: 30 minutes.
+   * Unset, a gate waits until it is answered.
    */
   gateTtlMs?: number;
   /** Retain settled tool results in milliseconds. Default: 24 hours. */
   operationRetentionMs?: number;
-  /** Maximum UTF-8 request body bytes before JSON parsing. Default: 16 MiB. */
+  /** Maximum UTF-8 request body bytes before JSON parsing. Unset, a body of any size is read. */
   maxRequestBytes?: number;
   pageToolBroker?: PageToolBroker;
+  /**
+   * How long the page has to answer a tool call it runs, in milliseconds. A call it has not
+   * answered by then settles as timed out. Unset, it waits until the page answers or the turn stops.
+   */
+  pageToolTimeoutMs?: number;
   /** Check current resource access before disclosing a saved tool result. This callback must be read-only. */
   authorizeToolReplay?: (context: {
     request: Request;
@@ -716,7 +722,12 @@ async function* invokeAnswered(
   yield* invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, sessionId),
-    pageExecution: sessionPageDispatch(ctx.sessions, sessionId, ctx.pageToolBroker).execution,
+    pageExecution: sessionPageDispatch(
+      ctx.sessions,
+      sessionId,
+      ctx.pageToolBroker,
+      ctx.options.pageToolTimeoutMs,
+    ).execution,
     name: pending.name,
     callId,
     operationId: pending.operationId,
@@ -769,7 +780,12 @@ async function* chatTurn(
       {
         profile: ctx.profile.id,
         execution: sessionToolCoordinator(ctx.sessions, session.id),
-        pageExecution: sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).execution,
+        pageExecution: sessionPageDispatch(
+          ctx.sessions,
+          session.id,
+          ctx.pageToolBroker,
+          ctx.options.pageToolTimeoutMs,
+        ).execution,
         input: turn.input,
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
@@ -989,7 +1005,12 @@ async function* callEvents(
   const events = invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, session.id),
-    pageExecution: sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).execution,
+    pageExecution: sessionPageDispatch(
+      ctx.sessions,
+      session.id,
+      ctx.pageToolBroker,
+      ctx.options.pageToolTimeoutMs,
+    ).execution,
     name: body.name,
     input: body.input,
     sessionPermissions: state.permissions,
@@ -1143,7 +1164,12 @@ async function hostRoute(
 async function route(ctx: HandlerContext, request: Request, session: Session): Promise<Response> {
   if (request.method === 'POST' && routeOf(request) === 'page-result') {
     const body = await readBody(request, pageToolResultSchema, ctx.options.maxRequestBytes);
-    await sessionPageDispatch(ctx.sessions, session.id, ctx.pageToolBroker).answer(body);
+    await sessionPageDispatch(
+      ctx.sessions,
+      session.id,
+      ctx.pageToolBroker,
+      ctx.options.pageToolTimeoutMs,
+    ).answer(body);
     return jsonResponse(200, { accepted: true });
   }
   if (ctx.profile.type === 'host')
@@ -1249,6 +1275,7 @@ function serve(
     });
   }
   requestByteLimit(options.maxRequestBytes);
+  checkPageToolTimeout(options.pageToolTimeoutMs);
   registerProfile(profile);
   const ctx: HandlerContext = {
     options,

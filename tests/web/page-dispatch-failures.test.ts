@@ -51,6 +51,22 @@ Deno.test('expired and cancelled grants cannot reopen browser execution', async 
   }
 });
 
+Deno.test('with no timeout set, a grant waits for the page and records no expiry', async () => {
+  const { store, claim } = await authority();
+  const page = sessionPageDispatch(store, 'owner', createMemoryPageToolBroker());
+  const controller = new AbortController();
+  const grant = await page.execution.dispatch(claim, controller.signal);
+  const raced = await Promise.race([
+    grant.result,
+    new Promise((resolve) => setTimeout(() => resolve('waiting'), 50)),
+  ]);
+  assertEquals(raced, 'waiting');
+  const operation = (await store.read('owner')).operations.operation;
+  assert(operation.status === 'running' && operation.pageGrant?.expiresAt === undefined);
+  controller.abort();
+  assertEquals(await grant.result, { timedOut: true });
+});
+
 Deno.test('a result delivery failure retains its receipt and cannot issue another grant', async () => {
   const { store, claim } = await authority();
   const memory = createMemoryPageToolBroker();

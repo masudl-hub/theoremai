@@ -5,7 +5,7 @@ import { attachStudioLiveSession } from '../../studio/live-session-bridge.ts';
 
 function bridge(
   events: TurnEvent[],
-  timeoutMs = 20,
+  timeoutMs: number | null = 20,
   beforeEvent?: (event: TurnEvent) => void | Promise<void>,
   clientEvents?: ClientTurnOptions,
 ) {
@@ -40,7 +40,7 @@ function bridge(
     's',
     { close: () => {} } as never,
     undefined,
-    { clientCallTimeoutMs: timeoutMs, beforeEvent, clientEvents },
+    { clientCallTimeoutMs: timeoutMs ?? undefined, beforeEvent, clientEvents },
   );
   return {
     calls,
@@ -81,6 +81,13 @@ Deno.test('the bridge settles a call the browser never answered, and only that o
     { callId: 'fast', operationId: 'fast', page: { output: 1 } },
     { callId: 'slow', operationId: 'slow', page: { timedOut: true } },
   ]);
+  await b.end();
+});
+
+Deno.test('with no timeout set, a call waits for the browser', async () => {
+  const b = bridge([call('slow')], null);
+  await wait(60);
+  assertEquals(b.calls, []);
   await b.end();
 });
 

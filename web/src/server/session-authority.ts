@@ -18,7 +18,7 @@ export type SessionStateStore = MutableStore<TheoremSessionState> & {
 /** Session state, with expired gates dropped as it loads so they can't be answered. */
 export function sessionStateStore(
   store: TheoremSessionStore,
-  gateTtlMs: number,
+  gateTtlMs: number | undefined,
   operationRetentionMs: number,
 ): SessionStateStore {
   if (typeof store.compareAndSwap !== 'function') {
@@ -45,7 +45,8 @@ export function sessionStateStore(
       });
     }
     const state = structuredClone(parsed.data);
-    for (const gate of Object.values(state.gates)) gate.expiresAt ??= gate.createdAt + gateTtlMs;
+    if (gateTtlMs !== undefined)
+      for (const gate of Object.values(state.gates)) gate.expiresAt ??= gate.createdAt + gateTtlMs;
     state.gates = pruneGates(state.gates, now, gateTtlMs);
     for (const operation of Object.values(state.operations)) {
       if (operation.status === 'ready' && operation.answer.resume.granted === true)
@@ -70,8 +71,9 @@ export function sessionStateStore(
       for (let conflict = 0; conflict < 8; conflict++) {
         const { revision, state } = await load(sessionId, now);
         const result = await change(state);
-        for (const gate of Object.values(state.gates))
-          gate.expiresAt ??= gate.createdAt + gateTtlMs;
+        if (gateTtlMs !== undefined)
+          for (const gate of Object.values(state.gates))
+            gate.expiresAt ??= gate.createdAt + gateTtlMs;
         for (const operation of Object.values(state.operations)) {
           if (operation.status === 'settled')
             operation.retainUntil ??= operation.settledAt + operationRetentionMs;

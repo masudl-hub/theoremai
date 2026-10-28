@@ -55,7 +55,7 @@ export type PendingToolGate = {
   expiresAt?: number;
 };
 
-export type SessionPageGrant = { grantId: string; expiresAt: number; resultHash?: string };
+export type SessionPageGrant = { grantId: string; expiresAt?: number; resultHash?: string };
 
 export type SessionToolOperation =
   | {
@@ -190,7 +190,7 @@ const identityFields = {
 };
 const pageGrant = z.strictObject({
   grantId: z.string().min(1),
-  expiresAt: z.number().finite().positive(),
+  expiresAt: z.number().finite().positive().optional(),
   resultHash: z.string().optional(),
 });
 const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('status', [
@@ -292,11 +292,11 @@ export function emptySessionState(): TheoremSessionState {
   };
 }
 
-/** Drop gates (waiting or settled) older than `ttlMs`. */
+/** Drop gates (waiting or settled) older than `ttlMs`, or past their own `expiresAt`. */
 export function pruneGates<Gate extends { createdAt: number; expiresAt?: number }>(
   gates: Record<string, Gate>,
   now: number,
-  ttlMs: number,
+  ttlMs: number | undefined,
 ): Record<string, Gate> {
   return Object.fromEntries(
     Object.entries(gates).filter(([, gate]) =>

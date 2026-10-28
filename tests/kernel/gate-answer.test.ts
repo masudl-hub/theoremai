@@ -8,8 +8,9 @@ import {
   resumeForAnswer,
 } from '../../src/kernel/tools/gate-answer.ts';
 
-Deno.test('a gate waits 30 minutes unless the host sets gateTtlMs', () => {
-  assertEquals(resolveGateTtlMs('runSession', undefined), 30 * 60 * 1000);
+Deno.test('a gate waits until it is answered unless the host sets gateTtlMs', () => {
+  assertEquals(resolveGateTtlMs('runSession', undefined), undefined);
+  assertEquals(gateExpired(0, Number.MAX_SAFE_INTEGER, undefined), false);
   assertEquals(resolveGateTtlMs('runSession', 5), 5);
 });
 

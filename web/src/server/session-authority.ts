@@ -95,9 +95,11 @@ export function sessionStateStore(
           return result;
         }
       }
-      throw new TheoremError('unavailable', labelText('error.unavailable'), {
-        cause: { code: 'session_store_contention' },
-      });
+      throw new TheoremError(
+        'unavailable',
+        'Other writes changed the session on each of 8 tries, so this change was not saved', // labels-exempt: internal diagnostic; the user reads session.busy
+        { copy: { key: 'session.busy' }, cause: { code: 'session_store_contention' } },
+      );
     },
   };
 }

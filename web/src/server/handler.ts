@@ -475,7 +475,11 @@ async function recordOutcome(
     for (const { gate } of pending) {
       const operation = state.operations[gate.operationId];
       if (operation && operation.status !== 'ready')
-        throw new TheoremError('unavailable', labelText('error.unavailable'));
+        throw new TheoremError(
+          'unavailable',
+          `Tool operation ${gate.operationId} is ${operation.status}, not ready, so its gate was not saved`, // labels-exempt: internal diagnostic; the user reads session.busy
+          { copy: { key: 'session.busy' } },
+        );
       delete state.operations[gate.operationId];
       Object.defineProperty(state.gates, gate.operationId, {
         value: gate,

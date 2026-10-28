@@ -40,23 +40,27 @@ function bytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
-function capacity(): never {
-  throw new TheoremError('unavailable', labelText('error.unavailable'), {
-    cause: { code: 'session_state_capacity' },
-  });
+/** The session's saved state would pass a `sessionLimits` bound: the reason names it, the user reads `session.full`. */
+function capacity(limit: keyof TheoremSessionLimits, value: number): never {
+  throw new TheoremError(
+    'unavailable',
+    `The session's saved state would pass sessionLimits.${limit} (${value}), so the change was not saved`, // labels-exempt: internal diagnostic; the user reads session.full
+    { copy: { key: 'session.full' }, cause: { code: 'session_state_capacity', limit, value } },
+  );
 }
 
 export function checkSessionLimits(state: TheoremSessionState, limits: TheoremSessionLimits): void {
   const gates = Object.values(state.gates);
   const operations = Object.values(state.operations);
-  if (
-    gates.length > limits.maxGates ||
-    operations.length > limits.maxOperations ||
-    state.providerCheckpoints.length > limits.maxCheckpoints ||
-    state.permissions.length > limits.maxPermissions
-  )
-    capacity();
-  for (const gate of gates) if (bytes(gate) > limits.maxInvocationBytes) capacity();
+  if (gates.length > limits.maxGates) capacity('maxGates', limits.maxGates);
+  if (operations.length > limits.maxOperations) capacity('maxOperations', limits.maxOperations);
+  if (state.providerCheckpoints.length > limits.maxCheckpoints)
+    capacity('maxCheckpoints', limits.maxCheckpoints);
+  if (state.permissions.length > limits.maxPermissions)
+    capacity('maxPermissions', limits.maxPermissions);
+  for (const gate of gates)
+    if (bytes(gate) > limits.maxInvocationBytes)
+      capacity('maxInvocationBytes', limits.maxInvocationBytes);
   let reserved = gates.length * limits.maxOutcomeBytes;
   for (const operation of operations) {
     if (
@@ -64,14 +68,17 @@ export function checkSessionLimits(state: TheoremSessionState, limits: TheoremSe
       operation.invocation &&
       bytes(operation.invocation) > limits.maxInvocationBytes
     )
-      capacity();
+      capacity('maxInvocationBytes', limits.maxInvocationBytes);
     if (operation.status === 'settled') {
-      if (bytes(operation.outcome) > limits.maxOutcomeBytes) capacity();
+      if (bytes(operation.outcome) > limits.maxOutcomeBytes)
+        capacity('maxOutcomeBytes', limits.maxOutcomeBytes);
     } else {
       reserved += limits.maxOutcomeBytes;
-      if (operation.status === 'ready' && bytes(operation) > limits.maxInvocationBytes) capacity();
+      if (operation.status === 'ready' && bytes(operation) > limits.maxInvocationBytes)
+        capacity('maxInvocationBytes', limits.maxInvocationBytes);
     }
   }
   // invariant: Reserve terminal evidence before dispatch; unresolved records are never evicted to make room.
-  if (bytes(state) + reserved > limits.maxStateBytes) capacity();
+  if (bytes(state) + reserved > limits.maxStateBytes)
+    capacity('maxStateBytes', limits.maxStateBytes);
 }

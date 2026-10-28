@@ -403,9 +403,11 @@ export function createMemorySessionStore(
       if (!snapshot && sessions.size >= maxSessions) {
         const removable = [...sessions].find(([, entry]) => !held(entry));
         if (!removable) {
-          throw new TheoremError('unavailable', labelText('error.unavailable'), {
-            cause: { code: 'session_store_capacity' },
-          });
+          throw new TheoremError(
+            'unavailable',
+            `The memory session store holds ${maxSessions} sessions and each has work in progress, so a new one was not saved`, // labels-exempt: internal diagnostic; the user reads session.busy
+            { copy: { key: 'session.busy' }, cause: { code: 'session_store_capacity' } },
+          );
         }
         sessions.delete(removable[0]);
       }

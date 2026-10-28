@@ -1,6 +1,5 @@
 import {
   type BeginToolOperationResult,
-  labelText,
   TheoremError,
   type ToolExecutionCoordinator,
   type ToolOperationClaim,
@@ -9,8 +8,9 @@ import {
 } from '@theoremjs/agents';
 import type { SessionToolOperation, TheoremSessionState } from './session-store.ts';
 
-function unavailable(): never {
-  throw new TheoremError('unavailable', labelText('error.unavailable'));
+/** The session's record of a tool operation does not match the call: the user reads `tool.execution_uncertain`. */
+function unavailable(reason: string): never {
+  throw new TheoremError('unavailable', reason, { copy: { key: 'tool.execution_uncertain' } });
 }
 
 function sameOperation(
@@ -30,7 +30,8 @@ function checkedRecord(
   state: TheoremSessionState,
   identity: ToolOperationIdentity,
 ): SessionToolOperation | undefined {
-  if (identity.operationId === '__proto__') unavailable();
+  // labels-exempt: internal diagnostic; the user reads tool.execution_uncertain
+  if (identity.operationId === '__proto__') unavailable('The tool operation id is __proto__');
   const record = Object.hasOwn(state.operations, identity.operationId)
     ? state.operations[identity.operationId]
     : undefined;
@@ -41,8 +42,11 @@ function checkedRecord(
       record.pending.name !== identity.toolId ||
       record.profileId !== identity.profileId
     )
-      unavailable();
-  } else if (record && !sameOperation(record, identity)) unavailable();
+      // labels-exempt: internal diagnostic; the user reads tool.execution_uncertain
+      unavailable(`The ready tool operation ${identity.operationId} is for another call`);
+  } else if (record && !sameOperation(record, identity))
+    // labels-exempt: internal diagnostic; the user reads tool.execution_uncertain
+    unavailable(`The session holds tool operation ${identity.operationId} for another call`);
   return record;
 }
 
@@ -53,7 +57,10 @@ function checkedClaim(state: TheoremSessionState, claim: ToolOperationClaim) {
     (record.status !== 'running' && record.status !== 'uncertain') ||
     record.claimToken !== claim.claimToken
   )
-    unavailable();
+    unavailable(
+      // labels-exempt: internal diagnostic; the user reads tool.execution_uncertain
+      `The claim on tool operation ${claim.operationId} is not the session's running claim`,
+    );
   return record;
 }
 
@@ -125,8 +132,16 @@ export function sessionToolCoordinator(
     settleNotStarted(identity, outcome) {
       return store.mutate(sessionId, (state) => {
         const record = checkedRecord(state, identity);
-        if (record && record.status !== 'ready') unavailable();
-        if (outcome.effects !== 'not_started') unavailable();
+        if (record && record.status !== 'ready')
+          unavailable(
+            // labels-exempt: internal diagnostic; the user reads tool.execution_uncertain
+            `Tool operation ${identity.operationId} is ${record.status}, so it cannot settle as not started`,
+          );
+        if (outcome.effects !== 'not_started')
+          unavailable(
+            // labels-exempt: internal diagnostic; the user reads tool.execution_uncertain
+            `A not-started settlement of ${identity.operationId} has effects ${outcome.effects}`,
+          );
         saveOutcome(state, identity, outcome);
       });
     },

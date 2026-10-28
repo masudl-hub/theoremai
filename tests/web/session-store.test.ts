@@ -56,7 +56,12 @@ Deno.test('memory store rejects authority beyond its finite limits without alter
   assert(written.written);
   const second = structuredClone(first);
   second.gates.second = { ...gate(Date.now()), operationId: 'second' };
-  assertThrows(() => store.compareAndSwap('bounded', written.revision, second), TheoremError);
+  const refused = assertThrows(
+    () => store.compareAndSwap('bounded', written.revision, second),
+    TheoremError,
+    'sessionLimits.maxGates (1)',
+  );
+  assertEquals(refused.copy, { key: 'session.full' });
   assertEquals((await store.load('bounded'))?.state, first);
 });
 

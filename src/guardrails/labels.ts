@@ -148,6 +148,8 @@ export const LABEL_KEYS = [
   'session.gate_expired',
   'session.provider_state_unowned',
   'session.conversation_unknown',
+  'session.full',
+  'session.busy',
   'session.turn_ended',
   'session.gate_pending',
   'session.part_skipped',
@@ -525,6 +527,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     'Saved model state cannot be used in this conversation. Continue from your saved history.',
   'session.conversation_unknown':
     'Sorry, this conversation is no longer available. Start a new one.',
+  'session.full': 'Sorry, this conversation is full. Please start a new one.',
+  'session.busy': 'Sorry, this conversation is busy. Please try again in a moment.',
   'session.gate_expired': 'Sorry, that step is no longer waiting for approval.',
   'session.turn_ended': 'Sorry, that reply has already finished.',
   'session.gate_pending':
@@ -836,6 +840,10 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'session.provider_state_unowned': 'Unowned or unavailable provider checkpoint.',
   'session.conversation_unknown':
     'Shown to the user whose conversation the host no longer has, or whose saved conversation does not open in this session.',
+  'session.full':
+    "Shown to the user when saving the conversation would pass one of the host's session limits.",
+  'session.busy':
+    'Shown to the user when the conversation could not be saved because other work on it was in the way.',
   'session.gate_expired':
     'Shown to the user who answers a step that is no longer waiting for approval.',
   'session.turn_ended': 'Shown to the user who tries to steer a reply that has already finished.',

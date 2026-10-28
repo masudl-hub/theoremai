@@ -74,6 +74,13 @@ function messageOf(err: unknown): string {
   if (err instanceof Error && err.message) {
     return err.message;
   }
+  // why: A plain-object cause such as `{ code }` would read `[object Object]`; its own scalar fields say what it holds.
+  if (err && typeof err === 'object' && !(err instanceof Error)) {
+    const fields = Object.entries(err).filter(
+      ([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value),
+    );
+    if (fields.length) return fields.map(([key, value]) => `${key}: ${value}`).join(', ');
+  }
   return String(err);
 }
 

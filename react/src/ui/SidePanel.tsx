@@ -86,17 +86,20 @@ export function SidePanelToggle({
   panelId,
   open,
   onToggle,
+  size,
 }: {
   labels: SidePanelLabels;
   icon: ReactNode;
   panelId: string;
   open: boolean;
   onToggle: () => void;
+  size?: 'sm';
 }) {
   const action = open ? labels.hide : labels.show;
   return (
     <IconButton
       label={action}
+      size={size}
       tooltip={action}
       variant={open ? 'secondary' : 'ghost'}
       aria-expanded={open}

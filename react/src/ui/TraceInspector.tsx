@@ -332,10 +332,11 @@ function TurnOverview({
   );
 }
 
-function EmptyTrace() {
+function EmptyTrace({ end }: { end: ReactNode }) {
   const { t } = useTraceFormat();
   return (
     <VStack height="100%" vAlign="center" padding={4}>
+      {end ? <HStack justify="end">{end}</HStack> : null}
       <EmptyState
         icon={<Icon icon={IconActivity} size="lg" color="secondary" />}
         title={t('@theorem.panel.trace.empty.title')}
@@ -466,15 +467,17 @@ function TraceDownload({ records }: { records: readonly TraceRecord[] }) {
 function TraceInspectorBody({
   records,
   isWide,
+  end,
 }: {
   records: readonly TraceRecord[];
   isWide: boolean;
+  end: ReactNode;
 }) {
   const tree = useMemo(() => traceTree(records), [records]);
   const turns = useMemo(() => traceTurns(tree), [tree]);
   const { t } = useTraceFormat();
   const { index, root, open, select, close, pick } = useOpenSpan(turns);
-  if (turns.length === 0) return <EmptyTrace />;
+  if (turns.length === 0) return <EmptyTrace end={end} />;
   const overview = (
     <Overview
       turns={turns}
@@ -482,7 +485,12 @@ function TraceInspectorBody({
       pick={pick}
       selectedId={open?.id}
       select={select}
-      end={<TraceDownload records={records} />}
+      end={
+        <>
+          <TraceDownload records={records} />
+          {end}
+        </>
+      }
     />
   );
   return (
@@ -511,11 +519,14 @@ function TraceInspectorBody({
 export function TraceFeedBody({
   traces,
   isWide,
+  end,
 }: {
   traces: TraceFeed | undefined;
   isWide: boolean;
+  /** Drawn after the turn arrows: the panel's toggle. */
+  end?: ReactNode;
 }) {
-  return <TraceInspectorBody records={useTraceRecords(traces)} isWide={isWide} />;
+  return <TraceInspectorBody records={useTraceRecords(traces)} isWide={isWide} end={end} />;
 }
 
 /**

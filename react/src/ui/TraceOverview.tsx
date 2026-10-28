@@ -1,6 +1,5 @@
 import { Button } from '@astryxdesign/core/Button';
 import { Card } from '@astryxdesign/core/Card';
-import { Grid } from '@astryxdesign/core/Grid';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
@@ -155,9 +154,15 @@ function Stat({
   );
 }
 
-type Format = ReturnType<typeof useTraceFormat>;
+export type TraceFormat = ReturnType<typeof useTraceFormat>;
 
-function FirstTextStat({ latency, format }: { latency: TraceLatency | undefined; format: Format }) {
+function FirstTextStat({
+  latency,
+  format,
+}: {
+  latency: TraceLatency | undefined;
+  format: TraceFormat;
+}) {
   if (latency?.firstTextMs === undefined) return null;
   const { t } = format;
   return (
@@ -176,7 +181,7 @@ function FirstTextStat({ latency, format }: { latency: TraceLatency | undefined;
   );
 }
 
-function CostStat({ totals, format }: { totals: TraceTotals; format: Format }) {
+function CostStat({ totals, format }: { totals: TraceTotals; format: TraceFormat }) {
   if (!totals.cost) return null;
   return (
     <Stat
@@ -187,11 +192,11 @@ function CostStat({ totals, format }: { totals: TraceTotals; format: Format }) {
 }
 
 /** A token total as its card reads it: "–" when no call reported it. */
-function tokenSide(total: TraceTotals['input'], format: Format): string {
+function tokenSide(total: TraceTotals['input'], format: TraceFormat): string {
   return total ? format.sum(total, format.number) : '–';
 }
 
-function TokensStat({ totals, format }: { totals: TraceTotals; format: Format }) {
+function TokensStat({ totals, format }: { totals: TraceTotals; format: TraceFormat }) {
   const { input, output } = totals;
   if (!input && !output) return null;
   const all = [input, output].reduce((sum, total) => sum + (total?.value ?? 0), 0);
@@ -214,7 +219,7 @@ function StepsStat({
 }: {
   totals: TraceTotals;
   tools: number;
-  format: Format;
+  format: TraceFormat;
 }) {
   const { t } = format;
   // why: With no model, every step is a tool call the heading already counts.
@@ -241,7 +246,7 @@ function GuardrailsStat({
   format,
 }: {
   latency: TraceLatency | undefined;
-  format: Format;
+  format: TraceFormat;
 }) {
   const guardrails = latency?.guardrails;
   if (!guardrails) return null;
@@ -257,39 +262,34 @@ function GuardrailsStat({
   );
 }
 
-/** A turn's guardrail figures alone, as {@link TurnStats} lays them out. */
-export function GuardrailStats({ latency }: { latency: TraceLatency }) {
+/** Narrowest a card in a trace overview's wall gets: wide enough for a chart's columns. */
+export const TRACE_CARD_PX = 260;
+
+/** A turn's guardrail figure alone, the card {@link turnStats} gives it. */
+export function GuardrailStat({ latency }: { latency: TraceLatency }) {
   const format = useTraceFormat();
-  if (!latency.guardrails) return null;
-  return (
-    <Grid columns={{ minWidth: 120, repeat: 'fit' }} gap={2}>
-      <GuardrailsStat latency={latency} format={format} />
-    </Grid>
-  );
+  return <GuardrailsStat latency={latency} format={format} />;
 }
 
 /**
- * Duration, first text, cost, tokens, steps, and guardrails of the open turn;
- * a total the trace did not record is left out.
+ * Duration, first text, cost, tokens, steps, and guardrails of the open turn,
+ * as cards for its overview's wall; a total the trace did not record renders
+ * nothing.
  */
-export function TurnStats({
-  totals,
-  tools,
-  latency,
-}: {
-  totals: TraceTotals;
-  tools: number;
-  latency?: TraceLatency;
-}) {
-  const format = useTraceFormat();
-  return (
-    <Grid columns={{ minWidth: 120, repeat: 'fit' }} gap={2}>
-      <Stat label={TRACE_FIELDS.duration.label} value={format.duration(totals.durationMs)} />
-      <FirstTextStat latency={latency} format={format} />
-      <CostStat totals={totals} format={format} />
-      <TokensStat totals={totals} format={format} />
-      <StepsStat totals={totals} tools={tools} format={format} />
-      <GuardrailsStat latency={latency} format={format} />
-    </Grid>
-  );
+export function turnStats(
+  format: TraceFormat,
+  { totals, tools, latency }: { totals: TraceTotals; tools: number; latency?: TraceLatency },
+): ReactNode[] {
+  return [
+    <Stat
+      key="duration"
+      label={TRACE_FIELDS.duration.label}
+      value={format.duration(totals.durationMs)}
+    />,
+    <FirstTextStat key="first-text" latency={latency} format={format} />,
+    <CostStat key="cost" totals={totals} format={format} />,
+    <TokensStat key="tokens" totals={totals} format={format} />,
+    <StepsStat key="steps" totals={totals} tools={tools} format={format} />,
+    <GuardrailsStat key="guardrails" latency={latency} format={format} />,
+  ];
 }

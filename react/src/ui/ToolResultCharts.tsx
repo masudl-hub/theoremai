@@ -16,8 +16,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Arrive } from './arrive.tsx';
-import { CardWall } from './CardWall.tsx';
 import { ChartFrame, ChartTip, FIRST_WIDTH_PX } from './TraceOverview.tsx';
 import {
   ChartCard,
@@ -281,15 +279,7 @@ function CategoryCard({ chart }: { chart: CategoryChart }) {
   );
 }
 
-/** Each chart in its card, side by side where the column is wide enough. */
-export function ToolResultCharts({ charts }: { charts: readonly ResultChart[] }) {
-  return (
-    <CardWall minWidth={260}>
-      {charts.map((chart) => (
-        <Arrive key={chart.key}>
-          {chart.kind === 'time' ? <TimeCard chart={chart} /> : <CategoryCard chart={chart} />}
-        </Arrive>
-      ))}
-    </CardWall>
-  );
+/** One chart in its card: a series over time as lines, one over names as bars. */
+export function ToolResultChart({ chart }: { chart: ResultChart }) {
+  return chart.kind === 'time' ? <TimeCard chart={chart} /> : <CategoryCard chart={chart} />;
 }

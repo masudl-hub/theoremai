@@ -1,4 +1,3 @@
-import { Grid } from '@astryxdesign/core/Grid';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
@@ -15,12 +14,20 @@ import {
 } from 'recharts';
 import {
   isCallTrace,
+  type TraceLatency,
   type TraceTimeSplit,
   type TraceTurn,
   traceActor,
 } from '../client/trace-story.ts';
-import { type TraceNode, traceSpans } from '../client/trace-view.ts';
-import { ChartFrame, ChartTip, FIRST_WIDTH_PX } from './TraceOverview.tsx';
+import { type TraceNode, type TraceTotals, traceSpans } from '../client/trace-view.ts';
+import { CardWall } from './CardWall.tsx';
+import {
+  ChartFrame,
+  ChartTip,
+  FIRST_WIDTH_PX,
+  TRACE_CARD_PX,
+  turnStats,
+} from './TraceOverview.tsx';
 import { useTraceFormat } from './TraceValues.tsx';
 import {
   ACTOR_FILL,
@@ -463,24 +470,38 @@ function SlowestCard({ root, onSelect }: { root: TraceNode; onSelect: (node: Tra
   );
 }
 
-/** Where a turn's time, tokens, and slowest steps went. A bar opens its span. */
+/**
+ * A turn's figures, then where its time, tokens, and slowest steps went, in
+ * one wall. A bar opens its span.
+ */
 export function TraceCharts({
   root,
   split,
+  totals,
+  tools,
+  latency,
   onSelect,
 }: {
   root: TraceNode;
   split: TraceTimeSplit;
+  totals: TraceTotals;
+  tools: number;
+  latency?: TraceLatency;
   onSelect: (node: TraceNode) => void;
 }) {
-  const { t } = useTraceFormat();
+  const format = useTraceFormat();
   const callRows = useCallRows(root, onSelect);
   return (
-    <Grid columns={{ minWidth: 260, repeat: 'fit' }} gap={3}>
-      <TimeCard split={split} />
-      <TokensCard title={t('@theorem.panel.trace.charts.calls')} rows={callRows} />
-      <SlowestCard root={root} onSelect={onSelect} />
-    </Grid>
+    <CardWall minWidth={TRACE_CARD_PX}>
+      {turnStats(format, { totals, tools, latency })}
+      <TimeCard key="time" split={split} />
+      <TokensCard
+        key="call-tokens"
+        title={format.t('@theorem.panel.trace.charts.calls')}
+        rows={callRows}
+      />
+      <SlowestCard key="slowest" root={root} onSelect={onSelect} />
+    </CardWall>
   );
 }
 
@@ -540,15 +561,23 @@ function TurnTimeCard({ rows, isCalls }: { rows: readonly TurnTimeRow[]; isCalls
   );
 }
 
-/** The whole conversation: each turn's time and tokens. A column opens its turn. */
+/**
+ * The whole conversation: its figures, then each turn's time and tokens, in
+ * one wall. A column opens its turn.
+ */
 export function ConversationCharts({
   turns,
+  totals,
+  tools,
   onPick,
 }: {
   turns: readonly TraceTurn[];
+  totals: TraceTotals;
+  tools: number;
   onPick: (index: number) => void;
 }) {
-  const { t } = useTraceFormat();
+  const format = useTraceFormat();
+  const { t } = format;
   const isCalls = isCallTrace(turns);
   const column = isCalls
     ? '@theorem.panel.trace.charts.hostCall'
@@ -580,9 +609,14 @@ export function ConversationCharts({
     [turns, onPick, t, column],
   );
   return (
-    <Grid columns={{ minWidth: 260, repeat: 'fit' }} gap={3}>
-      <TurnTimeCard rows={time} isCalls={isCalls} />
-      <TokensCard title={t('@theorem.panel.trace.charts.turnTokens')} rows={tokens} />
-    </Grid>
+    <CardWall minWidth={TRACE_CARD_PX}>
+      {turnStats(format, { totals, tools })}
+      <TurnTimeCard key="turn-time" rows={time} isCalls={isCalls} />
+      <TokensCard
+        key="turn-tokens"
+        title={t('@theorem.panel.trace.charts.turnTokens')}
+        rows={tokens}
+      />
+    </CardWall>
   );
 }

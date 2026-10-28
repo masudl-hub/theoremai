@@ -39,11 +39,12 @@ import {
 } from '../client/trace-view.ts';
 import { useTraceRecords } from '../hooks/use-trace-records.ts';
 import { Stream, useArrive } from './arrive.tsx';
+import { CardWall } from './CardWall.tsx';
 import type { LabelText } from './labels.ts';
 import { PaneLayout } from './SidePanel.tsx';
 import { ConversationCharts, TraceCharts } from './TraceCharts.tsx';
 import { TraceGuardrails } from './TraceGuardrails.tsx';
-import { GuardrailStats, TurnPicker, TurnStats } from './TraceOverview.tsx';
+import { GuardrailStat, TRACE_CARD_PX, TurnPicker } from './TraceOverview.tsx';
 import { TraceSpanDetail } from './TraceSpanDetail.tsx';
 import { ActorMark, TraceStory } from './TraceStory.tsx';
 import { useTraceFormat } from './TraceValues.tsx';
@@ -225,10 +226,7 @@ function ConversationOverview({
           count: turns.length,
         })}
       </Text>
-      <VStack gap={3}>
-        <TurnStats totals={totals} tools={tools} />
-        <ConversationCharts turns={turns} onPick={onPick} />
-      </VStack>
+      <ConversationCharts turns={turns} totals={totals} tools={tools} onPick={onPick} />
       <VStack gap={2}>
         <SectionTitle
           title={t(isCalls ? '@theorem.panel.trace.calls' : '@theorem.panel.trace.turns')}
@@ -284,10 +282,14 @@ function TurnOverview({
   return (
     <VStack gap={5} padding={4}>
       <TurnPicker turns={turns} index={index} onChange={onPick} onBack={onBack} />
-      <VStack gap={3}>
-        <TurnStats totals={turn.totals} tools={tools} latency={latency} />
-        <TraceCharts root={root} split={turn.split} onSelect={onSelect} />
-      </VStack>
+      <TraceCharts
+        root={root}
+        split={turn.split}
+        totals={turn.totals}
+        tools={tools}
+        latency={latency}
+        onSelect={onSelect}
+      />
       <VStack gap={2}>
         <SectionTitle title={t('@theorem.panel.trace.timeline')} />
         <PowerSearch
@@ -478,12 +480,23 @@ export function TraceGuardrailsBody({
   const { t } = useTraceFormat();
   const roots = useMemo(() => traceTurns(traceTree(records)).map((turn) => turn.node), [records]);
   const checks = useMemo(() => roots.flatMap(traceGuardrails), [roots]);
+  const timed = useMemo(
+    () =>
+      roots
+        .map((root) => ({ id: root.id, latency: traceLatency(root) }))
+        .filter(({ latency }) => latency.guardrails),
+    [roots],
+  );
   return (
     <VStack gap={5} padding={4}>
       {head}
-      {roots.map((root) => (
-        <GuardrailStats key={root.id} latency={traceLatency(root)} />
-      ))}
+      {timed.length > 0 ? (
+        <CardWall minWidth={TRACE_CARD_PX}>
+          {timed.map(({ id, latency }) => (
+            <GuardrailStat key={id} latency={latency} />
+          ))}
+        </CardWall>
+      ) : null}
       {checks.length > 0 ? (
         <VStack gap={2}>
           <SectionTitle title={t('@theorem.panel.trace.guardrails')} />

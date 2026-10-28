@@ -85,6 +85,24 @@ Deno.test("a result over the store's maxOutcomeBytes settles as result_too_large
   assert(!JSON.stringify(events).includes('did not settle'));
 });
 
+Deno.test('a store that declares no capacity keeps a result of any size', async () => {
+  const name = 'capacity_unset';
+  const calls = countingTool(name, () => 'x'.repeat(2 * 1024 * 1024));
+  const store = createMemorySessionStore();
+  const handler = createTheoremHostHandler({
+    profile: { type: 'host', id: name, tools: { allow: [name] } },
+    session: () => name,
+    sessionStore: store,
+  });
+  const { events } = await post(handler, 'call', { name, input: {} });
+  assertEquals(calls.effects, 1);
+  assertEquals(store.capacity, undefined);
+  const operation = Object.values((await store.load(name))?.state.operations ?? {})[0];
+  assert(operation?.status === 'settled');
+  assertEquals(operation.outcome.replay.failure, undefined);
+  assert(!events.some((event) => event.type === 'tool' && event.tool.phase === 'error'));
+});
+
 Deno.test('a full session drops its oldest settled results so new calls still run', async () => {
   const name = 'capacity_evict';
   const calls = countingTool(name, () => 'ok');

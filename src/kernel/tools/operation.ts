@@ -71,18 +71,13 @@ export type BeginToolOperationResult =
   | { kind: 'running' }
   | { kind: 'uncertain' };
 
-/**
- * The default most bytes a coordinator keeps for one tool result, as UTF-8 JSON. A result that
- * size is about 250,000 tokens, already more than one tool result should give a model.
- */
-export const DEFAULT_MAX_OUTCOME_BYTES = 1024 * 1024;
-
 export interface ToolExecutionCoordinator {
   /**
-   * The most bytes, as UTF-8 JSON, it keeps for one outcome. The kernel settles a larger result as
-   * the call's `result_too_large` failure, so a call that ran is never left unresolved by its size.
+   * The most bytes, as UTF-8 JSON, it keeps for one outcome. Unset, it keeps any size. The kernel
+   * settles a larger result as the call's `result_too_large` failure, so a call that ran is never
+   * left unresolved by its size.
    */
-  readonly maxOutcomeBytes: number;
+  readonly maxOutcomeBytes?: number;
   lookup(
     operation: ToolOperationIdentity,
   ): Promise<Exclude<BeginToolOperationResult, { kind: 'acquired' }> | undefined>;

@@ -27,7 +27,6 @@ import {
   createMemorySessionStore,
   createSealedConversationStore,
   createTheoremHandler,
-  DEFAULT_SESSION_CAPACITY,
   type TheoremConversationStore,
   type TheoremCredentialStore,
   type TheoremCredentials,
@@ -742,7 +741,6 @@ Deno.test('invalid stored authority fails before provider access', async () => {
       },
       session: () => 'invalid',
       sessionStore: {
-        capacity: DEFAULT_SESSION_CAPACITY,
         load: () =>
           Promise.resolve({ revision: 'stored', state: JSON.parse(JSON.stringify(state)) }),
         compareAndSwap: () => {

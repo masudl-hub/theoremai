@@ -353,7 +353,6 @@ export type {
   ToolOperationUncertainty,
 } from './tools/operation.ts';
 export {
-  DEFAULT_MAX_OUTCOME_BYTES,
   savedToolInvocationSchema,
   toolInvocationHash,
   toolOperationOutcomeSchema,

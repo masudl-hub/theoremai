@@ -1,7 +1,7 @@
-import { DEFAULT_MAX_OUTCOME_BYTES, labelText, TheoremError } from '@theoremjs/agents';
+import { labelText, TheoremError } from '@theoremjs/agents';
 import type { TheoremSessionState } from './session-store.ts';
 
-/** What a session store holds for one session, in bytes of UTF-8 JSON. The store declares it. */
+/** What a session store holds for one session, in bytes of UTF-8 JSON. A store with a real limit declares it. */
 export interface TheoremSessionCapacity {
   /** The most one session's saved state may take. */
   maxStateBytes: number;
@@ -9,14 +9,12 @@ export interface TheoremSessionCapacity {
   maxOutcomeBytes: number;
 }
 
-/** The memory store's default: room for sixteen full-size tool results in each session. */
-export const DEFAULT_SESSION_CAPACITY: TheoremSessionCapacity = {
-  maxStateBytes: 16 * DEFAULT_MAX_OUTCOME_BYTES,
-  maxOutcomeBytes: DEFAULT_MAX_OUTCOME_BYTES,
-};
-
-/** The store's declared capacity, refused as `config` unless both are positive and one result fits. */
-export function checkedCapacity(capacity: unknown): TheoremSessionCapacity {
+/**
+ * The store's declared capacity, refused as `config` unless both are positive and one result fits.
+ * Undefined when the store declares none: then it holds any size.
+ */
+export function checkedCapacity(capacity: unknown): TheoremSessionCapacity | undefined {
+  if (capacity === undefined) return undefined;
   const { maxStateBytes, maxOutcomeBytes } = (capacity ?? {}) as Partial<TheoremSessionCapacity>;
   if (
     !Number.isSafeInteger(maxStateBytes) ||

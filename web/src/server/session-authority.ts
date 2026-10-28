@@ -13,7 +13,7 @@ export type MutableStore<T> = {
 };
 /** Session state with the capacity its store declared. */
 export type SessionStateStore = MutableStore<TheoremSessionState> & {
-  readonly capacity: TheoremSessionCapacity;
+  readonly capacity?: TheoremSessionCapacity;
 };
 /** Session state, with expired gates dropped as it loads so they can't be answered. */
 export function sessionStateStore(
@@ -61,7 +61,7 @@ export function sessionStateStore(
     return { revision: snapshot?.revision ?? null, state };
   };
   return {
-    capacity,
+    ...(capacity ? { capacity } : {}),
     async read(sessionId) {
       return (await load(sessionId, Date.now())).state;
     },
@@ -76,7 +76,7 @@ export function sessionStateStore(
           if (operation.status === 'settled')
             operation.retainUntil ??= operation.settledAt + operationRetentionMs;
         }
-        fitSession(state, capacity);
+        if (capacity) fitSession(state, capacity);
         const next = theoremSessionStateSchema.safeParse(state);
         if (!next.success) {
           throw new TheoremError('config', labelText('error.config'), {

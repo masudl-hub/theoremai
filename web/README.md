@@ -379,23 +379,23 @@ Each saved outcome records its absolute retention deadline. Changing a handler's
 Each issued gate records its absolute expiry. Changing `gateTtlMs` does not extend an issued gate.
 Ready, running, and uncertain operations do not expire.
 
-A session store declares its `capacity`: what it holds for one session, in bytes of UTF-8 JSON.
+A session store with a real limit declares its `capacity`: what it holds for one session, in bytes of UTF-8 JSON.
 
-| Field | What it bounds | Memory store default |
-| --- | --- | --- |
-| `maxStateBytes` | One session's saved state | 16 MiB |
-| `maxOutcomeBytes` | One tool result | 1 MiB (`DEFAULT_MAX_OUTCOME_BYTES`) |
+| Field | What it bounds |
+| --- | --- |
+| `maxStateBytes` | One session's saved state |
+| `maxOutcomeBytes` | One tool result |
 
-Pass `capacity` to `createMemorySessionStore` to change them. A store you write declares the capacity of its own storage.
+A store that declares no `capacity` holds any size. `createMemorySessionStore` declares none unless you pass `capacity`, with both fields. A store you write declares the capacity of its own storage, if it has one.
 
 Set `maxRequestBytes` to bound browser JSON before parsing. Its default is 16 MiB.
 The handler rejects oversized requests before provider access or tool preparation.
 Provider host options also accept `limits` for deadlines and upstream output.
-The handler keeps room for one `maxOutcomeBytes` result for each gate and each call that has not settled.
+When the store declares a capacity, the handler keeps room for one `maxOutcomeBytes` result for each gate and each call that has not settled.
 When a session is full, the handler drops its oldest settled results, then its oldest provider checkpoints.
 It never drops gates, permissions, or calls that have not settled. When those alone do not fit, the new call is refused before it runs, and the user reads `session.full`.
 A result larger than `maxOutcomeBytes` settles as the call's `result_too_large` failure. The call is never left unresolved because of its size.
-The handler fits each state to the store's capacity before `compareAndSwap`.
+The handler fits each state to the store's capacity, when it has one, before `compareAndSwap`.
 
 The default memory store coordinates handlers that share the same store object.
 It retains unexpired gates, unresolved operations, and unexpired outcomes during idle and capacity eviction.

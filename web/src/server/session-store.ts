@@ -35,11 +35,7 @@ import type {
   TurnToolSnapshot,
 } from '@theoremjs/agents/kernel';
 import { gateExpired } from '@theoremjs/agents/kernel';
-import {
-  checkedCapacity,
-  DEFAULT_SESSION_CAPACITY,
-  type TheoremSessionCapacity,
-} from './session-limits.ts';
+import { checkedCapacity, type TheoremSessionCapacity } from './session-limits.ts';
 
 /** A tool call the kernel paused on a gate, as the server saw it. */
 export type PendingToolGate = {
@@ -272,8 +268,11 @@ export type SessionWriteResult = { written: true; revision: string } | { written
  * store (KV, Redis, a database row) when requests can reach different instances.
  */
 export interface TheoremSessionStore {
-  /** What it holds for one session. The handler fits each write to it before `compareAndSwap`. */
-  readonly capacity: TheoremSessionCapacity;
+  /**
+   * What it holds for one session, when it has a limit. The handler fits each write to it before
+   * `compareAndSwap`. Unset, the handler writes the state whole.
+   */
+  readonly capacity?: TheoremSessionCapacity;
   load(sessionId: string): Promise<SessionSnapshot | undefined>;
   /** Compare and replace atomically; null creates only an absent session. */
   compareAndSwap(
@@ -309,8 +308,8 @@ export function pruneGates<Gate extends { createdAt: number; expiresAt?: number 
 }
 
 export type MemorySessionStoreOptions = {
-  /** What it holds for one session. Default {@linkcode DEFAULT_SESSION_CAPACITY}. */
-  capacity?: Partial<TheoremSessionCapacity>;
+  /** What it holds for one session. Unset, it holds any size. */
+  capacity?: TheoremSessionCapacity;
   /** invariant: Idle retention is in milliseconds. Protected authority remains. Default 24h. */
   ttlMs?: number;
   /** Oldest sessions are evicted past this count. Default 10 000. */
@@ -372,7 +371,7 @@ export function createMemorySessionStore(
   options: MemorySessionStoreOptions = {},
 ): TheoremSessionStore {
   const { ttlMs, maxSessions } = memoryStoreLimits(options);
-  const capacity = checkedCapacity({ ...DEFAULT_SESSION_CAPACITY, ...options.capacity });
+  const capacity = checkedCapacity(options.capacity);
   const sessions = new Map<string, { snapshot: SessionSnapshot; touched: number }>();
   const held = (entry: { snapshot: SessionSnapshot }) =>
     Object.values(entry.snapshot.state.gates).some(
@@ -393,7 +392,7 @@ export function createMemorySessionStore(
     return entry?.snapshot;
   };
   return {
-    capacity,
+    ...(capacity ? { capacity } : {}),
     load(sessionId) {
       return Promise.resolve(structuredClone(current(sessionId)));
     },

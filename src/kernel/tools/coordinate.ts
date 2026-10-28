@@ -118,8 +118,9 @@ class CoordinatedExecution {
    * a failure that names its size instead, and the model reads that failure, not the result.
    */
   private withinLimit(outcome: ToolOperationOutcome): ToolOperationOutcome {
-    const bytes = new TextEncoder().encode(JSON.stringify(outcome)).byteLength;
     const limit = this.coordinator.maxOutcomeBytes;
+    if (limit === undefined) return outcome;
+    const bytes = new TextEncoder().encode(JSON.stringify(outcome)).byteLength;
     if (bytes <= limit) return outcome;
     const { name, callId, operationId } = outcome.event.tool;
     const failure: ToolFailure = {

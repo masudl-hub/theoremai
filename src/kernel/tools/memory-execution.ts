@@ -1,7 +1,6 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import {
   type BeginToolOperationResult,
-  DEFAULT_MAX_OUTCOME_BYTES,
   operationBroken,
   type ToolExecutionCoordinator,
   type ToolOperationClaim,
@@ -9,13 +8,10 @@ import {
   type ToolOperationOutcome,
 } from './operation.ts';
 
-/** How many operations a memory coordinator tracks before it refuses new ones. */
-const DEFAULT_MEMORY_EXECUTION_LIMIT = 256;
-
 export interface MemoryToolExecutionOptions {
-  /** The most operations it holds. A full coordinator refuses dispatch and keeps what it has. */
+  /** The most operations it holds. Unset, it holds any number. A full coordinator refuses dispatch and keeps what it has. */
   maxOperations?: number;
-  /** The most bytes it keeps for one tool result. Default {@linkcode DEFAULT_MAX_OUTCOME_BYTES}. */
+  /** The most bytes it keeps for one tool result. Unset, it keeps any size. */
   maxOutcomeBytes?: number;
 }
 
@@ -32,7 +28,7 @@ type OperationRecord =
 export function createMemoryToolExecution(
   options: MemoryToolExecutionOptions = {},
 ): ToolExecutionCoordinator {
-  const limit = options.maxOperations ?? DEFAULT_MEMORY_EXECUTION_LIMIT;
+  const limit = options.maxOperations ?? Number.POSITIVE_INFINITY;
   const records = new Map<string, OperationRecord>();
   // invariant: callId and operationId never contain a NUL byte, so the joined key is unambiguous.
   const keyOf = (operation: ToolOperationIdentity) =>
@@ -57,7 +53,7 @@ export function createMemoryToolExecution(
   const notHeld = () =>
     operationBroken('The memory tool coordinator holds no running claim for this token'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   return {
-    maxOutcomeBytes: options.maxOutcomeBytes ?? DEFAULT_MAX_OUTCOME_BYTES,
+    ...(options.maxOutcomeBytes === undefined ? {} : { maxOutcomeBytes: options.maxOutcomeBytes }),
     lookup: (operation) => Promise.resolve(known(operation)),
     begin: (operation) => {
       const earlier = known(operation);

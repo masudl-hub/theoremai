@@ -216,10 +216,8 @@ export const geminiLive: Protocol<Record<string, never>> = defineProtocol({
           socket.close(NORMAL_CLOSE, 'setup-failed');
           throw error;
         }
-        const history = wire.history?.length
-          ? buildGeminiLiveClientContent(wire.history)
-          : undefined;
-        if (history) sendFrame(socket, history);
+        const seed = buildGeminiLiveClientContent(wire.history, wire.context);
+        if (seed) sendFrame(socket, seed);
         for (const part of wire.input) sendFrame(socket, buildGeminiLiveRealtimeInput(part));
         return session(socket, frames, context, wire.sessionResumptionHandle);
       },

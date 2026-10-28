@@ -1157,6 +1157,8 @@ export interface ModelRequest extends Omit<ProviderGenerationConfig, 'summaries'
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
+  /** Live: the fenced context the session opens with, seeded after `history` so it lands before any input. */
+  context?: string[];
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;
   /** Host abort signal. */

@@ -166,7 +166,7 @@ export function buildGeminiLiveSetupMessage(req: LiveSetupRequest): Record<strin
 
   // why: `initialHistoryInClientContent` makes Gemini wait for clientContent before
   // realtime generation, so an empty session (e.g. Th30) would hang forever.
-  const seedInitialHistory = Boolean(req.history && req.history.length > 0);
+  const seedInitialHistory = Boolean(req.history?.length || req.context?.length);
 
   const setup: Record<string, unknown> = {
     model: liveModelName(req.apiId),
@@ -247,15 +247,24 @@ function historyTurnToGoogleTurn(msg: TurnHistoryMessage): Record<string, unknow
   return { role, parts };
 }
 
+/**
+ * The opening seed: history, then the opening context as one user turn.
+ * why: Gemini does not order clientContent against realtimeInput, so context sent as its own
+ * frame can land after the first realtime text; in the seed it is read before any input.
+ */
 export function buildGeminiLiveClientContent(
-  history: TurnHistoryMessage[],
+  history: readonly TurnHistoryMessage[] = [],
+  context: readonly string[] = [],
 ): Record<string, unknown> | null {
-  if (!history || history.length === 0) {
+  if (history.length === 0 && context.length === 0) {
     return null;
   }
   return {
     clientContent: {
-      turns: history.map(historyTurnToGoogleTurn),
+      turns: [
+        ...history.map(historyTurnToGoogleTurn),
+        ...(context.length ? [{ role: 'user', parts: context.map((text) => ({ text })) }] : []),
+      ],
       turnComplete: true,
     },
   };

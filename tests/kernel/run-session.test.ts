@@ -299,17 +299,34 @@ async function openLive(
     socket.close();
     await session.close();
   };
-  return { session, contexts, spoken, done };
+  return { session, frames, contexts, spoken, done };
 }
-Deno.test('a new call sends its context, then its greeting with the slot filled', async () => {
+Deno.test('a new call seeds its context before any input, then speaks its greeting with the slot filled', async () => {
   const live = await openLive(
     { greeting: 'Greet the visitor in {language}.' },
     { context: { client: { page: 'Checkout' }, server: 'tier: pro' } },
   );
-  assertEquals(live.contexts(), [
-    '<turn_context from="server">\ntier: pro\n</turn_context>',
-    '<turn_context from="client">\n{"page":"Checkout"}\n</turn_context>',
-  ]);
+  const [setup, seed, ...rest] = live.frames();
+  assertEquals((setup?.setup as { historyConfig?: unknown } | undefined)?.historyConfig, {
+    initialHistoryInClientContent: true,
+  });
+  assertEquals(seed?.clientContent, {
+    turns: [
+      {
+        role: 'user',
+        parts: [
+          { text: '<turn_context from="server">\ntier: pro\n</turn_context>' },
+          { text: '<turn_context from="client">\n{"page":"Checkout"}\n</turn_context>' },
+        ],
+      },
+    ],
+    turnComplete: true,
+  });
+  assertEquals(
+    rest.some((frame) => frame.clientContent),
+    false,
+  );
+  assertEquals(live.contexts(), []);
   assertEquals(live.spoken(), ['Greet the visitor in fr.']);
   await live.done();
 });

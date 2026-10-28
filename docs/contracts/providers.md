@@ -180,6 +180,7 @@ Implement only the operations that the protocol provides.
 
 The kernel rejects a missing required operation. Requests contain normalized history, content, tools, and generation settings.
 The protocol converts these values to its upstream format.
+An `openSession` request can also carry `context`: the fenced texts of `SessionRequest.context`. Send them after `history` and before any input, in the same upstream message where the API allows it, so that the model reads them before the first thing the user says. The session's later `sendContext` calls arrive through `ProtocolSession.sendContext`.
 
 ### Embedding protocols
 

@@ -1,5 +1,7 @@
 /**
- * Every recorded turn replayed through the real adapters and kernel, offline.
+ * Every recorded turn of one model replayed through the real adapters and
+ * kernel, offline. Each model has a `replay.<model>.test.ts` of its own, so
+ * `deno test --parallel` replays the models side by side.
  * A case fails on a guardrail miss or on an outcome other than the recorded
  * one. A request that differs from its recording (a prompt reworded) is
  * listed, not failed: the reply is still a real model's, and recording it
@@ -10,7 +12,10 @@ import { assertEquals } from '@std/assert';
 import { CASSETTE_MODELS, casesFor, normalizeOutcome } from './cases.ts';
 import { readCassette, replayCase } from './tape.ts';
 
-for (const model of CASSETTE_MODELS) {
+/** Registers the replay of every case recorded for the model `apiId`. */
+export function replayModel(apiId: string): void {
+  const model = CASSETTE_MODELS.find((each) => each.apiId === apiId);
+  if (!model) throw new Error(`no cassette model ${apiId}`);
   Deno.test(`cassettes: ${model.apiId}`, async (t) => {
     const stale: string[] = [];
     for (const c of casesFor(model)) {

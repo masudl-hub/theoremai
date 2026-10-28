@@ -28,6 +28,19 @@ export function CardWall({ minWidth, children }: { minWidth: number; children: R
   const wallRef = useRef<HTMLDivElement>(null);
   const slots = useRef<(HTMLDivElement | null)[]>([]);
   const observer = useRef<ResizeObserver | null>(null);
+  const slotRefs = useRef<((slot: HTMLDivElement | null) => () => void)[]>([]);
+  // why: One callback per place, so a re-render does not detach and watch every slot again.
+  const slotRef = (at: number) => {
+    slotRefs.current[at] ??= (slot) => {
+      slots.current[at] = slot;
+      // why: A card that mounts later is measured once it is watched.
+      if (slot) observer.current?.observe(slot);
+      return () => {
+        if (slot) observer.current?.unobserve(slot);
+      };
+    };
+    return slotRefs.current[at];
+  };
   const [wall, setWall] = useState<Wall>({ width: 0, gap: 0, heights: [] });
   const count = columnCount(wall.width, minWidth, wall.gap);
   const columnWidth = (wall.width - wall.gap * (count - 1)) / count;
@@ -69,14 +82,7 @@ export function CardWall({ minWidth, children }: { minWidth: number; children: R
         return (
           <div
             key={keyOf(card, at)}
-            ref={(slot) => {
-              slots.current[at] = slot;
-              // why: A card that mounts later is measured once it is watched.
-              if (slot) observer.current?.observe(slot);
-              return () => {
-                if (slot) observer.current?.unobserve(slot);
-              };
-            }}
+            ref={slotRef(at)}
             style={
               isPlaced && place
                 ? {

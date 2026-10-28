@@ -66,11 +66,18 @@ function ResultLead({
           </Arrive>
         ))}
         {layout.charts.map((chart) => (
-          <Arrive key={`chart:${chart.key}`}>
-            <Suspense fallback={<Skeleton height={CHART_CARD_PX} />}>
+          <Suspense
+            key={`chart:${chart.key}`}
+            fallback={
+              <Arrive>
+                <Skeleton height={CHART_CARD_PX} />
+              </Arrive>
+            }
+          >
+            <Arrive>
               <ToolResultChart chart={chart} />
-            </Suspense>
-          </Arrive>
+            </Arrive>
+          </Suspense>
         ))}
         {images.map((image, index) => (
           <Arrive key={`image:${image.src}`}>

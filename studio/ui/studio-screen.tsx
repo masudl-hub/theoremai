@@ -184,6 +184,7 @@ import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel, type PanelView } from './lib/panel-motion.ts';
 import { screenEndpoint } from './lib/project-address.ts';
 import { recordsTraces } from './lib/project-traces.ts';
+import { answerRunKeys } from './lib/run-keys.ts';
 import { sendWhenReady } from './lib/send-when-ready.ts';
 import {
   type ChatSealer,
@@ -1075,7 +1076,8 @@ function openInNewTab(payload: StudioRunPayload, project: ProjectSession | null)
   saveStudioRunPayload(payload, runId);
   // A project's agent runs the project's code on its own page too.
   const named = project ? `&project=${encodeURIComponent(project.name)}` : '';
-  globalThis.open(`/studio/run?run=${encodeURIComponent(runId)}${named}`, '_blank', 'noopener');
+  // why: no `noopener`: the run tab asks this tab for its keys, which never leave memory.
+  globalThis.open(`/studio/run?run=${encodeURIComponent(runId)}${named}`, '_blank');
 }
 
 type Exporter = typeof import('./lib/export-agent.ts') & typeof import('./lib/zip.ts');
@@ -3337,12 +3339,30 @@ function useScreenReport(
 }
 
 /** Everything the page holds: the workspace, its connection, the editor's view, the compile, and the run. */
+/** Hands the run tabs this tab opened the keys it holds when they ask. */
+function useRunKeysAnswer(vault: StudioConnectionState['vault']) {
+  const held = useRef(vault);
+  held.current = vault;
+  useEffect(
+    () =>
+      answerRunKeys(() =>
+        Object.fromEntries(
+          Object.entries(held.current).filter((entry): entry is [string, string] =>
+            Boolean(entry[1]),
+          ),
+        ),
+      ),
+    [],
+  );
+}
+
 /** What the page opens on: the studio's own loader data, or an open project's. */
 function useStudioPage(opened: StudioOpened) {
   const { onReport } = useStudioHost();
   const state = useStudioWorkspace(opened.start, opened.project);
   const { store, workspace, draft, focus } = state;
   const connection = useWorkspaceConnection(workspace);
+  useRunKeysAnswer(connection.vault);
   const view = useEditorView(store);
   const frame = useStudioFrame();
   const selected = selectedNode(workspace, focus);

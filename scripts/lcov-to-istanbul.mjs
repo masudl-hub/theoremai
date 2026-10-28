@@ -1,4 +1,5 @@
 // Usage: node scripts/lcov-to-istanbul.mjs <lcov.info> <coverage-final.json>
+// A file recorded more than once (several runs' lcov joined) has its hits summed.
 // The output is written whole or not at all: a concurrent reader never sees half a file.
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, extname } from 'node:path';
@@ -23,7 +24,7 @@ function hitCount(raw) {
   return hits < 0 ? hits + 2 ** 32 : hits;
 }
 
-function parseRecord(block) {
+function readBlock(block) {
   const path = block
     .split('\n')
     .find((line) => line.startsWith('SF:'))
@@ -34,7 +35,7 @@ function parseRecord(block) {
 
   const fnStarts = new Map();
   const fnHits = new Map();
-  const statements = [];
+  const lines = new Map();
 
   for (const line of block.split('\n')) {
     if (line.startsWith('FN:') && !line.startsWith('FNDA:')) {
@@ -48,13 +49,25 @@ function parseRecord(block) {
       const comma = rest.indexOf(',');
       const hits = hitCount(rest.slice(0, comma));
       const name = rest.slice(comma + 1);
-      fnHits.set(name, hits);
+      fnHits.set(name, (fnHits.get(name) ?? 0) + hits);
     } else if (line.startsWith('DA:')) {
       const [rawLine, rawHits] = line.slice(3).split(',');
-      statements.push({ line: Number(rawLine), hits: hitCount(rawHits) });
+      const at = Number(rawLine);
+      lines.set(at, (lines.get(at) ?? 0) + hitCount(rawHits));
     }
   }
+  return { path, fnStarts, fnHits, lines };
+}
 
+function mergeInto(into, { fnStarts, fnHits, lines }) {
+  for (const [name, start] of fnStarts)
+    if (!into.fnStarts.has(name)) into.fnStarts.set(name, start);
+  for (const [name, hits] of fnHits) into.fnHits.set(name, (into.fnHits.get(name) ?? 0) + hits);
+  for (const [at, hits] of lines) into.lines.set(at, (into.lines.get(at) ?? 0) + hits);
+}
+
+function toIstanbul({ path, fnStarts, fnHits, lines }) {
+  const statements = [...lines].sort(([a], [b]) => a - b).map(([line, hits]) => ({ line, hits }));
   const names = [...fnStarts.keys()];
   const fnMap = {};
   const f = {};
@@ -123,13 +136,19 @@ async function locateFunctions(record) {
 }
 
 const lcov = await readFile(lcovPath, 'utf8');
-const coverage = {};
+const files = new Map();
 for (const block of lcov.split('end_of_record')) {
-  const record = parseRecord(block);
-  if (record) {
-    await locateFunctions(record);
-    coverage[record.path] = record;
-  }
+  const read = readBlock(block);
+  if (!read) continue;
+  const seen = files.get(read.path);
+  if (seen) mergeInto(seen, read);
+  else files.set(read.path, read);
+}
+const coverage = {};
+for (const file of files.values()) {
+  const record = toIstanbul(file);
+  await locateFunctions(record);
+  coverage[record.path] = record;
 }
 
 await mkdir(dirname(outPath), { recursive: true });

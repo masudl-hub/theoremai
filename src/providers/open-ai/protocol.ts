@@ -15,7 +15,9 @@ import { base64ToBytes, bytesToBase64 } from '../../kernel/util/base64.ts';
 import { mimeEssence } from '../../kernel/util/mime.ts';
 import {
   buildChatMessages,
+  httpError,
   resolveResponseFormat,
+  statedError,
   wireTools,
 } from '../openrouter/openai/compat.ts';
 import { openAiResponse, openAiUsageTokens } from '../openrouter/openai/usage.ts';
@@ -67,8 +69,7 @@ function errorRow(row: JsonObject): void {
   const error = asRecord(row.error);
   if (!error) return;
   const status = typeof error.code === 'number' ? error.code : 502;
-  const message = typeof error.message === 'string' ? error.message : JSON.stringify(error);
-  throw new TheoremError(kindOfHttpStatus(status), message);
+  throw new TheoremError(kindOfHttpStatus(status), statedError(row) ?? JSON.stringify(error));
 }
 
 function citations(part: Record<string, unknown>, reply: Reply): ProtocolEvent[] {
@@ -207,6 +208,7 @@ export const openAi: Protocol<Record<string, never>> = defineProtocol({
   description: 'The Chat Completions shape that OpenAI and most compatible servers speak.', // labels-exempt: builder field description, read by the studio and docs
   endpoints: { text: '/chat/completions', speech: '/audio/speech' },
   options: z.strictObject({}),
+  error: (failure) => httpError(failure, 'Chat Completions'),
   create(context) {
     return {
       async *complete(request) {

@@ -174,6 +174,31 @@ Deno.test('openAi: a quota error row before any output falls back to the spare k
   );
 });
 
+Deno.test('openAi: a refused request names the reason the body gives, and the provider’s own detail', async () => {
+  const body = {
+    error: {
+      message: 'Provider returned error',
+      code: 400,
+      metadata: { raw: 'data did not match any variant', provider_name: 'Nvidia' },
+    },
+  };
+  const { call } = setup(() => new Response(JSON.stringify(body), { status: 400 }));
+  const error = failureOf(await collect(callProtocol(call).complete(request)));
+  assertEquals(error.kind, 'unsupported');
+  assertEquals(
+    error.message,
+    'Chat Completions HTTP 400: Provider returned error {"metadata":{"raw":"data did not match any variant","provider_name":"Nvidia"}}',
+  );
+});
+
+Deno.test('openAi: an error row keeps the provider’s own detail', async () => {
+  const { call } = setup(() =>
+    sse([{ error: { code: 400, message: 'Bad input.', metadata: { raw: 'no images here' } } }]),
+  );
+  const error = failureOf(await collect(callProtocol(call).complete(request)));
+  assertEquals(error.message, 'Bad input. {"metadata":{"raw":"no images here"}}');
+});
+
 Deno.test('a key slot on a provider that takes no key is refused', () => {
   const keyless = defineProvider({
     ...compatible,

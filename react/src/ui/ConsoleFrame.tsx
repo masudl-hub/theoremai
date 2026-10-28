@@ -32,7 +32,7 @@ import {
   PanelBody,
   PanelScroll,
   paneEdge,
-  RAISED,
+  RaisedFrame,
   SidePanel,
   SidePanelHeader,
 } from './SidePanel.tsx';
@@ -131,23 +131,23 @@ function ConsoleSingle({
   maxWidth: string;
   children: ReactNode;
 }) {
+  const column = (
+    <Center axis="horizontal" width="100%" minHeight="100%">
+      <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
+        {children}
+      </VStack>
+    </Center>
+  );
+  if (!flush) return <RaisedFrame isScrollable>{column}</RaisedFrame>;
+  // why: A flush page is already the raised panel, so it takes no block inset of its own.
   return (
     <VStack
       height="100%"
       paddingInlineStart={PANEL_EDGE}
-      style={{ ...(flush ? FLUSH_CARD : undefined), paddingInlineEnd: paneEdge(PANEL_EDGE) }}
+      style={{ ...FLUSH_CARD, paddingInlineEnd: paneEdge(PANEL_EDGE) }}
     >
-      <Card
-        variant="transparent"
-        height="100%"
-        padding={0}
-        style={flush ? { overflowY: 'auto' } : { ...RAISED, overflowY: 'auto' }}
-      >
-        <Center axis="horizontal" width="100%" minHeight="100%">
-          <VStack width="100%" maxWidth={wide ? undefined : maxWidth} gap={3} padding={4}>
-            {children}
-          </VStack>
-        </Center>
+      <Card variant="transparent" height="100%" padding={0} style={{ overflowY: 'auto' }}>
+        {column}
       </Card>
     </VStack>
   );

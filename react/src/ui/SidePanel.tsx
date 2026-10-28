@@ -271,6 +271,36 @@ export function useWidth() {
   return { ref, width };
 }
 
+/** The raised card a pane fills its place with, inset from every edge. */
+export function RaisedFrame({
+  isScrollable = false,
+  children,
+}: {
+  isScrollable?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <VStack
+      height="100%"
+      paddingInlineStart={PANEL_EDGE}
+      paddingBlockStart={PANEL_EDGE}
+      style={{
+        paddingInlineEnd: paneEdge(PANEL_EDGE),
+        paddingBlockEnd: paneEdge(PANEL_EDGE),
+      }}
+    >
+      <Card
+        variant="transparent"
+        height="100%"
+        padding={0}
+        style={isScrollable ? { ...RAISED, overflowY: 'auto' } : RAISED}
+      >
+        {children}
+      </Card>
+    </VStack>
+  );
+}
+
 /**
  * A raised pane that fills its place, inset from the sides. Its content is
  * told whether the pane is wide enough for two readable columns.
@@ -292,21 +322,11 @@ export function RaisedPane({
       header={header}
       content={
         <LayoutContent padding={0} isScrollable={false}>
-          <VStack
-            height="100%"
-            paddingInlineStart={PANEL_EDGE}
-            paddingBlockStart={PANEL_EDGE}
-            style={{
-              paddingInlineEnd: paneEdge(PANEL_EDGE),
-              paddingBlockEnd: paneEdge(PANEL_EDGE),
-            }}
-          >
-            <Card variant="transparent" height="100%" padding={0} style={RAISED}>
-              <div id={id} ref={ref} style={{ height: '100%' }}>
-                {children(isSidePanelWide(width))}
-              </div>
-            </Card>
-          </VStack>
+          <RaisedFrame>
+            <div id={id} ref={ref} style={{ height: '100%' }}>
+              {children(isSidePanelWide(width))}
+            </div>
+          </RaisedFrame>
         </LayoutContent>
       }
     />

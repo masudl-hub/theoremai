@@ -629,7 +629,7 @@ export function StudioSettings(props: StudioSettingsProps) {
   const isNarrow = useMediaQuery('(max-width: 768px)');
   const { section } = useSettingsDoor();
   return (
-    <Section variant="transparent" height="100%" padding={0}>
+    <Section variant="transparent" height="100%" padding={0} className="studio-settings">
       {/* Starts at the left edge, as the tree and editor do; the settings keep a readable width. */}
       <Layout
         height="fill"

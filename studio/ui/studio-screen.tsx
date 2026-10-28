@@ -179,7 +179,7 @@ import {
 } from './inspector-context.ts';
 import { ActingAsContext, chatKeyOf, useActingAsState } from './lib/acting-as.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
-import { movePanel } from './lib/panel-motion.ts';
+import { movePanel, type PanelView } from './lib/panel-motion.ts';
 import { screenEndpoint } from './lib/project-address.ts';
 import { recordsTraces } from './lib/project-traces.ts';
 import { sendWhenReady } from './lib/send-when-ready.ts';
@@ -2067,13 +2067,8 @@ function offerEditsBack(
   setAside(key, edits);
 }
 
-/** What the panel widens over the preview to hold: the map beside the editor, or Settings. */
-interface WidePanel {
-  map: boolean;
-  settings: boolean;
-}
-const NARROW: WidePanel = { map: false, settings: false };
-const isWide = (panel: WidePanel) => panel.map || panel.settings;
+/** The panel at rest: neither the map nor Settings. */
+const NARROW: PanelView = { map: false, settings: false };
 
 /**
  * Which view stands in the editor column, whether the map is open beside it, and opening a node
@@ -2089,7 +2084,7 @@ function useEditorView(store: StudioStore) {
   const wanted = useRef(NARROW);
   const shown = useRef(NARROW);
   const moves = useRef(Promise.resolve());
-  const move = useCallback((next: Partial<WidePanel>) => {
+  const move = useCallback((next: Partial<PanelView>) => {
     wanted.current = { ...wanted.current, ...next };
     moves.current = moves.current.then(async () => {
       // Only the last one asked for is worth moving to.
@@ -2103,9 +2098,7 @@ function useEditorView(store: StudioStore) {
           setSettings(to.settings);
         });
       };
-      // Settings over an open map, and back: the panel is already as wide as it goes.
-      if (isWide(to) === isWide(was)) swap();
-      else await movePanel(isWide(to), swap);
+      await movePanel(was, to, swap);
     });
   }, []);
   const setMapOpen = useCallback(

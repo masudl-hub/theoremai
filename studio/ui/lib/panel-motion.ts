@@ -1,7 +1,7 @@
 /**
- * The panel takes the whole frame for the map or Settings, and gives it back. The preview eases
- * out, the panel's far edge moves over the room it gave up, and the map or Settings eases in as it
- * is uncovered. The tree and the editor stay where they are.
+ * The panel takes the whole frame for the map or Settings, and gives it back. What is on screen
+ * and will not stay eases out, the panel's far edge moves if its width changes, and what comes in
+ * eases in. The shell's rail is outside the panel and never moves.
  */
 import { HOLD_MS, prefersReducedMotion, sleep } from '../shell-motion.ts';
 
@@ -9,11 +9,30 @@ const MOVE_MS = 640;
 const FADE_MS = 280;
 const EASE = 'cubic-bezier(0.45, 0.02, 0.15, 1)';
 
-/** What fades out before the move and back in after it: the preview and the panel's handle. */
-const PARTS = '.studio-preview, .studio-side-handle';
+/** What the panel shows: the map beside the editor, Settings in place of both, or neither. */
+export interface PanelView {
+  map: boolean;
+  settings: boolean;
+}
 
-/** What eases in as the panel extends over it: the map, or Settings' list and body under its headers. */
-const INCOMING = '.studio-map-pane, .studio-settings-tree, .studio-settings-body';
+const PARTS = {
+  tree: '.studio-tree',
+  editor: '.studio-view',
+  handle: '.studio-side-handle',
+  preview: '.studio-preview',
+  map: '.studio-map-pane, .studio-map-handle',
+  settings: '.studio-settings',
+} as const;
+
+type Part = keyof typeof PARTS;
+
+function shown(view: PanelView): Part[] {
+  if (view.settings) return ['settings'];
+  if (view.map) return ['tree', 'editor', 'map'];
+  return ['tree', 'editor', 'handle', 'preview'];
+}
+
+const isWide = (view: PanelView) => view.map || view.settings;
 
 /** A phone's panel already takes the frame, and reduced motion moves nothing. */
 export function panelCanMove(): boolean {
@@ -27,22 +46,33 @@ function ended(animations: Animation[], ms: number): Promise<unknown> {
 }
 
 /**
- * Move the panel around `swap`, which puts the next view on screen and must have drawn it by the
- * time it returns. `widens` is the map or Settings opening; otherwise it is closing. Without a
- * panel to move, the swap happens at once.
+ * Move the panel from `from` to `to` around `swap`, which puts `to` on screen and must have drawn
+ * it by the time it returns. Without a panel to move, the swap happens at once.
  */
-export async function movePanel(widens: boolean, swap: () => void): Promise<void> {
+export async function movePanel(from: PanelView, to: PanelView, swap: () => void): Promise<void> {
   const frame = document.querySelector<HTMLElement>('.studio-frame');
   const surface = frame?.querySelector<HTMLElement>('[data-shell-frame]');
   if (!frame || !surface || !panelCanMove()) {
     swap();
     return;
   }
-  const parts = () => [...frame.querySelectorAll<HTMLElement>(PARTS)];
-  const hidden = parts().map((part) =>
-    part.animate({ opacity: [1, 0] }, { duration: HOLD_MS, easing: 'ease', fill: 'forwards' }),
+  const find = (parts: Part[]) =>
+    parts.flatMap((part) => [...frame.querySelectorAll<HTMLElement>(PARTS[part])]);
+  const before = shown(from);
+  const after = shown(to);
+  const leaving = find(before.filter((part) => !after.includes(part)));
+  const coming = after.filter((part) => !before.includes(part));
+  const held: Animation[] = [];
+  const hold = (els: HTMLElement[]) => {
+    for (const each of els) {
+      held.push(each.animate({ opacity: [0, 0] }, { duration: MOVE_MS, fill: 'forwards' }));
+    }
+  };
+
+  const out = leaving.map((each) =>
+    each.animate({ opacity: [1, 0] }, { duration: HOLD_MS, easing: 'ease', fill: 'forwards' }),
   );
-  await ended(hidden, HOLD_MS);
+  await ended(out, HOLD_MS);
 
   // The panel is drawn at its full width, cut back to the width it rests at: only the cut moves.
   // The corners are the raised surface's own, which the frame wraps.
@@ -50,39 +80,41 @@ export async function movePanel(widens: boolean, swap: () => void): Promise<void
   const round = getComputedStyle(drawn).borderTopRightRadius || '0px';
   const cut = (width: number) => `inset(0 calc(100% - ${String(width)}px) 0 0 round ${round})`;
   const whole = `inset(0 0 0 0 round ${round})`;
-  if (widens) {
+  const swapHidden = () => {
+    swap();
+    // invariant: what comes in is held out of sight in the same task as the swap, before a paint.
+    hold(find(coming));
+  };
+  let move: Animation | undefined;
+  if (isWide(to) && !isWide(from)) {
     const narrow = surface.offsetWidth;
     surface.dataset.rests = String(narrow);
-    const move = surface.animate(
+    move = surface.animate(
       { clipPath: [cut(narrow), whole] },
       { duration: MOVE_MS, easing: EASE, fill: 'both' },
     );
-    swap();
-    const incoming = frame.querySelectorAll<HTMLElement>(INCOMING);
-    const fades = [...incoming].map((each) =>
-      each.animate({ opacity: [0, 1] }, { duration: MOVE_MS, easing: EASE, fill: 'both' }),
-    );
-    await ended([move, ...fades], MOVE_MS);
-    move.cancel();
-    for (const each of fades) each.cancel();
-  } else {
+    swapHidden();
+    await ended([move], MOVE_MS);
+  } else if (!isWide(to) && isWide(from)) {
     const narrow = Number(surface.dataset.rests);
     delete surface.dataset.rests;
     if (narrow > 0) {
-      const move = surface.animate(
+      move = surface.animate(
         { clipPath: [whole, cut(narrow)] },
         { duration: MOVE_MS, easing: EASE, fill: 'both' },
       );
       await ended([move], MOVE_MS);
-      swap();
-      move.cancel();
-    } else {
-      swap();
     }
+    swapHidden();
+  } else {
+    swapHidden();
   }
 
-  for (const part of parts()) {
-    part.animate({ opacity: [0, 1] }, { duration: FADE_MS, easing: EASE });
-  }
-  for (const each of hidden) each.cancel();
+  const fades = find(coming).map((each) =>
+    each.animate({ opacity: [0, 1] }, { duration: FADE_MS, easing: EASE, fill: 'backwards' }),
+  );
+  for (const each of held) each.cancel();
+  move?.cancel();
+  await ended(fades, FADE_MS);
+  for (const each of out) each.cancel();
 }

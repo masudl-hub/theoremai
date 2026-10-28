@@ -1,7 +1,9 @@
 # Theorem Studio: the playground, opened on your own project
 
-**Status:** sketch, started 7 Oct 2026 with Masud. Nothing is built and
-nothing will be until Masud agrees the whole doc. We write this as we talk:
+**Status:** building. Started 7 Oct 2026 with Masud; the studio is built in
+`studio/` from 8 Oct. What it does now is in the
+[studio contract](../contracts/studio.md) and the
+[studio README](../../studio/README.md). This doc is the design record:
 section 3 lists what is decided, section 5 what is open. A decision moves
 from 5 to 3 only when Masud makes it.
 
@@ -13,9 +15,9 @@ is Bonsai: 41 profiles, 101 tools, 54 function handlers.
 **The job:** open the application's real profiles, edit one, test the edit,
 save it to code, and trust what was saved.
 
-**Today:** the builder cannot do this. The playground is a website. It starts
-from an example or an empty draft. It cannot open a profile that an
-application registers.
+**Before the studio:** the builder could not do this. The playground is a
+website. It starts from an example or an empty draft. It cannot open a
+profile that an application registers.
 
 ### 1.1 What Masud wants it for
 

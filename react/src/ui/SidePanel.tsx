@@ -133,7 +133,7 @@ export type SidePanelProps = {
 };
 
 /** Page corners like the host's raised panels, no border or shadow; the card fill, so surface-filled cards read on it. */
-export const RAISED = {
+const RAISED = {
   background: 'var(--theorem-pane-background, var(--color-background-card))',
   borderRadius: 'var(--radius-page)',
   overflow: 'hidden',

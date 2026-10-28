@@ -841,7 +841,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'session.conversation_unknown':
     'Shown to the user whose conversation the host no longer has, or whose saved conversation does not open in this session.',
   'session.full':
-    "Shown to the user when saving the conversation would pass one of the host's session limits.",
+    "Shown to the user when the conversation's open work does not fit in what its session store holds.",
   'session.busy':
     'Shown to the user when the conversation could not be saved because other work on it was in the way.',
   'session.gate_expired':

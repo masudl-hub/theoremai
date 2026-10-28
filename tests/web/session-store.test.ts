@@ -1,5 +1,6 @@
-import { assert, assertEquals, assertNotEquals, assertThrows } from '@std/assert';
+import { assert, assertEquals, assertNotEquals, assertRejects, assertThrows } from '@std/assert';
 import { TheoremError } from '../../mod.ts';
+import { sessionStateStore } from '../../web/src/server/session-authority.ts';
 import {
   createMemorySessionStore,
   emptySessionState,
@@ -48,21 +49,25 @@ Deno.test('memory capacity can evict an absolutely expired gate but preserves un
   assertEquals(await store.load('expired'), undefined);
 });
 
-Deno.test('memory store rejects authority beyond its finite limits without altering saved state', async () => {
-  const store = createMemorySessionStore({ sessionLimits: { maxGates: 1 } });
-  const first = emptySessionState();
-  first.gates.first = { ...gate(Date.now()), operationId: 'first' };
-  const written = await store.compareAndSwap('bounded', null, first);
-  assert(written.written);
-  const second = structuredClone(first);
-  second.gates.second = { ...gate(Date.now()), operationId: 'second' };
-  const refused = assertThrows(
-    () => store.compareAndSwap('bounded', written.revision, second),
+Deno.test('a session fits by dropping settled results, never gates, and refuses open work that does not fit', async () => {
+  const memory = createMemorySessionStore({
+    capacity: { maxStateBytes: 4096, maxOutcomeBytes: 1024 },
+  });
+  const sessions = sessionStateStore(memory, 30 * 60_000, 86_400_000);
+  await sessions.mutate('bounded', (state) => {
+    state.gates.call = gate(Date.now());
+  });
+  const refused = await assertRejects(
+    () =>
+      sessions.mutate('bounded', (state) => {
+        for (const id of ['a', 'b', 'c', 'd'])
+          state.gates[id] = { ...gate(Date.now()), operationId: id };
+      }),
     TheoremError,
-    'sessionLimits.maxGates (1)',
+    "the store's maxStateBytes of 4096",
   );
   assertEquals(refused.copy, { key: 'session.full' });
-  assertEquals((await store.load('bounded'))?.state, first);
+  assertEquals(Object.keys((await memory.load('bounded'))?.state.gates ?? {}), ['call']);
 });
 
 for (const backend of ['memory', 'sqlite'] as const) {

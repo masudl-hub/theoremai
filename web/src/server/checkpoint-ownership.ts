@@ -69,7 +69,6 @@ export async function requireOwnedCheckpoint(
 export function retainedCheckpointIdentities(
   existing: readonly string[],
   added: readonly string[],
-  limit: number,
 ): string[] {
-  return [...new Set([...existing, ...added].reverse())].slice(0, limit).reverse();
+  return [...new Set([...existing, ...added].reverse())].reverse();
 }

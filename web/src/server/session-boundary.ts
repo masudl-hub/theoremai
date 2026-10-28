@@ -24,7 +24,6 @@ import {
 import { checkRequest } from './request-check.ts';
 import { sessionStateStore } from './session-authority.ts';
 import { theoremSession } from './session-identity.ts';
-import { resolveSessionLimits, type TheoremSessionLimits } from './session-limits.ts';
 import { DEFAULT_OPERATION_RETENTION_MS, type TheoremSessionStore } from './session-store.ts';
 import { sessionToolCoordinator } from './tool-operations.ts';
 import { liveSessionOpen } from './turn-input.ts';
@@ -35,7 +34,6 @@ export interface SessionBoundaryOptions {
   sessionStore: TheoremSessionStore;
   gateTtlMs?: number;
   operationRetentionMs?: number;
-  sessionLimits?: Partial<TheoremSessionLimits>;
   pageToolBroker?: PageToolBroker;
 }
 
@@ -70,12 +68,10 @@ export async function createTheoremSessionBoundary(
   const retention = options.operationRetentionMs ?? DEFAULT_OPERATION_RETENTION_MS;
   if (!Number.isSafeInteger(retention) || retention <= 0)
     throw new TheoremError('config', labelText('error.config'));
-  const limits = resolveSessionLimits(options.sessionLimits);
   const store = sessionStateStore(
     options.sessionStore,
     resolveGateTtlMs('session boundary', options.gateTtlMs),
     retention,
-    limits,
   );
   // invariant: Refuse unavailable or malformed authority before an upstream connection opens.
   await store.read(id);
@@ -129,11 +125,9 @@ export async function createTheoremSessionBoundary(
     async recordCheckpoint(checkpoint) {
       const identity = await checkpointIdentity(checkpoint);
       await store.mutate(id, async (state) => {
-        state.providerCheckpoints = retainedCheckpointIdentities(
-          state.providerCheckpoints,
-          [await checkpointOwnershipKey(identity, state.operations)],
-          limits.maxCheckpoints,
-        );
+        state.providerCheckpoints = retainedCheckpointIdentities(state.providerCheckpoints, [
+          await checkpointOwnershipKey(identity, state.operations),
+        ]);
       });
     },
   };

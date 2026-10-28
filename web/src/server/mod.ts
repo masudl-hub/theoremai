@@ -95,8 +95,8 @@ export {
   type SessionBoundaryOptions,
   type TheoremSessionBoundary,
 } from './session-boundary.ts';
-export type { TheoremSessionLimits } from './session-limits.ts';
-export { resolveSessionLimits } from './session-limits.ts';
+export type { TheoremSessionCapacity } from './session-limits.ts';
+export { DEFAULT_SESSION_CAPACITY } from './session-limits.ts';
 export {
   createMemorySessionStore,
   DEFAULT_OPERATION_RETENTION_MS,

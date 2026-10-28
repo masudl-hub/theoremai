@@ -1,84 +1,74 @@
-import { labelText, TheoremError } from '@theoremjs/agents';
+import { DEFAULT_MAX_OUTCOME_BYTES, labelText, TheoremError } from '@theoremjs/agents';
 import type { TheoremSessionState } from './session-store.ts';
 
-export interface TheoremSessionLimits {
-  maxGates: number;
-  maxOperations: number;
-  maxCheckpoints: number;
-  maxPermissions: number;
+/** What a session store holds for one session, in bytes of UTF-8 JSON. The store declares it. */
+export interface TheoremSessionCapacity {
+  /** The most one session's saved state may take. */
   maxStateBytes: number;
-  maxInvocationBytes: number;
+  /** The most one tool result may take. Room for one is kept for each call that has not settled. */
   maxOutcomeBytes: number;
 }
 
-const DEFAULTS: TheoremSessionLimits = {
-  maxGates: 32,
-  maxOperations: 128,
-  maxCheckpoints: 256,
-  maxPermissions: 2048,
-  maxStateBytes: 32 * 1024 * 1024,
-  maxInvocationBytes: 256 * 1024,
-  maxOutcomeBytes: 256 * 1024,
+/** The memory store's default: room for sixteen full-size tool results in each session. */
+export const DEFAULT_SESSION_CAPACITY: TheoremSessionCapacity = {
+  maxStateBytes: 16 * DEFAULT_MAX_OUTCOME_BYTES,
+  maxOutcomeBytes: DEFAULT_MAX_OUTCOME_BYTES,
 };
 
-export function resolveSessionLimits(
-  options: Partial<TheoremSessionLimits> = {},
-): TheoremSessionLimits {
-  const limits = { ...DEFAULTS, ...options };
+/** The store's declared capacity, refused as `config` unless both are positive and one result fits. */
+export function checkedCapacity(capacity: unknown): TheoremSessionCapacity {
+  const { maxStateBytes, maxOutcomeBytes } = (capacity ?? {}) as Partial<TheoremSessionCapacity>;
   if (
-    Object.keys(options).some((key) => !Object.hasOwn(DEFAULTS, key)) ||
-    Object.values(limits).some((value) => !Number.isSafeInteger(value) || value <= 0)
+    !Number.isSafeInteger(maxStateBytes) ||
+    !Number.isSafeInteger(maxOutcomeBytes) ||
+    (maxOutcomeBytes as number) <= 0 ||
+    (maxStateBytes as number) < (maxOutcomeBytes as number)
   ) {
     throw new TheoremError('config', labelText('error.config'), {
-      cause: { code: 'session_limits' },
+      cause: { code: 'session_store_capacity_declared' },
     });
   }
-  return limits;
+  return { maxStateBytes: maxStateBytes as number, maxOutcomeBytes: maxOutcomeBytes as number };
 }
 
 function bytes(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
-/** The session's saved state would pass a `sessionLimits` bound: the reason names it, the user reads `session.full`. */
-function capacity(limit: keyof TheoremSessionLimits, value: number): never {
-  throw new TheoremError(
-    'unavailable',
-    `The session's saved state would pass sessionLimits.${limit} (${value}), so the change was not saved`, // labels-exempt: internal diagnostic; the user reads session.full
-    { copy: { key: 'session.full' }, cause: { code: 'session_state_capacity', limit, value } },
-  );
+/** The bytes the state takes with room kept for the result of each gate and each call that has not settled. */
+function needed(state: TheoremSessionState, capacity: TheoremSessionCapacity): number {
+  const open =
+    Object.keys(state.gates).length +
+    Object.values(state.operations).filter((operation) => operation.status !== 'settled').length;
+  return bytes(state) + open * capacity.maxOutcomeBytes;
 }
 
-export function checkSessionLimits(state: TheoremSessionState, limits: TheoremSessionLimits): void {
-  const gates = Object.values(state.gates);
-  const operations = Object.values(state.operations);
-  if (gates.length > limits.maxGates) capacity('maxGates', limits.maxGates);
-  if (operations.length > limits.maxOperations) capacity('maxOperations', limits.maxOperations);
-  if (state.providerCheckpoints.length > limits.maxCheckpoints)
-    capacity('maxCheckpoints', limits.maxCheckpoints);
-  if (state.permissions.length > limits.maxPermissions)
-    capacity('maxPermissions', limits.maxPermissions);
-  for (const gate of gates)
-    if (bytes(gate) > limits.maxInvocationBytes)
-      capacity('maxInvocationBytes', limits.maxInvocationBytes);
-  let reserved = gates.length * limits.maxOutcomeBytes;
-  for (const operation of operations) {
-    if (
-      operation.status !== 'ready' &&
-      operation.invocation &&
-      bytes(operation.invocation) > limits.maxInvocationBytes
-    )
-      capacity('maxInvocationBytes', limits.maxInvocationBytes);
-    if (operation.status === 'settled') {
-      if (bytes(operation.outcome) > limits.maxOutcomeBytes)
-        capacity('maxOutcomeBytes', limits.maxOutcomeBytes);
-    } else {
-      reserved += limits.maxOutcomeBytes;
-      if (operation.status === 'ready' && bytes(operation) > limits.maxInvocationBytes)
-        capacity('maxInvocationBytes', limits.maxInvocationBytes);
-    }
+/**
+ * Fits the state in the store's capacity: drops the oldest settled results, then the oldest
+ * provider checkpoints, and refuses with `session.full` when open work alone does not fit.
+ *
+ * invariant: Gates, permissions and calls that have not settled are never dropped to make room.
+ */
+export function fitSession(state: TheoremSessionState, capacity: TheoremSessionCapacity): void {
+  if (needed(state, capacity) <= capacity.maxStateBytes) return;
+  const settled = Object.values(state.operations)
+    .flatMap((operation) => (operation.status === 'settled' ? [operation] : []))
+    .sort((a, b) => a.settledAt - b.settledAt);
+  for (const operation of settled) {
+    delete state.operations[operation.operationId];
+    if (needed(state, capacity) <= capacity.maxStateBytes) return;
   }
-  // invariant: Reserve terminal evidence before dispatch; unresolved records are never evicted to make room.
-  if (bytes(state) + reserved > limits.maxStateBytes)
-    capacity('maxStateBytes', limits.maxStateBytes);
+  while (state.providerCheckpoints.length) {
+    state.providerCheckpoints.shift();
+    if (needed(state, capacity) <= capacity.maxStateBytes) return;
+  }
+  const need = needed(state, capacity);
+  throw new TheoremError(
+    'unavailable',
+    `The session's open work needs ${need} bytes with room for its results, more than the store's maxStateBytes of ${capacity.maxStateBytes}`, // labels-exempt: internal diagnostic; the user reads session.full
+    {
+      copy: { key: 'session.full' },
+      cause: { code: 'session_state_capacity', need, maxStateBytes: capacity.maxStateBytes },
+    },
+  );
 }

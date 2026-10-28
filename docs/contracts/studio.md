@@ -27,8 +27,8 @@ Replacing a scope registration affects later runs. It does not replace an active
 
 Exported agent handoffs ask the builder to supply shared atomic session storage when deployment uses several server instances.
 The session contract of the `@theoremjs/web/server` handler uses `load` and `compareAndSwap`. Tool credentials use a separate store.
-Exported handlers apply finite session limits before accepting new execution claims.
-Builders can set `sessionLimits` and `operationRetentionMs` in the host handler options.
+Exported handlers fit each session to its store's declared `capacity` before accepting new execution claims.
+Builders set `capacity` on the session store and `operationRetentionMs` in the host handler options.
 These settings are host code; they do not enter the exported profile.
 The handler stores version 3 operation records. It retains unresolved claims instead of restoring approvals after dispatch.
 A trusted `StudioRuntime.execution` service can supply the same kernel coordination contract to Studio turns, invokes, and host calls.

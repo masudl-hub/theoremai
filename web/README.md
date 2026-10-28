@@ -378,26 +378,23 @@ Each saved outcome records its absolute retention deadline. Changing a handler's
 Each issued gate records its absolute expiry. Changing `gateTtlMs` does not extend an issued gate.
 Ready, running, and uncertain operations do not expire.
 
-Use `sessionLimits` when your storage budget requires different finite limits. The defaults are:
+A session store declares its `capacity`: what it holds for one session, in bytes of UTF-8 JSON.
 
-| Limit | Default |
-| --- | --- |
-| `maxGates` | 32 |
-| `maxOperations` | 128 |
-| `maxCheckpoints` | 256 |
-| `maxPermissions` | 2,048 |
-| `maxStateBytes` | 32 MiB |
-| `maxInvocationBytes` | 256 KiB |
-| `maxOutcomeBytes` | 256 KiB |
+| Field | What it bounds | Memory store default |
+| --- | --- | --- |
+| `maxStateBytes` | One session's saved state | 16 MiB |
+| `maxOutcomeBytes` | One tool result | 1 MiB (`DEFAULT_MAX_OUTCOME_BYTES`) |
+
+Pass `capacity` to `createMemorySessionStore` to change them. A store you write declares the capacity of its own storage.
 
 Set `maxRequestBytes` to bound browser JSON before parsing. Its default is 16 MiB.
 The handler rejects oversized requests before provider access or tool preparation.
 Provider host options also accept `limits` for deadlines and upstream output.
-Byte limits measure UTF-8 JSON. The handler reserves one maximum outcome for each gate and unresolved operation.
-A new claim fails before dispatch when it cannot reserve that space.
-An oversized result after dispatch leaves an uncertain claim. It does not restore an approval.
-Limits never remove unresolved authority or shorten retained settlements. The host must reconcile and archive unresolved actions.
-The memory store accepts the same `sessionLimits` options. Shared stores receive checked states through the handler.
+The handler keeps room for one `maxOutcomeBytes` result for each gate and each call that has not settled.
+When a session is full, the handler drops its oldest settled results, then its oldest provider checkpoints.
+It never drops gates, permissions, or calls that have not settled. When those alone do not fit, the new call is refused before it runs, and the user reads `session.full`.
+A result larger than `maxOutcomeBytes` settles as the call's `result_too_large` failure. The call is never left unresolved because of its size.
+The handler fits each state to the store's capacity before `compareAndSwap`.
 
 The default memory store coordinates handlers that share the same store object.
 It retains unexpired gates, unresolved operations, and unexpired outcomes during idle and capacity eviction.

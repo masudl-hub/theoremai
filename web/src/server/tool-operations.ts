@@ -97,10 +97,14 @@ function saveOutcome(
 }
 
 export function sessionToolCoordinator(
-  store: { mutate<T>(id: string, change: (state: TheoremSessionState) => T): Promise<T> },
+  store: {
+    readonly capacity: { maxOutcomeBytes: number };
+    mutate<T>(id: string, change: (state: TheoremSessionState) => T): Promise<T>;
+  },
   sessionId: string,
 ): ToolExecutionCoordinator {
   return {
+    maxOutcomeBytes: store.capacity.maxOutcomeBytes,
     lookup(identity) {
       return store.mutate(sessionId, (state) => {
         const record = checkedRecord(state, identity);

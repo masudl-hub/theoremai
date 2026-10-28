@@ -66,13 +66,19 @@ Deno.test('live context stays untrusted and system-role history never reaches se
   assertEquals(prepared.history, [{ role: 'user', content: 'hello' }]);
 });
 
-Deno.test('live checkpoint eviction is finite, deduplicated, and refreshes retained identities', async () => {
-  const store = createMemorySessionStore();
+Deno.test('live checkpoints are deduplicated and the oldest drops when the session is full', async () => {
+  const probe = createMemorySessionStore();
+  await (
+    await createTheoremSessionBoundary({ request, session: () => 'probe', sessionStore: probe })
+  ).recordCheckpoint(checkpoint);
+  const one = JSON.stringify((await probe.load('probe'))?.state).length;
+  const store = createMemorySessionStore({
+    capacity: { maxStateBytes: one, maxOutcomeBytes: one },
+  });
   const boundary = await createTheoremSessionBoundary({
     request,
     session: () => 'retained',
     sessionStore: store,
-    sessionLimits: { maxCheckpoints: 1 },
   });
   await boundary.recordCheckpoint(checkpoint);
   await boundary.recordCheckpoint(checkpoint);

@@ -465,6 +465,7 @@ export type {
   ToolOperationUncertainty,
 } from './src/kernel/tools/operation.ts';
 export {
+  DEFAULT_MAX_OUTCOME_BYTES,
   savedToolInvocationSchema,
   toolInvocationHash,
   toolOperationOutcomeSchema,

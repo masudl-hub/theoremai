@@ -1,5 +1,5 @@
 import { labelText, TheoremError, z } from '@theoremjs/agents';
-import { checkSessionLimits, type TheoremSessionLimits } from './session-limits.ts';
+import { checkedCapacity, fitSession, type TheoremSessionCapacity } from './session-limits.ts';
 import {
   emptySessionState,
   pruneGates,
@@ -11,18 +11,22 @@ export type MutableStore<T> = {
   read(sessionId: string): Promise<T>;
   mutate<R>(sessionId: string, change: (value: T) => R | Promise<R>): Promise<R>;
 };
+/** Session state with the capacity its store declared. */
+export type SessionStateStore = MutableStore<TheoremSessionState> & {
+  readonly capacity: TheoremSessionCapacity;
+};
 /** Session state, with expired gates dropped as it loads so they can't be answered. */
 export function sessionStateStore(
   store: TheoremSessionStore,
   gateTtlMs: number,
   operationRetentionMs: number,
-  limits: TheoremSessionLimits,
-): MutableStore<TheoremSessionState> {
+): SessionStateStore {
   if (typeof store.compareAndSwap !== 'function') {
     throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'session_store_contract', required: 'compareAndSwap' },
     });
   }
+  const capacity = checkedCapacity(store.capacity);
   const writeResult = z.discriminatedUnion('written', [
     z.strictObject({ written: z.literal(false) }),
     z.strictObject({ written: z.literal(true), revision: z.string().min(1) }),
@@ -57,6 +61,7 @@ export function sessionStateStore(
     return { revision: snapshot?.revision ?? null, state };
   };
   return {
+    capacity,
     async read(sessionId) {
       return (await load(sessionId, Date.now())).state;
     },
@@ -71,7 +76,7 @@ export function sessionStateStore(
           if (operation.status === 'settled')
             operation.retainUntil ??= operation.settledAt + operationRetentionMs;
         }
-        checkSessionLimits(state, limits);
+        fitSession(state, capacity);
         const next = theoremSessionStateSchema.safeParse(state);
         if (!next.success) {
           throw new TheoremError('config', labelText('error.config'), {

@@ -1,5 +1,9 @@
 import { z } from '../../mod.ts';
-import { type TheoremSessionStore, theoremSessionStateSchema } from '../../web/src/server/mod.ts';
+import {
+  DEFAULT_SESSION_CAPACITY,
+  type TheoremSessionStore,
+  theoremSessionStateSchema,
+} from '../../web/src/server/mod.ts';
 
 const snapshotSchema = z.strictObject({
   revision: z.string().min(1),
@@ -35,6 +39,7 @@ export function sqliteSessionStore(path: string): TheoremSessionStore {
     return JSON.parse(new TextDecoder().decode(output.stdout)) as unknown;
   };
   return {
+    capacity: DEFAULT_SESSION_CAPACITY,
     async load(sessionId) {
       const result = await run('load', sessionId);
       return result === null ? undefined : snapshotSchema.parse(result);

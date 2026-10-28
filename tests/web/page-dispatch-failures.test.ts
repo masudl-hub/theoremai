@@ -5,17 +5,11 @@ import {
   sessionPageDispatch,
 } from '../../web/src/server/page-dispatch.ts';
 import { sessionStateStore } from '../../web/src/server/session-authority.ts';
-import { resolveSessionLimits } from '../../web/src/server/session-limits.ts';
 import { createMemorySessionStore } from '../../web/src/server/session-store.ts';
 import { sessionToolCoordinator } from '../../web/src/server/tool-operations.ts';
 
 async function authority() {
-  const store = sessionStateStore(
-    createMemorySessionStore(),
-    30 * 60_000,
-    86_400_000,
-    resolveSessionLimits(),
-  );
+  const store = sessionStateStore(createMemorySessionStore(), 30 * 60_000, 86_400_000);
   const execution = sessionToolCoordinator(store, 'owner');
   const identity: ToolOperationIdentity = {
     operationId: 'operation',

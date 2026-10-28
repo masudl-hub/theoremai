@@ -2,7 +2,9 @@ import { errorKind, type TheoremError, throwIfAborted } from '../../guardrails/e
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import type { ToolGate } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
+import { failureEvent } from './events.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
+import { formatToolFailureForModel } from './model-text.ts';
 import {
   heldOperation,
   operationBroken,
@@ -16,6 +18,7 @@ import {
   toolOperationOutcomeSchema,
   unresolvedOperation,
 } from './operation.ts';
+import type { ToolFailure } from './types.ts';
 
 class ReplayedOperation {
   constructor(readonly outcome: ToolOperationOutcome) {}
@@ -68,10 +71,12 @@ class CoordinatedExecution {
     return true;
   }
 
-  async finish(settlement: ToolExecuteSettlement): Promise<TerminalToolEvent | undefined> {
+  async finish(
+    settlement: ToolExecuteSettlement,
+  ): Promise<{ terminal?: TerminalToolEvent; settlement: ToolExecuteSettlement }> {
     if (settlement.gated) {
       if (this.claim) throw gateAfterClaim(settlement.gated);
-      return undefined;
+      return { settlement };
     }
     if (!this.terminal) throw operationBroken('The tool run ended with no terminal event'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const {
@@ -99,12 +104,35 @@ class CoordinatedExecution {
         pendingInject,
       },
     };
+    const whole = toolOperationOutcomeSchema.parse(operationWireValue(outcome));
+    const saved = this.withinLimit(whole);
     this.writeFailed = true;
-    const saved = toolOperationOutcomeSchema.parse(operationWireValue(outcome));
     if (this.claim) await this.coordinator.settle(this.claim, saved);
     else await this.coordinator.settleNotStarted(this.operation, saved);
     this.committed = true;
-    return saved.event;
+    return { terminal: saved.event, settlement: saved === whole ? settlement : saved.replay };
+  }
+
+  /**
+   * why: A result the coordinator cannot keep would leave a call that ran unresolved. It settles as
+   * a failure that names its size instead, and the model reads that failure, not the result.
+   */
+  private withinLimit(outcome: ToolOperationOutcome): ToolOperationOutcome {
+    const bytes = new TextEncoder().encode(JSON.stringify(outcome)).byteLength;
+    const limit = this.coordinator.maxOutcomeBytes;
+    if (bytes <= limit) return outcome;
+    const { name, callId, operationId } = outcome.event.tool;
+    const failure: ToolFailure = {
+      code: 'result_too_large',
+      kind: 'bad_response',
+      message: `The result of ${name} is ${bytes} bytes, more than the ${limit} bytes kept for one tool result`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      details: { bytes, maxOutcomeBytes: limit },
+    };
+    const modelResult = formatToolFailureForModel(failure);
+    const event = failureEvent({ name, callId, ...(operationId ? { operationId } : {}) }, failure);
+    return toolOperationOutcomeSchema.parse(
+      operationWireValue({ event, effects: outcome.effects, replay: { modelResult, failure } }),
+    );
   }
 
   replay(error: ReplayedOperation): ToolOperationOutcome {
@@ -171,9 +199,9 @@ export async function* coordinateTool(
     for (;;) {
       const next = await iterator.next();
       if (next.done) {
-        const terminal = await execution.finish(next.value);
+        const { terminal, settlement } = await execution.finish(next.value);
         if (terminal) yield terminal;
-        return next.value;
+        return settlement;
       }
       if (execution.observe(next.value)) yield next.value;
     }

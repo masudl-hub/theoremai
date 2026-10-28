@@ -1,6 +1,7 @@
 import { TheoremError } from '../../guardrails/error.ts';
 import {
   type BeginToolOperationResult,
+  DEFAULT_MAX_OUTCOME_BYTES,
   operationBroken,
   type ToolExecutionCoordinator,
   type ToolOperationClaim,
@@ -14,6 +15,8 @@ const DEFAULT_MEMORY_EXECUTION_LIMIT = 256;
 export interface MemoryToolExecutionOptions {
   /** The most operations it holds. A full coordinator refuses dispatch and keeps what it has. */
   maxOperations?: number;
+  /** The most bytes it keeps for one tool result. Default {@linkcode DEFAULT_MAX_OUTCOME_BYTES}. */
+  maxOutcomeBytes?: number;
 }
 
 type OperationRecord =
@@ -54,6 +57,7 @@ export function createMemoryToolExecution(
   const notHeld = () =>
     operationBroken('The memory tool coordinator holds no running claim for this token'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   return {
+    maxOutcomeBytes: options.maxOutcomeBytes ?? DEFAULT_MAX_OUTCOME_BYTES,
     lookup: (operation) => Promise.resolve(known(operation)),
     begin: (operation) => {
       const earlier = known(operation);

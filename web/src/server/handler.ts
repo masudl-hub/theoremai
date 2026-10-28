@@ -122,7 +122,11 @@ import {
   type TheoremCredentialStore,
   type TheoremCredentials,
 } from './credential-store.ts';
-import { type MutableStore, sessionStateStore } from './session-authority.ts';
+import {
+  type MutableStore,
+  type SessionStateStore,
+  sessionStateStore,
+} from './session-authority.ts';
 import { type Session, theoremSession } from './session-identity.ts';
 
 export { theoremSession, theoremSessionId } from './session-identity.ts';
@@ -130,7 +134,6 @@ export { theoremSession, theoremSessionId } from './session-identity.ts';
 import { jsonResponse } from './json-response.ts';
 import { boundedRequestJson, requestByteLimit } from './request-body.ts';
 import { checkRequest } from './request-check.ts';
-import { resolveSessionLimits, type TheoremSessionLimits } from './session-limits.ts';
 import {
   createMemorySessionStore,
   DEFAULT_OPERATION_RETENTION_MS,
@@ -210,8 +213,6 @@ export type TheoremHandlerOptions = {
   gateTtlMs?: number;
   /** Retain settled tool results in milliseconds. Default: 24 hours. */
   operationRetentionMs?: number;
-  /** Finite per-session bounds. Unresolved authority is never evicted to satisfy them. */
-  sessionLimits?: Partial<TheoremSessionLimits>;
   /** Maximum UTF-8 request body bytes before JSON parsing. Default: 16 MiB. */
   maxRequestBytes?: number;
   pageToolBroker?: PageToolBroker;
@@ -358,7 +359,7 @@ type HandlerContext = {
   /** A chat's: none for a host profile, which takes no messages. */
   chat?: ChatContext;
   inbox: SteerInbox;
-  sessions: MutableStore<TheoremSessionState>;
+  sessions: SessionStateStore;
   pageToolBroker: PageToolBroker;
   credentials: MutableStore<TheoremCredentials>;
 };
@@ -1232,7 +1233,6 @@ function serve(
       cause: { code: 'operation_retention' },
     });
   }
-  const limits = resolveSessionLimits(options.sessionLimits);
   requestByteLimit(options.maxRequestBytes);
   registerProfile(profile);
   const ctx: HandlerContext = {
@@ -1242,10 +1242,9 @@ function serve(
     ...(chatOptions.chat ? { chat: chatOptions.chat } : {}),
     inbox: chatOptions.steerInbox ?? createMemorySteerInbox(),
     sessions: sessionStateStore(
-      options.sessionStore ?? createMemorySessionStore({ sessionLimits: limits }),
+      options.sessionStore ?? createMemorySessionStore(),
       gateTtlMs,
       operationRetentionMs,
-      limits,
     ),
     credentials: lockedStore(
       options.credentialStore ?? createMemoryCredentialStore(),

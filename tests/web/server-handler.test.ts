@@ -27,6 +27,7 @@ import {
   createMemorySessionStore,
   createSealedConversationStore,
   createTheoremHandler,
+  DEFAULT_SESSION_CAPACITY,
   type TheoremConversationStore,
   type TheoremCredentialStore,
   type TheoremCredentials,
@@ -741,6 +742,7 @@ Deno.test('invalid stored authority fails before provider access', async () => {
       },
       session: () => 'invalid',
       sessionStore: {
+        capacity: DEFAULT_SESSION_CAPACITY,
         load: () =>
           Promise.resolve({ revision: 'stored', state: JSON.parse(JSON.stringify(state)) }),
         compareAndSwap: () => {
@@ -763,6 +765,7 @@ Deno.test('eight session conflicts fail without invoking a tool', async () => {
   let conflict = false;
   let attempts = 0;
   const store: TheoremSessionStore = {
+    capacity: memory.capacity,
     load: (id) => memory.load(id),
     compareAndSwap: (id, revision, next) => {
       if (!conflict) return memory.compareAndSwap(id, revision, next);
@@ -819,6 +822,7 @@ Deno.test('invalid or reused write revisions cannot release an approval', async 
       provider: () => fixtureHostOptions(toolCallingProvider('handler_delete', 'must-not-execute')),
       session: () => 'invalid-write',
       sessionStore: {
+        capacity: memory.capacity,
         load: (id) => memory.load(id),
         compareAndSwap: (id, revision, next) => {
           if (!corrupt) return memory.compareAndSwap(id, revision, next);

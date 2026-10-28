@@ -2785,26 +2785,31 @@ function ClearHistoryButton({ run }: { run: ConversationRun }) {
 /** The types whose conversation a trace can hold, and so open and replay. */
 const NO_CONVERSATION = new Set(['decision', 'host', 'embedding', 'live']);
 
-/** Replay exchange, for a type whose conversation a trace holds. */
+/** A type whose conversation a trace holds, and so can open and replay. */
+const holdsConversation = (payload: WorkspaceCompile['payload']) =>
+  payload != null && !NO_CONVERSATION.has(payload.profile.type);
+
+/** Replay exchange: switches between the live conversation and the replay, which keeps its trace. */
 function ReplayExchangeButton({
-  payload,
   tracing,
   isIconOnly,
 }: {
-  payload: WorkspaceCompile['payload'];
-  tracing: { open: boolean; show: () => void };
+  tracing: { open: boolean; toggle: () => void };
   isIconOnly: boolean;
 }) {
-  // why: the replay closes from its own card's X, so this only opens it.
-  if (payload == null || NO_CONVERSATION.has(payload.profile.type) || tracing.open) return null;
   return (
     <Button
       label="Replay exchange"
       isIconOnly={isIconOnly}
-      variant="ghost"
-      tooltip="Open a recorded conversation (a .trace.json file) to see what happened, then replay its messages through this agent as it is now and compare"
+      variant={tracing.open ? 'secondary' : 'ghost'}
+      tooltip={
+        tracing.open
+          ? 'Back to the live conversation. The trace stays loaded.'
+          : 'Open a recorded conversation (a .trace.json file) to see what happened, then replay its messages through this agent as it is now and compare'
+      }
       icon={<Icon icon={IconFileImport} size="sm" />}
-      onClick={tracing.show}
+      aria-pressed={tracing.open}
+      onClick={tracing.toggle}
     />
   );
 }
@@ -2832,7 +2837,7 @@ function PreviewHeader({
   /** The guardrail test is open in the conversation's place. */
   testing: boolean;
   /** The imported trace's console, over the conversation. */
-  tracing: { open: boolean; show: () => void };
+  tracing: { open: boolean; toggle: () => void };
   setSheet: (sheet: Sheet) => void;
 }) {
   const traceLabel = trace.open ? 'Hide trace' : 'View trace';
@@ -2856,12 +2861,8 @@ function PreviewHeader({
             {compile.payload && run.isUsed && !testing && !tracing.open && (
               <ClearHistoryButton run={run} />
             )}
-            {!testing && (
-              <ReplayExchangeButton
-                payload={compile.payload}
-                tracing={tracing}
-                isIconOnly={iconsOnly}
-              />
+            {!testing && holdsConversation(compile.payload) && (
+              <ReplayExchangeButton tracing={tracing} isIconOnly={iconsOnly} />
             )}
             {(compile.traced || tracing.open) && !testing ? (
               <Button
@@ -2955,6 +2956,7 @@ function PreviewBody({
   traceOpen,
   testing,
   tracing,
+  replaying,
   feedOf,
   onIssue,
 }: {
@@ -2967,8 +2969,10 @@ function PreviewBody({
   profileId: string | undefined;
   traceOpen: boolean;
   testing: boolean;
-  /** The imported trace's console, shown over the conversation while it is open. */
+  /** The imported trace's console, once opened; kept while the live conversation shows. */
   tracing: ReactNode;
+  /** The console shows in the conversation's place. */
+  replaying: boolean;
   /** The feed each runner's trace records land in. */
   feedOf: (runKey: string) => TraceFeed;
   onIssue: (node: string) => void;
@@ -3020,32 +3024,34 @@ function PreviewBody({
               </Suspense>
             )}
           </RaisedPane>
-        ) : (
-          tracing
-        )
+        ) : null
       }
     >
-      <VStack height="100%">
-        <StackItem size="fill">
-          {blocked}
-          {kept.map(([key, { props }]) => {
-            const isShown = shown !== null && key === run.runKey;
-            return (
-              // Hidden, not unmounted: a call it is running goes on, and what it showed stays.
-              <div key={key} style={{ display: isShown ? 'contents' : 'none' }}>
-                <StudioRunner
-                  {...props}
-                  mode={connection.mode}
-                  runtime={connection.runtime}
-                  trace={traced ? traceOpen : undefined}
-                  chatRef={isShown ? chatRef : undefined}
-                  traces={feedOf(key)}
-                />
-              </div>
-            );
-          })}
-        </StackItem>
-      </VStack>
+      {/* Hidden, not unmounted: the replay and what it showed stay for the way back. */}
+      <div style={{ display: replaying ? 'contents' : 'none' }}>{tracing}</div>
+      <div style={{ display: replaying ? 'none' : 'contents' }}>
+        <VStack height="100%">
+          <StackItem size="fill">
+            {blocked}
+            {kept.map(([key, { props }]) => {
+              const isShown = shown !== null && key === run.runKey;
+              return (
+                // Hidden, not unmounted: a call it is running goes on, and what it showed stays.
+                <div key={key} style={{ display: isShown ? 'contents' : 'none' }}>
+                  <StudioRunner
+                    {...props}
+                    mode={connection.mode}
+                    runtime={connection.runtime}
+                    trace={traced ? traceOpen : undefined}
+                    chatRef={isShown ? chatRef : undefined}
+                    traces={feedOf(key)}
+                  />
+                </div>
+              );
+            })}
+          </StackItem>
+        </VStack>
+      </div>
     </InPlace>
   );
 }
@@ -3155,16 +3161,17 @@ const PreviewPane = memo(function PreviewPane({
   testing: boolean;
 }) {
   const [traceOpen, setTraceOpen] = useState(false);
-  const [imported, setTracing] = useState(false);
+  const [replaying, setReplaying] = useState(false);
+  // why: the console mounts on first open and stays, so the way back finds the replay as it was.
+  const [kept, setKept] = useState(false);
   const [openedTrace, setOpenedTrace] = useState<OpenedTrace>();
-  // why: The guardrail test covers an imported trace too; closing the test shows it again.
-  const tracing = imported && !testing;
   const feedOf = useRunFeeds(run.generation);
   const profileId = chatAgents.find((agent) => agent.value === chatWith)?.label;
   const sendNext = useSendAfterResume(chatRef, run.runKey);
   const { payload } = compile;
+  const replay = replaying && holdsConversation(payload);
   const traceView =
-    tracing && payload ? (
+    kept && payload ? (
       <Suspense fallback={null}>
         <TraceReplay
           payload={payload}
@@ -3172,12 +3179,12 @@ const PreviewPane = memo(function PreviewPane({
           trace={traceOpen}
           opened={openedTrace}
           onOpened={setOpenedTrace}
-          onClose={() => {
-            setTracing(false);
+          onClear={() => {
+            setOpenedTrace(undefined);
           }}
           onLive={({ conversation, view, text }) => {
             run.resume(conversation, view);
-            setTracing(false);
+            setReplaying(false);
             sendNext(text);
           }}
         />
@@ -3201,9 +3208,10 @@ const PreviewPane = memo(function PreviewPane({
           }}
           testing={testing}
           tracing={{
-            open: tracing,
-            show: () => {
-              setTracing(true);
+            open: replay,
+            toggle: () => {
+              setKept(true);
+              setReplaying(!replay);
             },
           }}
           setSheet={setSheet}
@@ -3219,6 +3227,7 @@ const PreviewPane = memo(function PreviewPane({
             traceOpen={traceOpen}
             testing={testing}
             tracing={traceView}
+            replaying={replay}
             feedOf={feedOf}
             onIssue={onIssue}
           />

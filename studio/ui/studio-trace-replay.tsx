@@ -13,6 +13,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
+import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
@@ -215,6 +216,7 @@ interface TraceControls {
   isRunning: boolean;
   onReplay: () => void;
   onStop: () => void;
+  onClear: () => void;
 }
 
 const recordedAt = (script: ReplayScript) =>
@@ -252,14 +254,26 @@ function TraceFacts({ controls }: { controls: TraceControls }) {
   ];
   return (
     <>
-      <VStack gap={0}>
-        <Text type="label" maxLines={1}>
-          {controls.opened.name}
-        </Text>
-        <Text type="supporting" color="secondary" maxLines={1}>
-          {facts.filter(Boolean).join(' · ')}
-        </Text>
-      </VStack>
+      <HStack gap={2} vAlign="center">
+        <StackItem size="fill">
+          <VStack gap={0}>
+            <Text type="label" maxLines={1}>
+              {controls.opened.name}
+            </Text>
+            <Text type="supporting" color="secondary" maxLines={1}>
+              {facts.filter(Boolean).join(' · ')}
+            </Text>
+          </VStack>
+        </StackItem>
+        <IconButton
+          label="Clear trace"
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconX} size="sm" />}
+          isDisabled={controls.isRunning}
+          onClick={controls.onClear}
+        />
+      </HStack>
       {script.agent && script.agent !== payload.profile.id ? (
         <Banner
           status="info"
@@ -281,14 +295,12 @@ function TraceFacts({ controls }: { controls: TraceControls }) {
 
 const idle = () => undefined;
 
-/** The trace card: the file, what it recorded, and Replay; its X goes back to the live conversation. */
+/** The trace card: the file, what it recorded, and Replay. */
 function TraceCard({
   onImport,
-  onClose,
   controls,
 }: {
   onImport: (trace: OpenedTrace) => void;
-  onClose: () => void;
   controls?: TraceControls;
 }) {
   const replay = controls?.onReplay ?? idle;
@@ -297,19 +309,7 @@ function TraceCard({
       title="Trace"
       onRun={replay}
       actions={
-        <HStack gap={2} vAlign="center">
-          {controls?.shown ? (
-            <ShownControl shown={controls.shown} onShown={controls.onShown} />
-          ) : null}
-          <IconButton
-            label="Back to the live conversation"
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={IconX} size="sm" />}
-            tooltip="Back to the live conversation. The trace stays loaded for Replay exchange."
-            onClick={onClose}
-          />
-        </HStack>
+        controls?.shown ? <ShownControl shown={controls.shown} onShown={controls.onShown} /> : null
       }
     >
       <TraceFileInput onImport={onImport} />
@@ -577,8 +577,8 @@ export type TraceReplayProps = {
   /** The imported file, held by the page so closing the console does not lose it. */
   opened: OpenedTrace | undefined;
   onOpened: (trace: OpenedTrace) => void;
-  /** Back to the live conversation. */
-  onClose: () => void;
+  /** Lets go of the imported file. */
+  onClear: () => void;
 };
 
 /**
@@ -602,7 +602,7 @@ function TraceConsole({
   onLive,
   opened,
   onOpened,
-  onClose,
+  onClear,
 }: TraceReplayProps) {
   const iface = useMemo(() => studioInterface(payload), [payload]);
   const script = useMemo(() => opened && replayScript(opened.records), [opened]);
@@ -627,14 +627,13 @@ function TraceConsole({
         iface={iface}
         feed={recorded}
         trace={trace}
-        card={<TraceCard onImport={imported} onClose={onClose} />}
+        card={<TraceCard onImport={imported} />}
         conversation={null}
       />
     );
   const card = ({ isRunning, onStop }: Pick<TraceControls, 'isRunning' | 'onStop'>) => (
     <TraceCard
       onImport={imported}
-      onClose={onClose}
       controls={{
         opened,
         script,
@@ -649,6 +648,7 @@ function TraceConsole({
         isRunning,
         onReplay: replayOnce,
         onStop,
+        onClear,
       }}
     />
   );

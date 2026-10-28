@@ -9,10 +9,14 @@
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { FileInput } from '@astryxdesign/core/FileInput';
+import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Switch } from '@astryxdesign/core/Switch';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
+import { IconX } from '@tabler/icons-react';
 import type {
   ComposerProfileInterface,
   ProfileInterface,
@@ -277,12 +281,14 @@ function TraceFacts({ controls }: { controls: TraceControls }) {
 
 const idle = () => undefined;
 
-/** The trace card: the file, what it recorded, and Replay. */
+/** The trace card: the file, what it recorded, and Replay; its X goes back to the live conversation. */
 function TraceCard({
   onImport,
+  onClose,
   controls,
 }: {
   onImport: (trace: OpenedTrace) => void;
+  onClose: () => void;
   controls?: TraceControls;
 }) {
   const replay = controls?.onReplay ?? idle;
@@ -291,7 +297,19 @@ function TraceCard({
       title="Trace"
       onRun={replay}
       actions={
-        controls?.shown ? <ShownControl shown={controls.shown} onShown={controls.onShown} /> : null
+        <HStack gap={2} vAlign="center">
+          {controls?.shown ? (
+            <ShownControl shown={controls.shown} onShown={controls.onShown} />
+          ) : null}
+          <IconButton
+            label="Back to the live conversation"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconX} size="sm" />}
+            tooltip="Back to the live conversation. The trace stays loaded for Replay exchange."
+            onClick={onClose}
+          />
+        </HStack>
       }
     >
       <TraceFileInput onImport={onImport} />
@@ -556,6 +574,11 @@ export type TraceReplayProps = {
   trace: boolean | undefined;
   runtime: StudioBrowserRuntime | null;
   onLive: (start: LiveStart) => void;
+  /** The imported file, held by the page so closing the console does not lose it. */
+  opened: OpenedTrace | undefined;
+  onOpened: (trace: OpenedTrace) => void;
+  /** Back to the live conversation. */
+  onClose: () => void;
 };
 
 /**
@@ -572,16 +595,23 @@ export function TraceReplay(props: TraceReplayProps) {
   );
 }
 
-function TraceConsole({ payload, trace, runtime, onLive }: TraceReplayProps) {
+function TraceConsole({
+  payload,
+  trace,
+  runtime,
+  onLive,
+  opened,
+  onOpened,
+  onClose,
+}: TraceReplayProps) {
   const iface = useMemo(() => studioInterface(payload), [payload]);
-  const [opened, setOpened] = useState<OpenedTrace>();
   const script = useMemo(() => opened && replayScript(opened.records), [opened]);
   const recorded = useMemo(() => recordedFeed(opened?.records ?? []), [opened]);
   const [attempt, setAttempt] = useState(0);
   const [shown, setShown] = useState<Shown>('recorded');
   const [liveTools, setLiveTools] = useState(false);
   const imported = (next: OpenedTrace) => {
-    setOpened(next);
+    onOpened(next);
     setAttempt(0);
     setShown('recorded');
   };
@@ -597,13 +627,14 @@ function TraceConsole({ payload, trace, runtime, onLive }: TraceReplayProps) {
         iface={iface}
         feed={recorded}
         trace={trace}
-        card={<TraceCard onImport={imported} />}
+        card={<TraceCard onImport={imported} onClose={onClose} />}
         conversation={null}
       />
     );
   const card = ({ isRunning, onStop }: Pick<TraceControls, 'isRunning' | 'onStop'>) => (
     <TraceCard
       onImport={imported}
+      onClose={onClose}
       controls={{
         opened,
         script,

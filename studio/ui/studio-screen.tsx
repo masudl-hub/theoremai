@@ -238,6 +238,7 @@ import {
 import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
+import type { OpenedTrace } from './studio-trace-replay.tsx';
 import { useBelowDesktop } from './use-phone.ts';
 
 // The tester, Settings, the map and the code view load when they first open, or once the page is idle.
@@ -2791,23 +2792,19 @@ function ReplayExchangeButton({
   isIconOnly,
 }: {
   payload: WorkspaceCompile['payload'];
-  tracing: { open: boolean; toggle: () => void };
+  tracing: { open: boolean; show: () => void };
   isIconOnly: boolean;
 }) {
-  if (payload == null || NO_CONVERSATION.has(payload.profile.type)) return null;
+  // why: the replay closes from its own card's X, so this only opens it.
+  if (payload == null || NO_CONVERSATION.has(payload.profile.type) || tracing.open) return null;
   return (
     <Button
-      label={tracing.open ? 'Close replay' : 'Replay exchange'}
+      label="Replay exchange"
       isIconOnly={isIconOnly}
-      variant={tracing.open ? 'secondary' : 'ghost'}
-      tooltip={
-        tracing.open
-          ? 'Back to the live conversation'
-          : 'Open a recorded conversation (a .trace.json file) to see what happened, then replay its messages through this agent as it is now and compare'
-      }
+      variant="ghost"
+      tooltip="Open a recorded conversation (a .trace.json file) to see what happened, then replay its messages through this agent as it is now and compare"
       icon={<Icon icon={IconFileImport} size="sm" />}
-      aria-pressed={tracing.open}
-      onClick={tracing.toggle}
+      onClick={tracing.show}
     />
   );
 }
@@ -2835,7 +2832,7 @@ function PreviewHeader({
   /** The guardrail test is open in the conversation's place. */
   testing: boolean;
   /** The imported trace's console, over the conversation. */
-  tracing: { open: boolean; toggle: () => void };
+  tracing: { open: boolean; show: () => void };
   setSheet: (sheet: Sheet) => void;
 }) {
   const traceLabel = trace.open ? 'Hide trace' : 'View trace';
@@ -3159,6 +3156,7 @@ const PreviewPane = memo(function PreviewPane({
 }) {
   const [traceOpen, setTraceOpen] = useState(false);
   const [imported, setTracing] = useState(false);
+  const [openedTrace, setOpenedTrace] = useState<OpenedTrace>();
   // why: The guardrail test covers an imported trace too; closing the test shows it again.
   const tracing = imported && !testing;
   const feedOf = useRunFeeds(run.generation);
@@ -3172,6 +3170,11 @@ const PreviewPane = memo(function PreviewPane({
           payload={payload}
           runtime={connection.runtime}
           trace={traceOpen}
+          opened={openedTrace}
+          onOpened={setOpenedTrace}
+          onClose={() => {
+            setTracing(false);
+          }}
           onLive={({ conversation, view, text }) => {
             run.resume(conversation, view);
             setTracing(false);
@@ -3199,8 +3202,8 @@ const PreviewPane = memo(function PreviewPane({
           testing={testing}
           tracing={{
             open: tracing,
-            toggle: () => {
-              setTracing((open) => !open);
+            show: () => {
+              setTracing(true);
             },
           }}
           setSheet={setSheet}

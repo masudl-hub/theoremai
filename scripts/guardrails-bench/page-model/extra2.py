@@ -4,7 +4,9 @@
 #   quick: the corpus nvidia-ipi rows that no sample, screen or newsets row holds.
 #   pages: BrowseSafe++ train pairs that newsets2.py did not draw, English pages only, both pages of each as Markdown;
 #          PAIRS of them (default 4,000) at random.
-# Usage: [PAIRS=n] extra2.py <fair|quick|pages> <data dir> <out.jsonl>
+#   bsb:   BrowseSafe-Bench train pages as raw HTML. A page that holds 120 characters from the middle of a BrowseSafe bench row is
+#          dropped, since A37 drew the bsafe-validate rows from this split with a title line added.
+# Usage: [PAIRS=n] extra2.py <fair|quick|pages|bsb> <data dir> <out.jsonl>
 import json, sys, random, os, glob
 mode, D, out = sys.argv[1:4]; C = f'{D}/linear-2210/clf'
 ev = set()
@@ -29,6 +31,18 @@ elif mode == 'pages':
     pairs = sorted(k for k, v in bs.items() if k not in drawn and set(v) == {'malicious', 'benign'} and all(x['language_page'] == ['en'] for x in v.values()))
     for k in random.sample(pairs, min(int(os.environ.get('PAIRS', '4000')), len(pairs))):
         for arm in ('malicious', 'benign'): put('bspp-train', int(arm == 'malicious'), bs[k][arm]['content_markdown'] or '')
+elif mode == 'bsb':
+    import pyarrow.parquet as pq, bisect
+    bench = [r['text'] for f in (f'{C}/texts.jsonl', f'{C}/sample.jsonl', f'{C}/screen.jsonl') for r in map(json.loads, open(f)) if 'bsafe' in r['set'] or 'browsesafe' in r['set']]
+    pages = pq.read_table(f'{D}/new-2210b/browsesafe/train.parquet').to_pylist(); starts, at = [], 0
+    for r in pages: starts.append(at); at += len(r['content']) + 1
+    blob, drop = '\x00'.join(r['content'] for r in pages), set()
+    for t in {t[len(t) // 2: len(t) // 2 + 120] for t in bench if len(t) > 400}:
+        i = blob.find(t)
+        while i >= 0: drop.add(bisect.bisect_right(starts, i) - 1); i = blob.find(t, i + 1)
+    for k, r in enumerate(pages):
+        if k not in drop: put('bsb-train', int(r['label'] == 'yes'), r['content'])
+    print(len(drop), 'pages dropped for a bench row')
 else:
     sample = set()
     for f in (f'{C}/sample.jsonl', f'{C}/screen.jsonl', f'{C}/newsets/rows2.jsonl'): sample |= {json.loads(l)['text'] for l in open(f)}

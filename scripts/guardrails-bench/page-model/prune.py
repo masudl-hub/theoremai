@@ -1,6 +1,6 @@
 # Horizon small cut to the chosen layers and the 76k-token vocabulary, trained to copy Horizon on its windows (teach4.jsonl),
 # then scored on EVAL with score.py's windows. Saves to prune/<name> when the SELECT metric on held-out windows improves.
-# DEV=cuda AMP=1 trains in fp16 (a T4 has no bf16). NOSCORE=1 stops after training. LOAD=<dir> starts from a saved model.
+# DEV=cuda AMP=1 trains in fp16 (a T4 has no bf16). On MPS the cache is emptied every 100 batches, or it grows past 40 GB. NOSCORE=1 stops after training. LOAD=<dir> starts from a saved model.
 # SRC=<dir> cuts from a saved cut model instead of Horizon; TMAP then names the Horizon layer behind each kept layer.
 # LOSS=bce copies Horizon's probability; LOSS=mse copies its logit. HID=<weight> also copies the hidden state of the Horizon layer
 # behind each kept layer (Horizon runs alongside). SCHED=cos warms up for 6% of steps, then decays the learning rate to 0.
@@ -87,7 +87,7 @@ if __name__ == '__main__':
     best = -1.0
     for ep in range(EP):
         tr.sort(key=lambda k: len(ids[k]) + random.random() * 64); bs = pages() if PAGE else [tr[s:s + B] for s in range(0, len(tr), B)]; random.shuffle(bs); tot = 0
-        for ks in bs:
+        for nb, ks in enumerate(bs):
             x, am = batch(ks); out, hs = forward(x, am, hidden=bool(HID or LENS)); t = torch.tensor([tl[k] for k in ks], device=dev); w = torch.tensor([wt[k] for k in ks], device=dev)
             if LOSS == 'bce': loss = (F.binary_cross_entropy_with_logits(out, torch.tensor([p[k] for k in ks], device=dev), reduction='none') * w).mean()
             else: loss = (((out - t) ** 2) * w).mean() / 16
@@ -108,6 +108,7 @@ if __name__ == '__main__':
                         with torch.autocast('cuda', dtype=torch.float16, enabled=amp): sl = lens(m, hs[i + 1], am, False)
                         loss = loss + LENS * F.mse_loss(sl, tlens[i]) / 16 / (len(tmap) - 1)
             opt.zero_grad(); scaler.scale(loss).backward(); scaler.step(opt); scaler.update(); sched.step(); tot += loss.item() * len(ks)
+            if dev == 'mps' and nb % 100 == 99: torch.mps.empty_cache()
         v = evalv(); print('ep', ep, 'loss', round(tot / len(tr), 4), v, round(time.time() - t0), 's', flush=True)
         if v[SELECT] > best: best = v[SELECT]; m.save_pretrained(out_dir); json.dump(remap, open(f'{out_dir}/remap.json', 'w')); print('saved', ep, flush=True)
     if not EP: os.makedirs(out_dir, exist_ok=True)

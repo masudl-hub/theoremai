@@ -3,6 +3,9 @@
 #   teach_set.py extra <extra-raw.jsonl> <texts.jsonl> <extra.jsonl>   the same, and keep only benign bench texts
 #   teach_set.py merge <train2.jsonl> <teach.jsonl> <teach-extra.jsonl> <teach4.jsonl>
 #   teach_set.py append <teach.jsonl> <labelled.jsonl>... <out.jsonl>   adds labelled windows, each file's owners offset past the last
+#   [CAP=0.01] teach_set.py truth <labelled.jsonl> <raw.jsonl> <out.jsonl> caps Horizon's label at CAP on every window of a page
+#                                                                       whose own label is benign, so the student does not learn Horizon's false alarms
+#   [K=10] teach_set.py thin <labelled.jsonl> <out.jsonl>               keeps K windows of each page: Horizon's highest, then others at random
 # merge drops out-of-scope windows (wildjailbreak and spml, ruling R2) and offsets extra owners past train2.
 import json, sys, collections
 step = sys.argv[1]
@@ -24,6 +27,24 @@ elif step == 'merge':
         for l in open(extra):
             w = json.loads(l); w['owner'] += base; o.write(json.dumps(w) + '\n'); n['extra'] += 1
     print(dict(n))
+elif step == 'truth':
+    import os
+    lab, raw, out = sys.argv[2:5]; ys = [json.loads(l)['y'] for l in open(raw)]; cap = float(os.environ.get('CAP', '0.01')); n = collections.Counter()
+    with open(out, 'w') as o:
+        for l in open(lab):
+            w = json.loads(l)
+            if ys[w['owner']] == 0 and w['p'] > cap: w['p'] = cap; n['capped'] += 1
+            n['windows'] += 1; o.write(json.dumps(w) + '\n')
+    print(dict(n))
+elif step == 'thin':
+    import os, random
+    lab, out = sys.argv[2:4]; k = int(os.environ.get('K', '10')); pages = collections.defaultdict(list); random.seed(7)
+    for l in open(lab): w = json.loads(l); pages[w['owner']].append(w)
+    with open(out, 'w') as o:
+        for ws in pages.values():
+            top = max(ws, key=lambda w: w['p']); rest = [w for w in ws if w is not top]
+            for w in [top] + random.sample(rest, min(k - 1, len(rest))): o.write(json.dumps(w) + '\n')
+    print(sum(min(k, len(ws)) for ws in pages.values()), 'of', sum(len(ws) for ws in pages.values()))
 elif step == 'append':
     *srcs, out = sys.argv[2:]; base = 0; n = collections.Counter()
     with open(out, 'w') as o:

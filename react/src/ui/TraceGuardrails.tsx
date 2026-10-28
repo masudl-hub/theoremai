@@ -34,7 +34,8 @@ function HitWhy({ hit, format }: { hit: TraceGuardrailHit; format: Format }) {
           {[
             hit.ruleLabel,
             hit.severityLabel,
-            hit.count > 1 && format.t('@theorem.panel.trace.guardrails.places', { count: hit.count }),
+            hit.count > 1 &&
+              format.t('@theorem.panel.trace.guardrails.places', { count: hit.count }),
           ]
             .filter(Boolean)
             .join(separator)}

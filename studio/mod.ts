@@ -467,6 +467,7 @@ export {
   scopedNodeId,
   setToolAllowed,
   startedHere,
+  type WorkspaceContent,
   type WorkspaceNodeRef,
   type WorkspaceStarts,
   type WorkspaceTree,

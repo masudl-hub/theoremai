@@ -8,6 +8,7 @@ import {
   type UseResizableSingleConfig,
   useResizable,
 } from '@astryxdesign/core/Resizable';
+import { percent, pixel } from '@astryxdesign/core/Resizable/utils';
 import { ScrollableArea } from '@astryxdesign/core/ScrollableArea';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
@@ -18,12 +19,12 @@ import { type ReactNode, type RefObject, useCallback, useId, useState } from 're
 /**
  * `useResizable` sizing for side panels: a third of the layout (pass the
  * Layout as `containerRef` so the percentages resolve), dragged between a
- * readable minimum and half.
+ * readable minimum and half, or the minimum when half is less.
  */
 const SIDE_PANEL_SIZING = {
   defaultSize: '33%',
   minSize: 280,
-  maxSize: '50%',
+  maxSize: percent(50, { min: pixel(280) }),
 } as const satisfies UseResizableSingleConfig;
 
 /** Whether a side panel is wide enough for two readable columns: twice its minimum. */

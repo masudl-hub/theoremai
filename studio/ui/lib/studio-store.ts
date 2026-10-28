@@ -22,6 +22,7 @@ import {
   type ToolSpecDraft,
   toolReach,
   toolSnapshot,
+  type WorkspaceStarts,
   withLibraryDraft,
   withSharedCarry,
   withToolCarry,
@@ -93,14 +94,39 @@ export function keptTool(tool: ToolSpecDraft, started?: ToolSpecDraft): ToolSpec
 export function keptWorkspace(workspace: StudioWorkspace): StudioWorkspace {
   return {
     ...workspace,
-    toolSpecs: workspace.toolSpecs.map((tool) => keptTool(tool, workspace.starts.tools[tool.key])),
-    starts: {
-      ...workspace.starts,
-      tools: Object.fromEntries(
-        Object.entries(workspace.starts.tools).map(([key, tool]) => [key, keptTool(tool)]),
-      ),
-    },
+    toolSpecs: keptLibrary(workspace.toolSpecs, workspace.starts),
+    starts: keptStarts(workspace.starts),
   };
+}
+
+// why: Opening a node writes the workspace again with the same tools; they are masked once.
+// invariant: The workspace never edits a library or its starts in place.
+const keptLibraries = new WeakMap<
+  ToolSpecDraft[],
+  { starts: WorkspaceStarts; kept: ToolSpecDraft[] }
+>();
+const keptStartsOf = new WeakMap<WorkspaceStarts, WorkspaceStarts>();
+
+function keptLibrary(tools: ToolSpecDraft[], starts: WorkspaceStarts): ToolSpecDraft[] {
+  const known = keptLibraries.get(tools);
+  if (known?.starts === starts) return known.kept;
+  const kept = tools.map((tool) => keptTool(tool, starts.tools[tool.key]));
+  keptLibraries.set(tools, { starts, kept });
+  return kept;
+}
+
+function keptStarts(starts: WorkspaceStarts): WorkspaceStarts {
+  let kept = keptStartsOf.get(starts);
+  if (!kept) {
+    kept = {
+      ...starts,
+      tools: Object.fromEntries(
+        Object.entries(starts.tools).map(([key, tool]) => [key, keptTool(tool)]),
+      ),
+    };
+    keptStartsOf.set(starts, kept);
+  }
+  return kept;
 }
 
 /** True when two values are the same, or records holding the same values. */

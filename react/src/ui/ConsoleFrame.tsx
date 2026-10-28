@@ -5,6 +5,7 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { useResizable } from '@astryxdesign/core/Resizable';
+import { percent, pixel } from '@astryxdesign/core/Resizable/utils';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
@@ -255,7 +256,8 @@ function ConsoleColumns({
   const requestPanel = useResizable({
     defaultSize: basisWidth > 0 ? Math.round(basisWidth * 0.4) : '40%',
     minSize: 280,
-    maxSize: '70%',
+    // why: In a narrow pair 70% is below the minimum; the maximum never is.
+    maxSize: percent(70, { min: pixel(280) }),
     containerRef: pairRef,
   });
   const [request, response] = Children.toArray(children);

@@ -38,6 +38,7 @@ import {
   type StudioWorkspace,
   studioInterface,
   studioPageTools,
+  type WorkspaceStarts,
   workspaceRunAgent,
 } from '../mod.ts';
 import { useActingAs } from './lib/acting-as.ts';
@@ -319,37 +320,47 @@ const NOT_A_CHAT = new Set(['decision', 'host', 'live']);
 const isChat = (payload: StudioRunPayload) => !NOT_A_CHAT.has(payload.profile.type);
 
 /**
- * The agent as the files hold it, compiled from where the workspace started: an edit may have
- * renamed it or made it another type. Undefined for an agent the files do not hold.
+ * The agents the files hold, compiled from where the workspace started: an edit may have renamed
+ * one or made it another type. Undefined when the files hold none of them.
  */
-function savedPayload(
-  edits: StudioWorkspace,
-  payload: StudioRunPayload,
+function compileFiles(
+  starts: WorkspaceStarts,
+  providers: StudioWorkspace['providers'],
   profiles: readonly string[],
-): StudioRunPayload | undefined {
-  const inFiles = (agent: { identity: { agentId: string } }) =>
-    profiles.includes(agent.identity.agentId.trim());
-  const key = edits.agents.find((agent) => agent.identity.agentId.trim() === payload.agentId)?.key;
-  const start = key === undefined ? undefined : edits.starts.agents[key];
-  if (!start || !inFiles(start)) return undefined;
-  const agents = Object.values(edits.starts.agents).filter(inFiles);
+) {
+  const agents = Object.values(starts.agents).filter((agent) =>
+    profiles.includes(agent.identity.agentId.trim()),
+  );
   const here = new Set(agents.map((agent) => agent.key));
   // A tool that ran an agent the edits removed has no agent here to run.
-  const toolSpecs = Object.values(edits.starts.tools).filter(
+  const toolSpecs = Object.values(starts.tools).filter(
     (tool) => tool.toolType !== 'agent' || here.has(tool.agentKey ?? ''),
   );
   const held = new Set(toolSpecs.map((tool) => tool.key));
-  const files: StudioWorkspace = {
-    ...edits,
-    agents: agents.map((agent) => ({
-      ...agent,
-      tools: { ...agent.tools, allow: agent.tools.allow.filter((toolKey) => held.has(toolKey)) },
-    })),
-    toolSpecs,
-  };
   // The files run in the project, on its own setup.
-  const compiled = compileWorkspace(files, ON_OWN_KEYS);
-  const run = compiled.ok ? workspaceRunAgent(compiled, start.identity.agentId.trim()) : undefined;
+  const compiled = compileWorkspace(
+    {
+      agents: agents.map((agent) => ({
+        ...agent,
+        tools: { ...agent.tools, allow: agent.tools.allow.filter((toolKey) => held.has(toolKey)) },
+      })),
+      toolSpecs,
+      providers,
+    },
+    ON_OWN_KEYS,
+  );
+  return compiled.ok ? compiled : undefined;
+}
+
+/** The agent as the files hold it, from their compile. Undefined for an agent the files do not hold. */
+function savedPayload(
+  edits: StudioWorkspace,
+  files: NonNullable<ReturnType<typeof compileFiles>>,
+  payload: StudioRunPayload,
+): StudioRunPayload | undefined {
+  const key = edits.agents.find((agent) => agent.identity.agentId.trim() === payload.agentId)?.key;
+  const start = key === undefined ? undefined : edits.starts.agents[key];
+  const run = start && workspaceRunAgent(files, start.identity.agentId.trim());
   if (!run) return undefined;
   const { agentId, profile, customTools, structured, questions, dependencies } = run;
   return { ...payload, agentId, profile, customTools, structured, questions, dependencies };
@@ -533,9 +544,16 @@ function ProjectRun({
 }: Omit<RunProps, 'runtime'> & { project: ProjectSession }) {
   const { payload } = run;
   const edits = useMemo(() => unsavedEdits(tested, project.profiles), [tested, project.profiles]);
+  const starts = edits?.starts;
+  const providers = edits?.providers;
+  // why: Choosing another agent or node changes neither the files nor the providers, so they compile once.
+  const files = useMemo(
+    () => (starts && providers ? compileFiles(starts, providers, project.profiles) : undefined),
+    [starts, providers, project.profiles],
+  );
   const saved = useMemo(
-    () => (edits ? savedPayload(edits, payload, project.profiles) : undefined),
-    [edits, payload, project.profiles],
+    () => (edits && files ? savedPayload(edits, files, payload) : undefined),
+    [edits, files, payload],
   );
   if (isChat(payload) && (!saved || isChat(saved)))
     return (

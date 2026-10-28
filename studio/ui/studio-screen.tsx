@@ -1853,6 +1853,24 @@ function editorIssuesOf(compiled: WorkspaceCompileResult, focus: string): Studio
 }
 
 /**
+ * The workspace as it was last edited. Opening a node or choosing whom to chat with changes no
+ * agent, tool, provider, or start.
+ * why: So those clicks compile nothing again and send the project server no new edits to load.
+ */
+function useSameContent(workspace: StudioWorkspace): StudioWorkspace {
+  const [kept, setKept] = useState(workspace);
+  const now =
+    kept.agents === workspace.agents &&
+    kept.toolSpecs === workspace.toolSpecs &&
+    kept.providers === workspace.providers &&
+    kept.starts === workspace.starts
+      ? kept
+      : workspace;
+  if (now !== kept) setKept(now);
+  return now;
+}
+
+/**
  * The workspace compiled once edits settle. Only a workspace that compiles changes the preview;
  * while one has issues, the last good agent and its conversation stay put. The chatted agent is
  * found by its key there, so renaming it doesn't lose it.
@@ -1863,11 +1881,13 @@ function useWorkspaceCompile(
   connection: StudioConnectionState,
 ) {
   const { mode, on } = connection;
-  const settled = useDebounced(workspace, COMPILE_DEBOUNCE_MS);
-  const compile = useMemo(
-    () => ({ workspace: settled, result: compileWorkspace(settled, on) }),
-    [settled, on],
+  const settled = useSameContent(useDebounced(workspace, COMPILE_DEBOUNCE_MS));
+  const { agents, toolSpecs, providers } = settled;
+  const result = useMemo(
+    () => compileWorkspace({ agents, toolSpecs, providers }, on),
+    [agents, toolSpecs, providers, on],
   );
+  const compile = useMemo(() => ({ workspace: settled, result }), [settled, result]);
   const compiled = compile.result;
   const lastGood = useLastGood(compile);
   const chatWith = workspace.chatWith;
@@ -1892,7 +1912,7 @@ function useWorkspaceCompile(
       compiled,
       payload,
       /** The workspace the payload was compiled from: the edits the preview runs. */
-      tested: lastGood?.workspace,
+      tested: compiled.ok ? compile.workspace : lastGood?.workspace,
       traced: recordsTraces(payload),
       source,
       probed,

@@ -1,5 +1,6 @@
 import { VStack } from '@astryxdesign/core/VStack';
 import { Children, isValidElement, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { columnCount, wallPlaces } from './wall-columns.ts';
 
 type Wall = { width: number; gap: number; heights: readonly (number | undefined)[] };
@@ -56,16 +57,24 @@ export function CardWall({ minWidth, children }: { minWidth: number; children: R
   useLayoutEffect(() => {
     const node = wallRef.current;
     if (!node) return;
-    const measure = () => {
+    const sizes = new WeakMap<Element, number>();
+    let width = 0;
+    // why: Sizes come only from the observer, after the browser's own layout: reading them here
+    // would force a layout, and inside a closed disclosure lay out what is hidden.
+    const watch = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const box = entry.borderBoxSize[0];
+        if (entry.target === node) width = entry.contentBoxSize[0]?.inlineSize ?? width;
+        else if (box) sizes.set(entry.target, box.blockSize);
+      }
       const next: Wall = {
-        width: node.clientWidth,
+        width,
         gap: Number.parseFloat(getComputedStyle(node).rowGap) || 0,
-        heights: slots.current.map((slot) => slot?.offsetHeight),
+        heights: slots.current.map((slot) => (slot ? sizes.get(slot) : undefined)),
       };
-      setWall((shown) => (sameWall(shown, next) ? shown : next));
-    };
-    measure();
-    const watch = new ResizeObserver(measure);
+      // why: Placed in the same frame it was measured, so no frame shows the cards unplaced.
+      flushSync(() => setWall((shown) => (sameWall(shown, next) ? shown : next)));
+    });
     watch.observe(node);
     for (const slot of slots.current) if (slot) watch.observe(slot);
     observer.current = watch;

@@ -67,6 +67,9 @@ export interface StudioWorkspace {
   starts: WorkspaceStarts;
 }
 
+/** What a workspace compiles from: its agents, its tool library, and its providers. */
+export type WorkspaceContent = Pick<StudioWorkspace, 'agents' | 'toolSpecs' | 'providers'>;
+
 const AGENT_PREFIX = 'agent:';
 
 /** An agent's node id: its root, or a facet or binding under it (`identity` is the root). */
@@ -132,7 +135,7 @@ function draftOf(
 }
 
 /** One agent as a single draft: its tools are the library's it allows, in the order it allows them. */
-export function agentDraft(workspace: StudioWorkspace, key: string): StudioDraft | undefined {
+export function agentDraft(workspace: WorkspaceContent, key: string): StudioDraft | undefined {
   const agent = workspace.agents.find((candidate) => candidate.key === key);
   return agent && draftOf(agent, workspace.toolSpecs, workspace.providers);
 }
@@ -433,7 +436,24 @@ export function removeLibraryTool(workspace: StudioWorkspace, toolKey: string): 
 }
 
 /** The same settings with the same values. The order they are held in is not a difference. */
-const same = (a: unknown, b: unknown) => a === b || canonical(a) === canonical(b);
+const same = (a: unknown, b: unknown) => a === b || canonicalOnce(a) === canonicalOnce(b);
+
+const canonicalText = new WeakMap<object, string>();
+
+/**
+ * `canonical(value)`, worked out once for each object.
+ *
+ * invariant: The workspace replaces what it changes and never edits an agent, tool, or provider
+ * in place, so an object's text stays true.
+ */
+function canonicalOnce(value: unknown): string {
+  if (value === null || typeof value !== 'object') return canonical(value);
+  const known = canonicalText.get(value);
+  if (known !== undefined) return known;
+  const text = canonical(value);
+  canonicalText.set(value, text);
+  return text;
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);

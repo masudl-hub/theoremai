@@ -41,7 +41,7 @@ import { fileURLToPath } from 'node:url';
  * terminal, and `--follow` then prints each new one until the studio stops.
  * The studio is opt-in, so this checks for its install and never installs it.
  */
-import { builtPage } from './installed.mjs';
+import { builtPage, requireInstalled } from './installed.mjs';
 import { heldPairs, pageAddress, placeFor, serverAddress } from './ports.mjs';
 import { readStudio, studiosOn } from './read-studio.mjs';
 import { chooseSetup, findSetups, setupLines, setupsNamed } from './setups.mjs';
@@ -56,6 +56,7 @@ const USAGE = `usage: ${COMMAND} [setup] [--editor <command>] [--deno-config <fi
 const from = process.env.INIT_CWD ?? process.cwd();
 const args = process.argv.slice(2);
 if (args[0] === 'status' || args[0] === 'errors') await read(args[0], args.slice(1));
+requireInstalled();
 /** The value after each flag that takes one. A flag with none, a second setup, or anything else, is a mistake. */
 const VALUED = ['--editor', '--deno-config'];
 const given = {};

@@ -1,7 +1,8 @@
 # THEOREM — Tool-result multimodal fidelity
 
+**Status:** built. The spec below is complete.
+
 > **Type:** Spec · current  
-> **Status:** Complete  
 > **Scope:** `src/kernel` + `src/providers` (kernel tools, runner history, provider adapters)  
 
 ## 1. Goal

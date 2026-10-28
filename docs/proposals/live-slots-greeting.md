@@ -1,6 +1,6 @@
 # Context, slots in prompts, a greeting, and page tools on the profile
 
-Status: built. Section 8 is the order it was built in.
+**Status:** built. Section 8 is the order it was built in.
 
 ## 1. The problem
 

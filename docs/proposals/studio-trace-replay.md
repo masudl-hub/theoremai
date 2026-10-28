@@ -1,6 +1,6 @@
 # Studio: import and replay a trace
 
-Status: built. Studio only; evals and the kernel are unchanged.
+**Status:** built. Studio only; evals and the kernel are unchanged.
 
 **Reader:** a Theorem maintainer, and Masud.
 **Job:** say how the studio imports a recorded conversation, and how it runs one again through the profile as it is now.

@@ -1,6 +1,6 @@
 # Turn event schema — one checked definition per event kind
 
-Status: proposal · ships as a 2.0.x patch (breaking changes stay on 2.0.x)
+**Status:** built. Shipped as a 2.0.x patch (breaking changes stay on 2.0.x).
 
 ## Invariant
 

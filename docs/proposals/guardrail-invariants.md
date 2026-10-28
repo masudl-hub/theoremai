@@ -1,7 +1,6 @@
 # Guardrail invariants — what the kernel promises, and the gaps today
 
-**Status:** implemented on `claude/close-canary-leak-bypasses-9ze2ia` except
-where marked **open**. Written after pressure-testing the canary (Sept 2026);
+**Status:** built. Each gap still to close is marked **open**. Written after pressure-testing the canary (Sept 2026);
 the decisions below were made against the invariants, with Masud's direction
 that guardrails imply holdback and security comes first.
 

@@ -1,6 +1,6 @@
 # Trace record v3: a worked example
 
-**Status:** approved 23/09/2026. This is the step-2 target from [otel-turn-traces.md](./otel-turn-traces.md): every rule below is drawn once, in a concrete conversation.
+**Status:** built. Approved 23/09/2026. This is the step-2 target from [otel-turn-traces.md](./otel-turn-traces.md): every rule below is drawn once, in a concrete conversation.
 
 **Invariant:** the trace has the highest possible fidelity, accuracy, and precision. A developer can answer any question over any stretch of time (one call, one turn, a conversation, a date range) from traces alone. Anything Theorem does not know is absent or labeled with where it came from; it is never invented.
 

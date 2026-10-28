@@ -1,6 +1,6 @@
 # Honest errors: what a failure must say, and to whom
 
-**Status:** proposal, 24 Oct 2026, written with Masud. Masud agreed the rules
+**Status:** building. Written with Masud on 24 Oct 2026. Masud agreed the rules
 (sections 3 to 6) on 24 Oct 2026. The open questions (section 9) are not
 decided. A fix that depends on one waits for that decision. Every fix is
 measured against the failure matrix (section 8).

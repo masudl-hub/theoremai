@@ -73,7 +73,7 @@
     "lint:fallow": "npm run coverage && npm run fallow:audit",
     "fallow:audit": "fallow audit --base \"${FALLOW_AUDIT_BASE:-origin/main}\" --coverage coverage/coverage-final.json",
     "lint:fallow:deep": "fallow health && fallow dupes && fallow dead-code",
-    "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node ./scripts/docs-truth/copy-lint.mjs && node ./scripts/docs-truth/comment-kinds.mjs && node ./scripts/docs-truth/release-notes.mjs && node --test ./scripts/docs-truth/graph.test.mjs ./scripts/docs-truth/release-notes.test.mjs ./scripts/docs-truth/export-drift.test.mjs && deno test --quiet --allow-read --allow-write --allow-run tests/docs/",
+    "lint:docs": "node ./scripts/docs-truth/cli.mjs lint && node ./scripts/docs-truth/export-drift.mjs && node ./scripts/docs-truth/copy-lint.mjs && node ./scripts/docs-truth/comment-kinds.mjs && node ./scripts/docs-truth/release-notes.mjs && node ./scripts/docs-truth/proposals.mjs && node --test ./scripts/docs-truth/graph.test.mjs ./scripts/docs-truth/release-notes.test.mjs ./scripts/docs-truth/export-drift.test.mjs ./scripts/docs-truth/proposals.test.mjs && deno test --quiet --allow-read --allow-write --allow-run tests/docs/",
     "docs:inventory": "node ./scripts/docs-truth/cli.mjs inventory",
     "docs:freshness": "node ./scripts/docs-truth/cli.mjs freshness",
     "hooks:install": "node ./scripts/hooks/install.mjs",

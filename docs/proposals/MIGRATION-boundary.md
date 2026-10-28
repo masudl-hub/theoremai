@@ -1,5 +1,7 @@
 # Migration: ownership boundary ("Host decides, Theorem runs")
 
+**Status:** built. The cut below shipped; this file records what moved.
+
 Breaking cut. No deprecation aliases.
 
 ## Removed: studio entrypoint

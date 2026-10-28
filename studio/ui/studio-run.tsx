@@ -101,6 +101,7 @@ export function StudioRunScreen({
             {traced ? (
               <Button
                 label={traceOpen ? 'Hide trace' : 'View trace'}
+                variant="ghost"
                 isIconOnly={phone}
                 icon={<Icon icon={IconActivity} size="sm" />}
                 aria-pressed={traceOpen}

@@ -139,22 +139,22 @@ const RAISED = {
   overflow: 'hidden',
 };
 
-/** A docked panel's inset: 12px off the outer edge, 16px off the bottom (the page inset). */
+/** A raised panel's inset: 12px off the page's edges. */
 export const PANEL_EDGE = 3;
-export const PANEL_BOTTOM = 4;
 
 /**
  * A raised pane's gap from the page's end or bottom edge: `--theorem-pane-edge` where a host
  * sets it (0 where the host already insets its page), else `spacing`.
  */
-export function paneEdge(spacing: typeof PANEL_EDGE | typeof PANEL_BOTTOM): string {
+export function paneEdge(spacing: typeof PANEL_EDGE): string {
   return `var(--theorem-pane-edge, var(--spacing-${String(spacing)}))`;
 }
 
-/** The raised card every docked panel and the content beside one share. */
+/** The raised card every pane, docked panel and console shares, inset the same from top and bottom. */
 export function PanelBody({
   padding,
   inset = 'end',
+  isScrollable = false,
   className,
   children,
 }: {
@@ -162,9 +162,10 @@ export function PanelBody({
   /**
    * `end` insets the trailing edge (a panel docked there, or the content
    * filling beside a start panel). `start` insets the leading edge. `beside`
-   * insets both.
+   * and `all` inset both.
    */
-  inset?: 'end' | 'start' | 'beside';
+  inset?: 'end' | 'start' | 'beside' | 'all';
+  isScrollable?: boolean;
   className?: string;
   children?: ReactNode;
 }) {
@@ -173,12 +174,18 @@ export function PanelBody({
       height="100%"
       className={className}
       paddingInlineStart={inset === 'end' ? undefined : PANEL_EDGE}
+      paddingBlockStart={PANEL_EDGE}
       style={{
         paddingInlineEnd: inset === 'start' ? undefined : paneEdge(PANEL_EDGE),
-        paddingBlockEnd: paneEdge(PANEL_BOTTOM),
+        paddingBlockEnd: paneEdge(PANEL_EDGE),
       }}
     >
-      <Card variant="transparent" height="100%" padding={padding} style={RAISED}>
+      <Card
+        variant="transparent"
+        height="100%"
+        padding={padding}
+        style={isScrollable ? { ...RAISED, overflowY: 'auto' } : RAISED}
+      >
         {children}
       </Card>
     </VStack>
@@ -271,36 +278,6 @@ export function useWidth() {
   return { ref, width };
 }
 
-/** The raised card a pane fills its place with, inset from every edge. */
-export function RaisedFrame({
-  isScrollable = false,
-  children,
-}: {
-  isScrollable?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <VStack
-      height="100%"
-      paddingInlineStart={PANEL_EDGE}
-      paddingBlockStart={PANEL_EDGE}
-      style={{
-        paddingInlineEnd: paneEdge(PANEL_EDGE),
-        paddingBlockEnd: paneEdge(PANEL_EDGE),
-      }}
-    >
-      <Card
-        variant="transparent"
-        height="100%"
-        padding={0}
-        style={isScrollable ? { ...RAISED, overflowY: 'auto' } : RAISED}
-      >
-        {children}
-      </Card>
-    </VStack>
-  );
-}
-
 /**
  * A raised pane that fills its place, inset from the sides. Its content is
  * told whether the pane is wide enough for two readable columns.
@@ -322,11 +299,11 @@ export function RaisedPane({
       header={header}
       content={
         <LayoutContent padding={0} isScrollable={false}>
-          <RaisedFrame>
+          <PanelBody inset="all" padding={0}>
             <div id={id} ref={ref} style={{ height: '100%' }}>
               {children(isSidePanelWide(width))}
             </div>
-          </RaisedFrame>
+          </PanelBody>
         </LayoutContent>
       }
     />

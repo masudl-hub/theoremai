@@ -45,7 +45,6 @@ import { LiveCaptionsPanel } from './LiveCaptionsPanel.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import {
-  PANEL_BOTTOM,
   PANEL_EDGE,
   SidePanel,
   SidePanelHeader,
@@ -168,7 +167,7 @@ function LiveRunnerBody({
                 }
                 content={
                   <LayoutContent padding={0}>
-                    <VStack height="100%" paddingInline={PANEL_EDGE} paddingBlockEnd={PANEL_BOTTOM}>
+                    <VStack height="100%" padding={PANEL_EDGE}>
                       <LiveStage model={model} captionsToggle={captionsToggle} />
                     </VStack>
                   </LayoutContent>

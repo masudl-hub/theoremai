@@ -32,7 +32,6 @@ import {
   PanelBody,
   PanelScroll,
   paneEdge,
-  RaisedFrame,
   SidePanel,
   SidePanelHeader,
 } from './SidePanel.tsx';
@@ -138,7 +137,12 @@ function ConsoleSingle({
       </VStack>
     </Center>
   );
-  if (!flush) return <RaisedFrame isScrollable>{column}</RaisedFrame>;
+  if (!flush)
+    return (
+      <PanelBody inset="all" padding={0} isScrollable>
+        {column}
+      </PanelBody>
+    );
   // why: A flush page is already the raised panel, so it takes no block inset of its own.
   return (
     <VStack

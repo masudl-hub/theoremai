@@ -1,9 +1,11 @@
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertNotEquals } from '@std/assert';
+import type { InteractionPart } from '../../mod.ts';
 import {
   fieldLabel,
   fieldReading,
   humanize,
   json,
+  layoutChars,
   plainReading,
   rowHeading,
   shapeOf,
@@ -160,4 +162,27 @@ Deno.test('fields split into the plain list and named sections through wrappers'
   assertEquals(splitFields({ wrap: { only: 'plain' } }).sections, [
     { key: 'wrap', title: 'Wrap', value: { only: 'plain' }, units: undefined },
   ]);
+});
+
+Deno.test('a list of parts the kernel declares is drawn as parts, and anything else is not', () => {
+  const parts: InteractionPart[] = [
+    { type: 'text', text: '1. A monstera by a window.' },
+    { type: 'image', mimeType: 'image/jpeg', data: '/9j/AAAA' },
+    { type: 'audio', mimeType: 'audio/mpeg', uri: 'https://example.com/a.mp3' },
+  ];
+  assertEquals(shapeOf(parts, 1), { kind: 'parts', parts });
+  // why: A media part with neither data nor a uri, or a type the kernel doesn't name, is only a row.
+  assertNotEquals(shapeOf([{ type: 'image', mimeType: 'image/png' }], 1).kind, 'parts');
+  assertNotEquals(
+    shapeOf([{ type: 'sticker', mimeType: 'image/png', data: 'x' }], 1).kind,
+    'parts',
+  );
+});
+
+Deno.test('base64 part data does not count toward the layout size, and everything else does', () => {
+  const data = 'A'.repeat(500_000);
+  const value = { finding: 'Done.', parts: [{ type: 'image', mimeType: 'image/jpeg', data }] };
+  assertEquals(layoutChars(value) < 200, true);
+  assertEquals(layoutChars({ notes: data }) > 500_000, true);
+  assertEquals(layoutChars({ parts: [{ type: 'text', text: data }] }) > 500_000, true);
 });

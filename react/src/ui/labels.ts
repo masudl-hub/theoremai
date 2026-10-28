@@ -266,6 +266,16 @@ export const THEOREM_UI_CATALOG = {
     description: 'Rows past the shown ones, left to the JSON view.',
     params: ['count'],
   },
+  '@theorem.data.image': {
+    defaultMessage: 'Image {index}',
+    description: 'An image in tool data, named by its place among the images and videos.',
+    params: ['index'],
+  },
+  '@theorem.data.video': {
+    defaultMessage: 'Video {index}',
+    description: 'A video in tool data, named by its place among the images and videos.',
+    params: ['index'],
+  },
   '@theorem.data.large': {
     defaultMessage: 'Too large to lay out — showing the first {size} of its JSON',
     description: 'A payload too big to draw by its shape, shown as the start of its JSON.',

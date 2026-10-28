@@ -106,6 +106,30 @@ Deno.test('buildChatMessages sends only the tool identity history carries', () =
   assertEquals(messages[0], { role: 'tool', content: '42' });
 });
 
+Deno.test('buildChatMessages sends an assistant image in a user message after it', () => {
+  const messages = buildChatMessages(
+    request({
+      input: [],
+      history: [
+        {
+          role: 'assistant',
+          content: 'Here it is.',
+          parts: [{ type: 'image', mimeType: 'image/jpeg', data: '/9j/abc' }],
+        },
+      ],
+    }),
+  );
+  assertEquals(messages, [
+    { role: 'assistant', content: 'Here it is.\n[image: sent in the next message]' },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Files the assistant sent:' },
+        { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,/9j/abc' } },
+      ],
+    },
+  ]);
+});
 Deno.test('buildChatMessages carries a tool result file to a user message after it', () => {
   const messages = buildChatMessages(
     request({

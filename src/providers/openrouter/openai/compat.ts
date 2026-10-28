@@ -15,7 +15,10 @@ import type {
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
-import { withCarriedToolFiles } from '../../shared/carried-tool-files.ts';
+import {
+  withCarriedAssistantFiles,
+  withCarriedToolFiles,
+} from '../../shared/carried-tool-files.ts';
 import { historyToolIdentity } from '../../shared/tool-args.ts';
 
 /** The fields Chat Completions gives every error; any other field is the provider's own detail. */
@@ -162,7 +165,9 @@ function buildChatMessages(
   if (includeSystem && req.system) {
     messages.push({ role: 'system', content: req.system });
   }
-  for (const h of withCarriedToolFiles(req.history ?? [], TOOL_MESSAGE_PART_TYPES)) {
+  // why: Chat Completions takes only text and refusals in assistant content, and endpoints that enforce it refuse the call.
+  const history = withCarriedAssistantFiles(req.history ?? []);
+  for (const h of withCarriedToolFiles(history, TOOL_MESSAGE_PART_TYPES)) {
     messages.push(wireHistoryMessage(h));
   }
   if (req.input.length > 0) {

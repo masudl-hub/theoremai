@@ -628,7 +628,11 @@ the raw reason instead ([host](host.md)). Pass a trace sink (`memorySink`, `json
 `historyMessageParts` (`src/kernel/interaction-parts.ts`) puts `content` first as a
 text part, then `parts`. Every first-party protocol (`geminiInteractions`, `geminiLive`,
 `openAi`, `openRouterOpenAi`, `openRouterImages`) builds history content from it, so a host that stores a text projection
-alongside media does not lose either one.
+alongside media does not lose either one. Chat Completions (`openAi`,
+`openRouterOpenAi`) takes only text in assistant content, so an assistant
+message's files leave a marker such as `[image: sent in the next message]` and
+follow it in a user message led by "Files the assistant sent:", after the results
+of any calls it made.
 
 Google Interactions code execution (`codeExecution` builtin) is a server-side
 tool: THEOREM does not run Python. Hosts receive the sandbox timeline as

@@ -248,6 +248,43 @@ Deno.test('preTool confirmation resumes after granted', async () => {
     'preflight cleared',
   );
 });
+Deno.test('a granted confirmation answers the host pre_tool confirm too', async () => {
+  const onStage: StageHandler = (ctx) =>
+    ctx.stage === 'pre_tool' ? { confirm: { summary: 'The host asks.' } } : undefined;
+  const call = { profile: 'preflight_confirm_bot', name: 'preflight_confirm_tool', input: {} };
+  const paused = await invokeRegisteredTool({ ...call, onStage });
+  assertEquals(gateOf(lastTool(paused, 'preflight_confirm_tool'))?.kind, 'confirmation');
+  const resumed = await invokeRegisteredTool({
+    ...call,
+    onStage,
+    resume: { granted: true, gateKind: 'confirmation' },
+  });
+  assertEquals(lastTool(resumed, 'preflight_confirm_tool')?.phase, 'complete');
+});
+Deno.test('a granted permission leaves the host pre_tool confirm to ask', async () => {
+  const onStage: StageHandler = (ctx) =>
+    ctx.stage === 'pre_tool' ? { confirm: { summary: 'The host asks.' } } : undefined;
+  const resumed = await invokeRegisteredTool({
+    profile: 'always_confirm_probe',
+    name: 'always_confirm_tool',
+    input: {},
+    onStage,
+    resume: { granted: true, gateKind: 'permission' },
+  });
+  assertEquals(gateOf(lastTool(resumed, 'always_confirm_tool'))?.kind, 'confirmation');
+});
+Deno.test('pre_tool reads a call as approved after its permission or a confirmation, not a sign-in', async () => {
+  const seen: (true | undefined)[] = [];
+  const onStage: StageHandler = (ctx) => {
+    if (ctx.stage === 'pre_tool') seen.push(ctx.approved);
+    return undefined;
+  };
+  const call = { profile: 'always_confirm_probe', name: 'always_confirm_tool', input: {}, onStage };
+  for (const gateKind of ['permission', 'confirmation', 'auth'] as const) {
+    await invokeRegisteredTool({ ...call, resume: { granted: true, gateKind } });
+  }
+  assertEquals(seen, [true, true, undefined]);
+});
 Deno.test('preTool deny settles modelResult + post_tool callNotStarted', async () => {
   registerProfile(
     defineProfile({

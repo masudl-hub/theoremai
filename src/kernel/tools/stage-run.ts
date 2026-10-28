@@ -99,12 +99,14 @@ export async function* runPreToolPipeline(args: {
 }): AsyncGenerator<TurnEvent, PreBodyOutcome> {
   const { tool, ctx, base, stages } = args;
   let toolPreTool: StageResult | undefined;
-  // why: An approval skips the tool's own check it already passed — unless the user edited the arguments.
-  const approvedAsIs =
+  // why: Permission and sign-in gates come before `pre_tool`, so granting one answers nothing it asked.
+  const confirmed =
     isGateResumeGranted(ctx.resume) &&
-    ctx.resume?.edited === undefined &&
     ctx.resume?.gateKind !== 'permission' &&
     ctx.resume?.gateKind !== 'auth';
+  // why: An approval skips the tool's own check it already passed — unless the user edited the arguments.
+  const approvedAsIs = confirmed && ctx.resume?.edited === undefined;
+  const approved = isGateResumeGranted(ctx.resume) && ctx.resume?.gateKind !== 'auth';
   if (tool.preTool && !approvedAsIs) {
     toolPreTool = (await tool.preTool(args.input as never, ctx)) ?? undefined;
   }
@@ -118,6 +120,8 @@ export async function* runPreToolPipeline(args: {
     input: args.input,
     toolPreTool,
     details: gateDetails(tool, args.input),
+    confirmed,
+    approved,
   });
   if (!pre.ok) {
     if (pre.kind === 'gated') {
@@ -183,12 +187,16 @@ async function* runPreToolStages(args: {
   input: unknown;
   toolPreTool?: StageResult | undefined;
   details: GateDetails;
+  /** The user granted this call's confirmation: a `confirm` asks nothing more. */
+  confirmed: boolean;
+  /** The user approved this call where it stopped: the handlers read it as `approved`. */
+  approved: boolean;
 }): AsyncGenerator<
   TurnEvent,
   | Exclude<PreBodyOutcome, { ok: true }>
   | { ok: true; input: unknown; mutated: boolean; waitFor?: string[] }
 > {
-  const { stages, toolName, callId, input, toolPreTool, details } = args;
+  const { stages, toolName, callId, input, toolPreTool, details, confirmed, approved } = args;
   const applied = yield* runStage({
     stage: 'pre_tool',
     step: stages.step,
@@ -202,6 +210,7 @@ async function* runPreToolStages(args: {
     callId,
     tool: toolName,
     input,
+    ...(approved ? { approved: true as const } : {}),
     ...(stages.stepCalls ? { stepCalls: stages.stepCalls } : {}),
   });
 
@@ -216,7 +225,7 @@ async function* runPreToolStages(args: {
       denied: true,
     };
   }
-  if (applied.confirm) {
+  if (applied.confirm && !confirmed) {
     const gate: ToolGate = {
       kind: 'confirmation',
       tool: toolName,

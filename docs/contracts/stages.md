@@ -97,6 +97,8 @@ interface StageContext {
   input?: unknown;
   /** pre_tool in a turn's step: every call the model made in the step, in its order, as the host was shown it. */
   stepCalls?: readonly { callId: string; tool: string; input: unknown }[];
+  /** pre_tool: the user approved this call where it stopped, at its permission or a confirmation. A sign-in is not an approval. */
+  approved?: true;
   /** True when pre_tool settled without running the body (deny or gate). */
   callNotStarted?: boolean;
   outputRaw?: unknown;
@@ -130,7 +132,7 @@ interface StageResult {
   abort?: boolean | { reason?: string };
   /** pre_tool: refuse the call. post_tool: replace the result with this failure. */
   deny?: { code?: string; message?: string };
-  /** pre_tool only — request confirm/permission gate (not ask_user). */
+  /** pre_tool only — request confirm/permission gate (not ask_user). Once the user grants it, the call's resume asks nothing more. */
   confirm?: true | { summary?: string };
   /** pre_tool: replace the input. post_tool: replace the raw output. Both re-validate. */
   mutate?: { input: unknown } | { output: unknown };

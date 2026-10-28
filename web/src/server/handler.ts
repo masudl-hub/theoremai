@@ -53,6 +53,7 @@ import {
   type ProviderHostOptions,
   registerProfile,
   runTurn,
+  type StageHandler,
   TheoremError,
   type ToolGate,
   type TurnEvent,
@@ -151,7 +152,7 @@ import {
   stopOnRequest,
 } from './steer-inbox.ts';
 import { sameAcceptedAnswer, sessionToolCoordinator } from './tool-operations.ts';
-import { preparedTurn } from './turn-wiring.ts';
+import { preparedTurn, stagesInOrder } from './turn-wiring.ts';
 
 export type TheoremRequestContext = {
   request: Request;
@@ -188,6 +189,12 @@ export type TheoremHandlerOptions = {
    * answered, with the `onStage` and `credentials` it gives for that call's turn.
    */
   prepare?: TurnWiring['prepare'];
+  /**
+   * The server's own stage handler, on every call this handler runs, a host's included: after
+   * the application's, before steering. For a rule the server adds to whatever the application
+   * says, such as a question before each tool that writes.
+   */
+  onStage?: StageHandler;
   /**
    * Resolve the caller's session id — e.g. `${userId}:${conversationId}` from your
    * auth. Return `undefined` to refuse the request (401). Default: an opaque id
@@ -701,7 +708,10 @@ async function* invokeAnswered(
   const { credentials, onStage } = await preparedTurn(
     ctx.options.prepare,
     { profile: ctx.profile.id, input: pending.turnInput ?? {}, host, signal: request.signal },
-    { credentials: sessionCredentials(ctx, sessionId) },
+    {
+      credentials: sessionCredentials(ctx, sessionId),
+      ...(ctx.options.onStage ? { onStage: ctx.options.onStage } : {}),
+    },
   );
   yield* invokeTool({
     profile: ctx.profile.id,
@@ -750,6 +760,10 @@ async function* chatTurn(
     stopOnRequest(ctx.inbox, key, stop);
   }
   try {
+    const onStage = stagesInOrder(
+      ctx.options.onStage,
+      key ? steerStage(ctx.inbox, key) : undefined,
+    );
     const prepared = await preparedTurn(
       ctx.options.prepare,
       {
@@ -766,7 +780,7 @@ async function* chatTurn(
       },
       {
         credentials: sessionCredentials(ctx, session.id),
-        ...(key ? { onStage: steerStage(ctx.inbox, key) } : {}),
+        ...(onStage ? { onStage } : {}),
       },
     );
     const events = runTurn(prepared, provider);
@@ -980,6 +994,7 @@ async function* callEvents(
     input: body.input,
     sessionPermissions: state.permissions,
     credentials: sessionCredentials(ctx, session.id),
+    ...(ctx.options.onStage ? { onStage: ctx.options.onStage } : {}),
     signal: request.signal,
     host,
   });

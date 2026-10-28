@@ -2,6 +2,7 @@ import { assert, assertEquals } from '@std/assert';
 import { z } from 'zod';
 import {
   defineProfile,
+  getTool,
   registerProfile,
   registerTool,
   type ToolAccess,
@@ -44,11 +45,31 @@ tool('asks_read', 'read-only', 'auto');
 tool('asks_write', 'read-write', 'auto');
 tool('asks_remove', 'destructive', 'session_consent');
 tool('asks_already', 'read-write', 'always_confirm');
+// A project's own check that reads its registration, as an application's preflight may.
+registerTool({
+  type: 'function',
+  name: 'asks_reads_itself',
+  description: 'A tool whose own check reads how it is registered.',
+  category: 'test',
+  access: 'read-write',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({ id: z.string() }),
+  output: z.object({ id: z.string() }),
+  preTool: () =>
+    getTool('asks_reads_itself')?.permission === 'auto'
+      ? undefined
+      : { confirm: { summary: 'Its own setting asks.' } },
+  handler: (input) => input as { id: string },
+});
 registerProfile(
   defineProfile({
     type: 'host',
     id: 'asks-desk',
-    tools: { allow: ['asks_read', 'asks_write', 'asks_remove', 'asks_already'] },
+    tools: {
+      allow: ['asks_read', 'asks_write', 'asks_remove', 'asks_already', 'asks_reads_itself'],
+    },
   }),
 );
 
@@ -95,7 +116,10 @@ Deno.test('the page reads each tool as the files set it, and which ones the stud
     [set('asks_write'), set('asks_remove'), set('asks_already')],
     ['auto', 'session_consent', 'always_confirm'],
   );
-  assertEquals(asks, { asked: ['asks_write', 'asks_remove'], inside: [] });
+  assertEquals(asks, {
+    asked: ['asks_write', 'asks_remove', 'asks_reads_itself'],
+    inside: [],
+  });
 });
 
 Deno.test('a tool a called agent runs is left as it is, and the call to that agent asks', () => {
@@ -157,9 +181,30 @@ Deno.test('a tool that writes stops before every run, and runs only once the bui
           onEvent,
         ),
       );
+      assertEquals(toolEventsOf(settled, 'gate').length, 0, `${name} asked twice`);
       assertEquals(toolEventsOf(settled, 'complete')[0]?.output, { id });
     }
   }
+});
+
+Deno.test("the studio asks once, and the project's own code reads the tool as the files set it", async () => {
+  assertEquals(getTool('asks_reads_itself')?.permission, 'auto');
+  const page = transport();
+  const paused = await collect((onEvent) =>
+    page.call({ name: 'asks_reads_itself', input: { id: 'once' } }, onEvent),
+  );
+  const gate = toolEventsOf(paused, 'gate').at(-1);
+  assert(gate);
+  const settled = await collect((onEvent) =>
+    page.invoke(
+      { gateId: gate.callId, operationId: issuedOperationId(gate), decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(
+    [toolEventsOf(settled, 'gate').length, toolEventsOf(settled, 'complete')[0]?.output],
+    [0, { id: 'once' }],
+  );
 });
 
 Deno.test('a run the builder refuses never happens', async () => {

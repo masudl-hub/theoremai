@@ -916,6 +916,7 @@ invokeTool({ profile, name: 'risky_tool', callId, operationId, input: {...}, res
 invokeTool({ profile, name: 'record_lookup', callId, operationId, input: {...}, resume: { granted: true }, snapshot, promoted: ['record_lookup'], turnInput });
 
 // Tool `preTool` returning `confirm` gates once; `resume.granted: true` skips preTool on the next invoke (same as `always_confirm` permission).
+// A host `pre_tool` `confirm` gates once too: the granted resume runs the stage again, and its `confirm` asks nothing more.
 
 // Host direct invoke (command palette)
 invokeTool({ profile, name: 'lookup_order', input: {...} });

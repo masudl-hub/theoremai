@@ -5,6 +5,7 @@
  * @module
  */
 
+import type { StageHandler } from '@theoremjs/agents';
 import type { ToolSpecDraft } from './draft.ts';
 
 /** What the builder reads before a tool that writes runs. */
@@ -87,4 +88,21 @@ export function studioAsks(
       .map((tool) => tool.name),
     inside: writing.filter((tool) => inside.has(tool.name)).map((tool) => tool.name),
   };
+}
+
+/** What a question the studio puts before a tool that writes says. */
+export const STUDIO_ASK_SUMMARY = 'The studio asks before every run of a tool that writes.';
+
+/**
+ * The studio's question before each run of an `asked` tool, as a stage. The tool's registration
+ * is left as the project set it, so the project's own code reads its own setting. A call the
+ * builder already approved where it stopped is not asked again.
+ */
+export function studioAskStage(asked: readonly string[]): StageHandler | undefined {
+  if (asked.length === 0) return undefined;
+  const ask = new Set(asked);
+  return (ctx) =>
+    ctx.stage === 'pre_tool' && !ctx.approved && ctx.tool !== undefined && ask.has(ctx.tool)
+      ? { confirm: { summary: STUDIO_ASK_SUMMARY } }
+      : undefined;
 }

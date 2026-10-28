@@ -26,7 +26,7 @@ import {
   type Profile,
   type ProviderHostOptions,
   type RegisteredProvider,
-  registerTool,
+  type StageHandler,
   type TurnWiring,
 } from '@theoremjs/agents';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
@@ -42,7 +42,7 @@ import {
   type TheoremConversationStore,
 } from '@theoremjs/web/server';
 import { differingSettings } from '../agreement.ts';
-import { type StudioAsks, studioAsks } from '../asks.ts';
+import { type StudioAsks, studioAskStage, studioAsks } from '../asks.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
@@ -472,21 +472,16 @@ function describeStudio(
 }
 
 /**
- * Makes every registered tool that writes ask the builder before each run, whatever its own
- * setting: a run in the studio is the project's real code, on whatever it reaches. The project's
- * files are not touched, and the editor shows what they say.
+ * Which registered tools ask the builder before each run, whatever their own setting: a run in
+ * the studio is the project's real code, on whatever it reaches. The question is the studio's own
+ * stage, so the registrations and the project's files stay as they are.
  */
-function askBeforeWrites(): StudioAsks {
-  const tools = listTools();
+function writesToAsk(): StudioAsks {
   const profiles = new Map(listProfiles().map((profile) => [profile.id as string, profile]));
-  const asks = studioAsks(tools, (id) => {
+  return studioAsks(listTools(), (id) => {
     const profile = profiles.get(id);
     return profile && 'tools' in profile ? profile.tools.allow : [];
   });
-  for (const tool of tools) {
-    if (asks.asked.includes(tool.name)) registerTool({ ...tool, permission: 'always_confirm' });
-  }
-  return asks;
 }
 
 export function json(status: number, body: unknown, headers: HeadersInit): Response {
@@ -647,6 +642,7 @@ const NO_SOCKET =
 function profileHandlers(
   options: StudioHandlerOptions,
   problems: StudioProblem[],
+  ask: StageHandler | undefined,
 ): Map<string, Serve> {
   const served = new Map<string, Serve>();
   // `run` refused a pick it cannot read before any handler is reached, so here it reads.
@@ -660,6 +656,7 @@ function profileHandlers(
     session: (request: Request) => actingAsSession(actingAs(request)),
     clientEvents: STUDIO_READER,
     ...(host ? { host: (request: Request) => host(request, actingAs(request)) } : {}),
+    ...(ask ? { onStage: ask } : {}),
   };
   // One store for every chat profile: one key, so any of them opens a ref its session holds.
   let conversationStore: TheoremConversationStore | undefined;
@@ -697,7 +694,7 @@ function profileHandlers(
         if (options.upgrade) {
           served.set(
             profile.id,
-            createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade),
+            createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade, ask),
           );
         } else problems.push({ profile: profile.id, message: NO_SOCKET });
         continue;
@@ -812,20 +809,23 @@ export function createStudioHandler(
 ): (request: Request) => Promise<Response> {
   const base = STUDIO_BASE;
   const corsFor = (request: Request) => corsHeaders(request, options.pageOrigins);
-  // The page reads the tools as the files set them, then they are made to ask.
   const description = describeStudio(
     options.project,
     options.questions ?? {},
     options.images ?? {},
   );
-  description.asks = askBeforeWrites();
+  description.asks = writesToAsk();
   const peopleProblem = options.people === undefined ? undefined : peopleFault(options.people);
   // People the page cannot be offered are not offered: every run acts as no one, and the page says why.
   const people = options.people && !peopleProblem ? options.people : undefined;
   if (people) description.people = peopleOffer(people);
   if (peopleProblem) description.peopleProblem = peopleProblem;
   const handlerOptions = { ...options, people };
-  const served = profileHandlers(handlerOptions, description.problems);
+  const served = profileHandlers(
+    handlerOptions,
+    description.problems,
+    studioAskStage(description.asks.asked),
+  );
   const prefix = `${base}/profiles/`;
   const peoplePath = `${base}/people`;
   // The screen's own requests (the guardrail probe, the key and connection tests) need no project.

@@ -12,6 +12,7 @@ import {
   type ProviderHostOptions,
   resolveObservabilityPolicy,
   runSession,
+  type StageHandler,
   TheoremError,
   type TraceSink,
 } from '@theoremjs/agents';
@@ -75,13 +76,18 @@ async function relay(
   profile: Profile,
   provider: ProviderHostOptions,
   boundary: TheoremSessionBoundary,
+  ask: StageHandler | undefined,
 ): Promise<void> {
   let session: LiveSession;
   try {
     // Listen before anything waits: the page sends its open message as the socket opens.
     const open = await openMessage(socket);
     session = await runSession(
-      { ...(await boundary.prepareLiveOpen(open)), profile: profile.id },
+      {
+        ...(await boundary.prepareLiveOpen(open)),
+        profile: profile.id,
+        ...(ask ? { onStage: ask } : {}),
+      },
       { ...provider, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
       pageSink(socket, profile),
     );
@@ -121,6 +127,7 @@ export function createStudioLiveHandler(
   profile: Profile,
   provider: ProviderHostOptions,
   upgrade: StudioUpgrade,
+  ask?: StageHandler,
 ): (request: Request) => Promise<Response> {
   const sessionStore = createMemorySessionStore();
   return async (request) => {
@@ -130,7 +137,7 @@ export function createStudioLiveHandler(
     const boundary = await createTheoremSessionBoundary({ request, sessionStore });
     const { socket, response } = upgrade(request);
     if (boundary.setCookie) response.headers.append('set-cookie', boundary.setCookie);
-    void relay(socket, profile, provider, boundary);
+    void relay(socket, profile, provider, boundary, ask);
     return response;
   };
 }

@@ -1,6 +1,5 @@
 import { Icon } from '@astryxdesign/core/Icon';
-import { IconButton } from '@astryxdesign/core/IconButton';
-import { IconActivity, IconDownload } from '@tabler/icons-react';
+import { IconActivity } from '@tabler/icons-react';
 import type { TraceRecord } from '@theoremjs/agents';
 import type { ProfileObservabilityView } from '@theoremjs/agents/interface';
 import type { TraceFeed } from '@theoremjs/web/client';
@@ -19,7 +18,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useTraceRecords } from '../hooks/use-trace-records.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import {
   InPlace,
@@ -127,19 +125,14 @@ export function useTraceInspector(
   return { toggle, view, labels, offered: true };
 }
 
-/** The open trace: filling the host's docked panel, or as its own panel; Download, then the toggle, on top. */
+/** The open trace: filling the host's docked panel, or as its own panel; the toggle on top. */
 function openTrace(
   docked: boolean,
   id: string,
   traces: TraceFeed | undefined,
   toggle: ReactNode,
 ): ReactNode {
-  const header = (
-    <SidePanelHeader floating>
-      <TraceDownload traces={traces} />
-      {toggle}
-    </SidePanelHeader>
-  );
+  const header = toggle ? <SidePanelHeader floating>{toggle}</SidePanelHeader> : null;
   if (docked) return <TraceFill id={id} header={header} traces={traces} />;
   return <TraceView id={id} header={header} traces={traces} />;
 }
@@ -162,43 +155,6 @@ function TraceFill({
         <TraceFeedBody traces={traces} isWide={isSidePanelWide(width)} />
       </Suspense>
     </div>
-  );
-}
-
-/** The agent the records ran, which names their file. */
-function tracedAgent(records: readonly TraceRecord[]): string {
-  for (const record of records) {
-    for (const span of record.spans) {
-      const name = span.attributes['gen_ai.agent.name'];
-      if (typeof name === 'string' && name) return name;
-    }
-  }
-  return 'trace';
-}
-
-/** Saves the records on screen as `<agent>-<time>.trace.json`, the file the studio imports. */
-function TraceDownload({ traces }: { traces: TraceFeed | undefined }) {
-  const t = useLabels();
-  const records = useTraceRecords(traces);
-  if (records.length === 0) return null;
-  const label = t('@theorem.panel.trace.download');
-  return (
-    <IconButton
-      label={label}
-      variant="ghost"
-      tooltip={label}
-      icon={<Icon icon={IconDownload} size="sm" />}
-      onClick={() => {
-        const stamp = new Date().toISOString().replaceAll(':', '-').slice(0, 19);
-        const file = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(file);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${tracedAgent(records)}-${stamp}.trace.json`;
-        link.click();
-        URL.revokeObjectURL(url);
-      }}
-    />
   );
 }
 

@@ -2,6 +2,7 @@ import { Badge } from '@astryxdesign/core/Badge';
 import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
+import { IconButton } from '@astryxdesign/core/IconButton';
 import { Item } from '@astryxdesign/core/Item';
 import {
   type OperatorValue,
@@ -12,7 +13,7 @@ import {
 } from '@astryxdesign/core/PowerSearch';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconActivity } from '@tabler/icons-react';
+import { IconActivity, IconDownload } from '@tabler/icons-react';
 import type { TraceRecord } from '@theoremjs/agents';
 import type { TraceFeed } from '@theoremjs/web/client';
 import { type ReactNode, useMemo, useState } from 'react';
@@ -199,9 +200,11 @@ function TurnRow({
 function ConversationOverview({
   turns,
   onPick,
+  end,
 }: {
   turns: readonly TraceTurn[];
   onPick: (index: number) => void;
+  end: ReactNode;
 }) {
   const { t } = useTraceFormat();
   const nodes = useMemo(() => turns.map((turn) => turn.node), [turns]);
@@ -220,11 +223,14 @@ function ConversationOverview({
   const isCalls = isCallTrace(turns);
   return (
     <VStack gap={5} padding={4}>
-      <Text weight="semibold">
-        {t(isCalls ? '@theorem.panel.trace.calls.count' : '@theorem.panel.trace.conversation', {
-          count: turns.length,
-        })}
-      </Text>
+      <HStack gap={1} align="center" justify="between">
+        <Text weight="semibold">
+          {t(isCalls ? '@theorem.panel.trace.calls.count' : '@theorem.panel.trace.conversation', {
+            count: turns.length,
+          })}
+        </Text>
+        {end}
+      </HStack>
       <VStack gap={3}>
         <TurnStats totals={totals} tools={tools} />
         <ConversationCharts turns={turns} onPick={onPick} />
@@ -259,6 +265,7 @@ function TurnOverview({
   onBack,
   selectedId,
   onSelect,
+  end,
 }: {
   turns: readonly TraceTurn[];
   index: number;
@@ -266,6 +273,7 @@ function TurnOverview({
   onBack?: (() => void) | undefined;
   selectedId: string | undefined;
   onSelect: (node: TraceNode) => void;
+  end: ReactNode;
 }) {
   const { t } = useTraceFormat();
   const [filters, setFilters] = useState<readonly PowerSearchFilter[]>([]);
@@ -283,7 +291,7 @@ function TurnOverview({
   const tools = traceSpans([root]).filter((node) => node.meta.type === 'tool').length;
   return (
     <VStack gap={5} padding={4}>
-      <TurnPicker turns={turns} index={index} onChange={onPick} onBack={onBack} />
+      <TurnPicker turns={turns} index={index} onChange={onPick} onBack={onBack} end={end} />
       <VStack gap={3}>
         <TurnStats totals={turn.totals} tools={tools} latency={latency} />
         <TraceCharts root={root} split={turn.split} onSelect={onSelect} />
@@ -392,14 +400,16 @@ function Overview({
   pick,
   selectedId,
   select,
+  end,
 }: {
   turns: readonly TraceTurn[];
   index: number | null;
   pick: (index: number | null) => void;
   selectedId: string | undefined;
   select: (node: TraceNode) => void;
+  end: ReactNode;
 }) {
-  if (index === null) return <ConversationOverview turns={turns} onPick={pick} />;
+  if (index === null) return <ConversationOverview turns={turns} onPick={pick} end={end} />;
   return (
     <TurnOverview
       turns={turns}
@@ -408,6 +418,43 @@ function Overview({
       onBack={turns.length > 1 ? () => pick(null) : undefined}
       selectedId={selectedId}
       onSelect={select}
+      end={end}
+    />
+  );
+}
+
+/** The agent the records ran, which names their file. */
+function tracedAgent(records: readonly TraceRecord[]): string {
+  for (const record of records) {
+    for (const span of record.spans) {
+      const name = span.attributes['gen_ai.agent.name'];
+      if (typeof name === 'string' && name) return name;
+    }
+  }
+  return 'trace';
+}
+
+/** Saves the records on screen as `<agent>-<time>.trace.json`, the file the studio imports. */
+function TraceDownload({ records }: { records: readonly TraceRecord[] }) {
+  const { t } = useTraceFormat();
+  const label = t('@theorem.panel.trace.download');
+  return (
+    <IconButton
+      label={label}
+      variant="ghost"
+      size="sm"
+      tooltip={label}
+      icon={<Icon icon={IconDownload} />}
+      onClick={() => {
+        const stamp = new Date().toISOString().replaceAll(':', '-').slice(0, 19);
+        const file = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(file);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${tracedAgent(records)}-${stamp}.trace.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }}
     />
   );
 }
@@ -429,7 +476,14 @@ function TraceInspectorBody({
   const { index, root, open, select, close, pick } = useOpenSpan(turns);
   if (turns.length === 0) return <EmptyTrace />;
   const overview = (
-    <Overview turns={turns} index={index} pick={pick} selectedId={open?.id} select={select} />
+    <Overview
+      turns={turns}
+      index={index}
+      pick={pick}
+      selectedId={open?.id}
+      select={select}
+      end={<TraceDownload records={records} />}
+    />
   );
   return (
     <PaneLayout

@@ -288,9 +288,95 @@ function ProsePanel({ attribute, text }: { attribute: string; text: unknown }) {
   );
 }
 
-function TurnIO({ node }: { node: TraceNode }) {
+/** Content folded under a title, with its count when it is a list. */
+function Folded({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count?: number;
+  children: ReactNode;
+}) {
+  return (
+    <Collapsible
+      defaultIsOpen={false}
+      trigger={
+        <Text weight="medium">{count === undefined ? title : `${title} · ${String(count)}`}</Text>
+      }
+    >
+      <Card padding={3} variant="muted" style={{ background: 'var(--color-background-surface)' }}>
+        {children}
+      </Card>
+    </Collapsible>
+  );
+}
+
+/** The system prompt a model call was sent, part by part. */
+function SystemInstructions({ node }: { node: TraceNode }) {
+  const parts = inlineContent(node.record, node.span.attributes['gen_ai.system_instructions']);
+  const texts = (Array.isArray(parts) ? parts.filter(isObject) : []).flatMap((part) =>
+    typeof part.content === 'string' && part.content ? [part.content] : [],
+  );
+  if (texts.length === 0) return null;
+  return (
+    <Folded title={label('gen_ai.system_instructions').title}>
+      <VStack gap={3}>
+        {keyedByContent(texts, (text) => text).map(({ item: text, key }) => (
+          <Prose key={key} text={text} />
+        ))}
+      </VStack>
+    </Folded>
+  );
+}
+
+/** The tools a model call was offered: each one's name, what it does, and what it takes. */
+function ToolDefinitions({ node }: { node: TraceNode }) {
+  const value = storedValue(node, 'gen_ai.tool.definitions');
+  const tools = Array.isArray(value) ? value.filter(isObject) : [];
+  if (tools.length === 0) return null;
+  return (
+    <Folded title={label('gen_ai.tool.definitions').title} count={tools.length}>
+      <VStack gap={3}>
+        {keyedByContent(tools, (tool) => String(tool.name)).map(({ item: tool, key }) => (
+          <VStack key={key} gap={1}>
+            <Text weight="medium">{String(tool.name ?? '')}</Text>
+            {typeof tool.description === 'string' ? (
+              <Text color="secondary">{tool.description}</Text>
+            ) : null}
+            {tool.parameters === undefined ? null : <ShapedData value={tool.parameters} />}
+          </VStack>
+        ))}
+      </VStack>
+    </Folded>
+  );
+}
+
+/** What a model call was given besides its messages: the system prompt and the tools. */
+function CallContext({ node }: { node: TraceNode }) {
   return (
     <>
+      <SystemInstructions node={node} />
+      <ToolDefinitions node={node} />
+    </>
+  );
+}
+
+/** A turn's first model call: the one whose system prompt and tools the turn opened with. */
+function firstCall(node: TraceNode): TraceNode | undefined {
+  for (const child of node.children) {
+    if ('gen_ai.system_instructions' in child.span.attributes) return child;
+    const found = firstCall(child);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function TurnIO({ node }: { node: TraceNode }) {
+  const call = firstCall(node);
+  return (
+    <>
+      {call ? <CallContext node={call} /> : null}
       <ProsePanel
         attribute="gen_ai.input.messages"
         text={messageText(node, 'gen_ai.input.messages', 'user')}
@@ -313,21 +399,11 @@ function CallIO({ node }: { node: TraceNode }) {
           <MessageList messages={output} />
         </PanePanel>
       ) : null}
+      <CallContext node={node} />
       {input.length > 0 ? (
-        <Collapsible
-          defaultIsOpen={false}
-          trigger={
-            <Text weight="medium">{`${label('gen_ai.input.messages').title} · ${input.length}`}</Text>
-          }
-        >
-          <Card
-            padding={3}
-            variant="muted"
-            style={{ background: 'var(--color-background-surface)' }}
-          >
-            <MessageList messages={input} />
-          </Card>
-        </Collapsible>
+        <Folded title={label('gen_ai.input.messages').title} count={input.length}>
+          <MessageList messages={input} />
+        </Folded>
       ) : null}
     </>
   );

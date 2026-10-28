@@ -358,13 +358,23 @@ function toolEvents(
         },
         readBack: result,
       }
-    : { phase: 'complete' as const, output: parsed(result), readBack: result };
+    : { phase: 'complete' as const, output: shownOutput(record, span, result), readBack: result };
   return [
     made,
     { type: 'tool', tool: { name, callId, phase: 'running', at: startedAt } },
     { type: 'tool', tool: { name, callId, at: endedAt, ...settled } },
     ...groundingSources(record, span),
   ];
+}
+
+/**
+ * What the person was shown: the tool's raw output where the span recorded it.
+ * why: `gen_ai.tool.call.result` is what the model read back, fenced in `<tool_data>` for a remote tool.
+ */
+function shownOutput(record: TraceRecord, span: TraceSpan, result: string): unknown {
+  return 'theorem.tool.data' in span.attributes
+    ? content(record, span, 'theorem.tool.data')
+    : parsed(result);
 }
 
 function parsed(text: string): unknown {

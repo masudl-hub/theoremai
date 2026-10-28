@@ -310,3 +310,14 @@ Deno.test('a turn set again goes on with the calls it had left', async () => {
   assertEquals(await first(), 'text');
   assertEquals(diverged, []);
 });
+
+Deno.test('a recorded tool shows the output the person saw, not the fenced text the model read', async () => {
+  const { events, records } = await recording();
+  for (const span of records.flatMap((record) => record.spans))
+    if ('gen_ai.tool.call.result' in span.attributes)
+      span.attributes['gen_ai.tool.call.result'] =
+        '<tool_data tool="convert_units" origin="http">\n{"miles":6.2}\n</tool_data>';
+  const tool = recordedTranscript(replayScript(records)).find((block) => block.kind === 'tool');
+  assert(tool?.kind === 'tool' && tool.tool.state?.phase === 'complete');
+  assertEquals(tool.tool.state.output, toolOutputs(events)[0]);
+});

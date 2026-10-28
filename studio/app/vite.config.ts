@@ -56,7 +56,14 @@ export default defineConfig({
   optimizeDeps: {
     // Scan every source up front, lazy chunks included, so a package first reached mid-session
     // never forces a re-optimize that leaves the open tab with two copies of React.
-    entries: ['main.tsx', '../ui/**/*.{ts,tsx}', '../../react/src/**/*.tsx'],
+    entries: [
+      'main.tsx',
+      '../ui/**/*.{ts,tsx}',
+      '../../react/src/**/*.tsx',
+      // why: .ts helpers in the page's own folders reach packages no .tsx imports (code language, messages).
+      '../../react/src/{ui,hooks,client,components}/**/*.ts',
+      '!**/*.test.*',
+    ],
   },
   server: {
     // Only this machine, and only this page: no other page may read what this serves.

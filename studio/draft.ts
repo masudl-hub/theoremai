@@ -32,7 +32,7 @@ import {
   type ProviderLimits,
   profileTypesForField,
 } from '@theoremjs/agents/kernel';
-import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
+import { resolveObservabilityPolicy, type ScrubSwitch } from '@theoremjs/agents/observability';
 import {
   type CompactionMeter,
   type CompactionTiming,
@@ -327,9 +327,9 @@ export interface ObservabilityDraft {
     guardrailMatchPreview: boolean;
   };
   scrub: {
-    sensitive: boolean;
-    injection: boolean;
-    canary: boolean;
+    sensitive: ScrubSwitch;
+    injection: ScrubSwitch;
+    canary: ScrubSwitch;
   };
   retainForDays: number | null;
   rotateAfterMiB: number | null;
@@ -587,9 +587,9 @@ function defaultObservability(): ObservabilityDraft {
     sampleRate: resolved.sampleRate,
     include: { ...resolved.include },
     scrub: {
-      sensitive: Boolean(resolved.scrub.sensitive),
-      injection: Boolean(resolved.scrub.injection),
-      canary: Boolean(resolved.scrub.canary),
+      sensitive: resolved.scrub.sensitive,
+      injection: resolved.scrub.injection,
+      canary: resolved.scrub.canary,
     },
     retainForDays: null,
     rotateAfterMiB: null,

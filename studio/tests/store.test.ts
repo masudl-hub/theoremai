@@ -48,6 +48,23 @@ Deno.test('a kept workspace in the current shape comes back', () => {
   sessionStorage.clear();
 });
 
+Deno.test('an agent whose trace scrub names the sides comes back', () => {
+  const workspace = twoAgents();
+  const [first, second] = workspace.agents;
+  assert(first && second);
+  const scrub = { ...first.observability.scrub, sensitive: { theorem: true, host: false } };
+  const observability = { ...first.observability, scrub };
+  keep({ ...workspace, agents: [{ ...first, observability }, second] });
+  const restored = restoreStudio();
+  assertEquals(restored.kind, 'restored');
+  assertEquals(
+    restored.kind === 'restored' &&
+      restored.value.workspace.agents[0]?.observability.scrub.sensitive,
+    { theorem: true, host: false },
+  );
+  sessionStorage.clear();
+});
+
 Deno.test('a workspace with an agent kept before the draft grew a section is set aside', () => {
   const workspace = twoAgents();
   const [first, second] = workspace.agents;

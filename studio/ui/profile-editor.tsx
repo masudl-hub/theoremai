@@ -4987,11 +4987,56 @@ const INCLUDE_FLAGS: Flag<keyof ObservabilityDraft['include']>[] = [
   { key: 'guardrailMatchPreview', label: 'Match preview' },
 ];
 
-const SCRUB_FLAGS: Flag<keyof ObservabilityDraft['scrub']>[] = [
+type ScrubName = keyof ObservabilityDraft['scrub'];
+type ScrubSwitch = ObservabilityDraft['scrub'][ScrubName];
+type ScrubChoice = 'on' | 'both' | 'theorem' | 'host' | 'off';
+
+const SCRUB_ROWS: readonly { key: ScrubName; label: string }[] = [
   { key: 'sensitive', label: 'Sensitive' },
   { key: 'injection', label: 'Injection' },
   { key: 'canary', label: 'Canary' },
 ];
+
+const SCRUB_CHOICES: readonly Choice<ScrubChoice>[] = [
+  { value: 'on', label: 'On', description: 'With the patterns each detector reads the turn with' },
+  {
+    value: 'both',
+    label: "Theorem's and yours",
+    description: 'Both sides, whatever the turn reads with',
+  },
+  { value: 'theorem', label: "Theorem's only" },
+  {
+    value: 'host',
+    label: 'Yours only',
+    description: 'Your guardrails.detect patterns and detectors',
+  },
+  { value: 'off', label: 'Off' },
+];
+
+// why: the canary is Theorem's, so only its side means anything.
+const CANARY_CHOICES: readonly Choice<ScrubChoice>[] = [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
+
+/** The choice a scrub switch is: the object form names the sides, each on when left out. */
+function scrubChoice(name: ScrubName, value: ScrubSwitch): ScrubChoice {
+  if (typeof value === 'boolean') return value ? 'on' : 'off';
+  const theorem = value.theorem ?? true;
+  if (name === 'canary') return theorem ? 'on' : 'off';
+  const host = value.host ?? true;
+  if (theorem && host) return 'both';
+  if (theorem) return 'theorem';
+  return host ? 'host' : 'off';
+}
+
+const SCRUB_SWITCHES: Record<ScrubChoice, ScrubSwitch> = {
+  on: true,
+  both: { theorem: true, host: true },
+  theorem: { theorem: true, host: false },
+  host: { theorem: false, host: true },
+  off: false,
+};
 
 /** A set of on-or-off flags as one checklist: the ones on are checked. */
 function FlagList<K extends string>({
@@ -5094,15 +5139,18 @@ function TraceContentSections({ observability, set }: ObservabilitySectionProps)
         />
       </InspectorSection>
       <InspectorSection path="observability.scrub">
-        <FlagList
-          label="Scrub"
-          path="observability.scrub"
-          flags={SCRUB_FLAGS}
-          value={observability.scrub}
-          onChange={(scrub) => {
-            set({ scrub });
-          }}
-        />
+        {SCRUB_ROWS.map(({ key, label }) => (
+          <ChoiceRow
+            key={key}
+            label={label}
+            path={`observability.scrub.${key}`}
+            value={scrubChoice(key, observability.scrub[key])}
+            options={key === 'canary' ? CANARY_CHOICES : SCRUB_CHOICES}
+            onChange={(choice) => {
+              if (choice) set({ scrub: { ...observability.scrub, [key]: SCRUB_SWITCHES[choice] } });
+            }}
+          />
+        ))}
       </InspectorSection>
     </>
   );

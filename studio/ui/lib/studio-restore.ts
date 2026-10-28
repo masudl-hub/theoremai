@@ -48,6 +48,8 @@ function isWorkspace(value: unknown): value is StudioWorkspace {
   if (!isRecord(starts) || !isRecord(starts.agents) || !isRecord(starts.tools)) return false;
   if (!isRecord(starts.providers)) return false;
   const blank = createBlankDraft();
+  // why: a scrub switch is on, off, or whose patterns clean the trace; only the record is checked.
+  const shape = { ...blank, observability: { ...blank.observability, scrub: {} } };
   const workspace = value as unknown as StudioWorkspace;
   return agents.every(
     (agent: unknown) =>
@@ -55,7 +57,7 @@ function isWorkspace(value: unknown): value is StudioWorkspace {
       typeof agent.key === 'string' &&
       isRecord(agent.tools) &&
       Array.isArray(agent.tools.allow) &&
-      hasShapeOf(agentDraft(workspace, agent.key), blank),
+      hasShapeOf(agentDraft(workspace, agent.key), shape),
   );
 }
 

@@ -326,6 +326,9 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
                   severity: 'high',
                   match: 'ignore previous',
                 },
+                // why: with the match stripped, two places the rule matched read the same and fold into one row.
+                { rule: 'detect.tool_instructions', severity: 'high' },
+                { rule: 'detect.tool_instructions', severity: 'high' },
               ],
               provenance: { tool: 'search_places' },
             },
@@ -352,6 +355,16 @@ Deno.test('traceGuardrails lists every check in order, with the rules that fired
       severity: 'high',
       severityLabel: 'High',
       match: 'ignore previous',
+      count: 1,
+    },
+    {
+      rule: 'detect.tool_instructions',
+      ruleLabel: 'Tool instructions',
+      ruleDoc:
+        'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+      severity: 'high',
+      severityLabel: 'High',
+      count: 2,
     },
   ]);
 });

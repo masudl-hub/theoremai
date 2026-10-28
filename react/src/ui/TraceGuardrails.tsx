@@ -25,12 +25,19 @@ function checkName(check: TraceGuardrailCheck): string {
 }
 
 /** One rule a check matched: what it caught and how serious, why that matters, and the matched text when kept. The id is on hover, for finding the rule in code. */
-function HitWhy({ hit, separator }: { hit: TraceGuardrailHit; separator: string }) {
+function HitWhy({ hit, format }: { hit: TraceGuardrailHit; format: Format }) {
+  const separator = format.t('@theorem.panel.trace.separator');
   return (
     <VStack gap={0}>
       <HoverTip content={hit.rule}>
         <Text type="supporting" weight="medium">
-          {[hit.ruleLabel, hit.severityLabel].filter(Boolean).join(separator)}
+          {[
+            hit.ruleLabel,
+            hit.severityLabel,
+            hit.count > 1 && format.t('@theorem.panel.trace.guardrails.places', { count: hit.count }),
+          ]
+            .filter(Boolean)
+            .join(separator)}
         </Text>
       </HoverTip>
       {hit.ruleDoc ? (
@@ -62,7 +69,7 @@ function CheckWhy({ check, format }: { check: TraceGuardrailCheck; format: Forma
           .join(separator)}
       </Text>
       {check.hits.map((hit) => (
-        <HitWhy key={`${hit.rule}:${hit.match ?? ''}`} hit={hit} separator={separator} />
+        <HitWhy key={`${hit.rule}:${hit.match ?? ''}`} hit={hit} format={format} />
       ))}
       {check.reason ? (
         <Text type="supporting" color="secondary" maxLines={3}>

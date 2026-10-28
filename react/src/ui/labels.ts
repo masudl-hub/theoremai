@@ -1098,6 +1098,11 @@ export const THEOREM_UI_CATALOG = {
       'Under the guardrail checks that acted: the checks that let the text through, each with what it checked and its time.',
     params: ['checks'],
   },
+  '@theorem.panel.trace.guardrails.places': {
+    defaultMessage: '{count, plural, one {# place} other {# places}}',
+    description: 'A rule a guardrail check matched: how many places in the text it matched.',
+    params: ['count'],
+  },
   '@theorem.panel.trace.guardrails.from': {
     defaultMessage: 'from {tool}',
     description: 'A guardrail check: the tool the checked text came from.',

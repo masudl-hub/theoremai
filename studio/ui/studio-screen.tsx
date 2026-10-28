@@ -238,7 +238,7 @@ import {
 import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
-import { usePhone } from './use-phone.ts';
+import { useBelowDesktop } from './use-phone.ts';
 
 // The tester, Settings, the map and the code view load when they first open, or once the page is idle.
 const testerPanel = () => import('./guardrail-tester.tsx');
@@ -1405,18 +1405,19 @@ function OpenInNewTabButton({
   chattedId,
   blocked,
   connection,
+  isIconOnly,
 }: {
+  isIconOnly: boolean;
   compiled: CompiledWorkspace | undefined;
   chattedId: string;
   blocked: string | undefined;
   connection: Pick<StudioRunPayload, 'connectionMode' | 'localBaseUrl'>;
 }) {
   const project = useProject();
-  const phone = usePhone();
   return (
     <Button
       label="Open in a new tab"
-      isIconOnly={phone}
+      isIconOnly={isIconOnly}
       variant="ghost"
       icon={<Icon icon={IconBrowserShare} size="sm" />}
       isDisabled={!compiled}
@@ -2794,16 +2795,17 @@ const NO_CONVERSATION = new Set(['decision', 'host', 'embedding', 'live']);
 function ReplayExchangeButton({
   payload,
   tracing,
+  isIconOnly,
 }: {
   payload: WorkspaceCompile['payload'];
   tracing: { open: boolean; toggle: () => void };
+  isIconOnly: boolean;
 }) {
-  const phone = usePhone();
   if (payload == null || NO_CONVERSATION.has(payload.profile.type)) return null;
   return (
     <Button
       label={tracing.open ? 'Close replay' : 'Replay exchange'}
-      isIconOnly={phone}
+      isIconOnly={isIconOnly}
       variant={tracing.open ? 'secondary' : 'ghost'}
       tooltip={
         tracing.open
@@ -2844,10 +2846,10 @@ function PreviewHeader({
   setSheet: (sheet: Sheet) => void;
 }) {
   const traceLabel = trace.open ? 'Hide trace' : 'View trace';
-  const phone = usePhone();
+  const { ref, below: iconsOnly } = useBelowDesktop();
   const { compiled } = compile;
   return (
-    <Section variant="transparent" paddingInline={3} paddingBlock={0}>
+    <Section ref={ref} variant="transparent" paddingInline={3} paddingBlock={0}>
       <HStack gap={2} vAlign="center">
         <SheetButton
           label="Back to the editor"
@@ -2860,15 +2862,21 @@ function PreviewHeader({
         </StackItem>
         <StackItem size="static">
           <HStack gap={1} vAlign="center">
-            <ActingAsButton />
+            <ActingAsButton isIconOnly={iconsOnly} />
             {compile.payload && run.isUsed && !testing && !tracing.open && (
               <ClearHistoryButton run={run} />
             )}
-            {!testing && <ReplayExchangeButton payload={compile.payload} tracing={tracing} />}
+            {!testing && (
+              <ReplayExchangeButton
+                payload={compile.payload}
+                tracing={tracing}
+                isIconOnly={iconsOnly}
+              />
+            )}
             {(compile.traced || tracing.open) && !testing ? (
               <Button
                 label={traceLabel}
-                isIconOnly={phone}
+                isIconOnly={iconsOnly}
                 variant={trace.open ? 'secondary' : 'ghost'}
                 tooltip={
                   trace.open
@@ -2881,6 +2889,7 @@ function PreviewHeader({
               />
             ) : null}
             <OpenInNewTabButton
+              isIconOnly={iconsOnly}
               compiled={compiled.ok ? compiled : undefined}
               chattedId={compile.chattedId}
               blocked={compile.blocked}

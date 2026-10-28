@@ -598,7 +598,7 @@ const isSection = (value: string): value is SettingsSection =>
 function SettingsNavHead({ project, version }: { project: ProjectSession; version: string }) {
   return (
     <VStack gap={4}>
-      <VStack gap={1}>
+      <VStack gap={1} className="studio-nav-head">
         <Heading level={3}>theorem studio</Heading>
         <Text type="supporting" color="secondary">
           {`${project.name} · @theoremjs/agents ${version}`}
@@ -662,7 +662,7 @@ export function StudioSettings(props: StudioSettingsProps) {
           )
         }
         content={
-          <LayoutContent padding={0}>
+          <LayoutContent padding={0} className="studio-settings-main">
             <Section variant="transparent" padding={3} dividers={['bottom']}>
               <HStack gap={2} vAlign="center">
                 <StackItem size="fill">

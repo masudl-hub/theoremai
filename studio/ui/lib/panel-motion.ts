@@ -1,7 +1,8 @@
 /**
  * The panel takes the whole frame for the map or Settings, and gives it back. What is on screen
  * and will not stay eases out, the panel's far edge moves if its width changes, and what comes in
- * eases in. The shell's rail is outside the panel and never moves.
+ * eases in. The nav column is the studio's and Settings' both: its frame and head stay, and only
+ * the list under the head crosses.
  */
 import { HOLD_MS, prefersReducedMotion, sleep } from '../shell-motion.ts';
 
@@ -16,18 +17,19 @@ export interface PanelView {
 }
 
 const PARTS = {
-  tree: '.studio-tree',
+  tree: '.studio-tree .studio-nav-head ~ *',
   editor: '.studio-view',
   handle: '.studio-side-handle',
   preview: '.studio-preview',
   map: '.studio-map-pane, .studio-map-handle',
-  settings: '.studio-settings',
+  settingsNav: '.studio-settings .studio-nav-head ~ *, .studio-settings-tree',
+  settings: '.studio-settings-main',
 } as const;
 
 type Part = keyof typeof PARTS;
 
 function shown(view: PanelView): Part[] {
-  if (view.settings) return ['settings'];
+  if (view.settings) return ['settingsNav', 'settings'];
   if (view.map) return ['tree', 'editor', 'map'];
   return ['tree', 'editor', 'handle', 'preview'];
 }

@@ -2297,7 +2297,7 @@ const TreeColumn = memo(function TreeColumn({
   return (
     <Section variant="transparent" width={TREE_WIDTH} height="100%" padding={4} dividers={['end']}>
       <VStack gap={4} height="100%">
-        <HStack gap={2} vAlign="start">
+        <HStack gap={2} vAlign="start" className="studio-nav-head">
           <StackItem size="fill">
             <VStack gap={1}>
               <Heading level={3}>theorem studio</Heading>

@@ -1243,6 +1243,25 @@ Deno.test('the compactor keeps media it accepts', () => {
   assertEquals(history[0], { role: 'user', content: 'what is this?', parts: [png] });
   assertEquals(droppedMedia, 0);
 });
+Deno.test("a tool result's files reach the compactor in a user message after it", () => {
+  registerCompactionPair('compaction.reader.tool_files', BEFORE_SPEC, {
+    inputs: {
+      text: true,
+      attachments: { accept: ['image/png'] },
+      maxFiles: 5,
+      maxBytes: 1000000,
+      maxTurnBytes: 5000000,
+    },
+  });
+  const { history } = compactorHistory(
+    [{ role: 'tool', tool_call_id: 'c1', name: 'read_page', content: 'one swatch', parts: [png] }],
+    getProfile('compaction.reader.tool_files.compactor'),
+  );
+  assertEquals(history, [
+    { role: 'assistant', parts: [{ type: 'text', text: 'read_page returned: one swatch' }] },
+    { role: 'user', parts: [{ type: 'text', text: 'Files read_page returned:' }, png] },
+  ]);
+});
 Deno.test('a message with nothing the compactor can read is left out', () => {
   registerCompactionPair('compaction.reader.empty', BEFORE_SPEC);
   assertEquals(

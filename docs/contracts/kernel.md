@@ -1425,7 +1425,9 @@ The compactor gets `toCompact` as its history, with the labels'
   history, so `maxTokens` must fit the compactor's context.
 - Tool calls and results become assistant text (`compaction.tool_call`,
   `compaction.tool_result`) naming the tool, so no provider needs the tools
-  declared.
+  declared. A result's files follow it in a user message led by
+  `compaction.tool_files`, because Chat Completions takes only text in
+  assistant content.
 - An earlier summary in `toCompact` is summarized with the rest.
 
 A completed, non-empty reply is the summary: the structured output as JSON,

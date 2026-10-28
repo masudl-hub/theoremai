@@ -3162,16 +3162,15 @@ const PreviewPane = memo(function PreviewPane({
 }) {
   const [traceOpen, setTraceOpen] = useState(false);
   const [replaying, setReplaying] = useState(false);
-  // why: the console mounts on first open and stays, so the way back finds the replay as it was.
-  const [kept, setKept] = useState(false);
   const [openedTrace, setOpenedTrace] = useState<OpenedTrace>();
   const feedOf = useRunFeeds(run.generation);
   const profileId = chatAgents.find((agent) => agent.value === chatWith)?.label;
   const sendNext = useSendAfterResume(chatRef, run.runKey);
   const { payload } = compile;
   const replay = replaying && holdsConversation(payload);
+  // why: the console stays mounted while it holds a file, so the way back finds its replay as it was.
   const traceView =
-    kept && payload ? (
+    payload && (replay || openedTrace) ? (
       <Suspense fallback={null}>
         <TraceReplay
           payload={payload}
@@ -3210,7 +3209,6 @@ const PreviewPane = memo(function PreviewPane({
           tracing={{
             open: replay,
             toggle: () => {
-              setKept(true);
               setReplaying(!replay);
             },
           }}

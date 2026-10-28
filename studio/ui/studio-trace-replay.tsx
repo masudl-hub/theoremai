@@ -204,6 +204,14 @@ function TraceFileInput({ onImport }: { onImport: (trace: OpenedTrace) => void }
 
 type Shown = 'recorded' | 'replayed';
 
+/** A replay of one file through one agent: how many times it ran, and which run is shown. */
+interface ReplayRun {
+  of: OpenedTrace;
+  agent: string;
+  attempt: number;
+  shown: Shown;
+}
+
 /** What the trace card holds besides its file: the imported trace, and how its replay runs. */
 interface TraceControls {
   opened: OpenedTrace;
@@ -607,17 +615,18 @@ function TraceConsole({
   const iface = useMemo(() => studioInterface(payload), [payload]);
   const script = useMemo(() => opened && replayScript(opened.records), [opened]);
   const recorded = useMemo(() => recordedFeed(opened?.records ?? []), [opened]);
-  const [attempt, setAttempt] = useState(0);
-  const [shown, setShown] = useState<Shown>('recorded');
+  const [ran, setRan] = useState<ReplayRun>();
   const [liveTools, setLiveTools] = useState(false);
-  const imported = (next: OpenedTrace) => {
-    onOpened(next);
-    setAttempt(0);
-    setShown('recorded');
+  // invariant: a replay belongs to the file and the agent it ran; another of either shows the recording.
+  const run = ran?.of === opened && ran?.agent === payload.profile.id ? ran : undefined;
+  const attempt = run?.attempt ?? 0;
+  const shown = run?.shown ?? 'recorded';
+  const setShown = (next: Shown) => {
+    if (run) setRan({ ...run, shown: next });
   };
   const replayOnce = () => {
-    setAttempt((count) => count + 1);
-    setShown('replayed');
+    if (opened)
+      setRan({ of: opened, agent: payload.profile.id, attempt: attempt + 1, shown: 'replayed' });
   };
   // invariant: the header offers an import only for a type whose conversation a trace holds.
   if (iface.type === 'live') return null;
@@ -627,13 +636,13 @@ function TraceConsole({
         iface={iface}
         feed={recorded}
         trace={trace}
-        card={<TraceCard onImport={imported} />}
+        card={<TraceCard onImport={onOpened} />}
         conversation={null}
       />
     );
   const card = ({ isRunning, onStop }: Pick<TraceControls, 'isRunning' | 'onStop'>) => (
     <TraceCard
-      onImport={imported}
+      onImport={onOpened}
       controls={{
         opened,
         script,

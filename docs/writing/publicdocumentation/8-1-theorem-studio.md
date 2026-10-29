@@ -24,7 +24,7 @@ Theorem Studio is an interactive visual workbench for authoring, testing, and de
 Studio equips builders with five core capabilities:
 
 1. **Dual Form & Code Editing**: Edit agent profiles through structured forms (model parameters, prompt templates, tool allowlists, guardrail thresholds) or write TypeScript directly in an embedded Monaco editor. Changes in either pane instantly synchronize with the other.
-2. **Pre-flight Compilation & Diagnostic Testing**: Studio continuously compiles the profile draft in the background using the Theorem compiler. It type-checks schemas, validates tool input/output contracts, verifies model slot bindings, and flags issues directly on the offending form field or code line before you run a single turn.
+2. **Pre-flight Compilation & Diagnostic Testing**: Studio continuously compiles the profile draft in the background using the Theorem compiler. It type-checks schemas, validates tool input/output contracts, checks each model's provider, and flags issues directly on the offending form field or code line before you run a single turn.
 3. **Interactive Workspace Map**: View a live topological diagram of your entire project. The map visualizes how providers connect to models, how models bind to agents, which tools each profile can invoke, and how sub-agents delegate work or write compaction summaries.
 4. **Live Run Bench & Tool Approvals**: Test agents in an interactive chat interface that renders real-time token streaming, formatted tool arguments, and human-in-the-loop approval cards when gated tools request confirmation.
 5. **Trace Replay & Regression Testing**: Import production or test `.trace.json` files to inspect historical turns step-by-step. Replay recorded user turns against your modified agent profile offline without spending API tokens, compare recorded vs. replayed behavior side-by-side, and switch to "Continue live" to test past the point of divergence.
@@ -45,7 +45,7 @@ Every agent profile can be viewed and edited as either high-level form fields or
 
 Studio runs pre-flight validation as you type. Rather than waiting for a turn to fail at runtime with an invalid parameter or missing key:
 
-* **Key Slot Verification**: Ensures every model binding has a corresponding key slot in your provider vault.
+* **Model Route Checks**: Checks that each model's provider exists in the workspace and serves the agent's type on the model's protocol. The compile does not read your key vault: the studio command checks each provider's key once when the project opens, and a run whose key slot is empty fails with an `auth` error.
 * **Schema Validation**: Validates tool input schemas against Zod definitions and ensures structured output definitions match target JSON Schemas.
 * **Boundary Checks**: Verifies that custom guardrails, regex patterns, and egress domain allowlists are well-formed.
 * **Node-Level Issues**: When an error occurs, Studio points directly to the specific node in the agent tree and opens the relevant line in the code editor.
@@ -62,10 +62,10 @@ Complex multi-agent architectures often obscure which agent has access to which 
                                               [ Sub-Agents ]
 ```
 
-* **Providers & Models**: Visualizes available model providers (OpenAI, Gemini, Anthropic, Ollama) and which models they serve.
+* **Providers & Models**: Visualizes the workspace's model providers and which models they serve. Studio registers Gemini, OpenRouter, Local (a server such as Ollama, llama.cpp, vLLM, or LM Studio), and TypeSafe. A project can register its own.
 * **Profile Connections**: Shows which models power each profile, and whether profiles share base prompts or compaction summarizers.
 * **Tool Allowances**: Displays tool assignments across agents, distinguishing between local function tools, MCP servers, and HTTP endpoints.
-* **Sub-Agent Delegation**: Visualizes `agent_tool` relationships where one profile delegates tasks to another (e.g., `harbor.desk` delegating berth allocations to `harbor.berth_planner`).
+* **Sub-Agent Delegation**: Visualizes agent tool (`type: 'agent'`) relationships where one profile delegates tasks to another (e.g., `harbor.desk` delegating berth allocations to `harbor.berth_planner`).
 
 ### 4. Interactive Run Bench
 
@@ -93,7 +93,7 @@ Studio operates in two environments:
 | Approach | How You Run It | Environment | Persistence & Access |
 | :--- | :--- | :--- | :--- |
 | **Local Project Mode** | `npx theorem-studio` | Local terminal / browser | Reads local files, runs on local API keys, saves edits directly to project files |
-| **Embedded App Mode** | `<StudioScreen />` | Web application component | Runs on server-controlled quotas, sandboxed execution, memory-only session state |
+| **Embedded App Mode** | `<StudioScreen />` | Web application component | Runs on server-controlled quotas, sandboxed execution, session state kept in the browser tab |
 
 ### Local Project Mode
 
@@ -106,7 +106,7 @@ npx theorem-studio
 Studio loads your project configuration ([`studio.setup.ts`](8-1-1-studio-setup-and-workspace.md)), spins up a local server, and launches the web interface. In this mode:
 
 * **Direct Disk Persistence**: Clicking **Save** writes production-ready TypeScript code directly to your project files on disk.
-* **Local Keys**: Model calls sign requests using credentials from your local environment variables (`process.env` or `Deno.env`). Keys never leave your machine.
+* **Local Keys**: Model calls sign with the keys in your entry's `theorem.provider.vault`, read from your environment (`process.env` or `Deno.env`). Studio never writes keys to disk.
 * **Editor Integration**: Studio integrates with your local desktop editor (VS Code, Cursor, Zed, WebStorm). Clicking an issue or file reference opens the exact file and line in your editor.
 
 ### Embedded App Mode
@@ -135,7 +135,7 @@ In embedded mode:
 
 * **Lent Keys & Quotas**: Control which models visitors can use and enforce strict spending quotas to prevent credit exhaustion.
 * **Sandboxed Execution**: Visitors cannot write files to your server or access internal infrastructure.
-* **In-Memory State**: Test conversations and drafts execute in browser memory and vanish when the tab closes.
+* **Tab State**: Drafts and test conversations are kept in the tab's session storage. A reload keeps them. Closing the tab removes them.
 
 ---
 

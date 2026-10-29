@@ -193,7 +193,7 @@ export function Studio() {
   return (
     <Theme theme={theoremStudioTheme} mode="dark">
       <LayerProvider>
-        <StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.1' }} />
+        <StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.3' }} />
       </LayerProvider>
     </Theme>
   );
@@ -279,7 +279,7 @@ const studio = createStudioDraftHandler({
 ```
 
 ```tsx
-<StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.1', lentKeys: keys }} />
+<StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.3', lentKeys: keys }} />
 ```
 
 `hostOptions` gets each draft's profile. The draft names its own key slots, so fill the slots its models name. A decision or embedding whose vault holds no key is refused with `auth`.
@@ -323,7 +323,7 @@ Use these when you build on the studio's draft yourself: compile it, export it a
 | `projectProfileSlice()`, `projectToolSlice()`, `stitchCookbook()`, `resolveCookbookSlice()` | Project or stitch individual profile facets, tool sub-objects (`auth`, `mapping`, `labels`), or full runnable programs from `COOKBOOKS` |
 | `GOOGLE_BUILTIN_TOOLS`, `OPENROUTER_BUILTIN_TOOLS`, `GOOGLE_SPEECH_VOICES`, `googleBindingViolation()`, `localBindingViolation()`, `ollamaModelThinks()` | Provider and model cookbooks: hosted builtin tool definitions, provider media/voice vocabularies, and model binding checks |
 | `createDecisionExampleDraft()`, `decisionExampleDraft(images?)`, `DECISION_EXAMPLE_STATE`, `decisionExampleAssets()` | The Pantry cookbook (`COOKBOOKS.decision`, agent `pantry.jev`): Jev 1.14 asked about a pantry shelf, with box, Number and Choice questions. Its four pictures ship with it, and load only when the example is made, so `createDecisionExampleDraft` and `decisionExampleAssets` return a promise; `decisionExampleDraft` is the same draft with the pictures it is given, none by default, for a page that only shows its shape. The ginger, the colour chart and the flag are the decision's own; a decision sends each one its state or questions name. Each box question names the image it reads: the Ginger and Union Jack questions read `photo`, and the chart question reads `<apple_ripeness>`. The run tab starts with the shelf in its state. Each is written as its reference, such as `<ginger>`, in the state or in the questions. The shelf and ginger photos are CC0 and the flag is public domain, all from Wikimedia Commons. The colour chart was drawn for the example |
-| `createLiveExampleDraft()`, `createNarratorExampleDraft()`, `createConsoleExampleDraft()`, `createArchitectWorkspace()` | The other examples: the concierge as a live agent, a speech narrator, a host tool console, and a code architect that calls the narrator through an agent tool |
+| `createLiveExampleDraft()`, `createGeminiEmbeddingExampleDraft()`, `createNarratorExampleDraft()`, `createConsoleExampleDraft()`, `createArchitectWorkspace()` | The other examples: the concierge as a live agent, a multimodal embedding profile on Gemini Embeddings 2's free preview model that takes every file type it does, a speech narrator, a host tool console, and a code architect that calls the narrator through an agent tool |
 | `setProfileType()`, `includeFacet()`, `excludeFacet()`, `newModelBinding()`, `newToolSpec()` | Draft edits that keep it consistent with `PROFILE_GRAPH` |
 | `studioTree()`, `studioNodeRef()`, `modelBindingNodeId()`, `toolSpecNodeId()` | The draft as a tree; node ids that issues point at |
 | `compileStudio()` | Draft → profile definition, custom tools, structured schema; or issues keyed by node |

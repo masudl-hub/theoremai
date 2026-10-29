@@ -17,7 +17,7 @@ Embedding the Studio screen creates an interactive workbench where visitors can 
 │ <StudioScreen />                                            │
 │ • Edits profile in visual forms or Monaco                   │
 │ • Runs interactive test turns against lent models           │
-│ • Operates in browser memory (no server disk writes)        │
+│ • Keeps its draft in the tab (no server disk writes)        │
 └──────────────────────────────┬──────────────────────────────┘
                                │ POST /api/studio/*
                                │ (profile draft rides along)
@@ -37,16 +37,16 @@ Embedding the Studio screen creates an interactive workbench where visitors can 
 
 * **No Visitor API Keys Required**: Your server provides the underlying model credentials using **Lent Keys**, allowing visitors to test agents immediately.
 * **Strict Quota & Model Boundaries**: Visitors can only use the model families and token budgets you explicitly permit.
-* **Zero Persistence Risk**: All edits and test conversations execute in ephemeral browser tab memory. Visitors cannot write files to your server or access private infrastructure.
+* **Zero Persistence Risk**: All edits and test conversations stay in the visitor's browser tab. Visitors cannot write files to your server or access private infrastructure.
 
 ---
 
 ## 1. Vite & Dependency Setup
 
-Install `@theoremjs/studio`, `@theoremjs/react`, and the required design peer packages:
+Install `@theoremjs/studio` with `@theoremjs/agents` and `@theoremjs/web` at the same version. To show the screen, also install `@theoremjs/react` at that version, React 19, and the design packages at the versions `@theoremjs/react` lists in `peerDependencies`:
 
 ```bash
-npm install @theoremjs/studio @theoremjs/react @astryxdesign/core@0.7.4 @astryxdesign/theme-neutral@0.7.4 @stylexjs/stylex@0.19.0
+npm install @theoremjs/studio @theoremjs/agents @theoremjs/web @theoremjs/react react react-dom @astryxdesign/core@0.7.4 @astryxdesign/theme-neutral@0.7.4 @stylexjs/stylex@0.19.0
 ```
 
 Add the `studioVite` plugin to your `vite.config.ts`. It resolves shared dependencies and serves the Monaco editor's web workers and type definitions:
@@ -58,10 +58,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  plugins: [
-    react(),
-    studioVite({ hostRoot: import.meta.dirname }),
-  ],
+  plugins: [react(), studioVite({ hostRoot: import.meta.dirname })],
 });
 ```
 
@@ -120,39 +117,40 @@ import type { LentKeys } from '@theoremjs/studio';
 
 export const harborLentKeys: LentKeys = {
   // Allowlist the exact models visitors can select
-  models(type, definition) {
+  models(type, _definition) {
     if (type === 'text') {
       return [
-        { id: 'gpt-4o-mini', label: 'GPT-4o Mini (Fast)' },
-        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+        { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (Fast)' },
+        { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
       ];
     }
     return [];
   },
 
   // Confirm provider support
-  runs(type, definition) {
+  runs(type, _definition) {
     return type === 'text';
   },
 
   // Default model for newly created agent drafts
-  start(type) {
-    return { protocol: 'openAi', provider: 'openai', apiId: 'gpt-4o-mini' };
+  start(_type) {
+    return { protocol: 'geminiInteractions', provider: 'gemini', apiId: 'gemini-3.5-flash-lite' };
   },
 
   // Reject unauthorized models or expensive frontier bindings
   violation(binding) {
-    if (binding.apiId !== 'gpt-4o-mini' && binding.apiId !== 'gemini-2.5-flash') {
+    if (binding.apiId !== 'gemini-3.5-flash-lite' && binding.apiId !== 'gemini-3.5-flash') {
       return {
         field: 'apiId',
-        message: 'Only standard demo models (GPT-4o Mini and Gemini 2.5 Flash) are permitted in this playground.',
+        message:
+          'Only standard demo models (Gemini 3.5 Flash Lite and Gemini 3.5 Flash) are permitted in this playground.',
       };
     }
     return null;
   },
 
   // Restrict provider built-in tools (e.g., disable arbitrary code execution)
-  builtins(apiId) {
+  builtins(_apiId) {
     return [];
   },
 
@@ -177,7 +175,7 @@ export const harborLentKeys: LentKeys = {
   // Enforce security boundaries
   holds: {
     publicHostsOnly: true, // Prevents SSRF to internal private networks
-    afterRemoteRead: 'block', // Blocks potential exfiltration after untrusted reads
+    afterRemoteRead: 'write', // Refuses writes after a turn reads a remote result
   },
 };
 ```
@@ -185,6 +183,7 @@ export const harborLentKeys: LentKeys = {
 ### Enforced Protections
 * **Model Allowlisting**: If a visitor attempts to configure an unpermitted model (such as an expensive reasoning model), Studio surfaces an inline validation badge and blocks execution.
 * **Network Sandboxing**: Setting `holds.publicHostsOnly: true` forces all outbound network calls through Theorem's private IP detector, preventing SSRF attacks against internal services.
+* **Remote-Read Gate**: `holds.afterRemoteRead` sets the calls a turn refuses once it has read a remote result: `'off'`, `'destructive'`, or `'write'`. A profile that refuses more keeps its own setting.
 * **Payload Caps**: Decision profile questions, state byte sizes, and image attachments are capped to prevent memory exhaustion.
 
 ---
@@ -197,30 +196,32 @@ Mount `createStudioDraftHandler` on your backend server (Node.js, Deno, Bun, or 
 
 ```ts
 // server/studio-route.ts
-import { createStudioDraftHandler, STUDIO_BASE } from '@theoremjs/studio/server';
 import { TheoremError } from '@theoremjs/agents';
+import { createStudioDraftHandler, STUDIO_BASE } from '@theoremjs/studio/server';
 import { harborLentKeys } from '../shared/harbor-lent-keys.ts';
+
+declare function getVisitorUsage(clientIp: string): Promise<number>;
+declare function incrementVisitorUsage(clientIp: string): Promise<void>;
 
 const studioHandler = createStudioDraftHandler({
   lent: {
     mode: 'demo',
     keys: harborLentKeys,
     // Fill each key slot the draft's model requests
-    hostOptions: (profile) => ({
+    hostOptions: (_profile) => ({
       vault: {
-        openai: process.env.OPENAI_API_KEY ?? '',
         gemini: process.env.GEMINI_API_KEY ?? '',
       },
     }),
   },
 
   // Enforce rate limits and spending quotas per user or IP
-  spend: async (kind, request) => {
+  spend: async (_kind, request) => {
     const clientIp = request.headers.get('x-forwarded-for') ?? 'unknown';
     const usageCount = await getVisitorUsage(clientIp);
 
     if (usageCount > 25) {
-      throw new TheoremError('Demo quota exceeded. You have reached the limit of 25 test turns per session.');
+      throw new TheoremError('rate_limit', 'Demo quota exceeded.');
     }
 
     await incrementVisitorUsage(clientIp);
@@ -239,8 +240,8 @@ export default {
 
 ### How Server Execution Works
 1. **The Draft Rides Along**: The client sends the visitor's modified profile draft in the request body. The server does not look up stored files or load a project setup.
-2. **Credential Injection**: `hostOptions` receives the profile, reads the key slot it requests (e.g., `openai`), and signs the request using your server environment variable. The browser never sees your API keys.
-3. **Quota Rejection**: If `spend` throws a `TheoremError`, Studio halts execution and displays the error message directly inside the chat bench.
+2. **Credential Injection**: `hostOptions` receives each draft's profile and returns the vault its model calls sign with. The draft names its own key slots (e.g., `gemini`), so fill the slots its models name. The browser never sees your API keys.
+3. **Quota Rejection**: The handler calls `spend` before each decision, host tool call, and agent tool turn on the lent keys. A chat turn does not pass through it. If `spend` throws a `TheoremError`, the handler refuses that request and the screen shows the error's wording. For an agent tool turn, the calling model reads the refusal as the tool's result.
 
 ---
 
@@ -248,8 +249,8 @@ export default {
 
 Embedded Studio screens do not write to disk. 
 
-* **Browser Session State**: Draft changes, prompt edits, and test conversations live in browser tab memory (`openStudio()`).
-* **Session Reset**: When the visitor refreshes or closes the browser tab, the draft resets to its initial state.
+* **Browser Session State**: Draft changes, prompt edits, and test conversations are kept in the tab's session storage. `openStudio()` reads them back, so a reload keeps them.
+* **Session Reset**: When the visitor closes the browser tab, the kept drafts and conversations are gone. Keys never go into this storage.
 * **Download Trace**: If visitors want to preserve their test results, they can click **Download trace** in the trace inspector to export their session as a `.trace.json` file.
 
 ---

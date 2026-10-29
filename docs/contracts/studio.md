@@ -7,6 +7,7 @@ For maintainers of `studio/`. The package README (`studio/README.md`) speaks to 
 The studio's authoring logic and cookbooks: the editable profile draft,
 its tree, the compiler that turns it into a kernel profile, TypeScript source
 export, the cookbook catalog (research scout, travel concierge, code architect,
+live concierge, Pantry, Gemini Embeddings 2, narrator, tool console,
 tool seeds, sample HTTP inputs, portable function handlers, and item checks),
 and the run-tab handoff.
 
@@ -43,7 +44,14 @@ A failed ownership write stops delivery of that checkpoint.
 Live page callbacks wait for a claimed dispatch grant. Permission and sign-in decisions precede the grant.
 The grant carries final prepared arguments. The relay routes its correlated result to the session boundary.
 The local browser runtime supplies memory coordination and result delivery for its own authoring session.
+Its authority remains in that browser. It does not provide recovery after a browser restart.
 Text and host browser transports retain the same execution authority.
+Text and live browser transports save checkpoint ownership before delivery and check it before resumption.
+Runtime methods retain their original receiver, including methods that read private class fields.
+An injected runtime coordinator also needs a paired `pageExecution` service when browser tools require it.
+For a custom protocol in a host-supplied authoring runtime, pass definitions through `StudioRuntime.providerDefinitions`.
+The runtime registers these definitions before profiles. They remain host code and never enter saved profile JSON.
+The public demo retains its separate provider policy.
 A Studio chat keeps its conversation in a sealed store. A run in the page seals with a key that the tab keeps. A project run seals with one key that `serve.ts` makes for each Studio run and hands to every load, so a chat survives a Save or an edit. Quitting Studio ends the chats. The key is never written to disk.
 
 A key test names the provider whose models read the slot, and asks that provider's declared `check` through `checkKey`. The studio knows no key prefixes. A provider from a project's own definition is checked through the project's registration; with no `check` the answer is `unchecked`. The shared handler reaches public hosts only. The key is never logged, kept, or sent back.
@@ -52,13 +60,6 @@ When a project opens, the command asks each provider an agent's models name abou
 
 The command keeps the last 200 events of a studio run: what to look at (not a project that opens with nothing), each key that is not accepted, each run that fails (an `error` line in its stream, or a reply that is not 2xx), and each error the page meets (it `POST`s `{ text }` to `<base>/events`). A repeat of the last event is counted, not kept again. `GET <base>/events` lists them, and `GET <base>/events?follow` streams them as server-sent events: the kept ones, then each new one. A run that ends well is not an event. The run's reply reaches the page unchanged.
 `GET <base>/status` answers, as plain text, what the command printed when the project opened, as it is now: what loaded, what the key checks said, and what to look at. `theorem-studio status` and `theorem-studio errors [--follow]` read these two routes from the studio open on the project's setup, and change nothing. `agents studio …` finds the `@theoremjs/studio` the project installed and runs its command with the same arguments; it never installs it.
-Its authority remains in that browser. It does not provide recovery after a browser restart.
-Text and live browser transports save checkpoint ownership before delivery and check it before resumption.
-Runtime methods retain their original receiver, including methods that read private class fields.
-An injected runtime coordinator also needs a paired `pageExecution` service when browser tools require it.
-For a custom protocol in a host-supplied authoring runtime, pass definitions through `StudioRuntime.providerDefinitions`.
-The runtime registers these definitions before profiles. They remain host code and never enter saved profile JSON.
-The public demo retains its separate provider policy.
 
 ## Package boundary
 

@@ -14,7 +14,7 @@ Every agent profile can be edited either visually or directly in code. The two p
 ┌──────────────────────────────┬──────────────────────────────┐
 │ VISUAL FORM CONTROLS         │ MONACO TYPESCRIPT EDITOR     │
 ├──────────────────────────────┼──────────────────────────────┤
-│ Model: gpt-4o-mini           │ export const harborDesk =    │
+│ Model: gemini-3.5-flash-lite │ export const harborDesk =    │
 │ Effort: [Minimal ▾]          │   defineProfile({            │
 │                              │     id: 'harbor.desk',       │
 │ Tools:                       │     type: 'text',            │
@@ -41,8 +41,10 @@ In traditional agent development, configuration errors—like referencing an unc
 
 Studio runs background validation on every keystroke, catching configuration errors before you run a single test turn:
 
-### 1. Key Slot Verification
-Ensures that every model binding references a valid key slot defined in your local environment. If an agent requests a model on a slot that has no API key in your vault, Studio flags it immediately rather than letting the model call fail at runtime.
+### 1. Model Route Checks
+Checks that each model's provider exists in the workspace and serves the agent's type on the model's protocol. Otherwise the editor shows an issue such as "No provider is defined as openai."
+
+The compile does not read your key vault. When a project opens, the studio command asks each provider about its key once and prints one line for each, such as `key for gemini (gemini) works`, `refused`, or `is empty`. The `--offline` flag skips this check. A run whose key slot is empty fails with an `auth` error.
 
 ### 2. Tool & Schema Validation
 Checks that all tool IDs in your agent's allowlist exist in your project's tool library. When using structured outputs, Studio validates that your reply definition satisfies the target JSON Schema contract.
@@ -60,15 +62,18 @@ When an error is detected:
 
 ## Saving Changes with Diff Reviews
 
-When running locally (`npx theorem-studio`), Studio writes your edits directly back to your project files on disk when you save (`Cmd+S` or clicking **Save**).
+When running locally (`npx theorem-studio`), Studio writes your edits back to your project files on disk when you save. Click **Save** in the editor's toolbar to review the diff, then save.
 
-To ensure you maintain total control over your codebase, Studio presents an interactive **Save Review Dialog** before modifying any file.
+Before it changes any file, Studio opens a review dialog titled **Save to** and your project's name.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ Save Changes to Project                                     │
+│ Save to harbor                                              │
+│ Save writes all of these lines or none. It then             │
+│ type-checks and loads the project, and puts your files      │
+│ back unless it runs as what you tested.                     │
 ├─────────────────────────────────────────────────────────────┤
-│ src/agents/harbor-desk.ts:14 · +2 −1                        │
+│ src/agents/harbor-desk.ts:14 · +1 −1                        │
 │                                                             │
 │    tools: {                                                 │
 │      allow: [                                               │
@@ -78,7 +83,7 @@ To ensure you maintain total control over your codebase, Studio presents an inte
 │      ],                                                     │
 │    },                                                       │
 ├─────────────────────────────────────────────────────────────┤
-│ [Cancel]                                       [Write Files]│
+│ [Discard all]                              [Cancel] [Save]  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,15 +93,18 @@ The review modal displays exact unified diff hunks (`+` added lines, `-` removed
 * **Targeted Updates**: Studio updates only the specific profile or tool object you modified. Surrounding imports, comments, helper functions, and custom application code in the file remain untouched.
 
 ### The Atomic Save Guarantee
-Studio enforces an atomic save model: it writes all approved changes or none. This guarantees that your disk files always match the exact configuration you tested in the run bench, preventing partial updates from leaving your codebase in a broken state.
+Save writes every change or none. It then type-checks and loads the project. If the project does not type-check, does not start, or does not load as what you tested, Save puts your files back and says why. Your disk files then hold exactly what you tested in the run bench, or what they held before.
 
 ### Conflict Prevention
 Studio checks the state of your project files before writing:
-* **External Edits**: If a file was modified in your desktop editor after Studio opened it, Studio warns you of the conflict and asks you to reload rather than overwriting your external changes.
-* **Locked Values**: If a setting in your code is computed by a dynamic function or imports an external constant, Studio notifies you that the value is managed in code and should be edited in your desktop editor.
+* **External Edits**: If a file changed in your desktop editor after Studio opened it, Save does not write that change. The review names the file and says it "changed after the studio opened it. Reload the studio." If your files change after the review was made, Save writes nothing and says: "Your files changed after this review was made. Close it and review again."
+* **Locked Values**: If your code sets a value in a way Studio cannot rewrite, the review names the file and line that set it and says: "Change it there." Edit that value in your desktop editor.
 
 ### Undo Save
-If you make a save and decide you want to revert it, Studio provides an immediate **Undo Save** option that restores your files to their state prior to the write.
+After a save, a message names the files Studio wrote, with an **Undo** button for 15 seconds. **Undo** puts the files back as they were before the save. Your edits stay in Studio, unsaved again.
+
+### Discard All
+**Discard all**, in the review dialog, puts the project back to its files and drops every unsaved edit. Studio asks first: "Discard every unsaved edit?" **Undo** in the next message brings the edits back.
 
 ---
 

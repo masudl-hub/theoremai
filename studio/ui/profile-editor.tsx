@@ -57,6 +57,7 @@ import {
   IconFlag,
   IconFlame,
   IconFlask,
+  IconFold,
   IconGauge,
   IconHandOff,
   IconHandStop,
@@ -72,6 +73,7 @@ import {
   IconKey,
   IconLayersUnion,
   IconLockOpen,
+  IconLogin,
   IconMessage,
   IconMicrophone,
   IconPackage,
@@ -6517,6 +6519,20 @@ const LABEL_AREAS: readonly {
     audience: 'visitor',
   },
   {
+    prefix: 'detect.blocked',
+    title: 'Blocked messages',
+    note: "When a detector stops the visitor's message.",
+    icon: IconShieldOff,
+    audience: 'visitor',
+  },
+  {
+    prefix: 'thought',
+    title: 'Thoughts',
+    note: 'What stands in for what a thought leaves out.',
+    icon: IconBulb,
+    audience: 'visitor',
+  },
+  {
     prefix: 'live',
     title: 'Live',
     note: 'When a live session ends.',
@@ -6579,7 +6595,59 @@ const LABEL_AREAS: readonly {
     icon: IconInfoCircle,
     audience: 'model',
   },
+  {
+    prefix: 'detect',
+    title: 'Detectors',
+    note: 'When a detector stops a call or a result, and what it asks the model to leave out.',
+    icon: IconShieldSearch,
+    audience: 'model',
+  },
+  {
+    prefix: 'sign_in',
+    title: 'Sign-in',
+    note: 'Where a tool waits for the person to sign in to a service.',
+    icon: IconLogin,
+    audience: 'model',
+  },
+  {
+    prefix: 'user_data',
+    title: 'User data',
+    note: "The note on the fence around the user's message.",
+    icon: IconUser,
+    audience: 'model',
+  },
+  {
+    prefix: 'context',
+    title: 'Turn context',
+    note: 'The note on the fence around what the app or the host adds.',
+    icon: IconLayersUnion,
+    audience: 'model',
+  },
+  {
+    prefix: 'structured',
+    title: 'Structured replies',
+    note: 'Asking for the final answer as JSON or as an answer tool call.',
+    icon: IconBraces,
+    audience: 'model',
+  },
+  {
+    prefix: 'compaction',
+    title: 'Compaction',
+    note: 'Asking for the summary that replaces earlier turns.',
+    icon: IconFold,
+    audience: 'model',
+  },
 ];
+
+/** The area a label key is under: the one with the longest prefix that holds it. */
+function areaOf(key: string): (typeof LABEL_AREAS)[number] | undefined {
+  let found: (typeof LABEL_AREAS)[number] | undefined;
+  for (const area of LABEL_AREAS) {
+    const holds = key === area.prefix || key.startsWith(`${area.prefix}.`);
+    if (holds && (!found || area.prefix.length > found.prefix.length)) found = area;
+  }
+  return found;
+}
 
 const LABEL_AUDIENCES: readonly {
   value: LabelAudience;
@@ -6816,7 +6884,7 @@ function LabelsEditor({
 function labelAreas(draft: StudioDraft, needle: string, audience: LabelAudience) {
   return LABEL_AREAS.filter((area) => needle || area.audience === audience)
     .map((area) => {
-      const all = LABEL_KEYS.filter((key) => key.startsWith(`${area.prefix}.`));
+      const all = LABEL_KEYS.filter((key) => areaOf(key) === area);
       const keys = needle
         ? all.filter((key) =>
             [

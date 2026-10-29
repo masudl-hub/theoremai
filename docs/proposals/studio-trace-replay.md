@@ -8,7 +8,7 @@
 
 ## 1. What a builder gets
 
-1. **Import a trace.** **Replay exchange** in the chat pane header opens the trace console, in the frame a decision and a host use. Its trace card takes a `TraceRecord` file (`.json`, one record or an array). The conversation card draws the conversation as the person received it, and its records go into the pane's trace feed, so the inspector shows every guardrail hit, gate and stop as it happened. Nothing runs. It answers "what happened, and why".
+1. **Import a trace.** **Replay exchange** in the chat pane header opens the trace console, in the frame a decision and a host use. Its trace card takes a `TraceRecord` file (`.json`, one record or an array, or `.jsonl`, one record on each line). The conversation card draws the conversation as the person received it, and its records go into the pane's trace feed, so the inspector shows every guardrail hit, gate and stop as it happened. Nothing runs. It answers "what happened, and why".
 2. **Replay it.** **Replay** runs the trace's user turns again through the profile in the editor: its guardrails, stages, gates and UI all run. The model's replies, and by default the tools' results, come from the recording. It answers "what would happen now". Change a guardrail or the instructions, press **Replay again**, compare with **Recorded / Replayed**.
 3. **Divergence stops and says so (decision d).** When the profile asks for something the recording does not hold, the replay stops there with a banner that says why, and a **Continue live** button.
 4. **Download a trace.** **Download trace** at the top right of the trace panel writes the run's `TraceRecord`s as `<agent>-<time>.trace.json`. A hosted app's traces (a `TraceSink`) open the same way.

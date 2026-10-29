@@ -190,9 +190,9 @@ function TraceFileInput({ onImport }: { onImport: (trace: OpenedTrace) => void }
         label="Trace file"
         isLabelHidden
         mode="dropzone"
-        accept="application/json,.json"
+        accept="application/json,.json,.jsonl"
         isLoading={reading}
-        placeholder="Drop a trace (.json) or choose a file"
+        placeholder="Drop a trace (.json or .jsonl) or choose a file"
         value={null}
         changeAction={changeAction}
         onChange={() => undefined}

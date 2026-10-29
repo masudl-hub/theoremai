@@ -279,11 +279,23 @@ Deno.test('every tool but an agent is answered by a handler in a replay', () => 
   }
 });
 
-Deno.test('a trace file is the records the studio downloads, or one record', async () => {
+Deno.test('a trace file is the records the studio downloads, one record, or JSONL', async () => {
   const { records } = await recording();
   assertEquals(parseTraceFile(JSON.stringify(records)).length, records.length);
   assertEquals(parseTraceFile(JSON.stringify(records[0])).length, 1);
+  const jsonl = `${records.map((record) => JSON.stringify(record)).join('\n')}\n`;
+  assertEquals(parseTraceFile(jsonl), parseTraceFile(JSON.stringify(records)));
   assertThrows(() => parseTraceFile('{nope'), Error, 'This file is not JSON.');
+  assertThrows(
+    () => parseTraceFile(`${JSON.stringify(records[0])}\n{nope\n`),
+    Error,
+    'Line 2 of this file is not JSON.',
+  );
+  assertThrows(
+    () => parseTraceFile(`${JSON.stringify(records[0])}\n${JSON.stringify({ spans: 3 })}`),
+    Error,
+    'This file is not a Theorem trace (record 2).',
+  );
   assertThrows(
     () => parseTraceFile(JSON.stringify([records[0], { spans: 3 }])),
     Error,

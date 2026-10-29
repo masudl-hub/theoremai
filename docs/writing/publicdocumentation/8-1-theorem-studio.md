@@ -79,7 +79,7 @@ The run bench sits beside the editor, allowing you to test modifications immedia
 
 When debugging a production incident or verifying a prompt tweak, you do not need to re-type conversations or spend model tokens:
 
-1. **Importing Traces**: Click **Replay exchange** and drop in a `TraceRecord` JSON file (`<agent>-<timestamp>.trace.json`). Studio renders the complete historical exchange, including user turns, tool inputs/outputs, and guardrail events.
+1. **Importing Traces**: Click **Replay exchange** and drop in a `TraceRecord` JSON file (`<agent>-<timestamp>.trace.json`) or a JSONL file with one record on each line. Studio renders the complete historical exchange, including user turns, tool inputs/outputs, and guardrail events.
 2. **Offline Replay**: Click **Replay** to run the historical user turns back through the current profile definition. Model responses and tool results are fed from the recording, allowing you to verify how new guardrails or system prompts behave without network calls or API costs.
 3. **Compare View**: Toggle between **Recorded** and **Replayed** in the trace card heading to view exact differences in responses, tool invocations, and guardrail actions.
 4. **Divergence & Continue Live**: If your updated prompt alters the conversation flow (for instance, asking a clarifying question instead of making a premature tool call), the replay detects divergence and halts. You can inspect the divergence point and click **Continue live** to resume interactive chat with the live model from that exact turn.

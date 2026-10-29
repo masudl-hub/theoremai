@@ -593,14 +593,29 @@ export function parseTraceRecords(value: unknown): TraceRecord[] {
 
 /**
  * The records a trace file holds: a JSON array of `TraceRecord`s, as the studio downloads them,
- * or one record. Throws, saying why, for anything else.
+ * one record, or JSONL with a record on each line, as `jsonlSink` writes them. Throws, saying
+ * why, for anything else.
  */
 export function parseTraceFile(text: string): TraceRecord[] {
-  let value: unknown;
   try {
-    value = JSON.parse(text);
-  } catch {
-    throw new TheoremError('request', 'This file is not JSON.'); // labels-exempt: builder diagnostic
+    return parseTraceRecords(JSON.parse(text));
+  } catch (error) {
+    if (error instanceof TheoremError) throw error;
   }
-  return parseTraceRecords(value);
+  const lines = text.split('\n').filter((line) => line.trim());
+  return parseTraceRecords(
+    lines.map((line, index) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        // labels-exempt: builder diagnostic
+        throw new TheoremError(
+          'request',
+          lines.length > 1
+            ? `Line ${String(index + 1)} of this file is not JSON.`
+            : 'This file is not JSON.',
+        );
+      }
+    }),
+  );
 }

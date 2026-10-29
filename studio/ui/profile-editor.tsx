@@ -120,6 +120,7 @@ import {
   PROFILE_ID_MAX_CHARS,
   type ProfileGraphFacetId,
   profileGraphFacet,
+  SPEECH_AUDIO_FORMATS,
   type StepLimitMode,
   type StudioAuthType,
   THINKING_LEVELS,
@@ -183,6 +184,7 @@ import {
   GOOGLE_IMAGE_ASPECT_RATIOS,
   GOOGLE_IMAGE_OUTPUT_MIMES,
   GOOGLE_IMAGE_RESOLUTIONS,
+  GOOGLE_SPEECH_FORMATS,
   GOOGLE_SPEECH_VOICES,
   type GuardrailsDraft,
   type ImageReferenceDraft,
@@ -203,6 +205,7 @@ import {
   modelRoute,
   modelSlots,
   newCriteria,
+  newCriterion,
   newDecisionImage,
   newDecisionQuestion,
   newModelBinding,
@@ -375,9 +378,16 @@ const LEVEL_SEGMENTS: Segment<ThinkingLevel>[] = THINKING_LEVELS.map((value) => 
   ...LEVEL_SEGMENT[value],
 }));
 
+/** The segment for a closed set left unset: the provider's default. */
+const PROVIDER_DEFAULT = {
+  value: 'default',
+  label: 'Provider default',
+  icon: IconCircleDashed,
+} as const;
+
 /** Thought summaries: on, off, or left to the provider (`null` in the draft). */
 const SUMMARIES_SEGMENTS: Segment<'default' | 'on' | 'off'>[] = [
-  { value: 'default', label: 'Provider default', icon: IconCircleDashed },
+  PROVIDER_DEFAULT,
   { value: 'on', label: 'On', icon: IconBulb },
   { value: 'off', label: 'Off', icon: IconBulbOff },
 ];
@@ -2334,7 +2344,7 @@ function otherAgents(
     .filter((agent) => agent.key !== self)
     .map((agent) => ({
       value: agent.key,
-      label: agent.agentId || 'Unnamed agent',
+      label: agent.agentId.trim() || 'Unnamed agent',
       disabled: !canName(agent),
     }));
 }
@@ -2459,13 +2469,6 @@ function catalogChoices<T extends string>(path: string): Choice<T>[] {
     description: meta?.optionDescriptions?.[value],
   }));
 }
-
-/** The segment for a closed set left unset: the provider's default. */
-const PROVIDER_DEFAULT = {
-  value: 'default',
-  label: 'Provider default',
-  icon: IconCircleDashed,
-} as const;
 
 /** An unset pin (`''`) as the provider-default segment. */
 function segmentOf<T extends string>(value: T | ''): T | 'default' {
@@ -2655,10 +2658,9 @@ function OpenRouterImageRows({ image, set }: ImageRowsProps) {
         label="Images"
         path="image.n"
         field="n"
-        units="per turn"
+        units="per request"
         value={image.n}
         min={1}
-        max={10}
         isIntegerOnly
         onChange={(n) => {
           set({ n });
@@ -2840,14 +2842,13 @@ function ImageReferencesEditor({
   );
 }
 
-/** Speech pins. mp3 is only on offer when every model's provider can make it. */
+/** Speech pins. A format is on offer only when every model's provider can make it. */
 function SpeechEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const google = allGoogle(draft);
   const { speech } = draft;
   const set = patch(setDraft, 'speech');
-  // Gemini refuses mp3.
-  const mp3 = draft.modelBindings.every(
-    (binding) => !isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
+  const onGemini = draft.modelBindings.some((binding) =>
+    isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
   );
   return (
     <InspectorSection path="speech">
@@ -2887,14 +2888,16 @@ function SpeechEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
         path="speech.format"
         field="format"
         value={speech.format}
-        options={[
-          'pcm',
-          {
-            value: 'mp3',
-            label: 'mp3',
-            ...(mp3 ? {} : { description: 'Only openAi models make mp3', disabled: true }),
-          },
-        ]}
+        options={SPEECH_AUDIO_FORMATS.map((format) =>
+          onGemini && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format)
+            ? {
+                value: format,
+                label: format,
+                description: `Gemini cannot make ${format}`,
+                disabled: true,
+              }
+            : format,
+        )}
         onChange={(format) => {
           set({ format });
         }}
@@ -7317,7 +7320,7 @@ function CriteriaList({
           icon={<Icon icon={IconPlus} size="sm" />}
           isDisabled={question.criteria.length >= (keys?.decision.criteria ?? Infinity)}
           onClick={() => {
-            setCriteria([...question.criteria, ...newCriteria('score').slice(0, 1)]);
+            setCriteria([...question.criteria, newCriterion()]);
           }}
         />
       </HStack>

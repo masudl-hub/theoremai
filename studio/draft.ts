@@ -726,6 +726,11 @@ export function newSlotChoice(): SlotChoiceDraft {
   return { key: draftKey('choice'), value: '', description: '' };
 }
 
+/** One blank row: an option, a level, or a criterion. */
+export function newCriterion(): DecisionCriterionDraft {
+  return { key: draftKey('criterion'), label: '', text: '' };
+}
+
 /** The rows a question of `type` starts with: two options, two levels, or none. */
 export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[] {
   if (type === 'noul' || type === 'box') return [];
@@ -970,7 +975,7 @@ export function freeName(
 
 /**
  * Bindings whose model the kernel says can't serve the new type are dropped, and so are those
- * `keys` list only for another type; if none remain, a new one starts where `keys` start one. Model select turns off below two bindings. Other sections and
+ * `keys` list only for another type; if none remain, a new one starts where `keys` start one. Other sections and
  * `included` are kept, so a facet the type lacks comes back when switching back. A host runs no
  * model, so it keeps the bindings for the way back.
  */

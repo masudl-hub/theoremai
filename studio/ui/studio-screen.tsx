@@ -240,7 +240,7 @@ import {
 } from './studio-host.ts';
 import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
-import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
+import { ProjectSave, ProjectTokens, UNDO_WINDOW, useProjectSave } from './studio-save.tsx';
 import type { OpenedTrace } from './studio-trace-replay.tsx';
 import { TraceButton } from './trace-button.tsx';
 import { useBelowDesktop } from './use-phone.ts';
@@ -458,7 +458,7 @@ function agentItems(state: DrawnTree): TreeListItemData[] {
   const isOnly = workspace.agents.length === 1;
   return workspace.agents.map((agent) => {
     const draft = libraryDraft(workspace, agent.key) ?? createBlankDraft();
-    const name = agent.identity.agentId || 'this agent';
+    const name = agent.identity.agentId.trim() || 'this agent';
     const whole = resetAgent(workspace, agent.key);
     return agentItem(
       {
@@ -549,7 +549,7 @@ function providerItems(tree: DrawnTree): TreeListItemData[] {
       return [
         {
           id: `${id}:${agent.key}`,
-          label: agent.identity.agentId || 'New agent',
+          label: agent.identity.agentId.trim() || 'Unnamed agent',
           startContent: (
             <Icon
               icon={PROFILE_TYPE_ICON[agent.identity.profileType || 'text']}
@@ -988,7 +988,7 @@ function useChatAgents(agents: StudioWorkspace['agents']): ChatAgent[] {
     () =>
       (JSON.parse(names) as [string, string][]).map(([value, agentId]) => ({
         value,
-        label: agentId || 'Unnamed agent',
+        label: agentId.trim() || 'Unnamed agent',
       })),
     [names],
   );
@@ -1249,7 +1249,7 @@ function screenReport(
   section: string | undefined,
 ) {
   return {
-    agent: draft.identity.handle || draft.identity.agentId || 'unnamed',
+    agent: draft.identity.handle || draft.identity.agentId.trim() || 'unnamed',
     type: draft.identity.profileType || 'not chosen',
     issues: compiled.ok ? 0 : compiled.issues.length,
     section,
@@ -2255,6 +2255,7 @@ function usePageActions(
       setConversation((count) => count + 1);
       const dismiss = toast({
         body: message,
+        autoHideDuration: UNDO_WINDOW,
         endContent: (
           <Button
             label="Undo"
@@ -2582,6 +2583,7 @@ function useDiscardAll({ store, filesChanged }: StudioWorkspaceState) {
         filesChanged();
         const dismiss = toast({
           body: 'Discarded every unsaved edit.',
+          autoHideDuration: UNDO_WINDOW,
           endContent: (
             <Button
               label="Undo"
@@ -2865,16 +2867,35 @@ function EditorBody({
 }
 
 /** Clears the conversation and its traces; the profile stays. */
-function ClearHistoryButton({ run }: { run: ConversationRun }) {
+function ClearHistoryButton({ onClear }: { onClear: () => void }) {
   return (
     <IconButton
       label="Clear history"
       variant="ghost"
       icon={<Icon icon={IconPlaylistX} size="sm" />}
       tooltip="Clear the conversation and its traces. Your profile stays."
-      onClick={run.clear}
+      onClick={onClear}
     />
   );
+}
+
+/**
+ * Clears the chat and puts the keyboard in the new one's composer.
+ * why: the Clear history button leaves with the conversation, and focus would fall to the page.
+ */
+function useClearAndFocus(run: ConversationRun, chatRef: RefObject<TheoremChatHandle | null>) {
+  /** The run that was cleared; the next run takes the focus. */
+  const clearedRun = useRef<string>(undefined);
+  const { clear, runKey } = run;
+  useEffect(() => {
+    if (clearedRun.current === undefined || clearedRun.current === runKey) return;
+    clearedRun.current = undefined;
+    chatRef.current?.focus();
+  }, [runKey, chatRef]);
+  return useCallback(() => {
+    clearedRun.current = runKey;
+    clear();
+  }, [clear, runKey]);
 }
 
 /** A type whose conversation a trace holds, and so can open and replay. */
@@ -2918,6 +2939,7 @@ function PreviewHeader({
   testing,
   tracing,
   setSheet,
+  onClear,
 }: {
   store: StudioStore;
   chatAgents: ChatAgent[];
@@ -2931,6 +2953,7 @@ function PreviewHeader({
   /** The imported trace's console, over the conversation. */
   tracing: { open: boolean; toggle: () => void };
   setSheet: (sheet: Sheet) => void;
+  onClear: () => void;
 }) {
   const { ref, below: iconsOnly } = useBelowDesktop();
   const { compiled } = compile;
@@ -2950,7 +2973,7 @@ function PreviewHeader({
           <HStack gap={1} vAlign="center">
             <ActingAsButton isIconOnly={iconsOnly} />
             {compile.payload && run.isUsed && !testing && !tracing.open && (
-              <ClearHistoryButton run={run} />
+              <ClearHistoryButton onClear={onClear} />
             )}
             {!testing && holdsConversation(compile.payload) && (
               <ReplayExchangeButton tracing={tracing} isIconOnly={iconsOnly} />
@@ -3244,6 +3267,7 @@ const PreviewPane = memo(function PreviewPane({
   const feedOf = useRunFeeds(run.generation);
   const profileId = chatAgents.find((agent) => agent.value === chatWith)?.label;
   const sendNext = useSendAfterResume(chatRef, run.runKey);
+  const clearChat = useClearAndFocus(run, chatRef);
   const { payload } = compile;
   const replay = replaying && holdsConversation(payload);
   // why: the console stays mounted while it holds a file, so the way back finds its replay as it was.
@@ -3272,6 +3296,7 @@ const PreviewPane = memo(function PreviewPane({
       <VStack height="100%">
         <PreviewHeader
           store={store}
+          onClear={clearChat}
           chatAgents={chatAgents}
           chatWith={chatWith}
           compile={compile}
@@ -3651,6 +3676,7 @@ function useWorkspaceTree(
             update(() => to);
             const dismiss = toast({
               body,
+              autoHideDuration: UNDO_WINDOW,
               endContent: (
                 <Button
                   label="Undo"
@@ -3811,7 +3837,7 @@ function SharedLine({
   const others = entry.agents.flatMap((key) => {
     const agent = workspace.agents.find((each) => each.key === key);
     return agent && !selected.startsWith(`${agentNodeId(key)}/`)
-      ? [agent.identity.agentId || 'New agent']
+      ? [agent.identity.agentId.trim() || 'Unnamed agent']
       : [];
   });
   const count = others.length;

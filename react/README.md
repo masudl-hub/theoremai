@@ -172,7 +172,7 @@ The profile, the keys, and the system prompt stay on the server. The browser rec
 | `initialFiles` | The files that the composer starts with, staged to send. The component reads them once, when it mounts. |
 | `initialVoice` | The voice notes that the composer starts with, staged to send. The component reads them once, when it mounts. |
 | `initialPending` | The messages that the composer starts with set aside: queued, stashed, or steering, as `createComposerPendingMessage` from `@theoremjs/agents/interface` makes them. The component reads them once, when it mounts. |
-| `chatRef` | Sends a message from your code. See below. |
+| `chatRef` | Sends a message, stops a reply, or focuses the composer from your code. See below. |
 | `composer` | `false` leaves the composer out. The chat is the transcript alone, and your own control sends through `chatRef`. Default: `true`. |
 
 ### Resume a conversation
@@ -204,7 +204,7 @@ A profile whose `providerContinuation.history` is `'stateless'` keeps no convers
 ### Send a message from your code
 
 `chatRef` gives you `send(text, files?)`. It sends the text and optional array of browser files as the user. Files use the same profile validation and encoding as composer attachments. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
-`chatRef` also gives you `stop()`. It stops the reply that streams, as the composer's stop button does.
+`chatRef` also gives you `stop()`. It stops the reply that streams, as the composer's stop button does. And it gives you `focus()`, which puts the keyboard in the composer, for example after your own control clears the chat.
 
 ```tsx
 const chat = useRef<TheoremChatHandle>(null);

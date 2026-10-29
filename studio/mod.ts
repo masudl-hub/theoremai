@@ -150,6 +150,7 @@ export {
   type ModelBindingDraft,
   type ModelsDraft,
   newCriteria,
+  newCriterion,
   newDecisionImage,
   newDecisionQuestion,
   newModelBinding,

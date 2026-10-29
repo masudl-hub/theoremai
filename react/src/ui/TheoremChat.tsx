@@ -139,7 +139,7 @@ export type TheoremChatProps = {
    * forget it.
    */
   onConversationChange?: (ref: string | undefined) => void;
-  /** Lets the host send a message as the composer would; see {@link TheoremChatHandle}. */
+  /** Lets the host send a message as the composer would, stop a reply, or focus the composer; see {@link TheoremChatHandle}. */
   chatRef?: Ref<TheoremChatHandle>;
   /**
    * `false` leaves the composer out: the chat is the transcript alone, and your own control sends
@@ -157,6 +157,8 @@ export type TheoremChatHandle = {
   send: (text: string, files?: readonly File[]) => Promise<SentTurn | null>;
   /** Stops the reply that is streaming, as the composer's stop button does. */
   stop: () => void;
+  /** Puts the keyboard in the composer. */
+  focus: () => void;
 };
 
 /**
@@ -299,10 +301,6 @@ function ChatBody({
     onTurnEvent,
   });
   const { sendText, handleStop } = chat;
-  useImperativeHandle(chatRef, () => ({ send: sendText, stop: handleStop }), [
-    sendText,
-    handleStop,
-  ]);
   const blocks = useMemo(
     () => [...chat.blocks, ...chat.streamBlocks],
     [chat.blocks, chat.streamBlocks],
@@ -310,6 +308,17 @@ function ChatBody({
   const handle = t('@theorem.agent.handle', { handle: iface.identity.handle });
   const landing = blocks.length === 0;
   const inputRef = useRef<ChatComposerInputHandle | null>(null);
+  useImperativeHandle(
+    chatRef,
+    () => ({
+      send: sendText,
+      stop: handleStop,
+      focus: () => {
+        inputRef.current?.focus();
+      },
+    }),
+    [sendText, handleStop],
+  );
   const composerRef = useGlide<HTMLElement>(landing, () => inputRef.current?.focus());
   const inspector = useTraceInspector(iface, transport.traces, trace);
   const header = <SidePanelHeader floating>{inspector.toggle}</SidePanelHeader>;

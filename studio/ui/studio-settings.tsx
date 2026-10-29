@@ -607,7 +607,7 @@ function SettingsNavHead({ project, version }: { project: ProjectSession; versio
       <Typeahead
         label="Search"
         isLabelHidden
-        placeholder="Search settings..."
+        placeholder="Search settings"
         searchSource={settingsSource}
         value={null}
         onChange={(item) => {

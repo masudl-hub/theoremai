@@ -1304,10 +1304,10 @@ export function modelSharers(
   return {
     models: own
       .filter((binding) => binding.key !== bindingKey && calls(binding))
-      .map((binding) => binding.modelId.trim() || 'new'),
+      .map((binding) => binding.modelId.trim() || 'Unnamed model'),
     agents: workspace.agents
       .filter((agent) => agent.key !== agentKey && agent.modelBindings.some(calls))
-      .map((agent) => agent.identity.agentId.trim() || 'New agent'),
+      .map((agent) => agent.identity.agentId.trim() || 'Unnamed agent'),
   };
 }
 
@@ -1407,10 +1407,8 @@ export interface WorkspaceTree {
   tools: StudioTreeNode[];
 }
 
-/** Beside other agents, one with no id yet is named as an agent, not by its Identity facet. */
 function agentRoot(agent: AgentDraft, providers: StudioProvider[]): StudioTreeNode {
-  const root = scopeTree(agent.key, studioTree(draftOf(agent, [], providers)));
-  return agent.identity.agentId.trim() ? root : { ...root, label: 'New agent' };
+  return scopeTree(agent.key, studioTree(draftOf(agent, [], providers)));
 }
 
 export function workspaceTree(workspace: StudioWorkspace): WorkspaceTree {

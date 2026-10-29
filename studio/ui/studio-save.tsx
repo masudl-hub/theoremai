@@ -94,8 +94,8 @@ type SaveStep =
   | { at: 'refused'; refusal: SaveRefusal };
 
 const DIALOG_WIDTH = 720;
-/** How long the saved line stays, in milliseconds: long enough to reach Undo. */
-const UNDO_WINDOW = 15_000;
+/** How long a toast with Undo stays, in milliseconds: long enough to reach Undo. */
+export const UNDO_WINDOW = 15_000;
 
 /** Why nothing was written, as the builder reads it. */
 const REFUSED: Record<SaveRefusal['reason'], string> = {
@@ -688,7 +688,7 @@ export function ProjectSave({
         isOpen={asking}
         onOpenChange={setAsking}
         title="Discard every unsaved edit?"
-        description="All unsaved edits will be lost. This action cannot be reversed."
+        description="The project goes back to its files. Undo in the next message brings the edits back."
         actionLabel="Discard all"
         actionVariant="destructive"
         onAction={() => {

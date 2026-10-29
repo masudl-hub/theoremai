@@ -147,7 +147,7 @@ Deno.test("the person's edit makes a write stale and is noted", async () => {
   const { runtime, person, draft, notes } = setup();
   person({ ...draft(), identity: { ...draft().identity, system: 'be brief' } });
   assertEquals(notes.length, 1);
-  assertStringIncludes(notes[0] ?? '', 'the person changed Identity');
+  assertStringIncludes(notes[0] ?? '', 'the person changed Unnamed agent');
   const stale = (await runtime.answer(
     'act',
     { at: 'studio/identity', action: 'set', input: { changes: { handle: 'x' } }, basedOn: 1 },

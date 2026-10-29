@@ -21,7 +21,6 @@ import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { TreeList, type TreeListItemData } from '@astryxdesign/core/TreeList';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
-  IconActivity,
   IconAdjustmentsHorizontal,
   IconArrowBarToDown,
   IconArrowLeft,
@@ -180,6 +179,7 @@ import {
   WorkspaceContext,
 } from './inspector-context.ts';
 import { ActingAsContext, chatKeyOf, useActingAsState } from './lib/acting-as.ts';
+import { runsAsConversation } from './lib/conversation-types.ts';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel, type PanelView } from './lib/panel-motion.ts';
 import { screenEndpoint } from './lib/project-address.ts';
@@ -242,6 +242,7 @@ import { NAV_WIDTH } from './studio-nav.ts';
 import { StudioRunner, type StudioRunnerProps } from './studio-runner.tsx';
 import { ProjectSave, ProjectTokens, useProjectSave } from './studio-save.tsx';
 import type { OpenedTrace } from './studio-trace-replay.tsx';
+import { TraceButton } from './trace-button.tsx';
 import { useBelowDesktop } from './use-phone.ts';
 
 // The tester, Settings, the map and the code view load when they first open, or once the page is idle.
@@ -1487,15 +1488,17 @@ function OpenInNewTabButton({
   connection: Pick<StudioRunPayload, 'connectionMode' | 'localBaseUrl'>;
 }) {
   const project = useProject();
+  const unserved = project?.problems.find((problem) => problem.profile === chattedId);
   return (
     <Button
       label="Open in a new tab"
       isIconOnly={isIconOnly}
       variant="ghost"
       icon={<Icon icon={IconBrowserShare} size="sm" />}
-      isDisabled={!compiled}
+      isDisabled={!compiled || unserved !== undefined}
       tooltip={
         blocked ??
+        unserved?.message ??
         'Run this agent on a full page of its own, in a new tab, the way a person using it would see it'
       }
       onClick={() => {
@@ -2874,12 +2877,9 @@ function ClearHistoryButton({ run }: { run: ConversationRun }) {
   );
 }
 
-/** The types whose conversation a trace can hold, and so open and replay. */
-const NO_CONVERSATION = new Set(['decision', 'host', 'embedding', 'live']);
-
 /** A type whose conversation a trace holds, and so can open and replay. */
 const holdsConversation = (payload: WorkspaceCompile['payload']) =>
-  payload != null && !NO_CONVERSATION.has(payload.profile.type);
+  payload != null && runsAsConversation(payload.profile.type);
 
 /** Replay exchange: switches between the live conversation and the replay, which keeps its trace. */
 function ReplayExchangeButton({
@@ -2897,7 +2897,7 @@ function ReplayExchangeButton({
       tooltip={
         tracing.open
           ? 'Back to the live conversation. The trace stays loaded.'
-          : 'Open a recorded conversation (a .trace.json file) to see what happened, then replay its messages through this agent as it is now and compare'
+          : 'Open a recorded conversation (a .json or .jsonl trace file) to see what happened, then replay its messages through this agent as it is now and compare'
       }
       icon={<Icon icon={IconFileImport} size="sm" />}
       aria-pressed={tracing.open}
@@ -2932,7 +2932,6 @@ function PreviewHeader({
   tracing: { open: boolean; toggle: () => void };
   setSheet: (sheet: Sheet) => void;
 }) {
-  const traceLabel = trace.open ? 'Hide trace' : 'View trace';
   const { ref, below: iconsOnly } = useBelowDesktop();
   const { compiled } = compile;
   return (
@@ -2957,19 +2956,7 @@ function PreviewHeader({
               <ReplayExchangeButton tracing={tracing} isIconOnly={iconsOnly} />
             )}
             {(compile.traced || tracing.open) && !testing ? (
-              <Button
-                label={traceLabel}
-                isIconOnly={iconsOnly}
-                variant={trace.open ? 'secondary' : 'ghost'}
-                tooltip={
-                  trace.open
-                    ? 'Close the trace'
-                    : 'See how each reply was made, step by step: every model and tool call, guardrail check and gate, with its timing'
-                }
-                icon={<Icon icon={IconActivity} size="sm" />}
-                aria-pressed={trace.open}
-                onClick={trace.toggle}
-              />
+              <TraceButton open={trace.open} onToggle={trace.toggle} isIconOnly={iconsOnly} />
             ) : null}
             <OpenInNewTabButton
               isIconOnly={iconsOnly}
@@ -3132,7 +3119,6 @@ function PreviewBody({
                 <div key={key} style={{ display: isShown ? 'contents' : 'none' }}>
                   <StudioRunner
                     {...props}
-                    mode={connection.mode}
                     runtime={connection.runtime}
                     trace={traced ? traceOpen : undefined}
                     chatRef={isShown ? chatRef : undefined}

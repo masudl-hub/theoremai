@@ -30,6 +30,7 @@ import {
 import { atStart, type StudioWorkspace } from '../mod.ts';
 import type { EditedAnswer, SaveRefusal } from '../server/save-wire.ts';
 import { useActingAs } from './lib/acting-as.ts';
+import { runsAsConversation } from './lib/conversation-types.ts';
 import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
@@ -343,9 +344,6 @@ function savedOf(tested: StudioWorkspace | undefined, profileId: string) {
   return agent && tested?.starts.agents[agent.key]?.identity;
 }
 
-/** The types a chat cannot talk to: the files' side of one of these has no conversation to show. */
-const NOT_A_CHAT = new Set(['decision', 'host', 'live']);
-
 /** Why a message cannot go to both sides now, when it cannot. */
 function whyNot(failed: boolean, isReady: boolean): string | undefined {
   if (failed) return 'Your edits are not running';
@@ -465,7 +463,7 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
   );
   const isEditing = edits !== undefined;
   // A profile the edits made a chat is another type in the files, which a chat cannot talk to.
-  const chatsInFiles = !saved || !NOT_A_CHAT.has(saved.profileType);
+  const chatsInFiles = !saved || runsAsConversation(saved.profileType);
   const inFiles =
     !isEditing || (chatsInFiles && (answer?.saved ?? project.profiles).includes(ids.saved));
   const { conversations, onChange } = useConversations(isEditing);

@@ -21,6 +21,7 @@ import type {
 import {
   inlineContent,
   recordRoot,
+  TRACE_VERSION,
   type TraceAttributeValue,
   type TraceRecord,
   type TraceSpan,
@@ -68,13 +69,22 @@ export interface ReplayScript {
 }
 
 /** Why a replay stopped where it did. */
-export interface ReplayDivergence {
+export type ReplayDivergence = {
   /** The turn, from 0. */
   turn: number;
-  /** The model call within the turn, from 1. */
-  call: number;
   reason: string;
-}
+} & (
+  | {
+      /** The agent whose model call diverged. */
+      agent: string;
+      /** That agent's model call within the turn, from 1. */
+      call: number;
+    }
+  | {
+      /** The tool the recording holds no further result for. */
+      tool: string;
+    }
+);
 
 type Part = Record<string, unknown>;
 type Message = { role?: unknown; parts?: unknown };
@@ -385,31 +395,55 @@ function parsed(text: string): unknown {
   }
 }
 
+const spanKey = (traceId: string, spanId: string) => `${traceId}:${spanId}`;
+
+/** A record the kernel wrote for a compaction between turns: no input, a `theorem.compaction` event. */
+function compactionOnly(record: TraceRecord, root: TraceSpan): boolean {
+  if (!root.events.some((event) => event.name === 'theorem.compaction')) return false;
+  const sent = userMessage(record, root);
+  return !sent.text && sent.attachments === 0;
+}
+
 /**
  * The replay a run's records stand for. Each record whose root is a turn of the conversation's
- * agent is a turn; a record of another agent's turn (an agent tool's) adds its calls to the turn
- * before it. Records of anything else (a host's tool call, a decision) hold no turn.
+ * agent is a turn. A record whose root's parent span is in a turn's record (a turn a host ran
+ * under `traceparent`) adds its calls to that turn; an agent tool's turn is already inside its
+ * caller's record. Compactions between turns and records of anything else (a host's tool call, a
+ * decision) hold no turn. Throws when the file holds turns of more than one agent.
  */
 export function replayScript(records: readonly TraceRecord[]): ReplayScript {
   let agent = '';
   let recordedAt: number | undefined;
   const turns: ReplayTurn[] = [];
+  const others = new Set<string>();
+  /** The turn each recorded span belongs to, by `traceId:spanId`. */
+  const owners = new Map<string, ReplayTurn>();
+  const claim = (record: TraceRecord, turn: ReplayTurn) => {
+    for (const span of record.spans) owners.set(spanKey(span.traceId, span.spanId), turn);
+  };
   records.forEach((record, index) => {
     const root = recordRoot(record);
-    if (!root || operation(root) !== 'invoke_agent') return;
+    if (!root || operation(root) !== 'invoke_agent' || compactionOnly(record, root)) return;
     const name = stringAttribute(root, 'gen_ai.agent.name') ?? '';
-    agent ||= name;
     const calls = recordCalls(record);
     const results = recordResults(record);
-    const last = turns.at(-1);
-    if (name !== agent && last) {
-      last.calls.push(...calls);
-      last.results.push(...results);
+    const parent = root.parentSpanId
+      ? owners.get(spanKey(root.traceId, root.parentSpanId))
+      : undefined;
+    if (parent) {
+      parent.calls.push(...calls);
+      parent.results.push(...results);
+      claim(record, parent);
+      return;
+    }
+    agent ||= name;
+    if (name !== agent) {
+      others.add(name);
       return;
     }
     recordedAt ??= Number(startOf(root) / 1_000_000n);
     const sent = userMessage(record, root);
-    turns.push({
+    const turn: ReplayTurn = {
       ...sent,
       calls,
       results,
@@ -419,8 +453,18 @@ export function replayScript(records: readonly TraceRecord[]): ReplayScript {
         }),
         root,
       ),
-    });
+    };
+    turns.push(turn);
+    claim(record, turn);
   });
+  if (others.size) {
+    const agents = [agent, ...others].join(', ');
+    // labels-exempt: builder diagnostic
+    throw new TheoremError(
+      'request',
+      `This file holds conversations of more than one agent (${agents}). Open a file with one agent's turns.`,
+    );
+  }
   return { agent, turns, ...(recordedAt === undefined ? {} : { recordedAt }) };
 }
 
@@ -497,7 +541,7 @@ export function createReplay(
       asked.set(key, index + 1);
       const reason = divergence(calls[index], calls.length, request);
       if (reason) {
-        onDiverge({ turn, call: index + 1, reason });
+        onDiverge({ turn, agent: name, call: index + 1, reason });
         throw new TheoremError('request', `Replay stopped: ${reason}`); // labels-exempt: builder diagnostic
       }
       yield* calls[index]?.events ?? [];
@@ -505,7 +549,11 @@ export function createReplay(
   });
   const handler = (name: string) => () => {
     const next = resultsOf(turn).get(name)?.shift();
-    if (!next) throw new Error(`The recording has no further result for ${name}.`);
+    if (!next) {
+      const reason = `The recording has no further result for ${name}.`;
+      onDiverge({ turn, tool: name, reason });
+      throw new TheoremError('request', `Replay stopped: ${reason}`); // labels-exempt: builder diagnostic
+    }
     return resultOutput(next);
   };
   const names = new Set(script.turns.flatMap((each) => each.results.map((result) => result.name)));
@@ -567,7 +615,7 @@ export function recordedTranscript(script: ReplayScript): TranscriptBlock[] {
 
 /**
  * The conversation a recording opens as history: the same blocks Replay exchange shows and
- * Continue live seeds. Goals and any host that starts on a `.trace.json` use this, not a second
+ * Continue live seeds. Goals and any host that starts on a recorded trace use this, not a second
  * hand-written exchange. Each assistant `turn-done` carries `workedMs` / `endedAt` from its root
  * span, as a live chat's `stampWorked` would. Each settled tool carries `startedAt` / `endedAt`
  * from its `execute_tool` span (via running then settle), as a live turn would.
@@ -576,25 +624,34 @@ export function openingFromRecords(records: readonly TraceRecord[]): TranscriptB
   return recordedTranscript(replayScript(records));
 }
 
+/** One record of a trace file, or why it is not one; `where` names its place in the file. */
+function traceRecordAt(value: unknown, where: string): TraceRecord {
+  const parsed = traceRecordSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  const version = isRecord(value) ? value.v : undefined;
+  // labels-exempt: builder diagnostic
+  const why =
+    typeof version === 'number' && version !== TRACE_VERSION
+      ? `This trace is version ${String(version)}${where}; the studio reads version ${String(TRACE_VERSION)}.`
+      : `This file is not a Theorem trace${where}.`;
+  throw new TheoremError('request', why);
+}
+
 /**
  * The records a parsed trace value holds: a JSON array of `TraceRecord`s, as the studio
  * downloads them, or one record. Throws, saying why, for anything else.
  */
 export function parseTraceRecords(value: unknown): TraceRecord[] {
   const records = Array.isArray(value) ? value : [value];
-  return records.map((record, index) => {
-    const parsed = traceRecordSchema.safeParse(record);
-    if (parsed.success) return parsed.data;
-    const where = records.length > 1 ? ` (record ${String(index + 1)})` : '';
-    // labels-exempt: builder diagnostic
-    throw new TheoremError('request', `This file is not a Theorem trace${where}.`);
-  });
+  return records.map((record, index) =>
+    traceRecordAt(record, records.length > 1 ? ` (record ${String(index + 1)})` : ''),
+  );
 }
 
 /**
  * The records a trace file holds: a JSON array of `TraceRecord`s, as the studio downloads them,
  * one record, or JSONL with a record on each line, as `jsonlSink` writes them. Throws, saying
- * why, for anything else.
+ * why, for anything else; a JSONL file's problems name their line.
  */
 export function parseTraceFile(text: string): TraceRecord[] {
   try {
@@ -602,20 +659,17 @@ export function parseTraceFile(text: string): TraceRecord[] {
   } catch (error) {
     if (error instanceof TheoremError) throw error;
   }
-  const lines = text.split('\n').filter((line) => line.trim());
-  return parseTraceRecords(
-    lines.map((line, index) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        // labels-exempt: builder diagnostic
-        throw new TheoremError(
-          'request',
-          lines.length > 1
-            ? `Line ${String(index + 1)} of this file is not JSON.`
-            : 'This file is not JSON.',
-        );
-      }
-    }),
-  );
+  const lines = text.split('\n').map((line, index) => ({ line, at: index + 1 }));
+  const filled = lines.filter(({ line }) => line.trim());
+  if (filled.length < 2) throw new TheoremError('request', 'This file is not JSON.'); // labels-exempt: builder diagnostic
+  return filled.map(({ line, at }) => {
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      // labels-exempt: builder diagnostic
+      throw new TheoremError('request', `Line ${String(at)} of this file is not JSON.`);
+    }
+    return traceRecordAt(value, ` (line ${String(at)})`);
+  });
 }

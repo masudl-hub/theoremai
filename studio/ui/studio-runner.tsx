@@ -1,15 +1,7 @@
 import { Button } from '@astryxdesign/core/Button';
 import { HStack } from '@astryxdesign/core/HStack';
-import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
-import { IconKey } from '@tabler/icons-react';
-import {
-  PaneLoading,
-  PaneState,
-  TheoremChat,
-  TheoremLabelsProvider,
-  useLabels,
-} from '@theoremjs/react/ui';
+import { PaneLoading, TheoremChat, TheoremLabelsProvider, useLabels } from '@theoremjs/react/ui';
 import {
   createDecisionTransport,
   createEmbeddingTransport,
@@ -33,7 +25,6 @@ import {
   compileWorkspace,
   createStudioTransport,
   ON_OWN_KEYS,
-  type StudioConnectionMode,
   type StudioRunPayload,
   type StudioWorkspace,
   studioInterface,
@@ -42,6 +33,7 @@ import {
   workspaceRunAgent,
 } from '../mod.ts';
 import { useActingAs } from './lib/acting-as.ts';
+import { runsAsConversation } from './lib/conversation-types.ts';
 import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { pageConversationKey } from './lib/studio-conversation.ts';
@@ -99,7 +91,6 @@ function RunLoadingPane() {
 
 export interface StudioRunnerProps {
   payload: StudioRunPayload;
-  mode: StudioConnectionMode;
   runtime: StudioBrowserRuntime | null;
   trace?: boolean;
   className?: string;
@@ -164,7 +155,6 @@ export function StudioRunner({ onActivity, traces: given, ...props }: StudioRunn
 
 function Run({
   payload,
-  mode,
   runtime,
   trace,
   className,
@@ -184,7 +174,7 @@ function Run({
   project,
   traces,
   note,
-}: RunProps & { mode: StudioConnectionMode; project: ProjectSession | null }) {
+}: RunProps & { project: ProjectSession | null }) {
   if (project)
     return (
       <ProjectRun
@@ -200,14 +190,6 @@ function Run({
         slots={slots}
         context={context}
         tested={tested}
-      />
-    );
-  if (mode !== 'demo' && !runtime)
-    return (
-      <PaneState
-        icon={<Icon icon={IconKey} size="lg" color="secondary" />}
-        title="Connect to run"
-        description="Add your provider keys or local endpoint under Keys."
       />
     );
   if (payload.profile.type === 'decision')
@@ -311,13 +293,12 @@ function UnsavedActions({ agentId, isNew }: { agentId: string; isNew: boolean })
 }
 
 export type ChatProps = ComponentProps<typeof TheoremChat>;
-type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'mode' | 'onActivity' | 'traces'> & {
+type RunProps = Omit<Parameters<typeof StudioRunner>[0], 'onActivity' | 'traces'> & {
   traces: TraceFeed;
   note: () => void;
 };
 /** The types that are not a conversation: a chat cannot sit beside one of these. */
-const NOT_A_CHAT = new Set(['decision', 'host', 'live']);
-const isChat = (payload: StudioRunPayload) => !NOT_A_CHAT.has(payload.profile.type);
+const isChat = (payload: StudioRunPayload) => runsAsConversation(payload.profile.type);
 
 /**
  * The agents the files hold, compiled from where the workspace started: an edit may have renamed

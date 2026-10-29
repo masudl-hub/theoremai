@@ -95,13 +95,7 @@ export function saveStudioRunPayloadRecord(
 ): void {
   const store = resolveStore(storeOverride);
   if (!store || !runId) return;
-  store.removeItem(STUDIO_RUN_PAYLOAD_KEY);
-  const body = {
-    version: 1,
-    ...payload,
-    runId,
-  };
-  store.setItem(studioRunPayloadKey(runId), JSON.stringify(body));
+  store.setItem(studioRunPayloadKey(runId), JSON.stringify(payload));
   const { entries, prunedIds } = upsertStudioRunIndex(
     readIndex(store),
     runId,

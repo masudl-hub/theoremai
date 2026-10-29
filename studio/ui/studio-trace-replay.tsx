@@ -100,6 +100,7 @@ type ReplayStatus =
   | { kind: 'missing'; turn: number }
   | { kind: 'diverged'; divergence: ReplayDivergence }
   | { kind: 'failed'; turn: number; message: string }
+  | { kind: 'stopped'; turn: number }
   | { kind: 'done' };
 
 const ordinal = (turn: number) => `turn ${String(turn + 1)}`;
@@ -176,7 +177,10 @@ function TraceFileInput({ onImport }: { onImport: (trace: OpenedTrace) => void }
     if (!file) return;
     setReading(true);
     try {
-      onImport({ name: file.name, records: parseTraceFile(await file.text()) });
+      const records = parseTraceFile(await file.text());
+      // why: a file the replay cannot read is refused here, where the card can say why.
+      replayScript(records);
+      onImport({ name: file.name, records });
       setProblem(undefined);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -402,16 +406,29 @@ function StatusBanner({
           />
         );
       case 'diverged': {
-        const { turn, call, reason } = status.divergence;
+        const divergence = status.divergence;
+        const at =
+          'tool' in divergence
+            ? `the ${divergence.tool} tool`
+            : `${divergence.agent}'s model call ${String(divergence.call)}`;
         return (
           <Banner
             status="warning"
-            title={`Replay stopped at ${ordinal(turn)}, model call ${String(call)}`}
-            description={reason}
-            endContent={live(turn)}
+            title={`Replay stopped at ${ordinal(divergence.turn)}, ${at}`}
+            description={divergence.reason}
+            endContent={live(divergence.turn)}
           />
         );
       }
+      case 'stopped':
+        return (
+          <Banner
+            status="info"
+            title={`Replay stopped at ${ordinal(status.turn)}`}
+            description="You stopped it. Continue live to go on from here with the profile's model."
+            endContent={live(status.turn)}
+          />
+        );
       case 'failed':
         return (
           <Banner
@@ -499,6 +516,12 @@ function ReplayConsole({
   const phase = useRef(chat.phase);
   phase.current = chat.phase;
   const [from, setFrom] = useState(0);
+  /** The builder pressed Stop: the replay sends no further turn. */
+  const halted = useRef(false);
+  // invariant: only leaving the replay stops its reply; Continue replay restarts the loop while a resumed reply streams.
+  const stopReply = useRef(handleStop);
+  stopReply.current = handleStop;
+  useEffect(() => () => stopReply.current(), []);
   useEffect(() => {
     let stopped = false;
     /** Until a reply still streaming (one a stop is ending) has ended. */
@@ -509,7 +532,7 @@ function ReplayConsole({
     void (async () => {
       for (let turn = from; turn < script.turns.length; turn += 1) {
         await settled();
-        if (stopped) return;
+        if (stopped || halted.current) return;
         if (phase.current === 'gated') {
           // The turn before waits on a gate: its reply goes on with the calls it has left.
           replay.startTurn(turn - 1);
@@ -521,7 +544,7 @@ function ReplayConsole({
         setStatus({ kind: 'running', turn });
         try {
           const sent = await sendText(text);
-          if (stopped) return;
+          if (stopped || halted.current) return;
           if (diverged.current)
             return setStatus({ kind: 'diverged', divergence: diverged.current });
           // The chat took nothing: it was not idle yet. Settle, then send this turn again.
@@ -535,9 +558,8 @@ function ReplayConsole({
     })();
     return () => {
       stopped = true;
-      handleStop();
     };
-  }, [from, replay, script, sendText, handleStop]);
+  }, [from, replay, script, sendText]);
   const live = async (turn: number) => {
     const blocks = script.turns.slice(0, turn).flatMap((each) => each.blocks);
     const started = await startLive(payload, runtime, blocks);
@@ -552,8 +574,9 @@ function ReplayConsole({
       card={card({
         isRunning: status.kind === 'running',
         onStop: () => {
+          halted.current = true;
           handleStop();
-          setStatus({ kind: 'done' });
+          setStatus((now) => (now.kind === 'running' ? { kind: 'stopped', turn: now.turn } : now));
         },
       })}
       conversation={

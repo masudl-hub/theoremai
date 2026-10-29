@@ -454,7 +454,10 @@ function TraceDownload({ records }: { records: readonly TraceRecord[] }) {
         link.href = url;
         link.download = `${tracedAgent(records)}-${stamp}.trace.json`;
         link.click();
-        URL.revokeObjectURL(url);
+        // why: revoked in the same task, some browsers cancel the download before it starts.
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+        });
       }}
     />
   );

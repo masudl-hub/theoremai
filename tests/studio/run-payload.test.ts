@@ -5,7 +5,6 @@ import {
   readStudioRunIdFromUrl,
   STUDIO_RUN_INDEX_KEY,
   STUDIO_RUN_PAYLOAD_CAP,
-  STUDIO_RUN_PAYLOAD_KEY,
   saveStudioRunPayloadRecord,
   studioRunPayloadKey,
   upsertStudioRunIndex,
@@ -76,8 +75,6 @@ Deno.test('upsertStudioRunIndex moves an existing id to newest', () => {
 
 Deno.test('save/load/clear round-trip with injectable storage and prune', () => {
   const store = memoryStorage();
-  store.setItem(STUDIO_RUN_PAYLOAD_KEY, '{"legacy":true}');
-
   for (let i = 0; i < STUDIO_RUN_PAYLOAD_CAP + 2; i += 1) {
     saveStudioRunPayloadRecord(
       {
@@ -90,13 +87,10 @@ Deno.test('save/load/clear round-trip with injectable storage and prune', () => 
     );
   }
 
-  assertEquals(store.getItem(STUDIO_RUN_PAYLOAD_KEY), null);
   assertEquals(loadStudioRunPayloadRecord('run-0', store), null);
   assertEquals(loadStudioRunPayloadRecord('run-1', store), null);
   const newest = loadStudioRunPayloadRecord(`run-${String(STUDIO_RUN_PAYLOAD_CAP + 1)}`, store);
   assertEquals(newest?.agentId, `agent-${String(STUDIO_RUN_PAYLOAD_CAP + 1)}`);
-  assertEquals(newest?.runId, `run-${String(STUDIO_RUN_PAYLOAD_CAP + 1)}`);
-  assertEquals(newest?.version, 1);
 
   const indexRaw = store.getItem(STUDIO_RUN_INDEX_KEY);
   assertEquals(typeof indexRaw, 'string');

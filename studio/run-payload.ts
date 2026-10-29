@@ -36,13 +36,10 @@ export {
 };
 
 export type StudioRunPayload = {
-  /** Payload schema version — bump when handoff shape changes. */
-  version?: 1;
   /** Execution choice only. Credentials never belong in this persisted payload. */
   connectionMode?: StudioConnectionMode;
   /** Non-secret localhost connection setting; no bearer key travels with it. */
   localBaseUrl?: string;
-  runId?: string;
   agentId: string;
   profile: ProfileDefinition;
   customTools: ToolRegistration[];

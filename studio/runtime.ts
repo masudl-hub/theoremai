@@ -185,7 +185,7 @@ function studioRunner(args: {
       ),
     async compact(history, tokens, model) {
       const compacted = await scope.compactHistory(
-        { profile: profile.id, history, tokens, signal, ...(model ? { model } : {}) },
+        { profile: profile.id, history, tokens, metadata, signal, ...(model ? { model } : {}) },
         runtimeProvider(runtime, scope, profile, model),
       );
       return compacted?.history;

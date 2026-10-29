@@ -1,6 +1,5 @@
-import { Button } from '@astryxdesign/core/Button';
 import { Icon } from '@astryxdesign/core/Icon';
-import { IconActivity, IconKey } from '@tabler/icons-react';
+import { IconKey } from '@tabler/icons-react';
 import type { ModelBinding } from '@theoremjs/agents';
 import { PaneState, TheoremThemeProvider, TracePlacement } from '@theoremjs/react/ui';
 import { useEffect, useState } from 'react';
@@ -22,6 +21,7 @@ import type { StudioSupplies } from './studio-host.ts';
 import { StudioRunner } from './studio-runner.tsx';
 import { usePhone } from './use-phone.ts';
 import './studio-run.css';
+import { TraceButton } from './trace-button.tsx';
 
 /** A model binding as the connection reads it. */
 type ConnectionModel = Parameters<typeof useStudioConnection>[0][number];
@@ -99,13 +99,10 @@ export function StudioRunScreen({
         <div className="run-page">
           <div className="run-controls">
             {traced ? (
-              <Button
-                label={traceOpen ? 'Hide trace' : 'View trace'}
-                variant="ghost"
+              <TraceButton
+                open={traceOpen}
                 isIconOnly={phone}
-                icon={<Icon icon={IconActivity} size="sm" />}
-                aria-pressed={traceOpen}
-                onClick={() => {
+                onToggle={() => {
                   setTraceOpen((open) => !open);
                 }}
               />
@@ -122,7 +119,6 @@ export function StudioRunScreen({
               <StudioRunner
                 key={mode}
                 payload={payload}
-                mode={mode}
                 runtime={runtime}
                 trace={traced ? traceOpen : undefined}
                 flush

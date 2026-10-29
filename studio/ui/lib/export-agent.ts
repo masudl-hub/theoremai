@@ -7,6 +7,7 @@ import {
   type SourceFile,
   workspaceSource,
 } from '../../mod.ts';
+import { runsAsConversation } from './conversation-types.ts';
 
 const PACKAGES = [
   '@theoremjs/agents',
@@ -34,9 +35,8 @@ const HOST_ENDPOINT = '/api/host';
 const EMBEDDING_ENDPOINT = '/api/embedding';
 
 /** Turn profiles run through `createTheoremHandler`; live profiles run through a relay. */
-const NOT_TURNS = new Set(['live', 'decision', 'host', 'embedding']);
 function servesTurns({ profile }: CompiledStudio): boolean {
-  return !NOT_TURNS.has(profile.type);
+  return runsAsConversation(profile.type);
 }
 
 /** The `keySlot` and `fallbackKeySlot` an object names, when they are strings. */

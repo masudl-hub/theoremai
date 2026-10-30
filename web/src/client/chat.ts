@@ -475,6 +475,7 @@ class Chat implements ChatController {
     this.#set({
       pendingMessages: orderComposerPendingMessages([...this.#state.pendingMessages, message]),
     });
+    if (message.kind === 'queue' && this.#state.phase === 'idle') this.#drainArmed = true;
     if (message.kind !== 'steer') return;
     const turnId = this.#turnId;
     if (!turnId) {
@@ -606,8 +607,10 @@ class Chat implements ChatController {
   sendText = async (text: string, options: SendTextOptions = {}): Promise<SentTurn | null> => {
     if (!this.#options.iface || this.#state.phase !== 'idle') return null;
     // invariant: the turn reads the pick from the session, before `#followDefaults` next runs.
-    if (options.model !== undefined)
-      this.setGeneration({ modelId: options.model, effort: options.effort });
+    const modelId =
+      options.model ??
+      (options.effort === undefined ? undefined : this.#state.session.selectedModel);
+    if (modelId !== undefined) this.setGeneration({ modelId, effort: options.effort });
     const before = this.#state.blocks.length;
     await this.#sendFields({
       text,

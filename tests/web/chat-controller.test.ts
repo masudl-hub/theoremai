@@ -607,6 +607,28 @@ Deno.test('a model and effort picked while a reply streams outlast the reply', a
   assertEquals(chat.getState().session.selectedEffort, 'high');
 });
 
+Deno.test('an effort sent alone applies to the model the chat is on', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  await settle();
+  const model = chat.getState().session.selectedModel;
+  void chat.sendText('One', { effort: 'high' });
+  await settle();
+  assertEquals(chat.getState().session.selectedModel, model);
+  assertEquals(chat.getState().session.selectedEffort, 'high');
+  assertEquals(host.turns[0].request.effort, 'high');
+});
+
+Deno.test('a message queued on an idle chat sends', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  await settle();
+  await chat.pend(createComposerPendingMessage({ kind: 'queue', draft: { text: 'Next' } }));
+  await settle();
+  assertEquals(host.turns.length, 1);
+  assertEquals(chat.getState().pendingMessages, []);
+});
+
 Deno.test('a message pended in two chats keeps one id in both', async () => {
   const one = createChatController({ transport: heldHost().transport, iface: textInterface() });
   const two = createChatController({ transport: heldHost().transport, iface: textInterface() });

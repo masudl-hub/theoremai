@@ -338,6 +338,10 @@ function pairPending(states: readonly ChatState[]): ComposerPendingMessage[] {
   return orderComposerPendingMessages([...byId.values()]);
 }
 
+/** Whether a side's running turn would take a steer now. */
+const takesSteer = (state: ChatState): boolean =>
+  state.phase === 'streaming' && allowsSteering(state);
+
 type SideChat = { chat: ChatController; state: ChatState };
 
 /** The shared composer's model and effort, and whether the builder chose them. */
@@ -409,14 +413,15 @@ function SharedComposer({
     clear();
     for (const { chat, state } of sides) {
       if (kind === 'steer') {
-        if (state.phase === 'streaming' && allowsSteering(state)) void chat.pend(shared);
+        if (takesSteer(state)) void chat.pend(shared);
         continue;
       }
       if (kind === 'stash') {
         void chat.pend(shared);
         continue;
       }
-      if (state.phase === 'idle') {
+      // why: reading the attachments took time, and a side may have finished or started since.
+      if (chat.getState().phase === 'idle') {
         void chat.sendText(text, sent);
         continue;
       }
@@ -429,123 +434,135 @@ function SharedComposer({
   };
   const pending = pairPending(states);
   return (
-    <Center axis="horizontal" width="100%">
-      <VStack width="100%" maxWidth={DEFAULT_CHAT_MAX_WIDTH}>
-        <ChatComposerBar
-          // A steer is offered while either side's running turn takes one.
-          iface={{
-            ...iface,
-            ...('allowSteering' in iface
-              ? { allowSteering: sides.some(({ state }) => allowsSteering(state)) }
-              : {}),
-          }}
-          draftText={draftText}
-          pendingFiles={pendingFiles}
-          pendingVoice={pendingVoice}
-          pendingMessages={pending}
-          issues={[]}
-          phase={phase}
-          failure={failure}
-          selectedModel={pick.model}
-          selectedEffort={pick.effort}
-          placeholder="Message both"
-          inputRef={inputRef}
-          onDraftTextChange={setDraftText}
-          onFilesSelected={(files) => {
-            setPendingFiles((prev) => [...prev, ...files]);
-          }}
-          onAttachmentRemove={(index) => {
-            setPendingFiles((prev) => prev.filter((_, at) => at !== index));
-          }}
-          onVoiceStaged={(file) => {
-            setPendingVoice([file]);
-          }}
-          onVoiceClear={() => {
-            setPendingVoice([]);
-          }}
-          onSubmit={() => {
-            void deliver('queue');
-          }}
-          onStop={() => {
-            each((chat) => {
-              chat.stop();
-            });
-          }}
-          onMenuAction={(action) => {
-            void deliver(action);
-          }}
-          onGenerationChange={(next) => {
-            setPick({ model: next.modelId, effort: next.effort, of: iface, isChosen: true });
-          }}
-          slotChoices={
-            edited.slots && {
-              ...edited.slots,
-              onChange: (name, value) => {
-                each((chat) => {
-                  chat.pickSlot(name, value);
-                });
-              },
-            }
+    <SharedDock>
+      <ChatComposerBar
+        // why: a steer goes only to a running turn, so one that no side would take is not offered.
+        iface={{
+          ...iface,
+          ...('allowSteering' in iface
+            ? { allowSteering: sides.some(({ state }) => takesSteer(state)) }
+            : {}),
+        }}
+        draftText={draftText}
+        pendingFiles={pendingFiles}
+        pendingVoice={pendingVoice}
+        pendingMessages={pending}
+        issues={[]}
+        phase={phase}
+        failure={failure}
+        selectedModel={pick.model}
+        selectedEffort={pick.effort}
+        placeholder="Message both"
+        inputRef={inputRef}
+        onDraftTextChange={setDraftText}
+        onFilesSelected={(files) => {
+          setPendingFiles((prev) => [...prev, ...files]);
+        }}
+        onAttachmentRemove={(index) => {
+          setPendingFiles((prev) => prev.filter((_, at) => at !== index));
+        }}
+        onVoiceStaged={(file) => {
+          setPendingVoice([file]);
+        }}
+        onVoiceClear={() => {
+          setPendingVoice([]);
+        }}
+        onSubmit={() => {
+          void deliver('queue');
+        }}
+        onStop={() => {
+          each((chat) => {
+            chat.stop();
+          });
+        }}
+        onMenuAction={(action) => {
+          void deliver(action);
+        }}
+        onGenerationChange={(next) => {
+          setPick({ model: next.modelId, effort: next.effort, of: iface, isChosen: true });
+        }}
+        slotChoices={
+          edited.slots && {
+            ...edited.slots,
+            onChange: (name, value) => {
+              each((chat) => {
+                chat.pickSlot(name, value);
+              });
+            },
           }
-          onPendingMove={(id, direction) => {
-            each((chat) => {
-              chat.movePending(id, direction);
-            });
-          }}
-          onPendingRemove={(id) => {
+        }
+        onPendingMove={(id, direction) => {
+          each((chat) => {
+            chat.movePending(id, direction);
+          });
+        }}
+        onPendingRemove={(id) => {
+          each((chat) => {
+            chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
+          });
+        }}
+        onPendingQueue={(id) => {
+          each((chat) => {
+            chat.queuePending(id);
+          });
+        }}
+        onPendingRestore={(id) => {
+          void (async () => {
+            const restored = pending.find((held) => held.id === id);
+            if (!restored) return;
+            // As a chat restores: what the composer holds is stashed first.
+            if (composerHasPayload(draftText, pendingFiles, pendingVoice)) await deliver('stash');
             each((chat) => {
               chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
             });
-          }}
-          onPendingQueue={(id) => {
-            each((chat) => {
-              chat.queuePending(id);
-            });
-          }}
-          onPendingRestore={(id) => {
-            void (async () => {
-              const restored = pending.find((held) => held.id === id);
-              if (!restored) return;
-              // As a chat restores: what the composer holds is stashed first.
-              if (composerHasPayload(draftText, pendingFiles, pendingVoice)) await deliver('stash');
-              each((chat) => {
-                chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
-              });
-              const fields = composerFieldsFromDraft(restored.draft);
-              setDraftText(fields.text);
-              setPendingFiles(fields.files);
-              setPendingVoice(fields.voice);
-            })();
-          }}
-          onPendingSendNow={(id) => {
-            for (const { chat, state } of sides) {
-              const held = state.pendingMessages.find((m) => m.id === id);
-              if (!held) continue;
-              takePick(chat);
-              void chat.sendNow(held);
-            }
-          }}
-        />
-      </VStack>
-    </Center>
+            const fields = composerFieldsFromDraft(restored.draft);
+            setDraftText(fields.text);
+            setPendingFiles(fields.files);
+            setPendingVoice(fields.voice);
+          })();
+        }}
+        onPendingSendNow={(id) => {
+          for (const { chat, state } of sides) {
+            const held = state.pendingMessages.find((m) => m.id === id);
+            if (!held) continue;
+            takePick(chat);
+            void chat.sendNow(held);
+          }
+        }}
+      />
+    </SharedDock>
+  );
+}
+
+/**
+ * Where the shared composer sits: the width and inset of a chat's own dock.
+ * why: it sits outside both chats' layouts, so it brings the 12px sides and 24px below they give.
+ */
+function SharedDock({ children }: { children: ReactNode }) {
+  return (
+    <VStack paddingInline={3} paddingBlockEnd={6}>
+      <Center axis="horizontal" width="100%">
+        <VStack width="100%" maxWidth={DEFAULT_CHAT_MAX_WIDTH}>
+          {children}
+        </VStack>
+      </Center>
+    </VStack>
   );
 }
 
 /** The composer while the edits cannot take a message: it says why. */
 function WaitingComposer({ handle, why }: { handle: string; why: string }) {
   return (
-    <Center axis="horizontal" width="100%">
-      <VStack width="100%" maxWidth={DEFAULT_CHAT_MAX_WIDTH}>
-        <ChatComposerBar
-          handle={handle}
-          draftText=""
-          onDraftTextChange={() => {}}
-          onSubmit={() => {}}
-          isDisabled
-          placeholder={why}
-        />
-      </VStack>
-    </Center>
+    <SharedDock>
+      <ChatComposerBar
+        handle={handle}
+        draftText=""
+        onDraftTextChange={() => {}}
+        onSubmit={() => {}}
+        isDisabled
+        placeholder={why}
+      />
+    </SharedDock>
   );
 }
 

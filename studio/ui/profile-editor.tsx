@@ -147,6 +147,7 @@ import {
   TOOL_BOUNDARIES,
   TOOL_KINDS,
 } from '@theoremjs/agents/guardrails';
+import { MODEL_SELECT_MIN_MODELS } from '@theoremjs/agents/interface';
 import {
   type ContextType,
   createContext,
@@ -594,9 +595,8 @@ function ModelPolicySection({
         label="Switching"
         path="profile.allowModelSelect"
         field="allowModelSelect"
-        // invariant: as modelSelectEnabled, the picker shows only with two models or more.
         value={models.allowModelSelect}
-        isDisabled={draft.modelBindings.length < 2}
+        isDisabled={draft.modelBindings.length < MODEL_SELECT_MIN_MODELS}
         disabledMessage="Add a second model to let people switch."
         onChange={(allowModelSelect) => {
           set({ allowModelSelect });

@@ -56,6 +56,7 @@ export {
   generationSelectEnabled,
   interfaceEffortOptions,
   interfaceModelOptions,
+  MODEL_SELECT_MIN_MODELS,
   modelSelectEnabled,
 } from './models.ts';
 export type {

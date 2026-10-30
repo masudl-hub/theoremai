@@ -300,13 +300,13 @@ Deno.test('a declared surface opens when looked at', async () => {
   assertEquals(view.title, 'Identity');
 });
 
-Deno.test('stateLine names each surface and the last calls, scrubbed', async () => {
+Deno.test('stateLine names each surface, not the calls before it, scrubbed', async () => {
   const runtime = createSurfaceRuntime();
   assertEquals(runtime.stateLine(), null);
   const { surface } = page();
   runtime.mount(surface);
   await runtime.answer('act', { at: 'page/key', action: 'test' }, 'c1');
-  assertEquals(runtime.stateLine(), '(state) page r1: Ada; key missing; last calls: page/key test');
+  assertEquals(runtime.stateLine(), '(state) page r1: Ada; key missing');
 });
 
 Deno.test('secretCard tells placeholders, quotes, and sameAs', () => {

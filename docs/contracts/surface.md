@@ -62,8 +62,8 @@ unknown fields, read-only ones (with their reason) and every secret.
 `subscribe` lets the runtime note the person's changes (`by: 'person'` in
 `changesSince`) through `onNote`; the agent's own are not noted. `settled(callId,
 'cancelled' | 'undelivered')` notes once that an applied call's answer was lost.
-`stateLine()` is `(state)` plus each surface's revision and summary and the last
-five calls.
+`stateLine()` is `(state)` plus each surface's revision and summary. It names no
+earlier call: a new conversation starts knowing only the page as it is.
 
 ## Secrets
 

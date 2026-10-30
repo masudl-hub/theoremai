@@ -72,6 +72,7 @@ Deno.test('turn trace: a call records what the model read and wrote, before guar
     usage,
     binding,
     transport: 'turn',
+    operation: 'chat',
     step: 0,
     attempt: 0,
   });
@@ -153,6 +154,7 @@ Deno.test('turn trace: a continuation reads the earlier call and marks where the
     usage: first,
     binding,
     transport: 'turn',
+    operation: 'chat',
     step: 0,
     attempt: 0,
   });
@@ -167,6 +169,7 @@ Deno.test('turn trace: a continuation reads the earlier call and marks where the
     usage: second,
     binding,
     transport: 'turn',
+    operation: 'chat',
     step: 1,
     attempt: 0,
   });
@@ -190,6 +193,7 @@ Deno.test('turn trace: each HTTP try is a POST span with its slot, body, and bac
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
     transport: 'turn',
+    operation: 'chat',
     step: 0,
     attempt: 0,
   });
@@ -236,6 +240,7 @@ Deno.test('turn trace: a buffered body is not streaming, whatever the request as
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
     transport: 'turn',
+    operation: 'chat',
     step: 0,
     attempt: 0,
   });
@@ -260,6 +265,7 @@ Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
     transport: 'turn',
+    operation: 'chat',
     step: 0,
     attempt: 0,
   });
@@ -272,6 +278,7 @@ Deno.test('turn trace: a provider error fails the call; a cancel leaves it unset
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
     transport: 'turn',
+    operation: 'chat',
     step: 0,
     attempt: 1,
   });
@@ -301,6 +308,7 @@ Deno.test('turn trace: provider-run tool steps are server tool parts; citations 
     usage: startCallUsage('s', { history: [], input: [] }),
     binding,
     transport: 'turn',
+    operation: 'chat',
     step: 0,
     attempt: 0,
   });

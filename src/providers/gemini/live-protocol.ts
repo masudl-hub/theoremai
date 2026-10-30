@@ -198,6 +198,7 @@ export const geminiLive: Protocol<Record<string, never>> = defineProtocol({
   name: 'Gemini Live',
   description: "Google's Live API for Gemini: a spoken session over one WebSocket.", // labels-exempt: builder field description, read by the studio and docs
   endpoints: { live: '/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent' },
+  operationNames: { live: 'generate_content' },
   options: z.strictObject({}),
   continuation: { version: 1, schema: state },
   create(context) {

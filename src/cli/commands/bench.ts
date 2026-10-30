@@ -94,6 +94,7 @@ function registerBenchProvider(chunks: TurnEvent[]): void {
     name: 'Bench',
     description: 'Streams the bench chunks without a network.',
     endpoints: { text: '/bench' },
+    operationNames: { text: 'chat' },
     options: z.strictObject({}),
     create: () => ({
       async *complete() {
@@ -478,6 +479,7 @@ async function microTraceRecord(chunks: TurnEvent[], iterations: number): Promis
       usage: startCallUsage('', { history: [], input: req.input }),
       binding: undefined,
       transport: 'turn',
+      operation: 'chat',
       step: 0,
       attempt: 0,
     });

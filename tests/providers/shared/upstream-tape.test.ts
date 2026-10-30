@@ -72,7 +72,7 @@ function eventContent(record: TraceRecord, span: TraceSpan, name: string, key: s
 }
 
 function assertFullTape(record: TraceRecord): void {
-  const call = spanNamed(record, 'chat gemini-3.5-flash-lite');
+  const call = spanNamed(record, 'generate_content gemini-3.5-flash-lite');
   const post = spanNamed(record, 'POST');
   assertEquals(post.parentSpanId, call.spanId);
   assertEquals(post.attributes['http.request.header.x-goog-api-key'], ['[redacted]']);

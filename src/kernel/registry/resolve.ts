@@ -6,6 +6,7 @@ import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
 import { ANSWER_TOOL } from '../answer-tool.ts';
 import { DEFAULT_MAX_STEPS } from '../profile-presence.ts';
+import { operationNameOf } from '../protocols/binding.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
@@ -271,12 +272,15 @@ function resolveTurnInRegistry(
   assertSpeechRole(profile, safe);
   const builtInArgs = resolveBuiltInArgs(profile, picked, binding, safe.builtInArgs);
   const transport = resolveTransport(profile, binding);
+  const provider = registry.providers.get(binding.provider);
+  const operationName = provider && operationNameOf(provider, binding, profile.type);
   return {
     profile,
     generation: {
       model: picked,
       apiId: binding.apiId,
       transport,
+      ...(operationName ? { operationName } : {}),
       stream: resolveStreamFlag(profile),
       thinking: resolveEffort(profile, binding, picked, safe.effort),
       summaries: resolveSummaries(binding),

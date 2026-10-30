@@ -5,8 +5,22 @@ does not own a database, does not read trace-related environment variables for
 destinations, and never lets tracing fail a turn. Hosts that need a signal when
 sinks die set `TraceSink.onError` or `observability.onWriteError`.
 
-Registered model turns use the normalized `chat` operation; live responses use
-`generate_content`. The provider name is the registered provider instance ID.
+Each model call, embedding call, and decision has the `gen_ai.operation.name`
+that its protocol states for the profile type (`operationNames`). Its span is
+named `<operation> <apiId>`. The first-party protocols state these names:
+
+| Protocol | Profile types | Operation |
+| --- | --- | --- |
+| `openAi`, `openRouterOpenAi` | `text` | `chat` |
+| `openAi`, `openRouterOpenAi` | `speech` | `generate_content` |
+| `geminiInteractions` | `text`, `image`, `speech` | `generate_content` |
+| `geminiLive` | `live` | `generate_content` |
+| `openRouterImages` | `image` | `generate_content` |
+| `geminiEmbeddings`, `openRouterEmbeddings`, `ollamaEmbeddings` | `embedding` | `embeddings` |
+| `openRouterDecisions`, `systemOne` | `decision` | `decide` |
+
+A call has no operation name when its profile was registered without a provider
+registry. The provider name is the registered provider instance ID.
 Native finish values on turns use `gen_ai.response.finish_reasons` rather than a
 vendor-specific status attribute. Credential values resolved by an adapter are removed
 at the upstream tap boundary before the existing trace scrub and content-hash policy.

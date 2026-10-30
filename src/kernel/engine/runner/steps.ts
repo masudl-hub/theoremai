@@ -146,6 +146,7 @@ function startProviderCall(
     usage,
     binding: state.trace.binding,
     transport: genForStep.transport,
+    operation: genForStep.operationName,
     step: state.stepCount,
     attempt: state.trace.attempt,
   });

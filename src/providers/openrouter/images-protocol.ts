@@ -84,6 +84,7 @@ export const openRouterImages: Protocol<Record<string, never>> = defineProtocol(
   name: 'OpenRouter Images',
   description: "OpenRouter's image generation, with or without text beside the picture.", // labels-exempt: builder field description, read by the studio and docs
   endpoints: { image: '/images' },
+  operationNames: { image: 'generate_content' },
   options: z.strictObject({}),
   create(context) {
     return {

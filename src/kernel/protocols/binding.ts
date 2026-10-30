@@ -186,6 +186,15 @@ export function protocolOf(
   return bindingServe(provider, binding).protocol;
 }
 
+/** The `gen_ai.operation.name` of a call the binding makes for `profileType`. */
+export function operationNameOf(
+  provider: RegisteredProvider,
+  binding: ModelBinding | DecisionModelBinding,
+  profileType: ModelProfileType,
+): string | undefined {
+  return protocolOf(provider, binding).operationNames[profileType];
+}
+
 /**
  * The one place a binding meets its provider, once, at registration, for fit only. Returns the
  * binding with its options parsed; changes nothing in place.

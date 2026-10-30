@@ -151,6 +151,7 @@ Reuse a protocol when the endpoint speaks it. An endpoint address alone does not
 | `id` | Stable ID that bindings write; letters and digits, starting with a letter |
 | `name`, `description` | Text for the studio and docs |
 | `endpoints` | The path for each profile type. A type with no entry is not served |
+| `operationNames` | The `gen_ai.operation.name` for each served profile type, e.g. `chat`. It must name each type in `endpoints` and no other. Use a GenAI semantic-conventions value where one applies |
 | `options` | Zod schema for binding options |
 | `continuation` | Optional version, state schema, and the options that change what saved state means |
 | `reasoning`, `custom` | Optional schemas for the reasoning data and custom content that it emits |
@@ -161,7 +162,7 @@ Reuse a protocol when the endpoint speaks it. An endpoint address alone does not
 | `create` | Returns the operations for one call |
 
 `extendProtocol(base, extension)` gives the extension its own ID. Its options are the base's plus its own. It refuses a repeated field.
-Its `body` adds to each request. Its `read` sees each reply row before the base. Endpoints, framing, and error typing default to the base's.
+Its `body` adds to each request. Its `read` sees each reply row before the base. Endpoints, operation names, framing, and error typing default to the base's.
 `carriesTo` reports whether reasoning that one protocol wrote may go back to another protocol in its lineage.
 `modelOptions(protocol, apiId, options)` parses a model's options by the protocol's schema, less any option that model refuses, and throws a `config` error naming what does not fit. A binding is checked with it when it is registered, and a protocol may call it in its own operations.
 

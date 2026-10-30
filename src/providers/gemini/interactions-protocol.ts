@@ -110,6 +110,11 @@ export const geminiInteractions: Protocol<GeminiInteractionsOptions> = definePro
   name: 'Gemini Interactions',
   description: "Google's Interactions API for Gemini: text, images and speech at one endpoint.", // labels-exempt: builder field description, read by the studio and docs
   endpoints: { text: '/interactions', image: '/interactions', speech: '/interactions' },
+  operationNames: {
+    text: 'generate_content',
+    image: 'generate_content',
+    speech: 'generate_content',
+  },
   options,
   continuation: { version: 1, schema: state, keyOptions: ['store', 'persistViaInteractionId'] },
   reasoning: thoughtSignature,

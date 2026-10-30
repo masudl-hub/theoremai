@@ -155,9 +155,9 @@ kernel does not scan the state. Decision profiles are served by `createTheoremDe
 
 Every decision writes one trace record through the profile's observability
 policy, or through `RunDecisionOptions.sink` when the host passes one: a
-`decide <apiId>` CLIENT root span (under `DecisionRequest.traceparent` when
-given, stamped with `DecisionRequest.metadata`) carrying
-`gen_ai.operation.name: decide`, `gen_ai.provider.name` from the model binding,
+`<operation> <apiId>` CLIENT root span (under `DecisionRequest.traceparent` when
+given, stamped with `DecisionRequest.metadata`) carrying the
+protocol's `gen_ai.operation.name` (`decide` for the first-party decision protocols), `gen_ai.provider.name` from the model binding,
 `gen_ai.agent.name` (the profile), the requested and answering model, token
 usage and its cost (`theorem.usage.cost_usd`), `theorem.decision.contract`, and the state, questions, and answers as
 stored JSON content under the profile's scrub policy. The trace holds the type and size of each

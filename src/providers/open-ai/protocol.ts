@@ -207,6 +207,7 @@ export const openAi: Protocol<Record<string, never>> = defineProtocol({
   name: 'OpenAI Chat Completions',
   description: 'The Chat Completions shape that OpenAI and most compatible servers speak.', // labels-exempt: builder field description, read by the studio and docs
   endpoints: { text: '/chat/completions', speech: '/audio/speech' },
+  operationNames: { text: 'chat', speech: 'generate_content' },
   options: z.strictObject({}),
   error: (failure) => httpError(failure, 'Chat Completions'),
   create(context) {

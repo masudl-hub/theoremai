@@ -66,6 +66,7 @@ export const openRouterEmbeddings: Protocol<OpenRouterEmbeddingsOptions> = defin
   name: 'OpenRouter Embeddings',
   description: 'OpenRouter embedding models, including supported multimodal models.',
   endpoints: { embedding: '/embeddings' },
+  operationNames: { embedding: 'embeddings' },
   options,
   embeddingLimits: () => LIMITS,
   create(context) {

@@ -519,6 +519,7 @@ class LiveTrace {
         usage,
         binding: bound.binding,
         transport: bound.generation.transport,
+        operation: bound.generation.operationName,
         step: this.responses + 1,
       },
     );

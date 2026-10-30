@@ -312,8 +312,11 @@ const OPERATIONS: Readonly<
   >
 > = {
   invoke_agent: { label: 'Run agent', doc: 'One turn of an agent, or one Live session.' },
-  chat: { label: 'Chat', doc: 'A model call over a chat-completions API.' },
-  generate_content: { label: 'Generate content', doc: 'A model call over a Gemini API.' },
+  chat: { label: 'Chat', doc: 'A model call to a chat-completions endpoint.' },
+  generate_content: {
+    label: 'Generate content',
+    doc: 'A model call that generates content other than over chat completions: Gemini, speech, or images.',
+  },
   execute_tool: { label: 'Run tool', doc: 'A tool call theorem ran.' },
   decide: {
     label: 'Decide',

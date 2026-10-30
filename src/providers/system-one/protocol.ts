@@ -47,6 +47,7 @@ export const systemOne: Protocol<SystemOneOptions> = defineProtocol({
   name: 'System One',
   description: "TypeSafe's decision API: questions about a state, answered in one call.", // labels-exempt: builder field description, read by the studio and docs
   endpoints: { decision: '/systemone' },
+  operationNames: { decision: 'decide' },
   options,
   create(context) {
     return {

@@ -1559,6 +1559,7 @@ Deno.test('a checkpoint survives approval and a recreated handler without execut
     name: 'Checkpoint fixture',
     description: 'Asks for one tool, then finishes, keeping a cursor between calls.',
     endpoints: { text: '/turn' },
+    operationNames: { text: 'chat' },
     options: z.strictObject({}),
     continuation: { version: 1, schema: z.strictObject({ cursor: z.string() }) },
     create: () => ({

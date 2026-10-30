@@ -3,6 +3,7 @@ import { labelText } from '../../guardrails/labels.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import { type SpanHandle, traceJson } from '../../observability/trace-span.ts';
+import { operationNameOf } from '../protocols/binding.ts';
 import type { DecisionCall } from '../protocols/protocol.ts';
 import type { ProviderHostOptions } from '../protocols/runtime.ts';
 import { guardedCall } from '../provider-runtime.ts';
@@ -445,9 +446,10 @@ function decisionSpanAttributes(
   binding: DecisionProfile['models'][string],
   request: DecisionRequest,
   assets: DecisionCall['assets'],
+  operation: string | undefined,
 ) {
   return {
-    'gen_ai.operation.name': 'decide',
+    ...(operation ? { 'gen_ai.operation.name': operation } : {}),
     'gen_ai.provider.name': binding.provider,
     'gen_ai.agent.name': profile.id,
     'gen_ai.request.model': binding.apiId,
@@ -572,10 +574,19 @@ export async function runDecisionInRegistry(
   const model = decisionModel(profile);
   const [modelId, binding] = model;
   const sent = sentCall(request);
+  const provider = registry.providers.get(binding.provider);
+  const operation = provider && operationNameOf(provider, binding, 'decision');
   return await tracedCall(
     {
-      name: `decide ${binding.apiId}`,
-      attributes: decisionSpanAttributes(profile, modelId, binding, request, sent.assets),
+      name: operation ? `${operation} ${binding.apiId}` : binding.apiId,
+      attributes: decisionSpanAttributes(
+        profile,
+        modelId,
+        binding,
+        request,
+        sent.assets,
+        operation,
+      ),
       traceparent: request.traceparent,
       metadata: request.metadata,
       writer: {

@@ -18,6 +18,7 @@ const kept = defineProtocol({
   name: 'Kept',
   description: 'Keeps a conversation id between calls.',
   endpoints: { text: '/turn' },
+  operationNames: { text: 'chat' },
   options: z.strictObject({
     store: z.boolean().optional().describe('Keep the conversation upstream.'),
     loud: z.boolean().optional().describe('Shout.'),
@@ -130,6 +131,7 @@ async function continuedTurn(suffix: string, released?: number) {
     description:
       'Writes, calls a tool, answers, and answers again, keeping a cursor between calls.',
     endpoints: { text: '/turn' },
+    operationNames: { text: 'chat' },
     options: z.strictObject({}),
     continuation: { version: 1, schema: z.strictObject({ cursor: z.string() }) },
     create: () => ({

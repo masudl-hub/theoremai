@@ -460,10 +460,6 @@ function usageAttributes(tokens: TurnTokens): TraceAttributes {
   };
 }
 
-function operationName(transport: ProviderTransport): 'chat' | 'generate_content' {
-  return transport === 'turn' ? 'chat' : 'generate_content';
-}
-
 /** `gen_ai.provider.name`: the name the provider's preset states; else the binding's server, when declared. */
 function providerName(binding: ModelBinding | undefined): string | undefined {
   if (!binding) return undefined;
@@ -483,10 +479,11 @@ function requestAttributes(
   req: ModelRequest,
   binding: ModelBinding | undefined,
   transport: ProviderTransport,
+  operation: string | undefined,
 ): TraceAttributes {
   const provider = providerName(binding);
   return {
-    'gen_ai.operation.name': operationName(transport),
+    ...optional('gen_ai.operation.name', operation),
     ...optional('gen_ai.provider.name', provider),
     'gen_ai.request.model': req.apiId,
     'theorem.model.id': req.model,
@@ -831,17 +828,19 @@ function startCallTrace(
     usage: CallUsage;
     binding: ModelBinding | undefined;
     transport: ProviderTransport;
+    /** The protocol's `gen_ai.operation.name`; absent when no provider is registered for the binding. */
+    operation: string | undefined;
     step: number;
     /** The runner's validation attempt; Live has none. */
     attempt?: number;
   },
 ): CallTrace {
-  const { req, usage, transport } = args;
+  const { req, usage, transport, operation } = args;
   const opening = inputMessages(usage);
-  const span = open(`${operationName(transport)} ${req.apiId}`, {
+  const span = open(operation ? `${operation} ${req.apiId}` : req.apiId, {
     kind: 'CLIENT',
     attributes: {
-      ...requestAttributes(req, args.binding, transport),
+      ...requestAttributes(req, args.binding, transport, operation),
       'gen_ai.input.messages': opening.input,
       ...optional('theorem.input.sent_from', opening.sentFrom),
       'theorem.step': args.step,

@@ -1121,6 +1121,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   execution?: ToolExecutionCoordinator;
   pageExecution?: PageToolExecution;
   transport: ProviderTransport;
+  /** The protocol's `gen_ai.operation.name` for this profile type; absent when no provider is registered for the binding. */
+  operationName?: string;
   tools: TurnToolSnapshot;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];

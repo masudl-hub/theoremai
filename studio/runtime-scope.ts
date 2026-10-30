@@ -86,6 +86,7 @@ function scriptedProvider(id: string, protocolId: string, model: TurnModel): Pro
     name: 'Scripted',
     description: 'Answers with the events a scripted model gives.',
     endpoints: { text: '/', image: '/', speech: '/' },
+    operationNames: { text: 'chat', image: 'generate_content', speech: 'generate_content' },
     options: z.record(z.string(), z.json()),
     create: (context) => ({
       async *complete(request) {

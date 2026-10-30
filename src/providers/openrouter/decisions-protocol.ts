@@ -17,6 +17,7 @@ export const openRouterDecisions: Protocol<Record<string, never>> = defineProtoc
   name: 'OpenRouter Decisions',
   description: "OpenRouter's decision API: questions about a state, answered in one call.", // labels-exempt: builder field description, read by the studio and docs
   endpoints: { decision: '/alpha/decisions' },
+  operationNames: { decision: 'decide' },
   options: z.strictObject({}),
   create(context) {
     return {

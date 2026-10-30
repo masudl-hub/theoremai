@@ -508,6 +508,10 @@ function useChatHandle(
         return canSendBoth ? sendBoth(text) : Promise.resolve(null);
       },
       stop,
+      // With both sides shown, the edited side answers `send`, so its composer takes the focus.
+      focus: () => {
+        chats.current[only ?? 'edited']?.focus();
+      },
     }),
     [only, canSendBoth, sendBoth, stop, chats],
   );

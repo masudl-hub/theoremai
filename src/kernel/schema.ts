@@ -1682,7 +1682,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
   'registerTool.labels': field(
     'ToolLabels',
-    "Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. With no fallback, the label is dropped. A label is one line, or a list read top to bottom: the first line that fits is shown. A line fits when each {path} has a value and its condition holds, as in 'when status is archived: archiving {title}'. Neighbouring lines that open with '+ ' show together, joined in words. The last line of a list must always fit.",
+    "Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. {count hit|hits} shows a number with the word for one or for any other number: '1 hit', '3 hits'. With no fallback, the label is dropped. A label is one line, or a list read top to bottom: the first line that fits is shown. A line fits when each {path} has a value and its condition holds, as in 'when status is archived: archiving {title}'. Neighbouring lines that open with '+ ' show together, joined in words. The last line of a list must always fit.",
   ),
   'registerTool.labels.activity': {
     ...field(

@@ -152,7 +152,7 @@ Read pages`,
     data: {
       toolName: 'search_models',
       activity: 'Searching Hugging Face models for {search}',
-      activityPast: `Found {length} hits for {search}
+      activityPast: `Found {length hit|hits} for {search}
 Found hits for {search|that query}`,
       activityFailed: 'Could not search models for {search|that query}',
       request: 'search Hugging Face models for {search}',
@@ -181,7 +181,7 @@ Found hits for {search|that query}`,
     data: {
       toolName: 'search_datasets',
       activity: 'Searching Hugging Face datasets for {search}',
-      activityPast: `Found {length} hits for {search}
+      activityPast: `Found {length hit|hits} for {search}
 Found hits for {search|that query}`,
       activityFailed: 'Could not search datasets for {search|that query}',
       request: 'search Hugging Face datasets for {search}',
@@ -270,7 +270,7 @@ Found hits for {search|that query}`,
     data: {
       toolName: 'search_github',
       activity: 'Searching GitHub for {q}',
-      activityPast: `Found {total_count} hits for {q}
+      activityPast: `Found {total_count hit|hits} for {q}
 Found hits for {q|that query}`,
       activityFailed: 'Could not search GitHub for {q|that query}',
       request: 'search GitHub for {q}',

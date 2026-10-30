@@ -7,6 +7,8 @@ const INDEX = /^-?\d+$/;
 const ISO_DATE =
   /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 const NUMBER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+// why: The forms are the author's English words, so English rules choose between them.
+const PLURAL = new Intl.PluralRules('en');
 // why: Dates show the wall-clock time as the tool wrote it, not converted to the server's zone.
 const DAY = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' });
 const DAY_TIME = new Intl.DateTimeFormat(undefined, {
@@ -24,7 +26,9 @@ const CHECK = /^(\S+) is (?:(not) )?(\S.*)$/;
 export type LabelTemplate = string | readonly string[];
 
 type Side = 'input' | 'output';
-type Placeholder = { path: string; fallback?: string };
+/** `{count hit|hits}`: the word for one, and for any other number. */
+type Forms = { one: string; other: string };
+type Placeholder = { path: string; fallback?: string; forms?: Forms | 'unreadable' };
 type Route = { side: Side; keys: string[]; prefixed: boolean };
 /** `expected: null` is the check "is null". */
 type Check = { path: string; negated: boolean; expected: string | null };
@@ -33,9 +37,15 @@ type Line = { joined: boolean; when: Check[] | 'unreadable'; text: string };
 type Entry = { joined: boolean; lines: { line: Line; number: number }[] };
 
 function parsePlaceholder(raw: string): Placeholder {
-  const bar = raw.indexOf('|');
-  if (bar < 0) return { path: raw.trim() };
-  return { path: raw.slice(0, bar).trim(), fallback: raw.slice(bar + 1).trim() };
+  const text = raw.trim();
+  const end = text.search(/[\s|]/);
+  if (end < 0) return { path: text };
+  const path = text.slice(0, end);
+  const rest = text.slice(end).trimStart();
+  if (rest.startsWith('|')) return { path, fallback: rest.slice(1).trim() };
+  const [one = '', other = '', ...fallback] = rest.split('|').map((part) => part.trim());
+  const forms = one && other ? { one, other } : 'unreadable';
+  return fallback.length ? { path, forms, fallback: fallback.join('|') } : { path, forms };
 }
 
 /** `input.x` and `output.x` read one side; a bare path reads the input, then the output. */
@@ -146,6 +156,15 @@ export function toolNameInWords(name: string): string {
     .toLowerCase();
 }
 
+function countText(found: readonly unknown[], forms: Forms | 'unreadable'): string | undefined {
+  if (forms === 'unreadable') return undefined;
+  const count = found.find(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  );
+  if (count === undefined) return undefined;
+  return `${NUMBER.format(count)} ${PLURAL.select(count) === 'one' ? forms.one : forms.other}`;
+}
+
 function fillText(
   template: string,
   values: { input: unknown; output?: unknown },
@@ -153,12 +172,11 @@ function fillText(
 ): string | undefined {
   let missing = false;
   const filled = template.replace(PLACEHOLDER, (_, raw: string) => {
-    const { path, fallback } = parsePlaceholder(raw);
-    const value = path
-      ? routes(path, sides)
-          .map((route) => labelValue(valueAt(values[route.side], route.keys)))
-          .find((text) => text !== undefined)
-      : undefined;
+    const { path, fallback, forms } = parsePlaceholder(raw);
+    const found = path
+      ? routes(path, sides).map((route) => valueAt(values[route.side], route.keys))
+      : [];
+    const value = forms ? countText(found, forms) : found.map(labelValue).find(Boolean);
     if (value === undefined && fallback === undefined) missing = true;
     return value ?? fallback ?? '';
   });
@@ -289,10 +307,13 @@ function placeholderProblem(
   sides: readonly Side[],
 ): string | undefined {
   for (const match of template.matchAll(PLACEHOLDER)) {
-    const { path } = parsePlaceholder(match[1] ?? '');
+    const { path, forms } = parsePlaceholder(match[1] ?? '');
     if (!path) {
       const example = placeholdersAt(schemas.input, '')[0] ?? 'name';
       return `Put a field name between the braces, like {${example}}.`; // labels-exempt: builder diagnostic
+    }
+    if (forms === 'unreadable') {
+      return `{${match[1]?.trim()}} needs a word for one and a word for any other number, like {${path} item|items}.`; // labels-exempt: builder diagnostic
     }
     const paths = routes(path, sides);
     const [route] = paths;
@@ -305,7 +326,15 @@ function placeholderProblem(
         schemaPathHolds(schemas[side], keys, prefixed ? side : ''),
       ),
     );
-    if (found.holds === 'value') continue;
+    if (found.holds === 'value') {
+      const counts = paths.some(({ side, keys }) =>
+        schemaLeavesAt(schemas[side], keys).some((leaf) => leaf.number),
+      );
+      if (forms && !counts) {
+        return `{${path}} is not a number, so it has no plural. Count a list with {${path}.length ${forms.one}|${forms.other}}.`; // labels-exempt: builder diagnostic
+      }
+      continue;
+    }
     const all = found.instead ?? [];
     const depth = route.prefixed ? 1 : 0;
     const near = all.filter((candidate) => candidate.split('.')[depth] === route.keys[0]);
@@ -324,9 +353,9 @@ function placeholderProblem(
   return undefined;
 }
 
-type Leaf = { texts: string[] | 'any'; nullable: boolean };
+type Leaf = { texts: string[] | 'any'; nullable: boolean; number: boolean };
 
-const OPEN_LEAF: Leaf = { texts: 'any', nullable: true };
+const OPEN_LEAF: Leaf = { texts: 'any', nullable: true, number: true };
 
 function rawTypes(node: Record<string, unknown>): string[] {
   const types = Array.isArray(node.type) ? node.type : [node.type];
@@ -339,6 +368,7 @@ function leafOf(node: Record<string, unknown>): Leaf {
     return {
       texts: listed.filter((value) => value !== null).map((value) => `${value}`),
       nullable: listed.includes(null),
+      number: listed.some((value) => typeof value === 'number'),
     };
   }
   const types = rawTypes(node);
@@ -348,6 +378,7 @@ function leafOf(node: Record<string, unknown>): Leaf {
   return {
     texts: flag ? (shown.length ? ['true', 'false'] : []) : 'any',
     nullable: types.includes('null'),
+    number: shown.some((type) => type === 'number' || type === 'integer'),
   };
 }
 
@@ -360,7 +391,9 @@ function schemaLeavesAt(node: unknown, keys: readonly string[]): Leaf[] {
   if (key === undefined) return [leafOf(node)];
   const types = schemaTypes(node);
   if (types.includes('array')) {
-    if (key === 'length') return rest.length ? [] : [{ texts: 'any', nullable: false }];
+    if (key === 'length') {
+      return rest.length ? [] : [{ texts: 'any', nullable: false, number: true }];
+    }
     if (INDEX.test(key)) return schemaLeavesAt(node.items, rest);
   }
   if (isRecord(node.properties)) {

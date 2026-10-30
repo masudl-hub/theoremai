@@ -63,6 +63,18 @@ activity: 'dispatching to {destinationPort|regional hub}',
 
 If a placeholder has no value and no fallback is specified, that template line does not fit and is discarded.
 
+### Counts
+
+Use a count when a label shows a number of things, so one result reads "1 hit" and not "1 hits". Write the path, a space, then the word for one and the word for any other number:
+
+```ts
+activityPast: 'found {results.length hit|hits} for {query}',
+```
+
+* `1` shows `"found 1 hit for …"`. `0` and `2` show `"found 0 hits …"` and `"found 2 hits …"`.
+* A count fills only from a number. Add a third part as its fallback: `{results.length hit|hits|some hits}`.
+* Registration refuses a count with one word, like `{total hits}`, and a count of a field that is not a number.
+
 ---
 
 ## Conditional Rules (`when`)

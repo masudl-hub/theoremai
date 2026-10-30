@@ -15,7 +15,7 @@ for name in names:
     rows = [json.loads(l) for l in open(f'{R}/{name}.jsonl')]; n = collections.Counter(r['set'] for r in rows)
     out = collections.defaultdict(dict); aucs = {}
     for m in models:
-        pv = sorted((json.load(open(f'{C}/s-{m}.json'))['score'][k] for k in pool), reverse=True)
+        ps = json.load(open(f'{C}/s-{m}.json'))['score']; pv = sorted((ps[k] for k in pool), reverse=True)
         s = json.load(open(f'{S}/{name}-{m}.json'))['score']
         for q in (0.01, 0.02):
             t = pv[int(q * len(pv))]; hit = collections.Counter(r['set'] for r, v in zip(rows, s) if v > t)

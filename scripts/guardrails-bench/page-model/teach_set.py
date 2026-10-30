@@ -5,7 +5,7 @@
 #   teach_set.py append <teach.jsonl> <labelled.jsonl>... <out.jsonl>   adds labelled windows, each file's owners offset past the last
 #   [CAP=0.01] teach_set.py truth <labelled.jsonl> <raw.jsonl> <out.jsonl> caps Horizon's label at CAP on every window of a page
 #                                                                       whose own label is benign, so the student does not learn Horizon's false alarms
-#   [K=10] teach_set.py thin <labelled.jsonl> <out.jsonl>               keeps K windows of each page: Horizon's highest, then others at random
+#   [K=n] teach_set.py thin <labelled.jsonl> <out.jsonl>                keeps K windows of each page: Horizon's highest, then others at random (a cut that needs a ruling, R4)
 # merge drops out-of-scope windows (wildjailbreak and spml, ruling R2) and offsets extra owners past train2.
 import json, sys, collections
 step = sys.argv[1]
@@ -38,7 +38,7 @@ elif step == 'truth':
     print(dict(n))
 elif step == 'thin':
     import os, random
-    lab, out = sys.argv[2:4]; k = int(os.environ.get('K', '10')); pages = collections.defaultdict(list); random.seed(7)
+    lab, out = sys.argv[2:4]; k = int(os.environ['K']); pages = collections.defaultdict(list); random.seed(7)
     for l in open(lab): w = json.loads(l); pages[w['owner']].append(w)
     with open(out, 'w') as o:
         for ws in pages.values():

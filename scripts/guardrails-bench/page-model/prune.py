@@ -6,11 +6,12 @@
 # behind each kept layer (Horizon runs alongside). SCHED=cos warms up for 6% of steps, then decays the learning rate to 0.
 # SELECT=agree (at 0.5), auc (against Horizon's 0.5 label), or top (how many of Horizon's top 2% of held-out windows the cut also ranks top 2%).
 # LOSS=rank adds a pairwise loss on Horizon's order within each batch. TAIL=<k> weights windows near Horizon's top-5% logit by up to 1+k.
-# PAGE=<weight> batches up to 4 windows of each page and also copies Horizon's score for them (the highest window). MERGE=<a> starts each kept layer as
+# PAGE=<weight> batches every window of each page, 4 at a time, and also copies Horizon's score for them (the highest window). MERGE=<a> starts each kept layer as
 # (1-a) of itself plus a of the mean of the dropped layers nearest it. LENS=<weight> copies Horizon's score read from the layer behind
-# each kept layer through Horizon's own head. FRAC=<f> trains on that share of training pages. HID, LENS and MERGE need SRC unset or TMAP.
+# each kept layer through Horizon's own head. FRAC=<f> trains on that share of training pages (a cut that needs a ruling, R4). HID, LENS and MERGE need SRC unset or TMAP.
+# A stop signal (SIGTERM, as the swap guard sends) or every CKPT=<n> batches saves prune/<name>/ckpt.pt; the same command resumes from it.
 # Usage: prune.py <name> <layers> <epochs>
-import os, sys, json, time, math, random, copy, importlib.util, torch, torch.nn.functional as F
+import os, sys, json, time, math, random, copy, signal, importlib.util, torch, torch.nn.functional as F
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 spec = importlib.util.spec_from_file_location('score', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'score.py')); S = importlib.util.module_from_spec(spec); spec.loader.exec_module(S)
 D = S.MODELS['hz-small'][0]
@@ -68,7 +69,7 @@ if __name__ == '__main__':
     def pages():
         by = {}
         for k in tr: by.setdefault(W[k]['owner'], []).append(k)
-        groups = [random.sample(g, min(len(g), 4)) for g in by.values()]; random.shuffle(groups); out, cur = [], []
+        groups = [g[i:i + 4] for g in by.values() for g in [random.sample(g, len(g))] for i in range(0, len(g), 4)]; random.shuffle(groups); out, cur = [], []
         for g in groups:
             if len(cur) + len(g) > B: out.append(cur); cur = []
             cur = cur + g
@@ -84,10 +85,22 @@ if __name__ == '__main__':
     opt = torch.optim.AdamW(m.parameters(), lr=float(os.environ.get('LR', '5e-5')), weight_decay=0.01); B = int(os.environ.get('B', '16')); t0 = time.time()
     steps = EP * math.ceil(len(tr) / B); warm = max(int(0.06 * steps), 1)
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda i: min((i + 1) / warm, 0.5 * (1 + math.cos(math.pi * min(i, steps) / steps))) if os.environ.get('SCHED') == 'cos' else 1.0)
-    best = -1.0
-    for ep in range(EP):
-        tr.sort(key=lambda k: len(ids[k]) + random.random() * 64); bs = pages() if PAGE else [tr[s:s + B] for s in range(0, len(tr), B)]; random.shuffle(bs); tot = 0
+    best = -1.0; ck = f'{out_dir}/ckpt.pt'; CK = int(os.environ.get('CKPT', '0')); stop = []; signal.signal(signal.SIGTERM, lambda *a: stop.append(1))
+    r = torch.load(ck, weights_only=False) if os.path.exists(ck) else None
+    if r:
+        m.load_state_dict(r['model']); opt.load_state_dict(r['opt']); sched.load_state_dict(r['sched']); scaler.load_state_dict(r['scaler'])
+        random.setstate(r['rng']); torch.set_rng_state(r['trng']); best = r['best']; tr[:] = r['tr']
+        if r.get('crng') is not None and dev == 'cuda': torch.cuda.set_rng_state_all(r['crng'])
+        if r.get('crng') is not None and dev == 'mps': torch.mps.set_rng_state(r['crng']); print('resumed', r['ep'], r['nb'], flush=True)
+    def save(ep, nb, bs, tot):
+        os.makedirs(out_dir, exist_ok=True)
+        torch.save({'model': m.state_dict(), 'opt': opt.state_dict(), 'sched': sched.state_dict(), 'scaler': scaler.state_dict(), 'rng': random.getstate(),
+                    'trng': torch.get_rng_state(), 'crng': torch.cuda.get_rng_state_all() if dev == 'cuda' else torch.mps.get_rng_state() if dev == 'mps' else None, 'best': best, 'ep': ep, 'nb': nb, 'bs': bs, 'tot': tot, 'tr': tr}, ck + '.tmp'); os.replace(ck + '.tmp', ck)
+    for ep in range(r['ep'] if r else 0, EP):
+        if r and ep == r['ep'] and r['bs']: bs, tot, first = r['bs'], r['tot'], r['nb'] + 1
+        else: tr.sort(key=lambda k: len(ids[k]) + random.random() * 64); bs = pages() if PAGE else [tr[s:s + B] for s in range(0, len(tr), B)]; random.shuffle(bs); tot, first = 0, 0
         for nb, ks in enumerate(bs):
+            if nb < first: continue
             x, am = batch(ks); out, hs = forward(x, am, hidden=bool(HID or LENS)); t = torch.tensor([tl[k] for k in ks], device=dev); w = torch.tensor([wt[k] for k in ks], device=dev)
             if LOSS == 'bce': loss = (F.binary_cross_entropy_with_logits(out, torch.tensor([p[k] for k in ks], device=dev), reduction='none') * w).mean()
             else: loss = (((out - t) ** 2) * w).mean() / 16
@@ -109,8 +122,12 @@ if __name__ == '__main__':
                         loss = loss + LENS * F.mse_loss(sl, tlens[i]) / 16 / (len(tmap) - 1)
             opt.zero_grad(); scaler.scale(loss).backward(); scaler.step(opt); scaler.update(); sched.step(); tot += loss.item() * len(ks)
             if dev == 'mps' and nb % 100 == 99: torch.mps.empty_cache()
+            if stop: save(ep, nb, bs, tot); print('stopped at', ep, nb, flush=True); sys.exit(3)
+            if CK and nb % CK == CK - 1: save(ep, nb, bs, tot)
         v = evalv(); print('ep', ep, 'loss', round(tot / len(tr), 4), v, round(time.time() - t0), 's', flush=True)
         if v[SELECT] > best: best = v[SELECT]; m.save_pretrained(out_dir); json.dump(remap, open(f'{out_dir}/remap.json', 'w')); print('saved', ep, flush=True)
+        if ep + 1 < EP: save(ep + 1, -1, None, 0)
+    if os.path.exists(ck): os.remove(ck)
     if not EP: os.makedirs(out_dir, exist_ok=True)
     if os.environ.get('NOSCORE'): sys.exit(0)
     m.eval(); rows = [json.loads(l) for l in open(os.environ.get('EVAL', f'{S.WORK}/sample.jsonl'))]; allw, owner = [], []

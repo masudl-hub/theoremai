@@ -1,4 +1,5 @@
-# Samples the classifier bench rows from texts.jsonl: 'sample' is the full bench, 'screen' the smaller first screen.
+# Samples the classifier bench rows from texts.jsonl: 'sample' (18,286 of the 149,375 rows) and 'screen' are the cuts that A41 to A72
+# used. R4 rules them out for new runs: score texts.jsonl itself.
 # Usage: sample.py <sample|screen> <texts.jsonl> <out.jsonl>
 import json, random, sys, collections
 CAPS = {

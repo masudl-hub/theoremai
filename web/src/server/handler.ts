@@ -189,7 +189,7 @@ export type TheoremHandlerOptions = {
    * value the application's other call sites use too. The handler keeps its profile, its tool
    * execution and its abort. The application's `onStage` runs before the handler's steering, and
    * its `credentials` are read before the session's. A call held at a gate runs on, once
-   * answered, with the `onStage` and `credentials` it gives for that call's turn.
+   * answered, with the `host`, `onStage` and `credentials` it gives for that call's turn.
    */
   prepare?: TurnWiring['prepare'];
   /**
@@ -712,8 +712,8 @@ async function* invokeAnswered(
   { callId, pending, answer }: AnsweredCall,
 ): AsyncGenerator<TurnEvent> {
   const host = await ctx.options.host?.(request);
-  // why: The held call goes on with what the application set for its turn: its stage handler and credentials.
-  const { credentials, onStage } = await preparedTurn(
+  // why: The held call goes on with what the application set for its turn: its context, stage handler and credentials.
+  const prepared = await preparedTurn(
     ctx.options.prepare,
     { profile: ctx.profile.id, input: pending.turnInput ?? {}, host, signal: request.signal },
     {
@@ -740,14 +740,14 @@ async function* invokeAnswered(
       ? { page: answer.page ?? { unanswered: true } }
       : {}),
     sessionPermissions: answer.sessionPermissions,
-    credentials,
-    ...(onStage ? { onStage } : {}),
+    credentials: prepared.credentials,
+    ...(prepared.onStage ? { onStage: prepared.onStage } : {}),
     turnInput: pending.turnInput,
     snapshot: pending.snapshot,
     promoted: pending.promoted,
     model: pending.model,
     signal: request.signal,
-    host,
+    host: prepared.host,
   });
 }
 

@@ -2030,3 +2030,39 @@ Deno.test('a sealed reply the person stops keeps what it said, under the ref the
     ['user', 'assistant', 'user'],
   );
 });
+const hostsSeen: unknown[] = [];
+registerTool({
+  type: 'function',
+  name: 'handler_reads_host',
+  description: 'Read the context of its turn',
+  category: 'test',
+  access: 'read-write',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'always_confirm',
+  input: z.object({ id: z.string() }),
+  output: z.object({ read: z.boolean() }),
+  handler: (_input, ctx) => {
+    hostsSeen.push(ctx.host);
+    return { read: true };
+  },
+});
+Deno.test("a held call runs on, once answered, with the context the application's prepare set", async () => {
+  hostsSeen.length = 0;
+  const handler = handlerFor({
+    profile: profile('handler-prepared-host', ['handler_reads_host']),
+    provider: () => fixtureHostOptions(toolCallingProvider('handler_reads_host', 'a')),
+    host: () => ({ keeper: 'k1' }),
+    prepare: (turn) => ({ ...turn, host: { ...(turn.host as object), loading: 'from prepare' } }),
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent));
+  const gate = pausedGate(turn);
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(hostsSeen, [{ keeper: 'k1', loading: 'from prepare' }]);
+});

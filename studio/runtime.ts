@@ -172,6 +172,7 @@ function studioRunner(args: {
           pageExecution: runtime.pageExecution,
           metadata,
           input: turn.input,
+          ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
           providerState: turn.providerState,
           sessionPermissions: args.sessionPermissions,
           resolveHost: runtime.resolveHost,

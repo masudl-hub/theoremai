@@ -44,7 +44,12 @@ export type PausedReply = {
 
 /** One conversation as the host stores it. */
 export type StoredConversation = {
-  version: 1;
+  version: 2;
+  /**
+   * The conversation's own id, kept through its rewinds. Each turn carries it as
+   * `conversationId`, which its trace records as `gen_ai.conversation.id`.
+   */
+  id: string;
   /** What the person reads, without the paused reply. */
   transcript: TranscriptBlock[];
   /** What the model reads on the next turn, compacted when the profile compacts. */
@@ -69,7 +74,8 @@ const pausedReply = z.object({
 true satisfies Equals<z.infer<typeof pausedReply>, PausedReply>;
 
 const storedConversation = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
+  id: z.string().min(1),
   transcript: z.array(transcriptBlockSchema),
   history: z.array(turnHistoryMessageSchema),
   providerState: providerCheckpointSchema.optional(),
@@ -83,7 +89,7 @@ export const storedConversationSchema: z.ZodType<StoredConversation> = storedCon
 
 /** An empty conversation: what a chat with no ref starts from. */
 export function emptyConversation(): StoredConversation {
-  return { version: 1, transcript: [], history: [] };
+  return { version: 2, id: crypto.randomUUID(), transcript: [], history: [] };
 }
 
 export interface ConversationSnapshot {

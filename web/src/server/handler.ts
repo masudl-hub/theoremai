@@ -789,6 +789,7 @@ async function* chatTurn(
           ctx.options.pageToolTimeoutMs,
         ).execution,
         input: turn.input,
+        ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
         ...(turn.providerState ? { providerState: turn.providerState } : {}),
         sessionPermissions: state.permissions,
         signal: AbortSignal.any([request.signal, stop.signal]),

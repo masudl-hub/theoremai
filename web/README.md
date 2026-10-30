@@ -334,6 +334,7 @@ interface ConversationDatabase {
 - A null `ref` creates a conversation. Return a new opaque `ref` and `revision`.
 - Otherwise, write only while the stored revision is still `expectedRevision`, as one atomic operation. Return `{ written: false }` on a conflict.
 - Check what you read back with `storedConversationSchema`.
+- Keep `id` as the handler gives it. It names the conversation in each turn's trace as `gen_ai.conversation.id`, and stays the same through every save and rewind.
 
 ### Share session authority
 

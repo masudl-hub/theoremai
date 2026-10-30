@@ -59,11 +59,15 @@ export interface ReplayTurn {
   blocks: TranscriptBlock[];
 }
 
-/** A recording as a replay reads it. */
+/** One conversation of a recording, as a replay reads it. */
 export interface ReplayScript {
   /** The agent the conversation was with. */
   agent: string;
+  /** Its `gen_ai.conversation.id`; absent when its turns carried none. */
+  conversation?: string;
   turns: ReplayTurn[];
+  /** The records its turns came from, in the file's order. */
+  records: TraceRecord[];
   /** When the first turn started (epoch ms). */
   recordedAt?: number;
 }
@@ -405,43 +409,49 @@ function compactionOnly(record: TraceRecord, root: TraceSpan): boolean {
 }
 
 /**
- * The replay a run's records stand for. Each record whose root is a turn of the conversation's
- * agent is a turn. A record whose root's parent span is in a turn's record (a turn a host ran
- * under `traceparent`) adds its calls to that turn; an agent tool's turn is already inside its
- * caller's record. Compactions between turns and records of anything else (a host's tool call, a
- * decision) hold no turn. Throws when the file holds turns of more than one agent.
+ * The conversations a run's records stand for, in the order each began. Each record whose root
+ * is an agent's turn is a turn of the conversation its `gen_ai.conversation.id` names; one agent's
+ * turns with no id are one conversation. A record whose root's parent span is in a turn's record
+ * (a turn a host ran under `traceparent`) adds its calls to that turn; an agent tool's turn is
+ * already inside its caller's record. Compactions between turns and records of anything else (a
+ * host's tool call, a decision) hold no turn.
  */
-export function replayScript(records: readonly TraceRecord[]): ReplayScript {
-  let agent = '';
-  let recordedAt: number | undefined;
-  const turns: ReplayTurn[] = [];
-  const others = new Set<string>();
-  /** The turn each recorded span belongs to, by `traceId:spanId`. */
-  const owners = new Map<string, ReplayTurn>();
-  const claim = (record: TraceRecord, turn: ReplayTurn) => {
-    for (const span of record.spans) owners.set(spanKey(span.traceId, span.spanId), turn);
+export function replayScripts(records: readonly TraceRecord[]): ReplayScript[] {
+  const scripts = new Map<string, ReplayScript>();
+  /** The turn each recorded span belongs to, by `traceId:spanId`, and its conversation. */
+  const owners = new Map<string, { turn: ReplayTurn; script: ReplayScript }>();
+  const claim = (record: TraceRecord, owner: { turn: ReplayTurn; script: ReplayScript }) => {
+    for (const span of record.spans) owners.set(spanKey(span.traceId, span.spanId), owner);
+    owner.script.records.push(record);
   };
   records.forEach((record, index) => {
     const root = recordRoot(record);
     if (!root || operation(root) !== 'invoke_agent' || compactionOnly(record, root)) return;
-    const name = stringAttribute(root, 'gen_ai.agent.name') ?? '';
     const calls = recordCalls(record);
     const results = recordResults(record);
     const parent = root.parentSpanId
       ? owners.get(spanKey(root.traceId, root.parentSpanId))
       : undefined;
     if (parent) {
-      parent.calls.push(...calls);
-      parent.results.push(...results);
+      parent.turn.calls.push(...calls);
+      parent.turn.results.push(...results);
       claim(record, parent);
       return;
     }
-    agent ||= name;
-    if (name !== agent) {
-      others.add(name);
-      return;
+    const agent = stringAttribute(root, 'gen_ai.agent.name') ?? '';
+    const conversation = stringAttribute(root, 'gen_ai.conversation.id');
+    const key = `${agent}\u0000${conversation ?? ''}`;
+    let script = scripts.get(key);
+    if (!script) {
+      script = {
+        agent,
+        ...(conversation === undefined ? {} : { conversation }),
+        turns: [],
+        records: [],
+        recordedAt: Number(startOf(root) / 1_000_000n),
+      };
+      scripts.set(key, script);
     }
-    recordedAt ??= Number(startOf(root) / 1_000_000n);
     const sent = userMessage(record, root);
     const turn: ReplayTurn = {
       ...sent,
@@ -454,18 +464,10 @@ export function replayScript(records: readonly TraceRecord[]): ReplayScript {
         root,
       ),
     };
-    turns.push(turn);
-    claim(record, turn);
+    script.turns.push(turn);
+    claim(record, { turn, script });
   });
-  if (others.size) {
-    const agents = [agent, ...others].join(', ');
-    // labels-exempt: builder diagnostic
-    throw new TheoremError(
-      'request',
-      `This file holds conversations of more than one agent (${agents}). Open a file with one agent's turns.`,
-    );
-  }
-  return { agent, turns, ...(recordedAt === undefined ? {} : { recordedAt }) };
+  return [...scripts.values()];
 }
 
 /** A recorded result as a function tool returns it: its JSON object, else its text. */
@@ -614,14 +616,15 @@ export function recordedTranscript(script: ReplayScript): TranscriptBlock[] {
 }
 
 /**
- * The conversation a recording opens as history: the same blocks Replay exchange shows and
+ * The recording's first conversation, opened as history: the same blocks Replay exchange shows and
  * Continue live seeds. Goals and any host that starts on a recorded trace use this, not a second
  * hand-written exchange. Each assistant `turn-done` carries `workedMs` / `endedAt` from its root
  * span, as a live chat's `stampWorked` would. Each settled tool carries `startedAt` / `endedAt`
  * from its `execute_tool` span (via running then settle), as a live turn would.
  */
 export function openingFromRecords(records: readonly TraceRecord[]): TranscriptBlock[] {
-  return recordedTranscript(replayScript(records));
+  const [first] = replayScripts(records);
+  return first ? recordedTranscript(first) : [];
 }
 
 /** One record of a trace file, or why it is not one; `where` names its place in the file. */

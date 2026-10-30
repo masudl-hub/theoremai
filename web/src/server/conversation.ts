@@ -290,6 +290,8 @@ function refLine(opened: OpenedConversation, posted?: 'posted'): ConversationLin
 /** One model run of a reply: the kernel's turn input, the checkpoint it continues, and the generation. */
 export type ReplyTurn = {
   input: TurnInput;
+  /** The stored conversation's id; a run with no conversation has none. */
+  conversationId?: string;
   providerState?: ProviderCheckpoint;
   model?: string;
   effort?: string;
@@ -441,6 +443,7 @@ async function* runReply(
   try {
     const events = runner.run({
       input,
+      conversationId: conversation.id,
       providerState: conversation.providerState,
       model: runner.model,
       effort: runner.effort,
@@ -797,7 +800,8 @@ export async function rewindConversation(args: {
   }
   const transcript = conversation.transcript.slice(0, at + 1);
   return save(host, opened, {
-    version: 1,
+    version: 2,
+    id: conversation.id,
     transcript,
     history: historyFromTranscriptBlocks(transcript),
   });

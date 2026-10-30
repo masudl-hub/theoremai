@@ -16,6 +16,7 @@ const KEY_2 = 'conversation-key-two-0123456789abcdef';
 function saying(text: string): StoredConversation {
   return {
     ...emptyConversation(),
+    id: 'conversation-1',
     transcript: [{ id: 'user-1', kind: 'user-text', text }],
     history: [{ role: 'user', content: text }],
   };
@@ -72,6 +73,9 @@ for (const [name, make] of stores) {
     const store = make();
     const broken = JSON.parse(JSON.stringify({ version: 2, transcript: [], history: [] }));
     await assertRejects(() => store.write('session-a', null, null, broken));
+    // why: a conversation stored before it had an id is not read; it starts over.
+    const older = JSON.parse(JSON.stringify({ version: 1, transcript: [], history: [] }));
+    await assertRejects(() => store.write('session-a', null, null, older));
   });
 }
 

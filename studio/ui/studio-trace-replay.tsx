@@ -17,7 +17,7 @@ import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconX } from '@tabler/icons-react';
+import { IconChevronLeft, IconChevronRight, IconX } from '@tabler/icons-react';
 import type {
   ComposerProfileInterface,
   ProfileInterface,
@@ -55,7 +55,7 @@ import {
   type ReplayScript,
   recordedPayload,
   recordedTranscript,
-  replayScript,
+  replayScripts,
   type StudioRunPayload,
   startStudioConversation,
   studioInterface,
@@ -178,8 +178,6 @@ function TraceFileInput({ onImport }: { onImport: (trace: OpenedTrace) => void }
     setReading(true);
     try {
       const records = parseTraceFile(await file.text());
-      // why: a file the replay cannot read is refused here, where the card can say why.
-      replayScript(records);
       onImport({ name: file.name, records });
       setProblem(undefined);
     } catch (error) {
@@ -210,7 +208,7 @@ type Shown = 'recorded' | 'replayed';
 
 /** A replay of one file through one agent: how many times it ran, and which run is shown. */
 interface ReplayRun {
-  of: OpenedTrace;
+  of: ReplayScript;
   agent: string;
   attempt: number;
   shown: Shown;
@@ -220,6 +218,10 @@ interface ReplayRun {
 interface TraceControls {
   opened: OpenedTrace;
   script: ReplayScript;
+  /** Which of the file's conversations is open, from 0, and how many it holds. */
+  picked: number;
+  count: number;
+  onPick: (next: number) => void;
   payload: StudioRunPayload;
   shown: Shown | null;
   onShown: (next: Shown) => void;
@@ -286,6 +288,33 @@ function TraceFacts({ controls }: { controls: TraceControls }) {
           onClick={controls.onClear}
         />
       </HStack>
+      {controls.count > 1 ? (
+        <HStack gap={1} vAlign="center">
+          <IconButton
+            label="Previous conversation"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconChevronLeft} size="sm" />}
+            isDisabled={controls.isRunning || controls.picked === 0}
+            onClick={() => {
+              controls.onPick(controls.picked - 1);
+            }}
+          />
+          <Text type="supporting">
+            Conversation {String(controls.picked + 1)} of {String(controls.count)}
+          </Text>
+          <IconButton
+            label="Next conversation"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconChevronRight} size="sm" />}
+            isDisabled={controls.isRunning || controls.picked === controls.count - 1}
+            onClick={() => {
+              controls.onPick(controls.picked + 1);
+            }}
+          />
+        </HStack>
+      ) : null}
       {script.agent && script.agent !== payload.profile.id ? (
         <Banner
           status="info"
@@ -461,7 +490,8 @@ type ConsoleProps = {
   iface: ComposerProfileInterface;
   trace: boolean | undefined;
   card: (controls: Pick<TraceControls, 'isRunning' | 'onStop'>) => ReactNode;
-  opened: OpenedTrace;
+  /** The records the inspector shows: the open conversation's, and those no conversation holds. */
+  records: readonly TraceRecord[];
   script: ReplayScript;
 };
 
@@ -471,7 +501,7 @@ function ReplayConsole({
   iface,
   trace,
   card,
-  opened,
+  records,
   script,
   shown,
   liveTools,
@@ -486,7 +516,7 @@ function ReplayConsole({
   const diverged = useRef<ReplayDivergence>(undefined);
   const [status, setStatus] = useState<ReplayStatus>({ kind: 'running', turn: 0 });
   const [traces] = useState(createTraceFeed);
-  const recorded = useMemo(() => recordedFeed(opened.records), [opened.records]);
+  const recorded = useMemo(() => recordedFeed(records), [records]);
   const replay = useMemo(
     () =>
       createReplay(script, payload.profile.id, (divergence) => {
@@ -626,6 +656,24 @@ export function TraceReplay(props: TraceReplayProps) {
   );
 }
 
+/** A file with no conversation in it. */
+const emptyScript: ReplayScript = { agent: '', turns: [], records: [] };
+
+/**
+ * What the inspector shows of a file: all of it with one conversation in it; with more, the open
+ * conversation's records and those no conversation holds (a host's tool call, a decision).
+ */
+function shownRecords(
+  records: readonly TraceRecord[],
+  scripts: readonly ReplayScript[],
+  script: ReplayScript | undefined,
+): readonly TraceRecord[] {
+  if (scripts.length <= 1 || !script) return records;
+  const held = new Set(scripts.flatMap((each) => each.records));
+  const open = new Set(script.records);
+  return records.filter((record) => open.has(record) || !held.has(record));
+}
+
 function TraceConsole({
   payload,
   trace,
@@ -636,20 +684,28 @@ function TraceConsole({
   onClear,
 }: TraceReplayProps) {
   const iface = useMemo(() => studioInterface(payload), [payload]);
-  const script = useMemo(() => opened && replayScript(opened.records), [opened]);
-  const recorded = useMemo(() => recordedFeed(opened?.records ?? []), [opened]);
+  const scripts = useMemo(() => (opened ? replayScripts(opened.records) : []), [opened]);
+  const [pick, setPick] = useState<{ of: OpenedTrace; index: number }>();
+  // why: a newly opened file starts on its first conversation.
+  const picked = pick?.of === opened ? pick.index : 0;
+  const script = opened ? (scripts[picked] ?? emptyScript) : undefined;
+  const records = useMemo(
+    () => shownRecords(opened?.records ?? [], scripts, script),
+    [opened, scripts, script],
+  );
+  const recorded = useMemo(() => recordedFeed(records), [records]);
   const [ran, setRan] = useState<ReplayRun>();
   const [liveTools, setLiveTools] = useState(false);
-  // invariant: a replay belongs to the file and the agent it ran; another of either shows the recording.
-  const run = ran?.of === opened && ran?.agent === payload.profile.id ? ran : undefined;
+  // invariant: a replay belongs to the conversation and the agent it ran; another of either shows the recording.
+  const run = ran && ran.of === script && ran.agent === payload.profile.id ? ran : undefined;
   const attempt = run?.attempt ?? 0;
   const shown = run?.shown ?? 'recorded';
   const setShown = (next: Shown) => {
     if (run) setRan({ ...run, shown: next });
   };
   const replayOnce = () => {
-    if (opened)
-      setRan({ of: opened, agent: payload.profile.id, attempt: attempt + 1, shown: 'replayed' });
+    if (script)
+      setRan({ of: script, agent: payload.profile.id, attempt: attempt + 1, shown: 'replayed' });
   };
   // invariant: the header offers an import only for a type whose conversation a trace holds.
   if (iface.type === 'live') return null;
@@ -669,6 +725,11 @@ function TraceConsole({
       controls={{
         opened,
         script,
+        picked,
+        count: scripts.length,
+        onPick: (index) => {
+          setPick({ of: opened, index });
+        },
         payload,
         shown: attempt > 0 ? shown : null,
         onShown: setShown,
@@ -701,7 +762,7 @@ function TraceConsole({
       iface={iface}
       trace={trace}
       card={card}
-      opened={opened}
+      records={records}
       script={script}
       shown={shown}
       liveTools={liveTools}

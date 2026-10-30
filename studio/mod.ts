@@ -336,7 +336,7 @@ export {
   type ReplayTurn,
   recordedPayload,
   recordedTranscript,
-  replayScript,
+  replayScripts,
 } from './replay.ts';
 export {
   bindingSlots,

@@ -3,8 +3,10 @@
 #   teach_set.py extra <extra-raw.jsonl> <texts.jsonl> <extra.jsonl>   the same, and keep only benign bench texts
 #   teach_set.py merge <train2.jsonl> <teach.jsonl> <teach-extra.jsonl> <teach4.jsonl>
 #   teach_set.py append <teach.jsonl> <labelled.jsonl>... <out.jsonl>   adds labelled windows, each file's owners offset past the last
-#   [CAP=0.01] teach_set.py truth <labelled.jsonl> <raw.jsonl> <out.jsonl> caps Horizon's label at CAP on every window of a page
-#                                                                       whose own label is benign, so the student does not learn Horizon's false alarms
+#   [CAP=0.01] [FLOOR=p] teach_set.py truth <labelled.jsonl> <raw.jsonl> <out.jsonl> caps Horizon's label at CAP on every window of a page
+#                                                                       whose own label is benign, so the student does not learn Horizon's false alarms;
+#                                                                       FLOOR raises the highest window of each attack page to at least p, so it does not learn Horizon's misses
+#   teach_set.py sets <raw.jsonl>... <out.json>                          each owner's set, in the order append numbers them
 #   [K=n] teach_set.py thin <labelled.jsonl> <out.jsonl>                keeps K windows of each page: Horizon's highest, then others at random (a cut that needs a ruling, R4)
 # merge drops out-of-scope windows (wildjailbreak and spml, ruling R2) and offsets extra owners past train2.
 import json, sys, collections
@@ -30,12 +32,18 @@ elif step == 'merge':
 elif step == 'truth':
     import os
     lab, raw, out = sys.argv[2:5]; ys = [json.loads(l)['y'] for l in open(raw)]; cap = float(os.environ.get('CAP', '0.01')); n = collections.Counter()
+    floor = float(os.environ.get('FLOOR', '0')); ws = [json.loads(l) for l in open(lab)]; top = {}
+    if len(ys) != max(w['owner'] for w in ws) + 1: raise SystemExit(f'{raw} has {len(ys)} rows, {lab} has {max(w["owner"] for w in ws) + 1} owners')
+    for k, w in enumerate(ws):
+        if w['owner'] not in top or w['p'] > ws[top[w['owner']]]['p']: top[w['owner']] = k
     with open(out, 'w') as o:
-        for l in open(lab):
-            w = json.loads(l)
+        for k, w in enumerate(ws):
             if ys[w['owner']] == 0 and w['p'] > cap: w['p'] = cap; n['capped'] += 1
+            if ys[w['owner']] == 1 and top[w['owner']] == k and w['p'] < floor: w['p'] = floor; n['floored'] += 1
             n['windows'] += 1; o.write(json.dumps(w) + '\n')
     print(dict(n))
+elif step == 'sets':
+    *raws, out = sys.argv[2:]; json.dump([json.loads(l)['set'] for f in raws for l in open(f)], open(out, 'w'))
 elif step == 'thin':
     import os, random
     lab, out = sys.argv[2:4]; k = int(os.environ['K']); pages = collections.defaultdict(list); random.seed(7)

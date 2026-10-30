@@ -9,6 +9,7 @@
 # PAGE=<weight> batches every window of each page, 4 at a time, and also copies Horizon's score for them (the highest window). MERGE=<a> starts each kept layer as
 # (1-a) of itself plus a of the mean of the dropped layers nearest it. LENS=<weight> copies Horizon's score read from the layer behind
 # each kept layer through Horizon's own head. FRAC=<f> trains on that share of training pages (a cut that needs a ruling, R4). HID, LENS and MERGE need SRC unset or TMAP.
+# SETS=<sets.json> (teach_set.py sets) and WEIGHT=<set>=<w>,... scale the loss and the rank pairs on every window of those sets.
 # A stop signal (SIGTERM, as the swap guard sends) or every CKPT=<n> batches saves prune/<name>/ckpt.pt; the same command resumes from it.
 # Usage: prune.py <name> <layers> <epochs>
 import os, sys, json, time, math, random, copy, signal, importlib.util, torch, torch.nn.functional as F
@@ -49,15 +50,24 @@ if __name__ == '__main__':
         for q in teacher.parameters(): q.requires_grad_(False)
     W = [json.loads(l) for l in open(os.environ.get('TEACH', f'{S.WORK}/distil/teach4.jsonl'))]
     if os.environ.get('LIMIT'): W = W[: int(os.environ['LIMIT'])]
-    oids = [tok(w['text'], add_special_tokens=False)['input_ids'][:510] for w in W]; ids = [[lut.get(t, unk) for t in q] for q in oids]; p = [w['p'] for w in W]
+    from array import array  # a compact token store: Python int lists of every window run a T4 host out of memory past a few hundred thousand windows
+    oids, ids = ([] if HID or LENS else None), []
+    for w in W:
+        q = tok(w.pop('text'), add_special_tokens=False)['input_ids'][:510]; ids.append(array('i', [lut.get(t, unk) for t in q]))
+        if oids is not None: oids.append(array('i', q))
+    p = [w['p'] for w in W]
     tl = [math.log(min(max(v, 1e-7), 1 - 1e-7) / (1 - min(max(v, 1e-7), 1 - 1e-7))) for v in p]
     owners = sorted({w['owner'] for w in W}); random.shuffle(owners); hold = set(owners[: len(owners) // 10])
     keep = set(o for o in owners if o not in hold and random.random() < float(os.environ.get('FRAC', '1')))
     tr = [k for k, w in enumerate(W) if w['owner'] in keep]; va = [k for k, w in enumerate(W) if w['owner'] in hold]
     q95 = sorted(tl[k] for k in tr)[int(0.95 * len(tr))]; wt = [1 + TAIL * math.exp(-((tl[k] - q95) / 2) ** 2) for k in range(len(W))]
+    swt = [1.0] * len(W)
+    if os.environ.get('WEIGHT'):
+        sets = json.load(open(os.environ['SETS'])); sw = {a: float(b) for a, b in (x.split('=') for x in os.environ['WEIGHT'].split(','))}
+        swt = [sw.get(sets[w['owner']], 1.0) for w in W]
     cls, sep = lut[tok.cls_token_id], lut[tok.sep_token_id]
     def batch(ks, src_ids=None, c=cls, e=sep):
-        seqs = [[c] + (src_ids or ids)[k] + [e] for k in ks]; L = max(len(q) for q in seqs)
+        seqs = [[c] + list((src_ids or ids)[k]) + [e] for k in ks]; L = max(len(q) for q in seqs)
         x = torch.tensor([q + [0] * (L - len(q)) for q in seqs], device=dev); return x, (x != 0).long()
     def forward(x, am, hidden=False):
         with torch.autocast('cuda', dtype=torch.float16, enabled=amp): o = m(input_ids=x, attention_mask=am, output_hidden_states=hidden)
@@ -101,11 +111,11 @@ if __name__ == '__main__':
         else: tr.sort(key=lambda k: len(ids[k]) + random.random() * 64); bs = pages() if PAGE else [tr[s:s + B] for s in range(0, len(tr), B)]; random.shuffle(bs); tot, first = 0, 0
         for nb, ks in enumerate(bs):
             if nb < first: continue
-            x, am = batch(ks); out, hs = forward(x, am, hidden=bool(HID or LENS)); t = torch.tensor([tl[k] for k in ks], device=dev); w = torch.tensor([wt[k] for k in ks], device=dev)
+            x, am = batch(ks); out, hs = forward(x, am, hidden=bool(HID or LENS)); t = torch.tensor([tl[k] for k in ks], device=dev); sv = torch.tensor([swt[k] for k in ks], device=dev); w = torch.tensor([wt[k] for k in ks], device=dev) * sv
             if LOSS == 'bce': loss = (F.binary_cross_entropy_with_logits(out, torch.tensor([p[k] for k in ks], device=dev), reduction='none') * w).mean()
             else: loss = (((out - t) ** 2) * w).mean() / 16
             if LOSS == 'rank':
-                pr = (t[:, None] > t[None, :] + 1).float(); loss = loss + (F.softplus(-(out[:, None] - out[None, :])) * pr).sum() / pr.sum().clamp(min=1)
+                pr = (t[:, None] > t[None, :] + 1).float() * sv[:, None] * sv[None, :]; loss = loss + (F.softplus(-(out[:, None] - out[None, :])) * pr).sum() / pr.sum().clamp(min=1)
             if PAGE:
                 ow = [W[k]['owner'] for k in ks]; g = {o: [i for i, v in enumerate(ow) if v == o] for o in set(ow)}
                 loss = loss + PAGE * sum((out[ix].max() - t[ix].max()) ** 2 for ix in g.values()) / len(g) / 16

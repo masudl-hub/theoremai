@@ -253,7 +253,7 @@ export default {
 Embedded Studio screens do not write to disk. 
 
 * **Kept in the Browser**: Draft changes, prompt edits, and test conversations are kept in the browser's IndexedDB, under the tab. `openStudio()` reads them back, so a reload keeps them. A duplicated tab starts with a copy.
-* **Closed Tabs**: When the visitor closes the tab, a studio tab they open later clears what it kept, once it has seen the tab closed for a minute.
+* **Closed Tabs**: When the visitor closes the tab, another studio tab, open now or opened later, clears what it kept once it has seen the tab closed for a minute.
 * **No Keys**: Keys never go into this storage. They stay in the page's memory. A tool's credentials in its URL or headers are masked before they are kept.
 * **Download Trace**: If visitors want to preserve their test results, they can click **Download trace** in the trace inspector to export their session as a `.trace.json` file.
 

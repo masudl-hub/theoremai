@@ -138,7 +138,7 @@ In embedded mode:
 
 * **Lent Keys & Quotas**: Control which models visitors can use and enforce strict spending quotas to prevent credit exhaustion.
 * **Sandboxed Execution**: Visitors cannot write files to your server or access internal infrastructure.
-* **Tab State**: Drafts and test conversations are kept in the browser's IndexedDB, under the tab. A reload keeps them. After the tab closes, a studio tab opened later clears them. Keys are never kept.
+* **Tab State**: Drafts and test conversations are kept in the browser's IndexedDB, under the tab. A reload keeps them. After the tab closes, another studio tab, open now or opened later, clears them a minute on. Keys are never kept.
 
 ---
 

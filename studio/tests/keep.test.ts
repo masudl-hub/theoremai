@@ -60,7 +60,7 @@ Deno.test('nothing the studio keeps in the browser holds a credential or the tab
   const key = pageConversationKey();
   saveConversation('a', 'page', 'ref-a');
   const run = runWithCredentials();
-  const id = handOffStudioRun(run);
+  const id = await handOffStudioRun(run);
   const store = createStudioStore({
     workspace: workspaceFromDraft(createExampleDraft()),
     revision: 0,

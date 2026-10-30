@@ -55,16 +55,29 @@ let answering = false;
 
 /**
  * Hands `payload` to a new run tab through the browser's keep, its tools' credentials masked;
- * the run tab asks this tab for them. Returns the run's id, for the run tab's address.
+ * the run tab asks this tab for them. Resolves to the run's id, for the run tab's address, once
+ * this tab holds the run's lock.
  */
-export function handOffStudioRun(payload: StudioRunPayload): string {
+export async function handOffStudioRun(payload: StudioRunPayload): Promise<string> {
   const run = createStudioRunId();
   const kept: KeptRun = { payload: maskedStudioRun(payload), masked: studioRunIsMasked(payload) };
   handed.set(run, studioRunCredentials(payload));
-  // invariant: the lock is asked for before the run tab opens, so its query finds it held or pending.
-  void navigator.locks?.request(`${RUN_LOCK}${run}`, () => new Promise<never>(() => {}));
   answerAsks();
   handOffRun(run, JSON.stringify(kept));
+  const locks = navigator.locks;
+  // invariant: the run tab opens after the lock is held, so its query finds it.
+  // why: Chrome refuses a lock granted while `window.open` runs, and drops the request.
+  if (locks)
+    await new Promise<void>((held) => {
+      locks
+        .request(`${RUN_LOCK}${run}`, () => {
+          held();
+          return new Promise<never>(() => {});
+        })
+        .catch(() => {
+          held();
+        });
+    });
   return run;
 }
 

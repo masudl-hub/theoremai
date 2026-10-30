@@ -1070,8 +1070,8 @@ function innerNodeId(id: string, focus: string): string | undefined {
 }
 
 /** Hands the compiled agent to a new tab through the browser's keep; the run route takes it. */
-function openInNewTab(payload: StudioRunPayload, project: ProjectSession | null) {
-  const runId = handOffStudioRun(payload);
+async function openInNewTab(payload: StudioRunPayload, project: ProjectSession | null) {
+  const runId = await handOffStudioRun(payload);
   // A project's agent runs the project's code on its own page too.
   const named = project ? `&project=${encodeURIComponent(project.name)}` : '';
   // why: no `noopener`: the run tab asks this tab for its keys, which never leave memory.
@@ -1384,7 +1384,7 @@ function runMembers(
     launch: () => {
       const result = runNow();
       if (!result) return;
-      openInNewTab(
+      void openInNewTab(
         {
           ...runPayload(result),
           connectionMode: page.current.on.mode,
@@ -1500,7 +1500,7 @@ function OpenInNewTabButton({
       }
       onClick={() => {
         const run = compiled && workspaceRunAgent(compiled, chattedId);
-        if (run) openInNewTab({ ...runPayload(run), ...connection }, project);
+        if (run) void openInNewTab({ ...runPayload(run), ...connection }, project);
       }}
     />
   );

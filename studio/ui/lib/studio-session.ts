@@ -139,8 +139,8 @@ async function browserKeep(): Promise<{ keep: Keep; locks?: TabLocks }> {
 }
 
 /**
- * Opens this tab's records, and clears those of tabs that have closed: once now, and again
- * `GONE_MS` later, so a tab seen closed now is cleared then. `copy` false opens a run tab, which
+ * Opens this tab's records, and clears those of tabs that have closed: now, and each `GONE_MS`
+ * while the page is open, so a tab seen closed is cleared at the next sweep. `copy` false opens a run tab, which
  * starts with no copy of the tab that opened it. `keep` and `locks` replace the browser's, as a
  * test does.
  */
@@ -174,7 +174,7 @@ export async function openTabStorage(
       sweepClosed(keep, locks).catch(() => {});
     };
     sweep();
-    setTimeout(sweep, GONE_MS);
+    setInterval(sweep, GONE_MS);
   }
   return storage;
 }

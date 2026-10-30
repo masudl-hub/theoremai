@@ -629,6 +629,21 @@ Deno.test('a message queued on an idle chat sends', async () => {
   assertEquals(chat.getState().pendingMessages, []);
 });
 
+Deno.test('two chats sent one message each run the model picked on them', async () => {
+  const hosts = [heldHost(), heldHost()];
+  const [one, two] = hosts.map(({ transport }) =>
+    createChatController({ transport, iface: textInterface() }),
+  );
+  await settle();
+  two.setGeneration({ modelId: 'other', effort: 'high' });
+  void one.sendText('Same');
+  void two.sendText('Same');
+  await settle();
+  assertEquals(hosts[0].turns[0].request.model, undefined);
+  assertEquals(hosts[1].turns[0].request.model, 'other');
+  assertEquals(hosts[1].turns[0].request.effort, 'high');
+});
+
 Deno.test('a message pended in two chats keeps one id in both', async () => {
   const one = createChatController({ transport: heldHost().transport, iface: textInterface() });
   const two = createChatController({ transport: heldHost().transport, iface: textInterface() });

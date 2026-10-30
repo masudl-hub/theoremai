@@ -123,7 +123,9 @@ export type ChatComposerBarProps = {
   onSubmit: () => void;
   onStop: () => void;
   onMenuAction: (action: ComposerMenuAction) => void;
-  onGenerationChange: (next: { modelId: string; effort?: string }) => void;
+  onGenerationChange?: (next: { modelId: string; effort?: string }) => void;
+  /** Stands in for the model and effort selectors, for a bar whose choices are not one chat's. */
+  generationSelect?: ReactNode;
   /** The profile's `inputs.slots` with the value chosen for each; one selector per slot, beside the model's. */
   slotChoices?: SlotChoices;
   onPendingMove: (id: string, direction: 'up' | 'down') => void;
@@ -281,7 +283,7 @@ type ModelOption = ReturnType<typeof interfaceModelOptions>[number];
 type EffortOption = ReturnType<typeof interfaceEffortOptions>[number];
 
 /** The model and effort choices this profile offers; efforts only for a chosen model. */
-function generationOptions(iface: ComposerProfileInterface, selectedModel?: string) {
+export function generationOptions(iface: ComposerProfileInterface, selectedModel?: string) {
   const models = modelSelectEnabled(iface) ? interfaceModelOptions(iface) : [];
   const efforts =
     selectedModel && effortSelectEnabled(iface, selectedModel)
@@ -380,9 +382,17 @@ function GenerationSelect(props: {
   selectedEffort?: string;
   isDisabled: boolean;
   onChange: ChatComposerBarProps['onGenerationChange'];
+  control?: ReactNode;
 }) {
   const { models, efforts } = generationOptions(props.iface, props.selectedModel);
   const slotCount = Object.keys(props.slotChoices?.declared ?? {}).length;
+  if (props.control)
+    return (
+      <HStack gap={1}>
+        {props.control}
+        <SlotSelectors choices={props.slotChoices} isDisabled={props.isDisabled} />
+      </HStack>
+    );
   if (models.length + efforts.length + slotCount === 0) return null;
   return (
     <HStack gap={1}>
@@ -391,7 +401,7 @@ function GenerationSelect(props: {
         models={models}
         value={props.selectedModel}
         isDisabled={props.isDisabled}
-        onChange={(modelId) => props.onChange({ modelId })}
+        onChange={(modelId) => props.onChange?.({ modelId })}
       />
       <EffortSelector
         label={labelText('composer.effort', {}, props.iface.labels)}
@@ -399,7 +409,7 @@ function GenerationSelect(props: {
         value={props.selectedEffort}
         isDisabled={props.isDisabled}
         onChange={(effort) => {
-          if (props.selectedModel) props.onChange({ modelId: props.selectedModel, effort });
+          if (props.selectedModel) props.onChange?.({ modelId: props.selectedModel, effort });
         }}
       />
       <SlotSelectors choices={props.slotChoices} isDisabled={props.isDisabled} />
@@ -843,6 +853,7 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
           selectedEffort={props.selectedEffort}
           isDisabled={phase === 'streaming'}
           onChange={props.onGenerationChange}
+          control={props.generationSelect}
         />
       }
       // why: Astryx: sendActions render to the left of the send button, at size="md".

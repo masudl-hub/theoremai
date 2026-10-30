@@ -1,18 +1,23 @@
 import { Center } from '@astryxdesign/core/Center';
 import type { ChatComposerInputHandle } from '@astryxdesign/core/Chat';
+import { ComplexSelector } from '@astryxdesign/core/ComplexSelector';
 import { Divider } from '@astryxdesign/core/Divider';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
+import { RadioList, RadioListItem } from '@astryxdesign/core/RadioList';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tabler/icons-react';
+import {
+  IconInputAi,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+} from '@tabler/icons-react';
 import {
   type ComposerMenuAction,
   type ComposerPendingKind,
   type ComposerPendingMessage,
-  type ComposerProfileInterface,
   createComposerPendingMessage,
   orderComposerPendingMessages,
   removeComposerPendingMessage,
@@ -20,6 +25,7 @@ import {
 import {
   ChatComposerBar,
   DEFAULT_CHAT_MAX_WIDTH,
+  generationOptions,
   InPlace,
   PaneFailure,
   PaneLoading,
@@ -36,7 +42,6 @@ import {
   createHttpTransport,
   createTraceFeed,
   encodeComposerDraft,
-  followGenerationDefaults,
   type SendTextOptions,
   type TraceFeed,
 } from '@theoremjs/web/client';
@@ -342,20 +347,127 @@ function pairPending(states: readonly ChatState[]): ComposerPendingMessage[] {
 const takesSteer = (state: ChatState): boolean =>
   state.phase === 'streaming' && allowsSteering(state);
 
-type SideChat = { chat: ChatController; state: ChatState };
+type SideChat = { side: Side; chat: ChatController; state: ChatState };
 
-/** The shared composer's model and effort, and whether the builder chose them. */
-type SharedPick = {
-  model?: string;
-  effort?: string;
-  of?: ComposerProfileInterface;
-  isChosen: boolean;
-};
+/** A side's name where the two are named in a line. */
+const SIDE_NAMES: Record<Side, string> = { saved: 'Saved', edited: 'Edited' };
+
+/** One column of the model control: what this side's own composer offers, and it alone. */
+function SideGeneration({ side, chat, state }: SideChat) {
+  const { selectedModel, selectedEffort } = state.session;
+  if (!state.iface) return null;
+  const { models, efforts } = generationOptions(state.iface, selectedModel);
+  const isDisabled = state.phase === 'streaming';
+  return (
+    <VStack gap={3} style={{ flex: '1 1 12rem', minWidth: 0 }}>
+      {models.length > 0 ? (
+        <RadioList
+          label={SIDE_NAMES[side]}
+          size="sm"
+          isDisabled={isDisabled}
+          value={selectedModel ?? ''}
+          onChange={(modelId) => {
+            chat.setGeneration({ modelId });
+          }}
+        >
+          {models.map((model) => (
+            <RadioListItem
+              key={model.id}
+              value={model.id}
+              label={model.id}
+              description={model.label === model.id ? undefined : model.label}
+            />
+          ))}
+        </RadioList>
+      ) : (
+        <VStack gap={1}>
+          <Text type="supporting" weight="semibold">
+            {SIDE_NAMES[side]}
+          </Text>
+          <Text type="supporting" color="secondary">
+            {selectedModel}
+          </Text>
+        </VStack>
+      )}
+      {selectedModel && efforts.length > 0 && (
+        <RadioList
+          label="Effort"
+          size="sm"
+          isDisabled={isDisabled}
+          value={selectedEffort ?? ''}
+          onChange={(effort) => {
+            chat.setGeneration({ modelId: selectedModel, effort });
+          }}
+        >
+          {efforts.map((option) => (
+            <RadioListItem
+              key={option.alias}
+              value={option.alias}
+              label={option.alias}
+              description={option.level}
+            />
+          ))}
+        </RadioList>
+      )}
+    </VStack>
+  );
+}
+
+/**
+ * The composer's model control when two chats share it: each side's choices, side by side. A pick
+ * is that side's, held by its chat, as its own composer would hold it.
+ */
+function PairGeneration({ sides }: { sides: readonly SideChat[] }) {
+  const offered = sides.filter(({ state }) => {
+    const { models, efforts } = state.iface
+      ? generationOptions(state.iface, state.session.selectedModel)
+      : { models: [], efforts: [] };
+    return models.length + efforts.length > 0;
+  });
+  if (offered.length === 0) return null;
+  const running = sides.flatMap(({ side, state }) => {
+    const model = state.session.selectedModel;
+    return model ? [{ side, model }] : [];
+  });
+  const label =
+    new Set(running.map(({ model }) => model)).size === 1
+      ? running[0].model
+      : running.map(({ side, model }) => `${SIDE_NAMES[side]} ${model}`).join(' · ');
+  return (
+    <ComplexSelector
+      label="Model"
+      size="sm"
+      variant="ghost"
+      placement="above"
+      startIcon={<IconInputAi size={14} />}
+      value={label}
+      triggerLabel={label}
+    >
+      {() => (
+        <HStack
+          gap={4}
+          padding={3}
+          wrap="wrap"
+          style={{
+            width: 'min(32rem, calc(100vw - 2rem))',
+            maxHeight: 'min(60vh, 28rem)',
+            overflowY: 'auto',
+          }}
+        >
+          {sides.map((side) => (
+            <SideGeneration key={side.side} {...side} />
+          ))}
+        </HStack>
+      )}
+    </ComplexSelector>
+  );
+}
 
 /**
  * The one composer of both sides. It only types for them: each side does with what is sent what
  * its own composer would. An idle side sends it, a busy one queues it; a steer goes to each side
- * whose running turn takes one; and each side refuses a model or file its profile does not take.
+ * whose running turn takes one; and each side refuses a file its profile does not take. The model
+ * is each side's own.
  */
 function SharedComposer({
   sides,
@@ -371,18 +483,10 @@ function SharedComposer({
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingVoice, setPendingVoice] = useState<File[]>([]);
   const [failure, setFailure] = useState<ClientFailure | null>(null);
-  const [pick, setPick] = useState<SharedPick>({ isChosen: false });
-  // The pick follows the edited side's profile as a chat's own composer follows its profile.
-  if (iface && pick.of !== iface) {
-    const next = followGenerationDefaults(iface, pick, pick.of);
-    setPick({ ...next, of: iface, isChosen: pick.isChosen && next.model === pick.model });
-  }
   const states = sides.map((side) => side.state);
   const phase = pairPhase(states);
   if (!iface) return null;
-  // Unchosen, each side runs its own defaults: an edit to the defaults is what the two show.
-  const chosen = pick.isChosen ? { model: pick.model, effort: pick.effort } : {};
-  const options = (): SendTextOptions => ({ files: pendingFiles, voice: pendingVoice, ...chosen });
+  const options = (): SendTextOptions => ({ files: pendingFiles, voice: pendingVoice });
   const message = async (kind: ComposerPendingKind) =>
     createComposerPendingMessage({
       kind,
@@ -392,10 +496,6 @@ function SharedComposer({
     setDraftText('');
     setPendingFiles([]);
     setPendingVoice([]);
-  };
-  const takePick = (chat: ChatController) => {
-    if (chosen.model !== undefined)
-      chat.setGeneration({ modelId: chosen.model, effort: chosen.effort });
   };
   /** Each side as its own composer would: an idle side sends, a busy one takes `kind`. */
   const deliver = async (kind: ComposerMenuAction) => {
@@ -425,7 +525,6 @@ function SharedComposer({
         void chat.sendText(text, sent);
         continue;
       }
-      takePick(chat);
       void (kind === 'send_now' ? chat.sendNow(shared) : chat.pend(shared));
     }
   };
@@ -450,8 +549,6 @@ function SharedComposer({
         issues={[]}
         phase={phase}
         failure={failure}
-        selectedModel={pick.model}
-        selectedEffort={pick.effort}
         placeholder="Message both"
         inputRef={inputRef}
         onDraftTextChange={setDraftText}
@@ -478,9 +575,7 @@ function SharedComposer({
         onMenuAction={(action) => {
           void deliver(action);
         }}
-        onGenerationChange={(next) => {
-          setPick({ model: next.modelId, effort: next.effort, of: iface, isChosen: true });
-        }}
+        generationSelect={<PairGeneration sides={sides} />}
         slotChoices={
           edited.slots && {
             ...edited.slots,
@@ -525,7 +620,6 @@ function SharedComposer({
           for (const { chat, state } of sides) {
             const held = state.pendingMessages.find((m) => m.id === id);
             if (!held) continue;
-            takePick(chat);
             void chat.sendNow(held);
           }
         }}
@@ -784,7 +878,7 @@ export function ProjectChat(props: ProjectChatProps) {
   const shared = SIDES.flatMap((side) => {
     const chat = pair.chats[side];
     const state = pair.states[side];
-    return chat && state ? [{ chat, state }] : [];
+    return chat && state ? [{ side, chat, state }] : [];
   });
   const common = {
     detectCodeLanguage: true,

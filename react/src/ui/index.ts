@@ -34,6 +34,7 @@ export {
   ChatComposerBar,
   type ChatComposerBarProps,
   EFFORT_ICON,
+  generationOptions,
   type LiveComposerBarProps,
 } from './ChatComposerBar.tsx';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';

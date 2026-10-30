@@ -54,7 +54,7 @@ mounted calls `open(id)` and waits up to `mountWaitMs` (5 s) for it to mount.
 | `refused` | No such node or action, bad input (`rejected`), or a write without `basedOn` |
 | `failed` | The action threw; `why` is its message, scrubbed |
 
-A repeated `callId` replays the recorded answer (the ledger keeps 100). A write
+A repeated `callId` replays the recorded answer. The ledger keeps every call for the life of the runtime, and across reloads where `ledger` keeps it. A write
 action marked `intent: true` replays when the same `intent` reaches the same
 node within 60 s, so "start over" applies once. `set` rejects, field by field,
 unknown fields, read-only ones (with their reason) and every secret.

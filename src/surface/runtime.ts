@@ -11,7 +11,6 @@ import type {
   SurfaceRejection,
 } from './types.ts';
 
-const LEDGER_SIZE = 100;
 const INTENT_WINDOW_MS = 60_000;
 const MOUNT_WAIT_MS = 5000;
 const NODE_LIST_CAP = 80;
@@ -122,7 +121,7 @@ export function createSurfaceRuntime(options: SurfaceRuntimeOptions = {}): Surfa
   const note = (line: string) => options.onNote?.(line);
 
   const remember = (entry: SurfaceLedgerEntry) => {
-    ledger = [...ledger.filter((old) => old.callId !== entry.callId), entry].slice(-LEDGER_SIZE);
+    ledger = [...ledger.filter((old) => old.callId !== entry.callId), entry];
     options.ledger?.save(ledger);
   };
 

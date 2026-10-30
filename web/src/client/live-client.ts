@@ -31,7 +31,10 @@ import {
   liveTranscriptFromEvidence,
   shouldForwardMicFrame,
 } from './live/live-mic-forward.ts';
+import type { PageTools } from './live/live-page-tool.ts';
 import type { LiveConnectPhase, LiveSessionStatus } from './live/live-state.ts';
+import type { LiveGateReply, LiveToolGatePrompt } from './live/live-tool.ts';
+import { runLiveToolCall } from './live/run-live-tool-call.ts';
 import { isPermissionDeniedError } from './live-errors.ts';
 import {
   type ExecuteToolOnRelay,
@@ -125,14 +128,16 @@ export interface LiveClientOptions {
    */
   onSessionEnded?: (session: SessionEventOf<'ended'>) => void;
   /**
-   * The model called a tool. The host runs it with `executeToolOnRelay` and
-   * answers its gates; the session answers the model. A throw reaches `onError`.
+   * The page's tools, by name. The client runs each call the model makes on the relay, and
+   * answers a call dispatched to the page with the tool of that name. A call the page has no
+   * tool for, or whose tool throws, is answered with no answer, so the turn never waits on it.
    */
-  onToolCall: (
-    name: string,
-    args: Record<string, unknown>,
-    meta: { callId: string; operationId: string },
-  ) => Promise<void>;
+  pageTools?: PageTools;
+  /**
+   * The host's answer to a gate on a call: ask the user, then send what
+   * `continueGatedToolInvocation` makes of their answer. Without it, every gate is refused.
+   */
+  onGate?: (prompt: LiveToolGatePrompt) => Promise<LiveGateReply>;
   /** The relay opened the call: the id it gave the call, and the profile it runs. */
   onSessionReady?: (info: { sessionId?: string; profile?: string }) => void;
   onVolumeLevel?: (level: number, isUser: boolean) => void;
@@ -600,7 +605,12 @@ export class LiveSessionClient {
     for (const call of runnableTools) {
       this.toolChain = this.toolChain
         .then(() =>
-          this.options.onToolCall(call.name, call.arguments, {
+          runLiveToolCall({
+            executeToolOnRelay: (args) => this.executeToolOnRelay(args),
+            pageTools: this.options.pageTools,
+            onGate: this.options.onGate,
+            name: call.name,
+            toolArgs: call.arguments,
             callId: call.id,
             operationId: issuedOperationId(call),
           }),
@@ -798,7 +808,7 @@ export class LiveSessionClient {
   }
 
   /** The relay runs `LiveSession.executeTool`; see `ExecuteToolOnRelay`. */
-  executeToolOnRelay(args: Parameters<ExecuteToolOnRelay>[0]): Promise<LiveToolStep> {
+  private executeToolOnRelay(args: Parameters<ExecuteToolOnRelay>[0]): Promise<LiveToolStep> {
     const socket = this.ws;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       throw new TheoremError('request', 'live session is not connected'); // labels-exempt: internal diagnostic

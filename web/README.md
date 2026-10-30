@@ -150,6 +150,27 @@ for await (const event of session.events()) {
 - `open.host` is the `openMessage` that the page's `connection` returned.
 - Read later messages with `parseLiveClientMessage`. Give context messages to `session.sendContext({ client: message.context })`.
 
+### The live client
+
+`LiveSessionClient` opens the call from the page. It runs each call the model makes on the relay:
+
+```ts
+import { LiveSessionClient } from '@theoremjs/web/client';
+
+const client = new LiveSessionClient({
+  profile: 'guide',
+  pageTools: {
+    highlight: (args) => ({ output: { highlighted: String(args.target) } }),
+  },
+});
+await client.connect();
+```
+
+- A call dispatched to the page runs the `pageTools` function of the same name. Its `output` goes to the model.
+- A page tool with no function, or a function that throws, answers with no answer. The console names a page tool that has no function. The call does not wait.
+- `onGate` answers every other gate: ask the user, then return what `continueGatedToolInvocation` makes of the answer. Without `onGate`, the client refuses every gate.
+- When the connection closes, the calls still open fail, and the relay closes the session.
+
 ## A chat with no framework
 
 Use `createChatController` when you draw the chat yourself, in any framework or none. It holds all of the chat's logic, and it draws nothing:
@@ -245,7 +266,7 @@ const transport = withPageToolDispatch(
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
 | `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`. Unset, a gate waits until it is answered. |
 | `maxRequestBytes` | The largest browser request body, in bytes. Unset, a body of any size is read. |
-| `pageToolTimeoutMs` | How long the page has to answer a tool call it runs. A call it has not answered by then settles as timed out. Unset, the call waits until the page answers or the turn stops. |
+| `pageToolTimeoutMs` | How long the page has to answer a tool call it runs. A call it has not answered by then settles as timed out. Unset, the call waits until the page answers or the turn stops. The browser clients answer every call they get, so only a page function that never returns holds a turn. |
 | `operationRetentionMs` | How long a settled tool result is kept. Default: 24 hours. |
 | `clientEvents` | Options for `forClient` and `clientError`, which prepare each event and each caught failure for the browser. `reader: 'builder'` sends the raw reason in place of the wording of the profile. Use it only in a development tool on your own machine. |
 | `onError` | Receives each error that the handler catches. A visitor sees the wording of the profile for that kind of error, never the error. |
@@ -430,7 +451,7 @@ Forward live page results to `answerPageResult`. Preserve checkpoint ownership t
 The default `PageToolBroker` keeps active result waiters in process memory. Several workers need a shared broker or request affinity.
 Use `pageToolBroker` to supply that broker. It carries results; the atomic session store retains execution authority.
 Lost result delivery does not permit another dispatch. The operation retains its claim or an uncertain outcome.
-Set `pageToolTimeoutMs` to give the page a deadline for a result. Unset, a dispatch waits until the page answers or the turn stops. An expired or interrupted result cannot reopen approval.
+Set `pageToolTimeoutMs` to give the page a deadline for a result. Unset, a dispatch waits until the page answers or the turn stops. The browser clients answer every dispatch they get, with no answer when the page has no function for the tool, so only a page function that never returns holds a turn. An expired or interrupted result cannot reopen approval.
 
 ## Build your own server
 

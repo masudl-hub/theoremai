@@ -131,20 +131,23 @@ so the relay passes the browser's `executeTool` message, less its `type`, to
 | `status` | When | Carries |
 | --- | --- | --- |
 | `settled` | The call ran and the model has its answer | `callId` |
+| `dispatched` | The call is the page's to answer | `callId`, `grantId`, `arguments` |
 | `gated` | The call waits on a gate | `callId`, `gate` |
 | `refused` | `executeTool` threw | `callId`, `body`: `{ error: publicError(err, profile.labels), errorKind }` |
 
 A tool the browser answers (a `function` tool whose result lives in the page) is
-settled by the same message: `executeToolOnRelay({ callId, output })` sends the
-browser's `output`, and the relay passes it to `session.executeTool` as
-`page: { output }`. The tool is registered with `answeredBy: 'page'` and no handler: the kernel
+dispatched to the page with a grant. `LiveSessionClient` answers the grant with the
+`pageTools` function of that name: `{ callId, operationId, grantId, output }`, or
+`unanswered: true` when the page has no function for the tool or its function throws.
+The relay passes the answer to `answerPageResult`. The tool is registered with `answeredBy: 'page'` and no handler: the kernel
 returns what the page sent, so the tool's `output` schema checks it
 and a mismatch reaches the model as an ordinary tool failure. With no
 `page` the call fails to the model, naming the tool.
 
-In a chat, the same tool pauses the turn at a `page` gate. The page answers it on `/invoke` with
-`{ gateId, decision: 'approve', page: { output } }`, or `page: { unanswered: true }` when it has no
-function for the tool. `useTheoremChat` does this from its `pageTools` option, and shows no prompt.
+In a chat, the turn's stream carries the same dispatch as a `dispatch` tool event. The page
+answers its grant on `/page-result` with `page: { output }`, or `page: { unanswered: true }` when it
+has no function for the tool. `withPageToolDispatch` does this from its `pageTools`, and
+`useTheoremChat` applies it, with no prompt.
 
 The kernel never times out an ungated held call, so the relay does:
 `attachStudioLiveSession` starts a timer when the model makes a call

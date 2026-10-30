@@ -116,7 +116,7 @@ export {
   type LiveState,
   liveState,
 } from './live/live-state.ts';
-export type { LiveGateAnswer, LiveToolGatePrompt } from './live/live-tool.ts';
+export type { LiveGateAnswer, LiveGateReply, LiveToolGatePrompt } from './live/live-tool.ts';
 export type { LiveConnection } from './live-client.ts';
 export { LiveSessionClient } from './live-client.ts';
 export type { ExecuteToolOnRelay, LiveSocket } from './live-messages.ts';

@@ -188,7 +188,9 @@ Deno.test('Studio compiled profiles run on a scripted model in their isolated sc
 });
 
 Deno.test('Studio runtime vault does not resolve inherited credentials', async () => {
-  const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
+  const draft = createExampleDraft();
+  draft.models.defaultModel = 'smart';
+  const compiled = compileStudio(draft, ON_OWN_KEYS);
   assert(compiled.ok);
   const { scope, profile } = await studioScope(
     compiled.profile,

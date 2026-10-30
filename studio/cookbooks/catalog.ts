@@ -435,7 +435,7 @@ function exampleTextDraft(
     ...blank,
     identity: { ...identity, profileType: 'text', systemByRoleJson: '' },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'labels'],
-    models: { defaultModel: 'smart', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
+    models: { defaultModel: 'open', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: defaultTextModelBindings(),
     ...tools,
     inputs: {
@@ -530,12 +530,25 @@ export function createResearchScoutDraft(): StudioDraft {
       maxTurnBytes: null,
     },
     models: {
-      defaultModel: 'gemini',
-      allowModelSelect: false,
+      defaultModel: 'open',
+      allowModelSelect: true,
       maxSteps: 32,
-      key: 'gemini',
+      key: 'openrouter',
     },
     modelBindings: [
+      defaultModelBinding({
+        modelId: 'open',
+        ...firstServed('openrouter', 'text'),
+        apiId: 'openrouter/free',
+        keySlot: 'openrouter',
+        efforts: [
+          { alias: 'normal', level: 'medium' },
+          { alias: 'deep', level: 'high' },
+        ],
+        defaultEffort: 'normal',
+        allowEffortSelect: false,
+        summaries: true,
+      }),
       defaultModelBinding({
         modelId: 'gemini',
         ...firstServed('gemini', 'text'),

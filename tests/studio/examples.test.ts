@@ -73,7 +73,7 @@ Deno.test('the research scout starts without effort select or attachments', () =
   assertEquals(scout.inputs.maxFiles, null);
   assertEquals(
     scout.modelBindings.map(({ allowEffortSelect }) => allowEffortSelect),
-    [false],
+    [false, false],
   );
 });
 

@@ -43,12 +43,11 @@ import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 Deno.test('renaming a binding preserves the selected default and leaves other bindings alone', () => {
   const draft = createExampleDraft();
-  // The example's default is its second binding, `smart`.
-  const renamed = updateModelBinding(draft, draft.modelBindings[1].key, { modelId: 'primary' });
+  // The example's default is its third binding, `open`.
+  const renamed = updateModelBinding(draft, draft.modelBindings[2].key, { modelId: 'primary' });
   assertEquals(renamed.models.defaultModel, 'primary');
-  assertEquals(renamed.modelBindings[1].key, draft.modelBindings[1].key);
-  assertEquals(renamed.modelBindings[0], draft.modelBindings[0]);
-  assertEquals(renamed.modelBindings.slice(2), draft.modelBindings.slice(2));
+  assertEquals(renamed.modelBindings[2].key, draft.modelBindings[2].key);
+  assertEquals(renamed.modelBindings.slice(0, 2), draft.modelBindings.slice(0, 2));
   assert(compileStudio(renamed, ON_OWN_KEYS).ok);
   const other = updateModelBinding(renamed, draft.modelBindings[0].key, { modelId: 'secondary' });
   assertEquals(other.models.defaultModel, 'primary');
@@ -95,7 +94,7 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(result.agentId, 'travel.concierge');
   assertEquals(profile.type, 'text');
   assertEquals(Object.keys(profile.models), ['fast', 'smart', 'open']);
-  assertEquals(profile.defaultModel, 'smart');
+  assertEquals(profile.defaultModel, 'open');
   assertEquals(result.customTools.length, createExampleDraft().toolSpecs.length);
   assert(profile.type === 'text' && profile.tools?.allow?.includes('geocode_city'));
   assertEquals(profile.guardrails?.blockedReply, { onBlock: 'refuse' });

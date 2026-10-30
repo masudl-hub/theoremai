@@ -140,6 +140,7 @@ Deno.test('named primary and fallback slots include model overrides and isolate 
   assertEquals(studioVault(slots, { primary: 'other' }).primary, 'other');
   const draft = createExampleDraft();
   draft.modelBindings = draft.modelBindings.filter((model) => model.provider === 'gemini');
+  draft.models.defaultModel = 'smart';
   draft.models.fallbackKey = 'backup';
   draft.modelBindings[0].keySlot = 'fast-key';
   draft.modelBindings[0].fallbackKeySlot = 'fast-backup';

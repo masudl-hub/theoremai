@@ -2,7 +2,7 @@
 
 Model tool calls execute on structured JSON payloads, but end users and UI transcripts need human-readable status text. Showing raw function names and JSON objects creates cluttered interfaces and confusing approval cards.
 
-Theorem tools declare dynamic, typed label templates directly in their definitions. Templates extract arguments, format numbers and dates, evaluate conditional rules, and join compound statements—all verified against your Zod schemas at startup.
+Theorem tools declare dynamic, typed label templates directly in their definitions. Templates extract arguments, format numbers and dates, choose the plural of a count, evaluate conditional rules, and join compound statements—all verified against your Zod schemas at startup.
 
 ---
 

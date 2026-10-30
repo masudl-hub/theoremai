@@ -185,8 +185,9 @@ function fillText(
 }
 
 /**
- * Fills each `{path}` or `{path|fallback}` from the call. Only text and numbers fill; a line fits
- * when every placeholder has a value or a fallback and its `when` holds. A list shows its first
+ * Fills each `{path}`, `{path|fallback}` or `{count one|other}` from the call. Only text and numbers
+ * fill, and a count fills only from a number; a line fits when every placeholder has a value or a
+ * fallback and its `when` holds. A list shows its first
  * line that fits, and a run of `+` lines shows every member that fits, joined in words. When no
  * line fits the label is `undefined`, and the transcript names the tool.
  */

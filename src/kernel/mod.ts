@@ -4,6 +4,7 @@
  * @module
  */
 
+export { ANSWER_TOOL } from './answer-tool.ts';
 export * from './auth/mod.ts';
 export type {
   ProviderCheckpoint,

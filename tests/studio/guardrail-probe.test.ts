@@ -14,6 +14,7 @@ import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   compileWorkspace,
   createExampleDraft,
+  createResearchWorkspace,
   setProfileType,
   workspaceFromDraft,
   workspaceRunAgent,
@@ -178,6 +179,21 @@ Deno.test('the draft’s guardrails are the ones probed, as written', async () =
   assertEquals(user.status, 'passed');
   assert(user.passed?.includes(INJECTION));
   assertEquals((await probe('reply', KEY, off)).passed, KEY);
+});
+
+Deno.test('a structured agent with tools is probed at every boundary, answering by tool', async () => {
+  const compiled = compileWorkspace(createResearchWorkspace(), ON_OWN_KEYS);
+  assert(compiled.ok, JSON.stringify(!compiled.ok && compiled.issues));
+  const scout = workspaceRunAgent(compiled, 'research.scout');
+  assert(scout);
+  const answers = await runGuardrailProbes({ ...scout, text: 'A plain sentence.' });
+  assertEquals(
+    answers.map(({ boundary }) => boundary),
+    [...PROBE_BOUNDARIES],
+  );
+  const reply = answers.find(({ boundary }) => boundary === 'reply');
+  assertEquals(reply?.passed, 'A plain sentence.');
+  assertEquals(reply?.refused, undefined);
 });
 
 Deno.test('a decision agent is not probed, and says what guards it', async () => {

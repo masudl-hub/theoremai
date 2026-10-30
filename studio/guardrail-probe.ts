@@ -27,7 +27,12 @@ import {
   sanitizeTurnRequestWithEvents,
   TOOL_RULES,
 } from '@theoremjs/agents/guardrails';
-import { keySlotsOf, type ModelEvent, type ModelRequest } from '@theoremjs/agents/kernel';
+import {
+  ANSWER_TOOL,
+  keySlotsOf,
+  type ModelEvent,
+  type ModelRequest,
+} from '@theoremjs/agents/kernel';
 import { firstServed } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
@@ -36,6 +41,7 @@ import {
   type StudioDependency,
   writtenScope,
 } from './runtime-scope.ts';
+import { type JsonSchema, sampleFromJsonSchema } from './tool-schema.ts';
 
 /** Where a probe's text enters the turn. */
 export const PROBE_BOUNDARIES = [
@@ -389,10 +395,16 @@ function scripted(steps: ModelEvent[][], seen: ModelRequest[]): TurnModel {
   return {
     async *complete(req) {
       seen.push(req);
-      const events = steps[step] ?? [{ type: 'text', text: 'ok' }];
+      const answer = req.wireTools?.find(({ name }) => name === ANSWER_TOOL);
+      const events = steps[step] ?? (answer ? [] : [{ type: 'text', text: 'ok' }]);
       step += 1;
       await Promise.resolve();
       yield* events;
+      // why: A structured turn with tools ends only on this call; a step that ends without one
+      // would fail the probe before its guardrails answer.
+      if (answer && !events.some(({ type }) => type === 'tool')) {
+        yield call(ANSWER_TOOL, sampleFromJsonSchema(answer.parameters as JsonSchema));
+      }
     },
   };
 }

@@ -6,7 +6,7 @@
 **Job:** say how a tool call gives the model a reply now, lets the turn go on, and settles after the turn ends.
 **After reading:** you know what a host gets, what the kernel must change, and which questions are still open.
 
-Names in this document that the code does not have yet are proposed names: `background`, `afterMs`, `detach`, `stop`, and the `background` tool phase and result kind.
+Names in this document that the code does not have yet are proposed names: `background`, `afterMs`, `detach`, `stop`, `drain`, `graceMs`, and the `background` tool phase and result kind.
 
 ## 1. The problem
 
@@ -91,14 +91,20 @@ A probe on 2026-10-30 ran an agent tool with a child tool, and stopped it throug
 
 So a stop reaches children and the order is correct. But no call settles as stopped. Theorem owns this stop, because only the kernel can tell a stop from a lost worker.
 
-- `stop(reason)` aborts the call's signal. The call settles with a `cancelled` failure and `effects: 'unknown'`.
+- `stop(reason)` aborts the call's signal. The host names the reason: `stopped` for a later turn, `timed_out` for a system timeout.
+- The call settles as a failure with `effects: 'unknown'`. The reason stays in `replay.aborted`, so the host can tell a timeout from a stop.
 - A stop after settlement does nothing.
-- The host can pass a deadline. A body that passes it reads as `execution_interrupted`.
+- The host can pass `graceMs`. A body that ignores the signal past this time settles the same way, with the same reason.
+- After that settlement the body may still run, because the kernel cannot kill it. `effects: 'unknown'` says so. The kernel drops its late events and result.
+
+This is one exception to the contract rule "An incomplete body or settlement failure retains a protected claim". A second run reads the failure and does not start the body again. Without `graceMs`, a body that ignores the signal holds its claim until it ends.
 - The kernel holds the handles in process. Storage and a stop from another worker are the host's. Bonsai's row flag can stay, and its poller calls `stop`.
 
 ### 4.4 Lost work
 
-`CoordinatedExecution.close` still marks `execution_interrupted` and `settlement_write_failed`, after the turn too. The kernel does not write `worker_lost`: the host's sweep writes it for a claim with no live worker. A host on shutdown calls `stop` for each handle.
+`CoordinatedExecution.close` still marks `execution_interrupted` and `settlement_write_failed`, after the turn too. The kernel does not write `worker_lost`: the host's sweep writes it for a claim with no live worker.
+
+A shutdown is not a stop. A host on shutdown calls `drain`. It aborts each detached call with no reason, and `close` marks each one `execution_interrupted`. The host reads this as "cut off", not as "stopped" or "timed out".
 
 ### 4.5 After the turn
 

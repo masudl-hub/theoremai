@@ -1,4 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
+import { resolveDraftItemCheck } from '../../studio/cookbooks/checks.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
   addArchitectExample,
@@ -22,6 +23,7 @@ import {
   projectToolSlice,
   RESEARCH_FIRST_TURN_PROMPT,
   RESEARCH_PAGE_READER_STATE,
+  RESEARCH_REPLY_SCHEMA_ID,
   rebased,
   removeAgent,
   removeLibraryTool,
@@ -75,6 +77,22 @@ Deno.test('the research scout starts without effort select or attachments', () =
     scout.modelBindings.map(({ allowEffortSelect }) => allowEffortSelect),
     [false, false],
   );
+});
+
+Deno.test('the research scout rewrites a candidate whose quote no tool returned, then drops it', async () => {
+  const scout = compiled(createResearchWorkspace()).agents[1]?.profile;
+  assert(scout?.type === 'text', 'the scout is a text agent');
+  const validation = scout.outputs?.validation;
+  assertEquals(scout.outputs?.structured, RESEARCH_REPLY_SCHEMA_ID);
+  assertEquals(validation?.items?.candidates?.onFail, 'fix');
+  assert((validation?.maxRetries ?? 0) >= 1, 'the answer and the rewrite each need a retry');
+  const check = resolveDraftItemCheck(scout.id, 'candidates');
+  const url = 'https://arxiv.org/abs/2401.01234';
+  const refused = await check(
+    { basis: 'page', url, evidence: [{ uri: url, quote: 'words no tool returned' }] },
+    { toolResults: [{ tool: 'search_papers', output: { id: '2401.01234', abstract: 'Recall.' } }] },
+  );
+  assertEquals((refused as { isValid: boolean }).isValid, false);
 });
 
 Deno.test('the research scout links its page-reading tools to the Jev page reader', () => {

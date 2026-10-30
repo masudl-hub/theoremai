@@ -28,7 +28,6 @@ import {
   createGeminiEmbeddingExampleDraft,
   createLiveExampleDraft,
   createNarratorExampleDraft,
-  createResearchScoutDraft,
 } from './cookbooks/catalog.ts';
 import {
   createBlankDraft,
@@ -296,9 +295,8 @@ function keySlots(draft: StudioDraft): Map<string, string[]> {
 
 const typeInput = z.enum(STUDIO_PROFILE_TYPES as unknown as [StudioProfileType]);
 
-/** The worked examples one draft holds. The code architect is two agents, so the page loads it. */
+/** The worked examples one draft holds. Research and the code architect are two agents each, so the page loads them. */
 const EXAMPLE_DRAFTS = {
-  research: createResearchScoutDraft,
   concierge: createExampleDraft,
   'live-concierge': createLiveExampleDraft,
   narrator: createNarratorExampleDraft,

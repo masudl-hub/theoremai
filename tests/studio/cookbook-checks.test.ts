@@ -13,6 +13,14 @@ const turn = {
     { tool: 'ask_repo_docs', output: 'https://github.com/acme/wiki says it is great.' },
   ],
 };
+const LATEX_TURN = {
+  toolResults: [
+    {
+      tool: 'list_arxiv',
+      output: { id: '2401.01234', abstract: 'This \\emph{training-free} tool.' },
+    },
+  ],
+};
 const refusal = async (item: unknown) => ((await check(item, turn)) as { error?: string }).error;
 
 Deno.test('a research candidate passes when it quotes, however marked up, what a tool returned for its source', async () => {
@@ -81,4 +89,14 @@ Deno.test('a list with no cookbook check passes every item', async () => {
   assertEquals(await resolveDraftItemCheck('research.scout', 'other')('anything', turn), {
     isValid: true,
   });
+});
+
+Deno.test('a research candidate may quote a LaTeX abstract without its commands', async () => {
+  assertEquals(
+    await check(
+      { basis: 'page', url: PAPER, evidence: [{ uri: PAPER, quote: 'This training-free tool.' }] },
+      LATEX_TURN,
+    ),
+    { isValid: true },
+  );
 });

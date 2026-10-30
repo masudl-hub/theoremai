@@ -12,6 +12,7 @@ import type { ItemCheckTurn, ProfileItemCheck } from '@theoremjs/agents';
 function comparable(text: string): string {
   return text
     .normalize('NFKC')
+    .replace(/\\+[a-z]+\{([^}]*)\}/gi, '$1')
     .replace(/\\n/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[*_`#>\\]/g, '')

@@ -106,7 +106,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'turnBehaviour.allowSteering': { unset: 'On', value: true },
   'turnBehaviour.atStepLimit': { unset: 'stop', value: 'stop' },
   'guardrails.quota': { unset: 'No limit' },
-  'guardrails.detect': { unset: 'Redacts what goes to the model' },
+  'guardrails.detect': { unset: 'Flags what goes to the model' },
   'guardrails.detect.ungiven_images.allow.fromTools': { unset: 'On', value: true },
   'guardrails.detect.ungiven_links.allow.fromTools': { unset: 'On', value: true },
   'guardrails.blockedReply': { unset: 'One rewrite' },

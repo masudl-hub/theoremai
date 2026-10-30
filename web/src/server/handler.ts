@@ -17,6 +17,8 @@ import {
  *                            waits on gates walks away from them first (`abandon`)
  * - `POST <base>/invoke`  → NDJSON events for the user's answer to a paused tool call
  * - `POST <base>/steer`   → inject messages into a running turn
+ * - `POST <base>/stop`    → stop a running turn where it stands
+ * - `POST <base>/page-result` → the page's result for a tool the turn ran in the page
  * - `POST <base>/conversation` → the transcript and the paused reply, to draw
  * - `POST <base>/rewind`  → `{ conversation, view }` the conversation cut after one block, and its new ref
  *

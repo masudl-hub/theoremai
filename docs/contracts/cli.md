@@ -1,8 +1,8 @@
 # CLI (`@theoremjs/agents/cli`)
 
 Profile inspection and stress-test CLI. On npm this entry is also the
-`agents` binary. Hosts must register profiles (and providers) in-process
-before commands that execute turns — the CLI does not embed app profiles.
+`agents` binary. The CLI does not embed app profiles. To test or run your
+app's profiles, pass `--setup <file>`: the same setup file the studio reads.
 
 ## Export
 
@@ -18,6 +18,7 @@ before commands that execute turns — the CLI does not embed app profiles.
 | --- | --- |
 | `src/cli/index.ts` | Argument parser + command dispatch (`main`) |
 | `src/cli/bin.ts` | The `agents` executable: runs `main` on the process arguments |
+| `src/cli/setup.ts` | Loads a setup file and its entry's `theorem` (`loadSetup`), for `--setup` and the studio |
 | `src/cli/event-log.ts` | Shared `run`/`test` event printing + `--trace` capture |
 | `src/cli/commands/*` | `bench`, `fuzz`, `test`, `run`, `eval`, `profile` |
 | `src/cli/matrix/*` | Permutation synthesizer + fixtures |
@@ -39,10 +40,10 @@ agents <command> [options]
 | `fuzz-canary` | Adversarial canary egress fuzzer (`runTurn` stream gate + Live batch gate; an attack's turns are one turn's provider calls, or one session's cycles); exit `1` on bypass |
 | `guardrails:eval` | Repo-only task, not in the published CLI: score guardrail detectors against external corpora (`--cache-dir`, `--limit`) |
 | `bench` | Synthetic kernel performance benchmark (`--chunks`, `--iterations`, `--warmup`) |
-| `test` | Stress matrix or custom profile tests (`--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
-| `run` | Execute a turn with streaming output (`--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …) |
+| `test` | Stress matrix or custom profile tests (`--setup`, `--profile`, `--all`, `--lite`, `--matrix`, `--mode`, `--search`, `--map`, `--verbose`, `--trace`, `--trace-dir`) |
+| `run` | Execute a turn with streaming output (`--setup`, `--profile`, `--prompt`, `--mode`, `--verbose`, `--trace`, `--trace-dir`, …); exit `1` when the turn cannot run or yields an `error` event |
 | `eval <suite>` | Run an eval suite module live, or grade recorded traces (`--recorded <file\|dir>`, `--trials <k>`, `--concurrency <n>`, `--max-cost-usd <n>`, `--threshold <fraction>`, `--trace-dir`, `--json`); exit `1` below the threshold or on a budget stop |
-| `profile list` / `profile show <id>` | Inspect registered profile blueprints (text, image, speech, live, decision, embedding, host). `run` and `test` remain turn paths; decision profiles run through host code with `runDecision`. |
+| `profile list` / `profile show <id>` | Inspect registered profile blueprints (`--setup` registers the app's first) (text, image, speech, live, decision, embedding, host). `run` and `test` remain turn paths; decision profiles run through host code with `runDecision`. |
 | `help` | Usage |
 
 Exit code `1` on failed `test` runs. `run` requires `--profile` (or `-p`).
@@ -68,8 +69,32 @@ call's `tokens` event), followed by `, includes estimates` when any call's
 count was estimated: `✓ STATUS: PASSED (took 2.31s, 1234 tokens, includes estimates)`.
 `TestRunResult.tokens` carries the full sum.
 Both `test` and `run` print Google `code_execution_*` (and other) `evidence`
-events when a host-supplied provider yields them — hosts still must pass an
-explicit `ProviderHostOptions` and registered providers (the CLI never reads API keys).
+events when the provider yields them.
+
+### Run on your app's wiring (`--setup`)
+
+Use `--setup` to test or run a profile exactly as your app runs it, from the
+terminal. It takes the setup file the studio reads:
+
+```bash
+agents test --setup studio.setup.ts --profile my.agent --lite
+agents run --setup studio.setup.ts --profile my.agent --prompt "ping"
+```
+
+The CLI loads the setup with `loadSetup`, then its `entry`, which exports
+`theorem` (a `TurnWiring`). Then the CLI:
+
+1. Calls `theorem.register` once.
+2. Sends each turn through `theorem.prepare`. The profile stays the one that
+   `--profile` names.
+3. Runs each turn on `theorem.provider`.
+
+The CLI reads no API key. The keys are the ones your `provider` holds. Without
+`--setup` or a `provider`, `test` and `run` fail and exit `1`. A setup with no
+`entry`, an entry with no `theorem`, or a setup that still exports `default` or
+`provider` fails with the same message the studio gives. Under Node, the setup
+and entry must be files Node can import. Node imports `.ts` from 22.18 on, and
+only TypeScript it can strip: no `enum`, no parameter properties.
 
 ### Diagnostics flags (`run`, `test`)
 
@@ -113,6 +138,8 @@ selected model's `builtInTools` include `googleSearch` / `googleMaps`.
 | Export | Role |
 | --- | --- |
 | `main(args?)` | Runs one command. It reads the process arguments by default. |
+| `loadSetup(path)` | Imports a setup file and its entry, and returns `LoadedSetup`: `{ setup, theorem }`. It registers nothing; call `theorem.register` for that. |
+| `LoadedSetup` | The setup module as it is, and its entry's `theorem` |
 
 `src/cli/bin.ts` runs `main` as the `agents` binary. It runs on Node
 (20 and up), Deno, and Bun.
@@ -141,7 +168,9 @@ application code.
         { "kind": "source", "path": "src/cli/index.ts" },
         { "kind": "source", "path": "src/cli/commands/run.ts" },
         { "kind": "source", "path": "src/cli/commands/eval.ts" },
+        { "kind": "source", "path": "src/cli/setup.ts" },
         { "kind": "contract_test", "path": "tests/cli/cli.test.ts" },
+        { "kind": "contract_test", "path": "tests/cli/setup.test.ts" },
         { "kind": "contract_test", "path": "tests/cli/eval.test.ts" }
       ]
     },
@@ -154,6 +183,8 @@ application code.
     "Exported API": {
       "supports": [
         { "kind": "source", "path": "src/cli/index.ts" },
+        { "kind": "source", "path": "src/cli/setup.ts" },
+        { "kind": "contract_test", "path": "tests/cli/setup.test.ts" },
         { "kind": "contract_test", "path": "tests/cli/cli.test.ts" }
       ]
     }

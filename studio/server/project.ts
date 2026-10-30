@@ -13,9 +13,9 @@
  * @module
  */
 
-import { basename, dirname, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { defaultKernelScope, type TurnWiring } from '@theoremjs/agents';
+import { basename } from 'node:path';
+import { defaultKernelScope } from '@theoremjs/agents';
+import { loadSetup } from '@theoremjs/agents/cli';
 import type { StudioActingAs, StudioPeople } from '../people.ts';
 import { editedImages, editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
 import { createStudioHandler, type ProjectImages, type ProjectQuestions } from './handler.ts';
@@ -33,33 +33,6 @@ type SetupModule = {
   images?: ProjectImages;
 };
 
-/**
- * The application's turn wiring: the `theorem` its entry exports. A setup written before the entry
- * existed fails here, and says what moved where.
- */
-async function wiringOf(setupPath: string, setup: Record<string, unknown>): Promise<TurnWiring> {
-  const moved = (['default', 'provider'] as const).filter((name) => setup[name] !== undefined);
-  if (moved.length > 0) {
-    throw new Error(
-      `${setupPath} exports ${moved.map((name) => `\`${name}\``).join(' and ')}. The app's wiring moved to its entry: export \`theorem\` (a TurnWiring) from the entry, with registration in \`theorem.register\` and keys in \`theorem.provider\`, and export \`entry\` from the setup.`,
-    );
-  }
-  if (typeof setup.entry !== 'string' || !setup.entry) {
-    throw new Error(
-      `${setupPath} names no entry. Export \`entry\`: the path of your app's entry point, relative to the setup file, which exports \`theorem\` (a TurnWiring).`,
-    );
-  }
-  const entryPath = resolve(dirname(resolve(setupPath)), setup.entry);
-  const entry: Record<string, unknown> = await import(pathToFileURL(entryPath).href);
-  const theorem = entry.theorem;
-  if (!theorem || typeof theorem !== 'object') {
-    throw new Error(
-      `${setup.entry} exports no \`theorem\`. Export the TurnWiring your app runs its turns with: \`export const theorem: TurnWiring = { register, provider, prepare }\`.`,
-    );
-  }
-  return theorem as TurnWiring;
-}
-
 /** What `serve.ts` hands each load on its input. The key never touches disk. */
 export type ProjectLoad = { conversationKey: string; edits?: ProjectEdits };
 
@@ -70,8 +43,9 @@ if (import.meta.main) {
   const [setupPath = '', ...flags] = Deno.args;
   const flag = (name: string) => flags[flags.indexOf(`--${name}`) + 1] ?? '';
   const port = Number(flag('port'));
-  const setup: SetupModule = await import(pathToFileURL(resolve(setupPath)).href);
-  const theorem = await wiringOf(setupPath, setup);
+  const loaded = await loadSetup(setupPath);
+  const setup = loaded.setup as SetupModule;
+  const { theorem } = loaded;
   await theorem.register?.();
   const load: ProjectLoad = await new Response(Deno.stdin.readable).json();
   let { questions, images } = setup;

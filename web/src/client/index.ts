@@ -13,6 +13,7 @@ export {
   type ChatUpdate,
   createChatController,
   type MessageDelivery,
+  type SendTextOptions,
   type SentTurn,
 } from './chat.ts';
 export {

@@ -181,6 +181,11 @@ export type ChatController = {
   /** Steers, queues, or stashes the composer's draft. A steer goes to the running turn. */
   enqueue(kind: 'queue' | 'steer' | 'stash'): Promise<void>;
   /**
+   * Steers, queues, or stashes a message made elsewhere, as `enqueue` does the draft: a composer
+   * shared by several chats gives each the same message, so its id names it in all of them.
+   */
+  pend(message: ComposerPendingMessage): Promise<void>;
+  /**
    * Sends a pending message, or the composer's draft, now: a streaming reply stops first, and a
    * reply that waits on gates is walked away from.
    */
@@ -205,10 +210,22 @@ export type ChatController = {
   setGeneration(next: { modelId: string; effort?: string }): void;
   pickSlot(name: string, value: string): void;
   /**
-   * Sends `text` and optional files as the composer would, and resolves once the reply is done;
-   * `null` when it can't go now (a reply is streaming, or waits on a gate).
+   * Sends `text`, and what `options` adds, as the composer would, and resolves once the reply is
+   * done; `null` when it can't go now (a reply is streaming, or waits on a gate).
    */
-  sendText(text: string, files?: readonly File[]): Promise<SentTurn | null>;
+  sendText(text: string, options?: SendTextOptions): Promise<SentTurn | null>;
+};
+
+/**
+ * What `sendText` sends with its text. A `model` becomes the chat's pick, as if chosen in the
+ * composer; one the profile doesn't have is refused by the turn, not swapped for its default.
+ */
+export type SendTextOptions = {
+  files?: readonly File[];
+  voice?: readonly File[];
+  model?: string;
+  /** The model's effort. Left out, the model's default. */
+  effort?: string;
 };
 
 type ComposerFields = { text: string; files: File[]; voice: File[] };
@@ -442,21 +459,31 @@ class Chat implements ChatController {
     const { draftText, pendingFiles, pendingVoice } = this.#state;
     if (!composerHasPayload(draftText, pendingFiles, pendingVoice)) return;
     this.#set({ issues: [] });
+    let message: ComposerPendingMessage;
     try {
       const draft = await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice });
-      const message = createComposerPendingMessage({ kind, draft });
-      this.#set({
-        pendingMessages: orderComposerPendingMessages([...this.#state.pendingMessages, message]),
-        ...this.#clearedComposer(),
-      });
-      if (kind !== 'steer') return;
-      const turnId = this.#turnId;
-      if (!turnId) {
-        this.#steerAfterTurnEnded();
-        return;
-      }
-      const inject = userDraftToSteerInject(draft);
-      if (inject.length === 0) return;
+      message = createComposerPendingMessage({ kind, draft });
+    } catch (err) {
+      this.#set({ failure: clientFailure(err, this.#options.iface?.labels) });
+      return;
+    }
+    this.#set(this.#clearedComposer());
+    await this.pend(message);
+  };
+
+  pend = async (message: ComposerPendingMessage): Promise<void> => {
+    this.#set({
+      pendingMessages: orderComposerPendingMessages([...this.#state.pendingMessages, message]),
+    });
+    if (message.kind !== 'steer') return;
+    const turnId = this.#turnId;
+    if (!turnId) {
+      this.#steerAfterTurnEnded();
+      return;
+    }
+    const inject = userDraftToSteerInject(message.draft);
+    if (inject.length === 0) return;
+    try {
       await this.#options.transport.steer({ turnId, id: message.id, inject });
     } catch (err) {
       this.#set({ failure: clientFailure(err, this.#options.iface?.labels) });
@@ -576,10 +603,17 @@ class Chat implements ChatController {
     this.#options.onSlotsChange?.({ ...before, [name]: value });
   };
 
-  sendText = async (text: string, files: readonly File[] = []): Promise<SentTurn | null> => {
+  sendText = async (text: string, options: SendTextOptions = {}): Promise<SentTurn | null> => {
     if (!this.#options.iface || this.#state.phase !== 'idle') return null;
+    // invariant: the turn reads the pick from the session, before `#followDefaults` next runs.
+    if (options.model !== undefined)
+      this.setGeneration({ modelId: options.model, effort: options.effort });
     const before = this.#state.blocks.length;
-    await this.#sendFields({ text, files: [...files], voice: [] });
+    await this.#sendFields({
+      text,
+      files: [...(options.files ?? [])],
+      voice: [...(options.voice ?? [])],
+    });
     return { blocks: this.#state.blocks.slice(before) };
   };
 
@@ -648,6 +682,15 @@ class Chat implements ChatController {
   }
 
   /** Draws the conversation as the host shows it: its transcript, and the reply that waits on gates. */
+  /**
+   * The session a run leaves, with the model and effort picked now.
+   * why: the run carries the pick it started with; one made while it ran must outlast it.
+   */
+  #sessionAfter(session: InterfaceTurnSession, events: readonly TurnEvent[]): InterfaceTurnSession {
+    const { selectedModel, selectedEffort } = this.#state.session;
+    return { ...sessionAfter(session, events), selectedModel, selectedEffort };
+  }
+
   #draw(view: ConversationView, session: InterfaceTurnSession, events: readonly TurnEvent[]): void {
     const shown = [...this.#state.blocks, ...this.#state.streamBlocks];
     const blocks = keepIds(shown, view.transcript);
@@ -655,7 +698,7 @@ class Chat implements ChatController {
       blocks,
       streamBlocks: keepIds(shown.slice(blocks.length), view.paused?.blocks ?? []),
       // why: A reply at rest leaves the run's own events (tokens, an ask); a paused one, the host's.
-      session: sessionAfter(session, view.paused?.events ?? events),
+      session: this.#sessionAfter(session, view.paused?.events ?? events),
       chatStarted: view.transcript.length > 0 || view.paused !== undefined,
     });
   }
@@ -663,8 +706,11 @@ class Chat implements ChatController {
   /**
    * Keeps the model and effort valid as the interface changes: a pick still on the old defaults
    * follows the new ones, and a pick the profile no longer has falls back to them.
+   * invariant: judged only when the interface changes. A pick made under this one stays, and a
+   * model it does not have is refused by the turn, not swapped for the default.
    */
   #followDefaults(iface: ComposerProfileInterface): void {
+    if (iface === this.#defaultsFrom) return;
     const { session } = this.#state;
     const next = followGenerationDefaults(
       iface,
@@ -1071,7 +1117,7 @@ class Chat implements ChatController {
     outcome: RunOutcome,
     worked: { workedMs: number; endedAt: number },
   ): boolean {
-    const session = sessionAfter(outcome.session, outcome.events);
+    const session = this.#sessionAfter(outcome.session, outcome.events);
     const { failure } = outcome;
     const reply = stampWorked(foldAssistantTurn(iface, outcome.events), worked);
     if (session.gatedTool !== null) {

@@ -209,13 +209,14 @@ await chat.submit();
 | `enqueue('steer')` | Sends the draft to the running turn with `transport.steer`. The steer leaves `pendingMessages` when the turn's `stage` event names it in `injected`, and joins the transcript there, between the reply before it and the reply after. A steer the turn never takes waits at the front of the queue. |
 | `enqueue('queue')` | Keeps the draft to send after the reply. When the reply ends without a failure and no gate waits, the first queued message is sent. |
 | `enqueue('stash')` | Keeps the draft without sending it. `queuePending(id)` moves it to the queue. |
+| `pend(message)` | Steers, queues, or stashes a message you made with `createComposerPendingMessage`, as `enqueue` does the draft. A composer shared by several chats gives each the same message, so its id names it in all of them. |
 | `sendNow(message?)` | Sends a pending message, or the draft, at once. A streaming reply is stopped first, as `stop()` stops it. A reply that waits on gates is left. |
 | `movePending(id, direction)` | Moves a pending message one place `'up'` or `'down'` among the messages of its kind. `composerPendingMoves(messages, id)` from `@theoremjs/agents/interface` says which ways it can go, so a control that can do nothing is not drawn. |
 | `restorePending(id)` | Puts a pending message back in the composer. The draft that was there is stashed first, so the user loses nothing. |
 | `stop()` | Stops the streaming reply with `transport.stop`. What the reply said before the stop stays in the transcript and the history, closed as cancelled. A queued message stays queued. When the host refuses the stop, the controller drops the stream instead, and a host that keeps the conversation keeps the stopped reply where the page can't read it. |
 | `decide(action)`, `authenticate(secret?)` | Answer the gate that the reply waits on. |
 | `branch(index)` | Cuts the conversation after transcript block `index`. |
-| `sendText(text, files?)` | Sends a message from your code. It resolves with the blocks the turn added, or `null` when the chat cannot take a message now. |
+| `sendText(text, options?)` | Sends a message from your code. `options` can add `files`, `voice`, a `model` and its `effort`. The model becomes the chat's pick, as if chosen in the composer. A model the profile does not have is refused by the turn, not replaced by the default. It resolves with the blocks the turn added, or `null` when the chat cannot take a message now. |
 
 The controller uses these methods of the transport: `turn`, `invoke` (to answer a gate), `steer`, `stop`, `conversation`, and `rewind`. `conversation` and `rewind` are called only for a profile whose host keeps the conversation. `pageResult` is called when the reply hands a tool to the page.
 

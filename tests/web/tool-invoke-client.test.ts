@@ -168,10 +168,11 @@ Deno.test('buildTurnRequest sends the message, its scope, and session permission
   assertEquals(body.replay, { sessionPermissions: ['search'] });
   assertEquals(body.input, { text: 'hello' });
 });
-Deno.test('buildTurnRequest forwards the selected model only with allowModelSelect', () => {
+Deno.test('buildTurnRequest forwards the selected model; a locked profile is sent only a pick off its default, which it refuses', () => {
   const models = { fast, smart };
   const locked = textInterface('react.invoke.locked', models, { defaultModel: 'fast' });
-  assertEquals(buildTurnRequest(locked, session({ selectedModel: 'smart' }), {}).model, undefined);
+  assertEquals(buildTurnRequest(locked, session({ selectedModel: 'smart' }), {}).model, 'smart');
+  assertEquals(buildTurnRequest(locked, session({ selectedModel: 'fast' }), {}).model, undefined);
   const selectable = textInterface('react.invoke.select', models, {
     allowModelSelect: true,
     defaultModel: 'fast',
@@ -182,7 +183,7 @@ Deno.test('buildTurnRequest forwards the selected model only with allowModelSele
   );
   assertEquals(buildTurnRequest(selectable, session(), {}).model, 'fast');
 });
-Deno.test('buildTurnRequest forwards effort only when the model allows effort select', () => {
+Deno.test('buildTurnRequest forwards effort; a model without effort select is sent only a pick off its default, which it refuses', () => {
   const iface = textInterface(
     'react.invoke.effort',
     {
@@ -198,6 +199,11 @@ Deno.test('buildTurnRequest forwards effort only when the model allows effort se
   assertEquals(buildTurnRequest(iface, session({ selectedModel: 'fast' }), {}).effort, 'normal');
   assertEquals(
     buildTurnRequest(iface, session({ selectedModel: 'fixed', selectedEffort: 'high' }), {}).effort,
+    'high',
+  );
+  assertEquals(
+    buildTurnRequest(iface, session({ selectedModel: 'fixed', selectedEffort: 'normal' }), {})
+      .effort,
     undefined,
   );
 });

@@ -203,8 +203,8 @@ A profile whose `providerContinuation.history` is `'stateless'` keeps no convers
 
 ### Send a message from your code
 
-`chatRef` gives you `send(text, files?)`. It sends the text and optional array of browser files as the user. Files use the same profile validation and encoding as composer attachments. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
-`chatRef` also gives you `stop()`. It stops the reply that streams, as the composer's stop button does. And it gives you `focus()`, which puts the keyboard in the composer, for example after your own control clears the chat.
+`chatRef` gives you `send(text, options?)`. It sends the text as the user. `options` can add `files` and `voice`, arrays of browser files, which use the same profile validation and encoding as composer attachments. It can also name a `model` and its `effort` for the turn. The model becomes the chat's pick, as if chosen in the composer. A model or file the profile does not take is refused, as the composer refuses it, and the refusal shows in the chat. When the reply is complete, it returns the blocks that the turn added. It returns `null` if the chat cannot accept a message now. This happens while a reply streams or waits for a gate.
+`chatRef` also gives you `stop()`. It stops the reply that streams, as the composer's stop button does. It gives you `focus()`, which puts the keyboard in the composer, for example after your own control clears the chat. And it gives you `controller`, the chat's `ChatController`, for a host that drives the chat from outside, as a composer shared by several chats does.
 
 ```tsx
 const chat = useRef<TheoremChatHandle>(null);

@@ -577,3 +577,42 @@ Deno.test('a restored page gate is answered unanswered once someone follows the 
   assertEquals(invokes[0].page, { unanswered: true });
   assertEquals(chat.getState().phase, 'idle');
 });
+
+Deno.test('a model the profile does not have goes to the host as picked, to be refused there', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  void chat.sendText('Default');
+  await settle();
+  assertEquals(host.turns[0].request.model, undefined);
+  reply(host.turns[0], 'Ok');
+  await settle();
+  void chat.sendText('Other', { model: 'other' });
+  await settle();
+  assertEquals(host.turns[1].request.model, 'other');
+  reply(host.turns[1], 'Ok');
+  await settle();
+  assertEquals(chat.getState().session.selectedModel, 'other');
+});
+
+Deno.test('a model and effort picked while a reply streams outlast the reply', async () => {
+  const host = heldHost();
+  const chat = createChatController({ transport: host.transport, iface: textInterface() });
+  chat.setDraftText('One');
+  void chat.submit();
+  await settle();
+  chat.setGeneration({ modelId: 'fast', effort: 'high' });
+  reply(host.turns[0], 'Done');
+  await settle();
+  assertEquals(chat.getState().session.selectedModel, 'fast');
+  assertEquals(chat.getState().session.selectedEffort, 'high');
+});
+
+Deno.test('a message pended in two chats keeps one id in both', async () => {
+  const one = createChatController({ transport: heldHost().transport, iface: textInterface() });
+  const two = createChatController({ transport: heldHost().transport, iface: textInterface() });
+  const message = createComposerPendingMessage({ kind: 'stash', draft: { text: 'Later' } });
+  await one.pend(message);
+  await two.pend(message);
+  assertEquals(one.getState().pendingMessages[0].id, message.id);
+  assertEquals(two.getState().pendingMessages[0].id, message.id);
+});

@@ -1,6 +1,7 @@
 import {
   type ChatOptions,
   createChatController,
+  type SendTextOptions,
   type SentTurn,
   type ToolDecisionAction,
 } from '@theoremjs/web/client';
@@ -13,7 +14,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 
-export type { SentTurn };
+export type { SendTextOptions, SentTurn };
 
 export type UseTheoremChatOptions = ChatOptions;
 
@@ -63,5 +64,7 @@ export function useTheoremChat(options: UseTheoremChatOptions) {
     handleToolDecision,
     handleGenerationChange: chat.setGeneration,
     sendText: chat.sendText,
+    /** The controller under it all, for a host that drives the chat from outside. */
+    controller: chat,
   };
 }

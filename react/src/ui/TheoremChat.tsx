@@ -10,7 +10,7 @@ import {
   type ComposerProfileInterface,
   removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
-import type { PageTools } from '@theoremjs/web/client';
+import type { ChatController, PageTools } from '@theoremjs/web/client';
 import {
   type ConversationView,
   createHttpTransport,
@@ -27,6 +27,7 @@ import {
 } from 'react';
 import { parseAspectRatio } from '../client/image-output.ts';
 import {
+  type SendTextOptions,
   type SentTurn,
   type UseTheoremChatOptions,
   useTheoremChat,
@@ -151,14 +152,19 @@ export type TheoremChatProps = {
 /** What a host can do to a mounted {@link TheoremChat}. */
 export type TheoremChatHandle = {
   /**
-   * Sends `text` and optional `files` as the user, and resolves with the blocks the turn added once the reply is done;
+   * Sends `text`, and what `options` adds, as the user, and resolves with the blocks the turn added once the reply is done;
    * `null` when the chat can't take a message now (a reply is streaming, or waits on a gate).
    */
-  send: (text: string, files?: readonly File[]) => Promise<SentTurn | null>;
+  send: (text: string, options?: SendTextOptions) => Promise<SentTurn | null>;
   /** Stops the reply that is streaming, as the composer's stop button does. */
   stop: () => void;
   /** Puts the keyboard in the composer. */
   focus: () => void;
+  /**
+   * The chat's controller, for a host that drives it from outside, as a composer shared by
+   * several chats does. See `createChatController` in `@theoremjs/web/client`.
+   */
+  controller: ChatController;
 };
 
 /**
@@ -300,7 +306,7 @@ function ChatBody({
     pageTools,
     onTurnEvent,
   });
-  const { sendText, handleStop } = chat;
+  const { sendText, handleStop, controller } = chat;
   const blocks = useMemo(
     () => [...chat.blocks, ...chat.streamBlocks],
     [chat.blocks, chat.streamBlocks],
@@ -316,8 +322,9 @@ function ChatBody({
       focus: () => {
         inputRef.current?.focus();
       },
+      controller,
     }),
-    [sendText, handleStop],
+    [sendText, handleStop, controller],
   );
   const composerRef = useGlide<HTMLElement>(landing, () => inputRef.current?.focus());
   const inspector = useTraceInspector(iface, transport.traces, trace);

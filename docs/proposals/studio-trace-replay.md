@@ -32,7 +32,7 @@ Content is stored by hash; `inlineContent` reads it back. A call whose content w
 `studio/replay.ts`:
 
 - `parseTraceFile(text)`: the records in a file, each checked against `traceRecordSchema`; a file that is not a trace says which record failed.
-- `replayScript(records)`: the ordered user turns and, for each, its model calls (output parts, stop) and tool results, by agent.
+- `replayScripts(records)`: one script for each agent and conversation, each with the ordered user turns and, for each, its model calls (output parts, stop) and tool results, by agent.
 - `createReplay(script, agent, onDiverge)`: a `provider` whose `complete` yields the next recorded call as `ModelEvent`s, and `toolHandlers` that answer each tool from the recording, by name, in order. `startTurn(n)` sets the turn; a turn set again goes on where it stopped, so a reply that waited on a gate resumes.
 - `recordedPayload(payload)`: every custom tool, the dependencies' included, registered as a plain function tool, so http and mcp tools answer from the recording too.
 - `recordedTranscript(script)`: the blocks the person received, for the opened view and for Continue live.
@@ -76,7 +76,7 @@ The site's dev-only model tape, and its uses in the site's studio turn.
 
 ## 7. Goals opening (same path)
 
-The research cookbook ships a recorded `.trace.json` (`studio/cookbooks/fixtures/research.trace.json`). `cookbookOpening('research')` projects it with `openingFromRecords` — the same `replayScript` → `recordedTranscript` path Replay exchange and Continue live use. The Goals landing chat starts that conversation via `startConversation`; the visitor's next message continues live. There is no second hand-written Goals exchange.
+The research cookbook ships a recorded `.trace.json` (`studio/cookbooks/fixtures/research.trace.json`). `cookbookOpening('research')` projects it with `openingFromRecords` — the same `replayScripts` → `recordedTranscript` path Replay exchange and Continue live use. The Goals landing chat starts that conversation via `startConversation`; the visitor's next message continues live. There is no second hand-written Goals exchange.
 
 `openingFromRecords` stamps each assistant `turn-done` with `workedMs` / `endedAt` from the root `invoke_agent` span (live chats use `stampWorked` the same way), so the status line can say how long the opener worked. It also emits each tool's `running` then settle phases with `at` from the `execute_tool` span start/end, so the fold sets `startedAt` / `endedAt` and the chat can show tool duration. Goals seeds View Trace with `recordedFeed(cookbookTraceRecords('research') ?? [])` into `StudioRunner` — the same `recordedFeed` Replay exchange uses.
 
@@ -86,7 +86,7 @@ The research cookbook ships a recorded `.trace.json` (`studio/cookbooks/fixtures
 
 - Other formats: a kernel cassette and chat formats (OpenAI/Anthropic messages, a Theorem transcript) converted to a replay script. Chat formats hold only final replies, so they replay at reply level.
 - Continue live from the call that diverged, not the turn.
-- Evals: `runSuite({ replay })` on the same `replayScript`, and "Save as eval case" from the studio.
+- Evals: `runSuite({ replay })` on the same `replayScripts`, and "Save as eval case" from the studio.
 - Side-by-side compare.
 
 ## 9. Verification

@@ -120,11 +120,14 @@ import { theoremStudioTheme } from '@theoremjs/studio/ui/built/theorem-studio.ts
 import { openStudio } from '@theoremjs/studio/ui/lib/studio-open.ts';
 import { StudioScreen } from '@theoremjs/studio/ui/studio-screen.tsx';
 
+// In the browser, before the first render: it reads this tab's kept workspace.
+const opened = await openStudio();
+
 export function AgentPlayground() {
   return (
     <Theme theme={theoremStudioTheme} mode="dark">
       <LayerProvider>
-        <StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.3' }} />
+        <StudioScreen opened={opened} host={{ kernelVersion: '0.3.3' }} />
       </LayerProvider>
     </Theme>
   );
@@ -135,7 +138,7 @@ In embedded mode:
 
 * **Lent Keys & Quotas**: Control which models visitors can use and enforce strict spending quotas to prevent credit exhaustion.
 * **Sandboxed Execution**: Visitors cannot write files to your server or access internal infrastructure.
-* **Tab State**: Drafts and test conversations are kept in the tab's session storage. A reload keeps them. Closing the tab removes them.
+* **Tab State**: Drafts and test conversations are kept in the browser's IndexedDB, under the tab. A reload keeps them. After the tab closes, a studio tab opened later clears them. Keys are never kept.
 
 ---
 

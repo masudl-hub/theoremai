@@ -346,21 +346,15 @@ export {
   keySlotUnset,
 } from './requirements.ts';
 export {
-  clearStudioRunPayload,
   createStudioRunId,
-  keptStudioRunIds,
-  loadStudioRunPayload,
+  keptStudioRun,
+  maskedStudioRun,
   readStudioRunIdFromUrl,
-  STUDIO_RUN_INDEX_KEY,
-  STUDIO_RUN_PAYLOAD_CAP,
-  STUDIO_RUN_PAYLOAD_KEY,
-  STUDIO_RUN_PAYLOAD_KEY_PREFIX,
-  type StudioRunIndex,
-  type StudioRunIndexEntry,
+  type StudioRunCredentials,
   type StudioRunPayload,
-  saveStudioRunPayload,
-  studioRunPayloadKey,
-  upsertStudioRunIndex,
+  studioRunCredentials,
+  studioRunIsMasked,
+  withStudioRunCredentials,
 } from './run-payload.ts';
 export type { StudioDependency } from './runtime-scope.ts';
 export { sectionNote } from './section-notes.ts';
@@ -417,7 +411,6 @@ export {
 } from './traces.ts';
 export type { StudioSteerLine, StudioTransportOptions } from './transport.ts';
 export {
-  clearStaleStudioRuns,
   createStudioDecisionTransport,
   createStudioEmbeddingTransport,
   createStudioHostTransport,

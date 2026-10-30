@@ -1,5 +1,4 @@
 import {
-  clearStaleStudioRuns,
   createResearchWorkspace,
   type StudioDraft,
   type StudioWorkspace,
@@ -9,18 +8,18 @@ import type { ReadStep } from '../../read-steps.ts';
 import type { StudioOpened } from '../studio-host.ts';
 import { openProject, type ProjectSession } from './studio-project.ts';
 import { editsAside, restoreProject, restoreStudio } from './studio-restore.ts';
-import { projectKey } from './studio-session.ts';
+import { projectKey, tabStorage } from './studio-session.ts';
 
 /**
  * What the studio opens on in this tab. Draft keys are random, so this runs in the browser. The
  * tab's kept workspace comes back unless a `seed` asks for another; then it waits behind Undo.
  */
-export function openStudio(
+export async function openStudio(
   seed?:
     | { draft: StudioDraft; question: string | undefined }
     | { workspace: StudioWorkspace; question: string | undefined },
-): StudioOpened {
-  clearStaleStudioRuns();
+): Promise<StudioOpened> {
+  await tabStorage();
   const kept = restoreStudio();
   const freshWorkspace = (workspace: StudioWorkspace) => ({
     workspace,
@@ -55,7 +54,7 @@ export function openStudio(
 export async function openStudioProject(
   said?: (step: ReadStep) => void,
 ): Promise<StudioOpened & { project: ProjectSession }> {
-  const { project, workspace } = await openProject(said);
+  const [{ project, workspace }] = await Promise.all([openProject(said), tabStorage()]);
   const key = projectKey(project.name);
   const kept = restoreProject(key, workspace, project.print);
   return {

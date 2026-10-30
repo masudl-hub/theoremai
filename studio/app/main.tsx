@@ -51,7 +51,7 @@ const reading = createReading();
 /** An agent opened in a tab of its own, or the studio on the project. */
 async function page(): Promise<ReactNode> {
   if (!onBase) {
-    const opened = openStudioRun(location.href, { project: true });
+    const opened = await openStudioRun(location.href, { project: true });
     if (opened) return <StudioRunScreen opened={opened} />;
     // The agent this tab ran is gone: back to the studio.
     location.replace('/studio/');

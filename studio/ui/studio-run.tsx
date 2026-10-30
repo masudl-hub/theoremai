@@ -2,7 +2,7 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { IconKey } from '@tabler/icons-react';
 import type { ModelBinding } from '@theoremjs/agents';
 import { PaneState, TheoremThemeProvider, TracePlacement } from '@theoremjs/react/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { studioKeySlots } from '../browser.ts';
 import {
   modelRoute,
@@ -10,13 +10,15 @@ import {
   onStudioLocal,
   readStudioRunIdFromUrl,
   STUDIO_PROVIDERS,
+  type StudioRunCredentials,
   type StudioRunPayload,
+  withStudioRunCredentials,
 } from '../mod.ts';
 import { recordsTraces } from './lib/project-traces.ts';
-import { askRunKeys } from './lib/run-keys.ts';
+import { askRunKeys, type RunKeys } from './lib/run-keys.ts';
 import { ProjectContext } from './lib/studio-project.ts';
 import type { StudioRunOpened } from './lib/studio-run-open.ts';
-import { type StudioConnectionState, useStudioConnection } from './studio-connection.tsx';
+import { useStudioConnection } from './studio-connection.tsx';
 import type { StudioSupplies } from './studio-host.ts';
 import { StudioRunner } from './studio-runner.tsx';
 import { usePhone } from './use-phone.ts';
@@ -49,7 +51,14 @@ export function StudioRunScreen({
   /** What the page gives the run, as it gives the studio. */
   supplies?: StudioSupplies;
 }) {
-  const { payload } = opened;
+  const fromStudio = useFromStudio(opened.masked);
+  const payload = useMemo(
+    () =>
+      fromStudio.tools
+        ? withStudioRunCredentials(opened.payload, fromStudio.tools)
+        : opened.payload,
+    [opened.payload, fromStudio.tools],
+  );
   // The agent and the agents it calls each read their own key slots.
   const profiles = [
     payload.profile,
@@ -81,10 +90,14 @@ export function StudioRunScreen({
     ],
     supplies,
   );
-  const keysFromStudio = useStudioKeys(
-    !opened.project && payload.connectionMode === 'byok',
-    connection.setVault,
-  );
+  const needsKeys = !opened.project && payload.connectionMode === 'byok';
+  const { setVault } = connection;
+  useEffect(() => {
+    if (needsKeys && fromStudio.keys) setVault(fromStudio.keys);
+  }, [needsKeys, fromStudio.keys, setVault]);
+  const isGone = fromStudio.gone && (needsKeys || opened.masked);
+  // why: a tool called before its credentials arrive would go out with them masked.
+  const isWaiting = opened.masked && !fromStudio.tools && !fromStudio.gone;
   const traced = recordsTraces(payload);
   const [traceOpen, setTraceOpen] = useState(false);
   const phone = usePhone();
@@ -108,13 +121,13 @@ export function StudioRunScreen({
               />
             ) : null}
           </div>
-          {keysFromStudio === 'gone' ? (
+          {isGone ? (
             <PaneState
               icon={<Icon icon={IconKey} size="lg" color="secondary" />}
-              title="Set your keys in the studio"
-              description="This tab takes its keys from the studio tab that opened it, and that tab is closed. Open the agent in a new tab from the studio again."
+              title="Open the agent from the studio again"
+              description="This tab takes its keys and its tools' credentials from the studio tab that opened it, and that tab is closed. Open the agent in a new tab from the studio again."
             />
-          ) : (
+          ) : isWaiting ? null : (
             <ProjectContext.Provider value={opened.project}>
               <StudioRunner
                 key={mode}
@@ -134,24 +147,28 @@ export function StudioRunScreen({
 }
 
 /**
- * Fills the vault from the studio tab that opened this one, when the run reads this browser's
- * keys. `gone` when there is no studio tab left to ask.
+ * What the studio tab that opened this one answers: its keys, and the credentials the kept copy of
+ * this run masked. `gone` when there is no studio tab left to ask.
  */
-function useStudioKeys(
-  needed: boolean,
-  setVault: StudioConnectionState['setVault'],
-): 'asked' | 'gone' | 'unneeded' {
+function useFromStudio(masked: boolean): {
+  keys?: RunKeys;
+  tools?: StudioRunCredentials;
+  gone: boolean;
+} {
+  const [answer, setAnswer] = useState<{ keys: RunKeys; tools: StudioRunCredentials }>();
   const [gone, setGone] = useState(false);
   useEffect(() => {
-    if (!needed) return;
     const run = readStudioRunIdFromUrl();
-    const stop = run ? askRunKeys(run, setVault) : null;
+    const stop = run
+      ? askRunKeys(run, (keys, tools) => {
+          setAnswer({ keys, tools });
+        })
+      : null;
     if (!stop) {
       setGone(true);
       return;
     }
     return stop;
-  }, [needed, setVault]);
-  if (!needed) return 'unneeded';
-  return gone ? 'gone' : 'asked';
+  }, []);
+  return { ...answer, tools: masked ? answer?.tools : undefined, gone };
 }

@@ -2560,8 +2560,6 @@ function PresetRow({
 /** OpenRouter's image vocabularies; the kernel takes free strings, so these are the studio's. */
 const OPENROUTER_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high'] as const;
 const OPENROUTER_IMAGE_BACKGROUNDS = ['auto', 'transparent', 'opaque'] as const;
-/** A pinned file rides in every turn's request, so it stays small. */
-const REFERENCE_MAX_BYTES = 4 * 1024 * 1024;
 
 /** A picked file's type and its bytes in base64. */
 async function fileData(file: File): Promise<{ mimeType: string; data: string }> {
@@ -2831,9 +2829,8 @@ function ImageReferencesEditor({
         mode="dropzone"
         accept="image/*"
         isMultiple
-        maxSize={REFERENCE_MAX_BYTES}
         isLoading={reading}
-        placeholder="Drop images or choose files, up to 4 MB each"
+        placeholder="Drop images or choose files"
         value={null}
         changeAction={changeAction}
         onChange={() => undefined}

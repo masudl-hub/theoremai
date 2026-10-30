@@ -138,13 +138,8 @@ function loadPageValues(agentKey: string): PageValues {
   }
 }
 
-/** Never throws: a full or blocked store keeps nothing. */
 function savePageValues(agentKey: string, values: PageValues): void {
-  try {
-    session()?.setItem(`${PAGE_PREFIX}${agentKey}`, JSON.stringify(values));
-  } catch {
-    // Nothing is kept.
-  }
+  session()?.setItem(`${PAGE_PREFIX}${agentKey}`, JSON.stringify(values));
 }
 
 /** Each agent's values as last read or set, so the editor and the preview show the same ones. */

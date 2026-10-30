@@ -1,16 +1,13 @@
 /**
- * Reading the studio's workspace back from this tab's sessionStorage. A kept workspace that no
- * longer fits the current shape is set aside, and a draft kept by the one-agent studio opens as
- * a workspace holding it.
+ * Reading the studio's workspace back from this tab's records. A kept workspace that no longer
+ * fits the current shape is set aside.
  */
 import {
   agentDraft,
   createBlankDraft,
   editedSince,
   STUDIO_WORKSPACE_VERSION,
-  type StudioDraft,
   type StudioWorkspace,
-  workspaceFromDraft,
 } from '../../mod.ts';
 import {
   CHAT_PREFIX,
@@ -18,12 +15,10 @@ import {
   type RestoredStudio,
   type StoredWorkspace,
   session,
+  type TabStorage,
   WORKSPACE_KEY,
 } from './studio-session.ts';
 import { keptTool, keptWorkspace } from './studio-store.ts';
-
-const V1_DRAFT_KEY = 'theorem.studio.v1';
-const V1_CHAT_KEY = 'theorem.studio.v1.chat';
 
 /**
  * True when `value` has every section `shape` has, all the way down, and lists, text and
@@ -70,20 +65,7 @@ function isStoredWorkspace(value: unknown): value is StoredWorkspace {
   );
 }
 
-/** A one-agent draft kept before workspaces, as the studio kept it. */
-function isV1Draft(
-  value: unknown,
-): value is { v: 1; draft: StudioDraft; revision: number; selectedId: string } {
-  return (
-    isRecord(value) &&
-    value.v === 1 &&
-    hasShapeOf(value.draft, createBlankDraft()) &&
-    typeof value.revision === 'number' &&
-    typeof value.selectedId === 'string'
-  );
-}
-
-function parsed(store: Storage, key: string): unknown {
+function parsed(store: TabStorage, key: string): unknown {
   const raw = store.getItem(key);
   if (!raw) return undefined;
   try {
@@ -93,23 +75,9 @@ function parsed(store: Storage, key: string): unknown {
   }
 }
 
-/**
- * A one-agent draft from before workspaces, as a workspace holding it. Its conversation was kept
- * whole, before conversations were sealed, so nothing can resume it. Either way the old keys go.
- */
-function migrateV1(store: Storage): RestoredStudio | 'discarded' | undefined {
-  const kept = parsed(store, V1_DRAFT_KEY);
-  if (kept === undefined) return undefined;
-  store.removeItem(V1_DRAFT_KEY);
-  store.removeItem(V1_CHAT_KEY);
-  if (!isV1Draft(kept)) return 'discarded';
-  const workspace = workspaceFromDraft(kept.draft, kept.selectedId);
-  return { workspace, revision: kept.revision };
-}
-
-function forgetAll(store: Storage) {
+function forgetAll(store: TabStorage) {
   store.removeItem(WORKSPACE_KEY);
-  for (const key of Object.keys(store)) {
+  for (const key of store.keys()) {
     if (key.startsWith(CHAT_PREFIX)) store.removeItem(key);
   }
 }
@@ -124,11 +92,7 @@ export function restoreStudio():
   const store = session();
   if (!store) return { kind: 'none' };
   const kept = parsed(store, WORKSPACE_KEY);
-  if (kept === undefined) {
-    const migrated = migrateV1(store);
-    if (migrated === 'discarded') return { kind: 'discarded' };
-    return migrated ? { kind: 'restored', value: migrated } : { kind: 'none' };
-  }
+  if (kept === undefined) return { kind: 'none' };
   if (isStoredWorkspace(kept)) {
     const { workspace, revision } = kept;
     return { kind: 'restored', value: { workspace, revision } };
@@ -182,11 +146,7 @@ export function setAside(key: string, edits: StudioWorkspace): void {
     workspace: keptWorkspace(edits),
     revision: 0,
   };
-  try {
-    session()?.setItem(asideKey(key), JSON.stringify(record));
-  } catch {
-    // Quota or a blocked store: the offer on the page still holds the edits.
-  }
+  session()?.setItem(asideKey(key), JSON.stringify(record));
 }
 
 /** Forgets a project's set-aside edits: the builder brought them back or let them go. */
@@ -218,11 +178,7 @@ export function keepReading(key: string, print: string, read: StudioWorkspace): 
     revision: 0,
     files: print,
   };
-  try {
-    session()?.setItem(readingKey(key), JSON.stringify(record));
-  } catch {
-    // Quota or a blocked store: a profile removed here comes back after a reload.
-  }
+  session()?.setItem(readingKey(key), JSON.stringify(record));
 }
 
 /** The files as the studio read them when they printed as `print`, if this tab kept that reading. */

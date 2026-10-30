@@ -70,7 +70,6 @@ import {
   createGeminiEmbeddingExampleDraft,
   createLiveExampleDraft,
   createNarratorExampleDraft,
-  createStudioRunId,
   draftFacets,
   duplicateAgent,
   editedSince,
@@ -115,7 +114,6 @@ import {
   type StudioTreeNode,
   type StudioWorkspace,
   sampleToolInput,
-  saveStudioRunPayload,
   scopedNodeId,
   setToolAllowed,
   sharedAsk,
@@ -184,7 +182,7 @@ import { FACET_ICON } from './lib/facet-icons.ts';
 import { movePanel, type PanelView } from './lib/panel-motion.ts';
 import { screenEndpoint } from './lib/project-address.ts';
 import { recordsTraces } from './lib/project-traces.ts';
-import { answerRunKeys } from './lib/run-keys.ts';
+import { answerRunKeys, handOffStudioRun } from './lib/run-keys.ts';
 import { sendWhenReady } from './lib/send-when-ready.ts';
 import {
   type ChatSealer,
@@ -1071,10 +1069,9 @@ function innerNodeId(id: string, focus: string): string | undefined {
   return id.startsWith(`${root}/`) ? id.slice(root.length + 1) : undefined;
 }
 
-/** Hands the compiled agent to a new tab through this browser's storage; the run route reads it back. */
+/** Hands the compiled agent to a new tab through the browser's keep; the run route takes it. */
 function openInNewTab(payload: StudioRunPayload, project: ProjectSession | null) {
-  const runId = createStudioRunId();
-  saveStudioRunPayload(payload, runId);
+  const runId = handOffStudioRun(payload);
   // A project's agent runs the project's code on its own page too.
   const named = project ? `&project=${encodeURIComponent(project.name)}` : '';
   // why: no `noopener`: the run tab asks this tab for its keys, which never leave memory.
@@ -1587,7 +1584,7 @@ function ExportMenu({
   );
 }
 
-/** The workspace's store, kept in this tab's sessionStorage, and the open agent's draft from it. */
+/** The workspace's store, kept in this tab's records, and the open agent's draft from it. */
 function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | undefined) {
   // The settings the project's profiles share, on the agents it opened as: a change to one is
   // made on each of them.

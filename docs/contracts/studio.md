@@ -52,6 +52,8 @@ An injected runtime coordinator also needs a paired `pageExecution` service when
 For a custom protocol in a host-supplied authoring runtime, pass definitions through `StudioRuntime.providerDefinitions`.
 The runtime registers these definitions before profiles. They remain host code and never enter saved profile JSON.
 The public demo retains its separate provider policy.
+Each studio tab keeps its workspace, its chats' refs, its map and its page values in the browser's IndexedDB, under the tab's id; its sessionStorage holds only that id and the key its page runs seal with. A reload keeps the records, and a duplicated tab starts with a copy. A sweep clears a closed tab's records once it has seen the tab closed for `GONE_MS`. Keys and the sealing key never go into IndexedDB. A run handed to a new tab is kept with its tools' credentials masked, and the run tab asks the studio tab that opened it for them and for the keys, through `postMessage`.
+
 A Studio chat keeps its conversation in a sealed store. A run in the page seals with a key that the tab keeps. A project run seals with one key that `serve.ts` makes for each Studio run and hands to every load, so a chat survives a Save or an edit. Quitting Studio ends the chats. The key is never written to disk.
 
 A key test names the provider whose models read the slot, and asks that provider's declared `check` through `checkKey`. The studio knows no key prefixes. A provider from a project's own definition is checked through the project's registration; with no `check` the answer is `unchecked`. The shared handler reaches public hosts only. The key is never logged, kept, or sent back.

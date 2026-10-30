@@ -1,11 +1,11 @@
 /**
- * Each agent's preview conversation, kept in this tab's sessionStorage beside the workspace so a
- * reload resumes it. What is kept is the conversation's ref: the conversation sealed with a key,
- * which opens only where that key is. A run in the page seals with the tab's own key; the hosted
- * demo seals on its server.
+ * Each agent's preview conversation, kept in this tab's records beside the workspace so a reload
+ * resumes it. What is kept is the conversation's ref: the conversation sealed with a key, which
+ * opens only where that key is. A run in the page seals with the tab's own key, which stays in the
+ * tab's sessionStorage and never reaches the browser's keep; the hosted demo seals on its server.
  */
 import { newConversationKey } from '../../conversation-key.ts';
-import { CHAT_PREFIX, isRecord, session } from './studio-session.ts';
+import { CHAT_PREFIX, isRecord, session, tabSession } from './studio-session.ts';
 
 /** Who sealed a kept ref, so it is offered only to a run that can open it. */
 export type ChatSealer = 'page' | 'demo';
@@ -21,7 +21,7 @@ let pageKeyHeld: string | undefined;
  * refs it opens, so both go when the tab does. A new key forgets the refs the last one sealed.
  */
 export function pageConversationKey(): string {
-  const store = session();
+  const store = tabSession();
   try {
     const kept = store?.getItem(PAGE_KEY);
     if (kept) return kept;
@@ -54,39 +54,20 @@ function keptRef(raw: string): { sealer: ChatSealer; ref: string } | undefined {
 
 /** Forgets every ref `sealer` sealed: none of them opens any more. */
 function forgetSealedBy(sealer: ChatSealer): void {
-  try {
-    const store = session();
-    if (!store) return;
-    for (const key of Object.keys(store)) {
-      if (!key.startsWith(CHAT_PREFIX)) continue;
-      const raw = store.getItem(key);
-      if (raw && keptRef(raw)?.sealer === sealer) store.removeItem(key);
-    }
-  } catch {
-    // Nothing to forget.
+  const store = session();
+  for (const key of store?.keys() ?? []) {
+    if (!key.startsWith(CHAT_PREFIX)) continue;
+    const raw = store?.getItem(key);
+    if (raw && keptRef(raw)?.sealer === sealer) store?.removeItem(key);
   }
 }
 
 /**
- * Keeps an agent's conversation ref. The ref holds the whole conversation, its media too: one too
- * big for the tab's storage is not kept, and the agent's last kept ref is forgotten with it.
- * Never throws.
+ * Keeps an agent's conversation ref. The ref holds the whole conversation, its media too: one the
+ * browser refuses to keep is forgotten, with the agent's last kept ref. Never throws.
  */
 export function saveConversation(agentKey: string, sealer: ChatSealer, ref: string): void {
-  const store = session();
-  if (!store) return;
-  const key = `${CHAT_PREFIX}${agentKey}`;
-  try {
-    store.setItem(key, JSON.stringify({ sealer, ref }));
-    return;
-  } catch {
-    // Over quota: an older ref is a conversation that already moved on, so none is kept.
-  }
-  try {
-    store.removeItem(key);
-  } catch {
-    // Nothing more to do.
-  }
+  session()?.setItem(`${CHAT_PREFIX}${agentKey}`, JSON.stringify({ sealer, ref }));
 }
 
 /**
@@ -94,32 +75,20 @@ export function saveConversation(agentKey: string, sealer: ChatSealer, ref: stri
  * conversation kept before refs) is forgotten, so it holds no room.
  */
 export function restoreConversation(agentKey: string, sealer: ChatSealer): string | undefined {
-  try {
-    const store = session();
-    const key = `${CHAT_PREFIX}${agentKey}`;
-    const raw = store?.getItem(key);
-    if (!raw) return undefined;
-    const kept = keptRef(raw);
-    if (!kept) store?.removeItem(key);
-    return kept?.sealer === sealer ? kept.ref : undefined;
-  } catch {
-    return undefined;
-  }
+  const store = session();
+  const key = `${CHAT_PREFIX}${agentKey}`;
+  const raw = store?.getItem(key);
+  if (!raw) return undefined;
+  const kept = keptRef(raw);
+  if (!kept) store?.removeItem(key);
+  return kept?.sealer === sealer ? kept.ref : undefined;
 }
 
 /** Forgets one agent's conversation, or every agent's. */
 export function clearConversation(agentKey?: string): void {
-  try {
-    const store = session();
-    if (!store) return;
-    for (const key of Object.keys(store)) {
-      if (
-        agentKey === undefined ? key.startsWith(CHAT_PREFIX) : key === `${CHAT_PREFIX}${agentKey}`
-      ) {
-        store.removeItem(key);
-      }
-    }
-  } catch {
-    // Nothing to clear.
+  const store = session();
+  for (const key of store?.keys() ?? []) {
+    if (agentKey === undefined ? key.startsWith(CHAT_PREFIX) : key === `${CHAT_PREFIX}${agentKey}`)
+      store?.removeItem(key);
   }
 }

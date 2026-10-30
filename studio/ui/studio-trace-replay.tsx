@@ -687,7 +687,7 @@ function TraceConsole({
   const scripts = useMemo(() => (opened ? replayScripts(opened.records) : []), [opened]);
   const [pick, setPick] = useState<{ of: OpenedTrace; index: number }>();
   // why: a newly opened file starts on its first conversation.
-  const picked = pick?.of === opened ? pick.index : 0;
+  const picked = pick && pick.of === opened ? pick.index : 0;
   const script = opened ? (scripts[picked] ?? emptyScript) : undefined;
   const records = useMemo(
     () => shownRecords(opened?.records ?? [], scripts, script),

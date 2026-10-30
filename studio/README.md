@@ -189,18 +189,21 @@ import '@astryxdesign/core/astryx.css';
 import '@theoremjs/studio/ui/built/theme.css';
 import '@theoremjs/studio/ui/motion.css';
 
+// In the browser, before the first render: it reads this tab's kept workspace.
+const opened = await openStudio();
+
 export function Studio() {
   return (
     <Theme theme={theoremStudioTheme} mode="dark">
       <LayerProvider>
-        <StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.3' }} />
+        <StudioScreen opened={opened} host={{ kernelVersion: '0.3.3' }} />
       </LayerProvider>
     </Theme>
   );
 }
 ```
 
-Render it in the browser only. `openStudio()` reads the tab's kept workspace, so it does not run on a server.
+Render it in the browser only. `openStudio()` reads the tab's kept workspace from the browser, so it does not run on a server. It returns a promise: await it before the first render.
 
 `host` tells the screen about your page:
 
@@ -279,7 +282,7 @@ const studio = createStudioDraftHandler({
 ```
 
 ```tsx
-<StudioScreen opened={openStudio()} host={{ kernelVersion: '0.3.3', lentKeys: keys }} />
+<StudioScreen opened={opened} host={{ kernelVersion: '0.3.3', lentKeys: keys }} />
 ```
 
 `hostOptions` gets each draft's profile. The draft names its own key slots, so fill the slots its models name. A decision or embedding whose vault holds no key is refused with `auth`.
@@ -330,7 +333,7 @@ Use these when you build on the studio's draft yourself: compile it, export it a
 | `studioSource()` | Compiled draft as a TypeScript module (`registerTool`, `defineProfile`, `registerProfile`) |
 | `LentKeys`, `LentHolds`, `StudioRunsOn`, `ON_OWN_KEYS`, `modelBindingViolation()` | What a studio runs on: a page's lent keys (which models, built-ins, and decision sizes they allow, and what runs on them keep to whatever a profile says), or the builder's own keys or machine, where a profile runs as written |
 | `zodFromJsonSchema()`, `parseJsonSchema()` | Authored JSON Schema → Zod for registration |
-| run-payload helpers, `studioRunDefines()`, `clearStaleStudioRuns()` | Handoff of a compiled draft to the run tab, whether a kept run still defines on this package, and clearing the ones that do not |
+| `maskedStudioRun()`, `studioRunCredentials()`, `withStudioRunCredentials()`, `readStudioRunIdFromUrl()`, `studioRunDefines()` | Handoff of a compiled draft to the run tab: the copy the browser keeps has its tools' credentials masked, and the run tab gets them back from the studio tab that opened it. `studioRunDefines()` says whether a kept run still defines on this package |
 | `createStudioTransport()`, `studioInterface()` | The run tab's transport for a compiled draft; its `traces` feed receives the records each run writes |
 | `runGuardrailProbes()`, `runGuardrailProbe()`, `probeDraft()`, `PROBE_BOUNDARIES`, `PROBE_BOUNDARY_NOTES`, `PROBE_STATUSES` | Test a draft's guardrails: send one text across every boundary, or across one, on a scripted model. Each boundary answers with a status (passed, flagged, redacted, or blocked), whether its turn was tainted by a remote read, the guardrail events, what went on past the boundary, and the turn's trace records. No model or host is called. Each boundary's note says what crosses it, when the kernel reads it and what the kernel does there |
 | `PROBE_BATTERY` | Hard texts to probe with: disguised attacks and harmless texts that look like attacks, each with the boundary it crosses and whether a guardrail should act on it |

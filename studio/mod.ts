@@ -203,6 +203,14 @@ export {
 } from './guardrail-probe.ts';
 export { unheldProblem } from './held-credentials.ts';
 export {
+  LABEL_AREAS,
+  type LabelArea,
+  type LabelAreaPrefix,
+  type LabelAudience,
+  labelAreaOf,
+  PROFILE_LABEL_KEYS,
+} from './label-areas.ts';
+export {
   type LentBinding,
   type LentDecisionLimits,
   type LentHolds,

@@ -1162,11 +1162,9 @@ function buildLiveSession(args: {
       const { tool } = event;
       if (tool.phase === undefined) {
         if (calls.has(tool.callId) || identities.has(tool.callId)) {
-          throw new TheoremError(
-            'bad_response',
-            labelText('provider.duplicate_call', {}, profile.labels),
-            { cause: { code: 'duplicate_pending_call' } },
-          );
+          throw new TheoremError('bad_response', labelText('provider.duplicate_call'), {
+            cause: { code: 'duplicate_pending_call' },
+          });
         }
         identities.set(tool.callId, crypto.randomUUID());
       }

@@ -115,7 +115,6 @@ import {
   HTTP_METHODS,
   type HttpMethod,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
-  LABEL_KEYS,
   type LabelKey,
   labelDefault,
   PROFILE_HANDLE_MAX_CHARS,
@@ -199,8 +198,12 @@ import {
   isOpenRouterRoute,
   keptLimits,
   kernelDefinitions,
+  LABEL_AREAS,
+  type LabelAreaPrefix,
+  type LabelAudience,
   type LentKeys,
   LOCAL_PROVIDER_ID,
+  labelAreaOf,
   lentCompression,
   MODEL_LIMITS,
   type ModelBindingDraft,
@@ -224,6 +227,7 @@ import {
   optionAt,
   type PatternDraft,
   type PatternSourceDraft,
+  PROFILE_LABEL_KEYS,
   type ProtocolOptionField,
   plantsCanary,
   protocolOptionFields,
@@ -590,7 +594,10 @@ function ModelPolicySection({
         label="Switching"
         path="profile.allowModelSelect"
         field="allowModelSelect"
+        // invariant: as modelSelectEnabled, the picker shows only with two models or more.
         value={models.allowModelSelect}
+        isDisabled={draft.modelBindings.length < 2}
+        disabledMessage="Add a second model to let people switch."
         onChange={(allowModelSelect) => {
           set({ allowModelSelect });
         }}
@@ -1374,9 +1381,9 @@ function ProtocolOptionsSection({
   );
 }
 
-/** A setting a boolean option takes: left to the protocol, on, or off. */
+/** A setting a boolean option takes: left to the provider, on, or off. */
 const OPTION_SWITCH_SEGMENTS: Segment<'default' | 'on' | 'off'>[] = [
-  { value: 'default', label: 'Protocol default', icon: IconCircleDashed },
+  PROVIDER_DEFAULT,
   { value: 'on', label: 'On', icon: IconCheck },
   { value: 'off', label: 'Off', icon: IconX },
 ];
@@ -6465,189 +6472,32 @@ function ToolSpecEditor({
   );
 }
 
-/** Labels' areas, by labels key prefix: what visitors read first, then what the model reads. */
-/** Who reads a line: the visitor, in the chat, or the model, in its context. */
-type LabelAudience = 'visitor' | 'model';
-
-const LABEL_AREAS: readonly {
-  prefix: string;
-  title: string;
-  note: string;
-  icon: IconType;
-  audience: LabelAudience;
-}[] = [
-  {
-    prefix: 'error',
-    title: 'Errors',
-    note: 'When a turn fails.',
-    icon: IconAlertTriangle,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'attachments',
-    title: 'Attachments',
-    note: "When a file can't be sent.",
-    icon: IconPaperclip,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'voice',
-    title: 'Voice',
-    note: "When a voice note can't be recorded or used.",
-    icon: IconMicrophone,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'session',
-    title: 'Session',
-    note: 'Waits, approvals, and signing in.',
-    icon: IconHourglass,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'stop',
-    title: 'Stops',
-    note: 'Why a reply ended short.',
-    icon: IconPlayerStop,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'composer',
-    title: 'Composer',
-    note: 'The model and effort pickers.',
-    icon: IconAdjustmentsHorizontal,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'detect.blocked',
-    title: 'Blocked messages',
-    note: "When a detector stops the visitor's message.",
-    icon: IconShieldOff,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'thought',
-    title: 'Thoughts',
-    note: 'What stands in for what a thought leaves out.',
-    icon: IconBulb,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'live',
-    title: 'Live',
-    note: 'When a live session ends.',
-    icon: IconHeadset,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'quota',
-    title: 'Quota',
-    note: 'When the daily limit is reached.',
-    icon: IconGauge,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'tool',
-    title: 'Tools',
-    note: "When a tool call can't run.",
-    icon: IconTool,
-    audience: 'model',
-  },
-  {
-    prefix: 'repair',
-    title: 'Repair',
-    note: 'Fixing a reply that failed its schema.',
-    icon: IconBandage,
-    audience: 'model',
-  },
-  {
-    prefix: 'egress',
-    title: 'Egress',
-    note: 'A reply that fails its check, sent back or refused.',
-    icon: IconSend,
-    audience: 'model',
-  },
-  {
-    prefix: 'continue',
-    title: 'Resumption',
-    note: 'Picking up a reply that stopped short.',
-    icon: IconPlayerTrackNext,
-    audience: 'model',
-  },
-  {
-    prefix: 'canary',
-    title: 'Canary',
-    note: "The note that binds each turn's canary.",
-    icon: IconFeather,
-    audience: 'model',
-  },
-  {
-    prefix: 'taint',
-    title: 'Untrusted content',
-    note: 'Why a tool call was refused after reading it.',
-    icon: IconBiohazard,
-    audience: 'model',
-  },
-  {
-    prefix: 'advisory',
-    title: 'Advisories',
-    note: 'Notes beside content that tries to direct it.',
-    icon: IconInfoCircle,
-    audience: 'model',
-  },
-  {
-    prefix: 'detect',
-    title: 'Detectors',
-    note: 'When a detector stops a call or a result, and what it asks the model to leave out.',
-    icon: IconShieldSearch,
-    audience: 'model',
-  },
-  {
-    prefix: 'sign_in',
-    title: 'Sign-in',
-    note: 'Where a tool waits for the person to sign in to a service.',
-    icon: IconLogin,
-    audience: 'model',
-  },
-  {
-    prefix: 'user_data',
-    title: 'User data',
-    note: "The note on the fence around the user's message.",
-    icon: IconUser,
-    audience: 'model',
-  },
-  {
-    prefix: 'context',
-    title: 'Turn context',
-    note: 'The note on the fence around what the app or the host adds.',
-    icon: IconLayersUnion,
-    audience: 'model',
-  },
-  {
-    prefix: 'structured',
-    title: 'Structured replies',
-    note: 'Asking for the final answer as JSON or as an answer tool call.',
-    icon: IconBraces,
-    audience: 'model',
-  },
-  {
-    prefix: 'compaction',
-    title: 'Compaction',
-    note: 'Asking for the summary that replaces earlier turns.',
-    icon: IconFold,
-    audience: 'model',
-  },
-];
-
-/** The area a label key is under: the one with the longest prefix that holds it. */
-function areaOf(key: string): (typeof LABEL_AREAS)[number] | undefined {
-  let found: (typeof LABEL_AREAS)[number] | undefined;
-  for (const area of LABEL_AREAS) {
-    const holds = key === area.prefix || key.startsWith(`${area.prefix}.`);
-    if (holds && (!found || area.prefix.length > found.prefix.length)) found = area;
-  }
-  return found;
-}
+/** Each labels area's icon. */
+const LABEL_AREA_ICONS: Record<LabelAreaPrefix, IconType> = {
+  error: IconAlertTriangle,
+  attachments: IconPaperclip,
+  voice: IconMicrophone,
+  session: IconHourglass,
+  stop: IconPlayerStop,
+  composer: IconAdjustmentsHorizontal,
+  'detect.blocked': IconShieldOff,
+  thought: IconBulb,
+  live: IconHeadset,
+  quota: IconGauge,
+  tool: IconTool,
+  repair: IconBandage,
+  egress: IconSend,
+  continue: IconPlayerTrackNext,
+  canary: IconFeather,
+  taint: IconBiohazard,
+  advisory: IconInfoCircle,
+  detect: IconShieldSearch,
+  sign_in: IconLogin,
+  user_data: IconUser,
+  context: IconLayersUnion,
+  structured: IconBraces,
+  compaction: IconFold,
+};
 
 const LABEL_AUDIENCES: readonly {
   value: LabelAudience;
@@ -6802,11 +6652,11 @@ function SharedLabelRow({
         <HStack gap={1} align="center">
           <Text type="supporting">{shared.setting} is off.</Text>
           <Button
-            label={`Open ${profileGraphFacet(facet)?.label ?? facet}`}
+            label={`${draft.included.includes(facet) ? 'Open' : 'Add'} ${profileGraphFacet(facet)?.label ?? facet}`}
             variant="ghost"
             size="sm"
             onClick={() => {
-              // A section left out of the profile has no node to open until it's back in.
+              // why: a section left out of the profile has no node to open until it's added.
               setDraft((current) => includeFacet(current, facet));
               onSelect(facet);
             }}
@@ -6884,7 +6734,7 @@ function LabelsEditor({
 function labelAreas(draft: StudioDraft, needle: string, audience: LabelAudience) {
   return LABEL_AREAS.filter((area) => needle || area.audience === audience)
     .map((area) => {
-      const all = LABEL_KEYS.filter((key) => areaOf(key) === area);
+      const all = PROFILE_LABEL_KEYS.filter((key) => labelAreaOf(key) === area);
       const keys = needle
         ? all.filter((key) =>
             [
@@ -6938,7 +6788,7 @@ function LabelAudiencePicker({
 function LabelAreaTrigger({ area }: { area: ReturnType<typeof labelAreas>[number] }) {
   return (
     <HStack gap={2} align="center">
-      <Icon icon={area.icon} size="sm" color="secondary" />
+      <Icon icon={LABEL_AREA_ICONS[area.prefix]} size="sm" color="secondary" />
       <StackItem size="fill">
         <VStack gap={0}>
           <Text type="supporting" weight="semibold" color="primary">

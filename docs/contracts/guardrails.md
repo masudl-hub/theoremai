@@ -647,7 +647,8 @@ Kinds (`ERROR_KINDS`): `config`, `request`, `conflict`, `not_found`, `input`, `a
 
 Wording resolves the profile's `labels` → `overrideLabels` → the default.
 Defaults are never forced: any profile type may carry a `labels` with any
-key. A failure more specific than its kind carries its own copy
+key except the `HOST_LABEL_KEYS` (provider and protocol errors, and the decision
+box hint), which only `overrideLabels` changes. A failure more specific than its kind carries its own copy
 (`TheoremError(kind, message, { copy: { key, params } })`, surfaced as
 `errorCopy`, typed `ErrorCopies`), which wins over the kind's line. A failure
 that found several problems carries a list — one line per problem, joined by newlines (a refused
@@ -1772,7 +1773,7 @@ From `src/guardrails/mod.ts`:
 | Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `NameAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaBusy`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
-| Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels`, `validateLabelOverrides` |
+| Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `HOST_LABEL_KEYS`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels`, `validateLabelOverrides` |
 
 From `src/guardrails/compile-egress.ts` (build time only):
 

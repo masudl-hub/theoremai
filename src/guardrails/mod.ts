@@ -125,6 +125,7 @@ export { injectionSpans } from './injection.ts';
 export type { ClientLabelKey, LabelKey, LabelOverrides, LabelParams } from './labels.ts';
 export {
   CLIENT_LABEL_KEYS,
+  HOST_LABEL_KEYS,
   LABEL_KEYS,
   labelCatalogRows,
   labelDefault,

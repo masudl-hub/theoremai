@@ -288,6 +288,15 @@ export const CLIENT_LABEL_KEYS = [
   'composer.effort',
 ] as const satisfies readonly LabelKey[];
 
+/**
+ * Lines only {@linkcode overrideLabels} changes: builder and host errors from providers and
+ * protocols, and the decision box hint. A profile's `labels` never reach them.
+ */
+export const HOST_LABEL_KEYS: readonly LabelKey[] = LABEL_KEYS.filter(
+  (key) =>
+    key.startsWith('provider.') || key.startsWith('protocol.') || key === 'decision.box_image',
+);
+
 /** One of {@linkcode CLIENT_LABEL_KEYS}. */
 export type ClientLabelKey = (typeof CLIENT_LABEL_KEYS)[number];
 

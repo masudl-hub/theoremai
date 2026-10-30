@@ -2,7 +2,12 @@ import type { z } from 'zod';
 import { TOOL_BOUNDARIES } from '../../guardrails/boundaries.ts';
 import { detectProblem } from '../../guardrails/detectors.ts';
 import { errorKind, TheoremError } from '../../guardrails/error.ts';
-import { type LabelOverrides, labelText, validateLabelOverrides } from '../../guardrails/labels.ts';
+import {
+  HOST_LABEL_KEYS,
+  type LabelOverrides,
+  labelText,
+  validateLabelOverrides,
+} from '../../guardrails/labels.ts';
 import {
   BLOCKED_REPLY_ON_BLOCK,
   type BlockedReplySpec,
@@ -647,6 +652,14 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertRequiredFields(input);
   assertNameLengths(input);
   if (input.labels) validateLabelOverrides(input.labels, `Profile ${input.id}`);
+  for (const key of HOST_LABEL_KEYS) {
+    if (input.labels?.[key] !== undefined) {
+      throw new TheoremError(
+        'config',
+        `Profile ${input.id}: labels '${key}' is a host line, which a profile cannot change; set it with overrideLabels`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
   assertIdentitySystem(input);
   assertDetect(input);
   if (input.type === 'host') {

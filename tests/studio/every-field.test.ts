@@ -12,10 +12,11 @@ import {
   typesafeProvider,
 } from '../../mod.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
-import { LABEL_KEYS, labelPlaceholders } from '../../src/guardrails/labels.ts';
+import { labelPlaceholders } from '../../src/guardrails/labels.ts';
 import { catalogPathFor } from '../../src/kernel/schema.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
+import { PROFILE_LABEL_KEYS } from '../../studio/label-areas.ts';
 import { connectionFields, kernelDefinitions } from '../../studio/providers.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -196,7 +197,7 @@ const PROFILES = [
     inputs: {},
     tools: { allow: [] },
     labels: Object.fromEntries(
-      LABEL_KEYS.map((key) => [
+      PROFILE_LABEL_KEYS.map((key) => [
         key,
         `Worded for ${key}. ${labelPlaceholders(key)
           .map((name) => `{${name}}`)

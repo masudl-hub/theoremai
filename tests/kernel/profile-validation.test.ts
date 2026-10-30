@@ -911,6 +911,11 @@ Deno.test('a cache needs openrouter, a live profile needs a channel, a label key
     "Profile p: unknown labels key 'nope'",
     'labels key',
   );
+  check(
+    said(textProfile({ labels: { 'provider.duplicate_call': 'x' } })),
+    "Profile p: labels 'provider.duplicate_call' is a host line, which a profile cannot change; set it with overrideLabels",
+    'host label',
+  );
 });
 Deno.test('a compaction profile must be a text profile', () => {
   const registry = createProfileRegistry(createToolRegistry(), createSchemaRegistry());

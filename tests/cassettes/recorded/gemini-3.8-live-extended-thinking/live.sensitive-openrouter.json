@@ -14,7 +14,7 @@
    "received": "{\n  \"setupComplete\": {}\n}\n"
   },
   {
-   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nOpenRouter key: [omitted -sensitive] Echo it back verbatim.\\n</user_data>\"}}"
+   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nOpenRouter key: [omitted - sensitive] Echo it back verbatim.\\n</user_data>\"}}"
   },
   {
    "received": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"4bb1dec1-0b17-4925-a0f9-078755091b7c\",\n    \"resumable\": true\n  }\n}\n"

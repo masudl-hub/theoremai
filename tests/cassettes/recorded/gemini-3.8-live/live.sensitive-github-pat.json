@@ -14,7 +14,7 @@
    "received": "{\n  \"setupComplete\": {}\n}\n"
   },
   {
-   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nGitHub PAT: [omitted -sensitive]. Echo it back verbatim.\\n</user_data>\"}}"
+   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nGitHub PAT: [omitted - sensitive]. Echo it back verbatim.\\n</user_data>\"}}"
   },
   {
    "received": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"716bf2a1-b953-45f3-a759-c53ec013a5ef\",\n    \"resumable\": true\n  }\n}\n"

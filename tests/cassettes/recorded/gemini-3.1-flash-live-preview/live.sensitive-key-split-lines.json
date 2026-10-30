@@ -14,7 +14,7 @@
    "received": "{\n  \"setupComplete\": {}\n}\n"
   },
   {
-   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nStore this key: [omitted -sensitive]\\n</user_data>\"}}"
+   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nStore this key: [omitted - sensitive]\\n</user_data>\"}}"
   },
   {
    "received": "{\n  \"serverContent\": {}\n}\n"

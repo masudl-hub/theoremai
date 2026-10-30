@@ -14,7 +14,7 @@
    "received": "{\n  \"setupComplete\": {}\n}\n"
   },
   {
-   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nOpenAI key: [omitted -sensitive] Echo it back verbatim.\\n</user_data>\"}}"
+   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nOpenAI key: [omitted - sensitive] Echo it back verbatim.\\n</user_data>\"}}"
   },
   {
    "received": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"96877f8e-41c0-4b98-a31b-3a15d8ffa42f\",\n    \"resumable\": true\n  }\n}\n"

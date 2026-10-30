@@ -35,6 +35,7 @@ import {
   type StudioWorkspace,
   startedHere,
   stitchCookbook,
+  studioSource,
   withLibraryDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
@@ -93,6 +94,13 @@ Deno.test('the research scout rewrites a candidate whose quote no tool returned,
     { toolResults: [{ tool: 'search_papers', output: { id: '2401.01234', abstract: 'Recall.' } }] },
   );
   assertEquals((refused as { isValid: boolean }).isValid, false);
+});
+
+Deno.test('the research agents print a real key slot, and say the quote check is owed', () => {
+  const [reader, scout] = compiled(createResearchWorkspace()).agents;
+  assert(reader && scout);
+  assert(studioSource(reader).includes("keySlot: 'typesafe'"));
+  assert(studioSource(scout).includes('The check of each item of'));
 });
 
 Deno.test('the research scout links its page-reading tools to the Jev page reader', () => {

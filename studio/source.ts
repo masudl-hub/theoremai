@@ -286,7 +286,7 @@ export function studioSource(compiled: CompiledStudio): string {
     ...(structured ? ['registerStructured'] : []),
     ...(customTools.length ? ['registerTool'] : []),
   ];
-  const defined = profileSource(profile);
+  const defined = profileSource(withItemChecks(profile, {}));
   const blocks = [
     [
       ...(customTools.length ? [`import { z } from 'zod';`] : []),
@@ -384,9 +384,7 @@ export function agentModule(
     ...(questions ? ['type DecisionQuestion'] : []),
     'defineProfile',
   ];
-  const defined = profileSource(
-    withoutStudioFills(checks ? withItemChecks(profile, checks) : profile),
-  );
+  const defined = profileSource(withoutStudioFills(withItemChecks(profile, checks ?? {})));
   const blocks = [
     `import { ${imports.join(', ')} } from ${quoteSource(from)};\n${
       defined.compiles ? `${COMPILE_IMPORT}\n` : ''

@@ -489,7 +489,8 @@ export function createPageReaderExampleDraft(): StudioDraft {
       agentId: RESEARCH_PAGE_READER_AGENT_ID,
       handle: 'pagereader',
     },
-    modelBindings: binding ? [{ ...binding, apiId: 'jev-latest' }] : [],
+    models: { ...draft.models, key: 'typesafe' },
+    modelBindings: binding ? [{ ...binding, apiId: 'jev-latest', keySlot: 'typesafe' }] : [],
     decision: {
       ...draft.decision,
       contract: 'research.page-passages.v1',

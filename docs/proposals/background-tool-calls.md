@@ -6,7 +6,7 @@
 **Job:** say how a tool call gives the model a reply now, lets the turn go on, and settles after the turn ends.
 **After reading:** you know what a host gets, what the kernel must change, and which questions are still open.
 
-Names in this document that the code does not have yet are proposed names: `background`, `afterMs`, `detach`, `stop`, `drain`, `graceMs`, and the `background` tool phase and result kind.
+Names in this document that the code does not have yet are proposed names: `registerTool.background`, `afterMs`, `tools.modelBackground`, `detach`, `stop`, `drain`, `graceMs`, `tool.background_started`, and the `background` tool phase, result kind and trace link kind.
 
 ## 1. The problem
 
@@ -27,7 +27,7 @@ A later design can add a host-run body for a job that must survive a restart. It
 
 ## 3. What a host gets
 
-Each tool has one setting. Unset means `"never"`, which is what happens today.
+Each tool has one setting, `registerTool.background`, beside `registerTool.permission`. Unset means `"never"`, which is what happens today.
 
 | Setting | The model gets its reply |
 | --- | --- |
@@ -35,7 +35,9 @@ Each tool has one setting. Unset means `"never"`, which is what happens today.
 | `{ afterMs: 10000 }` | When the body has run past this time |
 | `"never"` | When the body ends |
 
-The model can also ask for the background on a call. The body runs the same way in all cases. Only the moment of the reply changes.
+With `tools.modelBackground` on, the profile lets the model ask for the background on any tool not set to `"never"`. Only then does the kernel add a `background` argument to those tools. It removes the argument before the input check, the hooks and the invocation hash. A tool with its own `background` input reads as `config`.
+
+The body runs the same way in all cases. Only the moment of the reply changes.
 
 If the body ends before that moment, the model reads the real result, as it does today. Bad input, a permission gate and a sign-in gate all happen before the hand-off, so they also answer in the turn.
 
@@ -62,6 +64,8 @@ The host supplies a trusted service on `TurnRequest`, in the same way as `execut
 - each event of a detached call
 - a way to keep the process alive for the run, for a host that needs one
 
+The model reads `tool.background_started` from the label catalog. A profile overrides it through `labels`, as for any other catalog line.
+
 ## 4. What the kernel changes
 
 ### 4.1 Detach
@@ -74,11 +78,15 @@ This changes what the end of a step means. Today `runSideBySide` closes every ru
 
 The call's stop signal becomes the call's own. The turn's signal reaches it only until the reply moment. A nested turn takes its signal from the call, so one change covers the children.
 
+The loop wraps `coordinateTool`, so every path that runs a tool gets it: `runTurn`, `invokeTool`, `invokeToolStep` and a live `executeTool`. The service goes on `InvokeToolRequest` too. A gated `"always"` tool therefore detaches when the host resumes it.
+
+The loop handles one event at a time. `settle` waits for the `detach` save, so a body that ends during the save cannot overtake its reply. A failed `detach` save aborts the body, and the call ends as `settlement_write_failed`, as a failed settlement does today. The model never read a reply, so the body must not go on.
+
 ### 4.2 A new state
 
 The reply is neither `running` nor `settled`. `ToolExecutionCoordinator` gains `detach(claim, reply)`, and the host saves the reply before the kernel emits it. `BeginToolOperationResult` gains a `background` kind that carries the saved reply. A second run of the same operation then reads the reply and does not fail with `conflict`.
 
-A coordinator with no `detach` reads as `config` when a profile can run a background tool. This is a Breaking Changes entry.
+A profile that can run a background tool needs a coordinator with `detach`. A missing coordinator or a missing `detach` reads as `config`, because a late result would have nowhere to go. `createMemoryToolExecution` gains `detach`. This is a Breaking Changes entry.
 
 ### 4.3 A deliberate stop
 
@@ -110,7 +118,7 @@ A shutdown is not a stop. A host on shutdown calls `drain`. It aborts each detac
 
 - `post_tool` runs at the real end. It cannot inject or abort, because no turn is open.
 - The agent tool's tokens go on the late `complete` event, because `done` has already gone out.
-- The late work needs its own trace record, linked to the turn's.
+- The late work writes its own trace record. It links to the turn through `TurnTraceLink`, with a new kind, `background`.
 
 ### 4.6 Nested calls
 
@@ -120,30 +128,34 @@ Only a top-level call detaches. A tool inside an agent tool runs inline, so a pa
 
 Live calls already run while the model speaks, so the same loop fits. A live session has no per-call signal today, so a detached call adds one. `answerModel` throws after the session closes, so a settlement after close goes to the coordinator only. The host tells the person.
 
-### 4.8 Tools that cannot detach
+### 4.8 Clients
+
+The `background` phase joins the exhaustive switch in `src/interface/tool-calls.ts`, so a client shows the call as running on. Events on the sink go to the host only. The host decides what a client sees of them.
+
+### 4.9 Tools that cannot detach
 
 A tool with `answeredBy: 'page'` and a `background` setting reads as `config`. Provider built-in tools have no body in the kernel, so the setting does not apply to them.
 
 ## 5. Limits a host must know
 
+- **The host keeps the turn's services valid until settlement.** The call still uses the `host` value, `credentials`, `onStage`, `onAgentCall` and the provider options. `ToolCredentialSource` is read per slot and takes refreshed tokens, so a long job keeps working. A `host` value tied to the request does not.
 - **The work is process-bound.** It stops with the process and does not restart. The claim stays open for the host's sweep.
 - **A Worker host cannot run a long job.** A Container can.
 - **`maxOutcomeBytes` covers the final outcome only.** A larger result settles as `result_too_large`, and the result is lost. Set it high for a long agent tool, or leave it unset.
 - **Theorem's own web host refuses native resumption during a job.** `web/src/server/session-boundary.ts` refuses it while an operation is not settled. A detached call must count as answered there.
 
-## 6. Open questions
+## 6. Settled by existing rules
 
-1. **Taint.** A late result that read a remote page must raise taint on the turn that reads it. Taint does not cross turns today. This waits for the cross-turn taint decision.
-2. **How the model asks.** A reserved `background` argument on each tool changes every tool schema. It could appear only when the profile turns it on.
-3. **A `"never"` tool.** The Bonsai spec lets the model background any call, whatever the setting. A write tool may need a way to refuse.
-4. **The reply text.** The kernel catalog holds the default line, with the operation ID. A tool can add its own text. The copy needs wording.
-5. **How the late result reaches the model.** Nothing here defines it. The history holds only the reply. A plain-text paste loses `suspicious`, so question 1 needs a typed input.
-6. **Where the setting lives.** It must be a profile field, because the profile resolves everything and agent tools are declared there.
-7. **A stop in the chat.** Stopping the turn after the reply does not stop the job. A person may expect it to.
-8. **A sign-in in a running job.** `coordinate.ts` lets a body ask for a sign-in after the claim. After the reply no turn can pause, so this must settle as a failure.
-9. **A confirmation in a running job.** Agent tools refuse a tool that can stop on a gate. The planned `guardrails.taint.write: 'ask'` decides at run time, so that refusal does not cover it.
-10. **The reply and the body race.** The body can end while `detach` saves. `settle` must wait for that save. A failed save needs its own rule, because the body is running.
-11. **No coordinator.** `coordinateTool` runs with none, and `createMemoryToolExecution` is for one turn or process. The `config` refusal in section 4.2 must cover a missing coordinator.
-12. **Admission.** A later turn can start the same job again, and nothing lets a host refuse one. The service needs a hook. The kernel sets no limit.
-13. **`invokeTool`.** It also goes through `coordinateTool`. This design covers turns and live sessions only.
-14. **Clients.** The new phase reaches `turn-events.ts`, `src/interface/tool-calls.ts`, the web client and Studio. The sink's events reach none of them.
+| Question | Answer | Rule |
+| --- | --- | --- |
+| How does the late result reach the model? | The host reads the outcome and passes it in `input.context` or `input.history`. The kernel adds no input. A job that ends during a turn joins through the host's inject | "Host decides, Theorem runs". Detectors already read those boundaries |
+| Does the setting sit on the tool or the profile? | The tool, beside `registerTool.permission`. The profile switches on the model's ask | The tool catalog holds per-tool behaviour. Opt-in features stay off when unset |
+| Does a `"never"` tool refuse the model? | Yes. No argument appears on it | Bonsai's spec, section 3.20 |
+| Does a stop in the chat stop the job? | Only if the host calls `stop`. The turn's signal stops at the reply | "Host decides, Theorem runs" |
+| What if a body asks for a sign-in after the reply? | It ends as `execution_interrupted`, through `gateAfterClaim`, as it does for any gate after a claim. Agent tools refuse sign-in tools at registration | Existing coordinator rule |
+| What if a planned `guardrails.taint.write: 'ask'` fires in a job? | It refuses in any nested turn, inline or detached. No one can answer there | Agent tools already refuse any tool that can stop on a gate |
+| Can a host limit jobs or refuse a repeat? | Yes, with a `pre_tool` stage that answers `deny` | No invented limits. The hook exists |
+
+## 7. Open
+
+**Taint across turns.** This does not block the design. A settled outcome already keeps `provenance` and `suspicious`, so a host has them for the late result. Taint itself still ends with the turn, for a late result and for any earlier remote read. That decision is separate.

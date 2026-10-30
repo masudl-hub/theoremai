@@ -3,10 +3,10 @@
  * Runs the research cookbook for real until the turn is worth shipping as the Goals opener,
  * then writes its Studio `.trace.json` fixture.
  *
- *   THEOREM_ENV_FILE=tmp/record-openrouter.env deno run -A scripts/record-research-exchange.ts
+ *   THEOREM_ENV_FILE=path/to/keys.env deno run -A scripts/record-research-exchange.ts
  *
- * Uses {@link judgeResearchOpening}. Runs the cookbook profile as compiled (OpenRouter
- * `google/gemini-3.8-flash`, medium default). Override with `THEOREM_RECORD_MODEL`. Theorem
+ * Uses {@link judgeResearchOpening}. Runs the cookbook profile as compiled (Gemini
+ * `gemini-3.8-flash`, medium default). Override with `THEOREM_RECORD_MODEL`. Theorem
  * itself never reads env; this script alone fills the vault.
  */
 import type { ProfileDefinition } from '@theoremjs/agents';
@@ -26,7 +26,7 @@ import { runtimeProvider, type StudioRuntime, studioScope } from '../studio/runt
 import { loadHostEnv } from './host-env.ts';
 
 const OUT = new URL('../studio/cookbooks/fixtures/research.trace.json', import.meta.url);
-const RECORD_MODEL = Deno.env.get('THEOREM_RECORD_MODEL')?.trim() || 'google/gemini-3.8-flash';
+const RECORD_MODEL = Deno.env.get('THEOREM_RECORD_MODEL')?.trim() || 'gemini-3.8-flash';
 /** OpenRouter slug (`vendor/model`) or explicit `openrouter` / `openrouter/…`. */
 function viaOpenRouter(apiId: string): boolean {
   const flag = Deno.env.get('THEOREM_RECORD_PROVIDER')?.trim().toLowerCase();

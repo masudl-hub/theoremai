@@ -533,14 +533,14 @@ export function createResearchScoutDraft(): StudioDraft {
       defaultModel: 'gemini',
       allowModelSelect: false,
       maxSteps: 32,
-      key: 'openrouter',
+      key: 'gemini',
     },
     modelBindings: [
       defaultModelBinding({
         modelId: 'gemini',
-        ...firstServed('openrouter', 'text'),
-        apiId: 'google/gemini-3.8-flash',
-        keySlot: 'openrouter',
+        ...firstServed('gemini', 'text'),
+        apiId: 'gemini-3.8-flash',
+        keySlot: 'gemini',
         efforts: [
           { alias: 'normal', level: 'medium' },
           { alias: 'deep', level: 'high' },

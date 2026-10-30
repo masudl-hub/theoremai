@@ -137,3 +137,13 @@ A tool with `answeredBy: 'page'` and a `background` setting reads as `config`. P
 2. **How the model asks.** A reserved `background` argument on each tool changes every tool schema. It could appear only when the profile turns it on.
 3. **A `"never"` tool.** The Bonsai spec lets the model background any call, whatever the setting. A write tool may need a way to refuse.
 4. **The reply text.** The kernel catalog holds the default line, with the operation ID. A tool can add its own text. The copy needs wording.
+5. **How the late result reaches the model.** Nothing here defines it. The history holds only the reply. A plain-text paste loses `suspicious`, so question 1 needs a typed input.
+6. **Where the setting lives.** It must be a profile field, because the profile resolves everything and agent tools are declared there.
+7. **A stop in the chat.** Stopping the turn after the reply does not stop the job. A person may expect it to.
+8. **A sign-in in a running job.** `coordinate.ts` lets a body ask for a sign-in after the claim. After the reply no turn can pause, so this must settle as a failure.
+9. **A confirmation in a running job.** Agent tools refuse a tool that can stop on a gate. The planned `guardrails.taint.write: 'ask'` decides at run time, so that refusal does not cover it.
+10. **The reply and the body race.** The body can end while `detach` saves. `settle` must wait for that save. A failed save needs its own rule, because the body is running.
+11. **No coordinator.** `coordinateTool` runs with none, and `createMemoryToolExecution` is for one turn or process. The `config` refusal in section 4.2 must cover a missing coordinator.
+12. **Admission.** A later turn can start the same job again, and nothing lets a host refuse one. The service needs a hook. The kernel sets no limit.
+13. **`invokeTool`.** It also goes through `coordinateTool`. This design covers turns and live sessions only.
+14. **Clients.** The new phase reaches `turn-events.ts`, `src/interface/tool-calls.ts`, the web client and Studio. The sink's events reach none of them.

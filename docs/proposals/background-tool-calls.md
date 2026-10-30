@@ -58,7 +58,9 @@ sequenceDiagram
     Note over Host: stores the outcome, wakes Bonsai
 ```
 
-The host supplies a trusted service on `TurnRequest`, in the same way as `execution` and `pageExecution`. Profiles and request bodies cannot inject it. The service receives:
+The host supplies a trusted service on `TurnRequest`, in the same way as `execution` and `pageExecution`. Profiles and request bodies cannot inject it. A turn without the service runs every tool inline, whatever its setting, and the model gets no `background` argument. No late result exists, so nothing is lost. One profile can detach on web and run inline on a channel that only hears from the host when it asks.
+
+The service receives:
 
 - a handle for each detached call, with `stop`
 - each event of a detached call
@@ -86,7 +88,7 @@ The loop handles one event at a time. `settle` waits for the `detach` save, so a
 
 The reply is neither `running` nor `settled`. `ToolExecutionCoordinator` gains `detach(claim, reply)`, and the host saves the reply before the kernel emits it. `BeginToolOperationResult` gains a `background` kind that carries the saved reply. A second run of the same operation then reads the reply and does not fail with `conflict`.
 
-A profile that can run a background tool needs a coordinator with `detach`. A missing coordinator or a missing `detach` reads as `config`, because a late result would have nowhere to go. `createMemoryToolExecution` gains `detach`. This is a Breaking Changes entry.
+A turn with the service and no coordinator with `detach` reads as `config`, because a late result would have nowhere to go. `pageExecution` follows the same rule: `receivePageAnswer` refuses it with no coordinator. `createMemoryToolExecution` gains `detach`. This is a Breaking Changes entry.
 
 ### 4.3 A deliberate stop
 

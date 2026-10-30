@@ -436,6 +436,7 @@ function PairGeneration({ sides }: { sides: readonly SideChat[] }) {
   return (
     <ComplexSelector
       label="Model"
+      isLabelHidden
       size="sm"
       variant="ghost"
       placement="above"

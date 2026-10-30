@@ -801,7 +801,7 @@ export const COOKBOOKS: Readonly<Record<CookbookId, CookbookEntry>> = {
   research: {
     id: 'research',
     kind: 'system',
-    verb: 'every claim checked',
+    verb: 'every quote checked',
     label: 'Research scout',
     description:
       'Ask a hard question about models, papers, or memory. It searches the Hub, arXiv, and GitHub, cuts each page to the passages that bear on the question, and will not let a quote through unchecked.',

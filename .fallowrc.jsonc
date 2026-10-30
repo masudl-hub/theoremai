@@ -63,7 +63,9 @@
     "@astryxdesign/theme-neutral"
   ],
   // Vite's worker suffix on a package the host installs; the kernel repo has no Monaco.
-  "ignoreUnresolvedImports": ["monaco-editor/editor/editor.worker?worker"],
+  // why: `src/cli/**` is outside the analysis below, so the package's own `./cli` export resolves
+  // to nothing here. A clean install fails on it; a checkout with a linked package does not.
+  "ignoreUnresolvedImports": ["monaco-editor/editor/editor.worker?worker", "@theoremjs/agents/cli"],
   // Modules loaded only by dynamic import, whose exports are read off the loaded module:
   // docs-truth's ownership graph (graph.mjs → _map.mjs), the studio's in-page engine (loaded
   // when a run needs it), and the decision example's pictures (loaded when the example is made).

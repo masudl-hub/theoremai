@@ -13,9 +13,13 @@ export type RunKeys = Readonly<Record<string, string>>;
 
 const ASK = 'theorem.studio.run-keys.ask';
 const KEYS = 'theorem.studio.run-keys';
+const GONE = 'theorem.studio.run-keys.gone';
+/** Held by the studio page that handed a run off, for as long as it holds the run's credentials. */
+const RUN_LOCK = 'theorem.studio.run-keys:';
 
 type Ask = { type: typeof ASK; run: string };
 type Reply = { type: typeof KEYS; run: string; keys: RunKeys; tools: StudioRunCredentials };
+type Gone = { type: typeof GONE; run: string };
 
 const isAsk = (data: unknown): data is Ask =>
   typeof data === 'object' &&
@@ -31,6 +35,12 @@ const isReply = (data: unknown): data is Reply =>
   typeof (data as Reply).keys === 'object' &&
   typeof (data as Reply).tools === 'object';
 
+const isGone = (data: unknown): data is Gone =>
+  typeof data === 'object' &&
+  data !== null &&
+  (data as Gone).type === GONE &&
+  typeof (data as Gone).run === 'string';
+
 /** A run as the browser keeps it, and whether keeping it masked credentials the run tab must ask for. */
 export interface KeptRun {
   payload: StudioRunPayload;
@@ -39,6 +49,9 @@ export interface KeptRun {
 
 /** The runs this tab handed off, with the credentials their kept copies mask. They last as long as the page. */
 const handed = new Map<string, StudioRunCredentials>();
+/** The keys the studio holds now, while its screen is open. */
+let heldKeys: (() => RunKeys) | undefined;
+let answering = false;
 
 /**
  * Hands `payload` to a new run tab through the browser's keep, its tools' credentials masked;
@@ -48,6 +61,9 @@ export function handOffStudioRun(payload: StudioRunPayload): string {
   const run = createStudioRunId();
   const kept: KeptRun = { payload: maskedStudioRun(payload), masked: studioRunIsMasked(payload) };
   handed.set(run, studioRunCredentials(payload));
+  // invariant: the lock is asked for before the run tab opens, so its query finds it held or pending.
+  void navigator.locks?.request(`${RUN_LOCK}${run}`, () => new Promise<never>(() => {}));
+  answerAsks();
   handOffRun(run, JSON.stringify(kept));
   return run;
 }
@@ -62,40 +78,60 @@ function openedHere(source: MessageEventSource | null): source is Window {
 }
 
 /**
- * Answers each run tab this studio tab opened with the keys it holds now, and its tools' credentials.
+ * Answers each run tab this page opened, for the life of the page: with the keys the screen holds
+ * now and the run's tools' credentials, or that it holds them no longer.
  * invariant: keys go only to a same-origin window this tab opened, for a run id this tab handed off.
  */
-export function answerRunKeys(keys: () => RunKeys): () => void {
-  const answer = (event: MessageEvent) => {
+function answerAsks(): void {
+  if (answering) return;
+  answering = true;
+  globalThis.addEventListener('message', (event: MessageEvent) => {
     if (event.origin !== globalThis.location.origin || !isAsk(event.data)) return;
-    const tools = handed.get(event.data.run);
-    if (!openedHere(event.source) || !tools) return;
-    const reply: Reply = { type: KEYS, run: event.data.run, keys: keys(), tools };
+    if (!openedHere(event.source)) return;
+    const { run } = event.data;
+    const tools = handed.get(run);
+    const reply: Reply | Gone =
+      tools && heldKeys ? { type: KEYS, run, keys: heldKeys(), tools } : { type: GONE, run };
     event.source.postMessage(reply, globalThis.location.origin);
-  };
-  globalThis.addEventListener('message', answer);
+  });
+}
+
+/** Lends the screen's keys to the run tabs this page opened, until the returned cleanup. */
+export function answerRunKeys(keys: () => RunKeys): () => void {
+  heldKeys = keys;
   return () => {
-    globalThis.removeEventListener('message', answer);
+    if (heldKeys === keys) heldKeys = undefined;
   };
 }
 
 /**
- * Asks the studio tab that opened this run for its keys and its tools' credentials. Returns null
- * when no studio tab is there to ask; otherwise the cleanup.
+ * Asks the studio tab that opened this run for its keys and its tools' credentials. `onGone` when
+ * that tab no longer holds them: it was closed, reloaded or left the studio. Returns null when
+ * no studio tab opened this one; otherwise the cleanup.
  */
 export function askRunKeys(
   run: string,
   onKeys: (keys: RunKeys, tools: StudioRunCredentials) => void,
+  onGone: () => void,
 ): (() => void) | null {
   const studio = globalThis.window.opener as Window | null;
   if (!studio) return null;
   const receive = (event: MessageEvent) => {
     if (event.origin !== globalThis.location.origin || event.source !== studio) return;
     if (isReply(event.data) && event.data.run === run) onKeys(event.data.keys, event.data.tools);
+    if (isGone(event.data) && event.data.run === run) onGone();
   };
   globalThis.addEventListener('message', receive);
+  // why: a page that left or closed answers nothing; its lock on the run is gone with it.
+  void navigator.locks?.query().then(({ held = [], pending = [] }) => {
+    if (![...held, ...pending].some((lock) => lock.name === `${RUN_LOCK}${run}`)) onGone();
+  });
   const ask: Ask = { type: ASK, run };
-  studio.postMessage(ask, globalThis.location.origin);
+  try {
+    studio.postMessage(ask, globalThis.location.origin);
+  } catch {
+    onGone();
+  }
   return () => {
     globalThis.removeEventListener('message', receive);
   };

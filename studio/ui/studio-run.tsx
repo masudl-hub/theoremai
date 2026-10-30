@@ -125,7 +125,7 @@ export function StudioRunScreen({
             <PaneState
               icon={<Icon icon={IconKey} size="lg" color="secondary" />}
               title="Open the agent from the studio again"
-              description="This tab takes its keys and its tools' credentials from the studio tab that opened it, and that tab is closed. Open the agent in a new tab from the studio again."
+              description="This tab takes its keys and its tools' credentials from the studio tab that opened it, and that tab no longer holds them: it was closed, reloaded, or left the studio. Open the agent in a new tab from the studio again."
             />
           ) : isWaiting ? null : (
             <ProjectContext.Provider value={opened.project}>
@@ -148,7 +148,7 @@ export function StudioRunScreen({
 
 /**
  * What the studio tab that opened this one answers: its keys, and the credentials the kept copy of
- * this run masked. `gone` when there is no studio tab left to ask.
+ * this run masked. `gone` when no studio tab holds them for it.
  */
 function useFromStudio(masked: boolean): {
   keys?: RunKeys;
@@ -160,9 +160,15 @@ function useFromStudio(masked: boolean): {
   useEffect(() => {
     const run = readStudioRunIdFromUrl();
     const stop = run
-      ? askRunKeys(run, (keys, tools) => {
-          setAnswer({ keys, tools });
-        })
+      ? askRunKeys(
+          run,
+          (keys, tools) => {
+            setAnswer({ keys, tools });
+          },
+          () => {
+            setGone(true);
+          },
+        )
       : null;
     if (!stop) {
       setGone(true);

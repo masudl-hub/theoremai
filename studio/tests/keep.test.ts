@@ -11,7 +11,7 @@ import {
   workspaceFromDraft,
 } from '../mod.ts';
 import { handOffStudioRun } from '../ui/lib/run-keys.ts';
-import { pageConversationKey } from '../ui/lib/studio-conversation.ts';
+import { pageConversationKey, saveConversation } from '../ui/lib/studio-conversation.ts';
 import { GONE_MS, memoryKeep, sweepPlan } from '../ui/lib/studio-keep.ts';
 import { takeRun } from '../ui/lib/studio-session.ts';
 import { createStudioStore } from '../ui/lib/studio-store.ts';
@@ -57,6 +57,8 @@ Deno.test('a kept run masks its tools’ credentials, and they come back from th
 
 Deno.test('nothing the studio keeps in the browser holds a credential or the tab’s key', async () => {
   written.length = 0;
+  const key = pageConversationKey();
+  saveConversation('a', 'page', 'ref-a');
   const run = runWithCredentials();
   const id = handOffStudioRun(run);
   const store = createStudioStore({
@@ -76,8 +78,7 @@ Deno.test('nothing the studio keeps in the browser holds a credential or the tab
     ),
   }));
   store.flush();
-  const key = pageConversationKey();
-  assert(written.length >= 2, 'the run and the workspace were kept');
+  assert(written.length >= 3, 'the conversation, the run and the workspace were kept');
   for (const value of written) {
     for (const secret of [...SECRETS, key]) assert(!value.includes(secret), secret);
   }

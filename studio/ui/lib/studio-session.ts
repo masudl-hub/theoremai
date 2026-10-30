@@ -5,7 +5,7 @@
  * and a duplicated tab starts with a copy of them.
  */
 import type { STUDIO_WORKSPACE_VERSION, StudioWorkspace } from '../../mod.ts';
-import { indexedDbKeep, type Keep, memoryKeep } from './studio-keep.ts';
+import { GONE_MS, indexedDbKeep, type Keep, memoryKeep } from './studio-keep.ts';
 
 export const WORKSPACE_KEY = 'theorem.studio.v2';
 /** A project's workspace is kept under its own name, apart from the website's and other projects'. */
@@ -88,8 +88,14 @@ function hold(locks: TabLocks, name: string): Promise<boolean> {
   });
 }
 
-/** The tab's id, and the tab it is a copy of when another open tab holds the id it found. */
-async function tabIdentity(locks: TabLocks | undefined): Promise<{ id: string; from?: string }> {
+/**
+ * The tab's id, and the tab it is a copy of when another open tab holds the id it found. With
+ * `copy` false the tab starts with no records: a run tab finds its opener's id, and is not a copy.
+ */
+async function tabIdentity(
+  locks: TabLocks | undefined,
+  copy: boolean,
+): Promise<{ id: string; from?: string }> {
   const store = tabSession();
   let found: string | null = null;
   try {
@@ -105,7 +111,7 @@ async function tabIdentity(locks: TabLocks | undefined): Promise<{ id: string; f
   } catch {
     // As above.
   }
-  return found ? { id, from: found } : { id };
+  return found && copy ? { id, from: found } : { id };
 }
 
 /** Clears the records of tabs that have closed. Runs after the tab opens; nothing waits for it. */
@@ -133,16 +139,19 @@ async function browserKeep(): Promise<{ keep: Keep; locks?: TabLocks }> {
 }
 
 /**
- * Opens this tab's records, and clears those of tabs that have closed. `using` replaces the
- * browser's keep and locks, as a test does.
+ * Opens this tab's records, and clears those of tabs that have closed: once now, and again
+ * `GONE_MS` later, so a tab seen closed now is cleared then. `copy` false opens a run tab, which
+ * starts with no copy of the tab that opened it. `keep` and `locks` replace the browser's, as a
+ * test does.
  */
-export async function openTabStorage(using?: {
-  keep: Keep;
-  locks?: TabLocks;
-}): Promise<TabStorage> {
-  const { keep, locks } = using ?? (await browserKeep());
+export async function openTabStorage(
+  options: { copy?: boolean; keep?: Keep; locks?: TabLocks } = {},
+): Promise<TabStorage> {
+  const { keep, locks } = options.keep
+    ? { keep: options.keep, locks: options.locks }
+    : await browserKeep();
   const claim = async () => {
-    const { id, from } = await tabIdentity(locks);
+    const { id, from } = await tabIdentity(locks, options.copy ?? true);
     return { id, kept: await keep.claim(id, from) };
   };
   const { id, kept } = locks ? await locks.request(SWEEP_LOCK, claim) : await claim();
@@ -160,13 +169,19 @@ export async function openTabStorage(using?: {
   };
   open = { id, keep, records, storage };
   opening = Promise.resolve(storage);
-  if (locks) sweepClosed(keep, locks).catch(() => {});
+  if (locks) {
+    const sweep = () => {
+      sweepClosed(keep, locks).catch(() => {});
+    };
+    sweep();
+    setTimeout(sweep, GONE_MS);
+  }
   return storage;
 }
 
-/** This tab's records, opened once for the page. */
-export function tabStorage(): Promise<TabStorage> {
-  opening ??= openTabStorage();
+/** This tab's records, opened once for the page. A run tab opens them with `copy` false. */
+export function tabStorage(options?: { copy?: boolean }): Promise<TabStorage> {
+  opening ??= openTabStorage(options);
   return opening;
 }
 
@@ -179,7 +194,7 @@ const RUN_PREFIX = 'theorem.studio.run:';
 
 /** The run this tab opens, taken from the tab that handed it off, or kept since it was. */
 export async function takeRun(run: string): Promise<string | undefined> {
-  await tabStorage();
+  await tabStorage({ copy: false });
   if (!open) return undefined;
   const name = `${RUN_PREFIX}${run}`;
   const kept = open.records.get(name);

@@ -17,6 +17,8 @@ import { byModality, groundingCounts, modalityCounts } from '../usage.ts';
  *   `mime_type` + `data`. Audio also reports `sample_rate` / `channels`; the
  *   buffered mime already states them (`audio/l16; rate=24000; channels=1`),
  *   the streamed one does not (`audio/l16`), so they are folded into the mime.
+ *   Probed 30/10/2026: gemini-3.1-flash-lite-image streams `image` deltas with
+ *   `data` alone, no `mime_type`, so the bytes name their own type.
  * - `code_execution_call` carries `id` and `arguments: { language, code }`;
  *   `code_execution_result` carries `call_id`, `result`, and `is_error`. Each
  *   arrives whole, in one delta (5 577 characters of code in one probe).
@@ -43,13 +45,25 @@ function interactionsMime(rec: Record<string, unknown>): string | undefined {
   return extra.length > 0 ? `${mime}; ${extra.join('; ')}` : mime;
 }
 
+/** How each image type Google returns begins, in base64. */
+const IMAGE_MIME_BY_BASE64_START = [
+  ['/9j/', 'image/jpeg'],
+  ['iVBORw0KGgo', 'image/png'],
+  ['UklGR', 'image/webp'],
+] as const;
+
+function imageMimeOfBytes(data: string): string | undefined {
+  return IMAGE_MIME_BY_BASE64_START.find(([start]) => data.startsWith(start))?.[1];
+}
+
 function interactionsMedia(rec: Record<string, unknown>): ModelEvent[] {
-  const mimeType = interactionsMime(rec);
   const { data } = rec;
-  if (!mimeType || typeof data !== 'string' || !data) {
+  if (typeof data !== 'string' || !data) {
     return [];
   }
-  return [{ type: 'media', media: { mimeType, data } }];
+  const mimeType =
+    interactionsMime(rec) ?? (rec.type === 'image' ? imageMimeOfBytes(data) : undefined);
+  return mimeType ? [{ type: 'media', media: { mimeType, data } }] : [];
 }
 
 function textEvent(type: 'thought' | 'text', text: string): ModelEvent[] {

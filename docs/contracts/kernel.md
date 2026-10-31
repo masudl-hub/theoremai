@@ -434,6 +434,7 @@ runTurn({ profile: 'desk', path: 'web', conditions: { plan: 'free' }, input });
 | Every line that fits is sent, in order, a blank line apart. `req.system` follows the lines. | `pickSystemLines`, `resolveTurnSystemPrompt` |
 | A turn states every condition with a listed value. `path` reads the turn's own `path`. | `turnFacts` |
 | A `when` reads conditions and slots. It uses the activity-label grammar. `+`, `is null`, and dotted names are refused. | `systemLinesProblem` |
+| A turn can leave a slot unset. Then `when tone is warm` does not fit and `when tone is not warm` fits, as in an activity label. To make a turn state a fact, use a condition. | `pickSystemLines` |
 | A condition chooses lines and never fills text. Only a slot fills `{name}`. | `fillSlots` |
 | A line is a string or a list of parts. A bare `{ private }` in the list of lines is refused. | `assertSystemLines` |
 | Marks are settled on the prompt as written, so a dropped line never changes the marks of a kept line. | `pickSystemLines` |

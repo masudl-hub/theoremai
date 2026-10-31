@@ -121,7 +121,7 @@ Deno.test('a when can read a slot, and only a slot fills {name}', () => {
   const slots = (tone: string) => ({ input: { slots: { tone } } });
   assertEquals(sent(prompt, { ...ALEXA_PAID, ...slots('warm') }), 'base\n\nW warm');
   assertEquals(sent(prompt, { ...ALEXA_PAID, ...slots('cold') }), 'base\n\nC');
-  refused(prompt, ALEXA_PAID, /tone/);
+  assertEquals(sent(prompt, ALEXA_PAID), 'base\n\nC');
   refused(prompt, { ...WEB_FREE, ...slots('cold') }, /other/);
   assertEquals(
     sent(prompt, { ...WEB_FREE, input: { slots: { tone: 'cold', other: 'o' } } }),

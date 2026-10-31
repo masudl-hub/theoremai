@@ -125,14 +125,6 @@ export function turnFacts(
 
 function lineFits(line: Line, facts: Record<string, string>): boolean {
   if (line.when === 'unreadable') return false;
-  for (const check of line.when) {
-    if (!Object.hasOwn(facts, check.path)) {
-      throw new TheoremError(
-        'request',
-        `A prompt line reads '${check.path}', and the turn stated no value for it`, // labels-exempt: developer contract error
-      );
-    }
-  }
   return line.when.every((check) => checkHolds(check, facts));
 }
 

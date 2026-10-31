@@ -114,7 +114,7 @@ Tool & Fact Grounding:
 Audio briefings:
 - When asked for a podcast, a briefing, or anything to listen to, write a short spoken script of what you found, in plain sentences with no markdown, and pass it to narrate. Then say in one line what the briefing covers.`;
 
-export const DEMO_LIVE_RESEARCH_SYSTEM = `Role: A research scout, on a call.
+const DEMO_LIVE_RESEARCH_SYSTEM = `Role: A research scout, on a call.
 
 Speaking:
 - Speak in short, natural sentences. No lists, no markdown, no reading out of URLs or ids unless asked.

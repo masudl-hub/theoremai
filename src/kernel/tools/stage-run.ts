@@ -82,6 +82,32 @@ export type PostToolStageOutcome = {
 };
 
 /** Tool `preTool` → host `pre_tool` → mutate re-parse. */
+/** What a resume already granted, so `pre_tool` asks it no second time. */
+function resumeApproval(resume: ToolContext['resume']) {
+  const granted = isGateResumeGranted(resume);
+  // why: Permission and sign-in gates come before `pre_tool`, so granting one answers nothing it asked.
+  const confirmed = granted && resume?.gateKind !== 'permission' && resume?.gateKind !== 'auth';
+  return {
+    confirmed,
+    // why: An approval skips the tool's own check it already passed — unless the user edited the arguments.
+    approvedAsIs: confirmed && resume?.edited === undefined,
+    approved: granted && resume?.gateKind !== 'auth',
+  };
+}
+
+function invalidAfterMutate(error: z.ZodError, ctx: ToolContext): PreBodyOutcome {
+  return {
+    ok: false,
+    kind: 'failed',
+    failure: {
+      code: 'invalid_input',
+      kind: 'bad_response',
+      message: labelText('tool.input_invalid_after_mutate', {}, ctx.profile.labels),
+      details: error.flatten(),
+    },
+  };
+}
+
 export async function* runPreToolPipeline(args: {
   tool: {
     name: string;
@@ -104,14 +130,7 @@ export async function* runPreToolPipeline(args: {
   // why: A resumed call's step has ended, so every call it waited for has settled.
   const after = ctx.resume ? [] : stepCallIds(names, base.callId, stages?.stepCalls);
   let toolPreTool: StageResult | undefined;
-  // why: Permission and sign-in gates come before `pre_tool`, so granting one answers nothing it asked.
-  const confirmed =
-    isGateResumeGranted(ctx.resume) &&
-    ctx.resume?.gateKind !== 'permission' &&
-    ctx.resume?.gateKind !== 'auth';
-  // why: An approval skips the tool's own check it already passed — unless the user edited the arguments.
-  const approvedAsIs = confirmed && ctx.resume?.edited === undefined;
-  const approved = isGateResumeGranted(ctx.resume) && ctx.resume?.gateKind !== 'auth';
+  const { confirmed, approved, approvedAsIs } = resumeApproval(ctx.resume);
   if (tool.preTool && !approvedAsIs) {
     toolPreTool = (await tool.preTool(input as never, ctx)) ?? undefined;
   }
@@ -129,51 +148,28 @@ export async function* runPreToolPipeline(args: {
     approved,
   });
   if (!pre.ok) {
-    if (pre.kind === 'gated') {
-      if ('input' in pre) {
-        const candidate = pre.input;
-        const parsed = tool.input.safeParse(plainToolInput(candidate));
-        if (!parsed.success) {
-          return {
-            ok: false,
-            kind: 'failed',
-            failure: {
-              code: 'invalid_input',
-              kind: 'bad_response',
-              message: labelText('tool.input_invalid_after_mutate', {}, ctx.profile.labels),
-              details: parsed.error.flatten(),
-            },
-          };
-        }
-        pre.gate = {
-          ...pre.gate,
-          ...gateDetails(tool, parsed.data),
-          preparedArguments: jsonObjectSchema.parse(operationWireValue(plainToolInput(candidate))),
-        };
-      }
-      yield stageEventFields('pre_tool', {
-        callId: base.callId,
-        toolName: tool.name,
-        callNotStarted: true,
-        gate: pre.gate,
-      });
-      yield toolEvent(base, { phase: 'gate', gate: pre.gate });
+    if (pre.kind !== 'gated') return pre;
+    if ('input' in pre) {
+      const candidate = pre.input;
+      const parsed = tool.input.safeParse(plainToolInput(candidate));
+      if (!parsed.success) return invalidAfterMutate(parsed.error, ctx);
+      pre.gate = {
+        ...pre.gate,
+        ...gateDetails(tool, parsed.data),
+        preparedArguments: jsonObjectSchema.parse(operationWireValue(plainToolInput(candidate))),
+      };
     }
+    yield stageEventFields('pre_tool', {
+      callId: base.callId,
+      toolName: tool.name,
+      callNotStarted: true,
+      gate: pre.gate,
+    });
+    yield toolEvent(base, { phase: 'gate', gate: pre.gate });
     return pre;
   }
   const reparsed = pre.mutated ? tool.input.safeParse(plainToolInput(pre.input)) : undefined;
-  if (reparsed && !reparsed.success) {
-    return {
-      ok: false,
-      kind: 'failed',
-      failure: {
-        code: 'invalid_input',
-        kind: 'bad_response',
-        message: labelText('tool.input_invalid_after_mutate', {}, args.ctx.profile.labels),
-        details: reparsed.error.flatten(),
-      },
-    };
-  }
+  if (reparsed && !reparsed.success) return invalidAfterMutate(reparsed.error, ctx);
   const waitFailure = await waitForStepCalls(
     stages,
     base.callId,

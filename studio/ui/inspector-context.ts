@@ -51,7 +51,7 @@ export const ConfirmWrite = createContext<(ask: WriteAsk) => Promise<boolean>>((
 );
 
 /** The project's tools that write: the ones the studio makes ask, and the ones it cannot. */
-export const ProjectAsks = createContext<StudioAsks>({ asked: [], inside: [] });
+export const ProjectAsks = createContext<StudioAsks>({ asked: [], destructive: [], inside: [] });
 
 /** The origin a section around a row has already named, so the row does not name it again. */
 export const SaidOrigin = createContext<SettingOrigin | undefined>(undefined);
@@ -70,7 +70,7 @@ export function useRowOrigin(
   if (!held || !origin) return undefined;
   return {
     origin,
-    said: origin === held.scope.section || origin === held.scope.partly || origin === above,
+    said: origin === held.scope.section || origin === above,
     open: () => {
       held.open(origin);
     },
@@ -101,6 +101,9 @@ export const ISSUE_ROW_ATTRIBUTE = 'data-issue';
  * is at its default width or wider, one once it is narrowed.
  */
 export const ListBadges = createContext(1);
+
+/** The preview's guardrail test: whether it is open, and the button that opens or closes it. Null while no agent compiles. */
+export const GuardrailTest = createContext<{ open: boolean; toggle: () => void } | null>(null);
 
 /** What the studio runs on: the page's lent keys, the builder's own, or their machine. */
 export const RunsOn = createContext<StudioRunsOn>(ON_OWN_KEYS);

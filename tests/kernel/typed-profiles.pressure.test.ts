@@ -1,13 +1,18 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
-import { projectProfile, registerProfile, resolveTurn } from '../../src/kernel/default-scope.ts';
+import {
+  projectProfile,
+  registerProfile,
+  registerTools,
+  resolveTurn,
+} from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { type MediaTurnBehaviourSpec, profileAllowsInject } from '../../src/kernel/stop.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import '../fixtures/test-host.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 Deno.test('pressure-test: registration rejects unsupported provider operations', () => {
   assertThrows(
     () =>
@@ -16,7 +21,9 @@ Deno.test('pressure-test: registration rejects unsupported provider operations',
           id: 'invalid_live',
           type: 'live',
           identity: { handle: 'Live' },
-          models: { main: { protocol: 'openRouter', provider: 'openrouter', apiId: 'model' } },
+          models: {
+            main: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'model' },
+          },
           tools: { allow: [] },
           live: { voice: 'Aoede' },
         }),
@@ -286,7 +293,7 @@ Deno.test('pressure-test: turnBehaviour.resumption rejects non-ContinueStopKind'
         identity: { handle: 't', system: 's' },
         models: {
           'openai/gpt-4o-mini': {
-            protocol: 'openRouter',
+            protocol: 'openRouterOpenAi',
             provider: 'openrouter',
             apiId: 'openai/gpt-4o-mini',
             efforts: { normal: 'minimal' },

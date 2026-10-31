@@ -31,6 +31,7 @@ import {
   type ConversationView,
   type DecisionTransport,
   decisionAssets,
+  type StatedTurn,
   type TheoremConversationRequest,
   type TheoremHostCallRequest,
   type TheoremInvokeRequest,
@@ -39,7 +40,7 @@ import {
   type TheoremRewound,
   type TheoremTurnRequest,
   withFailedTraces,
-} from '@theoremjs/react/client';
+} from '@theoremjs/web/client';
 import {
   answerReply,
   checkRequest,
@@ -56,9 +57,10 @@ import {
   startConversation,
   statelessRefusal,
   steerStage,
+  stopOnRequest,
   type TheoremConversationStore,
   waitingCalls,
-} from '@theoremjs/react/server';
+} from '@theoremjs/web/server';
 import { STUDIO_TRACE_DESTINATION } from './policy.ts';
 import { studioReader } from './reader.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
@@ -70,6 +72,7 @@ import {
   type StudioRuntime,
   studioScope,
 } from './runtime-scope.ts';
+import { bothStages, toolReaderStage, toolReaders } from './tool-readers.ts';
 import { createStudioTraceRouter, type StudioTraceLine } from './traces.ts';
 import type { StudioSteerLine } from './transport.ts';
 
@@ -158,6 +161,7 @@ function studioRunner(args: {
   sessionPermissions: string[] | undefined;
   model?: string;
   effort?: string;
+  stated?: StatedTurn;
   signal: AbortSignal;
   onStage?: ReturnType<typeof steerStage>;
 }): ReplyRunner {
@@ -171,6 +175,8 @@ function studioRunner(args: {
           pageExecution: runtime.pageExecution,
           metadata,
           input: turn.input,
+          ...turn.stated,
+          ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
           providerState: turn.providerState,
           sessionPermissions: args.sessionPermissions,
           resolveHost: runtime.resolveHost,
@@ -184,13 +190,14 @@ function studioRunner(args: {
       ),
     async compact(history, tokens, model) {
       const compacted = await scope.compactHistory(
-        { profile: profile.id, history, tokens, signal, ...(model ? { model } : {}) },
+        { profile: profile.id, history, tokens, metadata, signal, ...(model ? { model } : {}) },
         runtimeProvider(runtime, scope, profile, model),
       );
       return compacted?.history;
     },
     ...(args.model ? { model: args.model } : {}),
     ...(args.effort ? { effort: args.effort } : {}),
+    ...(args.stated ? { stated: args.stated } : {}),
     signal,
   };
 }
@@ -240,11 +247,11 @@ export async function* streamStudioTurn(
     request: TheoremTurnRequest;
     conversations: StudioConversations;
     signal: AbortSignal;
-    /** Where the turn's mid-turn steers queue. */
+    /** Where the turn's mid-turn steers queue, and its stop arrives. */
     steer: SteerInbox;
   },
 ): AsyncGenerator<ReplyLine | StudioTraceLine | StudioSteerLine> {
-  const { request, runtime, signal } = args;
+  const { request, runtime } = args;
   const { scope, profile, iface, host } = await studioChat(args, args.conversations);
   const message = postedMessage(iface, request.input);
   const sessionPermissions = request.replay?.sessionPermissions;
@@ -277,6 +284,9 @@ export async function* streamStudioTurn(
   // Random and picked here, so only the run's own browser can steer it.
   const inbox = globalThis.crypto.randomUUID();
   await args.steer.open(inbox);
+  const stop = new AbortController();
+  stopOnRequest(args.steer, inbox, stop);
+  const signal = AbortSignal.any([args.signal, stop.signal]);
   const steerLine: StudioSteerLine = { type: 'steer_inbox', inbox };
   yield steerLine;
   try {
@@ -289,11 +299,26 @@ export async function* streamStudioTurn(
         sessionPermissions,
         ...(request.model ? { model: request.model } : {}),
         ...(request.effort ? { effort: request.effort } : {}),
+        ...(request.stated ? { stated: request.stated } : {}),
         signal,
-        onStage: steerStage(args.steer, inbox),
+        onStage: bothStages(
+          steerStage(args.steer, inbox),
+          toolReaderStage(toolReaders(args.customTools), async (reader, state) => {
+            await runtime.onReaderCall?.();
+            return scope.runDecision(
+              { profile: reader.profile, state, questions: reader.questions, signal },
+              runtimeProvider(runtime, scope, scope.profiles.get(reader.profile)),
+            );
+          }),
+        ),
       });
       if (!host || !opened) {
-        return runner.run({ input: message.input, model: request.model, effort: request.effort });
+        return runner.run({
+          input: message.input,
+          model: request.model,
+          effort: request.effort,
+          ...(request.stated ? { stated: request.stated } : {}),
+        });
       }
       const walkAway = walked.map(({ reference, invoke }) => ({
         ...reference,
@@ -620,6 +645,6 @@ export async function runStudioEmbedding(
   }
 }
 
-export { failedDecisionTraces, withFailedTraces } from '@theoremjs/react/client';
+export { failedTraces, withFailedTraces } from '@theoremjs/web/client';
 
 export { studioKeySlots } from './browser-connection.ts';

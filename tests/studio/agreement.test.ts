@@ -1,8 +1,8 @@
 import { assertEquals } from '@std/assert';
 import { differingSettings } from '../../studio/agreement.ts';
 import { compileStudio } from '../../studio/compile.ts';
-import { createExampleDraft } from '../../studio/example.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { createExampleDraft } from '../../studio/mod.ts';
 import { withoutStudioFills } from '../../studio/policy.ts';
 import { agentModule } from '../../studio/source.ts';
 
@@ -91,4 +91,34 @@ Deno.test("a new agent's file names no trace store of the studio's", () => {
   const compiled = compileStudio(createExampleDraft(), ON_OWN_KEYS);
   if (!compiled.ok) throw new Error('the example compiles');
   assertEquals(agentModule(compiled).includes("'studio'"), false);
+});
+
+Deno.test('a host profile differs in detect only at the tool boundaries, the ones a host reads', () => {
+  const host = (detect: unknown) => ({ type: 'host', id: 'desk', guardrails: { detect } });
+  // `action` reaches every boundary, and the studio writes only the tool ones: the same to a host.
+  const project = host({ ids: { action: 'redact', at: { tool_arguments_function: 'flag' } } });
+  const studio = host({ ids: { at: { tool_arguments_function: 'flag' } } });
+  assertEquals(differingSettings(project, studio), [
+    'guardrails.detect.ids.tool_arguments_http',
+    'guardrails.detect.ids.tool_arguments_mcp',
+    'guardrails.detect.ids.tool_arguments_agent',
+    'guardrails.detect.ids.tool_output_function',
+    'guardrails.detect.ids.tool_output_http',
+    'guardrails.detect.ids.tool_output_mcp',
+    'guardrails.detect.ids.tool_output_agent',
+    'guardrails.detect.ids.tool_failure_function',
+    'guardrails.detect.ids.tool_failure_http',
+    'guardrails.detect.ids.tool_failure_mcp',
+    'guardrails.detect.ids.tool_failure_agent',
+    'guardrails.detect.ids.tool_shown_function',
+    'guardrails.detect.ids.tool_shown_http',
+    'guardrails.detect.ids.tool_shown_mcp',
+    'guardrails.detect.ids.tool_shown_agent',
+  ]);
+  assertEquals(
+    differingSettings({ ...project, type: 'text' }, { ...studio, type: 'text' }).includes(
+      'guardrails.detect.ids.reply',
+    ),
+    true,
+  );
 });

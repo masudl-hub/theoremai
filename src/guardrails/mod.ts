@@ -119,14 +119,13 @@ export {
 export type { CompiledPatterns, HostPattern } from './host-patterns.ts';
 export {
   listsPatterns,
-  MAX_PATTERN_LENGTH,
-  MAX_PATTERNS,
   patternListProblem,
 } from './host-patterns.ts';
 export { injectionSpans } from './injection.ts';
 export type { ClientLabelKey, LabelKey, LabelOverrides, LabelParams } from './labels.ts';
 export {
   CLIENT_LABEL_KEYS,
+  HOST_LABEL_KEYS,
   LABEL_KEYS,
   labelCatalogRows,
   labelDefault,
@@ -209,6 +208,9 @@ export type {
   AdvisoryLevel,
   BlockedReplyOnBlock,
   BlockedReplySpec,
+  DecisionDisclosureEnforcer,
+  DecisionDisclosureVerdict,
+  DecisionGuardrailsSpec,
   DestinationGate,
   GuardrailAction,
   GuardrailContext,

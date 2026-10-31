@@ -1,4 +1,5 @@
 import { TheoremError } from '../../guardrails/error.ts';
+import { toolPathProblem } from '../system-lines.ts';
 import type {
   ModelId,
   ModelProfile,
@@ -162,12 +163,21 @@ export function initialBuiltins(tools: ToolRegistry, profile: Profile, gated: To
   );
 }
 
+// why: a tool can register after its profile, so the two lists of paths can only be compared here.
+function assertToolPathsDeclared(tools: ToolRegistry, profile: Profile): void {
+  if (profile.type !== 'text' && profile.type !== 'image' && profile.type !== 'live') return;
+  const allowed = profileToolAllow(profile).flatMap((id) => tools.get(id) ?? []);
+  const problem = toolPathProblem(profile.identity.conditions, allowed);
+  if (problem) throw new TheoremError('config', `Profile ${profile.id}: ${problem}`); // labels-exempt: developer contract error
+}
+
 export function resolveTurnTools(
   tools: ToolRegistry,
   profile: Profile,
   req: TurnRequest,
   modelId: ModelId | undefined,
 ): TurnToolSnapshot {
+  assertToolPathsDeclared(tools, profile);
   const customAllowed = resolveAllowedCustomToolIds(tools, profile, req);
   const modelBuiltins =
     profile.type === 'host' ||

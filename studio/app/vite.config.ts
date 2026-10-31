@@ -41,7 +41,7 @@ const projectAddress: Plugin = {
  * tests) is the page's to read, and the project's own files never come through here: they are
  * the project's server's (`studio/server/serve.ts`).
  */
-const SERVED = ['studio', 'react', 'src', 'mod.ts', 'package.json', 'node_modules'];
+const SERVED = ['studio', 'react', 'web', 'src', 'mod.ts', 'package.json', 'node_modules'];
 
 /**
  * Serves the studio as a page of its own, at `/studio/` so a run tab's address is the one the
@@ -56,7 +56,14 @@ export default defineConfig({
   optimizeDeps: {
     // Scan every source up front, lazy chunks included, so a package first reached mid-session
     // never forces a re-optimize that leaves the open tab with two copies of React.
-    entries: ['main.tsx', '../ui/**/*.{ts,tsx}', '../../react/src/**/*.tsx'],
+    entries: [
+      'main.tsx',
+      '../ui/**/*.{ts,tsx}',
+      '../../react/src/**/*.tsx',
+      // why: .ts helpers in the page's own folders reach packages no .tsx imports (code language, messages).
+      '../../react/src/{ui,hooks,client,components}/**/*.ts',
+      '!**/*.test.*',
+    ],
   },
   server: {
     // Only this machine, and only this page: no other page may read what this serves.

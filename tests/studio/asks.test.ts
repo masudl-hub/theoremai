@@ -2,19 +2,20 @@ import { assert, assertEquals } from '@std/assert';
 import { z } from 'zod';
 import {
   defineProfile,
+  getTool,
   registerProfile,
   registerTool,
   type ToolAccess,
   type ToolPermission,
   type TurnEvent,
 } from '../../mod.ts';
-import { createHostTransport } from '../../react/src/client/host-transport.ts';
-import type { TurnEventSink } from '../../react/src/client/transport.ts';
-import { issuedOperationId } from '../../react/src/client/turn-client.ts';
-import { studioAsks, writeAsk, writeAskLine } from '../../studio/asks.ts';
+import { ASK_WRITES_HEADER, studioAsks, writeAsk, writeAskLine } from '../../studio/asks.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
+import { createHostTransport } from '../../web/src/client/host-transport.ts';
+import type { TurnEventSink } from '../../web/src/client/transport.ts';
+import { issuedOperationId } from '../../web/src/client/turn-client.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 
 const HOST = '127.0.0.1:4983';
@@ -44,11 +45,31 @@ tool('asks_read', 'read-only', 'auto');
 tool('asks_write', 'read-write', 'auto');
 tool('asks_remove', 'destructive', 'session_consent');
 tool('asks_already', 'read-write', 'always_confirm');
+// A project's own check that reads its registration, as an application's preflight may.
+registerTool({
+  type: 'function',
+  name: 'asks_reads_itself',
+  description: 'A tool whose own check reads how it is registered.',
+  category: 'test',
+  access: 'read-write',
+  paths: ['*'],
+  loadTier: 'T0',
+  permission: 'auto',
+  input: z.object({ id: z.string() }),
+  output: z.object({ id: z.string() }),
+  preTool: () =>
+    getTool('asks_reads_itself')?.permission === 'auto'
+      ? undefined
+      : { confirm: { summary: 'Its own setting asks.' } },
+  handler: (input) => input as { id: string },
+});
 registerProfile(
   defineProfile({
     type: 'host',
     id: 'asks-desk',
-    tools: { allow: ['asks_read', 'asks_write', 'asks_remove', 'asks_already'] },
+    tools: {
+      allow: ['asks_read', 'asks_write', 'asks_remove', 'asks_already', 'asks_reads_itself'],
+    },
   }),
 );
 
@@ -60,7 +81,7 @@ const handler = createStudioHandler({
 });
 
 /** The studio's page: keeps the session cookie the handler issues. */
-function transport() {
+function transport(askWrites?: 'always' | 'destructive') {
   let cookie = '';
   return createHostTransport({
     endpoint: `${BASE}/profiles/asks-desk`,
@@ -68,6 +89,7 @@ function transport() {
       const headers = new Headers(init?.headers);
       headers.set('host', HOST);
       if (cookie) headers.set('cookie', cookie);
+      if (askWrites) headers.set(ASK_WRITES_HEADER, askWrites);
       const response = await handler(new Request(url, { ...init, headers }));
       const issued = response.headers.get('set-cookie');
       if (issued) cookie = issued.split(';')[0] ?? '';
@@ -95,7 +117,11 @@ Deno.test('the page reads each tool as the files set it, and which ones the stud
     [set('asks_write'), set('asks_remove'), set('asks_already')],
     ['auto', 'session_consent', 'always_confirm'],
   );
-  assertEquals(asks, { asked: ['asks_write', 'asks_remove'], inside: [] });
+  assertEquals(asks, {
+    asked: ['asks_write', 'asks_remove', 'asks_reads_itself'],
+    destructive: ['asks_remove'],
+    inside: [],
+  });
 });
 
 Deno.test('a tool a called agent runs is left as it is, and the call to that agent asks', () => {
@@ -132,6 +158,7 @@ Deno.test('a tool a called agent runs is left as it is, and the call to that age
   );
   assertEquals(asks, {
     asked: ['outer_write', 'ask_lead'],
+    destructive: [],
     inside: ['inner_write', 'ask_writer'],
   });
 });
@@ -157,9 +184,45 @@ Deno.test('a tool that writes stops before every run, and runs only once the bui
           onEvent,
         ),
       );
+      assertEquals(toolEventsOf(settled, 'gate').length, 0, `${name} asked twice`);
       assertEquals(toolEventsOf(settled, 'complete')[0]?.output, { id });
     }
   }
+});
+
+Deno.test('a run set to ask for destructive tools alone runs the rest straight away', async () => {
+  const page = transport('destructive');
+  const written = await collect((onEvent) =>
+    page.call({ name: 'asks_write', input: { id: 'straight' } }, onEvent),
+  );
+  assertEquals(
+    [toolEventsOf(written, 'gate').length, toolEventsOf(written, 'complete')[0]?.output],
+    [0, { id: 'straight' }],
+  );
+  const removed = await collect((onEvent) =>
+    page.call({ name: 'asks_remove', input: { id: 'asked' } }, onEvent),
+  );
+  assert(toolEventsOf(removed, 'gate').at(-1), 'a destructive tool ran unasked');
+});
+
+Deno.test("the studio asks once, and the project's own code reads the tool as the files set it", async () => {
+  assertEquals(getTool('asks_reads_itself')?.permission, 'auto');
+  const page = transport();
+  const paused = await collect((onEvent) =>
+    page.call({ name: 'asks_reads_itself', input: { id: 'once' } }, onEvent),
+  );
+  const gate = toolEventsOf(paused, 'gate').at(-1);
+  assert(gate);
+  const settled = await collect((onEvent) =>
+    page.invoke(
+      { gateId: gate.callId, operationId: issuedOperationId(gate), decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(
+    [toolEventsOf(settled, 'gate').length, toolEventsOf(settled, 'complete')[0]?.output],
+    [0, { id: 'once' }],
+  );
 });
 
 Deno.test('a run the builder refuses never happens', async () => {

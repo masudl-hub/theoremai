@@ -6,7 +6,7 @@ import type {
   ResolvedStructured,
   ThinkingLevel,
 } from '../../src/kernel/types.ts';
-import { GOOGLE_BUILTIN_TOOLS } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 
 export type StubOverrides = Partial<ModelRequest> & {
   model?: string;

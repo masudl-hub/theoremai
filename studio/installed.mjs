@@ -1,6 +1,7 @@
 /**
  * Stops with the install line when a package the studio runs on is missing. The studio is opt-in:
- * nothing installs it with the kernel, so its commands check for it and never install it themselves.
+ * nothing installs it with the kernel, so opening it checks for it and never installs it itself.
+ * Reading an open studio needs none of them, so only opening one checks.
  * The packages resolve from here as the studio's own code finds them: beside it in the repo, or
  * in the project's install when the studio is installed from the registry.
  */
@@ -19,8 +20,8 @@ export const builtPage = existsSync(path.join(here, BUILT_PAGE, 'index.html'));
 const NEEDED = [
   'zod',
   '@theoremjs/agents',
-  '@theoremjs/react',
-  ...(builtPage ? [] : ['react', 'react-dom', '@astryxdesign/core', 'vite']),
+  '@theoremjs/web',
+  ...(builtPage ? [] : ['@theoremjs/react', 'react', 'react-dom', '@astryxdesign/core', 'vite']),
 ];
 
 /** Whether `name` is installed where Node would look for it from here; its exports need not list its manifest. */
@@ -28,8 +29,10 @@ const installed = (name) =>
   (require.resolve.paths(name) ?? []).some((dir) =>
     existsSync(path.join(dir, name, 'package.json')),
   );
-const missing = NEEDED.filter((name) => !installed(name));
-if (missing.length) {
+/** Stops with the install line when a package the studio runs on is missing. */
+export function requireInstalled() {
+  const missing = NEEDED.filter((name) => !installed(name));
+  if (!missing.length) return;
   const line = here.split(path.sep).includes('node_modules')
     ? `npm install ${missing.join(' ')}`
     : `npm install --prefix ${here}`;
@@ -38,3 +41,6 @@ if (missing.length) {
   );
   process.exit(1);
 }
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
+  requireInstalled();

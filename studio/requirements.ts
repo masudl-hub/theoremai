@@ -1,7 +1,7 @@
 /** Shared by the compiler and the editor so both agree; mirrors the kernel's `PROFILE_FIELD_PRESENCE`. */
 
 import type { InputsDraft, ModelBindingDraft, StudioDraft } from './draft.ts';
-import { modelSlots } from './providers.ts';
+import { modelSlots, type StudioProvider } from './providers.ts';
 
 export function defaultModelRequired(draft: StudioDraft): boolean {
   return draft.modelBindings.length > 1;
@@ -42,6 +42,19 @@ export function bindingSlots(
       fallbackKeySlot: Boolean(read.fallbackKeySlot) && !written.fallbackKeySlot,
     },
   };
+}
+
+/** The providers whose models read `slot`, first or as fallback: the ones a key there is for. */
+export function slotProviders(draft: StudioDraft, slot: string): StudioProvider[] {
+  const ids = new Set(
+    draft.modelBindings
+      .filter((binding) => {
+        const read = bindingSlots(draft, binding);
+        return read.keySlot === slot || read.fallbackKeySlot === slot;
+      })
+      .map((binding) => binding.provider),
+  );
+  return draft.providers.filter((provider) => ids.has(provider.id));
 }
 
 export function defaultEffortRequired(binding: ModelBindingDraft): boolean {

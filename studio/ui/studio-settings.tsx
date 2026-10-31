@@ -575,11 +575,16 @@ function SectionBody({ section, ...props }: StudioSettingsProps & { section: Set
       return <ConfirmationSettings shared={props.shared} />;
     case 'keys':
       return (
+        // why: a project's runs sign with the vault its own entry sets, so a key typed here runs nothing.
         <Group
           title="Model keys"
-          about="Your own keys, to run an agent with. Never saved, never written to your project."
+          about={
+            props.project
+              ? "This project's runs sign with the keys in its entry's provider vault. The studio does not read or change them."
+              : 'Your own keys, to run an agent with. Never saved, never written to your project.'
+          }
         >
-          {props.keys}
+          {props.project ? null : props.keys}
         </Group>
       );
     case 'people':
@@ -598,7 +603,7 @@ const isSection = (value: string): value is SettingsSection =>
 function SettingsNavHead({ project, version }: { project: ProjectSession; version: string }) {
   return (
     <VStack gap={4}>
-      <VStack gap={1}>
+      <VStack gap={1} className="studio-nav-head">
         <Heading level={3}>theorem studio</Heading>
         <Text type="supporting" color="secondary">
           {`${project.name} · @theoremjs/agents ${version}`}
@@ -607,7 +612,7 @@ function SettingsNavHead({ project, version }: { project: ProjectSession; versio
       <Typeahead
         label="Search"
         isLabelHidden
-        placeholder="Search settings..."
+        placeholder="Search settings"
         searchSource={settingsSource}
         value={null}
         onChange={(item) => {
@@ -629,7 +634,7 @@ export function StudioSettings(props: StudioSettingsProps) {
   const isNarrow = useMediaQuery('(max-width: 768px)');
   const { section } = useSettingsDoor();
   return (
-    <Section variant="transparent" height="100%" padding={0}>
+    <Section variant="transparent" height="100%" padding={0} className="studio-settings">
       {/* Starts at the left edge, as the tree and editor do; the settings keep a readable width. */}
       <Layout
         height="fill"
@@ -662,7 +667,7 @@ export function StudioSettings(props: StudioSettingsProps) {
           )
         }
         content={
-          <LayoutContent padding={0}>
+          <LayoutContent padding={0} className="studio-settings-main">
             <Section variant="transparent" padding={3} dividers={['bottom']}>
               <HStack gap={2} vAlign="center">
                 <StackItem size="fill">

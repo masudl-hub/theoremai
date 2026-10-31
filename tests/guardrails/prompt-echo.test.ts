@@ -25,7 +25,9 @@ import {
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
+import { OMIT_PROMPT } from '../../src/observability/spans.ts';
 import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
+import { CHAT_TAKES_OUT_LEAKS, TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { geminiModels, HOST_BINDINGS } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
@@ -240,9 +242,7 @@ function registerEchoProfile(id: string, promptEcho?: boolean): string {
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
-      ...(promptEcho === false
-        ? { guardrails: { detect: { prompt_leak: 'ignore' } } as const }
-        : {}),
+      guardrails: { detect: promptEcho === false ? { prompt_leak: 'ignore' } : TAKE_OUT_LEAKS },
     }),
   );
   return id;
@@ -255,7 +255,7 @@ const dumpsPrompt: TurnModel = {
       yield { type: 'text', text: `${word} ` };
   },
 };
-Deno.test('runTurn stops a reply that dumps the system prompt without the canary', async () => {
+Deno.test('runTurn takes the system prompt out of a reply that dumps it without the canary', async () => {
   const profile = registerEchoProfile('echo_dump');
   const events = await collect(runTurn({ profile, input: { text: 'hi' } }, dumpsPrompt));
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
@@ -263,10 +263,10 @@ Deno.test('runTurn stops a reply that dumps the system prompt without the canary
     native: 'egress',
   });
   assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
+    events.some((event) => event.type === 'error'),
+    false,
   );
-  // At most 11 of the prompt's words went out before the stop.
+  assertEquals(replyText(events).includes(OMIT_PROMPT), true);
   assertEquals(scanTextForPromptEcho(replyText(events), [SYSTEM]), false);
 });
 Deno.test('runTurn releases a quoting reply when the profile allows prompt echo', async () => {
@@ -348,7 +348,9 @@ Deno.test('a tool call that carries the system prompt is refused where prompt_le
   assertEquals(replyText(events), 'Done.');
 });
 Deno.test('processLiveOutboundBatch withholds a spoken dump of the system prompt across cycles', async () => {
-  const s = await createLiveOutboundGateSession(getProfile('chat'), mintCanary(), [SYSTEM]);
+  const s = await createLiveOutboundGateSession(getProfile(CHAT_TAKES_OUT_LEAKS), mintCanary(), [
+    SYSTEM,
+  ]);
   const said = (text: string): TurnEvent => ({
     type: 'evidence',
     text,
@@ -393,10 +395,11 @@ function registerMarkedProfile(id: string): string {
     defineProfile({
       type: 'text',
       id,
-      identity: { handle: 'sol', system: MARKED },
+      identity: { handle: 'sol', system: [MARKED] },
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
+      guardrails: { detect: TAKE_OUT_LEAKS },
     }),
   );
   return id;
@@ -435,10 +438,11 @@ Deno.test("runTurn stops a reply repeating Theorem's notes after a shareable par
     defineProfile({
       type: 'text',
       id: 'echo_marked_note',
-      identity: { handle: 'sol', system: [{ private: PRIVATE_RULES }, ` Say: "${VOICE}"`] },
+      identity: { handle: 'sol', system: [[{ private: PRIVATE_RULES }, ` Say: "${VOICE}"`]] },
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
+      guardrails: { detect: TAKE_OUT_LEAKS },
     }),
   );
   let notes = '';
@@ -478,10 +482,11 @@ async function liveSays(id: string, said: string): Promise<TurnEvent[]> {
     defineProfile({
       type: 'live',
       id,
-      identity: { handle: 'sol', system: MARKED },
+      identity: { handle: 'sol', system: [MARKED] },
       models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'slotA' } },
       live: { voice: 'Aoede' },
       tools: { allow: [] },
+      guardrails: { detect: TAKE_OUT_LEAKS },
     }),
   );
   let mock: MockLiveWebSocket | undefined;
@@ -512,15 +517,13 @@ async function liveSays(id: string, said: string): Promise<TurnEvent[]> {
   await drain.catch(() => undefined);
   return events;
 }
-Deno.test('a Live session lets the model say a shareable line and withholds a private one', async () => {
+Deno.test('a Live session lets the model say a shareable line and takes a private one out', async () => {
   const shared = await liveSays('echo_live_voice', VOICE);
   assertEquals(
     shared.some((event) => event.type === 'error'),
     false,
   );
   const leaked = await liveSays('echo_live_rules', PRIVATE_RULES);
-  assertEquals(
-    leaked.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
-  );
+  assertEquals(scanTextForPromptEcho(replyText(leaked), [PRIVATE_RULES]), false);
+  assertEquals(replyText(leaked).includes(OMIT_PROMPT), true);
 });

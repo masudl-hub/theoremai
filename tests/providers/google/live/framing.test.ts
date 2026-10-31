@@ -276,6 +276,36 @@ Deno.test('buildGeminiLiveSetupMessage rejects args for a builtin, which Live ca
   );
 });
 
+Deno.test('buildGeminiLiveClientContent seeds the opening context as one user turn after history', () => {
+  assertEquals(
+    buildGeminiLiveClientContent([{ role: 'assistant', content: 'Hi.' }], ['<a>', '<b>']),
+    {
+      clientContent: {
+        turns: [
+          { role: 'model', parts: [{ text: 'Hi.' }] },
+          { role: 'user', parts: [{ text: '<a>' }, { text: '<b>' }] },
+        ],
+        turnComplete: true,
+      },
+    },
+  );
+  assertEquals(buildGeminiLiveClientContent([], []), null);
+});
+
+Deno.test('buildGeminiLiveSetupMessage waits for the seed when only context opens the call', () => {
+  const setupMsg = buildGeminiLiveSetupMessage({
+    model: 'gemini-3.1-flash-live-preview',
+    apiId: 'gemini-3.1-flash-live-preview',
+    system: 's',
+    builtins: [],
+    input: [],
+    structured: null,
+    image: null,
+    context: ['<turn_context from="server">\nx\n</turn_context>'],
+  } as ModelRequest) as { setup: { historyConfig?: unknown } };
+  assertEquals(setupMsg.setup.historyConfig, { initialHistoryInClientContent: true });
+});
+
 Deno.test('buildGeminiLiveClientContent formats conversation history', () => {
   const content = buildGeminiLiveClientContent([
     { role: 'user', content: 'Hello there' },

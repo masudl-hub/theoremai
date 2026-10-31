@@ -28,7 +28,7 @@ For custom routes, use `checkRequest(schema, body, what)`.
 
 The host keeps the conversation. A request carries the message and the `conversation` ref that the store issued, never the history or native provider state.
 A `/turn` request without a ref starts a conversation. An `/invoke` request needs the ref of the conversation whose reply waits.
-A ref that the store cannot open fails with `session.conversation_unknown`.
+A ref that the store cannot open fails with `session.conversation_unknown`, kind `not_found` (HTTP 404).
 The `/turn` and `/invoke` streams carry `{ "type": "conversation", "ref": "…" }` lines. A line with `"posted": true` means the message reached the conversation.
 Each later line carries the ref of a later save. The client sends the last ref that it received.
 `/conversation` returns the transcript and a reply that waits for a gate. `/rewind` returns the new ref and the same view.

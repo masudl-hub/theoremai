@@ -595,9 +595,9 @@ export interface Ask {
 const placeText = ({ file, line }: AskPlace) => `${file}:${String(line)}`;
 
 /** A place as the question shows it: the file's name and the line. The folders it is in are for whoever asks. */
-export function shortPlace({ file, line }: AskPlace): string {
+export function shortPlace({ file, line }: { file: string; line?: number }): string {
   const name = file.slice(Math.max(file.lastIndexOf('/'), file.lastIndexOf('\\')) + 1);
-  return `${name === file ? '' : '…/'}${name}:${String(line)}`;
+  return `${name === file ? '' : '…/'}${name}${line ? `:${String(line)}` : ''}`;
 }
 
 /** The question's line as its text and the places it names, in the order it says them. */

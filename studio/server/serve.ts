@@ -2,7 +2,7 @@
  * Starts the studio's local server for one project.
  *
  *   deno run -A studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174]
- *     [--deno-config <deno.json>] [--editor <command>]
+ *     [--deno-config <deno.json>] [--editor <command>] [--no-watch] [--quiet] [--offline] [--verbose]
  *
  * The setup module is the project's: its default export registers the project's
  * tools, profiles, and providers; an optional `host` export gives tool handlers
@@ -23,15 +23,25 @@
 
 import { dirname, relative, resolve } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import type { KeyCheck } from '@theoremjs/agents';
 import { newConversationKey } from '../conversation-key.ts';
 import { RUNNING_PATH } from '../ports.mjs';
 import { READ_STEPS, type ReadStep } from '../read-steps.ts';
+import { alertText, keyLine, loadedText } from './alerts.ts';
 import { createEditedSession } from './edited-session.ts';
 import type { ProjectEdits } from './edits.ts';
-import { corsHeaders, isForeign, json, STUDIO_BASE, type StudioDescription } from './handler.ts';
+import { createEventLog, watchRun } from './events.ts';
+import {
+  corsHeaders,
+  isForeign,
+  json,
+  KEYS_PATH,
+  STUDIO_BASE,
+  type StudioDescription,
+} from './handler.ts';
 import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY, type ProjectLoad } from './project.ts';
-import { isInside } from './project-source.ts';
+import { entryOf, isInside } from './project-source.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
 import { createWatchFeed, watchFiles } from './watch.ts';
 
@@ -45,7 +55,7 @@ const setupPath = Deno.args.find(
 );
 if (!setupPath) {
   console.error(
-    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code] [--no-watch]',
+    'usage: studio/server/serve.ts <setup-module> [--port 4983] [--page http://localhost:5174] [--deno-config deno.json] [--editor code] [--no-watch] [--quiet] [--offline] [--verbose]',
   );
   Deno.exit(2);
 }
@@ -149,10 +159,11 @@ async function stop(loaded: Loaded): Promise<void> {
   await loaded.process.status;
 }
 
-/** Whether the project type-checks as it is on disk, and what the checker printed. */
+/** Whether the project type-checks as it is on disk, from the setup and the entry it names, and what the checker printed. */
 async function typeChecks(): Promise<{ ok: boolean; output: string }> {
+  const entry = entryOf(setupFile);
   const { success, stderr, stdout } = await new Deno.Command(Deno.execPath(), {
-    args: ['check', ...configArgs, setupFile],
+    args: ['check', ...configArgs, setupFile, ...(entry ? [entry] : [])],
     cwd: root,
     env: { NO_COLOR: '1' },
     stdin: 'null',
@@ -160,7 +171,8 @@ async function typeChecks(): Promise<{ ok: boolean; output: string }> {
   const decoder = new TextDecoder();
   return {
     ok: success,
-    output: (decoder.decode(stderr) + decoder.decode(stdout)).trim().slice(-4000),
+    // why: a checker told to colour by the builder's shell does so past NO_COLOR.
+    output: stripVTControlCharacters(decoder.decode(stderr) + decoder.decode(stdout)).trim(),
   };
 }
 
@@ -225,6 +237,7 @@ const session = createSaveSession<Loaded>(
     },
     stop,
     opened: (loaded) => loaded.description.workspace,
+    unopened: (loaded) => loaded.description.problems.map((problem) => problem.profile),
   },
   first,
 );
@@ -236,22 +249,43 @@ async function forward(
   path?: string,
 ): Promise<Response> {
   const url = new URL(request.url);
+  const to = path ?? url.pathname;
   if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-    return forwardSocket(request, `${loaded.origin}${path ?? url.pathname}${url.search}`);
+    return forwardSocket(request, `${loaded.origin}${to}${url.search}`);
   }
   const headers = new Headers(request.headers);
   headers.delete('host');
-  const body =
-    request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+  let response: Response;
   try {
-    return await fetch(`${loaded.origin}${path ?? url.pathname}${url.search}`, {
+    response = await fetch(`${loaded.origin}${to}${url.search}`, {
       method: request.method,
       headers,
-      body,
+      body: await bodyOf(request),
     });
   } catch {
     return json(502, {}, corsHeaders(request, pageOrigins));
   }
+  return request.method === 'OPTIONS' ? response : watchedRun(request.method, to, response);
+}
+
+/** What a request carries on: nothing for a read. */
+async function bodyOf(request: Request): Promise<ArrayBuffer | undefined> {
+  return request.method === 'GET' || request.method === 'HEAD'
+    ? undefined
+    : await request.arrayBuffer();
+}
+
+/** A run's answer, watched for a failure to tell the terminal of; any other answer as it is. */
+function watchedRun(method: string, to: string, response: Response): Response {
+  const profile = to.startsWith(PROFILES)
+    ? decodeURIComponent(to.slice(PROFILES.length).split('/')[0] ?? '')
+    : undefined;
+  if (profile === undefined) return response;
+  if (verbose)
+    console.error(
+      `theorem studio: run ${profile} ${method} ${to.slice(PROFILES.length + profile.length) || '/'} → ${response.status}`,
+    );
+  return watchRun(response, (said) => tell('run', `run ${profile} failed: ${said}`));
 }
 
 /**
@@ -284,6 +318,10 @@ function forwardSocket(request: Request, to: string): Response {
   return response;
 }
 
+/** Where the project serves each profile's runs. */
+const PROFILES = `${STUDIO_BASE}/profiles/`;
+const EVENTS = `${STUDIO_BASE}/events`;
+const STATUS = `${STUDIO_BASE}/status`;
 const SAVE = `${STUDIO_BASE}/save`;
 const WATCH = `${STUDIO_BASE}/watch`;
 const OPEN = `${STUDIO_BASE}/open`;
@@ -338,12 +376,50 @@ const editor: EditorHost = {
  */
 async function described(said?: (step: ReadStep) => void): Promise<StudioDescription> {
   const files = await session.read(said);
-  return {
+  const description = {
     ...session.project().description,
     ...files,
     editor: defaultEditor(editor),
     setup: relative(root, setupFile),
   };
+  tellTerminal(description);
+  return description;
+}
+
+/** Whether the command was started without printing anything about the project. */
+const quiet = Deno.args.includes('--quiet');
+/** Whether the command also prints each run as it ends, not only the ones that fail. */
+const verbose = Deno.args.includes('--verbose');
+/** Whether the command was started without asking each provider whether its key works. */
+const offline = Deno.args.includes('--offline');
+/** What the key checks said: none until they answer. */
+let keysSaid: string[] | undefined;
+
+/** The entry the setup names, from the folder the command ran in. */
+function entryAt(): { entry?: string } {
+  const entry = entryOf(setupFile);
+  return entry ? { entry: relative(root, entry) } : {};
+}
+/** What happened that the builder should know of, for `theorem-studio errors` to read. */
+const events = createEventLog();
+/** What was printed last: `null` before the first print, so a clean project still says so. */
+let told: string | undefined | null = null;
+
+/** Keeps an event and prints it, unless it repeats the last one or the command is quiet. */
+function tell(kind: 'key' | 'run' | 'page', text: string): void {
+  if (events.add(kind, text) && !quiet) console.error(`theorem studio: ${text}`);
+}
+
+/** Prints what the builder should look at when it is not what was printed last. */
+function tellTerminal(description: StudioDescription): void {
+  const text = alertText(description);
+  if (text === told) return;
+  const first = told === null;
+  told = text;
+  const said = text ?? `theorem studio: nothing ${first ? '' : 'left '}to look at`;
+  // why: a project that opens clean has nothing to keep; one that comes clean later does.
+  if (!(first && text === undefined)) events.add('look', said);
+  if (!quiet) console.error(said);
 }
 
 /** Whether the request asks for the project as the page opens it, and whether for the steps of reading it first. */
@@ -404,6 +480,59 @@ function watching(request: Request): Response | undefined {
   return feed ? feed.subscribe(cors) : new Response(null, { status: 204, headers: cors });
 }
 
+/**
+ * `GET <base>/status`: what the command printed when the project opened, as it is now: what
+ * loaded, what the keys said, and what to look at. Plain text, for `theorem-studio status`.
+ */
+async function answerStatus(request: Request): Promise<Response | undefined> {
+  if (request.method !== 'GET' || new URL(request.url).pathname !== STATUS) return undefined;
+  // why: the files are read again, so status agrees with them even when no page has asked since.
+  const description = await described();
+  const keys = offline ? 'offline' : (keysSaid ?? 'checking');
+  const look = alertText(description) ?? 'theorem studio: nothing to look at';
+  return new Response(`${loadedText(description, { ...entryAt(), keys })}\n${look}\n`, {
+    headers: { 'content-type': 'text/plain; charset=utf-8', ...corsHeaders(request, pageOrigins) },
+  });
+}
+
+/** The longest error the page may send. */
+const PAGE_ERROR_BYTES = 8000;
+
+/**
+ * The event log: `GET` lists it, `GET ?follow` streams it, and the page `POST`s `{ text }` for an
+ * error it met, which the log keeps as the page's.
+ */
+async function answerEvents(request: Request): Promise<Response | undefined> {
+  const url = new URL(request.url);
+  if (url.pathname !== EVENTS) return undefined;
+  const cors = corsHeaders(request, pageOrigins);
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  if (request.method === 'GET') {
+    return url.searchParams.has('follow') ? events.follow(cors) : json(200, events.list(), cors);
+  }
+  return request.method === 'POST' ? await keepPageError(request, cors) : json(405, {}, cors);
+}
+
+/** Keeps the error a page `POST`s as `{ text }`. */
+async function keepPageError(request: Request, cors: Record<string, string>): Promise<Response> {
+  const sent = await request.text();
+  if (sent.length > PAGE_ERROR_BYTES) return json(413, {}, cors);
+  const text = pageError(sent);
+  if (!text) return json(400, {}, cors);
+  tell('page', `the page: ${text}`);
+  return json(200, {}, cors);
+}
+
+/** The error a page sent as `{ text }`, trimmed; nothing when it sent no text. */
+function pageError(sent: string): string | undefined {
+  try {
+    const { text } = JSON.parse(sent) as { text?: unknown };
+    return typeof text === 'string' ? text.trim() || undefined : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The setup this studio is open on, for a second studio command to find it already running. */
 function running(request: Request): Response | undefined {
   if (request.method !== 'GET' || new URL(request.url).pathname !== RUNNING_PATH) return undefined;
@@ -421,16 +550,24 @@ async function answered(request: Request): Promise<Response | undefined> {
   return 'workspace' in answer ? json(200, answer, cors) : json(answer.status, answer.body, cors);
 }
 
-Deno.serve({ hostname: '127.0.0.1', port }, async (request) => {
+/** The studio's own routes, in the order they are asked; a request none answers goes to the project. */
+const ROUTES: ((request: Request) => Response | undefined | Promise<Response | undefined>)[] = [
+  running,
+  watching,
+  openedSaying,
+  answerStatus,
+  answerEvents,
+  answered,
+  answerEdited,
+];
+
+Deno.serve({ hostname: '127.0.0.1', port, onListen: () => {} }, async (request) => {
   if (isForeign(request, gate)) return json(403, {}, {});
-  return (
-    running(request) ??
-    watching(request) ??
-    openedSaying(request) ??
-    (await answered(request)) ??
-    (await answerEdited(request)) ??
-    forward(request)
-  );
+  for (const route of ROUTES) {
+    const response = await route(request);
+    if (response) return response;
+  }
+  return forward(request);
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -446,3 +583,32 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 console.log(`Theorem Studio: open ${pageOrigins[0]}/studio (server on http://127.0.0.1:${port})`);
+if (!quiet) {
+  console.error(
+    loadedText(
+      { ...first.description, setup: relative(root, setupFile) },
+      { ...entryAt(), keys: offline ? 'offline' : 'checking' },
+    ),
+  );
+}
+// The project is read once now, so what it has to look at reaches the terminal before the page opens.
+await described().catch((error) => console.error(error instanceof Error ? error.message : error));
+// One request for each provider's key, once: the keys are read as the project loads.
+if (!offline) {
+  fetch(session.project().origin + KEYS_PATH)
+    .then((response) => response.json() as Promise<KeyCheck[]>)
+    .then((checks) => {
+      keysSaid = checks.map(keyLine);
+      for (const [at, check] of checks.entries()) {
+        const line = keysSaid[at] ?? '';
+        // A key that works is said once, here, and is not kept as something that went wrong.
+        if (check.state === 'accepted') {
+          if (!quiet) console.error(`theorem studio: ${line}`);
+        } else tell('key', line);
+      }
+    })
+    .catch((error) => {
+      keysSaid = [`not checked: ${error}`];
+      tell('key', `the keys were not checked: ${error}`);
+    });
+}

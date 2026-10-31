@@ -16,8 +16,8 @@ import {
 } from '../../src/kernel/registry/provider-request.ts';
 import { createSchemaRegistry } from '../../src/kernel/registry/schemas.ts';
 import { resolveTurnSystemPrompt } from '../../src/kernel/registry/system-prompt.ts';
-import { pickSystemRole } from '../../src/kernel/registry/system-role.ts';
 import { systemText } from '../../src/kernel/system-parts.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 /** The kind and message a call throws as a TheoremError, or 'returned'. */
 function thrown(body: () => unknown): string {
@@ -128,7 +128,7 @@ Deno.test('a structured schema is registered once by id, refuses enforced and no
   refused(
     'e',
     { jsonSchema: {}, enforced: true },
-    "registerStructured 'e': enforced was removed; every structured schema is sent to the model as its response format",
+    "registerStructured 'e': enforced was removed; every structured schema is sent to the model, as its response format or as its answer tool's input",
   );
   for (const bad of [{}, { jsonSchema: 'x' }, { jsonSchema: [] }, { jsonSchema: null }]) {
     refused('j', bad, "registerStructured 'j': jsonSchema must be a JSON Schema object");
@@ -142,26 +142,11 @@ Deno.test('a structured schema is registered once by id, refuses enforced and no
 
 const base = { type: 'text', guardrails: {}, identity: { handle: 'h' } };
 
-Deno.test('a system role picks its own prompt, falls back to the profile prompt, and a speech profile has none', () => {
+Deno.test('a turn gets the profile prompt, and a speech profile has none', () => {
   const profile = (identity: object, type = 'text') => ({ ...base, type, identity }) as never;
-  const roled = { handle: 'h', system: 'base', systemByRole: { editor: 'edit', empty: '' } };
+  const based = { handle: 'h', system: 'base' };
   check(
-    systemText(resolveTurnSystemPrompt(profile(roled), { input: { role: 'editor' } } as never)),
-    'edit',
-    'role',
-  );
-  check(
-    systemText(resolveTurnSystemPrompt(profile(roled), { input: { role: 'empty' } } as never)),
-    'base',
-    'empty role falls back',
-  );
-  check(
-    systemText(resolveTurnSystemPrompt(profile(roled), { input: { role: 'other' } } as never)),
-    'base',
-    'unknown role',
-  );
-  check(
-    systemText(resolveTurnSystemPrompt(profile(roled), {} as never)),
+    systemText(resolveTurnSystemPrompt(profile(based), {} as never)),
     'base',
     'no input at all',
   );
@@ -176,7 +161,7 @@ Deno.test('a system role picks its own prompt, falls back to the profile prompt,
     'turn system alone',
   );
   check(
-    systemText(resolveTurnSystemPrompt(profile(roled), { system: 'turn' } as never)),
+    systemText(resolveTurnSystemPrompt(profile(based), { system: 'turn' } as never)),
     'base\n\nturn',
     'joined',
   );
@@ -191,8 +176,8 @@ Deno.test('a system role picks its own prompt, falls back to the profile prompt,
 
 Deno.test("the profile prompt is the host's own text, so the profile guardrails do not redact it", () => {
   const probe = `mail ops@example.com, key ${TEST_OPENAI_KEY}`;
-  const guardrails = {};
-  const policy = resolveGuardrailPolicy(guardrails as never);
+  const guardrails = { detect: TAKE_OUT_INBOUND };
+  const policy = resolveGuardrailPolicy(guardrails);
   check(
     detectAt(probe, 'user', policy.detect).text !== probe,
     true,
@@ -203,21 +188,6 @@ Deno.test("the profile prompt is the host's own text, so the profile guardrails 
     systemText(resolveTurnSystemPrompt(profile, {} as never)),
     probe,
     'trusted text is kept whole',
-  );
-});
-
-Deno.test('a role is taken only when the profile declares it as its own property', () => {
-  const profile = (identity: object, type = 'text') => ({ ...base, type, identity }) as never;
-  const roled = { handle: 'h', systemByRole: { editor: 'e', undefined: 'x', toString: 'y' } };
-  check(pickSystemRole(profile(roled), 'editor'), 'editor', 'declared');
-  check(pickSystemRole(profile(roled), undefined), 'h', 'none asked');
-  check(pickSystemRole(profile(roled), ''), 'h', 'empty asked');
-  check(pickSystemRole(profile(roled), 'constructor'), 'h', 'inherited name');
-  check(pickSystemRole(profile({ handle: 'h' }), 'editor'), 'h', 'profile without roles');
-  check(
-    pickSystemRole(profile({ handle: 'h', systemByRole: { editor: 'e' } }, 'speech'), 'editor'),
-    'h',
-    'speech has no roles',
   );
 });
 

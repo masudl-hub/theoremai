@@ -150,11 +150,22 @@ function withItemChecks(
 
 /** A tool's registration, as a call; `indent` places it in a function body. */
 function toolSource(tool: ToolRegistration, indent = 0): string {
+  const { inputSchema, outputSchema, ...rawFields } = tool;
+  const {
+    stageAgent,
+    stageQuestions: _stageQuestions,
+    ...fields
+  } = rawFields as typeof rawFields & {
+    stageAgent?: string;
+    stageQuestions?: unknown;
+  };
   const call = (fields: Record<string, unknown>) => {
     const pad = '  '.repeat(indent);
-    return `${pad}registerTool(${literal(fields, indent)});\n`;
+    const owed = stageAgent
+      ? `${pad}// Your host runs ${stageAgent} on this tool's output, at post_tool.\n`
+      : '';
+    return `${owed}${pad}registerTool(${literal(fields, indent)});\n`;
   };
-  const { inputSchema, outputSchema, ...fields } = tool;
   // The kernel fixes an agent tool's schemas.
   if (fields.type === 'agent') return call(fields);
   // The schema as it is, read by zod: hand-written zod would keep its shape and lose the rest.
@@ -283,7 +294,7 @@ export function studioSource(compiled: CompiledStudio): string {
     ...(structured ? ['registerStructured'] : []),
     ...(customTools.length ? ['registerTool'] : []),
   ];
-  const defined = profileSource(profile);
+  const defined = profileSource(withItemChecks(profile, {}));
   const blocks = [
     [
       ...(customTools.length ? [`import { z } from 'zod';`] : []),
@@ -299,7 +310,9 @@ export function studioSource(compiled: CompiledStudio): string {
     ...providers.code,
     ...customTools.map((tool) => toolSource(tool)),
     ...(structured
-      ? [`registerStructured(${quoteSource(structured.id)}, ${literal(structured.spec, 0)});\n`]
+      ? [structured, ...(structured.also ?? [])].map(
+          ({ id, spec }) => `registerStructured(${quoteSource(id)}, ${literal(spec, 0)});\n`,
+        )
       : []),
     `const profile = ${defined.code};\n\nregisterProfile(profile);\n`,
     ...(compiled.questions
@@ -316,7 +329,7 @@ export function studioSource(compiled: CompiledStudio): string {
 }
 
 function imagesSource(images: Record<string, unknown>, declare: string): string {
-  return `/** The pictures every decision sends, by the reference its questions write. */\n${declare} images = ${literal(
+  return `/** The pictures a decision can send, by the reference its questions write. */\n${declare} images = ${literal(
     images,
     0,
   )} satisfies Record<string, DecisionAsset>;\n`;
@@ -381,9 +394,7 @@ export function agentModule(
     ...(questions ? ['type DecisionQuestion'] : []),
     'defineProfile',
   ];
-  const defined = profileSource(
-    withoutStudioFills(checks ? withItemChecks(profile, checks) : profile),
-  );
+  const defined = profileSource(withoutStudioFills(withItemChecks(profile, checks ?? {})));
   const blocks = [
     `import { ${imports.join(', ')} } from ${quoteSource(from)};\n${
       defined.compiles ? `${COMPILE_IMPORT}\n` : ''
@@ -493,6 +504,10 @@ export function workspaceSource(compiled: CompiledWorkspace, project?: ProjectCo
     }
     if (agent.structured) {
       lines.push(`registerStructured(${name}.structured.id, ${name}.structured.spec);\n`);
+      for (const at of (agent.structured.also ?? []).keys()) {
+        const shape = `${name}.structured.also[${at}]`;
+        lines.push(`registerStructured(${shape}.id, ${shape}.spec);\n`);
+      }
     }
     lines.push(`registerProfile(${name}.profile);\n`);
     return lines.join('\n');

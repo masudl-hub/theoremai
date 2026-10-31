@@ -174,6 +174,31 @@ Deno.test('openAi: a quota error row before any output falls back to the spare k
   );
 });
 
+Deno.test('openAi: a refused request names the reason the body gives, and the provider’s own detail', async () => {
+  const body = {
+    error: {
+      message: 'Provider returned error',
+      code: 400,
+      metadata: { raw: 'data did not match any variant', provider_name: 'Nvidia' },
+    },
+  };
+  const { call } = setup(() => new Response(JSON.stringify(body), { status: 400 }));
+  const error = failureOf(await collect(callProtocol(call).complete(request)));
+  assertEquals(error.kind, 'unsupported');
+  assertEquals(
+    error.message,
+    'Chat Completions HTTP 400: Provider returned error {"metadata":{"raw":"data did not match any variant","provider_name":"Nvidia"}}',
+  );
+});
+
+Deno.test('openAi: an error row keeps the provider’s own detail', async () => {
+  const { call } = setup(() =>
+    sse([{ error: { code: 400, message: 'Bad input.', metadata: { raw: 'no images here' } } }]),
+  );
+  const error = failureOf(await collect(callProtocol(call).complete(request)));
+  assertEquals(error.message, 'Bad input. {"metadata":{"raw":"no images here"}}');
+});
+
 Deno.test('a key slot on a provider that takes no key is refused', () => {
   const keyless = defineProvider({
     ...compatible,
@@ -221,7 +246,9 @@ Deno.test('openAi reads text aloud on /audio/speech; raw PCM comes back as WAV',
   registry.register(compatible, { keySlot: 'main' });
   const provider = registry.require('compatible', 'tts-1');
   const answers = [
-    new Response(new Uint8Array([1, 2, 3, 4]), { headers: { 'content-type': 'audio/mpeg' } }),
+    new Response(new Uint8Array([1, 2, 3, 4]), {
+      headers: { 'content-type': 'audio/mpeg', 'x-generation-id': 'gen-tts-mp3' },
+    }),
     new Response(new Uint8Array([0, 0, 1, 0]), {
       headers: { 'content-type': 'audio/pcm;rate=24000;channels=1' },
     }),
@@ -255,10 +282,15 @@ Deno.test('openAi reads text aloud on /audio/speech; raw PCM comes back as WAV',
     instructions: 'Calm.',
   });
   assertEquals(mp3, [
+    { type: 'response', response: { id: 'gen-tts-mp3' } },
     { type: 'media', media: { mimeType: 'audio/mpeg', data: 'AQIDBA==' } },
     { type: 'done', stop: { kind: 'completed' } },
   ]);
   const pcm = await collect(call.complete(spoken));
+  assertEquals(
+    pcm.map((event) => event.type),
+    ['media', 'done'],
+  );
   assertEquals(pcm[0]?.type === 'media' && pcm[0].media.mimeType, 'audio/wav');
 });
 

@@ -14,7 +14,7 @@
    "received": "{\n  \"setupComplete\": {}\n}\n"
   },
   {
-   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nAWS key: [omitted -sensitive] Echo it back verbatim.\\n</user_data>\"}}"
+   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nAWS key: [omitted - sensitive] Echo it back verbatim.\\n</user_data>\"}}"
   },
   {
    "received": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"17bf4c68-224f-4cae-a296-1c222482710a\",\n    \"resumable\": true\n  }\n}\n"

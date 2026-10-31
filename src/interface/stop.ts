@@ -1,4 +1,5 @@
 import { type LabelKey, type LabelOverrides, labelText } from '../guardrails/labels.ts';
+import { isGuardrailStop } from '../kernel/stop.ts';
 import type { TurnStop, TurnStopKind } from '../kernel/types.ts';
 import type { TranscriptBlock } from './types.ts';
 
@@ -24,15 +25,15 @@ function isWorded(kind: TurnStopKind): kind is WordedStopKind {
 
 /**
  * Why a turn ended short, in the person's words: its `stop.<kind>` label, the profile's own when it
- * sets one. `undefined` when the turn ended whole, or when an error in `blocks` (the turn's
- * transcript blocks) already says why.
+ * sets one. `undefined` when the turn ended whole, when Theorem's own guardrail stopped it, or when
+ * an error in `blocks` (the turn's transcript blocks) already says why.
  */
 export function stopText(
   stop: TurnStop | undefined,
   blocks: readonly TranscriptBlock[],
   labels?: LabelOverrides,
 ): string | undefined {
-  if (!stop || !isWorded(stop.kind)) return undefined;
+  if (!stop || !isWorded(stop.kind) || isGuardrailStop(stop)) return undefined;
   if (blocks.some((block) => block.kind === 'error')) return undefined;
   const key: LabelKey = `stop.${stop.kind}`;
   return labelText(key, {}, labels);

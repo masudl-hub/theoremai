@@ -52,18 +52,20 @@ export function ChartTip({ children }: { children: ReactNode }) {
   );
 }
 
-/** Which turn is open: its name, and the previous and next turn. */
+/** Which turn is open: its name, the previous and next turn, then `end`. */
 export function TurnPicker({
   turns,
   index,
   onChange,
   onBack,
+  end,
 }: {
   turns: readonly TraceTurn[];
   index: number;
   onChange: (index: number) => void;
   /** Leaves the turn for the whole conversation; absent when there is only the one turn. */
   onBack?: (() => void) | undefined;
+  end?: ReactNode;
 }) {
   const { t } = useTraceFormat();
   const turn = turns[index];
@@ -116,6 +118,7 @@ export function TurnPicker({
             isDisabled={index === turns.length - 1}
             onClick={() => onChange(index + 1)}
           />
+          {end}
         </HStack>
       </HStack>
     </VStack>

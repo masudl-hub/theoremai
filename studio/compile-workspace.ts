@@ -23,8 +23,8 @@ import {
   type AgentDraft,
   agentDraft,
   agentNodeId,
-  type StudioWorkspace,
   scopedNodeId,
+  type WorkspaceContent,
 } from './workspace.ts';
 
 export interface CompiledWorkspace {
@@ -36,7 +36,7 @@ export type WorkspaceCompileResult =
   | ({ ok: true } & CompiledWorkspace)
   | { ok: false; issues: StudioIssue[] };
 
-/** The agents an agent tool can run, and the one type that can summarise. */
+/** The agents an agent tool can run. */
 const CALLABLE_TYPES = new Set(['text', 'image', 'speech']);
 
 /** A reference from one agent to another, and the node and field that hold it. */
@@ -44,17 +44,28 @@ interface Reference {
   from: AgentDraft;
   to: string;
   nodeId: string;
-  field: 'agentKey' | 'compactWith';
+  field: 'agentKey' | 'stageAgentKey' | 'compactWith';
 }
 
-function references(workspace: StudioWorkspace): Reference[] {
+function references(workspace: WorkspaceContent): Reference[] {
   const tools = new Map(workspace.toolSpecs.map((tool) => [tool.key, tool]));
   return workspace.agents.flatMap((agent) => [
     ...agent.tools.allow.flatMap((key): Reference[] => {
       const tool = tools.get(key);
-      return tool?.toolType === 'agent' && tool.agentKey
-        ? [{ from: agent, to: tool.agentKey, nodeId: toolSpecNodeId(key), field: 'agentKey' }]
-        : [];
+      if (tool?.toolType === 'agent' && tool.agentKey) {
+        return [{ from: agent, to: tool.agentKey, nodeId: toolSpecNodeId(key), field: 'agentKey' }];
+      }
+      if (tool?.toolType !== 'agent' && tool?.stageAgentKey) {
+        return [
+          {
+            from: agent,
+            to: tool.stageAgentKey,
+            nodeId: toolSpecNodeId(key),
+            field: 'stageAgentKey',
+          },
+        ];
+      }
+      return [];
     }),
     ...agent.modelBindings.flatMap((binding): Reference[] =>
       binding.compactTiming && binding.compactWith
@@ -72,7 +83,10 @@ function references(workspace: StudioWorkspace): Reference[] {
 }
 
 /** Each agent's key, to the keys of the agents it names. */
-function namedBy(workspace: StudioWorkspace, refs: readonly Reference[]): Map<string, Set<string>> {
+function namedBy(
+  workspace: WorkspaceContent,
+  refs: readonly Reference[],
+): Map<string, Set<string>> {
   const named = new Map(workspace.agents.map((agent) => [agent.key, new Set<string>()]));
   for (const ref of refs) if (named.has(ref.to)) named.get(ref.from.key)?.add(ref.to);
   return named;
@@ -107,19 +121,19 @@ function circleMessage(ref: Reference, path: readonly string[], idOf: AgentIdOf)
   const from = `'${idOf(ref.from.key) ?? ''}'`;
   const to = `'${idOf(ref.to) ?? ''}'`;
   if (ref.from.key === ref.to) {
-    return ref.field === 'agentKey'
+    return ref.field === 'agentKey' || ref.field === 'stageAgentKey'
       ? `${from} has this tool on, and the tool runs ${from} itself. Choose another agent for it to run, or turn it off for ${from}.`
       : `${from} can't summarise its own conversation. Choose another text agent.`;
   }
   const circle = [ref.from.key, ...path].map((key) => idOf(key) ?? '').join(' → ');
-  return ref.field === 'agentKey'
+  return ref.field === 'agentKey' || ref.field === 'stageAgentKey'
     ? `${from} has this tool on, and it runs ${to}, which leads back to ${from} (${circle}). Agents can't run each other in a circle: turn this tool off for ${from}, or remove the way back.`
     : `${to} summarises for ${from}, and ${to} leads back to ${from} (${circle}). Agents can't run each other in a circle: choose another agent to summarise, or remove the way back.`;
 }
 
 /** Agents in workspace order, each after the agents it names; the rest are in a loop. */
 function registrationOrder(
-  workspace: StudioWorkspace,
+  workspace: WorkspaceContent,
   named: Map<string, Set<string>>,
 ): { ordered: AgentDraft[]; looped: AgentDraft[] } {
   const done = new Set<string>();
@@ -142,7 +156,7 @@ function registrationOrder(
 type Report = (issue: StudioIssue) => void;
 
 /** An id two agents share, or a tool name two tools share, is an issue on each after the first. */
-function reportDuplicates(workspace: StudioWorkspace, report: Report): void {
+function reportDuplicates(workspace: WorkspaceContent, report: Report): void {
   const ids = new Set<string>();
   for (const agent of workspace.agents) {
     const id = agent.identity.agentId.trim();
@@ -188,6 +202,15 @@ function wrongTypeMessage(ref: Reference, target: AgentDraft | undefined): strin
   if (ref.field === 'agentKey' && !CALLABLE_TYPES.has(type)) {
     return `'${id}' is a ${type} agent. An agent tool runs a text, image, or speech agent.`;
   }
+  if (ref.field === 'stageAgentKey' && type !== 'decision') {
+    return `'${id}' is a ${type} agent. A tool reader runs a decision agent.`;
+  }
+  if (
+    ref.field === 'stageAgentKey' &&
+    !target.decision.questions.some((question) => question.type === 'choice')
+  ) {
+    return `'${id}' has no choice question. A tool reader keeps a passage on the first choice.`;
+  }
   if (ref.field === 'compactWith' && type !== 'text') {
     return `'${id}' is a ${type} agent. Only a text agent summarises.`;
   }
@@ -196,7 +219,7 @@ function wrongTypeMessage(ref: Reference, target: AgentDraft | undefined): strin
 
 /** Each agent's own compile, in registration order; an agent's issues land under its node. */
 function compileAgents(
-  workspace: StudioWorkspace,
+  workspace: WorkspaceContent,
   agents: readonly AgentDraft[],
   on: StudioRunsOn,
   agentIdOf: AgentIdOf,
@@ -229,7 +252,7 @@ function compileAgents(
  * workspace's providers as they are now, so an agent is checked against what it would run on.
  */
 function kernelIssue(
-  workspace: StudioWorkspace,
+  workspace: WorkspaceContent,
   compiled: readonly { key: string; agent: CompiledStudio }[],
 ): StudioIssue | undefined {
   const registry = createKernelRegistry();
@@ -277,7 +300,7 @@ function kernelIssue(
 
 /** Every issue across the workspace is reported, each once. */
 export function compileWorkspace(
-  workspace: StudioWorkspace,
+  workspace: WorkspaceContent,
   on: StudioRunsOn,
 ): WorkspaceCompileResult {
   const issues = new Map<string, StudioIssue>();
@@ -345,12 +368,19 @@ export function workspaceRunAgent(
       customTools,
       ...(structured ? { structured } : {}),
     }));
-  return { ...chatted, dependencies };
+  const customTools = chatted.customTools.map((tool) => {
+    const reader = tool.type === 'agent' ? undefined : byId.get(tool.stageAgent ?? '');
+    return reader?.questions ? { ...tool, stageQuestions: reader.questions } : tool;
+  });
+  return { ...chatted, customTools, dependencies };
 }
 
-/** The agent ids a compiled agent names: its agent tools' and its compaction's. */
+/** The agent ids a compiled agent names: its agent tools', stage readers', and its compaction's. */
 function namedAgents(agent: CompiledStudio): string[] {
-  const tools = agent.customTools.flatMap((tool) => (tool.type === 'agent' ? [tool.profile] : []));
+  const tools = agent.customTools.flatMap((tool) => {
+    if (tool.type === 'agent') return [tool.profile];
+    return tool.stageAgent ? [tool.stageAgent] : [];
+  });
   const models = 'models' in agent.profile ? Object.values(agent.profile.models) : [];
   const compactors = models.flatMap((binding) =>
     binding.compaction?.profile ? [binding.compaction.profile] : [],

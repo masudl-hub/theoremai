@@ -1,15 +1,13 @@
 import { liveIngressEnabledFromSpec } from '@theoremjs/agents';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
+import type { LiveCallOptions, LiveConnection } from '@theoremjs/web/client';
+import { createTraceFeed, liveState } from '@theoremjs/web/client';
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type LiveCaptionState,
   type LiveCaptionTurn,
   stashLiveCaptionCall,
 } from '../../client/live/live-captions.ts';
-import type { LiveCallOptions } from '../../client/live/live-page-tool.ts';
-import { liveState } from '../../client/live/live-state.ts';
-import type { LiveConnection } from '../../client/live-client.ts';
-import { createTraceFeed } from '../../client/trace-feed.ts';
 import { usePageToolWarnings } from '../../hooks/use-page-tool-warnings.ts';
 import { useLiveRunnerControls } from './use-live-runner-controls.ts';
 import { useLiveRunnerGate, useLiveRunnerUiState } from './use-live-runner-ui.ts';
@@ -80,7 +78,7 @@ function useLiveCallLifecycle(
  * Owns LiveRunner state, session client, and stage callbacks.
  * `connection` resolves what the call opens: a host with a fixed profile returns
  * its id; the studio returns its draft as the relay's open message. `options`
- * are the host's part in the call: its slots, the page's context, and its page tools.
+ * are the host's part in the call: its slots, its stated turn, the page's context, and its page tools.
  */
 export function useLiveRunnerModel(
   iface: LiveProfileInterface,
@@ -116,6 +114,7 @@ export function useLiveRunnerModel(
   const traces = useMemo(createTraceFeed, []);
   const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
     slots: options.slots,
+    stated: options.stated,
     context: options.context,
     pageTools: options.pageTools,
     voiceAvailable,
@@ -191,6 +190,12 @@ export function useLiveRunnerModel(
   useEffect(() => {
     clientRef.current?.setSlots(slotsJson === undefined ? undefined : JSON.parse(slotsJson));
   }, [clientRef, slotsJson]);
+
+  // why: As slots: a changed pick takes an open call up again with the lines it chooses.
+  const statedJson = JSON.stringify(options.stated);
+  useEffect(() => {
+    clientRef.current?.setStated(statedJson === undefined ? undefined : JSON.parse(statedJson));
+  }, [clientRef, statedJson]);
 
   usePageToolWarnings(iface.tools.page, options.pageTools);
 

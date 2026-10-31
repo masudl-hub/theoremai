@@ -7,6 +7,8 @@ const INDEX = /^-?\d+$/;
 const ISO_DATE =
   /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 const NUMBER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+// why: The forms are the author's English words, so English rules choose between them.
+const PLURAL = new Intl.PluralRules('en');
 // why: Dates show the wall-clock time as the tool wrote it, not converted to the server's zone.
 const DAY = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' });
 const DAY_TIME = new Intl.DateTimeFormat(undefined, {
@@ -24,18 +26,26 @@ const CHECK = /^(\S+) is (?:(not) )?(\S.*)$/;
 export type LabelTemplate = string | readonly string[];
 
 type Side = 'input' | 'output';
-type Placeholder = { path: string; fallback?: string };
+/** `{count hit|hits}`: the word for one, and for any other number. */
+type Forms = { one: string; other: string };
+type Placeholder = { path: string; fallback?: string; forms?: Forms | 'unreadable' };
 type Route = { side: Side; keys: string[]; prefixed: boolean };
 /** `expected: null` is the check "is null". */
-type Check = { path: string; negated: boolean; expected: string | null };
-type Line = { joined: boolean; when: Check[] | 'unreadable'; text: string };
+export type Check = { path: string; negated: boolean; expected: string | null };
+export type Line = { joined: boolean; when: Check[] | 'unreadable'; text: string };
 /** A line on its own, or a run of neighbouring `+` lines that show together. */
 type Entry = { joined: boolean; lines: { line: Line; number: number }[] };
 
 function parsePlaceholder(raw: string): Placeholder {
-  const bar = raw.indexOf('|');
-  if (bar < 0) return { path: raw.trim() };
-  return { path: raw.slice(0, bar).trim(), fallback: raw.slice(bar + 1).trim() };
+  const text = raw.trim();
+  const end = text.search(/[\s|]/);
+  if (end < 0) return { path: text };
+  const path = text.slice(0, end);
+  const rest = text.slice(end).trimStart();
+  if (rest.startsWith('|')) return { path, fallback: rest.slice(1).trim() };
+  const [one = '', other = '', ...fallback] = rest.split('|').map((part) => part.trim());
+  const forms = one && other ? { one, other } : 'unreadable';
+  return fallback.length ? { path, forms, fallback: fallback.join('|') } : { path, forms };
 }
 
 /** `input.x` and `output.x` read one side; a bare path reads the input, then the output. */
@@ -92,14 +102,20 @@ function parseChecks(raw: string): Check[] | 'unreadable' {
   return checks;
 }
 
-/** `+ when status is archived: archiving {name}` is a joined line, with one check, then its text. */
-function parseLine(raw: string): Line {
+/** A line's head, with its text exactly as written after the condition. */
+export function splitWhen(raw: string): Line {
   const joined = JOINED.test(raw);
-  const rest = raw.replace(JOINED, '').trim();
+  const rest = raw.replace(JOINED, '').trimStart();
   if (!/^when(\s|$)/.test(rest)) return { joined, when: [], text: rest };
   const end = rest.search(WHEN_ENDS);
   if (end < 0) return { joined, when: 'unreadable', text: '' };
-  return { joined, when: parseChecks(rest.slice(4, end)), text: rest.slice(end + 1).trim() };
+  return { joined, when: parseChecks(rest.slice(4, end)), text: rest.slice(end + 1).trimStart() };
+}
+
+/** `+ when status is archived: archiving {name}` is a joined line, with one check, then its text. */
+function parseLine(raw: string): Line {
+  const line = splitWhen(raw);
+  return { ...line, text: line.text.trim() };
 }
 
 function entriesOf(template: LabelTemplate): Entry[] {
@@ -121,7 +137,7 @@ function checkKeys(path: string): string[] | undefined {
 }
 
 // why: "is not" is the plain opposite of "is", so a field the model left out is not any value.
-function checkHolds(check: Check, input: unknown): boolean {
+export function checkHolds(check: Check, input: unknown): boolean {
   const keys = checkKeys(check.path);
   if (!keys) return false;
   const value = valueAt(input, keys);
@@ -146,6 +162,15 @@ export function toolNameInWords(name: string): string {
     .toLowerCase();
 }
 
+function countText(found: readonly unknown[], forms: Forms | 'unreadable'): string | undefined {
+  if (forms === 'unreadable') return undefined;
+  const count = found.find(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  );
+  if (count === undefined) return undefined;
+  return `${NUMBER.format(count)} ${PLURAL.select(count) === 'one' ? forms.one : forms.other}`;
+}
+
 function fillText(
   template: string,
   values: { input: unknown; output?: unknown },
@@ -153,12 +178,11 @@ function fillText(
 ): string | undefined {
   let missing = false;
   const filled = template.replace(PLACEHOLDER, (_, raw: string) => {
-    const { path, fallback } = parsePlaceholder(raw);
-    const value = path
-      ? routes(path, sides)
-          .map((route) => labelValue(valueAt(values[route.side], route.keys)))
-          .find((text) => text !== undefined)
-      : undefined;
+    const { path, fallback, forms } = parsePlaceholder(raw);
+    const found = path
+      ? routes(path, sides).map((route) => valueAt(values[route.side], route.keys))
+      : [];
+    const value = forms ? countText(found, forms) : found.map(labelValue).find(Boolean);
     if (value === undefined && fallback === undefined) missing = true;
     return value ?? fallback ?? '';
   });
@@ -167,8 +191,9 @@ function fillText(
 }
 
 /**
- * Fills each `{path}` or `{path|fallback}` from the call. Only text and numbers fill; a line fits
- * when every placeholder has a value or a fallback and its `when` holds. A list shows its first
+ * Fills each `{path}`, `{path|fallback}` or `{count one|other}` from the call. Only text and numbers
+ * fill, and a count fills only from a number; a line fits when every placeholder has a value or a
+ * fallback and its `when` holds. A list shows its first
  * line that fits, and a run of `+` lines shows every member that fits, joined in words. When no
  * line fits the label is `undefined`, and the transcript names the tool.
  */
@@ -217,7 +242,8 @@ function placeholdersAt(node: unknown, prefix: string): string[] {
   if (!isRecord(node)) return [];
   const branches = schemaBranches(node);
   if (branches.length) return branches.flatMap((branch) => placeholdersAt(branch, prefix));
-  if (schemaTypes(node).includes('array')) return leavesAt(node.items, at('0'));
+  // why: A list's length is a number a label can show, after its first item's fields.
+  if (schemaTypes(node).includes('array')) return [...leavesAt(node.items, at('0')), at('length')];
   if (!isRecord(node.properties)) return [];
   return Object.entries(node.properties).flatMap(([key, child]) => leavesAt(child, at(key)));
 }
@@ -288,10 +314,13 @@ function placeholderProblem(
   sides: readonly Side[],
 ): string | undefined {
   for (const match of template.matchAll(PLACEHOLDER)) {
-    const { path } = parsePlaceholder(match[1] ?? '');
+    const { path, forms } = parsePlaceholder(match[1] ?? '');
     if (!path) {
       const example = placeholdersAt(schemas.input, '')[0] ?? 'name';
       return `Put a field name between the braces, like {${example}}.`; // labels-exempt: builder diagnostic
+    }
+    if (forms === 'unreadable') {
+      return `{${match[1]?.trim()}} needs a word for one and a word for any other number, like {${path} item|items}.`; // labels-exempt: builder diagnostic
     }
     const paths = routes(path, sides);
     const [route] = paths;
@@ -304,7 +333,15 @@ function placeholderProblem(
         schemaPathHolds(schemas[side], keys, prefixed ? side : ''),
       ),
     );
-    if (found.holds === 'value') continue;
+    if (found.holds === 'value') {
+      const counts = paths.some(({ side, keys }) =>
+        schemaLeavesAt(schemas[side], keys).some((leaf) => leaf.number),
+      );
+      if (forms && !counts) {
+        return `{${path}} is not a number, so it has no plural. Count a list with {${path}.length ${forms.one}|${forms.other}}.`; // labels-exempt: builder diagnostic
+      }
+      continue;
+    }
     const all = found.instead ?? [];
     const depth = route.prefixed ? 1 : 0;
     const near = all.filter((candidate) => candidate.split('.')[depth] === route.keys[0]);
@@ -314,14 +351,18 @@ function placeholderProblem(
       group: 'is a list or group; a label shows text or a number.', // labels-exempt: builder diagnostic
       flag: 'is true or false; a label shows text or a number.', // labels-exempt: builder diagnostic
     }[found.holds];
-    return `{${path}} ${reason}${tryInstead(near.length ? near : all)}`;
+    // why: What the builder ended the path with (a length, a name) says which of the fields they meant.
+    const last = route.keys.at(-1);
+    const tail = (candidate: string) => (candidate.split('.').at(-1) === last ? 0 : 1);
+    const ranked = (near.length ? near : all).toSorted((a, b) => tail(a) - tail(b));
+    return `{${path}} ${reason}${tryInstead(ranked)}`;
   }
   return undefined;
 }
 
-type Leaf = { texts: string[] | 'any'; nullable: boolean };
+type Leaf = { texts: string[] | 'any'; nullable: boolean; number: boolean };
 
-const OPEN_LEAF: Leaf = { texts: 'any', nullable: true };
+const OPEN_LEAF: Leaf = { texts: 'any', nullable: true, number: true };
 
 function rawTypes(node: Record<string, unknown>): string[] {
   const types = Array.isArray(node.type) ? node.type : [node.type];
@@ -334,6 +375,7 @@ function leafOf(node: Record<string, unknown>): Leaf {
     return {
       texts: listed.filter((value) => value !== null).map((value) => `${value}`),
       nullable: listed.includes(null),
+      number: listed.some((value) => typeof value === 'number'),
     };
   }
   const types = rawTypes(node);
@@ -343,6 +385,7 @@ function leafOf(node: Record<string, unknown>): Leaf {
   return {
     texts: flag ? (shown.length ? ['true', 'false'] : []) : 'any',
     nullable: types.includes('null'),
+    number: shown.some((type) => type === 'number' || type === 'integer'),
   };
 }
 
@@ -355,7 +398,9 @@ function schemaLeavesAt(node: unknown, keys: readonly string[]): Leaf[] {
   if (key === undefined) return [leafOf(node)];
   const types = schemaTypes(node);
   if (types.includes('array')) {
-    if (key === 'length') return rest.length ? [] : [{ texts: 'any', nullable: false }];
+    if (key === 'length') {
+      return rest.length ? [] : [{ texts: 'any', nullable: false, number: true }];
+    }
     if (INDEX.test(key)) return schemaLeavesAt(node.items, rest);
   }
   if (isRecord(node.properties)) {
@@ -379,7 +424,11 @@ function oneOf(values: readonly string[]): string {
     : `${shown.slice(0, -1).join(', ')}${shown.length > 2 ? ',' : ''} or ${shown.at(-1)}`;
 }
 
-function checkProblem(check: Check, input: unknown): string | undefined {
+export function checkProblem(
+  check: Check,
+  input: unknown,
+  reads = "this tool's input", // labels-exempt: builder diagnostic
+): string | undefined {
   const keys = checkKeys(check.path);
   if (!keys) {
     return `A "when" reads what the model sent; "${check.path}" is only there once the call is done.`; // labels-exempt: builder diagnostic
@@ -388,7 +437,7 @@ function checkProblem(check: Check, input: unknown): string | undefined {
   if (found.holds === 'missing') {
     const fields = inputFields(input).slice(0, 4);
     const tryThese = fields.length ? ` Try ${oneOf(fields)}.` : ''; // labels-exempt: builder diagnostic
-    return `"${check.path}" in the "when" is not a field of this tool's input.${tryThese}`; // labels-exempt: builder diagnostic
+    return `"${check.path}" in the "when" is not a field of ${reads}.${tryThese}`; // labels-exempt: builder diagnostic
   }
   if (found.holds === 'group') {
     return `"${check.path}" in the "when" is a list or group; a "when" compares text, a number, or true or false.`; // labels-exempt: builder diagnostic
@@ -453,7 +502,47 @@ function listProblem(entries: readonly Entry[]): string | undefined {
  * Why a label can't be used with these JSON schemas, as a sentence for its author, or `undefined`
  * when it can. Pass `output` for a Done label. A list must end on a line that always fits.
  */
+/** The schemas' outputs, when a check names none. */
+const NO_OUTPUT = {};
+/** Answers by input schema, then output schema, then template: a schema object is read, never changed. */
+const answered = new WeakMap<object, WeakMap<object, Map<string, string | undefined>>>();
+
+/** The answers already given for these schemas, when both are objects that can key them. */
+function answersFor(schemas: {
+  input: unknown;
+  output?: unknown;
+}): Map<string, string | undefined> | undefined {
+  const { input } = schemas;
+  const output = 'output' in schemas ? schemas.output : NO_OUTPUT;
+  if (typeof input !== 'object' || input === null) return undefined;
+  if (typeof output !== 'object' || output === null) return undefined;
+  let byOutput = answered.get(input);
+  if (!byOutput) {
+    byOutput = new WeakMap();
+    answered.set(input, byOutput);
+  }
+  let byTemplate = byOutput.get(output);
+  if (!byTemplate) {
+    byTemplate = new Map();
+    byOutput.set(output, byTemplate);
+  }
+  return byTemplate;
+}
+
+// why: A studio compile checks every tool's labels for every agent that uses the tool, again on each edit that settles.
 export function activityLabelProblem(
+  template: LabelTemplate,
+  schemas: { input: unknown; output?: unknown },
+): string | undefined {
+  const answers = answersFor(schemas);
+  const key = JSON.stringify(template);
+  if (answers?.has(key)) return answers.get(key);
+  const problem = templateProblem(template, schemas);
+  answers?.set(key, problem);
+  return problem;
+}
+
+function templateProblem(
   template: LabelTemplate,
   schemas: { input: unknown; output?: unknown },
 ): string | undefined {

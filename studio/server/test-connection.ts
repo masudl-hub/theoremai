@@ -12,6 +12,7 @@ import {
   fetchGuarded,
   isUnsupportedMcpProtocolError,
   MCP_PROTOCOL_VERSIONS,
+  mcpRequestMeta,
   type NetworkGuardrailSpec,
   parseMcpRpcResponse,
   type ResolveHost,
@@ -21,7 +22,7 @@ import {
 } from '@theoremjs/agents';
 import { caughtStatus, clientError } from '@theoremjs/agents/host';
 import type { HttpMethod } from '@theoremjs/agents/schema';
-import { readBody } from '@theoremjs/react/server';
+import { readBody } from '@theoremjs/web/server';
 
 /** What a test's request is checked against: the network guardrail it keeps to, and the resolver that finds where a name points. */
 type ProbeGuard = { policy?: NetworkGuardrailSpec; resolveHost?: ResolveHost };
@@ -303,9 +304,7 @@ function mcpToolsListRequest(
     id: 'test-ping-1',
     method: 'tools/list',
     params: {
-      _meta: {
-        'io.modelcontextprotocol/protocolVersion': protocolVersion,
-      },
+      _meta: mcpRequestMeta(protocolVersion),
     },
   };
   return {

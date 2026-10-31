@@ -5,6 +5,7 @@ import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog';
 import { HoverCard } from '@astryxdesign/core/HoverCard';
 import { HStack } from '@astryxdesign/core/HStack';
+import { useClipboard } from '@astryxdesign/core/hooks';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout';
@@ -14,7 +15,7 @@ import { Text } from '@astryxdesign/core/Text';
 import { useToast } from '@astryxdesign/core/Toast';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconFiles, IconListDetails } from '@tabler/icons-react';
+import { IconCheck, IconCopy, IconFiles, IconListDetails } from '@tabler/icons-react';
 import {
   createContext,
   type ReactNode,
@@ -25,14 +26,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import {
-  atStart,
-  type DiffLine,
-  removeAgent,
-  resetAgent,
-  type StudioWorkspace,
-  startedHere,
-} from '../mod.ts';
+import { atStart, removeAgent, resetAgent, type StudioWorkspace, startedHere } from '../mod.ts';
 import type {
   DiffHunk,
   SaveChange,
@@ -40,9 +34,50 @@ import type {
   SaveRefusal,
   SaveReview,
 } from '../server/save-wire.ts';
-import { DiffBlock } from './diff-block.tsx';
 import { type ProjectSession, reviewSave, undoSave, writeSave } from './lib/studio-project.ts';
 import { RefusalDetail } from './refusal-detail.tsx';
+
+/** The areas `settings` fall in, most first: `guardrails.detect (310)`, not every dotted path. */
+function settingAreas(settings: readonly string[], shown = 4): string {
+  const counts = new Map<string, number>();
+  for (const setting of settings) {
+    const parts = setting.split('.');
+    const area = parts.length > 2 ? parts.slice(0, 2).join('.') : parts[0];
+    counts.set(area, (counts.get(area) ?? 0) + 1);
+  }
+  const areas = [...counts].sort((a, b) => b[1] - a[1]);
+  const named = areas
+    .slice(0, shown)
+    .map(([area, count]) => (count > 1 ? `${area} (${count})` : area));
+  const more = areas.length - named.length;
+  return more > 0 ? `${named.join(', ')}, and ${more} more` : named.join(', ');
+}
+
+/** Every alert as plain text, for pasting into a message: all names, the areas of each difference. */
+function alertsReport(project: ProjectSession, unloaded?: string): string {
+  const { problems, modelProblems, differences, unheld, unregistered } = project;
+  const lines = [`Theorem studio: ${project.name}`];
+  if (unloaded !== undefined) lines.push('', 'The studio cannot load your files:', unloaded.trim());
+  for (const each of problems) lines.push('', `Cannot run ${each.profile}: ${each.message}`);
+  for (const each of modelProblems) {
+    lines.push('', `${each.profile}'s model '${each.model}' cannot run: ${each.message}`);
+  }
+  if (unregistered.length) {
+    lines.push(
+      '',
+      `Defined in files but not registered at start (${String(unregistered.length)}): ${unregistered.map((each) => each.name).join(', ')}`,
+    );
+  }
+  if (unheld.length)
+    lines.push('', `Cannot check against files: ${[...new Set(unheld)].join(' ')}`);
+  for (const each of differences) {
+    lines.push(
+      '',
+      `${each.of} shows ${String(each.settings.length)} settings differently from files: ${settingAreas(each.settings, 12)}`,
+    );
+  }
+  return lines.join('\n');
+}
 
 /** Wide enough for a reason's sentence to read in a few lines. */
 const ALERTS_WIDTH = 320;
@@ -59,8 +94,8 @@ type SaveStep =
   | { at: 'refused'; refusal: SaveRefusal };
 
 const DIALOG_WIDTH = 720;
-/** How long the saved line stays, in milliseconds: long enough to reach Undo. */
-const UNDO_WINDOW = 15_000;
+/** How long a toast with Undo stays, in milliseconds: long enough to reach Undo. */
+export const UNDO_WINDOW = 15_000;
 
 /** Why nothing was written, as the builder reads it. */
 const REFUSED: Record<SaveRefusal['reason'], string> = {
@@ -136,23 +171,26 @@ function reason(change: SaveChange): string {
   }
 }
 
-/** One run of changed lines: the lines taken out marked `-`, the lines put in marked `+`. */
+/** One run of changed lines as a unified diff over the file's own language. */
 function HunkBlock({ file, hunk }: { file: SaveFile; hunk: DiffHunk }) {
-  const signed = (sign: DiffLine['sign']) => (text: string) => ({ sign, text });
+  const signed = (sign: ' ' | '-' | '+') => (text: string) => `${sign}${text}`;
+  const code = [
+    ...hunk.lead.map(signed(' ')),
+    ...hunk.removed.map(signed('-')),
+    ...hunk.added.map(signed('+')),
+    ...hunk.trail.map(signed(' ')),
+  ].join('\n');
+  const place =
+    file.created || file.removed
+      ? `${fileNote(file)} · ${file.file}`
+      : `${file.file}:${String(hunk.line)}`;
   return (
-    <DiffBlock
-      title={
-        file.created || file.removed
-          ? `${fileNote(file)} · ${file.file}`
-          : `${file.file}:${String(hunk.line)}`
-      }
-      start={hunk.line - hunk.lead.length}
-      lines={[
-        ...hunk.lead.map(signed(' ')),
-        ...hunk.removed.map(signed('-')),
-        ...hunk.added.map(signed('+')),
-        ...hunk.trail.map(signed(' ')),
-      ]}
+    <CodeBlock
+      code={code}
+      language={file.file.split('.').at(-1)}
+      title={`${place} · +${String(hunk.added.length)} −${String(hunk.removed.length)}`}
+      isDiff
+      size="sm"
     />
   );
 }
@@ -295,6 +333,7 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
     (unheld.length ? 1 : 0) +
     (unregistered.length ? 1 : 0) +
     (unloaded === undefined ? 0 : 1);
+  const { copy, isCopied } = useClipboard();
   if (!count) return null;
   return (
     <HoverCard
@@ -307,6 +346,18 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
           style={{ maxHeight: ALERTS_MAX_HEIGHT }}
         >
           <VStack gap={3}>
+            <HStack hAlign="end">
+              <IconButton
+                label={isCopied ? 'Copied' : 'Copy alerts'}
+                variant="ghost"
+                size="sm"
+                icon={<Icon icon={isCopied ? IconCheck : IconCopy} size="sm" />}
+                tooltip="Copy these alerts to send"
+                onClick={() => {
+                  copy(alertsReport(project, unloaded));
+                }}
+              />
+            </HStack>
             {unloaded !== undefined && (
               <VStack gap={1}>
                 <Text weight="semibold">The studio cannot load your files.</Text>
@@ -338,7 +389,12 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
                   Your project did not register everything its files define.
                 </Text>
                 <Text type="supporting" color="secondary">
-                  {`Not loaded, so not shown: ${unregistered.map((each) => each.name).join(', ')}. The studio shows what your project registers when it starts.`}
+                  {`${unregistered.length} defined in your files but not registered when the project started, so the studio cannot show them: ${unregistered
+                    .slice(0, 5)
+                    .map((each) => each.name)
+                    .join(
+                      ', ',
+                    )}${unregistered.length > 5 ? `, and ${unregistered.length - 5} more` : ''}. A run and Save still use your files. If none of them load, the studio is probably reading a second copy of the Theorem package.`}
                 </Text>
               </VStack>
             )}
@@ -348,7 +404,7 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
                   The studio cannot check what it shows against your files.
                 </Text>
                 <Text type="supporting" color="secondary">
-                  {`A run and Save still use your files. ${unheld.join(' ')}`}
+                  {`A run and Save still use your files. ${[...new Set(unheld)].join(' ')}${unregistered.length > 0 ? ' This usually follows from the profiles above not loading.' : ''}`}
                 </Text>
               </VStack>
             )}
@@ -356,7 +412,7 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
               <VStack key={`${difference.kind}:${difference.of}`} gap={1}>
                 <Text weight="semibold">{`The studio shows ${difference.of} differently from your files.`}</Text>
                 <Text type="supporting" color="secondary">
-                  {`A run and Save still use your files for: ${difference.settings.join(', ')}.`}
+                  {`${difference.settings.length} ${difference.settings.length === 1 ? 'setting differs' : 'settings differ'}: ${settingAreas(difference.settings)}. A run and Save still use your files.`}
                 </Text>
               </VStack>
             ))}
@@ -632,7 +688,7 @@ export function ProjectSave({
         isOpen={asking}
         onOpenChange={setAsking}
         title="Discard every unsaved edit?"
-        description="All unsaved edits will be lost. This action cannot be reversed."
+        description="The project goes back to its files. Undo in the next message brings the edits back."
         actionLabel="Discard all"
         actionVariant="destructive"
         onAction={() => {

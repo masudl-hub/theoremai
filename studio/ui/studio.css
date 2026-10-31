@@ -21,8 +21,8 @@
 }
 
 /*
- * A studio tree row's add or remove button shows on hover or keyboard focus, fading in,
- * so the tree reads as names at rest. Without hover (touch), it always shows.
+ * A studio tree row's buttons (reset, add, remove) show on hover or keyboard focus, fading in,
+ * so the tree reads as names at rest. Without hover (touch), they always show.
  */
 .studio-tree-row {
   position: relative;
@@ -51,26 +51,37 @@
 }
 
 /*
- * The button sits over the label's end rather than beside it, so it never widens the row; the
- * label fades out beneath it instead of being pushed along.
+ * The buttons sit over the label's end rather than beside it, so they never widen the row; the
+ * label fades out beneath them instead of being pushed along. Each button past the first fades a
+ * button's width further in.
  */
+.studio-tree-row {
+  --studio-tree-fade: 0px;
+}
+
+.studio-tree-row:has(.studio-tree-action > :nth-child(2)) {
+  --studio-tree-fade: var(--spacing-8);
+}
+
+.studio-tree-row:has(.studio-tree-action > :nth-child(3)) {
+  --studio-tree-fade: calc(var(--spacing-8) * 2);
+}
+
 @media (hover: none) {
   .studio-tree-row > button:not([data-tree-toggle]) {
-    mask-image: linear-gradient(to left, transparent var(--spacing-6), #000 var(--spacing-10));
+    mask-image: linear-gradient(
+      to left,
+      transparent calc(var(--spacing-6) + var(--studio-tree-fade)),
+      #000 calc(var(--spacing-10) + var(--studio-tree-fade))
+    );
   }
 }
 
 .studio-tree-row:is(:hover, :has(:focus-visible)) > button:not([data-tree-toggle]) {
-  mask-image: linear-gradient(to left, transparent var(--spacing-6), #000 var(--spacing-10));
-}
-
-/* A row with two buttons fades a button's width further in. */
-.studio-tree-row:has(.studio-tree-action > :nth-child(2)):is(:hover, :has(:focus-visible))
-> button:not([data-tree-toggle]) {
   mask-image: linear-gradient(
     to left,
-    transparent calc(var(--spacing-6) + var(--spacing-8)),
-    #000 calc(var(--spacing-10) + var(--spacing-8))
+    transparent calc(var(--spacing-6) + var(--studio-tree-fade)),
+    #000 calc(var(--spacing-10) + var(--studio-tree-fade))
   );
 }
 
@@ -221,6 +232,11 @@ button.inspector-origin:hover {
 }
 
 @media (width >= 768px) {
+  /* The page is already inset, so the preview's panes meet its end and bottom as the editor does. */
+  .studio-preview {
+    --theorem-pane-edge: 0px;
+  }
+
   .studio-frame:is(.studio-map-open, .studio-settings-open) .studio-side {
     width: 100%;
     max-width: none;
@@ -315,13 +331,6 @@ button.inspector-origin:hover {
   color: var(--color-text-secondary);
 }
 
-.studio-diff-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .studio-diff-sides {
   display: flex;
   flex-wrap: wrap;
@@ -344,16 +353,12 @@ button.inspector-origin:hover {
   color: var(--color-text-green);
 }
 
-/* The gutters size to their widest cell and every line shares them. */
+/* The sign gutter sizes to its widest cell and every line shares it. */
 .studio-diff-lines {
   display: grid;
-  grid-template-columns: repeat(2, max-content) minmax(max-content, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   overflow: auto;
   padding-block: var(--spacing-1);
-}
-
-.studio-diff[data-wrapped="true"] .studio-diff-lines {
-  grid-template-columns: repeat(2, max-content) minmax(0, 1fr);
 }
 
 .studio-diff-line {
@@ -370,17 +375,11 @@ button.inspector-origin:hover {
   background: var(--color-background-green);
 }
 
-.studio-diff-number,
 .studio-diff-sign {
   padding-inline: var(--spacing-2);
   color: var(--color-text-secondary);
-  text-align: end;
-  user-select: none;
-}
-
-.studio-diff-sign {
-  grid-column: 2;
   text-align: center;
+  user-select: none;
 }
 
 .studio-diff-line[data-sign="-"] .studio-diff-sign {
@@ -392,16 +391,11 @@ button.inspector-origin:hover {
 }
 
 .studio-diff-line code {
-  grid-column: 3;
   padding-inline-end: var(--spacing-3);
   font: inherit;
-  white-space: pre;
-  transition: opacity 120ms ease;
-}
-
-.studio-diff[data-wrapped="true"] .studio-diff-line code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  transition: opacity 120ms ease;
 }
 
 /* The side that does not stand is set aside: struck through and faint. */

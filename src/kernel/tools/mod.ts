@@ -17,6 +17,7 @@ export {
   executeMcpTool,
   isUnsupportedMcpProtocolError,
   MCP_PROTOCOL_VERSIONS,
+  mcpRequestMeta,
   parseMcpRpcResponse,
   resolveToolAuth,
   withCredentialQuery,

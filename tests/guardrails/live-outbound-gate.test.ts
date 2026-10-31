@@ -18,6 +18,7 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
 import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { eventsOf, firstOf } from '../fixtures/events.ts';
+import { STOP_LEAKS, TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { geminiModels } from '../fixtures/models.ts';
 import { replyText } from '../fixtures/reply.ts';
 
@@ -28,8 +29,23 @@ function chatProfile() {
   return getProfile('chat');
 }
 
+/** A session of a profile that stops what it must not give away: a leak withholds the cycle, and a thought loses it. */
 async function session(canary?: string) {
-  return await createLiveOutboundGateSession(chatProfile(), canary);
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      tools: { allow: [] },
+      id: 'live_blocks',
+      ...geminiModels('gemini35FlashLite'),
+      inputs: { text: true },
+      guardrails: {
+        quota: { perDay: 100 },
+        detect: STOP_LEAKS,
+      },
+    }),
+  );
+  return await createLiveOutboundGateSession(getProfile('live_blocks'), canary);
 }
 
 /** A session of a profile no detector reads: nothing gates its reply. */
@@ -54,7 +70,7 @@ function hostProfile(
   find: HostFind,
   extras: {
     onBlock?: 'refuse';
-    leaks?: 'ignore';
+    leaks?: 'ignore' | 'take_out';
     labels?: LabelOverrides;
   } = {},
 ) {
@@ -71,7 +87,9 @@ function hostProfile(
         detect: {
           ...(extras.leaks === 'ignore'
             ? ({ canary_leak: 'ignore', prompt_leak: 'ignore' } as const)
-            : {}),
+            : extras.leaks === 'take_out'
+              ? TAKE_OUT_LEAKS
+              : {}),
           'test.own': { label: 'Test', at: { live_reply: 'block' }, find },
         },
         ...(extras.onBlock ? { blockedReply: { onBlock: extras.onBlock } } : {}),
@@ -424,6 +442,19 @@ Deno.test('processLiveOutboundBatch withholds a canary spoken across frames with
   );
   const result = await processLiveOutboundBatch(s, [said(canary.slice(half)), audio(2)]);
   await withheldAtEnd(s, result, canary.slice(half));
+});
+
+Deno.test('under the default detectors, a canary is flagged and its cycle is heard as said', async () => {
+  const canary = mintCanary();
+  const s = await createLiveOutboundGateSession(chatProfile(), canary);
+  assertEquals(await processLiveOutboundBatch(s, [audio(1), audio(2)]), { action: 'idle' });
+  const result = await processLiveOutboundBatch(s, [said(`Sure, ${canary} done`), audio(3)]);
+  if (result.action !== 'emit') throw new Error('not emitted');
+  assertEquals(firstOf(result.events, 'guardrail')?.guardrail.action, 'flag');
+  assertEquals(
+    result.events.filter((e) => e.type !== 'guardrail'),
+    [audio(1), audio(2), said(`Sure, ${canary} done`), audio(3)],
+  );
 });
 
 Deno.test('processLiveOutboundBatch passes audio straight through without a gate', async () => {
@@ -916,13 +947,15 @@ Deno.test("a Live reply holds HOST_FIND_HOLD_LIVE for a find of the host's", asy
 });
 
 Deno.test('a Live reply image renders once its URL is among those the session gave the model', async () => {
-  // The host's own detector matches nothing: ungiven_images, left at its default, is what reads the image.
-  const profile = hostProfile('live_egress_images', findNothing);
+  // The host's own detector matches nothing: ungiven_images is what takes the image out.
+  const profile = hostProfile('live_egress_images', findNothing, { leaks: 'take_out' });
   const given = givenUrlSets();
   const image = '![p](https://news.site/photo.jpg)\n\nok';
   const withheld = await createLiveOutboundGateSession(profile, undefined, undefined, given);
   await processLiveOutboundBatch(withheld, [{ type: 'text', text: image }]);
-  assertEquals((await finalizeLiveOutboundTurn(withheld)).action, 'withhold');
+  const ended = await finalizeLiveOutboundTurn(withheld);
+  if (ended.action !== 'emit') throw new Error('not emitted');
+  assertEquals(replyText(ended.events).includes('news.site'), false);
 
   // The session adds URLs as tools and the user give them, after the gate opened.
   given.request.add('https://news.site/photo.jpg');

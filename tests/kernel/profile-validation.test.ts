@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { registerTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { createProfileRegistry, defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { createSchemaRegistry } from '../../src/kernel/registry/schemas.ts';
 import { createToolRegistry } from '../../src/kernel/tools/mod.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
@@ -32,14 +33,14 @@ const decisionProfile = (over: Loose = {}): Loose => ({
   id: 'd',
   type: 'decision',
   identity: { handle: 'd' },
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y' } },
   inputs: { state: 'json' },
   decision: { contract: 'decide' },
   ...over,
 });
-const DECISION_BINDING = { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' };
+const DECISION_BINDING = { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y' };
 const decisionModel = (over: Loose): Loose => ({
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y', ...over } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y', ...over } },
 });
 /** The message, with its kind when that is not `config`: every profile error is a config error. */
 function refusal(err: TheoremError): string {
@@ -109,12 +110,12 @@ Deno.test('a definition must be an object with an id and a known type', () => {
   }
   check(
     said(textProfile({ type: 'video' })),
-    'Profile p: type must be one of text, image, speech, live, decision, embedding, host',
+    'Profile p: type must be one of text, image, speech, transcription, live, decision, embedding, host',
     'unknown type',
   );
   check(
     said(textProfile({ type: undefined })),
-    'Profile p: type must be one of text, image, speech, live, decision, embedding, host',
+    'Profile p: type must be one of text, image, speech, transcription, live, decision, embedding, host',
     'no type',
   );
 });
@@ -253,7 +254,7 @@ Deno.test("a protocol's settings go in options, never on the binding itself", ()
     said(
       textProfile(
         modelWith({
-          protocol: 'openRouter',
+          protocol: 'openRouterOpenAi',
           provider: 'openrouter',
           options: { cache: { mode: 'automatic' } },
         }),
@@ -386,7 +387,7 @@ Deno.test('a host profile sets tools.allow, and a decision profile is one model 
     [
       'decision retry',
       decisionProfile(decisionModel({ retry: { maxAttempts: 2 } })),
-      `${at}: decision retry configuration is unsupported; POSTs are never retried`,
+      `${at}: a decision binding takes no retry; a decision retries only a transient failure, by the kernel's rule`,
     ],
     [
       'decision timeout 0',
@@ -909,6 +910,11 @@ Deno.test('a cache needs openrouter, a live profile needs a channel, a label key
     said(textProfile({ labels: { nope: 'x' } })),
     "Profile p: unknown labels key 'nope'",
     'labels key',
+  );
+  check(
+    said(textProfile({ labels: { 'provider.duplicate_call': 'x' } })),
+    "Profile p: labels 'provider.duplicate_call' is a host line, which a profile cannot change; set it with overrideLabels",
+    'host label',
   );
 });
 Deno.test('a compaction profile must be a text profile', () => {

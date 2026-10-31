@@ -204,6 +204,14 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
 const ERROR_KIND_OPTIONS: Readonly<Record<ErrorKind, TraceOptionMeta>> = {
   config: { label: 'Setup', doc: 'The profile, tool, or schema is set up wrong.' },
   request: { label: 'Host request', doc: 'The host called theorem wrongly.' },
+  conflict: {
+    label: 'Conflict',
+    doc: 'The call conflicts with the state it acts on, such as an operation that is still running or not settled.',
+  },
+  not_found: {
+    label: 'Not found',
+    doc: 'Something the call names by id is not there, such as a conversation the store no longer holds.',
+  },
   input: { label: 'User input', doc: 'The user sent input the profile does not accept.' },
   action: { label: 'Not allowed', doc: 'The user asked for something the profile does not allow.' },
   auth: {
@@ -299,13 +307,23 @@ const CASE_KINDS: Readonly<Record<'capability' | 'regression', TraceOptionMeta>>
 
 const OPERATIONS: Readonly<
   Record<
-    'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool' | 'decide' | 'embeddings',
+    | 'invoke_agent'
+    | 'chat'
+    | 'generate_content'
+    | 'transcribe'
+    | 'execute_tool'
+    | 'decide'
+    | 'embeddings',
     TraceOptionMeta
   >
 > = {
   invoke_agent: { label: 'Run agent', doc: 'One turn of an agent, or one Live session.' },
-  chat: { label: 'Chat', doc: 'A model call over a chat-completions API.' },
-  generate_content: { label: 'Generate content', doc: 'A model call over a Gemini API.' },
+  chat: { label: 'Chat', doc: 'A model call to a chat-completions endpoint.' },
+  generate_content: {
+    label: 'Generate content',
+    doc: 'A model call that generates content other than over chat completions: Gemini, speech, or images.',
+  },
+  transcribe: { label: 'Transcribe', doc: 'One transcription call: a voice clip in, text out.' },
   execute_tool: { label: 'Run tool', doc: 'A tool call theorem ran.' },
   decide: {
     label: 'Decide',
@@ -681,6 +699,12 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'Stream guardrail time',
     'milliseconds',
     "Time every check on this call's streamed output took, together; each check's own time is on its `theorem.guardrail` event.",
+  ),
+  'theorem.turn.system_lines': attr(
+    'agent',
+    'Prompt lines sent',
+    'list',
+    "Which of the profile's prompt lines fit this turn, by number from 1.",
   ),
   'theorem.step': attr('agent', 'Step', 'number', 'Which model call of the turn this is, from 1.'),
   'theorem.attempt': attr(
@@ -1322,6 +1346,12 @@ const HITS = fields('error', 'Hits', 'Each rule that matched.', {
     'How serious the rule says a match is.',
     SEVERITY_OPTIONS,
   ),
+  signal: attr(
+    'error',
+    'Signal',
+    'text',
+    "What made a `tool_instructions` match one, or how a host detector's `find` failed: `find_threw` or `find_result`.",
+  ),
   start: attr('error', 'From', 'number', 'Where the match starts in the checked text.'),
   end: attr('error', 'To', 'number', 'Where the match ends in the checked text.'),
   match: attr(
@@ -1394,6 +1424,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         ),
       }),
       error: attr('error', 'Detail', 'content', "The guardrail's internal reason."),
+      error_summary: attr(
+        'error',
+        'Failure',
+        'text',
+        "Which host detector failed, how, and its error id, in the kernel's words only. The host stream's reason ends with the same id.",
+      ),
     },
   },
   'theorem.attempt.retry': {
@@ -1465,6 +1501,12 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
         'text',
         'The error the compactor failed with.',
         ERROR_KIND_OPTIONS,
+      ),
+      failure_reason: attr(
+        'agent',
+        'Compactor reason',
+        'content',
+        'Why the compactor failed, in its own words.',
       ),
       failure_empty: attr(
         'agent',
@@ -1703,6 +1745,7 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
       );
     case 'chat':
     case 'generate_content':
+    case 'transcribe':
       return withSubject(
         'theorem.request.live' in span.attributes ? 'response' : 'call',
         stringAttribute(span, 'gen_ai.request.model'),

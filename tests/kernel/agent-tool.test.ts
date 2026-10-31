@@ -967,3 +967,40 @@ Deno.test("a called agent's tools read no host when the hook gives none", async 
   assertEquals(await hostSeenByAgentTools(), [undefined]);
   assertEquals(await hostSeenByAgentTools(() => ({})), [undefined]);
 });
+
+Deno.test("a stop on the caller stops its called agent, and the caller's turn ends after the agent's", async () => {
+  const stop = new AbortController();
+  let agentSawStop = false;
+  let agentSettled = false;
+  const provider: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (isResearcher(req)) {
+        try {
+          stop.abort();
+          await new Promise<void>((resolve) => {
+            if (req.signal?.aborted) resolve();
+            req.signal?.addEventListener('abort', () => resolve(), { once: true });
+          });
+          agentSawStop = req.signal?.aborted === true;
+          throw req.signal?.reason ?? new DOMException('stopped', 'AbortError');
+        } finally {
+          agentSettled = true;
+        }
+      }
+      yield {
+        type: 'tool',
+        tool: { name: 'ask_researcher', arguments: { text: 'question' }, callId: 'call_0' },
+      };
+    },
+  };
+  const req = { profile: CALLER, input: { text: 'Help' }, signal: stop.signal };
+  try {
+    for await (const _ of runScopedTurn(scopeWith(), req, provider)) {
+      // why: The turn runs until the stop ends it.
+    }
+  } catch {
+    // why: A stopped turn may end by throwing; only the order is checked.
+  }
+  assertEquals({ agentSawStop, agentSettled }, { agentSawStop: true, agentSettled: true });
+});

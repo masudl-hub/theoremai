@@ -16,6 +16,7 @@ import {
   type SpeechProfileDefinition,
   type TextProfileDefinition,
   TheoremError,
+  type TranscriptionProfileDefinition,
 } from '@theoremjs/agents';
 import {
   BOUNDARIES,
@@ -59,11 +60,12 @@ import {
   type ProfileLiveSpec,
   type ProfileOutputsSpec,
   type ProfileSpeechSpec,
-  type SystemPrompt,
-  systemPromptProblem,
+  type ProfileSystem,
+  type ProviderLimits,
+  type SlotDeclInput,
+  systemLinesProblem,
 } from '@theoremjs/agents/kernel';
 import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
-import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from '@theoremjs/agents/presets/google';
 import {
   HTTP_METHODS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
@@ -72,6 +74,7 @@ import {
 } from '@theoremjs/agents/schema';
 import { isCredentialName, MASK } from '@theoremjs/agents/surface';
 import { STUDIO_KEY_SLOT_CAP } from './browser-connection.ts';
+import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from './cookbooks/providers.ts';
 import type {
   DecisionDraft,
   GuardrailsDraft,
@@ -85,6 +88,7 @@ import type {
   OwnDetectorDraft,
   PatternDraft,
   PatternSourceDraft,
+  SlotDraft,
   SpeechDraft,
   StudioDraft,
   StudioProfileType,
@@ -98,6 +102,8 @@ import {
   draftAllows,
   draftFacets,
   INLINE_LABELS,
+  MODEL_LIMITS,
+  TIMER_MAX_MS,
   takesContinueInstruction,
 } from './draft.ts';
 import type { LentKeys, StudioRunsOn } from './lent-keys.ts';
@@ -105,6 +111,7 @@ import { isGoogleRoute, isProviderBuiltinId, modelBindingViolation } from './pol
 import {
   type ModelRoute,
   modelRoute,
+  protocolOptionFields,
   type StudioProvider,
   servedProtocols,
   servesProfileType,
@@ -120,7 +127,7 @@ import {
   defaultModelRequired,
   inputLimitsRequired,
 } from './requirements.ts';
-import { parseSystemMarkup, type SystemMarkup } from './system-markup.ts';
+import { parseSystemMarkup } from './system-markup.ts';
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
@@ -129,6 +136,7 @@ export type StudioProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
   | SpeechProfileDefinition
+  | TranscriptionProfileDefinition
   | LiveProfileDefinition
   | DecisionProfileDefinition
   | EmbeddingProfileDefinition
@@ -158,7 +166,7 @@ export interface CompiledStudio {
   structured?: StructuredRegistration;
   /** A decision's questions, by id. */
   questions?: Record<string, DecisionQuestion>;
-  /** The pictures every decision sends, by the reference its questions write. */
+  /** The pictures a decision can send, by the reference its questions write. A decision sends only those its state or questions name. */
   images?: Record<string, DecisionAsset>;
   /** The providers its models can name, each with its adapter. */
   providers: readonly StudioProvider[];
@@ -241,9 +249,13 @@ function checkBindingRoute(
   } else if (!servesProfileType(provider, type)) {
     report(nodeId, `${binding.provider} doesn't serve ${type} agents.`, 'provider');
   } else if (!servesProfileType(provider, type, binding.protocol)) {
+    // why: The builder needs the protocol that works, not only the one that doesn't.
+    const served = (servedProtocols(provider, type) ?? []).map((each) => each.id).join(' or ');
     report(
       nodeId,
-      `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`,
+      served
+        ? `${binding.provider} runs ${type} agents on ${served}, not ${binding.protocol}.`
+        : `${binding.provider} doesn't serve ${type} agents on ${binding.protocol}.`,
       'protocol',
     );
   }
@@ -251,6 +263,27 @@ function checkBindingRoute(
     report(nodeId, 'API model is required.', 'apiId');
   }
   return route;
+}
+
+/** `a`, `a or b`, or `a, b or c`. */
+function orList(items: readonly string[]): string {
+  return items.length < 2
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`;
+}
+
+/** An option the protocol doesn't have, with the one it has under another case, as a typo usually is. */
+function unknownOptionMessage(
+  protocol: NonNullable<ReturnType<typeof servedProtocols>>[number],
+  name: string,
+): string {
+  const known = protocolOptionFields(protocol).map(
+    (field) => field.path.split('.')[0] ?? field.path,
+  );
+  const meant = known.find((each) => each.toLowerCase() === name.toLowerCase());
+  return meant
+    ? `${protocol.id} has no option ${name}. Did you mean ${meant}?`
+    : `${protocol.id} has no option ${name}.`;
 }
 
 /** The binding's efforts, keyed by alias, and its default; each problem is reported on the binding. */
@@ -273,7 +306,7 @@ function compileEfforts(
     if (isGoogleRoute(route) && !(GOOGLE_THINKING_LEVELS as readonly string[]).includes(level)) {
       report(
         nodeId,
-        `${binding.provider} doesn't take the ${level} thinking level.`,
+        `${binding.provider} takes the ${orList(GOOGLE_THINKING_LEVELS)} thinking level, not ${level}.`,
         'efforts',
         index,
       );
@@ -286,7 +319,14 @@ function compileEfforts(
   if (!defaultEffort && defaultEffortRequired(binding)) {
     report(nodeId, 'Pick a default effort — there is more than one.', 'defaultEffort');
   } else if (defaultEffort && !(defaultEffort in efforts)) {
-    report(nodeId, `Default effort '${defaultEffort}' is not one of the efforts.`, 'defaultEffort');
+    const names = Object.keys(efforts);
+    report(
+      nodeId,
+      names.length
+        ? `Default effort '${defaultEffort}' is not one of the efforts. Pick ${orList(names)}.`
+        : `Default effort '${defaultEffort}' is not one of the efforts.`,
+      'defaultEffort',
+    );
   }
   return { efforts, defaultEffort };
 }
@@ -312,6 +352,7 @@ function compileBinding(
   }
   checkOptions(binding, providers, type, nodeId, report);
   const compaction = compileCompaction(binding, type, nodeId, report, agentIdOf);
+  const limits = compileLimits(binding, nodeId, report);
 
   return {
     protocol: binding.protocol,
@@ -327,8 +368,27 @@ function compileBinding(
     ...(binding.temperature !== null ? { temperature: binding.temperature } : {}),
     ...(binding.builtInTools.length ? { builtInTools: [...binding.builtInTools] } : {}),
     ...(Object.keys(binding.options).length ? { options: binding.options } : {}),
+    ...(limits ? { limits } : {}),
     ...(compaction ? { compaction } : {}),
   };
+}
+
+function compileLimits(
+  binding: ModelBindingDraft,
+  nodeId: string,
+  report: Report,
+): ProviderLimits | undefined {
+  const limits: ProviderLimits = {};
+  for (const { name, label, isTimer } of MODEL_LIMITS) {
+    const value = binding.limits?.[name] ?? null;
+    if (value === null) continue;
+    checkWhole(report, nodeId, `limits.${name}`, label, value, 1);
+    if (isTimer && value > TIMER_MAX_MS) {
+      report(nodeId, `${label} must be at most ${TIMER_MAX_MS} ms.`, `limits.${name}`);
+    }
+    limits[name] = value;
+  }
+  return Object.keys(limits).length ? limits : undefined;
 }
 
 /**
@@ -347,7 +407,11 @@ function checkOptions(
     provider && servedProtocols(provider, type)?.find((each) => each.id === binding.protocol);
   for (const issue of protocol?.options.safeParse(binding.options).error?.issues ?? []) {
     const name = issue.code === 'unrecognized_keys' ? issue.keys[0] : issue.path[0];
-    report(nodeId, issue.message, typeof name === 'string' ? `options.${name}` : 'options');
+    const message =
+      protocol && issue.code === 'unrecognized_keys' && typeof name === 'string'
+        ? unknownOptionMessage(protocol, name)
+        : issue.message;
+    report(nodeId, message, typeof name === 'string' ? `options.${name}` : 'options');
   }
   const apiId = binding.apiId.trim();
   for (const key of apiId ? (protocol?.refusedOptions?.(apiId) ?? []) : []) {
@@ -499,36 +563,44 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
   return parseRecord(raw, isString);
 }
 
-const isSystemPrompt = (value: unknown): value is SystemPrompt =>
-  systemPromptProblem(value, 'system') === undefined;
+const isValueList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(isString);
 
-/** Each role's text takes `{private: …}` sections like the system prompt; a list of parts passes as written. */
-function compileSystemByRole(
-  raw: string,
-  report: (message: string) => void,
-): Record<string, SystemPrompt> | undefined {
-  const byRole = parseRecord(raw, isSystemPrompt);
-  if (byRole === null) {
-    report(
-      'Instructions by role must be a JSON object of text, or of lists of text and { "private": text }.',
+/** The conditions a draft declares so far: none while they are not JSON. */
+export function draftConditions(conditionsJson: string): Record<string, string[]> {
+  return parseRecord(conditionsJson, isValueList) ?? {};
+}
+
+/** The prompt's lines and the facts they read, each problem reported on the identity section. */
+function compilePrompt(draft: StudioDraft, report: Report) {
+  const conditions = parseRecord(draft.identity.conditionsJson, isValueList);
+  if (conditions === null) {
+    report('identity', 'Conditions must be a JSON object of lists of values.', 'conditionsJson');
+  }
+  const lines = draft.identity.system.flatMap(({ text }) => {
+    const parsed = parseSystemMarkup(text);
+    if (!parsed.ok) report('identity', parsed.message, 'system');
+    return parsed.ok && parsed.prompt !== undefined ? [parsed.prompt] : [];
+  });
+  const [first] = lines;
+  const system: ProfileSystem | undefined =
+    lines.length === 0
+      ? undefined
+      : lines.length === 1 && typeof first === 'string'
+        ? first
+        : lines;
+  const declared = conditions ?? undefined;
+  if (system !== undefined && conditions !== null) {
+    const slots = Object.fromEntries(
+      draft.inputs.slots.map((slot) => [
+        slot.name.trim(),
+        slot.choices.map((choice) => choice.value.trim()).filter(Boolean),
+      ]),
     );
-    return undefined;
+    const problem = systemLinesProblem(system, declared, slots);
+    if (problem) report('identity', problem, 'system');
   }
-  if (!byRole) return undefined;
-  const compiled: Record<string, SystemPrompt> = {};
-  for (const [role, prompt] of Object.entries(byRole)) {
-    if (typeof prompt !== 'string') {
-      compiled[role] = prompt;
-      continue;
-    }
-    const parsed = parseSystemMarkup(prompt);
-    if (!parsed.ok) {
-      report(`${role}: ${parsed.message}`);
-      return undefined;
-    }
-    if (parsed.prompt !== undefined) compiled[role] = parsed.prompt;
-  }
-  return compiled;
+  return { system, conditions: declared };
 }
 
 /** A record field's value, reporting `message` on `field` when it doesn't parse. */
@@ -614,6 +686,7 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail, agentInputOf: AgentToolInpu
     permission: tool.permission,
     loadTier: tool.loadTier,
     paths: paths.length ? paths : ['*'],
+    ...(tool.after ? { after: true } : {}),
     ...schemas,
   };
 }
@@ -725,7 +798,15 @@ function remoteToolFields(tool: ToolSpecDraft, fail: Fail) {
   const inUrl = credentialUrlProblem(tool[field]?.trim());
   if (inUrl) fail(inUrl, field);
   const auth = compileAuth(tool, fail);
-  return { ...(headers ? { headers } : {}), ...(auth ? { auth } : {}) };
+  const maxResponseBytes = tool.maxResponseBytes ?? null;
+  if (maxResponseBytes !== null && !(Number.isInteger(maxResponseBytes) && maxResponseBytes >= 1)) {
+    fail('Max response must be a positive whole number.', 'maxResponseBytes');
+  }
+  return {
+    ...(headers ? { headers } : {}),
+    ...(auth ? { auth } : {}),
+    ...(maxResponseBytes !== null ? { maxResponseBytes } : {}),
+  };
 }
 
 function checkUrl(
@@ -770,7 +851,24 @@ function mcpTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegis
     serverUrl,
     mcpToolName,
     ...remoteToolFields(tool, fail),
+    ...mcpSession(tool, fail),
   };
+}
+
+function mcpSession(tool: ToolSpecDraft, fail: Fail) {
+  const idleMs = tool.sessionIdleMs ?? null;
+  const max = tool.sessionMax ?? null;
+  if (idleMs !== null && !(Number.isInteger(idleMs) && idleMs >= 1)) {
+    fail('Idle must be a positive whole number.', 'sessionIdleMs');
+  }
+  if (max !== null && !(Number.isInteger(max) && max >= 1)) {
+    fail('Max must be a positive whole number.', 'sessionMax');
+  }
+  const session = {
+    ...(idleMs !== null ? { idleMs } : {}),
+    ...(max !== null ? { max } : {}),
+  };
+  return Object.keys(session).length ? { session } : {};
 }
 
 function functionTool(tool: ToolSpecDraft, common: ToolCommon, fail: Fail): ToolRegistration {
@@ -838,7 +936,18 @@ function compileTool(
   const common = toolCommon(tool, fail, agentInputOf);
   const labels = toolLabels(tool, common, fail);
   const compiled = TOOL_COMPILERS[tool.toolType](tool, common, fail, agentIdOf);
-  return failed ? undefined : { ...compiled, ...(labels ? { labels } : {}) };
+  // why: stageAgentKey is an optional post_tool reader on a library tool. A
+  // dangling key must not fail the tool — the tool still runs; only the filter
+  // is dropped (same as sound() / removeAgent clearing the link).
+  const stageKey = tool.toolType !== 'agent' ? (tool.stageAgentKey?.trim() ?? '') : '';
+  const stageAgent = stageKey ? agentIdOf(stageKey) : undefined;
+  return failed
+    ? undefined
+    : {
+        ...compiled,
+        ...(labels ? { labels } : {}),
+        ...(stageAgent && compiled.type !== 'agent' ? { stageAgent } : {}),
+      };
 }
 
 function compileTools(
@@ -910,13 +1019,7 @@ function compileInputs(
   checkWhole(report, 'inputs', 'maxFiles', 'Max files', inputs.maxFiles, 1);
   checkWhole(report, 'inputs', 'maxBytes', 'Max bytes', inputs.maxBytes, 1);
   checkWhole(report, 'inputs', 'maxTurnBytes', 'Max turn bytes', inputs.maxTurnBytes, 1);
-  const limitsByMime = recordField(inputs.limitsByMimeJson, isPositiveWhole, () => {
-    report(
-      'inputs',
-      'Limits by type must be a JSON object of positive whole numbers.',
-      'limitsByMimeJson',
-    );
-  });
+  const limitsByMime = compileLimitsByMime(inputs, report);
   const slots = compileSlots(inputs, report);
   const context = compileContext(inputs, report);
   return {
@@ -944,10 +1047,69 @@ function compileContext(inputs: InputsDraft, report: Report): ProfileContextSpec
   return { from: [...inputs.contextFrom], maxChars: inputs.contextMaxChars ?? 0 };
 }
 
-function compileSlots(inputs: InputsDraft, report: Report): Record<string, string[]> | undefined {
-  return recordField(inputs.slotsJson, isValueList, () => {
-    report('inputs', 'Slots must be a JSON object of lists of text.', 'slotsJson');
+/** Each type's largest file; a type left blank keeps `maxBytes`. */
+function compileLimitsByMime(
+  inputs: InputsDraft,
+  report: Report,
+): Record<string, number> | undefined {
+  const entries = Object.entries(inputs.limitsByMime);
+  for (const [mime, bytes] of entries) {
+    if (Number.isInteger(bytes) && bytes >= 1) continue;
+    report('inputs', `Max size for ${mime} must be a whole number of at least 1.`, 'limitsByMime');
+  }
+  return entries.length ? { ...inputs.limitsByMime } : undefined;
+}
+
+/** One slot's problems, each on its row: a missing or repeated name or value. */
+function slotProblems(slot: SlotDraft, at: number, slots: readonly SlotDraft[]): string[] {
+  const name = slot.name.trim();
+  const problems: string[] = [];
+  if (!name) problems.push('Name this slot.');
+  else if (slots.findIndex((other) => other.name.trim() === name) < at) {
+    problems.push(`Another slot is called ${name}.`);
+  }
+  const values = slot.choices.map((choice) => choice.value.trim());
+  if (!values.some(Boolean)) problems.push('Give this slot a choice.');
+  if (slot.choices.some((choice, index) => !values[index] && choice.description.trim())) {
+    problems.push('Every choice with a description needs a value.');
+  }
+  const repeated = values.filter((value, index) => value && values.indexOf(value) < index);
+  for (const value of new Set(repeated)) problems.push(`${value} is a choice twice.`);
+  return problems;
+}
+
+/**
+ * Each slot by name. A slot with no label and no descriptions is its list of values; any other
+ * is `{ label?, choices }`. A choice left blank is left out.
+ */
+function compileSlots(
+  inputs: InputsDraft,
+  report: Report,
+): Record<string, SlotDeclInput> | undefined {
+  if (!inputs.slots.length) return undefined;
+  inputs.slots.forEach((slot, at) => {
+    for (const problem of slotProblems(slot, at, inputs.slots)) {
+      report('inputs', problem, 'slots', at);
+    }
   });
+  return Object.fromEntries(
+    inputs.slots.map((slot) => {
+      const label = slot.label.trim();
+      const choices = slot.choices
+        .filter((choice) => choice.value.trim())
+        .map((choice) => ({ value: choice.value.trim(), description: choice.description.trim() }));
+      const plain = !label && choices.every((choice) => !choice.description);
+      const decl: SlotDeclInput = plain
+        ? choices.map((choice) => choice.value)
+        : {
+            ...(label ? { label } : {}),
+            choices: choices.map(({ value, description }) =>
+              description ? { value, description } : { value },
+            ),
+          };
+      return [slot.name.trim(), decl];
+    }),
+  );
 }
 
 /** A call profile's inputs are its slots and context, and are left out when it has neither. */
@@ -958,12 +1120,25 @@ function compileLiveInputs(inputs: InputsDraft, report: Report): { inputs?: Live
   return { inputs: { ...(slots ? { slots } : {}), ...(context ? { context } : {}) } };
 }
 
-const isPositiveWhole = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isInteger(value) && value > 0;
-const isValueList = (value: unknown): value is string[] =>
-  Array.isArray(value) &&
-  value.length > 0 &&
-  value.every((item) => typeof item === 'string' && item.trim() !== '');
+/** The shapes a slot's value picks: its schemas, and what `outputs.structured` writes. */
+function compileSlotShapes(
+  outputs: OutputsDraft,
+  fallback: string,
+  report: (nodeId: string, message: string, field?: string) => void,
+) {
+  const { slot, shapes } = outputs.bySlot ?? { slot: '', shapes: [] };
+  const also: NonNullable<StructuredRegistration['also']> = [];
+  const map: Record<string, string> = {};
+  for (const shape of shapes) {
+    const schema = parseJsonSchema(shape.schemaJson, `The reply shape for '${shape.choice}'`);
+    if (!schema.ok) report('outputs', schema.error, 'schemaJson');
+    else {
+      also.push({ id: shape.schemaId, spec: { jsonSchema: schema.schema } });
+      map[shape.choice] = shape.schemaId;
+    }
+  }
+  return also.length ? { also, written: { by: slot, map, fallback } } : undefined;
+}
 
 /** `shaped`: the type takes a structured reply and its validation (text only). */
 function compileOutputs(
@@ -984,6 +1159,8 @@ function compileOutputs(
       structured = { id, spec: { jsonSchema: schema.schema } };
     }
   }
+  const bySlot = structured && compileSlotShapes(outputs, structured.id, report);
+  if (structured && bySlot) structured = { ...structured, also: bySlot.also };
   if (validationEnabled) {
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
@@ -1005,7 +1182,7 @@ function compileOutputs(
     ...(outputs.streamThoughts ? {} : { streamThoughts: false }),
   };
   const spec: ProfileOutputsSpec = {
-    ...(structured ? { structured: structured.id } : {}),
+    ...(structured ? { structured: bySlot?.written ?? structured.id } : {}),
     ...(Object.keys(validation).length ? { validation } : {}),
     ...(Object.keys(streaming).length ? { streaming } : {}),
   };
@@ -1725,6 +1902,7 @@ function compileQuestions(
   report: Report,
 ): Record<string, DecisionQuestion> {
   const questions: Record<string, DecisionQuestion> = Object.create(null);
+  if (decision.questionsBuilt) return questions;
   if (!decision.questions.length) {
     report('decision', 'Add at least one question.', 'questions');
   }
@@ -1962,6 +2140,7 @@ function compileDecision(
     }
     checkWhole(report, nodeId, 'timeoutMs', 'Timeout', binding.timeoutMs, 1);
   }
+  const limits = binding ? compileLimits(binding, nodeId, report) : undefined;
   checkWhole(report, 'decision', 'maxStateBytes', 'Max state', decision.maxStateBytes, 1);
   const questions = compileQuestions(decision, report);
   const images = compileDecisionImages(decision, report);
@@ -1982,6 +2161,7 @@ function compileDecision(
               : {}),
             ...(binding.fallbackKeySlot ? { fallbackKeySlot: binding.fallbackKeySlot } : {}),
             ...(binding.timeoutMs !== null ? { timeoutMs: binding.timeoutMs } : {}),
+            ...(limits ? { limits } : {}),
           },
         }
       : {},
@@ -1995,7 +2175,7 @@ function compileDecision(
   return {
     profile,
     customTools: [],
-    questions,
+    ...(decision.questionsBuilt ? {} : { questions }),
     ...(Object.keys(images).length ? { images: { ...images } } : {}),
   };
 }
@@ -2008,7 +2188,14 @@ function compileHost(
   agentInputOf: AgentToolInputOf,
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
-  const { customTools, tools } = compileTools(draft, false, false, report, agentIdOf, agentInputOf);
+  const { customTools, tools } = compileTools(
+    draft,
+    draftAllows(draft, 'tools.t2Loader'),
+    draftAllows(draft, 'tools.parallel'),
+    report,
+    agentIdOf,
+    agentInputOf,
+  );
   if (!customTools.length) {
     report('tools', 'Add at least one tool: a host runs only its tools.');
   }
@@ -2035,15 +2222,7 @@ function assemble(
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
-  const parsedSystem: SystemMarkup =
-    typeof draft.identity.system === 'string'
-      ? parseSystemMarkup(draft.identity.system)
-      : { ok: false, message: 'The system prompt must be text.' };
-  if (!parsedSystem.ok) report('identity', parsedSystem.message, 'system');
-  const system = parsedSystem.ok ? parsedSystem.prompt : undefined;
-  const systemByRole = compileSystemByRole(draft.identity.systemByRoleJson, (message) => {
-    report('identity', message, 'systemByRoleJson');
-  });
+  const { system, conditions } = compilePrompt(draft, report);
   const modelFields = compileModels(draft, type, report, agentIdOf);
   const { outputs, structured } = facets.has('outputs')
     ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
@@ -2070,8 +2249,8 @@ function assemble(
     id: draft.identity.agentId.trim(),
     identity: {
       handle: draft.identity.handle.trim(),
+      ...(conditions ? { conditions } : {}),
       ...(system ? { system } : {}),
-      ...(systemByRole ? { systemByRole } : {}),
     },
     ...modelFields,
     ...(facets.has('image') ? { image: compileImage(draft.image, report) } : {}),

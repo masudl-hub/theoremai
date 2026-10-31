@@ -54,7 +54,7 @@ import {
   type WorkspaceMap,
   workspaceMap,
 } from '../mod.ts';
-import { IconTypeSafe, modelFamilyMark } from './brand-icons.tsx';
+import { modelFamilyMark } from './brand-icons.tsx';
 import { FACET_ICON } from './lib/facet-icons.ts';
 import { type KeptMap, type MapPlaces, readKeptMap, writeKeptMap } from './lib/studio-map-kept.ts';
 import { useProject } from './lib/studio-project.ts';
@@ -63,7 +63,6 @@ import { MapToken, useTokenWidths } from './map-token.tsx';
 import { drags, fieldStart, follow, scrollOnce, usePan } from './pan.ts';
 import './studio-map.css';
 
-/** With detail a node holds its icon, its name, and two lines of its note; a card's head, one; a row, a section. */
 /** A token's slot: as wide as the longest name it shows in full. */
 const TOKEN_SIZES: MapSizes = {
   node: { width: 240, height: 24 },
@@ -90,7 +89,6 @@ function nodeIcon({ kind, type, note }: MapNode): IconType {
   if (agent) return agent;
   if (kind === 'tool') return toolTypeIcon(type ?? '');
   // A model's note is its API model id, which names the family.
-  if (kind === 'model' && type === 'typesafe') return IconTypeSafe;
   if (kind === 'model') return modelFamilyMark(note) ?? FACET_ICON.modelBinding;
   if (kind === 'provider') return IconCloud;
   if (kind === 'shared' && type && Object.hasOwn(FACET_ICON, type)) {
@@ -249,8 +247,8 @@ function useLit(layout: MapLayout) {
 }
 
 /**
- * A family, and the map with or without detail, each start from the top left, or as near it as
- * shows the node that is open.
+ * A family starts from the top left. The map, opened or turned to or from detail, centres the node
+ * that is open, or starts from the top left when none is.
  */
 function useStart(
   field: RefObject<HTMLDivElement | null>,
@@ -261,6 +259,7 @@ function useStart(
   latest.current = open.place;
   // invariant: the sizes are one of two constants, so they change exactly when the detail does.
   const { sizes } = open;
+  // why: Not on a click: the node clicked is already in view, and the map stays where the reader put it.
   useEffect(() => {
     const node = field.current;
     if (!node) return;
@@ -268,14 +267,11 @@ function useStart(
     const at = family === undefined ? place : undefined;
     // The field starts past the room around it.
     return scrollOnce(node, (scroller) => {
-      const hidden =
-        at !== undefined &&
-        (at.x + sizes.node.width > scroller.clientWidth ||
-          at.y + at.height > scroller.clientHeight);
       const { left, top } = fieldStart(node, scroller);
+      if (at === undefined) return { left, top };
       return {
-        left: left + (hidden ? at.x - sizes.padding : 0),
-        top: top + (hidden ? at.y - sizes.padding - sizes.heading : 0),
+        left: left + at.x + sizes.node.width / 2 - scroller.clientWidth / 2,
+        top: top + at.y + at.height / 2 - scroller.clientHeight / 2,
       };
     });
   }, [field, family, sizes]);
@@ -629,10 +625,9 @@ export function StudioMap({
     actions,
   );
   const Node = expanded ? DetailNode : TokenNode;
-  const open = nodes.find((node) => isOpen(node, selected))?.id;
   // The open node's lines are drawn over the rest, and the lit ones over those.
   const over = (line: MapLayout['lines'][number]) =>
-    onLines.has(line.link) ? 2 : line.from === open || line.to === open ? 1 : 0;
+    onLines.has(line.link) ? 2 : line.from === opened || line.to === opened ? 1 : 0;
   const lines = [...layout.lines].sort((a, b) => over(a) - over(b));
 
   return (
@@ -690,7 +685,7 @@ export function StudioMap({
                   d={d}
                   data-kind={link.kind}
                   data-on={onLines.has(link) ? '' : undefined}
-                  data-open={from === open || to === open ? '' : undefined}
+                  data-open={from === opened || to === opened ? '' : undefined}
                 />
               ))}
             </svg>

@@ -21,7 +21,6 @@ import {
   DESTINATION_GATES,
   TAINT_GATES,
 } from '../guardrails/types.ts';
-import { GOOGLE_SPEECH_VOICES } from '../presets/google/speech-voices.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
 import { isProfileRootField, profileFieldScope } from './profile-scope.ts';
 
@@ -31,6 +30,7 @@ export const PROFILE_TYPES = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
   'embedding',
@@ -382,7 +382,6 @@ function field(
 export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'models',
   'models.*.efforts',
-  'identity.systemByRole',
   'labels',
   'inputs.slots',
   'inputs.limitsByMime',
@@ -646,14 +645,16 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The name this profile is registered and looked up by, at most 64 characters; registering the same id again replaces it.',
   ),
   'profile.type': field(
-    "'text' | 'image' | 'speech' | 'live' | 'decision' | 'embedding' | 'host'",
-    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision, embedding, or host.',
+    "'text' | 'image' | 'speech' | 'transcription' | 'live' | 'decision' | 'embedding' | 'host'",
+    'What kind of agent this is, and so what each call gives back: text, image, speech, transcription, live, decision, embedding, or host.',
     PROFILE_TYPES,
     {
       text: 'A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way.',
       image: 'Makes pictures from a prompt, in the shape, size, and format the image block sets.',
       speech:
         'Gives your app a voice. Each turn reads text aloud in the voice the speech block names.',
+      transcription:
+        'Turns a voice clip into text. Each turn takes one clip and gives back what was said.',
       live: 'For talking in real time. One continuous voice and video session, rather than separate turns.',
       decision:
         'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score, or a number.',
@@ -662,24 +663,20 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     },
   ),
   identity: field(
-    '{ handle, system?, systemByRole? }',
+    '{ handle, conditions?, system? }',
     "The agent's display name and the system instruction it is given.",
   ),
   'identity.handle': field(
     'string',
-    'The name hosts and users see for this agent, at most 32 characters; the model never sees it. It is also the role a turn gets when it names none, so identity.systemByRole may hold an entry under it.',
+    'The name hosts and users see for this agent, at most 32 characters; the model never sees it.',
+  ),
+  'identity.conditions': field(
+    'Record<string, string[]>',
+    'The facts every turn states, by name, with the values each can take. A line of identity.system reads them as "when plan is free: …". A condition named path reads the turn\'s path.',
   ),
   'identity.system': field(
-    'string | Array<string | { private: string }>',
-    'The instruction the model gets on every turn unless a systemByRole entry replaces it; some providers send it for an image profile only with includeText on. Mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
-  ),
-  'identity.systemByRole': field(
-    'Record<string, string | Array<string | { private: string }>>',
-    'Other system instructions, picked by the role a turn names.',
-  ),
-  'identity.systemByRole.*': field(
-    'string | Array<string | { private: string }>',
-    'The instruction that replaces identity.system when a turn names this role.',
+    'string | Array<string | Array<string | { private: string }>>',
+    'The instruction the model gets, as one string or a list of lines; some providers send it for an image profile only with includeText on. A line that opens "when plan is free: …" goes only on turns where that fits, and every line that fits is sent, a blank line apart. A line can be a list of parts; mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
   ),
   models: field(
     'Record<ModelId, ModelBinding | DecisionModelBinding>',
@@ -722,6 +719,37 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'models.*.timeoutMs': field(
     'number',
     'How long a decision waits for its provider, in milliseconds. Omit for no timeout.',
+  ),
+  'models.*.limits': field(
+    'ProviderLimits',
+    "The points at which Theorem stops this model's calls. Each one left out is no limit, so the provider's own limits apply. A runTurn limits value overrides each field it sets.",
+  ),
+  'models.*.limits.operationTimeoutMs': field(
+    'number',
+    'How long one call may take, in milliseconds, retries included.',
+  ),
+  'models.*.limits.connectTimeoutMs': field(
+    'number',
+    'How long a live session may take to open, in milliseconds.',
+  ),
+  'models.*.limits.liveStepTimeoutMs': field(
+    'number',
+    'How long a live session may wait for the model to answer, in milliseconds.',
+  ),
+  'models.*.limits.maxWireRecordBytes': field(
+    'number',
+    'The most bytes in one record the provider sends: a stream event or a socket message.',
+  ),
+  'models.*.limits.maxWireResponseBytes': field(
+    'number',
+    'The most bytes the provider sends for one step.',
+  ),
+  'models.*.limits.maxEventBytes': field('number', 'The most bytes in one event of a step.'),
+  'models.*.limits.maxStepBytes': field('number', 'The most bytes in all the events of one step.'),
+  'models.*.limits.maxStepEvents': field('number', 'The most events in one step.'),
+  'models.*.limits.maxPendingToolCalls': field(
+    'number',
+    'The most tool calls one step may ask for.',
   ),
   decision: field(
     '{ contract: DecisionContractId }',
@@ -859,7 +887,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     ATTACHMENT_ACCEPT_MIMES,
     "Types the kernel knows; a listed type it doesn't know is refused when a turn sends it.",
   ),
-  'inputs.voice': field('{ accept: string[] }', 'Lets turns send voice clips.'),
+  'inputs.voice': field(
+    '{ accept: string[] }',
+    'Lets turns send voice clips. A transcription profile must set it.',
+  ),
   'inputs.voice.accept': field(
     'string[]',
     'The audio types a voice clip may be; audio/* matches them all.',
@@ -887,12 +918,28 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.',
   ),
   'inputs.slots': field(
-    'Record<string, string[]>',
-    'Named choices a turn or a call can make, such as language, each with its allowed values. {name} in a prompt becomes the chosen value.',
+    'Record<string, string[] | SlotDecl>',
+    'Named choices a turn or a call can make. A bare string list is the allowed values; an object may add a UI label and per-choice descriptions. {name} in a prompt becomes the chosen value string.',
   ),
   'inputs.slots.*': field(
-    'string[]',
-    'The values a turn may choose for this slot; any other is refused.',
+    'string[] | SlotDecl',
+    'Either the allowed value strings, or { label?, choices: { value, description? }[] }. Descriptions are UI-only; value is what the turn sends and what {name} fills.',
+  ),
+  'inputs.slots.*.label': field(
+    'string',
+    'Visitor-facing group title for this slot in the composer (for example Source Bias). Omit to show the slot name.',
+  ),
+  'inputs.slots.*.choices': field(
+    'SlotChoice[]',
+    'The allowed values for this slot, each with an optional UI description.',
+  ),
+  'inputs.slots.*.choices.*.value': field(
+    'string',
+    'The string the turn sends for this choice and that {name} substitutes into prompts.',
+  ),
+  'inputs.slots.*.choices.*.description': field(
+    'string',
+    'Visitor-facing blurb for this choice in the composer. Never substituted into prompts.',
   ),
   'inputs.context': field(
     '{ from: ContextSender[]; maxChars: number }',
@@ -990,12 +1037,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'live.ingress.audio': field('boolean', 'Whether the session accepts microphone audio.'),
   'live.ingress.video': field('boolean', 'Whether the session accepts camera frames.'),
   'live.ingress.text': field('boolean', 'Whether the session accepts typed text.'),
-  'live.voice': field(
-    'string',
-    'The voice the model speaks in.',
-    GOOGLE_SPEECH_VOICES,
-    'Voice names to pick from; any other name is sent as written.',
-  ),
+  'live.voice': field('string', 'The voice the model speaks in.'),
   'live.vad': field(
     'LiveVadSpec',
     'How the session detects when the user starts and stops speaking.',
@@ -1382,7 +1424,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   ),
   'decision.questions.instructions': field(
     'DecisionEntry',
-    "What to ask about the state. Name a state field in backticks, such as `photo`, and one of the decision's images by its reference, such as <ginger>. A box looks in its In image, else in the image of the first field it names.",
+    "What to ask about the state. Name a state field in backticks, such as `photo`, and one of the decision's images by its reference, such as <ginger>. A box names what to find and the image it is in, such as the ginger in `photo`.",
   ),
   'decision.questions.image': {
     ...field(
@@ -1393,7 +1435,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   },
   'decision.images': field(
     'Record<string, DecisionAsset>',
-    'Pictures sent with every decision, beside the state. A question names one by its reference, such as <ghs02>. A PNG or JPEG.',
+    "Pictures a decision can send. Write one's reference, such as <ghs02>, in the state or a question, and the model reads the picture there; a picture nothing references is not sent. A PNG or JPEG.",
   ),
   'decision.images.name': field(
     'string',
@@ -1458,6 +1500,34 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       ['page'],
     ),
     unset: 'Its handler',
+  },
+  'registerTool.maxResponseBytes': {
+    ...field(
+      'number',
+      'The most bytes of a response body an HTTP or MCP tool reads; past it the call fails with response_too_large.',
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.session': {
+    ...field(
+      'McpSessionLimits',
+      "How long and how many of an MCP tool's server sessions the kernel keeps.",
+    ),
+    unset: 'No limits',
+  },
+  'registerTool.session.idleMs': {
+    ...field(
+      'number',
+      'How long a session may sit unused before the next call opens a new one, in milliseconds.',
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.session.max': {
+    ...field(
+      'number',
+      'The most sessions the tool keeps open; past it the least recently used is dropped.',
+    ),
+    unset: 'No limit',
   },
   'registerTool.maxCallsPerTurn': {
     ...field('number', 'How many times one turn of the calling agent may run this tool.'),
@@ -1610,10 +1680,17 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       always_confirm: 'Asks every time.',
     },
   ),
+  'registerTool.after': {
+    ...field(
+      'boolean',
+      'Gives the model an after field on this tool: the tools called in the same step that must settle before this call starts. The kernel removes the field before the tool, the stages or a gate read the input. A name with no other call in the step fails the call wait_unknown.',
+    ),
+    unset: 'The model sets no order',
+  },
   'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
   'registerTool.labels': field(
     'ToolLabels',
-    "Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. With no fallback, the label is dropped. A label is one line, or a list read top to bottom: the first line that fits is shown. A line fits when each {path} has a value and its condition holds, as in 'when status is archived: archiving {title}'. Neighbouring lines that open with '+ ' show together, joined in words. The last line of a list must always fit.",
+    "Transcript text for a call. {path} reads a value from the call. {results.0.name} reads a list item. {path|text} shows the text when the value is unusable. {count hit|hits} shows a number with the word for one or for any other number: '1 hit', '3 hits'. With no fallback, the label is dropped. A label is one line, or a list read top to bottom: the first line that fits is shown. A line fits when each {path} has a value and its condition holds, as in 'when status is archived: archiving {title}'. Neighbouring lines that open with '+ ' show together, joined in words. The last line of a list must always fit.",
   ),
   'registerTool.labels.activity': {
     ...field(

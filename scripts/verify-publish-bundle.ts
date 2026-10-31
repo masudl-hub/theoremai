@@ -112,29 +112,49 @@ async function assertNpmPackageFilesOmitRepoDocs(): Promise<void> {
   if (!npmignore.includes('docs/') || !npmignore.includes('src/**/*.md')) {
     throw new Error('.npmignore must exclude docs/ and src/**/*.md from the npm tarball');
   }
-  if (!npmignore.includes('react/')) {
-    throw new Error('.npmignore must exclude react/, which publishes as @theoremjs/react');
+  for (const dir of PACKAGE_DIRS) {
+    if (!npmignore.includes(`${dir}/`)) {
+      throw new Error(`.npmignore must exclude ${dir}/, which publishes as @theoremjs/${dir}`);
+    }
   }
 }
 
-/** `react/` publishes as its own package, `@theoremjs/react`; the agents bundles leave it out. */
-async function assertNoReactInBundles(): Promise<void> {
+/** Folders that publish as their own package, `@theoremjs/<folder>`; the agents bundles leave them out. */
+const PACKAGE_DIRS = ['react', 'web'];
+
+async function assertNoPackagesInBundles(): Promise<void> {
   const packageConfig = JSON.parse(await Deno.readTextFile(`${root}/package.json`)) as {
     files?: string[];
   };
   const denoConfig = JSON.parse(await Deno.readTextFile(`${root}/deno.json`)) as {
     publish?: { exclude?: string[] };
   };
-  if ((packageConfig.files ?? []).includes('react/')) {
-    throw new Error('package.json files must not include react/');
-  }
-  if (!(denoConfig.publish?.exclude ?? []).includes('react/')) {
-    throw new Error('deno.json publish.exclude must include react/');
+  for (const dir of PACKAGE_DIRS) {
+    if ((packageConfig.files ?? []).includes(`${dir}/`)) {
+      throw new Error(`package.json files must not include ${dir}/`);
+    }
+    if (!(denoConfig.publish?.exclude ?? []).includes(`${dir}/`)) {
+      throw new Error(`deno.json publish.exclude must include ${dir}/`);
+    }
   }
   if (await exists(`${root}/npm`)) {
     for await (const file of walkFiles(`${root}/npm`)) {
-      if (file.includes('/react/')) {
-        throw new Error(`npm build output must not contain react/ files: ${file}`);
+      const dir = PACKAGE_DIRS.find((name) => file.includes(`/${name}/`));
+      if (dir) throw new Error(`npm build output must not contain ${dir}/ files: ${file}`);
+    }
+  }
+}
+
+/** `@theoremjs/web` is the package for hosts without React: its source and build import no UI framework. */
+async function assertWebFreeOfReact(): Promise<void> {
+  const reactImport =
+    /(?:from|import)\s*\(?\s*['"](?:react|react-dom|@theoremjs\/react)(?:\/[^'"]*)?['"]/;
+  for (const tree of ['web/src', 'web/npm']) {
+    if (!(await exists(`${root}/${tree}`))) continue;
+    for await (const file of walkFiles(`${root}/${tree}`)) {
+      if (!/\.(?:[cm]?js|ts)$/.test(file)) continue;
+      if (reactImport.test(await Deno.readTextFile(file))) {
+        throw new Error(`@theoremjs/web must not import React: ${file}`);
       }
     }
   }
@@ -210,7 +230,6 @@ async function assertPublicEntrypointsOmitTestHooks(): Promise<void> {
     'src/guardrails/mod.ts',
     'src/observability/mod.ts',
     'src/host/mod.ts',
-    'src/presets/mod.ts',
   ];
   const hits: string[] = [];
   for (const rel of entrypoints) {
@@ -274,7 +293,7 @@ async function assertNoStudioInBundles(): Promise<void> {
     throw new Error('src/studio must not exist — demo fixtures live in repo-private studio/');
   }
   // dnt output tree, when present, must not contain a studio module.
-  for (const bundle of ['npm', 'react/npm']) {
+  for (const bundle of ['npm', 'react/npm', 'web/npm']) {
     if (!(await exists(`${root}/${bundle}`))) continue;
     for await (const file of walkFiles(`${root}/${bundle}`)) {
       if (file.includes('/studio/')) {
@@ -314,8 +333,9 @@ async function main(): Promise<void> {
   assertPublishExcludeCoversArtifacts(exclude);
   await assertExportMapsMatch();
   await assertNpmPackageFilesOmitRepoDocs();
-  await assertNoReactInBundles();
+  await assertNoPackagesInBundles();
   await assertNoStudioInBundles();
+  await assertWebFreeOfReact();
   await assertNoExportedInternals();
   await assertPublicEntrypointsOmitTestHooks();
   await assertNoGlobalTestInternals();
@@ -329,7 +349,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    'verify-publish-bundle: exclude list covers artifacts; export maps match; repo docs omitted from package; studio absent from all bundles; react absent from the agents bundles; no exported _internals; no global test internals in src/; no oversized local files.',
+    'verify-publish-bundle: exclude list covers artifacts; export maps match; repo docs omitted from package; studio absent from all bundles; react and web absent from the agents bundles; web free of React; no exported _internals; no global test internals in src/; no oversized local files.',
   );
 }
 

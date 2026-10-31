@@ -2,32 +2,32 @@
 
 import { assertEquals, assertThrows } from '@std/assert';
 import { labelText, TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
+import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
 import {
   float32Rms,
   float32RmsToLevel,
   INPUT_LEVEL_GAIN,
   timeDomainBytesToLevel,
-} from '../../react/src/client/audio-level.ts';
-import { clientFailure } from '../../react/src/client/failure.ts';
-import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
-import { pageToolMismatch } from '../../react/src/client/live/live-page-tool.ts';
-import { runLiveToolCall } from '../../react/src/client/live/run-live-tool-call.ts';
-import { LiveSessionClient, type LiveSocket } from '../../react/src/client/live-client.ts';
-import { isPermissionDeniedError } from '../../react/src/client/live-errors.ts';
+} from '../../web/src/client/audio-level.ts';
+import { clientFailure } from '../../web/src/client/failure.ts';
+import { pageToolMismatch } from '../../web/src/client/live/live-page-tool.ts';
+import { runLiveToolCall } from '../../web/src/client/live/run-live-tool-call.ts';
+import { LiveSessionClient, type LiveSocket } from '../../web/src/client/live-client.ts';
+import { isPermissionDeniedError } from '../../web/src/client/live-errors.ts';
 import {
   type ExecuteToolOnRelay,
   parseLiveServerEnvelope,
-} from '../../react/src/client/live-messages.ts';
+} from '../../web/src/client/live-messages.ts';
 import {
   downsampleAndConvertToInt16,
   pcm16BytesToFloat32,
-} from '../../react/src/client/pcm-downsample.ts';
-import type { HostErrorBody } from '../../react/src/client/transport.ts';
+} from '../../web/src/client/pcm-downsample.ts';
+import type { HostErrorBody } from '../../web/src/client/transport.ts';
 import {
   parseLiveClientMessage,
   parseLiveOpenMessage,
-} from '../../react/src/server/request-check.ts';
-import { liveSessionOpen } from '../../react/src/server/turn-input.ts';
+} from '../../web/src/server/request-check.ts';
+import { liveSessionOpen } from '../../web/src/server/turn-input.ts';
 import { assertMalformed } from '../fixtures/malformed.ts';
 import { checkpointFixture } from '../fixtures/provider-checkpoint.ts';
 
@@ -325,9 +325,7 @@ Deno.test('a live call the model withdrew at its gate sends nothing more', async
     toolArgs: {},
     callId: 'call-gated',
     operationId: 'call-gated',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => Promise.resolve('withdrawn'),
+    onGate: () => Promise.resolve('withdrawn'),
   });
   assertEquals(sent, [{ callId: 'call-gated', operationId: 'call-gated' }]);
 });
@@ -340,9 +338,7 @@ Deno.test('a live deny goes to the session, which settles the call; nothing else
     toolArgs: {},
     callId: 'call-gated',
     operationId: 'call-gated',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => Promise.resolve({ action: 'deny' }),
+    onGate: () => Promise.resolve({ decision: 'deny' }),
   });
   assertEquals(sent, [
     { callId: 'call-gated', operationId: 'call-gated' },
@@ -373,9 +369,7 @@ Deno.test('a page tool answers its call with the page output; any other call run
       toolArgs: { target: 'pricing' },
       callId,
       operationId: callId,
-      sessionPermissions: [],
-      setSessionPermissions: () => {},
-      waitForGateDecision: () => Promise.resolve('withdrawn'),
+      onGate: () => Promise.resolve('withdrawn'),
     });
   await call('highlight', 'call-page');
   await call('lookup', 'call-relay');
@@ -547,7 +541,6 @@ Deno.test('a call opens with its slots, context, and host message; a changed con
     slots: { language: 'fr' },
     context: { page: '/docs' },
     voiceIngress: false,
-    onToolCall: async () => {},
   });
   try {
     await client.connect();
@@ -577,6 +570,27 @@ Deno.test('a call opens with its slots, context, and host message; a changed con
   }
 });
 
+Deno.test('a video frame goes to the open call; a muted call says so', async () => {
+  const live = liveHarness();
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    openMessage: { type: 'draft' },
+    voiceIngress: false,
+  });
+  try {
+    await client.connect();
+    const [socket] = live.sockets;
+    await live.ready(socket);
+    client.sendVideo('frame');
+    assertEquals(socket.sent.at(-1), { type: 'video', data: 'frame', mimeType: 'image/jpeg' });
+    assertEquals(client.toggleMute(), true);
+    assertEquals(client.toggleMute(), false);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
 Deno.test('a dropped call with a resumption handle reconnects, and reports the time away', async () => {
   const live = liveHarness();
   const statuses: string[] = [];
@@ -585,7 +599,6 @@ Deno.test('a dropped call with a resumption handle reconnects, and reports the t
     context: { page: '/docs' },
     voiceIngress: false,
     onStatusChange: (status) => void statuses.push(status),
-    onToolCall: async () => {},
   });
   try {
     await client.connect();
@@ -639,7 +652,6 @@ Deno.test('a call the provider ends at its limit is taken up again when it has a
     voiceIngress: false,
     onStatusChange: (status) => void statuses.push(status),
     onSessionEnded: () => void ended++,
-    onToolCall: async () => {},
   });
   try {
     await client.connect();
@@ -659,6 +671,41 @@ Deno.test('a call the provider ends at its limit is taken up again when it has a
   }
 });
 
+Deno.test('a changed pick takes an open call up again with the lines it chooses', async () => {
+  const live = liveHarness();
+  const statuses: string[] = [];
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    voiceIngress: false,
+    stated: { conditions: { plan: 'free' } },
+    onStatusChange: (status) => void statuses.push(status),
+  });
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0], [handleEvent('handle-1')]);
+    assertEquals(live.sockets[0].sent, [
+      { type: 'open', stated: { conditions: { plan: 'free' } } },
+    ]);
+    client.setStated({ conditions: { plan: 'free' } });
+    assertEquals(statuses.at(-1), 'listening');
+    client.setStated({ conditions: { plan: 'paid' } });
+    assertEquals(statuses.at(-1), 'reconnecting');
+    live.fire(500);
+    await Promise.resolve();
+    await live.ready(live.sockets[1]);
+    assertEquals(live.sockets[1].sent, [
+      {
+        type: 'open',
+        stated: { conditions: { plan: 'paid' } },
+        resume: { providerState: checkpointFixture, awayMs: 0 },
+      },
+    ]);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
 Deno.test('a changed slot takes an open call up again with it; with no handle the next call has it', async () => {
   const live = liveHarness();
   const statuses: string[] = [];
@@ -667,7 +714,6 @@ Deno.test('a changed slot takes an open call up again with it; with no handle th
     voiceIngress: false,
     slots: { language: 'en' },
     onStatusChange: (status) => void statuses.push(status),
-    onToolCall: async () => {},
   });
   try {
     await client.connect();
@@ -707,7 +753,6 @@ Deno.test('a drop with no handle, or after the session ended, ends the call; fiv
     voiceIngress: false,
     onStatusChange: (status: string) => void statuses.push(status),
     onError: (err: Error) => void errors.push(err instanceof TheoremError ? err.kind : 'other'),
-    onToolCall: async () => {},
   };
   const client = new LiveSessionClient(options);
   try {
@@ -747,7 +792,6 @@ Deno.test('the call after one that could not reconnect takes it up again; a refu
     createSocket: live.createSocket,
     voiceIngress: false,
     onStatusChange: (status) => void statuses.push(status),
-    onToolCall: async () => {},
   });
   /** The open socket drops, and all five tries to reconnect fail. */
   const lose = async (open: number) => {
@@ -826,7 +870,6 @@ Deno.test('a live reconnect sends portable history alongside its checkpoint and 
   const client = new LiveSessionClient({
     createSocket: live.createSocket,
     voiceIngress: false,
-    onToolCall: async () => {},
   });
   const history = [
     { role: 'user' as const, content: 'remember this' },
@@ -874,9 +917,7 @@ Deno.test('a refused live permission gate never invokes page code', async () => 
     toolArgs: {},
     callId: 'call',
     operationId: 'issued',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => Promise.resolve({ action: 'deny' }),
+    onGate: () => Promise.resolve({ decision: 'deny' }),
   });
   assertEquals(effects, 0);
   assertEquals(sent, [
@@ -913,11 +954,9 @@ Deno.test('a live page callback follows approval and a claimed dispatch grant', 
     toolArgs: {},
     callId: 'call',
     operationId: 'issued',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => {
+    onGate: () => {
       order.push('approval');
-      return Promise.resolve({ action: 'allow' });
+      return Promise.resolve({ decision: 'approve' });
     },
   });
   assertEquals(order, ['relay:1:check', 'approval', 'relay:2:approve', 'page', 'relay:3:result']);
@@ -945,9 +984,7 @@ Deno.test('an old page gate cannot execute a browser callback', async () => {
     toolArgs: {},
     callId: 'c',
     operationId: 'o',
-    sessionPermissions: [],
-    setSessionPermissions: () => {},
-    waitForGateDecision: () => Promise.resolve('withdrawn'),
+    onGate: () => Promise.resolve('withdrawn'),
   });
   assertEquals(effects, 0);
   assertEquals(sent, [
@@ -981,12 +1018,10 @@ Deno.test('live approval shows the prepared arguments that its later dispatch ex
     toolArgs: { recipient: 'original' },
     callId: 'call',
     operationId: 'operation',
-    sessionPermissions: [],
-    setSessionPermissions() {},
-    waitForGateDecision: (prompt) => {
+    onGate: (prompt) => {
       assertEquals(prompt.input, { recipient: 'approved' });
       assertEquals(effects, 0);
-      return Promise.resolve({ action: 'allow' });
+      return Promise.resolve({ decision: 'approve' });
     },
     pageTools: {
       write: (input) => {
@@ -997,4 +1032,66 @@ Deno.test('live approval shows the prepared arguments that its later dispatch ex
     },
   });
   assertEquals(effects, 1);
+});
+
+Deno.test('a page call with no handler is answered at once with no answer, so nothing waits on it', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: (args) => {
+      sent.push(args);
+      return Promise.resolve(
+        sent.length === 1
+          ? { status: 'dispatched', grantId: 'grant', arguments: {} }
+          : { status: 'settled' },
+      );
+    },
+    pageTools: {},
+    name: 'highlight',
+    toolArgs: {},
+    callId: 'c',
+    operationId: 'o',
+  });
+  assertEquals(sent, [
+    { callId: 'c', operationId: 'o' },
+    { callId: 'c', operationId: 'o', grantId: 'grant', unanswered: true },
+  ]);
+});
+
+Deno.test('a page tool that throws answers with no answer', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: (args) => {
+      sent.push(args);
+      return Promise.resolve(
+        sent.length === 1
+          ? { status: 'dispatched', grantId: 'grant', arguments: {} }
+          : { status: 'settled' },
+      );
+    },
+    pageTools: {
+      highlight: () => {
+        throw new Error('no such block');
+      },
+    },
+    name: 'highlight',
+    toolArgs: {},
+    callId: 'c',
+    operationId: 'o',
+  });
+  assertEquals(sent.at(-1), { callId: 'c', operationId: 'o', grantId: 'grant', unanswered: true });
+});
+
+Deno.test('with no onGate, a gate is refused rather than left open', async () => {
+  const sent: unknown[] = [];
+  await runLiveToolCall({
+    executeToolOnRelay: gatedRelay(sent),
+    name: 'lookup',
+    toolArgs: {},
+    callId: 'call-gated',
+    operationId: 'call-gated',
+  });
+  assertEquals(sent, [
+    { callId: 'call-gated', operationId: 'call-gated' },
+    { callId: 'call-gated', operationId: 'call-gated', decision: 'deny' },
+  ]);
 });

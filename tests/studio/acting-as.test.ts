@@ -1,9 +1,6 @@
 import { assert, assertEquals } from '@std/assert';
 import { z } from 'zod';
 import { defineProfile, registerProfile, registerTool, type TurnEvent } from '../../mod.ts';
-import { createHostTransport } from '../../react/src/client/host-transport.ts';
-import type { TurnEventSink } from '../../react/src/client/transport.ts';
-import { issuedOperationId } from '../../react/src/client/turn-client.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import {
   ACTING_AS_HEADER,
@@ -19,6 +16,9 @@ import {
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { chatKeyOf, freshPerson, listPeople } from '../../studio/ui/lib/acting-as.ts';
 import { projectSession } from '../../studio/ui/lib/studio-project.ts';
+import { createHostTransport } from '../../web/src/client/host-transport.ts';
+import type { TurnEventSink } from '../../web/src/client/transport.ts';
+import { issuedOperationId } from '../../web/src/client/turn-client.ts';
 import { toolEventsOf } from '../fixtures/events.ts';
 
 const HOST = '127.0.0.1:4983';

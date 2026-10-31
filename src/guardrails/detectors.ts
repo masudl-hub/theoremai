@@ -251,13 +251,13 @@ const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arg
 const TOOL_SHOWN_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_shown', kind));
 
 /**
- * Text on its way to the model is redacted, a tool call takes `toTool`, and what the model writes
+ * Text on its way to the model is flagged, a tool call takes `toTool`, and what the model writes
  * or a tool shows the person is not read.
  */
 function everywhere(toTool: DetectAction): BoundaryActions {
   return {
-    ...recordOf(INBOUND_BOUNDARIES, () => 'redact' as const),
-    ...recordOf(TOOL_BOUNDARIES, () => 'redact' as const),
+    ...recordOf(INBOUND_BOUNDARIES, () => 'flag' as const),
+    ...recordOf(TOOL_BOUNDARIES, () => 'flag' as const),
     ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
     ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'ignore' as const),
     ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
@@ -320,14 +320,13 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     label: 'Credentials',
     doc: 'API keys, tokens, passwords, and private keys.',
     group: 'data',
-    // why: A key the model was handed (in its instructions or a tool's output) is a key the person
-    // reading the reply should not get, nor one a tool returned; the rest still shows. A thought and
-    // a Live reply stay unread, so neither holds its stream nor turns transcription on for every turn.
+    // why: A thought and a Live reply stay unread, so neither holds its stream nor turns
+    // transcription on for every turn.
     defaults: {
       ...everywhere('flag'),
-      ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'redact' as const),
-      reply: 'redact',
-      reply_structured: 'redact',
+      ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'flag' as const),
+      reply: 'flag',
+      reply_structured: 'flag',
     },
     patterns: true,
   },
@@ -350,26 +349,26 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     label: 'Canary leak',
     doc: 'The canary token, plain or encoded. Planted only above Ignore.',
     group: 'setup',
-    defaults: leaving('block', 'block', 'redact'),
+    defaults: leaving('flag', 'flag', 'flag'),
   },
   prompt_leak: {
     label: 'Prompt leak',
     doc: 'Private system-instruction text, plain or disguised.',
     group: 'setup',
-    defaults: leaving('flag', 'block', 'redact'),
+    defaults: leaving('flag', 'flag', 'flag'),
   },
   marker_leak: {
     label: 'Marker leak',
     doc: "The kernel's data markers and canary note.",
     group: 'setup',
-    defaults: shown('block', 'redact'),
+    defaults: shown('flag', 'flag'),
   },
   ungiven_images: {
     label: 'Ungiven images',
     short: 'Images',
     doc: 'An image at an address not given. Loads with no click.',
     group: 'addresses',
-    defaults: shown('block', 'redact'),
+    defaults: shown('flag', 'flag'),
     allow: 'urls',
   },
   ungiven_links: {

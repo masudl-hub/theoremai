@@ -1,7 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
 import type { Profile, TurnEvent, TurnModel } from '../../mod.ts';
-import { createSealedConversationStore } from '../../react/src/server/conversation-store.ts';
-import { createMemorySteerInbox } from '../../react/src/server/steer-inbox.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
 import {
@@ -17,6 +15,8 @@ import {
   workspaceRunAgent,
 } from '../../studio/mod.ts';
 import { type StudioRuntime, streamStudioTurn } from '../../studio/runtime.ts';
+import { createSealedConversationStore } from '../../web/src/server/conversation-store.ts';
+import { createMemorySteerInbox } from '../../web/src/server/steer-inbox.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 function must<T>(value: T | undefined): T {
@@ -31,7 +31,7 @@ function conciergeRun() {
     identity: { ...blank.identity, agentId: 'travel.helper', handle: 'helper' },
     modelBindings: blank.modelBindings.map((binding) => ({
       ...binding,
-      protocol: 'openRouter',
+      protocol: 'openRouterOpenAi',
       provider: 'openrouter' as const,
       apiId: 'openrouter/free',
     })),

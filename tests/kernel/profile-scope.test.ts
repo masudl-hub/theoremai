@@ -56,9 +56,19 @@ Deno.test('decision inputs are catalogued apart from turn inputs', () => {
   assertEquals(fieldMeta('inputs.state')?.required, true);
   assertEquals(fieldMeta('inputs.maxStateBytes')?.profileTypes, ['decision']);
   assertEquals(fieldMeta('inputs.maxStateBytes')?.unset, 'No cap');
-  for (const path of ['inputs.text', 'inputs.attachments.accept']) {
-    assertEquals(fieldMeta(path)?.profileTypes, ['text', 'image', 'embedding'], path);
+  assertEquals(fieldMeta('inputs.attachments.accept')?.profileTypes, [
+    'text',
+    'image',
+    'embedding',
+  ]);
+  for (const path of ['inputs.text', 'inputs.maxFiles', 'inputs.maxBytes', 'inputs.maxTurnBytes']) {
+    assertEquals(
+      fieldMeta(path)?.profileTypes,
+      ['text', 'image', 'transcription', 'embedding'],
+      path,
+    );
   }
+  assertEquals(fieldMeta('inputs.voice.accept')?.profileTypes, ['text', 'transcription']);
   for (const path of ['inputs.slots.*', 'inputs.context.from']) {
     assertEquals(fieldMeta(path)?.profileTypes, ['text', 'image', 'live'], path);
   }
@@ -70,6 +80,21 @@ Deno.test("a scoped field's types are a subset of its ancestor's", () => {
     if (!parent) continue;
     for (const type of PROFILE_FIELD_SCOPE[path].profileTypes) {
       assert(parent.profileTypes.includes(type), `${path} allows ${type}; its ancestor doesn't`);
+    }
+  }
+});
+
+Deno.test("a scope's reason names each type it refuses, or says which types it is only for", () => {
+  for (const [path, scope] of Object.entries(PROFILE_FIELD_SCOPE)) {
+    if (/\bonly\b/.test(scope.reason)) continue;
+    const parent = ancestorScope(path);
+    for (const type of ALL_PROFILE_TYPES) {
+      if (scope.profileTypes.includes(type)) continue;
+      if (parent && !parent.profileTypes.includes(type)) continue;
+      assert(
+        scope.reason.includes(type),
+        `${path} refuses ${type}, and its reason doesn't say why`,
+      );
     }
   }
 });

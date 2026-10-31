@@ -44,7 +44,7 @@ function readValue(
   boundary: Boundary,
   detect: ResolvedDetect,
   scope: DetectScope = {},
-): Pick<Detection, 'action' | 'hits'> & { value?: unknown } {
+): Pick<Detection, 'action' | 'hits' | 'errorInternal' | 'errorSummary'> & { value?: unknown } {
   if (!detectReads([boundary], detect)) return { action: 'allow', hits: [], value };
   const scan = textForScan(value);
   if (scan.unscannable) {
@@ -52,7 +52,11 @@ function readValue(
     return { action: 'block', hits: [{ rule: EGRESS_RULES.unscannable, severity: 'high' }] };
   }
   const found = detectAt(scan.text, boundary, detect, scope);
-  if (found.action !== 'redact') return { action: found.action, hits: found.hits, value };
+  if (found.action !== 'redact') {
+    const { errorInternal, errorSummary } = found;
+    const why = errorInternal && errorSummary ? { errorInternal, errorSummary } : {};
+    return { action: found.action, hits: found.hits, value, ...why };
+  }
   const redacted = mapStrings(value, (leaf) => detectAt(leaf, boundary, detect, scope).text ?? '');
   const left = detectAt(textForScan(redacted).text, boundary, detect, scope).action;
   // why: A match in a key, or one that runs across values, has no string to replace: it does not cross.

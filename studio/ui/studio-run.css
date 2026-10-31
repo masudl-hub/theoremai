@@ -8,7 +8,7 @@
   --ink-duration: 0.3s;
 }
 
-/* The runner fills the room the host gives the page. Keys and View trace sit above it, on the
+/* The runner fills the room the host gives the page. View trace sits above it, on the
    page's inset. */
 .run-page {
   position: relative;

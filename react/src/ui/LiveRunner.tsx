@@ -24,6 +24,12 @@ import {
   IconVideoOff,
 } from '@tabler/icons-react';
 import type { LiveProfileInterface } from '@theoremjs/agents/interface';
+import type {
+  LiveCallOptions,
+  LiveConnection,
+  LiveToolGatePrompt,
+  ToolGateResolution,
+} from '@theoremjs/web/client';
 import {
   type CSSProperties,
   Fragment,
@@ -32,18 +38,13 @@ import {
   useLayoutEffect,
   useRef,
 } from 'react';
-import type { LiveCallOptions } from '../client/live/live-page-tool.ts';
-import type { LiveToolGatePrompt } from '../client/live/live-tool.ts';
 import type { LiveFacingMode } from '../client/live/live-video.ts';
-import type { LiveConnection } from '../client/live-client.ts';
-import type { ToolGateResolution } from '../client/tool-resume.ts';
 import { InkWaveform } from '../components/InkWaveform.tsx';
 import { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
 import { LiveCaptionsPanel } from './LiveCaptionsPanel.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import {
-  PANEL_BOTTOM,
   PANEL_EDGE,
   SidePanel,
   SidePanelHeader,
@@ -101,11 +102,12 @@ function LiveRunnerBody({
   connection,
   trace,
   slots,
+  stated,
   context,
   pageTools,
 }: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels'>) {
   const t = useLabels();
-  const model = useLiveRunnerModel(iface, connection, { slots, context, pageTools });
+  const model = useLiveRunnerModel(iface, connection, { slots, stated, context, pageTools });
   // why: Both panels size against the whole live layout, so a third means the same for each.
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const inspector = useTraceInspector(iface, model.traces, trace);
@@ -166,7 +168,7 @@ function LiveRunnerBody({
                 }
                 content={
                   <LayoutContent padding={0}>
-                    <VStack height="100%" paddingInline={PANEL_EDGE} paddingBlockEnd={PANEL_BOTTOM}>
+                    <VStack height="100%" padding={PANEL_EDGE}>
                       <LiveStage model={model} captionsToggle={captionsToggle} />
                     </VStack>
                   </LayoutContent>

@@ -334,6 +334,8 @@ export interface TraceGuardrailHit {
   severityLabel: string;
   /** The matched text, kept only when the profile records match previews. */
   match?: string;
+  /** How many places the rule matched with this text. */
+  count: number;
 }
 
 /** One guardrail check: what it checked, what it did and why, and how long it took when timed. */
@@ -360,23 +362,32 @@ export interface TraceGuardrailCheck {
 function guardrailHits(value: unknown): TraceGuardrailHit[] {
   if (!Array.isArray(value)) return [];
   const fields = traceEventAttributeMeta('theorem.guardrail', 'hits')?.fields;
-  return value.filter(isRecord).flatMap((hit) => {
-    if (typeof hit.rule !== 'string') return [];
+  // why: a rule hits once per place it matched; with the text stripped the places read the same, so they count as one row.
+  const rows = new Map<string, TraceGuardrailHit>();
+  for (const hit of value.filter(isRecord)) {
+    if (typeof hit.rule !== 'string') continue;
+    const match = typeof hit.match === 'string' ? hit.match : undefined;
+    const key = `${hit.rule}:${match ?? ''}`;
+    const seen = rows.get(key);
+    if (seen) {
+      seen.count += 1;
+      continue;
+    }
     const severity = typeof hit.severity === 'string' ? hit.severity : '';
     // why: A host names its own rules on the hit; Theorem's are named in the catalog.
     const rule = fields?.rule?.options?.[hit.rule];
     const ruleDoc = typeof hit.doc === 'string' ? hit.doc : rule?.doc;
-    return [
-      {
-        rule: hit.rule,
-        ruleLabel: typeof hit.label === 'string' ? hit.label : (rule?.label ?? hit.rule),
-        ...(ruleDoc && { ruleDoc }),
-        severity,
-        severityLabel: fields?.severity?.options?.[severity]?.label ?? severity,
-        ...(typeof hit.match === 'string' && { match: hit.match }),
-      },
-    ];
-  });
+    rows.set(key, {
+      rule: hit.rule,
+      ruleLabel: typeof hit.label === 'string' ? hit.label : (rule?.label ?? hit.rule),
+      ...(ruleDoc && { ruleDoc }),
+      severity,
+      severityLabel: fields?.severity?.options?.[severity]?.label ?? severity,
+      ...(match !== undefined && { match }),
+      count: 1,
+    });
+  }
+  return [...rows.values()];
 }
 
 function eventOption(key: string, value: string): { label: string; doc: string } | undefined {

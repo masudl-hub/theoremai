@@ -1,11 +1,13 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
+import { OMIT_CANARY } from '../../src/guardrails/canary.ts';
 import { labelDefault } from '../../src/guardrails/labels.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { firstOf } from '../fixtures/events.ts';
+import { CHAT_TAKES_OUT_LEAKS } from '../fixtures/leaks.ts';
 
 function canaryOf(req: ModelRequest): string {
   return /Your canary token is (\S+)\./.exec(req.system ?? '')?.[1] ?? '';
@@ -23,7 +25,10 @@ async function hostEvents(
     },
   };
   const events: TurnEvent[] = [];
-  for await (const event of runTurn({ profile: 'chat', input: { text: 'hi' } }, provider)) {
+  for await (const event of runTurn(
+    { profile: CHAT_TAKES_OUT_LEAKS, input: { text: 'hi' } },
+    provider,
+  )) {
     events.push(event);
   }
   return { events, canary };
@@ -41,10 +46,7 @@ Deno.test('a canary split across text fragments reaches the host in no part', as
     { type: 'text', text: `the note says ${c.slice(0, -4)}` },
     { type: 'text', text: c.slice(-4) },
   ]);
-  assertEquals(
-    firstOf(events, 'error')?.errorInternal,
-    'Turn withheld: egress disclosure violation',
-  );
+  assertEquals(visibleText(events).includes(OMIT_CANARY), true);
   const seen = visibleText(events);
   assertEquals(seen.includes(canary.slice(-4)), false);
   assertEquals(seen.includes(canary.slice(0, 8)), false);
@@ -71,14 +73,11 @@ Deno.test('a thought restating the canary loses it, says so, and the reply still
   assertEquals(visibleText(events).includes(canary.slice(0, 8)), false);
 });
 
-Deno.test('a base64-encoded canary is blocked and never shown to the host', async () => {
+Deno.test('a base64-encoded canary is taken out and never shown to the host', async () => {
   const { events, canary } = await hostEvents((c) => [
     { type: 'text', text: `encoded ${btoa(c)}` },
   ]);
-  assertEquals(
-    firstOf(events, 'error')?.errorInternal,
-    'Turn withheld: egress disclosure violation',
-  );
+  assertEquals(visibleText(events).includes(OMIT_CANARY), true);
   assertEquals(visibleText(events).includes(btoa(canary)), false);
 });
 

@@ -1,6 +1,6 @@
 import { type LabelOverrides, type LiveSession, TheoremError } from '@theoremjs/agents';
 import { clientError } from '@theoremjs/agents/host';
-import type { LiveConnection, LiveSocket } from '@theoremjs/react/client';
+import type { LiveConnection, LiveSocket } from '@theoremjs/web/client';
 import { browserEngine, type StudioBrowserRuntime } from './browser-transport.ts';
 import type { StudioLiveBridgeOptions } from './live-session-bridge.ts';
 import { STUDIO_READER } from './reader.ts';

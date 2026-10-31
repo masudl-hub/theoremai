@@ -7,10 +7,10 @@ import type {
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
-import { GOOGLE_SPEECH_FORMATS } from '../../../presets/google-limits.ts';
 import { withCarriedToolFiles } from '../../shared/carried-tool-files.ts';
 import { historyToolArguments, historyToolIdentity } from '../../shared/tool-args.ts';
 import { interactionsBuiltinTool } from '../builtins.ts';
+import { GOOGLE_SPEECH_FORMATS } from '../limits.ts';
 import { assertGoogleThinkingLevel } from '../thinking.ts';
 
 /** A turn as Interactions frames it: the request, plus whether Google keeps it and what it continues. */

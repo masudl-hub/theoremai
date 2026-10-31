@@ -36,7 +36,7 @@ Deno.test('registered OpenRouter replays encrypted reasoning with its matching p
       id: 'worker',
       type: 'text',
       identity: { handle: 'Worker' },
-      models: { main: provider.model('openRouter', 'vendor/model') },
+      models: { main: provider.model('openRouterOpenAi', 'vendor/model') },
       inputs: { text: true },
       tools: { allow: ['lookup'] },
       maxSteps: 2,

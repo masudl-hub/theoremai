@@ -633,6 +633,25 @@ Deno.test('a grant may hold no scope that was not asked for, and blank space bet
   check(await exchange(' a', ['a']), 'resolved', 'a leading space is not an empty scope');
 });
 
+Deno.test('a grant may join its scopes with commas, and the ceiling still holds', async () => {
+  const exchange = (scope: string, scopes: string[]) =>
+    exchangeWith(() => json({ ...BEARER, scope }), { flow: { scopes } }).then(({ run }) =>
+      rejection(run),
+    );
+  check(await exchange('repo,gist', ['repo', 'gist']), 'resolved', 'both were asked for');
+  check(await exchange('repo,gist', ['repo,gist']), 'resolved', 'a comma inside a scope stands');
+  check(
+    await exchange('repo,admin', ['repo', 'gist']),
+    `Token response from ${TOKEN_ENDPOINT} grants scopes that were not asked for: admin`,
+    'one beyond',
+  );
+  check(
+    await exchange('repo,', ['repo']),
+    `Token response from ${TOKEN_ENDPOINT} grants scopes that were not asked for: `,
+    'an empty part is not asked for',
+  );
+});
+
 Deno.test('a refresh keeps what the server did not replace, asks for its scope, and holds the grant to it', async () => {
   const refresh = (response: Record<string, unknown>, over: Record<string, unknown> = {}) => {
     const { fetchFn, seen } = routes({ [TOKEN_ENDPOINT]: () => json({ ...BEARER, ...response }) });

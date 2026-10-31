@@ -69,9 +69,8 @@ test('lint passes on current repo graph', async () => {
 test('React source and package changes require the React README', async () => {
   const repoRoot = new URL('../..', import.meta.url).pathname;
   for (const file of [
-    'react/src/client/live-client.ts',
+    'react/src/client/voice-recorder.ts',
     'react/src/ui/TheoremChat.tsx',
-    'react/src/client/worklets/mic-capture.js',
     'react/src/styles/ink-controls.css',
     'react/package.json',
   ]) {
@@ -85,6 +84,28 @@ test('React source and package changes require the React README', async () => {
       stale.errors.join('\n'),
     );
     const fresh = await lintDocsTruth({ repoRoot, changedFiles: [file, 'react/README.md'] });
+    assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
+  }
+});
+
+test('web source and package changes require the web README', async () => {
+  const repoRoot = new URL('../..', import.meta.url).pathname;
+  for (const file of [
+    'web/src/client/live-client.ts',
+    'web/src/server/handler.ts',
+    'web/src/client/worklets/mic-capture.js',
+    'web/package.json',
+  ]) {
+    const { access } = await import('node:fs/promises');
+    await access(`${repoRoot}/${file}`);
+    const stale = await lintDocsTruth({ repoRoot, changedFiles: [file] });
+    assert.ok(
+      stale.errors.some((error) =>
+        error.includes(`${file}: changed without touching owning doc web/README.md`),
+      ),
+      stale.errors.join('\n'),
+    );
+    const fresh = await lintDocsTruth({ repoRoot, changedFiles: [file, 'web/README.md'] });
     assert.equal(fresh.errors.length, 0, fresh.errors.join('\n'));
   }
 });

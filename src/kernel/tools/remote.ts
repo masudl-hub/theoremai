@@ -22,6 +22,7 @@ import type { TurnEvent } from '../types.ts';
 import {
   dispatchToolBody,
   guardToolTarget,
+  type HandOff,
   messageOf,
   networkBlocked,
   networkBlockedEvent,
@@ -39,6 +40,7 @@ import {
   isMcpSessionId,
   type McpSession,
   type McpSessionCache,
+  type McpSessionUse,
   mcpSessionKey,
 } from './mcp-sessions.ts';
 import type { ToolOperationClaim } from './operation.ts';
@@ -609,6 +611,13 @@ async function* remoteAuthAndPreBody(args: {
   };
 }
 
+/** A thrown request's code: a kind with a code of its own, else `request_failed`. */
+const THROWN_CODES: Partial<Record<ErrorKind, string>> = {
+  network: 'network_error',
+  cancelled: 'cancelled',
+  timeout: 'timeout',
+};
+
 function* thrownOutcome(
   err: unknown,
   checks: RequestChecks,
@@ -618,20 +627,22 @@ function* thrownOutcome(
     checks.record(blocked);
     return failureOutcome(yield* networkBlocked(err, blocked), false);
   }
-  return failureOutcome({ code: 'network_error', kind: 'network', message: messageOf(err) }, false);
+  const kind = errorKind(err);
+  return failureOutcome(
+    { code: THROWN_CODES[kind] ?? 'request_failed', kind, message: messageOf(err) },
+    false,
+  );
 }
 
 const OMIT_CREDENTIAL = '[omitted - credential]';
 
-/** The most of a tool's response body the kernel reads; past it the call fails instead of exhausting the host's memory. */
-export const MAX_TOOL_RESPONSE_BYTES = 4 * 1024 * 1024;
 /** The most of an error or unparseable body quoted back in a failure message. */
 const MAX_QUOTED_BODY_CHARS = 2000;
 
-/** A body's text as it arrives, up to `maxBytes`; returns `false` when it runs past, with the rest left unread. */
+/** A body's text as it arrives, up to `maxBytes` when set; returns `false` when it runs past, with the rest left unread. */
 async function* cappedPieces(
   response: Response,
-  maxBytes: number,
+  maxBytes = Number.POSITIVE_INFINITY,
 ): AsyncGenerator<string, boolean> {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -661,10 +672,10 @@ async function* cappedPieces(
   return true;
 }
 
-/** A body, read up to `maxBytes`; `undefined` when it runs past, with the rest left unread. */
+/** A body, read up to `maxBytes` when set; `undefined` when it runs past, with the rest left unread. */
 async function readCappedText(
   response: Response,
-  maxBytes = MAX_TOOL_RESPONSE_BYTES,
+  maxBytes: number | undefined,
 ): Promise<string | undefined> {
   const pieces = cappedPieces(response, maxBytes);
   let text = '';
@@ -684,8 +695,9 @@ async function* readCappedTextShowing(
   response: Response,
   shown: HandlerEvents,
   secret: string | undefined,
+  maxBytes: number | undefined,
 ): AsyncGenerator<TurnEvent, string | undefined> {
-  const pieces = cappedPieces(response, MAX_TOOL_RESPONSE_BYTES);
+  const pieces = cappedPieces(response, maxBytes);
   const hold = secret ? secret.length - 1 : 0;
   let text = '';
   let pending = '';
@@ -711,12 +723,12 @@ function quotedBody(text: string): string {
   return text.length > MAX_QUOTED_BODY_CHARS ? `${text.slice(0, MAX_QUOTED_BODY_CHARS)}…` : text;
 }
 
-/** The failure for a body past MAX_TOOL_RESPONSE_BYTES. */
-function tooLargeFailure(host: string): ToolFailure {
+/** The failure for a body past the tool's `maxResponseBytes`. */
+function tooLargeFailure(host: string, maxBytes: number | undefined): ToolFailure {
   return {
     code: 'response_too_large',
     kind: 'bad_response',
-    message: `Response from ${host} is larger than ${MAX_TOOL_RESPONSE_BYTES} bytes`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    message: `Response from ${host} is larger than ${maxBytes} bytes`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   };
 }
 
@@ -821,9 +833,9 @@ export async function* executeHttpTool(
 
   const guarded = yield* guardToolTarget(target.url, ctx, stages?.span);
   if (!guarded.ok) return failureOutcome(guarded.failure, true);
-  yield* dispatchToolBody(tool, input, ctx, base, beginBody);
+  const handOff = yield* dispatchToolBody(tool, input, ctx, base, beginBody);
   return yield* sendWithCredential(prepared, guarded.url, (url) =>
-    sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span, shown),
+    sendHttpRequest(tool, url, target.body, prepared, ctx, base, stages?.span, shown, handOff),
   );
 }
 
@@ -842,9 +854,10 @@ async function* readHttpBody(
   response: Response,
   shown: HandlerEvents | undefined,
   secret: string | undefined,
+  maxBytes: number | undefined,
 ): AsyncGenerator<TurnEvent, string | undefined> {
-  if (!shown || !isDraftable(response)) return await readCappedText(response);
-  return yield* readCappedTextShowing(response, shown, secret);
+  if (!shown || !isDraftable(response)) return await readCappedText(response, maxBytes);
+  return yield* readCappedTextShowing(response, shown, secret, maxBytes);
 }
 
 async function* sendHttpRequest(
@@ -856,6 +869,7 @@ async function* sendHttpRequest(
   base: ToolCallBase,
   span: SpanHandle | undefined,
   shown: HandlerEvents | undefined,
+  handOff: HandOff,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
   const headers: Record<string, string> = { Accept: 'application/json' };
@@ -885,12 +899,17 @@ async function* sendHttpRequest(
           originBoundHeaders: { ...tool.headers, ...authHeaders },
           resolveHost: ctx.resolveHost,
           onCheck: checks.onCheck,
+          beforeSend: async () => {
+            await handOff.claim();
+          },
         },
       ),
     );
 
-    const text = yield* readHttpBody(response, shown, secret);
-    if (text === undefined) return failureOutcome(tooLargeFailure(targetUrl.hostname), false);
+    const text = yield* readHttpBody(response, shown, secret, tool.maxResponseBytes);
+    if (text === undefined) {
+      return failureOutcome(tooLargeFailure(targetUrl.hostname, tool.maxResponseBytes), false);
+    }
 
     if (!response.ok) {
       const refused = yield* refusedCredentialOutcome(
@@ -931,6 +950,7 @@ async function* sendHttpRequest(
       outputRaw: checked.data,
     };
   } catch (err) {
+    handOff.rethrowClaimFailure();
     if (tool.timeoutMs !== undefined && timedOut?.aborted && !ctx.signal?.aborted) {
       return failureOutcome(timeoutFailure(targetUrl.hostname, tool.timeoutMs), false);
     }
@@ -956,6 +976,17 @@ export const MCP_PROTOCOL_VERSIONS = [
   '2025-06-18',
   '2025-03-26',
 ] as const;
+
+/**
+ * The `_meta` an MCP request carries. Stateless servers (2026-07-28) read the client's revision and
+ * capabilities from each request, not from an initialize, and refuse one without both.
+ */
+export function mcpRequestMeta(protocolVersion: string): Record<string, unknown> {
+  return {
+    'io.modelcontextprotocol/protocolVersion': protocolVersion,
+    'io.modelcontextprotocol/clientCapabilities': {},
+  };
+}
 
 /** An MCP protocol version the client can speak. */
 export type McpProtocolVersion = (typeof MCP_PROTOCOL_VERSIONS)[number];
@@ -1049,6 +1080,9 @@ type McpTransport = {
   resolveHost?: ResolveHost;
   signal?: AbortSignal;
   onCheck?: (ms: number) => void;
+  maxResponseBytes?: number;
+  /** Takes the call's claim before its first `tools/call` is sent; never before a session opens. */
+  beforeSend?: () => Promise<void>;
 };
 
 async function fetchMcpProtocolAttempt(
@@ -1065,11 +1099,7 @@ async function fetchMcpProtocolAttempt(
     params: {
       name: mcpToolName,
       arguments: input,
-      // why: Stateless servers read the client's capabilities from each call, not from an initialize.
-      _meta: {
-        'io.modelcontextprotocol/protocolVersion': protocolVersion,
-        'io.modelcontextprotocol/clientCapabilities': {},
-      },
+      _meta: mcpRequestMeta(protocolVersion),
     },
   };
 
@@ -1092,12 +1122,14 @@ async function fetchMcpProtocolAttempt(
       originBoundHeaders: transport.originBoundHeaders,
       resolveHost: transport.resolveHost,
       onCheck: transport.onCheck,
+      ...(transport.beforeSend ? { beforeSend: transport.beforeSend } : {}),
     },
   );
 
-  const text = await readCappedText(response);
+  const text = await readCappedText(response, transport.maxResponseBytes);
   if (text === undefined) {
-    return { kind: 'failure', failure: tooLargeFailure(new URL(transport.url).hostname) };
+    const host = new URL(transport.url).hostname;
+    return { kind: 'failure', failure: tooLargeFailure(host, transport.maxResponseBytes) };
   }
 
   if (!response.ok) {
@@ -1230,9 +1262,10 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
     },
     { 'Mcp-Method': 'initialize' },
   );
-  const text = await readCappedText(response);
+  const text = await readCappedText(response, transport.maxResponseBytes);
   if (text === undefined) {
-    throw new McpSessionFailure(tooLargeFailure(new URL(transport.url).hostname));
+    const host = new URL(transport.url).hostname;
+    throw new McpSessionFailure(tooLargeFailure(host, transport.maxResponseBytes));
   }
   if (!response.ok) {
     throw sessionFailure(
@@ -1275,13 +1308,15 @@ async function negotiateInSession(
   rpcId: string | number,
   mcpToolName: string,
   input: unknown,
-  sessions: { cache: McpSessionCache; key: string; cached?: McpSession },
+  sessions: { cache: McpSessionCache; key: string; use: McpSessionUse; cached?: McpSession },
 ): Promise<McpNegotiated> {
   let session = sessions.cached;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (!session) {
       try {
-        session = await sessions.cache.open(sessions.key, () => openMcpSession(transport));
+        session = await sessions.cache.open(sessions.key, sessions.use, () =>
+          openMcpSession(transport),
+        );
       } catch (err) {
         if (err instanceof McpSessionFailure) return { failure: err.failure };
         throw err;
@@ -1500,9 +1535,9 @@ export async function* executeMcpTool(
 
   const prepared = yield* remoteAuthAndPreBody({ tool, input: permitted.input, ctx, base, stages });
   if (!('ok' in prepared)) return prepared;
-  yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
+  const handOff = yield* dispatchToolBody(tool, prepared.input, ctx, base, beginBody);
   return yield* sendWithCredential(prepared, guarded.url, (url) =>
-    sendMcpRequest(tool, url, prepared.input, prepared, ctx, base, stages?.span, sessions),
+    sendMcpRequest(tool, url, prepared.input, prepared, ctx, base, stages?.span, sessions, handOff),
   );
 }
 
@@ -1515,6 +1550,7 @@ async function* sendMcpRequest(
   base: ToolCallBase,
   span: SpanHandle | undefined,
   sessions: McpSessionCache,
+  handOff: HandOff,
 ): AsyncGenerator<TurnEvent, ToolBodyOutcome> {
   const checks = requestChecks(span);
   try {
@@ -1529,13 +1565,19 @@ async function* sendMcpRequest(
       resolveHost: ctx.resolveHost,
       signal: ctx.signal,
       onCheck: checks.onCheck,
+      ...(tool.maxResponseBytes === undefined ? {} : { maxResponseBytes: tool.maxResponseBytes }),
+      beforeSend: async () => {
+        await handOff.claim();
+      },
     };
     const key = await mcpSessionKey(url.href, transport.originBoundHeaders);
-    const cached = sessions.get(key);
+    const use: McpSessionUse = { tool: tool.name, ...tool.session };
+    const cached = sessions.get(key, use);
     const first = cached
       ? await negotiateInSession(transport, base.callId, tool.mcpToolName, input, {
           cache: sessions,
           key,
+          use,
           cached,
         })
       : await negotiateMcpRpc(transport, base.callId, tool.mcpToolName, input);
@@ -1543,6 +1585,7 @@ async function* sendMcpRequest(
       ? await negotiateInSession(transport, base.callId, tool.mcpToolName, input, {
           cache: sessions,
           key,
+          use,
         })
       : first;
     const refused = yield* refusedCredentialOutcome(
@@ -1566,6 +1609,7 @@ async function* sendMcpRequest(
       outputRaw: interpreted.data,
     };
   } catch (err) {
+    handOff.rethrowClaimFailure();
     return yield* thrownOutcome(err, checks);
   } finally {
     checks.record();

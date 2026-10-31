@@ -2,6 +2,7 @@ import type { Profile, ProfileOutputsSpec } from '../types.ts';
 
 function profileTurnOutputs(profile: Profile): ProfileOutputsSpec | undefined {
   if (
+    profile.type === 'transcription' ||
     profile.type === 'live' ||
     profile.type === 'host' ||
     profile.type === 'decision' ||

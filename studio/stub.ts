@@ -1,4 +1,4 @@
-import { demoHttpSampleInput } from './concierge-demo.ts';
+import { demoHttpSampleInput } from './cookbooks/tools.ts';
 import { parseJsonSchema, sampleFromJsonSchema } from './tool-schema.ts';
 
 export function stubOutputFromSchema(schema: Record<string, unknown>): Record<string, unknown> {

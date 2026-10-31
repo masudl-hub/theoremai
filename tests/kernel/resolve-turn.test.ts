@@ -9,21 +9,22 @@ import {
   projectProfile,
   registerProfile,
   registerStructured,
+  registerTools,
   resolveTurn,
 } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { clampThinkingLevel, mimeAllowed } from '../../src/kernel/registry/catalog.ts';
 import type { ModelBinding, TurnRequest } from '../../src/kernel/types.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 
-registerGooglePreset();
+registerTools(GOOGLE_BUILTIN_TOOLS);
 /** Names the case that failed; `assertEquals` takes only the two values. */
 function check(actual: unknown, expected: unknown, label: string): void {
   assertEquals({ label, value: actual }, { label, value: expected });
 }
 type Loose = Record<string, unknown>;
 const GEMINI = { protocol: 'scripted', provider: 'scripted', apiId: 'g' } as const;
-const SONAR = { protocol: 'openRouter', provider: 'openrouter', apiId: 'x/y' } as const;
+const SONAR = { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'x/y' } as const;
 function define(id: string, over: Loose = {}): void {
   registerProfile({
     id,

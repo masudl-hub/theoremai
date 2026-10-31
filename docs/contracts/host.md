@@ -43,20 +43,21 @@ slot”).
 | `HTTP_OK` | `200` |
 | `HTTP_BUSY` | `429` |
 | `HTTP_NOT_FOUND` | `404` |
-| `HTTP_METHOD` | `405` |
+| `HTTP_METHOD` | `405`. The web handlers do not send it: a route or method they do not serve gets `404` with kind `not_found`, as the Gemini API answers an unknown path or method. |
 
 `caughtStatus` by kind:
 
 | Kind | Status | Kind | Status |
 | --- | --- | --- | --- |
-| `config` | 500 | `bad_response` | 502 |
-| `request` | 400 | `network` | 502 |
-| `input` | 422 | `timeout` | 504 |
-| `action` | 403 | `safety` | 422 |
-| `auth` | 401 | `blocked` | 403 |
-| `rate_limit` | 429 | `declined` | 409 |
-| `unsupported` | 422 | `failed` | 502 |
-| `unavailable` | 503 | `cancelled` | 499 (client closed request) |
+| `config` | 500 | `unavailable` | 503 |
+| `request` | 400 | `bad_response` | 502 |
+| `conflict` | 409 | `network` | 502 |
+| `not_found` | 404 | `timeout` | 504 |
+| `input` | 422 | `safety` | 422 |
+| `action` | 403 | `blocked` | 403 |
+| `auth` | 401 | `declined` | 409 |
+| `rate_limit` | 429 | `failed` | 502 |
+| `unsupported` | 422 | `cancelled` | 499 (client closed request) |
 | `busy` | 503 | `internal` | 500 |
 
 `auth` is 401 whichever key was refused. A key the host's vault lacks (a model's
@@ -102,7 +103,7 @@ build a custom relay still may call `processLiveOutboundBatch` /
 `finalizeLiveOutboundTurn` directly — prefer `runSession` when possible.
 
 A relay reads each text frame from the live client with `parseLiveClientMessage`
-(`@theoremjs/react/server`): JSON that passes the live client's schema, else a
+(`@theoremjs/web/server`): JSON that passes the live client's schema, else a
 `request` error the relay sends back as an `error` envelope,
 `{ type: 'error', error, errorKind }`. The live client reads every envelope
 against its own schema: a kind it does not know reaches `onTurnEvent` as
@@ -130,20 +131,23 @@ so the relay passes the browser's `executeTool` message, less its `type`, to
 | `status` | When | Carries |
 | --- | --- | --- |
 | `settled` | The call ran and the model has its answer | `callId` |
+| `dispatched` | The call is the page's to answer | `callId`, `grantId`, `arguments` |
 | `gated` | The call waits on a gate | `callId`, `gate` |
 | `refused` | `executeTool` threw | `callId`, `body`: `{ error: publicError(err, profile.labels), errorKind }` |
 
 A tool the browser answers (a `function` tool whose result lives in the page) is
-settled by the same message: `executeToolOnRelay({ callId, output })` sends the
-browser's `output`, and the relay passes it to `session.executeTool` as
-`page: { output }`. The tool is registered with `answeredBy: 'page'` and no handler: the kernel
+dispatched to the page with a grant. `LiveSessionClient` answers the grant with the
+`pageTools` function of that name: `{ callId, operationId, grantId, output }`, or
+`unanswered: true` when the page has no function for the tool or its function throws.
+The relay passes the answer to `answerPageResult`. The tool is registered with `answeredBy: 'page'` and no handler: the kernel
 returns what the page sent, so the tool's `output` schema checks it
 and a mismatch reaches the model as an ordinary tool failure. With no
 `page` the call fails to the model, naming the tool.
 
-In a chat, the same tool pauses the turn at a `page` gate. The page answers it on `/invoke` with
-`{ gateId, decision: 'approve', page: { output } }`, or `page: { unanswered: true }` when it has no
-function for the tool. `useTheoremChat` does this from its `pageTools` option, and shows no prompt.
+In a chat, the turn's stream carries the same dispatch as a `dispatch` tool event. The page
+answers its grant on `/page-result` with `page: { output }`, or `page: { unanswered: true }` when it
+has no function for the tool. `withPageToolDispatch` does this from its `pageTools`, and
+`useTheoremChat` applies it, with no prompt.
 
 The kernel never times out an ungated held call, so the relay does:
 `attachStudioLiveSession` starts a timer when the model makes a call
@@ -156,7 +160,7 @@ late answer is then refused like any `executeTool` for a settled call.
 
 | Export | Role |
 | --- | --- |
-| `forClient(event, options?)` | Copy one event for its reader. For a visitor (the default), without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, and guardrail decisions; `errorKind` and the user's `error` stay); strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match`. With `reader: 'builder'`, the raw reason stands where the visitor's wording did: an error event's `error` and an ended session's `message` are their `errorInternal`, a tool call's `failure.error` is its `failure.message`, and a guardrail decision keeps its `errorInternal` |
+| `forClient(event, options?)` | Copy one event for its reader. For a visitor (the default), without `errorInternal` (it rides error events, an ended Live session, a tool call's failure such as a refused OAuth refresh, guardrail decisions, and a compaction's `failure`; `errorKind` and the user's `error` stay) and a guardrail decision's `errorSummary`; strips `evidence.raw` unless `includeEvidenceRaw: true`; always strips `GuardrailHit.match`. With `reader: 'builder'`, the raw reason stands where the visitor's wording did: an error event's `error` and an ended session's `message` are their `errorInternal`, a tool call's `failure.error` is its `failure.message`, and a guardrail decision keeps its `errorInternal` and `errorSummary` |
 | `forClientEvents(events, options?)` | Batch helper for Live relays and HTTP stream flush |
 | `clientError(err, labels?, options?)` | A caught failure as `{ error, errorKind }`, by the same rule as `forClient`: the profile's wording for a visitor, the raw reason for a builder. The body of an error reply |
 | `ClientTurnOptions` | `{ includeEvidenceRaw?: boolean; reader?: 'visitor' \| 'builder' }` |
@@ -217,9 +221,13 @@ Does not validate full JSON documents.
 
 ## Exported API
 
-Live list: `src/host/mod.ts` (`json`, status constants, `caughtStatus`,
-`flushMintTrace`, `CutoutTape`, `readStreamingJsonStringField`, `forClient`,
-`forClientEvents`, `clientError`, `ClientError`, `ClientTurnOptions`).
+| Export | Role |
+| --- | --- |
+| `json`, `caughtStatus` | A JSON reply, and the HTTP status for a caught error |
+| `HTTP_OK`, `HTTP_BUSY`, `HTTP_NOT_FOUND`, `HTTP_METHOD` | Status constants |
+| `forClient`, `forClientEvents`, `clientError`, `ClientError`, `ClientTurnOptions` | Client-safe turn events |
+| `flushMintTrace`, `CutoutTape` | Cutout mint trace |
+| `readStreamingJsonStringField` | Structured JSON preview |
 
 ```theorem-evidence
 {

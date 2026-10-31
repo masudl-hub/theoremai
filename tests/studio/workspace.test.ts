@@ -9,7 +9,7 @@ import {
   compileStudio,
   createBlankDraft,
   createExampleDraft,
-  createSpanExampleDraft,
+  createPageReaderExampleDraft,
   defaultToolSpec,
   duplicateAgent,
   libraryDraft,
@@ -24,6 +24,7 @@ import {
   removeProvider,
   renameProvider,
   resetAgent,
+  resetAgentNode,
   resetAll,
   type StudioTreeNode,
   type StudioWorkspace,
@@ -75,7 +76,10 @@ Deno.test('migration keeps a selected tool unprefixed and moves the root under t
 });
 
 Deno.test('every tree node id names what it is under', () => {
-  const workspace = addAgent(workspaceFromDraft(createExampleDraft()), createSpanExampleDraft());
+  const workspace = addAgent(
+    workspaceFromDraft(createExampleDraft()),
+    createPageReaderExampleDraft(),
+  );
   const tree = workspaceTree(workspace);
   const ids: string[] = [];
   const walk = (node: StudioTreeNode): void => {
@@ -164,7 +168,7 @@ Deno.test('duplicate gives a fresh key and agent id, right after the source', ()
 });
 
 Deno.test('remove moves the selection and chat to a neighbour and keeps the last agent', () => {
-  let workspace = addAgent(workspaceFromDraft(createBlankDraft()), createSpanExampleDraft());
+  let workspace = addAgent(workspaceFromDraft(createBlankDraft()), createPageReaderExampleDraft());
   const [first, second] = keys(workspace).map(must);
   workspace = {
     ...workspace,
@@ -190,7 +194,7 @@ Deno.test('removing a library tool takes it off every agent', () => {
 
 Deno.test('the editor sees the whole library; a tool it adds is allowed only here, one it drops goes everywhere', () => {
   const example = workspaceFromDraft(createExampleDraft());
-  const workspace = addAgent(example, createSpanExampleDraft());
+  const workspace = addAgent(example, createPageReaderExampleDraft());
   const [first, second] = workspace.agents.map((agent) => agent.key);
   const shown = must(libraryDraft(workspace, must(second)));
   assertEquals(shown.toolSpecs, workspace.toolSpecs);
@@ -336,6 +340,39 @@ Deno.test('an agent put back to its start brings back the provider its models st
     );
     assertEquals(must(reset.agents[0]).modelBindings, must(agent).modelBindings);
   }
+});
+
+Deno.test("a row's reset puts back only its own section or model", () => {
+  const start = workspaceFromDraft(createExampleDraft());
+  const agent = must(start.agents[0]);
+  const { key } = agent;
+  const [first] = agent.modelBindings;
+  const edited = {
+    ...start,
+    agents: start.agents.map((each) => ({
+      ...each,
+      turnBehaviour: { ...each.turnBehaviour, maxContinues: 7 },
+      identity: { ...each.identity, agentId: 'renamed' },
+      modelBindings: each.modelBindings.map((binding) => ({ ...binding, temperature: 0.5 })),
+    })),
+  };
+  // A row at its start returns the workspace as it is.
+  assertEquals(resetAgentNode(start, key, { facet: 'turnBehaviour' }), start);
+
+  const behaviour = must(resetAgentNode(edited, key, { facet: 'turnBehaviour' }).agents[0]);
+  assertEquals(behaviour.turnBehaviour, agent.turnBehaviour);
+  assertEquals(behaviour.identity.agentId, 'renamed');
+  assertEquals(must(behaviour.modelBindings[0]).temperature, 0.5);
+  assertEquals(resetAgentNode(edited, key, { facet: 'turnBehaviour' }).providers, edited.providers);
+
+  const model = must(
+    resetAgentNode(edited, key, { facet: 'modelBinding', key: must(first).key }).agents[0],
+  );
+  assertEquals(model.modelBindings[0], first);
+  assertEquals(model.turnBehaviour.maxContinues, 7);
+
+  // The agent's own row puts the whole agent back.
+  assertEquals(resetAgentNode(edited, key, { facet: 'identity' }), resetAgent(edited, key));
 });
 
 Deno.test('a model names every other model and agent that calls it on the same provider', () => {

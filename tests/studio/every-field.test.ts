@@ -12,10 +12,11 @@ import {
   typesafeProvider,
 } from '../../mod.ts';
 import { compileDetect } from '../../src/guardrails/compile-egress.ts';
-import { LABEL_KEYS, labelPlaceholders } from '../../src/guardrails/labels.ts';
+import { labelPlaceholders } from '../../src/guardrails/labels.ts';
 import { catalogPathFor } from '../../src/kernel/schema.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
+import { PROFILE_LABEL_KEYS } from '../../studio/label-areas.ts';
 import { connectionFields, kernelDefinitions } from '../../studio/providers.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -119,6 +120,7 @@ registerTool({
   description: 'Fetches a page.',
   method: 'GET',
   endpoint: 'https://example.com/page',
+  maxResponseBytes: 1_000_000,
   input: z.object({}),
   output: z.object({ page: z.string() }),
   access: 'read-only',
@@ -195,7 +197,7 @@ const PROFILES = [
     inputs: {},
     tools: { allow: [] },
     labels: Object.fromEntries(
-      LABEL_KEYS.map((key) => [
+      PROFILE_LABEL_KEYS.map((key) => [
         key,
         `Worded for ${key}. ${labelPlaceholders(key)
           .map((name) => `{${name}}`)
@@ -208,8 +210,7 @@ const PROFILES = [
     id: 'every-text',
     identity: {
       handle: 'writer',
-      system: ['You write.', { private: 'House rules.' }],
-      systemByRole: { admin: 'You write for staff.' },
+      system: [['You write.', { private: 'House rules.' }]],
     },
     models: {
       main: {
@@ -226,6 +227,17 @@ const PROFILES = [
         maxOutputTokens: 2048,
         temperature: 0.4,
         builtInTools: ['googleSearch'],
+        limits: {
+          operationTimeoutMs: 60_000,
+          connectTimeoutMs: 5000,
+          liveStepTimeoutMs: 30_000,
+          maxWireRecordBytes: 1_000_000,
+          maxWireResponseBytes: 8_000_000,
+          maxEventBytes: 500_000,
+          maxStepBytes: 4_000_000,
+          maxStepEvents: 10_000,
+          maxPendingToolCalls: 16,
+        },
         compaction: {
           maxTokens: 100_000,
           compactAt: 0.8,
@@ -236,7 +248,7 @@ const PROFILES = [
         },
       },
       cached: {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'anthropic/claude-sonnet-4.5',
         options: { cache: { mode: 'system', ttl: '1h' } },
@@ -256,7 +268,13 @@ const PROFILES = [
       maxBytes: 1_000_000,
       maxTurnBytes: 2_000_000,
       limitsByMime: { 'image/png': 500_000 },
-      slots: { role: ['admin', 'guest'] },
+      slots: {
+        role: ['admin', 'guest'],
+        tone: {
+          label: 'Tone',
+          choices: [{ value: 'plain', description: 'Short words.' }, { value: 'warm' }],
+        },
+      },
       context: { from: ['client', 'server'], maxChars: 4000 },
     },
     outputs: {
@@ -364,12 +382,22 @@ const PROFILES = [
     id: 'every-decision',
     identity: { handle: 'judge' },
     models: {
-      main: { protocol: 'systemOne', provider: 'typesafe', apiId: 'jev-latest', timeoutMs: 1000 },
+      main: {
+        protocol: 'systemOne',
+        provider: 'typesafe',
+        apiId: 'jev-latest',
+        timeoutMs: 1000,
+        limits: { operationTimeoutMs: 2000 },
+      },
     },
     inputs: { state: 'json', maxStateBytes: 1000 },
     decision: { contract: 'every.v1' },
   } as never),
-  defineProfile({ type: 'host', id: 'every-host', tools: { allow: ['every_fetch'] } }),
+  defineProfile({
+    type: 'host',
+    id: 'every-host',
+    tools: { allow: ['every_fetch'], parallel: true },
+  }),
 ];
 for (const profile of PROFILES) registerProfile(profile);
 

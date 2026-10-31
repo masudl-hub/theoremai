@@ -1,8 +1,13 @@
 import type { z } from 'zod';
 import { TOOL_BOUNDARIES } from '../../guardrails/boundaries.ts';
 import { detectProblem } from '../../guardrails/detectors.ts';
-import { TheoremError } from '../../guardrails/error.ts';
-import { type LabelOverrides, labelText, validateLabelOverrides } from '../../guardrails/labels.ts';
+import { errorKind, TheoremError } from '../../guardrails/error.ts';
+import {
+  HOST_LABEL_KEYS,
+  type LabelOverrides,
+  labelText,
+  validateLabelOverrides,
+} from '../../guardrails/labels.ts';
 import {
   BLOCKED_REPLY_ON_BLOCK,
   type BlockedReplySpec,
@@ -33,7 +38,7 @@ import {
   THINKING_LEVELS,
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
-import { assertSystemPrompt } from '../system-parts.ts';
+import { assertSystemLines, systemLinesProblem } from '../system-lines.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
 import type {
@@ -64,10 +69,13 @@ import type {
   ProfileValidationSpec,
   SpeechProfile,
   TextProfile,
+  TranscriptionInputsSpec,
+  TranscriptionProfile,
 } from '../types.ts';
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeAllowed, profileInputs } from './catalog.ts';
 import type { SchemaRegistry } from './schemas.ts';
+import { normalizeProfileInputsSlots, slotValues } from './slots.ts';
 import { soleModelId } from './sole-model.ts';
 
 /** Not shared by host profiles, which invoke tools without a model turn. */
@@ -120,6 +128,16 @@ export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity'> & 
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
+/** What a host writes to define a transcription profile. */
+export type TranscriptionProfileDefinition = Omit<
+  ProfileDefinitionBase,
+  'identity' | 'outputs' | 'maxSteps'
+> & {
+  type: 'transcription';
+  identity: TranscriptionProfile['identity'];
+  inputs: TranscriptionInputsSpec & { text?: false };
+};
+
 /** What a host writes to define a live profile. */
 export type LiveProfileDefinition = ProfileDefinitionBase & {
   type: 'live';
@@ -162,6 +180,7 @@ export type ProfileDefinition =
   | SpeechProfileDefinition
   | LiveProfileDefinition
   | DecisionProfileDefinition
+  | TranscriptionProfileDefinition
   | EmbeddingProfileDefinition
   | HostProfileDefinition;
 
@@ -195,6 +214,32 @@ function defineEmbeddingProfile(input: EmbeddingProfileDefinition): EmbeddingPro
   };
 }
 
+function defineTranscriptionProfile(input: TranscriptionProfileDefinition): TranscriptionProfile {
+  assertModelsNonEmpty(input.id, input.models);
+  assertGuardrails(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
+  assertObservability(input.id, input.observability);
+  for (const [modelId, binding] of Object.entries(input.models))
+    assertModelBinding(input.id, modelId, binding);
+  if ('text' in input.inputs && input.inputs.text !== false) {
+    throw new TheoremError(
+      'config',
+      `Profile ${input.id}: a transcription takes a voice clip, so inputs.text must be false`, // labels-exempt: developer config error
+    );
+  }
+  return {
+    type: 'transcription',
+    id: input.id,
+    identity: { handle: input.identity.handle },
+    ...profileModelFields(input),
+    providerContinuation: undefined,
+    maxSteps: undefined,
+    inputs: { ...input.inputs, text: false },
+    guardrails: input.guardrails,
+    observability: input.observability,
+    labels: input.labels,
+  };
+}
+
 function assertBindingData(
   profileId: string,
   modelId: string,
@@ -220,7 +265,7 @@ function validateDecisionBinding(
     throw new TheoremError(
       'config',
       // labels-exempt: developer contract / internal diagnostic
-      `Profile ${profileId} model '${modelId}': decision retry configuration is unsupported; POSTs are never retried`,
+      `Profile ${profileId} model '${modelId}': a decision binding takes no retry; a decision retries only a transient failure, by the kernel's rule`,
     );
   }
   if (
@@ -505,7 +550,10 @@ function assertTurnBehaviour(
   profileId: string,
   input: Exclude<
     ProfileDefinition,
-    HostProfileDefinition | DecisionProfileDefinition | EmbeddingProfileDefinition
+    | HostProfileDefinition
+    | DecisionProfileDefinition
+    | EmbeddingProfileDefinition
+    | TranscriptionProfileDefinition
   >,
 ): void {
   const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
@@ -593,7 +641,7 @@ function assertObservability(profileId: string, spec: ProfileObservabilitySpec |
       throw err;
     }
     const message = err instanceof Error ? err.message : String(err);
-    throw new TheoremError('config', `Profile ${profileId}: ${message}`);
+    throw new TheoremError(errorKind(err), `Profile ${profileId}: ${message}`, { cause: err });
   }
 }
 
@@ -602,14 +650,21 @@ function assertIdentitySystem(input: ProfileDefinition): void {
     input.type === 'host' ||
     input.type === 'decision' ||
     input.type === 'speech' ||
+    input.type === 'transcription' ||
     input.type === 'embedding'
   )
     return;
-  const { system, systemByRole } = input.identity;
-  if (system !== undefined) assertSystemPrompt(system, `Profile ${input.id} identity.system`);
-  for (const [role, prompt] of Object.entries(systemByRole ?? {})) {
-    assertSystemPrompt(prompt, `Profile ${input.id} identity.systemByRole.${role}`);
+  const { conditions, system } = input.identity;
+  const slots: Record<string, readonly string[]> = {};
+  for (const [name, decl] of Object.entries(
+    normalizeProfileInputsSlots(input.inputs)?.slots ?? {},
+  )) {
+    slots[name] = slotValues(decl);
   }
+  const prompt = system ?? '';
+  assertSystemLines(prompt, `Profile ${input.id} identity.system`);
+  const problem = systemLinesProblem(prompt, conditions, slots);
+  if (problem) throw new TheoremError('config', `Profile ${input.id} identity.system: ${problem}`); // labels-exempt: developer contract error
 }
 
 /** Validate a definition and return the profile; throws on a malformed one. */
@@ -618,6 +673,8 @@ function defineProfile(input: TextProfileDefinition): TextProfile;
 function defineProfile(input: ImageProfileDefinition): ImageProfile;
 /** Validate a speech definition and return the profile. */
 function defineProfile(input: SpeechProfileDefinition): SpeechProfile;
+/** Validate a transcription definition and return the profile. */
+function defineProfile(input: TranscriptionProfileDefinition): TranscriptionProfile;
 /** Validate a live definition and return the profile. */
 function defineProfile(input: LiveProfileDefinition): LiveProfile;
 /** Validate a decision definition and return the profile. */
@@ -646,6 +703,14 @@ function defineProfile(input: ProfileDefinition): Profile {
   assertRequiredFields(input);
   assertNameLengths(input);
   if (input.labels) validateLabelOverrides(input.labels, `Profile ${input.id}`);
+  for (const key of HOST_LABEL_KEYS) {
+    if (input.labels?.[key] !== undefined) {
+      throw new TheoremError(
+        'config',
+        `Profile ${input.id}: labels '${key}' is a host line, which a profile cannot change; set it with overrideLabels`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      );
+    }
+  }
   assertIdentitySystem(input);
   assertDetect(input);
   if (input.type === 'host') {
@@ -656,6 +721,9 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   if (input.type === 'embedding') {
     return defineEmbeddingProfile(input);
+  }
+  if (input.type === 'transcription') {
+    return defineTranscriptionProfile(input);
   }
   assertModelsNonEmpty(input.id, input.models);
   assertTurnBehaviour(input.id, input);
@@ -671,8 +739,8 @@ function defineProfile(input: ProfileDefinition): Profile {
       ? { handle: input.identity.handle }
       : {
           handle: input.identity.handle,
+          conditions: input.identity.conditions,
           system: input.identity.system,
-          systemByRole: input.identity.systemByRole,
         };
   const guardrails = input.guardrails;
   const observability = input.observability;
@@ -688,7 +756,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         identity,
         ...modelFields,
         tools: input.tools,
-        inputs: input.inputs,
+        inputs: normalizeProfileInputsSlots(input.inputs),
         outputs: input.outputs,
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -704,7 +772,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         ...modelFields,
         image: input.image,
         tools: input.tools,
-        inputs: input.inputs,
+        inputs: normalizeProfileInputsSlots(input.inputs),
         outputs: input.outputs,
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -735,7 +803,7 @@ function defineProfile(input: ProfileDefinition): Profile {
         identity,
         ...modelFields,
         live: input.live,
-        inputs: input.inputs,
+        inputs: input.inputs ? normalizeProfileInputsSlots(input.inputs) : input.inputs,
         tools: { allow: input.tools.allow, ...optionalParallel(input.tools.parallel) },
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -783,13 +851,14 @@ function assertStructuredSlot(profile: ModelProfile): void {
   if (profile.type === 'live') return;
   const structured = profile.outputs?.structured;
   if (!structured || typeof structured === 'string') return;
-  const choices = profileInputs(profile)?.slots?.[structured.by];
-  if (!choices) {
+  const decl = profileInputs(profile)?.slots?.[structured.by];
+  if (!decl) {
     throw new TheoremError(
       'config',
       `Profile ${profile.id}: outputs.structured.by '${structured.by}' is not a slot in inputs.slots`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
+  const choices = slotValues(decl);
   const unknown = Object.keys(structured.map).filter((value) => !choices.includes(value));
   if (unknown.length) {
     throw new TheoremError(

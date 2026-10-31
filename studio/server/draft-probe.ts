@@ -5,8 +5,8 @@
  *
  * @module
  */
-import { type ProfileDefinition, z } from '@theoremjs/agents';
-import { readBody } from '@theoremjs/react/server';
+import { type ProfileDefinition, type RegisteredProvider, z } from '@theoremjs/agents';
+import { readBody } from '@theoremjs/web/server';
 import {
   type GuardrailProbeAnswer,
   PROBE_TEXT_LIMIT,
@@ -56,6 +56,7 @@ export async function draftProbe(
   request: Request,
   onPassed: ((entry: ProbeEntry, at: Date) => Promise<void>) | undefined,
   defer: (work: Promise<unknown>) => void,
+  projectProviders: readonly RegisteredProvider[],
 ): Promise<Response> {
   let labels: ProfileDefinition['labels'];
   try {
@@ -66,6 +67,7 @@ export async function draftProbe(
       customTools: body.customTools ?? [],
       structured: body.structured,
       dependencies: body.dependencies,
+      projectProviders,
       text: body.text,
       only: body.only,
       signal: request.signal,

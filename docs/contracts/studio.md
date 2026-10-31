@@ -4,16 +4,21 @@ For maintainers of `studio/`. The package README (`studio/README.md`) speaks to 
 
 ## Ownership
 
-The studio's authoring logic and demo fixtures: the editable profile draft,
+The studio's authoring logic and cookbooks: the editable profile draft,
 its tree, the compiler that turns it into a kernel profile, TypeScript source
-export, the travel concierge demo (tool seeds, sample HTTP inputs, local
-function handlers), and the run-tab handoff.
+export, the cookbook catalog (research scout, travel concierge, code architect,
+live concierge, Pantry, Gemini Embeddings 2, narrator, tool console,
+tool seeds, sample HTTP inputs, portable function handlers, and item checks),
+and the run-tab handoff.
 
 The logic lives here, not in the frontend, so it is type-checked and tested
 against the kernel it compiles for.
 
 ## Runs and sessions
 
+A project run takes its wiring from the app: the setup names the entry in `entry`, and the entry exports `theorem`, a `TurnWiring`. The studio loads both with `loadSetup` from `@theoremjs/agents/cli`, the loader `agents test --setup` and `agents run --setup` use. The studio calls `register` once at load, runs every model call on `provider`, and passes `prepare` to the web handler, so a studio turn is the turn the app runs. The handler keeps its own profile, execution, page execution, provider state and signal; the app's `onStage` answers first; credentials are read from the app before the session.
+A setup that exports `default` or `provider` fails to load and names the move; there is no fallback.
+A decision whose setup `questions` entry is a builder (`{ input?, build }`) opens with `decision.questionsBuilt` and no questions; it compiles without them, and Save never writes questions for it. Its project run is served by `createTheoremDecisionHandler` with that builder, so the page's input form and the questions each answer names come from the same code the app runs.
 Studio runs resolve their models through an isolated kernel scope's provider registry.
 Provider host options can set `limits` for deadlines and upstream output. Studio uses the same kernel enforcement.
 The runtime resolves only own entries in the host's provider vault. Inherited credentials and resolvers are unavailable.
@@ -21,10 +26,12 @@ Scripted live guardrail probes supply fixture credentials only for the selected 
 Registered adapters can use object methods or class prototype methods. The kernel retains their method receivers for the run.
 Replacing a scope registration affects later runs. It does not replace an active run's captured adapter contract.
 
+While a project's edits are unsaved, the saved agent and the edited agent run side by side under one composer. The composer takes its controls from the edited agent, and only enters what is typed: each side does with it what its own composer would. An idle side sends, a busy side queues, and a steer goes to each side whose running turn takes one. The composer's model control lists each side's own models and efforts in two columns, and a pick stays on that side, so the two can run different models. A side offers only what its profile offers, and a side that cannot take a file refuses that turn in its own pane. With no pick, each side runs its own default.
+
 Exported agent handoffs ask the builder to supply shared atomic session storage when deployment uses several server instances.
-The React handler's session contract uses `load` and `compareAndSwap`. Tool credentials use a separate store.
-Exported React handlers apply finite session limits before accepting new execution claims.
-Builders can set `sessionLimits` and `operationRetentionMs` in the host handler options.
+The session contract of the `@theoremjs/web/server` handler uses `load` and `compareAndSwap`. Tool credentials use a separate store.
+Exported handlers fit each session to its store's declared `capacity`, when it declares one, before accepting new execution claims.
+Builders set `capacity` on the session store and `operationRetentionMs` in the host handler options.
 These settings are host code; they do not enter the exported profile.
 The handler stores version 3 operation records. It retains unresolved claims instead of restoring approvals after dispatch.
 A trusted `StudioRuntime.execution` service can supply the same kernel coordination contract to Studio turns, invokes, and host calls.
@@ -39,15 +46,24 @@ A failed ownership write stops delivery of that checkpoint.
 Live page callbacks wait for a claimed dispatch grant. Permission and sign-in decisions precede the grant.
 The grant carries final prepared arguments. The relay routes its correlated result to the session boundary.
 The local browser runtime supplies memory coordination and result delivery for its own authoring session.
-Text and host browser transports retain the same execution authority.
-A Studio chat keeps its conversation in a sealed store. A run in the page seals with a key that the tab keeps. A project run seals with one key that `serve.ts` makes for each Studio run and hands to every load, so a chat survives a Save or an edit. Quitting Studio ends the chats. The key is never written to disk.
 Its authority remains in that browser. It does not provide recovery after a browser restart.
+Text and host browser transports retain the same execution authority.
 Text and live browser transports save checkpoint ownership before delivery and check it before resumption.
 Runtime methods retain their original receiver, including methods that read private class fields.
 An injected runtime coordinator also needs a paired `pageExecution` service when browser tools require it.
 For a custom protocol in a host-supplied authoring runtime, pass definitions through `StudioRuntime.providerDefinitions`.
 The runtime registers these definitions before profiles. They remain host code and never enter saved profile JSON.
 The public demo retains its separate provider policy.
+Each studio tab keeps its workspace, its chats' refs, its map and its page values in the browser's IndexedDB, under the tab's id; its sessionStorage holds only that id and the key its page runs seal with. A reload keeps the records, and a duplicated tab starts with a copy. Each studio tab sweeps when it opens and each `GONE_MS` while it is open; a sweep clears a closed tab's records once it has seen the tab closed for `GONE_MS`. A tab hands a run off only once it holds the run's lock, so the run tab can tell it closed. Keys and the sealing key never go into IndexedDB. A run handed to a new tab is kept with its tools' credentials masked, and the run tab asks the studio tab that opened it for them and for the keys, through `postMessage`.
+
+A Studio chat keeps its conversation in a sealed store. A run in the page seals with a key that the tab keeps. A project run seals with one key that `serve.ts` makes for each Studio run and hands to every load, so a chat survives a Save or an edit. Quitting Studio ends the chats. The key is never written to disk.
+
+A key test names the provider whose models read the slot, and asks that provider's declared `check` through `checkKey`. The studio knows no key prefixes. A provider from a project's own definition is checked through the project's registration; with no `check` the answer is `unchecked`. The shared handler reaches public hosts only. The key is never logged, kept, or sent back.
+
+When a project opens, the command asks each provider an agent's models name about its key once, with the project's own vault (`GET <base>/keys`). Each answer is one line; `--offline` leaves the requests out, and `--quiet` leaves out every line.
+
+The command keeps the last 200 events of a studio run: what to look at (not a project that opens with nothing), each key that is not accepted, each run that fails (an `error` line in its stream, or a reply that is not 2xx), and each error the page meets (it `POST`s `{ text }` to `<base>/events`). A repeat of the last event is counted, not kept again. `GET <base>/events` lists them, and `GET <base>/events?follow` streams them as server-sent events: the kept ones, then each new one. A run that ends well is not an event. The run's reply reaches the page unchanged.
+`GET <base>/status` answers, as plain text, what the command printed when the project opened, as it is now: what loaded, what the key checks said, and what to look at. `theorem-studio status` and `theorem-studio errors [--follow]` read these two routes from the studio open on the project's setup, and change nothing. `agents studio …` finds the `@theoremjs/studio` the project installed and runs its command with the same arguments; it never installs it.
 
 ## Package boundary
 
@@ -56,6 +72,8 @@ demo product out of the `@theoremjs/agents` package.
 `scripts/verify-publish-bundle.ts` checks that `studio/` stays out of the
 kernel's npm and JSR packages. `scripts/build-npm-studio.ts` builds the npm package
 `@theoremjs/studio` (`npm run build:npm:studio`), and copies `studio/README.md` into it.
+
+The studio's server, its runs and its exported handlers use `@theoremjs/web`, which has no React. Its peers are `zod`, `@theoremjs/agents` and `@theoremjs/web`, and `@theoremjs/react` as an optional exact peer. React, React DOM and the design packages are not peers, so `npx theorem-studio` installs beside any React, or none: npm refuses an install when a peer, even an optional one, is present at a version outside its range. The command runs the built page and checks only those packages (`studio/installed.mjs`). A host that shows the screen in its app installs `@theoremjs/react` and its peers.
 
 Generic authoring vocabulary the kernel schema owns (`STUDIO_AUTH_TYPES`,
 `StudioAuthType`, `studio.*` field metadata) stays in `@theoremjs/agents/schema`.

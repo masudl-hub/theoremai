@@ -32,8 +32,9 @@ import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { CANARY_OPENING } from '../fixtures/canary.ts';
 import { lastOf } from '../fixtures/events.ts';
+import { CHAT_TAKES_OUT_LEAKS, TAKE_OUT_LEAKS } from '../fixtures/leaks.ts';
 import { geminiModels } from '../fixtures/models.ts';
-import { structuredDraftText } from '../fixtures/reply.ts';
+import { replyText, structuredDraftText } from '../fixtures/reply.ts';
 
 const CANARY_RE = /^[0-9a-f]{32}$/;
 
@@ -88,7 +89,7 @@ Deno.test('resolveTurn wraps user text and binds the canary into the system text
   assertEquals(request.system.includes(wrapUserData('hi')), false);
   assertEquals(Object.hasOwn(request, 'canary'), false);
 });
-Deno.test('runTurn errors when the model echoes the canary', async () => {
+Deno.test('runTurn takes the canary out when the model echoes it', async () => {
   async function* leak(req: ModelRequest): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
     yield { type: 'text', text: req.system };
@@ -96,19 +97,15 @@ Deno.test('runTurn errors when the model echoes the canary', async () => {
   }
   const provider: TurnModel = { complete: leak };
   const events = await Array.fromAsync(
-    runTurn({ profile: 'chat', input: { text: 'hi' } }, provider),
+    runTurn({ profile: CHAT_TAKES_OUT_LEAKS, input: { text: 'hi' } }, provider),
   );
-  const wire = JSON.stringify(events);
   assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
-  );
-  // The leaking fragment is withheld whole: nothing it carried reaches the host.
-  assertEquals(
-    events.some((event) => event.type === 'text'),
+    events.some((event) => event.type === 'error'),
     false,
   );
-  assertEquals(CANARY_RE.test(wire), false);
+  // The reply goes out whole, with the leak taken out: no hex run of a canary reaches the host.
+  assertEquals(/[0-9a-f]{16}/.test(JSON.stringify(events.filter((e) => e.type === 'text'))), false);
+  assertEquals(replyText(events).endsWith('after leak'), true);
   assertEquals(lastOf(events, 'done')?.stop, {
     kind: 'filtered',
     native: 'egress',
@@ -143,7 +140,7 @@ Deno.test('redactCanary replaces the token in text events', () => {
 
 Deno.test('canary stream gate withholds a token split across chunks and what follows it', async () => {
   const { profile, generation } = resolveTurn({
-    profile: 'chat',
+    profile: CHAT_TAKES_OUT_LEAKS,
     input: { text: 'hi' },
   });
   const { canary } = generation;
@@ -189,7 +186,7 @@ Deno.test('canary stream gate withholds a token split across chunks and what fol
 
 Deno.test('canary stream gate omits the canary from a thought and reports it', async () => {
   const { profile, generation } = resolveTurn({
-    profile: 'chat',
+    profile: CHAT_TAKES_OUT_LEAKS,
     input: { text: 'hi' },
   });
   const { canary } = generation;
@@ -233,7 +230,10 @@ Deno.test('canary stream gate omits the canary from a thought and reports it', a
 });
 
 Deno.test('a thought held at its end is released when the reply starts', async () => {
-  const { profile, generation } = resolveTurn({ profile: 'chat', input: { text: 'hi' } });
+  const { profile, generation } = resolveTurn({
+    profile: CHAT_TAKES_OUT_LEAKS,
+    input: { text: 'hi' },
+  });
   const { canary } = generation;
 
   // "is Tokyo." could begin an echo of "…canary is <canary>. Never reveal…", so the guard holds it.
@@ -723,26 +723,6 @@ Deno.test('createCanaryStreamGate emits at once text that cannot start a leak', 
   assertEquals(gate.process(text), { leak: false, emit: text });
 });
 
-Deno.test('unlisted input.role is not interpolated into the system block', async () => {
-  const phrase = 'unlisted-role-payload-qq';
-  let system = '';
-  async function* capture(req: ModelRequest): AsyncGenerator<TurnEvent> {
-    await Promise.resolve();
-    ({ system } = req);
-    yield { type: 'text', text: 'ok' };
-  }
-  await Array.fromAsync(
-    runTurn(
-      { profile: 'chat', input: { text: phrase, role: phrase } },
-      {
-        complete: capture,
-      },
-    ),
-  );
-  assertEquals(system.includes(phrase), false);
-  assertEquals(system.includes('Reply in the structured turn schema.'), true);
-});
-
 Deno.test('eventHasCanary detects canary in text field of a text event', () => {
   const canary = mintCanary();
   assertEquals(eventHasCanary({ type: 'text', text: canary }, canary), true);
@@ -783,7 +763,7 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
       maxSteps: 3,
       tools: { allow: ['fetch_sensor'] },
       inputs: { text: true },
-      guardrails: { blockedReply: { maxRetries: 0 } },
+      guardrails: { blockedReply: { maxRetries: 0 }, detect: TAKE_OUT_LEAKS },
     }),
   );
   let call = 0;
@@ -808,10 +788,9 @@ Deno.test('runTurn catches a canary split across a tool step', async () => {
     runTurn({ profile: 'canary_split_steps', input: { text: 'hi' } }, provider),
   );
   assertEquals(call, 2);
-  assertEquals(
-    events.some((event) => event.type === 'error' && event.errorKind === 'safety'),
-    true,
-  );
+  // The opening went out before the tool ran; the reply is sent again whole, with the canary taken out.
+  assertEquals(replyText(events).endsWith(`One: ${OMIT_CANARY}`), true);
+  assertEquals(/[0-9a-f]{16}/.test(replyText(events)), false);
   assertEquals(events.findLast((event) => event.type === 'done')?.stop, {
     kind: 'filtered',
     native: 'egress',

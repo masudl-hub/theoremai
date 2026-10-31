@@ -23,10 +23,10 @@
  ],
  "outcome": {
   "guardrails": [
-   "output_final block detect.canary_leak"
+   "output_final redact detect.canary_leak"
   ],
   "error": null,
-  "shown": "Sorry, that reply couldn't be shared.",
+  "shown": "[[omitted - canary]]",
   "toolsRun": [],
   "effects": []
  }

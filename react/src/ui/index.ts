@@ -15,13 +15,13 @@ import '@astryxdesign/core/reset.css';
 import '@astryxdesign/core/astryx.css';
 import './built/theme.css';
 
-export type { InkWaveStatus } from '../client/ink-waveform.ts';
 export type {
   LiveCallOptions,
   PageTool,
   PageToolAnswer,
   PageTools,
-} from '../client/live/live-page-tool.ts';
+} from '@theoremjs/web/client';
+export type { InkWaveStatus } from '../client/ink-waveform.ts';
 export { useLiveCaptionLog } from '../client/live/use-live-caption-log.ts';
 export {
   InkWaveform,
@@ -34,6 +34,7 @@ export {
   ChatComposerBar,
   type ChatComposerBarProps,
   EFFORT_ICON,
+  generationOptions,
   type LiveComposerBarProps,
 } from './ChatComposerBar.tsx';
 export { ChatTranscript, type ChatTranscriptProps } from './ChatTranscript.tsx';

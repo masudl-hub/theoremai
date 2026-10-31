@@ -10,6 +10,7 @@
 import {
   type Profile,
   type ProfileDefinition,
+  type RegisteredProvider,
   TheoremError,
   type TraceRecord,
   type TurnEvent,
@@ -27,7 +28,12 @@ import {
   sanitizeTurnRequestWithEvents,
   TOOL_RULES,
 } from '@theoremjs/agents/guardrails';
-import { keySlotsOf, type ModelEvent, type ModelRequest } from '@theoremjs/agents/kernel';
+import {
+  ANSWER_TOOL,
+  keySlotsOf,
+  type ModelEvent,
+  type ModelRequest,
+} from '@theoremjs/agents/kernel';
 import { firstServed } from './policy.ts';
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import {
@@ -36,6 +42,8 @@ import {
   type StudioDependency,
   writtenScope,
 } from './runtime-scope.ts';
+import { choiceValues } from './slot-values.ts';
+import { type JsonSchema, sampleFromJsonSchema } from './tool-schema.ts';
 
 /** Where a probe's text enters the turn. */
 export const PROBE_BOUNDARIES = [
@@ -389,10 +397,16 @@ function scripted(steps: ModelEvent[][], seen: ModelRequest[]): TurnModel {
   return {
     async *complete(req) {
       seen.push(req);
-      const events = steps[step] ?? [{ type: 'text', text: 'ok' }];
+      const answer = req.wireTools?.find(({ name }) => name === ANSWER_TOOL);
+      const events = steps[step] ?? (answer ? [] : [{ type: 'text', text: 'ok' }]);
       step += 1;
       await Promise.resolve();
       yield* events;
+      // why: A structured turn with tools ends only on this call; a step that ends without one
+      // would fail the probe before its guardrails answer.
+      if (answer && !events.some(({ type }) => type === 'tool')) {
+        yield call(ANSWER_TOOL, sampleFromJsonSchema(answer.parameters as JsonSchema));
+      }
     },
   };
 }
@@ -761,9 +775,17 @@ function probeStatus(guardrails: readonly GuardrailEvent[], refused: boolean): P
 function assertProbeable(
   profile: ProfileDefinition,
   probe: GuardrailProbe,
-): asserts profile is Exclude<ProfileDefinition, { type: 'decision' | 'embedding' }> {
+): asserts profile is Exclude<
+  ProfileDefinition,
+  { type: 'decision' | 'embedding' | 'transcription' }
+> {
   const refusal = probeRefusal(profile);
-  if (refusal || profile.type === 'decision' || profile.type === 'embedding') {
+  if (
+    refusal ||
+    profile.type === 'decision' ||
+    profile.type === 'embedding' ||
+    profile.type === 'transcription'
+  ) {
     throw new TheoremError('request', refusal ?? ''); // labels-exempt: builder diagnostic
   }
   if (!probeBoundariesOf(profile).includes(probe.boundary)) {
@@ -778,11 +800,37 @@ function assertProbeable(
   }
 }
 
+/**
+ * What a turn of `definition` states, each on its first value, as the studio's page opens them.
+ * why: The kernel refuses a turn that leaves a prompt line's condition or slot unset, and a probe
+ * has no page to pick them.
+ */
+function statedByFirstValues(definition: ProfileDefinition) {
+  const inputs = 'inputs' in definition ? definition.inputs : undefined;
+  const declaredSlots = inputs && 'slots' in inputs ? inputs.slots : undefined;
+  const slots = Object.entries(declaredSlots ?? {}).flatMap(([name, decl]) => {
+    const value = choiceValues(decl)?.[0];
+    return value === undefined ? [] : [[name, value] as const];
+  });
+  const identity = 'identity' in definition ? definition.identity : undefined;
+  const declared = identity && 'conditions' in identity ? identity.conditions : undefined;
+  const { path, ...conditions } = Object.fromEntries(
+    Object.entries(declared ?? {}).map(([name, values]) => [name, values[0] ?? '']),
+  );
+  return {
+    slots: Object.fromEntries(slots),
+    turn: {
+      ...(path === undefined ? {} : { path }),
+      ...(declared ? { conditions } : {}),
+    },
+  };
+}
+
 /** Where a probe runs: a host or a live agent calls the tool, any other takes a turn. */
 function probeStream(run: {
   scope: Awaited<ReturnType<typeof writtenScope>>['scope'];
   profile: Profile;
-  type: ProfileDefinition['type'];
+  definition: ProfileDefinition;
   probe: GuardrailProbe;
   signal?: AbortSignal;
   onAgentCall: ReturnType<typeof agentCallHook>;
@@ -790,13 +838,18 @@ function probeStream(run: {
   sink: { write(record: TraceRecord): Promise<void> };
 }): AsyncGenerator<TurnEvent> {
   const { scope, profile, probe, signal, onAgentCall, sink } = run;
-  if (run.type === 'host' || run.type === 'live') {
+  if (run.definition.type === 'host' || run.definition.type === 'live') {
     return scope.invokeTool({ profile: profile.id, ...hostCall(probe), signal, onAgentCall }, sink);
   }
+  const stated = statedByFirstValues(run.definition);
   return scope.runTurn(
     {
       profile: profile.id,
-      input: turnInput(probe),
+      input: {
+        ...turnInput(probe),
+        ...(Object.keys(stated.slots).length ? { slots: stated.slots } : {}),
+      },
+      ...stated.turn,
       ...(probe.boundary === 'system' ? { system: probe.text } : {}),
       signal,
       onAgentCall,
@@ -829,17 +882,22 @@ export async function runGuardrailProbe(args: {
   customTools: readonly ToolRegistration[];
   structured?: StructuredRegistration;
   dependencies?: readonly StudioDependency[];
+  /** The project's own providers, which the draft's models may name. */
+  projectProviders?: readonly RegisteredProvider[];
   probe: GuardrailProbe;
   signal?: AbortSignal;
 }): Promise<GuardrailProbeResult> {
   const { probe } = args;
   const asked = args.profile;
   assertProbeable(asked, probe);
-  const { scope, profile } = await writtenScope([
-    ...(args.dependencies ?? []),
-    ...(asked.type === 'speech' || asked.type === 'live' ? [] : [remoteAgent(asked)]),
-    probedDraft(asked, args.customTools, args.structured, probe.text),
-  ]);
+  const { scope, profile } = await writtenScope(
+    [
+      ...(args.dependencies ?? []),
+      ...(asked.type === 'speech' || asked.type === 'live' ? [] : [remoteAgent(asked)]),
+      probedDraft(asked, args.customTools, args.structured, probe.text),
+    ],
+    args.projectProviders,
+  );
   if (!profile) throw new TheoremError('request', 'No agent to probe.'); // labels-exempt: builder diagnostic
 
   const seen: ModelRequest[] = [];
@@ -871,7 +929,7 @@ export async function runGuardrailProbe(args: {
       : probeStream({
           scope,
           profile,
-          type: asked.type,
+          definition: asked,
           probe,
           signal: args.signal,
           onAgentCall,

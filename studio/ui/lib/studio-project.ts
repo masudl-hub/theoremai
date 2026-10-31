@@ -4,6 +4,8 @@
  * own code.
  */
 
+import type { TranscriptBlock } from '@theoremjs/agents/interface';
+import type { TheoremRewound } from '@theoremjs/web/client';
 import { createContext, useContext } from 'react';
 import {
   filesPrint,
@@ -12,7 +14,7 @@ import {
   type StudioAsks,
   type StudioWorkspace,
 } from '../../mod.ts';
-import type { StudioPeopleOffer } from '../../people.ts';
+import { actingAsHeaders, type StudioActingAs, type StudioPeopleOffer } from '../../people.ts';
 import { READ_STEPS, type ReadStep } from '../../read-steps.ts';
 import type {
   EditedAnswer,
@@ -85,7 +87,7 @@ export function projectCode(
   };
 }
 
-export const NO_ASKS: StudioAsks = { asked: [], inside: [] };
+export const NO_ASKS: StudioAsks = { asked: [], destructive: [], inside: [] };
 const NO_ORIGINS: ProjectOrigins = { profiles: {}, tools: {}, providers: {} };
 
 /** Set while the page has a project open; `null` on the website's own page. */
@@ -168,6 +170,28 @@ export function openEdited(
 /** Where the local server runs the profile with this id as the builder's edits make it. */
 export function editedProfileEndpoint(project: ProjectSession, profileId: string): string {
   return `${project.endpoint}/edited/profiles/${encodeURIComponent(profileId)}`;
+}
+
+/**
+ * A chat that opens on `blocks`, on the project's server: its ref and view. Every load seals with
+ * the run's one key, so whichever side goes on opens it.
+ */
+export async function startProjectConversation(
+  project: ProjectSession,
+  profileId: string,
+  blocks: readonly TranscriptBlock[],
+  actingAs: StudioActingAs | undefined,
+): Promise<TheoremRewound> {
+  const endpoint = project.profiles.includes(profileId)
+    ? projectProfileEndpoint(project, profileId)
+    : editedProfileEndpoint(project, profileId);
+  const response = await fetch(`${endpoint}/conversation/start`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...actingAsHeaders(actingAs) },
+    body: JSON.stringify({ blocks }),
+  });
+  if (!response.ok) throw new Error(`The studio server answered ${String(response.status)}.`);
+  return response.json();
 }
 
 /** Shows a line of one of the project's files in the editor the builder chose, or the studio command's. */

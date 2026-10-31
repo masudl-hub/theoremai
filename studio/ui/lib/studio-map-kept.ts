@@ -1,5 +1,5 @@
 /**
- * How someone left the map, kept in this tab's sessionStorage beside the workspace, a project's
+ * How someone left the map, kept in this tab's records beside the workspace, a project's
  * under its own name: where they dragged its nodes, with and without detail, whether it shows
  * detail, and the node whose family alone it shows.
  */
@@ -47,7 +47,7 @@ export function readKeptMap(project: string | undefined): KeptMap {
   }
 }
 
-/** Keeps `kept`, or forgets it when it is the map as it first opens. Storage that is full or blocked keeps nothing. */
+/** Keeps `kept`, or forgets it when it is the map as it first opens. */
 export function writeKeptMap(project: string | undefined, kept: KeptMap): void {
   const { tokens, detail, expanded, family } = kept;
   const untouched =
@@ -55,10 +55,6 @@ export function writeKeptMap(project: string | undefined, kept: KeptMap): void {
     Object.keys(detail).length === 0 &&
     !expanded &&
     family === undefined;
-  try {
-    if (untouched) session()?.removeItem(keptKey(project));
-    else session()?.setItem(keptKey(project), JSON.stringify(kept));
-  } catch {
-    // Nothing to do: it lasts until the page goes.
-  }
+  if (untouched) session()?.removeItem(keptKey(project));
+  else session()?.setItem(keptKey(project), JSON.stringify(kept));
 }

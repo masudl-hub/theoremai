@@ -1,6 +1,6 @@
 # Protocols, providers, and models: the shape before publish
 
-Status: proposal, 16 Oct 2026. Nothing here is built. It replaces the provider layer the audit
+**Status:** built. Proposed 16 Oct 2026. It replaced the provider layer the audit
 (`theoremai-frontend/tmp/providers-audit.md`) and the code sweep of 16 Oct found:
 
 - two provider contracts;

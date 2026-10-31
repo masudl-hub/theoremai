@@ -9,7 +9,7 @@
 import { TheoremError, validateDecisionRequest, z } from '@theoremjs/agents';
 import type { DecisionProfileDefinition } from '@theoremjs/agents/kernel';
 import { KEY_SLOT_NAME } from '@theoremjs/agents/schema';
-import { readBody } from '@theoremjs/react/server';
+import { readBody } from '@theoremjs/web/server';
 import type { LentDecisionLimits } from '../lent-keys.ts';
 import { runStudioDecision } from '../runtime.ts';
 import { defineDraft } from '../runtime-scope.ts';
@@ -57,7 +57,7 @@ export function decisionRequestSchema(limits: LentDecisionLimits) {
         .record(
           name,
           z.object({
-            protocol: z.literal('systemOne'),
+            protocol: name,
             provider: name,
             apiId: id,
             keySlot: slot.optional(),

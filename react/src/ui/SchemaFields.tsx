@@ -14,16 +14,17 @@ import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { VStack } from '@astryxdesign/core/VStack';
-import { type CSSProperties, type ReactNode, useState } from 'react';
 import {
   blankRow,
+  isRow,
   type JsonSchema,
+  json,
   type SchemaControl,
   type SchemaField,
   schemaFields,
   withField,
-} from '../client/schema-fields.ts';
-import { isRow, json } from '../client/shaped-data.ts';
+} from '@theoremjs/web/client';
+import { type CSSProperties, type ReactNode, useState } from 'react';
 import { useLabels } from './labels-provider.tsx';
 import { useKeyedRows } from './row-keys.ts';
 import { AddRow, Group, Labelled, RemoveRow, type Edit as StateEdit } from './StateFields.tsx';

@@ -2,15 +2,16 @@
  * Builds `@theoremjs/react` into `react/npm`: tsc emits JS and declarations
  * from `react/src`, the generated theme and stylesheets are copied beside
  * them, and the manifest is `react/package.json` with its exports pointed at
- * the built files. The two packages ship in lockstep: the version, the runtime
- * floor and the `@theoremjs/agents` peer range come from the root manifest.
+ * the built files. The packages ship in lockstep: the version, the runtime
+ * floor and the `@theoremjs/agents` and `@theoremjs/web` peer ranges come from
+ * the root manifest.
  */
 
 const reactDir = './react';
 const srcDir = `${reactDir}/src`;
 const outDir = `${reactDir}/npm`;
 /** Shipped as they are: tsc emits nothing for them. */
-const assetDirs = ['client/worklets', 'styles', 'ui/built'];
+const assetDirs = ['styles', 'ui/built'];
 
 type ReactManifest = {
   name: string;
@@ -97,7 +98,11 @@ const pkg = {
     Object.entries(manifest.exports).map(([name, path]) => [name, builtExport(path)]),
   ),
   dependencies: manifest.dependencies,
-  peerDependencies: { ...manifest.peerDependencies, '@theoremjs/agents': `^${version}` },
+  peerDependencies: {
+    ...manifest.peerDependencies,
+    '@theoremjs/agents': `^${version}`,
+    '@theoremjs/web': `^${version}`,
+  },
   peerDependenciesMeta: manifest.peerDependenciesMeta,
 };
 await Deno.writeTextFile(`${outDir}/package.json`, `${JSON.stringify(pkg, null, 2)}\n`);

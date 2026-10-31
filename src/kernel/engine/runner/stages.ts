@@ -30,8 +30,6 @@ export interface ApplyTurnStageArgs extends StageCallBag {
   /** Another provider step would exceed maxSteps — reject inject. */
   injectWouldExceedMaxSteps?: boolean;
   host?: unknown;
-  /** `before_end`: the answer the model just wrote, which goes into turn history ahead of an inject. */
-  reply?: readonly TurnHistoryMessage[];
   /** Where that answer's text begins in the attempt's reply. */
   replyAt?: number;
 }
@@ -140,6 +138,7 @@ export async function* applyTurnStage(
   throwIfAborted(call.signal);
   const run = runStage({
     ...call,
+    ...(reply ? { reply } : {}),
     history: state.currentHistory,
     handlers: onStage ? [onStage] : [],
     guardrails: profile.guardrails,

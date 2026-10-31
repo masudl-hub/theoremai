@@ -628,3 +628,56 @@ Deno.test('a tool whose list label cannot work is refused at registration', () =
     'The last line must always fit',
   );
 });
+
+Deno.test('a mistyped list offers the list that is there, its length first when the label ended in one', () => {
+  const output = {
+    type: 'object',
+    properties: {
+      result: {
+        type: 'array',
+        items: { type: 'object', properties: { region_id: { type: 'string' } } },
+      },
+    },
+  };
+  assertEquals(
+    activityLabelProblem('Listed {regions.length} regions', {
+      input: { type: 'object', properties: {} },
+      output,
+    }),
+    "{regions.length} is not a field of this tool's input or output. Try {result.length} or {result.0.region_id}.",
+  );
+});
+
+Deno.test('a count takes the word for one or for any other number', () => {
+  const found = (hits: unknown[]) =>
+    fillActivityLabel('Found {length hit|hits} for {q}', { input: { q: 'memory' }, output: hits });
+  assertEquals(found([{}]), 'Found 1 hit for memory');
+  assertEquals(found([]), 'Found 0 hits for memory');
+  assertEquals(found([{}, {}]), 'Found 2 hits for memory');
+  const values = { input: { total: 1234.5, name: 'x', words: 'a|b' }, output: {} };
+  assertEquals(fillActivityLabel('{total item|items}', values), '1,234.5 items');
+  assertEquals(fillActivityLabel('{ total item|items }', values), '1,234.5 items');
+  assertEquals(fillActivityLabel('{name item|items}', values), undefined);
+  assertEquals(fillActivityLabel('{name item|items|some items}', values), 'some items');
+  assertEquals(fillActivityLabel('{missing item|items|no|items}', values), 'no|items');
+  assertEquals(fillActivityLabel('{missing | none}', values), 'none');
+});
+
+Deno.test('a count with one form, or of a value that is not a number, is refused', () => {
+  const schemas = {
+    input: z.toJSONSchema(z.object({ q: z.string() })),
+    output: z.toJSONSchema(z.object({ hits: z.array(z.string()), total: z.number() })),
+  };
+  const problem = (label: string | string[]) => activityLabelProblem(label, schemas);
+  assertEquals(problem('{hits.length hit|hits} for {q}'), undefined);
+  assertEquals(problem('{total hit|hits}'), undefined);
+  assertEquals(
+    problem('{total hits}'),
+    '{total hits} needs a word for one and a word for any other number, like {total item|items}.',
+  );
+  assertEquals(
+    problem('{q hit|hits}'),
+    '{q} is not a number, so it has no plural. Count a list with {q.length hit|hits}.',
+  );
+  assertEquals(problem(['when q is x: {q}', '{hits.length hit|hits|some hits}']), undefined);
+});

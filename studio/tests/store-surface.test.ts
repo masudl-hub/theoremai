@@ -1,6 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import { createSurfaceRuntime } from '../../src/surface/mod.ts';
 import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
+import { firstLine } from '../../tests/fixtures/prompt-line.ts';
 import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
   addAgent,
@@ -13,6 +14,7 @@ import {
 } from '../mod.ts';
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { createStudioStore } from '../ui/lib/studio-store.ts';
+import { tab } from './tab.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
@@ -67,7 +69,7 @@ Deno.test("th30's set lands in the store as its own edit, and the visitor's make
   assertEquals(notes, []);
   store.updateDraft({
     ...store.getDraft(),
-    identity: { ...store.getDraft().identity, system: 'x' },
+    identity: { ...store.getDraft().identity, system: firstLine(store.getDraft(), 'x') },
   });
   assertEquals(notes.length, 1);
   const stale = (await runtime.answer(
@@ -90,7 +92,7 @@ Deno.test('a key never leaves the page in a look', async () => {
 });
 
 Deno.test('a kept draft masks tool credentials and leaves plain settings as typed', async () => {
-  sessionStorage.clear();
+  tab.clear();
   const { store, runtime } = setup();
   for (const toolName of ['weather', 'plain']) {
     await runtime.answer(
@@ -118,7 +120,7 @@ Deno.test('a kept draft masks tool credentials and leaves plain settings as type
     ),
   });
   store.flush();
-  const kept = sessionStorage.getItem('theorem.studio.v2') ?? '';
+  const kept = tab.getItem('theorem.studio.v2') ?? '';
   assert(!kept.includes('s3cr3tvalue'));
   assert(!kept.includes('s3cr3theader'));
   assert(kept.includes('city=Paris'));
@@ -131,7 +133,7 @@ Deno.test('a kept draft masks tool credentials and leaves plain settings as type
 });
 
 Deno.test("th30's change to a tool another agent allows is not made until the person agrees", async () => {
-  sessionStorage.clear();
+  tab.clear();
   const example = createExampleDraft();
   const { store, runtime } = setup(example, addAgent(workspaceFromDraft(example), example));
   const [tool] = store.getDraft().toolSpecs;

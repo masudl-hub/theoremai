@@ -60,6 +60,7 @@ async function chat(
 async function decide(
   registry: ReturnType<typeof createProviderRegistry>,
   id: string,
+  protocol = 'systemOne',
 ): Promise<{ sent: Sent; usage: JsonObject | undefined }> {
   const provider = registry.require(id, 'jev-1');
   const { sent, send } = capture(() =>
@@ -71,11 +72,7 @@ async function decide(
   );
   const call = callProtocol({
     provider,
-    binding: checkBinding(
-      provider,
-      { protocol: 'systemOne', provider: id, apiId: 'jev-1' },
-      'decision',
-    ),
+    binding: checkBinding(provider, { protocol, provider: id, apiId: 'jev-1' }, 'decision'),
     profileType: 'decision',
     vault: { main: 'k-main' },
     fetch: send,
@@ -97,13 +94,20 @@ Deno.test('OpenRouter serves chat, images, and decisions at its defaults, signed
       .protocols()
       .map((protocol) => protocol.id)
       .sort(),
-    ['openAi', 'openRouter', 'openRouterEmbedding', 'openRouterImages', 'systemOne'],
+    [
+      'openAi',
+      'openRouterDecisions',
+      'openRouterEmbeddings',
+      'openRouterImages',
+      'openRouterOpenAi',
+      'openRouterTranscriptions',
+    ],
   );
-  const sent = await chat(registry, 'openrouter', 'openRouter', { main: 'k-main' });
+  const sent = await chat(registry, 'openrouter', 'openRouterOpenAi', { main: 'k-main' });
   assertEquals(sent.url, 'https://openrouter.ai/api/v1/chat/completions');
   assertEquals(sent.headers.get('authorization'), 'Bearer k-main');
   assertEquals(sent.headers.get('http-referer'), null);
-  const decision = await decide(registry, 'openrouter');
+  const decision = await decide(registry, 'openrouter', 'openRouterDecisions');
   assertEquals(decision.sent.url, 'https://openrouter.ai/api/alpha/decisions');
   assertEquals(decision.sent.headers.get('authorization'), 'Bearer k-main');
 });
@@ -119,11 +123,14 @@ Deno.test('OpenRouter sends the site for its rankings and goes where the connect
       siteName: 'Theorem',
     },
   });
-  const sent = await chat(registry, 'openrouter', 'openRouter', { main: 'k-main' });
+  const sent = await chat(registry, 'openrouter', 'openRouterOpenAi', { main: 'k-main' });
   assertEquals(sent.url, 'https://gateway.test/v1/chat/completions');
   assertEquals(sent.headers.get('http-referer'), 'https://theorem.test');
   assertEquals(sent.headers.get('x-title'), 'Theorem');
-  assertEquals((await decide(registry, 'openrouter')).sent.url, 'https://gateway.test/decide');
+  assertEquals(
+    (await decide(registry, 'openrouter', 'openRouterDecisions')).sent.url,
+    'https://gateway.test/decide',
+  );
 });
 
 Deno.test('a connection URL with credentials in it is refused', () => {
@@ -189,11 +196,13 @@ Deno.test('OpenRouter, TypeSafe, and a local server share one registry and its p
       .map((protocol) => protocol.id)
       .sort(),
     [
-      'ollamaEmbedding',
+      'ollamaEmbeddings',
       'openAi',
-      'openRouter',
-      'openRouterEmbedding',
+      'openRouterDecisions',
+      'openRouterEmbeddings',
       'openRouterImages',
+      'openRouterOpenAi',
+      'openRouterTranscriptions',
       'systemOne',
     ],
   );

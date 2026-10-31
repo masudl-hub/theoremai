@@ -9,7 +9,7 @@ import {
 import type { TurnRequest } from '../../kernel/types.ts';
 import { openRouterProvider } from '../../providers/openrouter/provider.ts';
 import { detectAt } from '../detect-at.ts';
-import { DETECT_DEFAULTS } from '../detectors.ts';
+import { type DetectSpec, resolveDetect } from '../detectors.ts';
 import { injectionSpans } from '../injection.ts';
 import { sanitizeTurnRequest } from '../sanitize.ts';
 import { sensitiveSpans } from '../sensitive.ts';
@@ -17,6 +17,14 @@ import { inboundFuzzPayloads } from './inbound-payloads.ts';
 import type { InboundFuzzPayload, InboundFuzzResult } from './types.ts';
 
 const FUZZ_PROFILE_ID = '__fuzz__';
+// why: The defaults only flag, so the fuzz measures what a profile that takes data and injection out lets through.
+const FUZZ_DETECT = {
+  ids: 'redact',
+  financial: 'redact',
+  network: 'redact',
+  credentials: 'redact',
+  injection: 'redact',
+} as const satisfies DetectSpec;
 
 function registerFuzzProfile(): void {
   if (!getProvider('openrouter')) registerProvider(openRouterProvider);
@@ -26,7 +34,7 @@ function registerFuzzProfile(): void {
     identity: { handle: 'fuzz', system: 'Fuzz profile.' },
     models: {
       'fuzz-model': {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
         keySlot: 'fuzz',
@@ -40,13 +48,14 @@ function registerFuzzProfile(): void {
     defaultModel: 'fuzz-model',
     tools: { allow: [] },
     inputs: { text: true },
+    guardrails: { detect: FUZZ_DETECT },
   });
 }
 
 function testDetectAt(payloads: InboundFuzzPayload[]): InboundFuzzResult[] {
   const results: InboundFuzzResult[] = [];
   for (const p of payloads) {
-    const output = detectAt(p.text, 'user', DETECT_DEFAULTS).text ?? '';
+    const output = detectAt(p.text, 'user', resolveDetect(FUZZ_DETECT)).text ?? '';
     results.push({
       payload: p,
       channel: 'detectAt',

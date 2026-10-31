@@ -3,11 +3,15 @@ import { registerFixtureProviders } from './provider-scope.ts';
 
 registerFixtureProviders(defaultKernelScope);
 
-import { registerProfile, registerStructured } from '../../src/kernel/default-scope.ts';
+import {
+  registerProfile,
+  registerStructured,
+  registerTools,
+} from '../../src/kernel/default-scope.ts';
 import type { ProfileDefinition } from '../../src/kernel/registry/profiles.ts';
 import { registerHarnessTools } from '../../src/kernel/tools/mod.ts';
-import type { GoogleImagePins } from '../../src/presets/google.ts';
-import { registerGooglePreset } from '../../src/presets/google.ts';
+import type { GoogleImagePins } from '../../studio/cookbooks/providers.ts';
+import { GOOGLE_BUILTIN_TOOLS } from '../../studio/cookbooks/providers.ts';
 import {
   CHAT_MEDIA_LIMITS,
   geminiModels,
@@ -18,7 +22,11 @@ import {
 } from './models.ts';
 import { registerTestTools } from './test-tools.ts';
 
-registerGooglePreset();
+export function registerGoogleBuiltins(): void {
+  registerTools(GOOGLE_BUILTIN_TOOLS);
+}
+
+registerGoogleBuiltins();
 registerHarnessTools();
 registerTestTools();
 const CHAT_ATTACH = [...IMAGE_INPUT_MIMES, 'application/pdf', 'text/csv', 'text/plain'];
@@ -118,7 +126,7 @@ const selector: ProfileDefinition = {
   id: 'selector',
   identity: {
     handle: 'primary',
-    systemByRole: { primary: 'You are Primary.', reviewer: 'You are Reviewer.' },
+    system: 'You are Primary.',
   },
   models: {
     gemini35FlashLite: {

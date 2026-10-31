@@ -37,10 +37,11 @@ function errorKind(err: unknown): ErrorKind {
   return 'internal';
 }
 
-/** The error kind for an HTTP status: 401, 402 and 403 are `auth`; 408, 504 and 524 `timeout`; 429 `rate_limit`; 503 and 529 (overloaded) `busy`; 500 and above `unavailable`; the rest `unsupported`. */
+/** The error kind for an HTTP status: 401, 402 and 403 are `auth`; 408, 504 and 524 `timeout`; 409 `conflict`; 429 `rate_limit`; 503 and 529 (overloaded) `busy`; 500 and above `unavailable`; the rest `unsupported`. */
 function kindOfHttpStatus(status: number): ErrorKind {
   if (status === 401 || status === 402 || status === 403) return 'auth';
   if (status === 408 || status === 504 || status === 524) return 'timeout';
+  if (status === 409) return 'conflict';
   if (status === 429) return 'rate_limit';
   if (status === 503 || status === 529) return 'busy';
   if (status >= 500) return 'unavailable';
@@ -66,15 +67,87 @@ function publicError(err: unknown, labels?: LabelOverrides): string {
   return wording(errorKind(err), err instanceof TheoremError ? err.copy : undefined, labels);
 }
 
-/** Raw diagnostic for hosts, traces, and logs; never shown to end users. */
-function describeError(err: unknown): string {
+function messageOf(err: unknown): string {
   if (typeof err === 'string') {
     return err;
   }
   if (err instanceof Error && err.message) {
     return err.message;
   }
+  // why: A plain-object cause such as `{ code }` would read `[object Object]`; its own scalar fields say what it holds.
+  if (err && typeof err === 'object' && !(err instanceof Error)) {
+    const fields = Object.entries(err).filter(
+      ([, value]) => value === null || ['string', 'number', 'boolean'].includes(typeof value),
+    );
+    if (fields.length) return fields.map(([key, value]) => `${key}: ${value}`).join(', ');
+  }
   return String(err);
+}
+
+/** Raw diagnostic for hosts, traces, and logs; never shown to end users. Each cause that says something new follows on its own line. */
+function describeError(err: unknown): string {
+  const lines = [messageOf(err)];
+  const seen = new Set<unknown>([err]);
+  let said = messageOf(err);
+  let cause = err instanceof Error ? err.cause : undefined;
+  while (cause !== undefined && cause !== null && !seen.has(cause)) {
+    seen.add(cause);
+    const message = messageOf(cause);
+    if (message !== said) {
+      const name = cause instanceof Error && cause.name !== 'Error' ? `${cause.name}: ` : '';
+      lines.push(`caused by: ${name}${message}`);
+      said = message;
+    }
+    cause = cause instanceof Error ? cause.cause : undefined;
+  }
+  return lines.join('\n');
+}
+
+/** fetch rejects only when no response came back, so any non-abort, non-timeout rejection is `network`. */
+function networkError(err: unknown): unknown {
+  if (err instanceof TheoremError || isAbortError(err) || isTimeoutError(err)) {
+    return err;
+  }
+  return new TheoremError('network', describeError(err), { cause: err });
+}
+
+/** `response` with a body whose read that fails is named as `networkError` names it. */
+function bodyOrNetworkError(response: Response): Response {
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  const body = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        try {
+          const next = await reader.read();
+          if (next.done) controller.close();
+          else controller.enqueue(next.value);
+        } catch (err) {
+          controller.error(networkError(err));
+        }
+      },
+      cancel: (reason) => reader.cancel(reason),
+    },
+    { highWaterMark: 0 },
+  );
+  const named = new Response(body, response);
+  Object.defineProperties(named, {
+    url: { value: response.url },
+    redirected: { value: response.redirected },
+  });
+  return named;
+}
+
+/** `send`, with a failed send or body read named as `networkError` names it. */
+async function sendOrNetworkError(
+  send: typeof fetch,
+  ...args: Parameters<typeof fetch>
+): Promise<Response> {
+  try {
+    return bodyOrNetworkError(await send(...args));
+  } catch (err) {
+    throw networkError(err);
+  }
 }
 
 type ProducedError = TurnEventOf<'error'> & { errorInternal: string };
@@ -116,7 +189,9 @@ export {
   isAbortError,
   isTimeoutError,
   kindOfHttpStatus,
+  networkError,
   publicError,
+  sendOrNetworkError,
   TheoremError,
   throwIfAborted,
   toErrorEvent,

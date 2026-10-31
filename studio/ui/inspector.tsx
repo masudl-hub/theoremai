@@ -27,7 +27,7 @@ import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconArrowBackUp, IconCheck, IconCode, IconCopy } from '@tabler/icons-react';
 import { fieldMeta } from '@theoremjs/agents';
-import { type ReactNode, useContext } from 'react';
+import { type ReactNode, useContext, useState } from 'react';
 import { originLabel, originPlace, originShortLabel, STUDIO_PROFILE_TYPES } from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 import {
@@ -405,18 +405,30 @@ export function TextRow(
   },
 ) {
   const { status: fieldStatus, required, unset, control } = useFieldRow(props);
-  const status = props.status ?? fieldStatus;
+  const [cut, setCut] = useState(false);
+  const note: InputStatus | undefined = cut
+    ? { type: 'warning', message: `Cut to ${props.maxLength} characters, the most it takes.` }
+    : undefined;
+  const status = props.status ?? fieldStatus ?? note;
   return (
-    <FillRow label={props.label} path={props.path} required={required} status={status}>
+    <FillRow
+      label={props.label}
+      path={props.path}
+      required={required}
+      status={props.status ?? fieldStatus}
+      note={note}
+    >
       <TextInput
         {...control}
         status={status}
         value={props.value}
         placeholder={props.placeholder ?? props.hint ?? unset}
         onKeyDown={tabFills(props.value, props.placeholder, props.onChange)}
-        // why: TextInput takes no maxLength, so what is typed or pasted past it is dropped here.
+        // why: TextInput takes no maxLength, so what is typed or pasted past it is cut here, and said.
         onChange={(next) => {
-          props.onChange(Array.from(next).slice(0, props.maxLength).join(''));
+          const chars = Array.from(next);
+          setCut(props.maxLength !== undefined && chars.length > props.maxLength);
+          props.onChange(chars.slice(0, props.maxLength).join(''));
         }}
       />
     </FillRow>

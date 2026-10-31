@@ -11,12 +11,12 @@ import { HStack } from '@astryxdesign/core/HStack';
 import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { List, ListItem } from '@astryxdesign/core/List';
+import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { Section } from '@astryxdesign/core/Section';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { pixel, proportional, Table } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
-import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
@@ -56,6 +56,7 @@ import {
   IconFlag,
   IconFlame,
   IconFlask,
+  IconFold,
   IconGauge,
   IconHandOff,
   IconHandStop,
@@ -71,6 +72,7 @@ import {
   IconKey,
   IconLayersUnion,
   IconLockOpen,
+  IconLogin,
   IconMessage,
   IconMicrophone,
   IconPackage,
@@ -84,11 +86,13 @@ import {
   IconPlus,
   IconRefresh,
   IconRegex,
+  IconRuler,
   IconSearch,
   IconSend,
   IconServer,
   IconShieldLock,
   IconShieldOff,
+  IconShieldSearch,
   IconSquareRoundedNumber0,
   IconSquareRoundedNumber2,
   IconTool,
@@ -107,21 +111,16 @@ import {
   type ContinueStopKind,
   type CustomToolType,
   fieldMeta,
-  GOOGLE_BUILTIN_TOOLS,
-  GOOGLE_IMAGE_ASPECT_RATIOS,
-  GOOGLE_IMAGE_OUTPUT_MIMES,
-  GOOGLE_IMAGE_RESOLUTIONS,
-  GOOGLE_SPEECH_VOICES,
   HTTP_METHODS,
   type HttpMethod,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
-  LABEL_KEYS,
   type LabelKey,
   labelDefault,
   PROFILE_HANDLE_MAX_CHARS,
   PROFILE_ID_MAX_CHARS,
   type ProfileGraphFacetId,
   profileGraphFacet,
+  SPEECH_AUDIO_FORMATS,
   type StepLimitMode,
   type StudioAuthType,
   THINKING_LEVELS,
@@ -147,8 +146,10 @@ import {
   TOOL_BOUNDARIES,
   TOOL_KINDS,
 } from '@theoremjs/agents/guardrails';
+import { MODEL_SELECT_MIN_MODELS } from '@theoremjs/agents/interface';
 import {
   type ContextType,
+  createContext,
   type Dispatch,
   lazy,
   type ReactNode,
@@ -169,6 +170,7 @@ import {
   agentToolTarget,
   bindingSlots,
   COMPACTION_DRAFT_DEFAULTS,
+  canSize,
   type DecisionDraft,
   type DecisionImageDraft,
   type DecisionQuestionDraft,
@@ -177,8 +179,15 @@ import {
   defaultModelRequired,
   definitionOf,
   draftAllows,
+  draftConditions,
   draftKey,
   expandAccept,
+  GOOGLE_BUILTIN_TOOLS,
+  GOOGLE_IMAGE_ASPECT_RATIOS,
+  GOOGLE_IMAGE_OUTPUT_MIMES,
+  GOOGLE_IMAGE_RESOLUTIONS,
+  GOOGLE_SPEECH_FORMATS,
+  GOOGLE_SPEECH_VOICES,
   type GuardrailsDraft,
   type ImageReferenceDraft,
   INLINE_LABELS,
@@ -188,20 +197,29 @@ import {
   inputLimitsRequired,
   isGoogleRoute,
   isOpenRouterRoute,
+  keptLimits,
   kernelDefinitions,
+  LABEL_AREAS,
+  type LabelAreaPrefix,
+  type LabelAudience,
   type LentKeys,
   LOCAL_PROVIDER_ID,
+  labelAreaOf,
   lentCompression,
+  MODEL_LIMITS,
   type ModelBindingDraft,
-  modelBindingNodeId,
   modelRoute,
   modelSlots,
   newCriteria,
+  newCriterion,
   newDecisionImage,
   newDecisionQuestion,
   newModelBinding,
   newOwnDetector,
   newPattern,
+  newSlot,
+  newSlotChoice,
+  newSystemLine,
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
@@ -211,10 +229,13 @@ import {
   optionAt,
   type PatternDraft,
   type PatternSourceDraft,
+  PROFILE_LABEL_KEYS,
   type ProtocolOptionField,
   plantsCanary,
   protocolOptionFields,
   removeModelBinding,
+  type SlotChoiceDraft,
+  type SlotDraft,
   STUDIO_TRACE_DESTINATION,
   type StudioAsks,
   type StudioDraft,
@@ -230,8 +251,10 @@ import {
   studioNodeRef,
   studioRunsProvider,
   studioTaintNote,
+  TIMER_MAX_MS,
   type ToolSpecDraft,
   takesContinueInstruction,
+  toolSpecKeyOf,
   toolSpecNodeId,
   updateModelBinding,
   withOption,
@@ -259,6 +282,7 @@ import {
 } from './inspector.tsx';
 import {
   ConfirmWrite,
+  GuardrailTest,
   LeavePage,
   ListBadges,
   LocalConnection,
@@ -279,6 +303,7 @@ import {
   draftSlots,
   usePageValues,
 } from './lib/studio-page.ts';
+import { type StudioPrefs, usePref } from './lib/studio-prefs.ts';
 import { useProject } from './lib/studio-project.ts';
 import {
   setToolCredential,
@@ -319,6 +344,11 @@ const PROFILE_TYPE_SEGMENTS: Segment<StudioProfileType>[] = [
   { value: 'text', label: 'Text', icon: PROFILE_TYPE_ICON.text },
   { value: 'image', label: 'Image', icon: PROFILE_TYPE_ICON.image },
   { value: 'speech', label: 'Speech', icon: PROFILE_TYPE_ICON.speech },
+  {
+    value: 'transcription',
+    label: 'Transcription',
+    icon: PROFILE_TYPE_ICON.transcription,
+  },
   { value: 'live', label: 'Live', icon: PROFILE_TYPE_ICON.live },
   { value: 'decision', label: 'Decision', icon: PROFILE_TYPE_ICON.decision },
   { value: 'embedding', label: 'Embedding', icon: PROFILE_TYPE_ICON.embedding },
@@ -362,9 +392,16 @@ const LEVEL_SEGMENTS: Segment<ThinkingLevel>[] = THINKING_LEVELS.map((value) => 
   ...LEVEL_SEGMENT[value],
 }));
 
+/** The segment for a closed set left unset: the provider's default. */
+const PROVIDER_DEFAULT = {
+  value: 'default',
+  label: 'Provider default',
+  icon: IconCircleDashed,
+} as const;
+
 /** Thought summaries: on, off, or left to the provider (`null` in the draft). */
 const SUMMARIES_SEGMENTS: Segment<'default' | 'on' | 'off'>[] = [
-  { value: 'default', label: 'Provider default', icon: IconCircleDashed },
+  PROVIDER_DEFAULT,
   { value: 'on', label: 'On', icon: IconBulb },
   { value: 'off', label: 'Off', icon: IconBulbOff },
 ];
@@ -457,31 +494,64 @@ function SystemPromptSection({
   identity: StudioDraft['identity'];
   set: SetSection<'identity'>;
 }) {
+  const { system } = identity;
+  const setLine = (key: string, text: string) => {
+    set({ system: system.map((line) => (line.key === key ? { ...line, text } : line)) });
+  };
   return (
     <InspectorSection title="System prompt">
-      <TextArea
-        label="System prompt"
-        isLabelHidden
-        size="sm"
-        rows={8}
-        value={identity.system}
-        placeholder={fieldMeta('identity.system')?.unset}
-        onChange={(system) => {
-          set({ system });
-        }}
-      />
+      {system.map((line, at) => (
+        <HStack key={line.key} gap={1} vAlign="start">
+          <StackItem size="fill">
+            <TextAreaRow
+              label={`Line ${String(at + 1)}`}
+              path="identity.system"
+              field="system"
+              rows={system.length === 1 ? ONLY_LINE_ROWS : LINE_ROWS}
+              value={line.text}
+              placeholder={fieldMeta('identity.system')?.unset}
+              onChange={(text) => {
+                setLine(line.key, text);
+              }}
+            />
+          </StackItem>
+          {system.length > 1 && (
+            <IconButton
+              label={`Remove line ${String(at + 1)}`}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={IconX} size="sm" />}
+              onClick={() => {
+                set({ system: system.filter(({ key }) => key !== line.key) });
+              }}
+            />
+          )}
+        </HStack>
+      ))}
+      <HStack>
+        <Button
+          label="Add line"
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconPlus} size="sm" />}
+          onClick={() => {
+            set({ system: [...system, newSystemLine()] });
+          }}
+        />
+      </HStack>
       <TextAreaRow
-        label="By role"
-        path="identity.systemByRole"
-        field="systemByRoleJson"
-        value={identity.systemByRoleJson}
+        label="Conditions"
+        path="identity.conditions"
+        field="conditionsJson"
+        value={identity.conditionsJson}
         rows={4}
         hasSpellCheck={false}
-        placeholder={SYSTEM_BY_ROLE_PLACEHOLDER}
-        onChange={(systemByRoleJson) => {
-          set({ systemByRoleJson });
+        placeholder={CONDITIONS_PLACEHOLDER}
+        onChange={(conditionsJson) => {
+          set({ conditionsJson });
         }}
       />
+      <ConditionPreviewRows conditionsJson={identity.conditionsJson} />
     </InspectorSection>
   );
 }
@@ -531,6 +601,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
         )}
       </InspectorSection>
       {identity.profileType !== 'speech' &&
+        identity.profileType !== 'transcription' &&
         identity.profileType !== 'decision' &&
         identity.profileType !== 'host' && <SystemPromptSection identity={identity} set={set} />}
     </>
@@ -566,6 +637,8 @@ function ModelPolicySection({
         path="profile.allowModelSelect"
         field="allowModelSelect"
         value={models.allowModelSelect}
+        isDisabled={draft.modelBindings.length < MODEL_SELECT_MIN_MODELS}
+        disabledMessage="Add a second model to let people switch."
         onChange={(allowModelSelect) => {
           set({ allowModelSelect });
         }}
@@ -629,12 +702,51 @@ function ModelsEditor({
 }) {
   const set = patch(setDraft, 'models');
   const start = useLentKeys()?.start;
-  const addModel = () => {
-    const binding = newModelBinding(draft, start);
-    setDraft((current) => ({ ...current, modelBindings: [...current.modelBindings, binding] }));
-    onSelect(modelBindingNodeId(binding.key));
+  const { open, show, frame } = usePageSwap<string>();
+  const binding = open
+    ? draft.modelBindings.find((candidate) => candidate.key === open)
+    : undefined;
+  const backToModels = () => {
+    show(null);
   };
-  return (
+  const openBinding = (id: string) => {
+    if (id === 'models') {
+      backToModels();
+      return;
+    }
+    const key = id.startsWith('modelBinding:') ? id.slice('modelBinding:'.length) : id;
+    if (draft.modelBindings.some((candidate) => candidate.key === key)) {
+      show(key);
+      return;
+    }
+    onSelect(id);
+  };
+  const addModel = () => {
+    const next = newModelBinding(draft, start);
+    setDraft((current) => ({ ...current, modelBindings: [...current.modelBindings, next] }));
+    show(next.key);
+  };
+  if (binding) {
+    const title = binding.modelId.trim() || 'Unnamed model';
+    return frame(
+      binding.key,
+      <>
+        <PageHeader title={title} back="Back to models" onBack={backToModels} />
+        {draft.identity.profileType === 'decision' ? (
+          <DecisionModelEditor draft={draft} setDraft={setDraft} bindingKey={binding.key} />
+        ) : (
+          <ModelBindingEditor
+            draft={draft}
+            setDraft={setDraft}
+            bindingKey={binding.key}
+            onSelect={openBinding}
+          />
+        )}
+      </>,
+    );
+  }
+  return frame(
+    'list',
     <>
       <InspectorSection
         note={
@@ -643,6 +755,21 @@ function ModelsEditor({
             : sectionNote('models')
         }
       >
+        {draft.modelBindings.length > 0 && (
+          <List density="compact">
+            {draft.modelBindings.map((row) => (
+              <ListItem
+                key={row.key}
+                label={row.modelId.trim() || 'Unnamed model'}
+                description={[row.provider, row.apiId].filter(Boolean).join(' · ') || undefined}
+                startContent={<Icon icon={IconInputAi} size="sm" color="secondary" />}
+                onClick={() => {
+                  show(row.key);
+                }}
+              />
+            ))}
+          </List>
+        )}
         <Button
           label="Add model"
           variant="ghost"
@@ -659,7 +786,7 @@ function ModelsEditor({
           set={set}
         />
       )}
-    </>
+    </>,
   );
 }
 
@@ -762,6 +889,29 @@ function DecisionModelEditor({
           set({ timeoutMs });
         }}
       />
+    </InspectorSection>
+  );
+}
+
+function LimitsSection({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
+  return (
+    <InspectorSection title="Limits" path="models.*.limits">
+      {MODEL_LIMITS.map(({ name, label, units, isTimer }) => (
+        <NumberRow
+          key={name}
+          label={label}
+          path={`models.*.limits.${name}`}
+          units={units}
+          field={`limits.${name}`}
+          value={binding.limits?.[name] ?? null}
+          min={1}
+          max={isTimer ? TIMER_MAX_MS : undefined}
+          isIntegerOnly
+          onChange={(value) => {
+            set({ limits: { ...binding.limits, [name]: value } });
+          }}
+        />
+      ))}
     </InspectorSection>
   );
 }
@@ -1272,9 +1422,9 @@ function ProtocolOptionsSection({
   );
 }
 
-/** A setting a boolean option takes: left to the protocol, on, or off. */
+/** A setting a boolean option takes: left to the provider, on, or off. */
 const OPTION_SWITCH_SEGMENTS: Segment<'default' | 'on' | 'off'>[] = [
-  { value: 'default', label: 'Protocol default', icon: IconCircleDashed },
+  PROVIDER_DEFAULT,
   { value: 'on', label: 'On', icon: IconCheck },
   { value: 'off', label: 'Off', icon: IconX },
 ];
@@ -1291,7 +1441,7 @@ function ProtocolOptionRow({
 }) {
   const value = optionAt(binding.options, option.path);
   const field = `options.${option.path}`;
-  const write = (next: string | number | boolean | undefined) => {
+  const write = (next: string | number | boolean | string[] | undefined) => {
     set({ options: withOption(binding.options, option.path, next) });
   };
   const common = {
@@ -1338,6 +1488,18 @@ function ProtocolOptionRow({
           hint={option.description}
           onChange={(next) => {
             write(next ?? undefined);
+          }}
+        />
+      );
+    case 'names':
+      return (
+        <NamesRow
+          label={option.label}
+          path="models.*.options"
+          field={field}
+          value={Array.isArray(value) ? value.filter((name) => typeof name === 'string') : []}
+          onChange={(next) => {
+            write(next.length ? next : undefined);
           }}
         />
       );
@@ -1604,6 +1766,7 @@ function ModelBindingEditor({
       <ModelSection draft={draft} binding={binding} type={type} set={set} />
       {type !== 'embedding' && <GenerationSection binding={binding} set={set} />}
       <ProtocolOptionsSection providers={draft.providers} binding={binding} type={type} set={set} />
+      <LimitsSection binding={binding} set={set} />
       {type === 'text' && <CompactionSection binding={binding} set={set} />}
       {type !== 'embedding' && <EffortsSection binding={binding} set={set} />}
       {/* A profile runs on at least one model, so the last one stays. */}
@@ -1631,41 +1794,235 @@ interface InputsSectionProps {
   set: SetSection<'inputs'>;
 }
 
-function InputAcceptsSection({ inputs, set, image }: InputsSectionProps & { image: boolean }) {
+/** What a type picker holds: the types it takes, and the largest file of each, by type. */
+interface Accepted {
+  accept: string[];
+  limits: Record<string, number>;
+}
+
+type AcceptPicker = ReturnType<typeof acceptPicker>;
+
+/** The trigger's tokens: each type taken, a ruler on the ones with a size of their own. */
+function AcceptTokens({ accept, limits }: Accepted) {
+  const maxBadges = useContext(ListBadges);
+  const rest = accept.length - maxBadges;
+  return (
+    <HStack gap={1} vAlign="center">
+      {accept.slice(0, maxBadges).map((mime) => {
+        const bytes = limits[mime];
+        return (
+          <Token
+            key={mime}
+            size="sm"
+            label={mime}
+            icon={bytes === undefined ? undefined : <Icon icon={IconRuler} size="sm" />}
+            description={bytes === undefined ? undefined : `Up to ${COMPACT_BYTES.format(bytes)}B`}
+          />
+        );
+      })}
+      {rest > 0 && <Token size="sm" label={`+${String(rest)}`} />}
+    </HStack>
+  );
+}
+
+const COMPACT_BYTES = new Intl.NumberFormat('en-US', { notation: 'compact' });
+
+/** The picker's table: a row per type, ticked when taken, with its own largest file. */
+function AcceptGrid({
+  current,
+  change,
+  picker,
+  hasSizes,
+}: {
+  current: Accepted;
+  change: (next: Accepted) => void;
+  picker: AcceptPicker;
+  hasSizes: boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const needle = query.trim().toLowerCase();
+  const taken = expandAccept(current.accept, picker.sections);
+  const rows = picker.sections
+    .flatMap(({ wildcard, mimes }) => (wildcard ? [wildcard, ...mimes] : mimes))
+    .filter((mime) => mime.includes(needle))
+    .map((mime) => ({ mime }));
+  const tick = (mime: string, checked: boolean) => {
+    const selected = checked ? [...taken, mime] : taken.filter((each) => each !== mime);
+    const accept = nextAccept(current.accept, selected, picker.sections);
+    change({ accept, limits: keptLimits(current.limits, accept, picker.sections) });
+  };
+  const size = (mime: string, bytes: number | null) => {
+    const { [mime]: _dropped, ...others } = current.limits;
+    change({ ...current, limits: bytes === null ? others : { ...others, [mime]: bytes } });
+  };
+  return (
+    <VStack width={hasSizes ? 360 : 280} padding={2} gap={2}>
+      <TextInput
+        label="Find a type"
+        isLabelHidden
+        size="sm"
+        placeholder="Find a type"
+        value={query}
+        onChange={setQuery}
+        startIcon={IconSearch}
+        hasClear
+      />
+      <Table
+        density="compact"
+        dividers="rows"
+        idKey="mime"
+        data={rows}
+        columns={[
+          {
+            key: 'taken',
+            header: '',
+            width: pixel(36),
+            align: 'center',
+            renderCell: ({ mime }) => (
+              <CheckboxInput
+                label={`Take ${mime}`}
+                isLabelHidden
+                value={taken.includes(mime)}
+                onChange={(checked) => {
+                  tick(mime, checked);
+                }}
+              />
+            ),
+          },
+          {
+            key: 'mime',
+            header: 'Type',
+            width: proportional(1),
+            renderCell: ({ mime }) => mime,
+          },
+          ...(hasSizes
+            ? [
+                {
+                  key: 'size',
+                  header: (
+                    <Tooltip
+                      content={fieldMeta('inputs.limitsByMime.*')?.doc}
+                      hasHoverIndication={false}
+                    >
+                      Max bytes
+                    </Tooltip>
+                  ),
+                  width: pixel(128),
+                  renderCell: ({ mime }: { mime: string }) => (
+                    <NumberInput
+                      label={`Max bytes for ${mime}`}
+                      isLabelHidden
+                      size="sm"
+                      value={current.limits[mime] ?? null}
+                      placeholder={fieldMeta('inputs.limitsByMime')?.unset ?? 'Max bytes'}
+                      min={1}
+                      isIntegerOnly
+                      isWheelEnabled={false}
+                      isDisabled={!canSize(mime, current.accept, picker.sections)}
+                      onChange={(bytes) => {
+                        size(mime, bytes);
+                      }}
+                    />
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
+    </VStack>
+  );
+}
+
+/**
+ * Which types an input takes, and the largest file of each, as one picker. A family (`image/*`)
+ * takes every type in it; a size left blank keeps Max bytes.
+ */
+function AcceptRow({
+  label,
+  path,
+  value,
+  picker,
+  hasSizes,
+  onChange,
+}: {
+  label: string;
+  path: string;
+  value: Accepted;
+  picker: AcceptPicker;
+  hasSizes: boolean;
+  onChange: (next: Accepted) => void;
+}) {
+  const status = useFieldStatus()('limitsByMime');
+  const unset = fieldMeta(path)?.unset;
+  return (
+    <InspectorRow
+      label={label}
+      path={path}
+      hasIssue={status !== undefined}
+      hasNote={Boolean(status?.message)}
+    >
+      <StackItem size="fill">
+        <ComplexSelector
+          label={label}
+          isLabelHidden
+          size="sm"
+          placement="below"
+          status={status}
+          value={value}
+          triggerLabel={value.accept.length ? <AcceptTokens {...value} /> : undefined}
+          placeholder={unset}
+          onChange={onChange}
+        >
+          {(current, change) => (
+            <AcceptGrid current={current} change={change} picker={picker} hasSizes={hasSizes} />
+          )}
+        </ComplexSelector>
+      </StackItem>
+    </InspectorRow>
+  );
+}
+
+function InputAcceptsSection({
+  inputs,
+  set,
+  image,
+  voiceOnly,
+  hasSizes,
+}: InputsSectionProps & { image: boolean; voiceOnly: boolean; hasSizes: boolean }) {
   const attachmentPicker = image ? IMAGE_ATTACHMENT_PICKER : ATTACHMENT_PICKER;
   return (
     <InspectorSection title="Accepts" path="inputs">
-      <SwitchRow
-        label="Text"
-        path="inputs.text"
-        value={inputs.text}
-        onChange={(text) => {
-          set({ text });
-        }}
-      />
-      <ListRow
-        label="Attachments"
-        path="inputs.attachments.accept"
-        value={expandAccept(inputs.attachmentsAccept, attachmentPicker.sections)}
-        options={attachmentPicker.options}
-        onChange={(selected) => {
-          set({
-            attachmentsAccept: nextAccept(
-              inputs.attachmentsAccept,
-              selected,
-              attachmentPicker.sections,
-            ),
-          });
-        }}
-      />
+      {!voiceOnly && (
+        <>
+          <SwitchRow
+            label="Text"
+            path="inputs.text"
+            value={inputs.text}
+            onChange={(text) => {
+              set({ text });
+            }}
+          />
+          <AcceptRow
+            label="Attachments"
+            path="inputs.attachments.accept"
+            value={{ accept: inputs.attachmentsAccept, limits: inputs.limitsByMime }}
+            picker={attachmentPicker}
+            hasSizes={hasSizes}
+            onChange={({ accept, limits }) => {
+              set({ attachmentsAccept: accept, limitsByMime: limits });
+            }}
+          />
+        </>
+      )}
       {!image && (
-        <ListRow
+        <AcceptRow
           label="Voice"
           path="inputs.voice.accept"
-          value={expandAccept(inputs.voiceAccept, VOICE_PICKER.sections)}
-          options={VOICE_PICKER.options}
-          onChange={(selected) => {
-            set({ voiceAccept: nextAccept(inputs.voiceAccept, selected, VOICE_PICKER.sections) });
+          value={{ accept: inputs.voiceAccept, limits: inputs.limitsByMime }}
+          picker={VOICE_PICKER}
+          hasSizes={hasSizes}
+          onChange={({ accept, limits }) => {
+            set({ voiceAccept: accept, limitsByMime: limits });
           }}
         />
       )}
@@ -1714,18 +2071,6 @@ function InputLimitsSection({ inputs, set }: InputsSectionProps) {
         isIntegerOnly
         onChange={(maxTurnBytes) => {
           set({ maxTurnBytes });
-        }}
-      />
-      <TextAreaRow
-        label="By type"
-        path="inputs.limitsByMime"
-        field="limitsByMimeJson"
-        value={inputs.limitsByMimeJson}
-        rows={3}
-        hasSpellCheck={false}
-        placeholder={LIMITS_BY_MIME_PLACEHOLDER}
-        onChange={(limitsByMimeJson) => {
-          set({ limitsByMimeJson });
         }}
       />
     </InspectorSection>
@@ -1811,13 +2156,12 @@ function ContextPreviewRow() {
 }
 
 /** The value the studio's page sends for each slot declared so far. Kept in this tab. */
-function SlotPreviewRows({ slotsJson }: { slotsJson: string }) {
+function SlotPreviewRows({ slots }: { slots: readonly SlotDraft[] }) {
   const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
-  const slots = draftSlots(slotsJson);
-  return Object.entries(slots).map(([name, allowed]) => (
+  return draftSlots(slots).map(({ name, label, values: allowed }) => (
     <ChoiceRow
       key={name}
-      label={name}
+      label={label}
       path="inputs.slots"
       isRequired
       value={allowed.find((value) => value === values.slots[name]) ?? allowed[0]}
@@ -1829,48 +2173,257 @@ function SlotPreviewRows({ slotsJson }: { slotsJson: string }) {
   ));
 }
 
+/** The value the studio's page states for each condition declared so far. Kept in this tab. */
+function ConditionPreviewRows({ conditionsJson }: { conditionsJson: string }) {
+  const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
+  return Object.entries(draftConditions(conditionsJson)).map(([name, allowed]) => (
+    <ChoiceRow
+      key={name}
+      label={name}
+      path="identity.conditions"
+      isRequired
+      value={allowed.find((value) => value === values.conditions[name]) ?? allowed[0]}
+      options={allowed}
+      onChange={(next) => {
+        if (next) {
+          setValues({ ...values, conditions: { ...values.conditions, [name]: next } });
+        }
+      }}
+    />
+  ));
+}
+
+/** One of a slot's choices: the value a turn sends, what the page says of it, and a remove button. */
+function SlotChoiceRow({
+  choice,
+  at,
+  onChange,
+  onRemove,
+}: {
+  choice: SlotChoiceDraft;
+  at: number;
+  onChange: (change: Partial<SlotChoiceDraft>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <HStack gap={1} vAlign="center">
+      <div className="criterion-label">
+        <TextInput
+          label={`Choice ${String(at + 1)} value`}
+          isLabelHidden
+          size="sm"
+          value={choice.value}
+          placeholder="value"
+          onChange={(value) => {
+            onChange({ value });
+          }}
+        />
+      </div>
+      <StackItem size="fill">
+        <TextInput
+          label={`Choice ${String(at + 1)} description`}
+          isLabelHidden
+          size="sm"
+          value={choice.description}
+          placeholder="What the page says of it"
+          onChange={(description) => {
+            onChange({ description });
+          }}
+        />
+      </StackItem>
+      <IconButton
+        label={`Remove choice ${String(at + 1)}`}
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={IconX} size="sm" />}
+        onClick={onRemove}
+      />
+    </HStack>
+  );
+}
+
+/** A head over a slot's choices, with its field's description on hover. */
+function SlotChoiceHead({ title, doc }: { title: string; doc: string | undefined }) {
+  return (
+    <Tooltip content={doc} hasHoverIndication={false}>
+      <Text type="supporting" color="secondary">
+        {title}
+      </Text>
+    </Tooltip>
+  );
+}
+
+function SlotChoiceHeads() {
+  return (
+    <HStack gap={1}>
+      <div className="criterion-label">
+        <SlotChoiceHead title="Value" doc={fieldMeta('inputs.slots.*.choices.*.value')?.doc} />
+      </div>
+      <StackItem size="fill">
+        <SlotChoiceHead
+          title="Description"
+          doc={fieldMeta('inputs.slots.*.choices.*.description')?.doc}
+        />
+      </StackItem>
+    </HStack>
+  );
+}
+
+/** One slot: its name, its label, its choices, and the buttons that add a choice and remove it. */
+function SlotSection({
+  slot,
+  at,
+  onChange,
+  onRemove,
+}: {
+  slot: SlotDraft;
+  at: number;
+  onChange: (change: Partial<SlotDraft>) => void;
+  onRemove: () => void;
+}) {
+  const status = useFieldStatus()('slots', at);
+  const name = slot.name.trim() || `Slot ${String(at + 1)}`;
+  const setChoice = (key: string, change: Partial<SlotChoiceDraft>) => {
+    onChange({
+      choices: slot.choices.map((choice) =>
+        choice.key === key ? { ...choice, ...change } : choice,
+      ),
+    });
+  };
+  return (
+    <InspectorSection title={slot.label.trim() || name} path="inputs.slots.*">
+      <TextRow
+        label="Name"
+        path="inputs.slots.*"
+        status={status}
+        value={slot.name}
+        placeholder="language"
+        onChange={(next) => {
+          onChange({ name: next });
+        }}
+      />
+      <TextRow
+        label="Label"
+        path="inputs.slots.*.label"
+        value={slot.label}
+        placeholder={slot.name.trim() || undefined}
+        onChange={(label) => {
+          onChange({ label });
+        }}
+      />
+      <VStack gap={1}>
+        <Tooltip content={fieldMeta('inputs.slots.*.choices')?.doc} hasHoverIndication={false}>
+          <Text type="label" weight="semibold">
+            Choices
+          </Text>
+        </Tooltip>
+        <SlotChoiceHeads />
+        {slot.choices.map((choice, index) => (
+          <SlotChoiceRow
+            key={choice.key}
+            choice={choice}
+            at={index}
+            onChange={(change) => {
+              setChoice(choice.key, change);
+            }}
+            onRemove={() => {
+              onChange({ choices: slot.choices.filter((each) => each.key !== choice.key) });
+            }}
+          />
+        ))}
+      </VStack>
+      <HStack gap={1}>
+        <Button
+          label="Add choice"
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconPlus} size="sm" />}
+          onClick={() => {
+            onChange({ choices: [...slot.choices, newSlotChoice()] });
+          }}
+        />
+        <Button
+          label={`Remove ${name}`}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconTrash} size="sm" />}
+          onClick={onRemove}
+        />
+      </HStack>
+    </InspectorSection>
+  );
+}
+
+/** Every slot, each in its own section, and the page's pick for each above them. */
+function InputSlotsSections({ inputs, set }: InputsSectionProps) {
+  const { slots } = inputs;
+  const setSlot = (key: string, change: Partial<SlotDraft>) => {
+    set({ slots: slots.map((slot) => (slot.key === key ? { ...slot, ...change } : slot)) });
+  };
+  return (
+    <>
+      <InspectorSection path="inputs.slots" note={sectionNote('slots')}>
+        <SlotPreviewRows slots={slots} />
+        <HStack>
+          <Button
+            label="Add slot"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconPlus} size="sm" />}
+            onClick={() => {
+              set({ slots: [...slots, newSlot(slots)] });
+            }}
+          />
+        </HStack>
+      </InspectorSection>
+      {slots.map((slot, at) => (
+        <SlotSection
+          key={slot.key}
+          slot={slot}
+          at={at}
+          onChange={(change) => {
+            setSlot(slot.key, change);
+          }}
+          onRemove={() => {
+            set({ slots: slots.filter((each) => each.key !== slot.key) });
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { inputs } = draft;
   const set = patch(setDraft, 'inputs');
   /** An image profile takes images, video, and PDF as references, and no voice. */
   const image = draft.identity.profileType === 'image';
+  const voiceOnly = !draftAllows(draft, 'inputs.attachments.accept');
   return (
     <>
-      {draftAllows(draft, 'inputs.attachments.accept') && (
-        <InputAcceptsSection inputs={inputs} set={set} image={image} />
+      {(!voiceOnly || draftAllows(draft, 'inputs.voice')) && (
+        <InputAcceptsSection
+          inputs={inputs}
+          set={set}
+          image={image}
+          voiceOnly={voiceOnly}
+          hasSizes={draftAllows(draft, 'inputs.limitsByMime')}
+        />
       )}
       {draftAllows(draft, 'inputs.maxFiles') && <InputLimitsSection inputs={inputs} set={set} />}
       {draftAllows(draft, 'inputs.context') && <InputContextSection inputs={inputs} set={set} />}
-      <InspectorSection path="inputs.slots" note={sectionNote('slots')}>
-        <TextAreaRow
-          label="Slots"
-          path="inputs.slots"
-          field="slotsJson"
-          value={inputs.slotsJson}
-          rows={3}
-          hasSpellCheck={false}
-          placeholder={SLOTS_PLACEHOLDER}
-          onChange={(slotsJson) => {
-            set({ slotsJson });
-          }}
-        />
-        <SlotPreviewRows slotsJson={inputs.slotsJson} />
-      </InspectorSection>
+      {draftAllows(draft, 'inputs.slots') && <InputSlotsSections inputs={inputs} set={set} />}
     </>
   );
 }
 
-const SYSTEM_BY_ROLE_PLACEHOLDER = `{
-  "support": "Answer as the support desk."
+const CONDITIONS_PLACEHOLDER = `{
+  "plan": ["free", "paid"]
 }`;
 
-const LIMITS_BY_MIME_PLACEHOLDER = `{
-  "application/pdf": 5000000
-}`;
-
-const SLOTS_PLACEHOLDER = `{
-  "language": ["en", "fr"]
-}`;
+/** How tall a prompt line starts: one line alone is the whole prompt. */
+const ONLY_LINE_ROWS = 8;
+const LINE_ROWS = 3;
 
 type SetBinding = (change: Partial<ModelBindingDraft>) => void;
 
@@ -1884,7 +2437,7 @@ function otherAgents(
     .filter((agent) => agent.key !== self)
     .map((agent) => ({
       value: agent.key,
-      label: agent.agentId || 'Unnamed agent',
+      label: agent.agentId.trim() || 'Unnamed agent',
       disabled: !canName(agent),
     }));
 }
@@ -2010,13 +2563,6 @@ function catalogChoices<T extends string>(path: string): Choice<T>[] {
   }));
 }
 
-/** The segment for a closed set left unset: the provider's default. */
-const PROVIDER_DEFAULT = {
-  value: 'default',
-  label: 'Provider default',
-  icon: IconCircleDashed,
-} as const;
-
 /** An unset pin (`''`) as the provider-default segment. */
 function segmentOf<T extends string>(value: T | ''): T | 'default' {
   return value === '' ? 'default' : value;
@@ -2098,8 +2644,6 @@ function PresetRow({
 /** OpenRouter's image vocabularies; the kernel takes free strings, so these are the studio's. */
 const OPENROUTER_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high'] as const;
 const OPENROUTER_IMAGE_BACKGROUNDS = ['auto', 'transparent', 'opaque'] as const;
-/** A pinned file rides in every turn's request, so it stays small. */
-const REFERENCE_MAX_BYTES = 4 * 1024 * 1024;
 
 /** A picked file's type and its bytes in base64. */
 async function fileData(file: File): Promise<{ mimeType: string; data: string }> {
@@ -2205,10 +2749,9 @@ function OpenRouterImageRows({ image, set }: ImageRowsProps) {
         label="Images"
         path="image.n"
         field="n"
-        units="per turn"
+        units="per request"
         value={image.n}
         min={1}
-        max={10}
         isIntegerOnly
         onChange={(n) => {
           set({ n });
@@ -2370,9 +2913,8 @@ function ImageReferencesEditor({
         mode="dropzone"
         accept="image/*"
         isMultiple
-        maxSize={REFERENCE_MAX_BYTES}
         isLoading={reading}
-        placeholder="Drop images or choose files, up to 4 MB each"
+        placeholder="Drop images or choose files"
         value={null}
         changeAction={changeAction}
         onChange={() => undefined}
@@ -2390,14 +2932,13 @@ function ImageReferencesEditor({
   );
 }
 
-/** Speech pins. mp3 is only on offer when every model's provider can make it. */
+/** Speech pins. A format is on offer only when every model's provider can make it. */
 function SpeechEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const google = allGoogle(draft);
   const { speech } = draft;
   const set = patch(setDraft, 'speech');
-  // Gemini refuses mp3.
-  const mp3 = draft.modelBindings.every(
-    (binding) => !isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
+  const onGemini = draft.modelBindings.some((binding) =>
+    isGoogleRoute(modelRoute(draft.providers, 'speech', binding)),
   );
   return (
     <InspectorSection path="speech">
@@ -2437,14 +2978,16 @@ function SpeechEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
         path="speech.format"
         field="format"
         value={speech.format}
-        options={[
-          'pcm',
-          {
-            value: 'mp3',
-            label: 'mp3',
-            ...(mp3 ? {} : { description: 'Only openAi models make mp3', disabled: true }),
-          },
-        ]}
+        options={SPEECH_AUDIO_FORMATS.map((format) =>
+          onGemini && !(GOOGLE_SPEECH_FORMATS as readonly string[]).includes(format)
+            ? {
+                value: format,
+                label: format,
+                description: `Gemini cannot make ${format}`,
+                disabled: true,
+              }
+            : format,
+        )}
         onChange={(format) => {
           set({ format });
         }}
@@ -4421,18 +4964,38 @@ function PageFrame({
   children: ReactNode;
 }) {
   const shown = useRef(viewKey);
-  // Before either fades in.
+  // Before either fades in. Scroll only the editor scroller — never scrollIntoView,
+  // which walks ancestors (Goals `.home-scroll` snap would jump to the next beat).
   useLayoutEffect(() => {
     const node = view.current;
     if (!node || shown.current === viewKey) return;
     shown.current = viewKey;
-    if (viewKey === 'list') scrollerOf(node)?.scrollTo({ top: listScroll.current });
-    else node.scrollIntoView({ block: 'start' });
+    const scroller = scrollerOf(node);
+    if (viewKey === 'list') scroller?.scrollTo({ top: listScroll.current });
+    else scroller?.scrollTo({ top: 0 });
   }, [viewKey, view, listScroll]);
   return (
     <div key={viewKey} ref={view} className="editor-page">
       {children}
     </div>
+  );
+}
+
+/** Opens the guardrail test in the preview's place, or closes it; there while an agent compiles. */
+function GuardrailTestButton() {
+  const test = useContext(GuardrailTest);
+  if (!test) return null;
+  return (
+    <Section variant="transparent" paddingInline={3} paddingBlockStart={3}>
+      <Button
+        label={test.open ? 'Close guardrail test' : 'Test guardrails'}
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={IconShieldSearch} size="sm" />}
+        aria-pressed={test.open}
+        onClick={test.toggle}
+      />
+    </Section>
   );
 }
 
@@ -4449,6 +5012,7 @@ function GuardrailsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: S
   return frame(
     'list',
     <>
+      <GuardrailTestButton />
       <DetectSection guardrails={guardrails} boundaries={boundaries} set={set} onOpen={show} />
       {draftAllows(draft, 'guardrails.blockedReply') && (
         <BlockedReplySection
@@ -4516,11 +5080,56 @@ const INCLUDE_FLAGS: Flag<keyof ObservabilityDraft['include']>[] = [
   { key: 'guardrailMatchPreview', label: 'Match preview' },
 ];
 
-const SCRUB_FLAGS: Flag<keyof ObservabilityDraft['scrub']>[] = [
+type ScrubName = keyof ObservabilityDraft['scrub'];
+type ScrubSwitch = ObservabilityDraft['scrub'][ScrubName];
+type ScrubChoice = 'on' | 'both' | 'theorem' | 'host' | 'off';
+
+const SCRUB_ROWS: readonly { key: ScrubName; label: string }[] = [
   { key: 'sensitive', label: 'Sensitive' },
   { key: 'injection', label: 'Injection' },
   { key: 'canary', label: 'Canary' },
 ];
+
+const SCRUB_CHOICES: readonly Choice<ScrubChoice>[] = [
+  { value: 'on', label: 'On', description: 'With the patterns each detector reads the turn with' },
+  {
+    value: 'both',
+    label: "Theorem's and yours",
+    description: 'Both sides, whatever the turn reads with',
+  },
+  { value: 'theorem', label: "Theorem's only" },
+  {
+    value: 'host',
+    label: 'Yours only',
+    description: 'Your guardrails.detect patterns and detectors',
+  },
+  { value: 'off', label: 'Off' },
+];
+
+// why: the canary is Theorem's, so only its side means anything.
+const CANARY_CHOICES: readonly Choice<ScrubChoice>[] = [
+  { value: 'on', label: 'On' },
+  { value: 'off', label: 'Off' },
+];
+
+/** The choice a scrub switch is: the object form names the sides, each on when left out. */
+function scrubChoice(name: ScrubName, value: ScrubSwitch): ScrubChoice {
+  if (typeof value === 'boolean') return value ? 'on' : 'off';
+  const theorem = value.theorem ?? true;
+  if (name === 'canary') return theorem ? 'on' : 'off';
+  const host = value.host ?? true;
+  if (theorem && host) return 'both';
+  if (theorem) return 'theorem';
+  return host ? 'host' : 'off';
+}
+
+const SCRUB_SWITCHES: Record<ScrubChoice, ScrubSwitch> = {
+  on: true,
+  both: { theorem: true, host: true },
+  theorem: { theorem: true, host: false },
+  host: { theorem: false, host: true },
+  off: false,
+};
 
 /** A set of on-or-off flags as one checklist: the ones on are checked. */
 function FlagList<K extends string>({
@@ -4623,15 +5232,18 @@ function TraceContentSections({ observability, set }: ObservabilitySectionProps)
         />
       </InspectorSection>
       <InspectorSection path="observability.scrub">
-        <FlagList
-          label="Scrub"
-          path="observability.scrub"
-          flags={SCRUB_FLAGS}
-          value={observability.scrub}
-          onChange={(scrub) => {
-            set({ scrub });
-          }}
-        />
+        {SCRUB_ROWS.map(({ key, label }) => (
+          <ChoiceRow
+            key={key}
+            label={label}
+            path={`observability.scrub.${key}`}
+            value={scrubChoice(key, observability.scrub[key])}
+            options={key === 'canary' ? CANARY_CHOICES : SCRUB_CHOICES}
+            onChange={(choice) => {
+              if (choice) set({ scrub: { ...observability.scrub, [key]: SCRUB_SWITCHES[choice] } });
+            }}
+          />
+        ))}
       </InspectorSection>
     </>
   );
@@ -4892,6 +5504,7 @@ function ToolsEditor({
   const set = patch(setDraft, 'tools');
   const workspace = useContext(WorkspaceContext);
   const isHost = draft.identity.profileType === 'host';
+  const { open, show, frame } = usePageSwap<string>();
   /** In a workspace, the library's tools this agent allows; on its own, every tool it has. */
   const allowed = workspace
     ? draft.toolSpecs.filter((tool) => workspace.allowed.includes(tool.key))
@@ -4902,6 +5515,35 @@ function ToolsEditor({
   // Any custom tool it allows can load T2 tools: one that answers with the ids to load.
   const loaders = allowed.map((tool) => tool.toolName.trim()).filter(Boolean);
   const note = isHost ? sectionNote('tools.host') : undefined;
+  const backToTools = () => {
+    show(null);
+  };
+  const openTool = (id: string) => {
+    if (id === 'tools') {
+      backToTools();
+      return;
+    }
+    const key = toolSpecKeyOf(id) ?? id;
+    if (draft.toolSpecs.some((tool) => tool.key === key)) {
+      show(key);
+      return;
+    }
+    onSelect(id);
+  };
+  const tool = open ? draft.toolSpecs.find((candidate) => candidate.key === open) : undefined;
+  if (tool) {
+    return frame(
+      tool.key,
+      <>
+        <PageHeader
+          title={tool.toolName.trim() || 'Unnamed tool'}
+          back="Back to tools"
+          onBack={backToTools}
+        />
+        <ToolSpecEditor draft={draft} setDraft={setDraft} toolKey={tool.key} onSelect={openTool} />
+      </>,
+    );
+  }
   const addTool = (
     <Button
       label="Add tool"
@@ -4909,11 +5551,12 @@ function ToolsEditor({
       size="sm"
       icon={<Icon icon={IconPlus} size="sm" />}
       onClick={() => {
-        addToolSpec(draft, setDraft, onSelect);
+        addToolSpec(draft, setDraft, openTool);
       }}
     />
   );
-  return (
+  return frame(
+    'list',
     <>
       {workspace ? (
         // This agent's tools. Ones it does not use stay in the library, closed.
@@ -4923,7 +5566,7 @@ function ToolsEditor({
               tools={allowed}
               allowed={allowed}
               workspace={workspace}
-              onSelect={onSelect}
+              onSelect={openTool}
             />
           )}
           {unused.length > 0 && (
@@ -4940,7 +5583,7 @@ function ToolsEditor({
                   tools={unused}
                   allowed={[]}
                   workspace={workspace}
-                  onSelect={onSelect}
+                  onSelect={openTool}
                 />
               </Collapsible>
             </CollapsibleGroup>
@@ -4949,7 +5592,7 @@ function ToolsEditor({
         </InspectorSection>
       ) : (
         <InspectorSection path={isHost ? undefined : 'tools'} note={note}>
-          {draft.toolSpecs.length > 0 && <ToolList tools={draft.toolSpecs} onSelect={onSelect} />}
+          {draft.toolSpecs.length > 0 && <ToolList tools={draft.toolSpecs} onSelect={openTool} />}
           {addTool}
         </InspectorSection>
       )}
@@ -4969,7 +5612,7 @@ function ToolsEditor({
           />
         </InspectorSection>
       )}
-    </>
+    </>,
   );
 }
 
@@ -5002,8 +5645,12 @@ function ToolLoadingSection({
 const MS = new Intl.NumberFormat('en-US', { style: 'unit', unit: 'millisecond' });
 
 /** The result's headline: the status line, or for an MCP server, what it offers. */
-function probeTitle(result: ProbeResult, tool: ToolSpecDraft): string {
+function probeTitle(result: ProbeResult, tool: ToolSpecDraft, inProject: boolean): string {
   const took = result.elapsedMs === undefined ? '' : ` · ${MS.format(result.elapsedMs)}`;
+  // why: on a project the test keeps to the agent's guardrail, as its runs do; the way out is there.
+  if (inProject && result.code === 'ssrf_blocked') {
+    return "This agent's network guardrail doesn't allow this address, so a run couldn't call it either. Change it in Guardrails, under Network.";
+  }
   if (!result.ok && result.error) return result.error;
   if (tool.toolType === 'mcp' && result.tools) {
     // The route only checks for the remote tool when one is named.
@@ -5122,6 +5769,9 @@ function TestConnectionButton({ isLoading, onClick }: { isLoading: boolean; onCl
   );
 }
 
+/** A test already run, which a still preview of the editor shows done. */
+export const ShownProbe = createContext<ProbeResult | undefined>(undefined);
+
 /**
  * Tries the tool's endpoint or MCP server once, from the server, which reaches public hosts only.
  * The sample input and credential live here only: neither is saved to the draft.
@@ -5139,8 +5789,10 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
     setToolCredential(tool.key, value);
   };
   const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<ProbeResult>();
+  const shown = useContext(ShownProbe);
+  const [result, setResult] = useState(shown);
   const http = tool.toolType === 'http';
+  const inProject = useProject() !== null;
   const method = tool.method ?? HTTP_METHODS[0];
   // A result answers the request as it was: once what it reaches or sends changes, it's dropped.
   const target = probeTarget(tool, method);
@@ -5181,7 +5833,7 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
       {result && (
         <Banner
           status={probeStatus(result)}
-          title={probeTitle(result, tool)}
+          title={probeTitle(result, tool, inProject)}
           description={probeDetails(result)}
         />
       )}
@@ -5480,7 +6132,25 @@ function HttpRequestSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }
         }}
       />
       <HeadersRow tool={tool} set={set} />
+      <MaxResponseRow tool={tool} set={set} />
     </InspectorSection>
+  );
+}
+
+function MaxResponseRow({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
+  return (
+    <NumberRow
+      label="Max response"
+      path="registerTool.maxResponseBytes"
+      units="bytes"
+      field="maxResponseBytes"
+      value={tool.maxResponseBytes ?? null}
+      min={1}
+      isIntegerOnly
+      onChange={(maxResponseBytes) => {
+        set({ maxResponseBytes });
+      }}
+    />
   );
 }
 
@@ -5589,6 +6259,38 @@ function McpServerSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) 
         }}
       />
       <HeadersRow tool={tool} set={set} />
+      <MaxResponseRow tool={tool} set={set} />
+    </InspectorSection>
+  );
+}
+
+function McpSessionSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
+  return (
+    <InspectorSection title="Session" path="registerTool.session">
+      <NumberRow
+        label="Idle"
+        path="registerTool.session.idleMs"
+        units="ms"
+        field="sessionIdleMs"
+        value={tool.sessionIdleMs ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(sessionIdleMs) => {
+          set({ sessionIdleMs });
+        }}
+      />
+      <NumberRow
+        label="Max"
+        path="registerTool.session.max"
+        units="sessions"
+        field="sessionMax"
+        value={tool.sessionMax ?? null}
+        min={1}
+        isIntegerOnly
+        onChange={(sessionMax) => {
+          set({ sessionMax });
+        }}
+      />
     </InspectorSection>
   );
 }
@@ -5735,8 +6437,12 @@ function AuthSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 }
 
 /** What the studio does about a tool that writes, when that is not what Permission says. */
-function studioAskNote(asks: StudioAsks, tool: string): string | undefined {
-  if (asks.asked.includes(tool))
+function studioAskNote(
+  asks: StudioAsks,
+  tool: string,
+  askWrites: StudioPrefs['askWrites'],
+): string | undefined {
+  if ((askWrites === 'destructive' ? asks.destructive : asks.asked).includes(tool))
     return 'In the studio this tool asks before every run, because it writes. Your application runs it as Permission says.';
   if (asks.inside.includes(tool))
     return 'This tool writes, and the studio cannot make it ask: a called agent runs it, and a question inside a called agent has no one to answer it. The call to that agent asks instead.';
@@ -5753,7 +6459,7 @@ function PolicySection({
   tool: ToolSpecDraft;
   set: SetTool;
 }) {
-  const note = studioAskNote(useContext(ProjectAsks), tool.toolName);
+  const note = studioAskNote(useContext(ProjectAsks), tool.toolName, usePref('askWrites'));
   return (
     <InspectorSection title="Policy" note={note}>
       <SegmentedRow
@@ -5836,6 +6542,7 @@ function ToolSpecEditor({
         <AgentSection tool={tool} set={set} workspace={workspace} />
       )}
       {tool.toolType === 'mcp' && <McpServerSection tool={tool} set={set} />}
+      {tool.toolType === 'mcp' && <McpSessionSection tool={tool} set={set} />}
       {remote && <AuthSection tool={tool} set={set} />}
       {remote && <ToolTest key={tool.key} tool={tool} guardrails={draft.guardrails} />}
       <PolicySection draft={draft} tool={tool} set={set} />
@@ -5855,123 +6562,32 @@ function ToolSpecEditor({
   );
 }
 
-/** Labels' areas, by labels key prefix: what visitors read first, then what the model reads. */
-/** Who reads a line: the visitor, in the chat, or the model, in its context. */
-type LabelAudience = 'visitor' | 'model';
-
-const LABEL_AREAS: readonly {
-  prefix: string;
-  title: string;
-  note: string;
-  icon: IconType;
-  audience: LabelAudience;
-}[] = [
-  {
-    prefix: 'error',
-    title: 'Errors',
-    note: 'When a turn fails.',
-    icon: IconAlertTriangle,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'attachments',
-    title: 'Attachments',
-    note: "When a file can't be sent.",
-    icon: IconPaperclip,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'voice',
-    title: 'Voice',
-    note: "When a voice note can't be recorded or used.",
-    icon: IconMicrophone,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'session',
-    title: 'Session',
-    note: 'Waits, approvals, and signing in.',
-    icon: IconHourglass,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'stop',
-    title: 'Stops',
-    note: 'Why a reply ended short.',
-    icon: IconPlayerStop,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'composer',
-    title: 'Composer',
-    note: 'The model and effort pickers.',
-    icon: IconAdjustmentsHorizontal,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'live',
-    title: 'Live',
-    note: 'When a live session ends.',
-    icon: IconHeadset,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'quota',
-    title: 'Quota',
-    note: 'When the daily limit is reached.',
-    icon: IconGauge,
-    audience: 'visitor',
-  },
-  {
-    prefix: 'tool',
-    title: 'Tools',
-    note: "When a tool call can't run.",
-    icon: IconTool,
-    audience: 'model',
-  },
-  {
-    prefix: 'repair',
-    title: 'Repair',
-    note: 'Fixing a reply that failed its schema.',
-    icon: IconBandage,
-    audience: 'model',
-  },
-  {
-    prefix: 'egress',
-    title: 'Egress',
-    note: 'A reply that fails its check, sent back or refused.',
-    icon: IconSend,
-    audience: 'model',
-  },
-  {
-    prefix: 'continue',
-    title: 'Resumption',
-    note: 'Picking up a reply that stopped short.',
-    icon: IconPlayerTrackNext,
-    audience: 'model',
-  },
-  {
-    prefix: 'canary',
-    title: 'Canary',
-    note: "The note that binds each turn's canary.",
-    icon: IconFeather,
-    audience: 'model',
-  },
-  {
-    prefix: 'taint',
-    title: 'Untrusted content',
-    note: 'Why a tool call was refused after reading it.',
-    icon: IconBiohazard,
-    audience: 'model',
-  },
-  {
-    prefix: 'advisory',
-    title: 'Advisories',
-    note: 'Notes beside content that tries to direct it.',
-    icon: IconInfoCircle,
-    audience: 'model',
-  },
-];
+/** Each labels area's icon. */
+const LABEL_AREA_ICONS: Record<LabelAreaPrefix, IconType> = {
+  error: IconAlertTriangle,
+  attachments: IconPaperclip,
+  voice: IconMicrophone,
+  session: IconHourglass,
+  stop: IconPlayerStop,
+  composer: IconAdjustmentsHorizontal,
+  'detect.blocked': IconShieldOff,
+  thought: IconBulb,
+  live: IconHeadset,
+  quota: IconGauge,
+  tool: IconTool,
+  repair: IconBandage,
+  egress: IconSend,
+  continue: IconPlayerTrackNext,
+  canary: IconFeather,
+  taint: IconBiohazard,
+  advisory: IconInfoCircle,
+  detect: IconShieldSearch,
+  sign_in: IconLogin,
+  user_data: IconUser,
+  context: IconLayersUnion,
+  structured: IconBraces,
+  compaction: IconFold,
+};
 
 const LABEL_AUDIENCES: readonly {
   value: LabelAudience;
@@ -6126,11 +6742,11 @@ function SharedLabelRow({
         <HStack gap={1} align="center">
           <Text type="supporting">{shared.setting} is off.</Text>
           <Button
-            label={`Open ${profileGraphFacet(facet)?.label ?? facet}`}
+            label={`${draft.included.includes(facet) ? 'Open' : 'Add'} ${profileGraphFacet(facet)?.label ?? facet}`}
             variant="ghost"
             size="sm"
             onClick={() => {
-              // A section left out of the profile has no node to open until it's back in.
+              // why: a section left out of the profile has no node to open until it's added.
               setDraft((current) => includeFacet(current, facet));
               onSelect(facet);
             }}
@@ -6208,7 +6824,7 @@ function LabelsEditor({
 function labelAreas(draft: StudioDraft, needle: string, audience: LabelAudience) {
   return LABEL_AREAS.filter((area) => needle || area.audience === audience)
     .map((area) => {
-      const all = LABEL_KEYS.filter((key) => key.startsWith(`${area.prefix}.`));
+      const all = PROFILE_LABEL_KEYS.filter((key) => labelAreaOf(key) === area);
       const keys = needle
         ? all.filter((key) =>
             [
@@ -6262,7 +6878,7 @@ function LabelAudiencePicker({
 function LabelAreaTrigger({ area }: { area: ReturnType<typeof labelAreas>[number] }) {
   return (
     <HStack gap={2} align="center">
-      <Icon icon={area.icon} size="sm" color="secondary" />
+      <Icon icon={LABEL_AREA_ICONS[area.prefix]} size="sm" color="secondary" />
       <StackItem size="fill">
         <VStack gap={0}>
           <Text type="supporting" weight="semibold" color="primary">
@@ -6712,7 +7328,7 @@ function CriteriaList({
           icon={<Icon icon={IconPlus} size="sm" />}
           isDisabled={question.criteria.length >= (keys?.decision.criteria ?? Infinity)}
           onClick={() => {
-            setCriteria([...question.criteria, ...newCriteria('score').slice(0, 1)]);
+            setCriteria([...question.criteria, newCriterion()]);
           }}
         />
       </HStack>
@@ -6847,13 +7463,20 @@ function DecisionEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
       <InspectorSection title="Questions" note={sectionNote('decision.questions')}>
         {inFiles && !inFiles.said && <OriginLine origin={inFiles.origin} onOpen={inFiles.open} />}
         {listStatus && <Banner status="error" title={listStatus.message} />}
-        {inCode(
-          <>
-            {decision.questions.length > 0 && (
-              <QuestionList questions={decision.questions} onOpen={show} />
-            )}
-            <AddQuestionButton draft={draft} setDraft={setDraft} onOpen={show} />
-          </>,
+        {decision.questionsBuilt ? (
+          <Text type="supporting" color="secondary">
+            Your app builds these for each decision. A run asks the ones it builds from the state
+            and its input.
+          </Text>
+        ) : (
+          inCode(
+            <>
+              {decision.questions.length > 0 && (
+                <QuestionList questions={decision.questions} onOpen={show} />
+              )}
+              <AddQuestionButton draft={draft} setDraft={setDraft} onOpen={show} />
+            </>,
+          )
         )}
       </InspectorSection>
       <DecisionImagesSection draft={draft} setDraft={setDraft} />
@@ -6905,7 +7528,7 @@ function DecisionImageRow({
   );
 }
 
-/** The pictures every decision sends, each under the name its questions write, and a drop to add more. */
+/** The pictures a decision can send, each under the name its questions write, and a drop to add more. */
 function DecisionImagesSection({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const keys = useLentKeys();
   const { reading, changeAction } = useFilesRead(async (picked) => {

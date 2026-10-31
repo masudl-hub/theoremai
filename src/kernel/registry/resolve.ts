@@ -4,7 +4,9 @@ import { TheoremError } from '../../guardrails/error.ts';
 import { resolveGuardrailPolicy } from '../../guardrails/policy.ts';
 import { replyIsJudged } from '../../guardrails/progressive-yield.ts';
 import { sanitizeTurnRequest } from '../../guardrails/sanitize.ts';
+import { ANSWER_TOOL } from '../answer-tool.ts';
 import { DEFAULT_MAX_STEPS } from '../profile-presence.ts';
+import { operationNameOf } from '../protocols/binding.ts';
 import { profileTurnResumption } from '../stop.ts';
 import { projectTools } from '../tools/project.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
@@ -28,6 +30,7 @@ import { profileInputs, requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
+  assertTranscriptionRole,
   assertTurnContext,
   assertTurnSlots,
   resolveImageFormat,
@@ -35,7 +38,7 @@ import {
   resolveSpeech,
 } from './ingress.ts';
 import type { KernelRegistry } from './kernel-registry.ts';
-import { resolveTurnSystemPrompt } from './system-prompt.ts';
+import { resolveTurnSystem } from './system-prompt.ts';
 
 function isModelProfile(profile: Profile): profile is ModelProfile {
   return profile.type !== 'host' && profile.type !== 'decision' && profile.type !== 'embedding';
@@ -207,11 +210,12 @@ function resolveLiveSpec(
 
 /**
  * A canary for the turn while `canary_leak` reads somewhere, else none. Speech
- * has no system prompt to plant one in.
+ * and transcription have no system prompt to plant one in.
  */
 function plantedCanary(profile: ModelProfile): string {
   const { detect } = resolveGuardrailPolicy(profile.guardrails);
-  return profile.type !== 'speech' && detects(detect, 'canary_leak') ? mintCanary() : '';
+  const noPrompt = profile.type === 'speech' || profile.type === 'transcription';
+  return !noPrompt && detects(detect, 'canary_leak') ? mintCanary() : '';
 }
 
 /**
@@ -261,15 +265,26 @@ function resolveTurnInRegistry(
   const builtins = toolSnapshot.builtins;
   const structuredId = resolveStructured(profile, input.slots);
   assertOutputMode(profile, structuredId);
+  if (structuredId && toolSnapshot.wire.some((tool) => tool.name === ANSWER_TOOL)) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id}: a structured turn answers through '${ANSWER_TOOL}', so no tool of its own may take that name`, // labels-exempt: developer contract error
+    );
+  }
   assertSpeechRole(profile, safe);
+  assertTranscriptionRole(profile, safe);
   const builtInArgs = resolveBuiltInArgs(profile, picked, binding, safe.builtInArgs);
   const transport = resolveTransport(profile, binding);
+  const provider = registry.providers.get(binding.provider);
+  const operationName = provider && operationNameOf(provider, binding, profile.type);
+  const system = resolveTurnSystem(profile, safe);
   return {
     profile,
     generation: {
       model: picked,
       apiId: binding.apiId,
       transport,
+      ...(operationName ? { operationName } : {}),
       stream: resolveStreamFlag(profile),
       thinking: resolveEffort(profile, binding, picked, safe.effort),
       summaries: resolveSummaries(binding),
@@ -292,7 +307,8 @@ function resolveTurnInRegistry(
       live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
       canary: plantedCanary(profile),
-      resolvedSystem: resolveTurnSystemPrompt(profile, safe),
+      resolvedSystem: system.pieces,
+      systemLines: system.lines,
       host: safe.host,
     },
   };

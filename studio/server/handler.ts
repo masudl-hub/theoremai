@@ -13,31 +13,47 @@
  * @module
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
+  checkKey,
   type DecisionAsset,
   type DecisionQuestion,
   defineProfile,
   getStructured,
+  type KeyCheck,
   listProfiles,
   listProviders,
   listTools,
   type Profile,
   type ProviderHostOptions,
   type RegisteredProvider,
-  registerTool,
+  type StageHandler,
+  type TurnWiring,
 } from '@theoremjs/agents';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
 import { createProviderRegistry } from '@theoremjs/agents/kernel';
+import type { TheoremRewound } from '@theoremjs/web/client';
 import {
   createSealedConversationStore,
   createTheoremDecisionHandler,
   createTheoremEmbeddingHandler,
   createTheoremHandler,
   createTheoremHostHandler,
+  type DecisionQuestionsBuilder,
+  isQuestionsBuilder,
+  readBody,
+  startConversation,
   type TheoremConversationStore,
-} from '@theoremjs/react/server';
+  theoremStartRequestSchema,
+} from '@theoremjs/web/server';
 import { differingSettings } from '../agreement.ts';
-import { type StudioAsks, studioAsks } from '../asks.ts';
+import {
+  ASK_WRITES_HEADER,
+  ASK_WRITES_PARAM,
+  type StudioAsks,
+  studioAskStage,
+  studioAsks,
+} from '../asks.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
@@ -55,13 +71,19 @@ import {
   type StudioPeopleOffer,
 } from '../people.ts';
 import { STUDIO_TRACE_DESTINATION } from '../policy.ts';
-import { kernelDefinition, registerStudioProvider, type StudioProvider } from '../providers.ts';
+import {
+  kernelDefinition,
+  modelSlots,
+  registerStudioProvider,
+  type StudioProvider,
+} from '../providers.ts';
 import { readStudioSource } from '../read-source.ts';
 import { STUDIO_READER } from '../reader.ts';
 import type { ToolRegistration } from '../registrations.ts';
 import { withPatterns } from '../runtime-scope.ts';
 import { studioSource } from '../source.ts';
 import { createStudioDraftHandler, STUDIO_BASE } from './draft-handler.ts';
+import { errorJson } from './draft-replies.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
 
 export { STUDIO_BASE } from './draft-handler.ts';
@@ -136,6 +158,8 @@ export type StudioHandlerOptions = {
   people?: StudioPeople;
   /** How the project's registered providers find their keys. Default: as the project registered them. */
   provider?: ProviderHostOptions;
+  /** The application's own turn, from the one a chat builds: its entry's `theorem.prepare`. */
+  prepare?: TurnWiring['prepare'];
   /** What each decision profile asks, by the profile's id: the questions the application passes when it decides. */
   questions?: ProjectQuestions;
   /** The pictures each decision profile sends, by the profile's id: the images the application passes when it decides. */
@@ -149,8 +173,14 @@ export type StudioHandlerOptions = {
   conversationKey: string;
 };
 
-/** A project's decision questions: for each decision profile's id, its questions by their ids. */
-export type ProjectQuestions = Record<string, Record<string, DecisionQuestion>>;
+/**
+ * A project's decision questions: for each decision profile's id, its questions by their ids, or
+ * a builder that makes them for each decision.
+ */
+export type ProjectQuestions = Record<
+  string,
+  Record<string, DecisionQuestion> | DecisionQuestionsBuilder<unknown>
+>;
 
 /** A project's decision pictures: for each decision profile's id, its images by reference. */
 export type ProjectImages = Record<string, Record<string, DecisionAsset>>;
@@ -203,15 +233,23 @@ export function printableProfile<P extends Profile>(profile: P): P {
   return plainSetting(recording) as P;
 }
 
+const registeredShape = (id: string) => ({
+  id,
+  spec: { jsonSchema: getStructured(id).jsonSchema },
+});
+
 /**
- * The schema a profile's replies take, as registered. None when the profile names one nothing
- * registers, or one for each slot: the editor holds a single schema.
+ * The schemas a profile's replies take, as registered: its one schema, or the fallback beside the
+ * shapes a slot picks. None when the profile names one nothing registers.
  */
 function replySchema(profile: Profile) {
-  const id = 'outputs' in profile ? profile.outputs?.structured : undefined;
-  if (typeof id !== 'string') return undefined;
+  const written = 'outputs' in profile ? profile.outputs?.structured : undefined;
+  if (!written) return undefined;
   try {
-    return { id, spec: { jsonSchema: getStructured(id).jsonSchema } };
+    if (typeof written === 'string') return registeredShape(written);
+    const picked = new Set(Object.values(written.map));
+    picked.delete(written.fallback);
+    return { ...registeredShape(written.fallback), also: [...picked].map(registeredShape) };
   } catch {
     return undefined;
   }
@@ -248,6 +286,7 @@ function readProfile(
   tools: readonly ToolRegistration[],
   questions: Record<string, DecisionQuestion> | undefined,
   images: Record<string, DecisionAsset> | undefined,
+  built = false,
 ): ProfileRead {
   try {
     const structured = replySchema(profile);
@@ -263,7 +302,10 @@ function readProfile(
     const read = readStudioSource(source, createBlankDraft());
     if (!read.ok)
       return { ok: false, message: read.errors.map((error) => error.message).join(' ') };
-    return { ok: true, draft: read.draft, registered: read.registered };
+    const draft = built
+      ? { ...read.draft, decision: { ...read.draft.decision, questionsBuilt: true as const } }
+      : read.draft;
+    return { ok: true, draft, registered: read.registered };
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }
@@ -372,7 +414,8 @@ function describeStudio(
       problems.push({ profile: profile.id, message: fault });
       continue;
     }
-    const read = readProfile(profile, tools, asked, images[profile.id]);
+    const built = isQuestionsBuilder(asked);
+    const read = readProfile(profile, tools, built ? undefined : asked, images[profile.id], built);
     if (!read.ok) {
       problems.push({ profile: profile.id, message: read.message });
       continue;
@@ -444,26 +487,24 @@ function describeStudio(
     ...(modelProblems.length ? { modelProblems } : {}),
     ...(differences.length ? { differences } : {}),
     ...(unheld.length ? { unheld } : {}),
-    asks: { asked: [], inside: [] },
+    asks: { asked: [], destructive: [], inside: [] },
   };
 }
 
+/** Which tools that write the running request's builder said should ask. */
+const runAsks = new AsyncLocalStorage<string | null>();
+
 /**
- * Makes every registered tool that writes ask the builder before each run, whatever its own
- * setting: a run in the studio is the project's real code, on whatever it reaches. The project's
- * files are not touched, and the editor shows what they say.
+ * Which registered tools ask the builder before each run, whatever their own setting: a run in
+ * the studio is the project's real code, on whatever it reaches. The question is the studio's own
+ * stage, so the registrations and the project's files stay as they are.
  */
-function askBeforeWrites(): StudioAsks {
-  const tools = listTools();
+function writesToAsk(): StudioAsks {
   const profiles = new Map(listProfiles().map((profile) => [profile.id as string, profile]));
-  const asks = studioAsks(tools, (id) => {
+  return studioAsks(listTools(), (id) => {
     const profile = profiles.get(id);
     return profile && 'tools' in profile ? profile.tools.allow : [];
   });
-  for (const tool of tools) {
-    if (asks.asked.includes(tool.name)) registerTool({ ...tool, permission: 'always_confirm' });
-  }
-  return asks;
 }
 
 export function json(status: number, body: unknown, headers: HeadersInit): Response {
@@ -541,7 +582,7 @@ export function corsHeaders(
 ): Record<string, string> {
   return {
     'access-control-allow-origin': request.headers.get('origin') ?? pageOrigins[0] ?? '',
-    'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}`,
+    'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}, ${ASK_WRITES_HEADER}`,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     vary: 'origin',
   };
@@ -549,7 +590,7 @@ export function corsHeaders(
 
 /** Why a decision profile is not run: the setup file does not name its questions. */
 export function noQuestions(profileId: string): string {
-  return `The studio does not know what ${profileId} asks. Export the questions your application passes it from the setup file: export const questions = { '${profileId}': { ... } }.`;
+  return `The studio does not know what ${profileId} asks. Export the questions your application passes it from the setup file: export const questions = { '${profileId}': { ... } }, or, when they change with each decision, the builder that makes them: { '${profileId}': { input, build } }.`;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -601,6 +642,13 @@ function questionFault(question: unknown): string | undefined {
  * type-checked, so the studio reads what it exports before it trusts it.
  */
 export function questionsFault(profileId: string, questions: unknown): string | undefined {
+  if (isQuestionsBuilder(questions)) {
+    const { input } = questions as { input?: unknown };
+    const zod = isRecord(input) && typeof input.safeParse === 'function';
+    return input === undefined || zod
+      ? undefined
+      : `The questions the setup file exports for ${profileId} build from an \`input\` that is not a zod schema.`;
+  }
   if (!isRecord(questions) || !Object.keys(questions).length) return noQuestions(profileId);
   for (const [id, question] of Object.entries(questions)) {
     const fault = questionFault(question);
@@ -617,6 +665,7 @@ const NO_SOCKET =
 function profileHandlers(
   options: StudioHandlerOptions,
   problems: StudioProblem[],
+  ask: StageHandler | undefined,
 ): Map<string, Serve> {
   const served = new Map<string, Serve>();
   // `run` refused a pick it cannot read before any handler is reached, so here it reads.
@@ -630,6 +679,7 @@ function profileHandlers(
     session: (request: Request) => actingAsSession(actingAs(request)),
     clientEvents: STUDIO_READER,
     ...(host ? { host: (request: Request) => host(request, actingAs(request)) } : {}),
+    ...(ask ? { onStage: ask } : {}),
   };
   // One store for every chat profile: one key, so any of them opens a ref its session holds.
   let conversationStore: TheoremConversationStore | undefined;
@@ -667,7 +717,11 @@ function profileHandlers(
         if (options.upgrade) {
           served.set(
             profile.id,
-            createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade),
+            createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade, {
+              ask,
+              session: shared.session,
+              host: shared.host,
+            }),
           );
         } else problems.push({ profile: profile.id, message: NO_SOCKET });
         continue;
@@ -687,20 +741,28 @@ function profileHandlers(
         continue;
       }
       // The page shows a run's trace, so the profile is served writing its records to the run.
+      if (profile.type === 'host') {
+        served.set(
+          profile.id,
+          withRunTraces(createTheoremHostHandler({ profile: tracedToPage(profile), ...shared })),
+        );
+        continue;
+      }
+      // A stateless profile keeps no conversation, so it takes no store.
+      const isStateless = profile.providerContinuation?.history === 'stateless';
+      const chat = createTheoremHandler({
+        profile: tracedToPage(profile),
+        provider: options.provider ?? {},
+        ...(options.prepare ? { prepare: options.prepare } : {}),
+        ...(isStateless ? {} : { conversationStore: chatStore() }),
+        // The studio's page is the builder's own: its picks choose the prompt lines.
+        pageStatesTurn: true,
+        ...shared,
+      });
       served.set(
         profile.id,
         withRunTraces(
-          profile.type === 'host'
-            ? createTheoremHostHandler({ profile: tracedToPage(profile), ...shared })
-            : createTheoremHandler({
-                profile: tracedToPage(profile),
-                provider: options.provider ?? {},
-                // A stateless profile keeps no conversation, so it takes no store.
-                ...(profile.providerContinuation?.history === 'stateless'
-                  ? {}
-                  : { conversationStore: chatStore() }),
-                ...shared,
-              }),
+          isStateless ? chat : startsConversations(chat, profile, chatStore(), shared.session),
         ),
       );
     } catch (error) {
@@ -711,6 +773,33 @@ function profileHandlers(
     }
   }
   return served;
+}
+
+/**
+ * `serve`, and `<profile>/conversation/start`: a chat that opens on blocks a trace holds, in the
+ * asking person's session, for a replay that goes on live.
+ * why: the project's run must open it, on the project's providers, and this server is the
+ * builder's alone. `createTheoremHandler` takes no transcript from a browser.
+ */
+function startsConversations(
+  serve: Serve,
+  profile: Profile,
+  store: TheoremConversationStore,
+  session: (request: Request) => string,
+): Serve {
+  return async (request) => {
+    const path = new URL(request.url).pathname;
+    if (!path.endsWith('/conversation/start')) return serve(request);
+    if (request.method !== 'POST') return new Response(null, { status: 405 });
+    try {
+      const { blocks } = await readBody(request, theoremStartRequestSchema);
+      const host = { sessionId: session(request), store };
+      const { ref, view } = await startConversation(host, profile, blocks);
+      return json(200, { conversation: ref, view } satisfies TheoremRewound, {});
+    } catch (error) {
+      return errorJson(error);
+    }
+  };
 }
 
 /** `answer` with the page's CORS headers on it. */
@@ -728,30 +817,84 @@ async function withCors(
  * Serves the studio for the tools and profiles registered when it is called.
  * Register the project first.
  */
+/** Where the studio asks the project's keys: one check for each provider an agent's models name. */
+export const KEYS_PATH = `${STUDIO_BASE}/keys`;
+
+/**
+ * The key check of each slot a model of `workspace` reads, first or as fallback, on the registered
+ * provider that serves it, with the vault the project's turns read. A provider whose check cannot
+ * be sent is `unchecked`, with why.
+ */
+async function keyChecks(
+  workspace: StudioWorkspace,
+  provider: ProviderHostOptions = {},
+): Promise<KeyCheck[]> {
+  const registered = new Map(listProviders().map((each) => [each.id, each]));
+  const read = new Map<string, { on: RegisteredProvider; slot: string | undefined }>();
+  for (const agent of workspace.agents) {
+    for (const binding of agent.modelBindings) {
+      const on = registered.get(binding.provider);
+      if (!on) continue;
+      const slots = modelSlots(workspace.providers, {
+        provider: binding.provider,
+        keySlot: binding.keySlot || agent.models.key,
+        fallbackKeySlot: binding.fallbackKeySlot || agent.models.fallbackKey,
+      });
+      const named = [slots.keySlot, slots.fallbackKeySlot].filter(Boolean);
+      for (const slot of named.length ? named : [undefined]) {
+        read.set(`${on.id}\u0000${slot ?? ''}`, { on, slot });
+      }
+    }
+  }
+  const { vault, fetch } = provider;
+  return await Promise.all(
+    [...read.values()].map(({ on, slot }) =>
+      checkKey(on, {
+        ...(slot ? { slot } : {}),
+        ...(vault ? { vault } : {}),
+        ...(fetch ? { fetch } : {}),
+      }).catch(
+        (error: unknown): KeyCheck => ({
+          provider: on.id,
+          ...(slot ? { slot } : {}),
+          state: 'unchecked',
+          said: error instanceof Error ? error.message : String(error),
+        }),
+      ),
+    ),
+  );
+}
+
 export function createStudioHandler(
   options: StudioHandlerOptions,
 ): (request: Request) => Promise<Response> {
   const base = STUDIO_BASE;
   const corsFor = (request: Request) => corsHeaders(request, options.pageOrigins);
-  // The page reads the tools as the files set them, then they are made to ask.
   const description = describeStudio(
     options.project,
     options.questions ?? {},
     options.images ?? {},
   );
-  description.asks = askBeforeWrites();
+  description.asks = writesToAsk();
   const peopleProblem = options.people === undefined ? undefined : peopleFault(options.people);
   // People the page cannot be offered are not offered: every run acts as no one, and the page says why.
   const people = options.people && !peopleProblem ? options.people : undefined;
   if (people) description.people = peopleOffer(people);
   if (peopleProblem) description.peopleProblem = peopleProblem;
   const handlerOptions = { ...options, people };
-  const served = profileHandlers(handlerOptions, description.problems);
+  const served = profileHandlers(
+    handlerOptions,
+    description.problems,
+    studioAskStage(description.asks, () => runAsks.getStore() === 'destructive'),
+  );
   const prefix = `${base}/profiles/`;
   const peoplePath = `${base}/people`;
   // The screen's own requests (the guardrail probe, the key and connection tests) need no project.
   // This server is the builder's alone, so a connection test reaches what the draft's runs reach.
-  const draft = createStudioDraftHandler({ draftNetwork: true });
+  const draft = createStudioDraftHandler({
+    draftNetwork: true,
+    projectProviders: listProviders,
+  });
 
   const run = async (request: Request, path: string): Promise<Response> => {
     const cors = corsFor(request);
@@ -760,7 +903,10 @@ export function createStudioHandler(
     if (!serve) return json(404, {}, cors);
     const read = readActingAs(request, people);
     if (!read.ok) return json(400, { message: read.message }, cors);
-    const response = await serve(request);
+    const asks =
+      request.headers.get(ASK_WRITES_HEADER) ??
+      new URL(request.url).searchParams.get(ASK_WRITES_PARAM);
+    const response = await runAsks.run(asks, () => serve(request));
     // A socket's answer goes back as it is: it is not a response the page reads.
     if (response.status === 101) return response;
     return withCors(Promise.resolve(response), cors);
@@ -772,6 +918,11 @@ export function createStudioHandler(
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const path = new URL(request.url).pathname;
     if (path === base && request.method === 'GET') return json(200, description, cors);
+    if (path === KEYS_PATH && request.method === 'GET') {
+      return keyChecks(description.workspace, options.provider).then((checks) =>
+        json(200, checks, cors),
+      );
+    }
     if (path.startsWith(prefix)) return run(request, path);
     if (path === peoplePath && request.method === 'GET')
       return existingPeople(people, request, cors);

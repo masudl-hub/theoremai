@@ -1,14 +1,15 @@
 import { assert, assertEquals, assertStringIncludes } from '@std/assert';
 import { createSurfaceRuntime } from '../../src/surface/runtime.ts';
 import { createBlankDraft, type StudioDraft, setProfileType } from '../../studio/draft.ts';
-import { createExampleDraft } from '../../studio/example.ts';
 import { ON_OWN_KEYS } from '../../studio/lent-keys.ts';
+import { createExampleDraft } from '../../studio/mod.ts';
 import {
   type StudioDraftChange,
   type StudioSurfaceHost,
   studioSurface,
 } from '../../studio/surface.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
+import { firstLine } from '../fixtures/prompt-line.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
@@ -57,9 +58,15 @@ function setup(start: StudioDraft = setProfileType(createBlankDraft(), 'text', T
     testKey: (slot) => {
       seen.tested.push(slot);
       return Promise.resolve({
-        ok: false,
-        status: 400,
-        said: `API key not valid: ${vault[slot] ?? ''}`,
+        slot,
+        checks: [
+          {
+            provider: 'gemini',
+            state: 'refused',
+            status: 400,
+            said: `API key not valid: ${vault[slot] ?? ''}`,
+          },
+        ],
       });
     },
     send: () => Promise.resolve(null),
@@ -139,9 +146,9 @@ Deno.test('set applies good settings and rejects the rest one by one', async () 
 
 Deno.test("the person's edit makes a write stale and is noted", async () => {
   const { runtime, person, draft, notes } = setup();
-  person({ ...draft(), identity: { ...draft().identity, system: 'be brief' } });
+  person({ ...draft(), identity: { ...draft().identity, system: firstLine(draft(), 'be brief') } });
   assertEquals(notes.length, 1);
-  assertStringIncludes(notes[0] ?? '', 'the person changed Identity');
+  assertStringIncludes(notes[0] ?? '', 'the person changed Unnamed agent');
   const stale = (await runtime.answer(
     'act',
     { at: 'studio/identity', action: 'set', input: { changes: { handle: 'x' } }, basedOn: 1 },

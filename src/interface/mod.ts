@@ -56,6 +56,7 @@ export {
   generationSelectEnabled,
   interfaceEffortOptions,
   interfaceModelOptions,
+  MODEL_SELECT_MIN_MODELS,
   modelSelectEnabled,
 } from './models.ts';
 export type {
@@ -66,6 +67,7 @@ export type {
 export {
   COMPOSER_PENDING_KINDS,
   cloneUserTurnDraft,
+  composerPendingMoves,
   composerPendingPreview,
   consumeNextComposerQueue,
   consumeNextComposerSteer,
@@ -123,6 +125,7 @@ export type {
   TextProfileInterface,
   TranscriptBlock,
   TranscriptBlockKind,
+  TranscriptionProfileInterface,
   UserTurnDraft,
 } from './types.ts';
 export { streamThoughtsEnabled } from './types.ts';

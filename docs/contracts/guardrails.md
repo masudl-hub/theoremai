@@ -101,7 +101,7 @@ Owns every module under `src/guardrails/`.
 | `mintCanary` | Generate a random 32-hex token (128 bits, no prefix): a Live session's canary |
 | `bindCanary` | Append canary note to system prompt |
 | `wrapUserData` | Fence untrusted user text in `<user_data>`, first stripping any fence tag in it, however spaced, cased, or nested |
-| `wrapContext` | Fence a context package in `<page_context from="client">` or `from="server"`, first stripping any fence tag in it, so neither the page nor the person can pass text off as the host's |
+| `wrapContext` | Fence a context package in `<turn_context from="client">` or `from="server"`, first stripping any fence tag in it, so neither the page nor the person can pass text off as the host's |
 | `contextNote` | The `context.note` labels line, which tells the model what that fence means; the runner appends it to the system prompt of a profile that sets `inputs.context`. An empty override leaves it out. |
 | `userDataNote` | The `user_data.note` labels line, which tells the model what the fence means; the runner appends it, private, to the system prompt of every text, image, and live turn (speech has no system prompt). An empty override leaves it out. |
 | `createCanaryStreamGate` | Holds only a tail that could start a leak, for split-token streaming; with the private stretches of the system prompt, also stops a reply echoing them |
@@ -176,8 +176,9 @@ The reason the model reads on a rewrite is the labels' `egress.rejection`,
 with a line for each detector that matched (`retryRejection`). The line is the
 detector's hint, which says what to leave out, followed by up to three of the
 texts it matched, each cut to 120 characters (`egress.rejection_found`).
-`canary_leak` and `prompt_leak` give their hint alone: what they match is never
-repeated. A Theorem detector's hint is the labels' `detect.hint.<detector>`;
+`canary_leak` gives its hint alone: the canary is never repeated. `prompt_leak`
+quotes the passages the reply repeated, since the model already holds them and
+must know which to leave out. A Theorem detector's hint is the labels' `detect.hint.<detector>`;
 one the profile adds patterns to may set its own `hint` beside them. A detector
 of the host's own sets `hint`, or gets `detect.hint.own`, which names its
 label. A hint is one line of at most 300 characters. The rewrite request is
@@ -237,8 +238,8 @@ at `reply`, `reply_structured`, `live_reply`, and `thought`:
 
 | Detector | Default | Finds |
 | --- | --- | --- |
-| `marker_leak` | `block` in a reply, `redact` in a thought | The fence the kernel puts around user data (a `user_data` tag, closed or not), and the canary note's own words, as the profile's `canary.bind_note` words it |
-| `ungiven_images` | `block` in a reply, `redact` in a thought | An image that loads a URL the model was not given |
+| `marker_leak` | `flag` | The fence the kernel puts around user data (a `user_data` tag, closed or not), and the canary note's own words, as the profile's `canary.bind_note` words it |
+| `ungiven_images` | `flag` | An image that loads a URL the model was not given |
 | `ungiven_links` | `ignore` | A link to a URL the model was not given |
 
 `ungiven_images` and `ungiven_links` also take `allow: { hosts?, fromTools? }`:
@@ -409,7 +410,9 @@ action at the boundary. Ordinary prose streams at
 once; a blocked match has shown the host none of its characters, however long
 and however chunked, including a match padded past any fixed window. Each
 character is read once per view, so the cost grows with the reply, not its
-square.
+square. It also grows with the patterns: each one is an automaton more that
+reads every character of every view its detector reads. Theorem sets no limit
+on how many patterns a detector takes, or how long each is.
 
 A host's `find` cannot say where a match might still start, so the gate keeps
 a fixed tail for it: `HOST_FIND_HOLD` characters (256; on Live
@@ -420,8 +423,10 @@ than the tail is read when the attempt ends.
 scan detects. A window that ends on a possible leak opening of any length
 carries it (`canaryCarry`) into the next window of the same canary — the next provider
 call of a `runTurn`, the next Live cycle — so a token split across tool steps
-or cycles is one match: the turn or session ends when it completes, and only
-the chunks before the completing one were released. The same constructor backs
+or cycles is one match. Only the chunks before the completing one were
+released. Under `flag` the match is reported and goes out. Under `redact`, what
+goes out after them has the token replaced. Under `block` the turn or session
+ends there. The same constructor backs
 `runTurn` and
 Live (`processLiveOutboundBatch`). The detectors of what is the profile's own
 (`canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`,
@@ -430,27 +435,27 @@ action `guardrails.detect` gives it for the boundary: `ignore` is not read,
 `flag` is reported once and shown, `redact` and `block` hold the rest of the
 reply and the end of the attempt replaces the match or stops the reply. A leak
 the end-of-attempt read cannot place still stops the reply. A model's tool call is read at
-`tool_arguments` (default: the canary refuses the call, the prompt is
-flagged), and structured output at `reply_structured`. Any other event
+`tool_arguments` (default: both are flagged), and structured output at `reply_structured`. Any other event
 carrying a leak follows the reply's action, where `redact` stops the turn as
 `block` does, since an event has no text to replace. A provider-side tool's
 report of one always ends the turn: that call already ran.
 `outputs.streaming.mode: 'sse'` and egress can both stay on.
 
-**Thoughts are omitted from, never stopped.** Only the reply stream flows
+**Thoughts are read, never stopped.** Only the reply stream flows
 through progressive yield, and the end-of-attempt egress payload carries reply
 text and structured output; nothing in a thought stops the turn
 (`isGuardedOutput`). A host that shows thoughts
 (`outputs.streaming.streamThoughts`) shows what they say and loads what they
-link, so each thought runs through a guard that omits what leaks and streams
-the rest as it clears — in `runTurn` and Live alike:
+link, so each thought runs through a guard that streams it as it clears — in
+`runTurn` and Live alike. By default a leak is flagged and shown; under
+`redact` or `block` at `thought` it is omitted:
 
 | Leak | Guarded when | Placeholder (labels key) |
 | --- | --- | --- |
-| Image | `ungiven_images` is above `ignore` at `thought` | `thought.omitted_image` |
-| Link | `ungiven_links` is above `ignore` at `thought` | `thought.omitted_link` |
-| Boundary marker | `marker_leak` is above `ignore` at `thought` | `thought.omitted_instructions` |
-| Canary, prompt echo | `canary_leak` / `prompt_leak` is above `ignore` at `thought` | `thought.omitted_instructions` |
+| Image | `ungiven_images` is `redact` or `block` at `thought` | `thought.omitted_image` |
+| Link | `ungiven_links` is `redact` or `block` at `thought` | `thought.omitted_link` |
+| Boundary marker | `marker_leak` is `redact` or `block` at `thought` | `thought.omitted_instructions` |
+| Canary, prompt echo | `canary_leak` / `prompt_leak` is `redact` or `block` at `thought` | `thought.omitted_instructions` |
 
 Each omission reports a `guardrail` event at stage `thought`, action `redact`,
 before the thought text it changed. `canary_leak` and `prompt_leak` report a
@@ -636,13 +641,14 @@ is guessed from message text; a value that reaches a boundary without a kind is
 | Builder | `errorKind`, `errorInternal` on error events; `TheoremError.kind`; `ToolFailure.kind` + `code`; the trace's `error.type` (the kind) |
 | User | `error` on error events and `failure.error` on failed tool steps — the labels' `error.<kind>` |
 
-Kinds (`ERROR_KINDS`): `config`, `request`, `input`, `action`, `auth`,
+Kinds (`ERROR_KINDS`): `config`, `request`, `conflict`, `not_found`, `input`, `action`, `auth`,
 `rate_limit`, `busy`, `unsupported`, `unavailable`, `bad_response`, `network`,
 `timeout`, `safety`, `blocked`, `declined`, `failed`, `cancelled`, `internal`.
 
 Wording resolves the profile's `labels` → `overrideLabels` → the default.
 Defaults are never forced: any profile type may carry a `labels` with any
-key. A failure more specific than its kind carries its own copy
+key except the `HOST_LABEL_KEYS` (provider and protocol errors, and the decision
+box hint), which only `overrideLabels` changes. A failure more specific than its kind carries its own copy
 (`TheoremError(kind, message, { copy: { key, params } })`, surfaced as
 `errorCopy`, typed `ErrorCopies`), which wins over the kind's line. A failure
 that found several problems carries a list — one line per problem, joined by newlines (a refused
@@ -666,6 +672,7 @@ leaked fragments never reach the client wire.
 | --- | --- |
 | HTTP 401 / 402 / 403 | `auth` |
 | HTTP 408 / 504 / 524 | `timeout` |
+| HTTP 409 | `conflict` |
 | HTTP 429 | `rate_limit` |
 | HTTP 503 / 529 | `busy` |
 | Other HTTP ≥ 500 | `unavailable` |
@@ -689,14 +696,19 @@ not the key.
 | `denied` | `declined` |
 | A remote tool without its credential (`not_authorized`); tool HTTP 401 / 402 / 403 | `auth` |
 | Tool HTTP 429 | `rate_limit` |
-| `network_error` | `network` |
+| `network_error`: the fetch failed, or reading its body failed | `network` |
+| `timeout` | `timeout` |
+| `request_failed`: anything else a remote call threw | that error's kind; `internal` when it is not a `TheoremError` |
 | `invalid_*`, `malformed_arguments` | `bad_response` |
 | `handler_error` from a handler that threw a `TheoremError` | that error's kind |
 | any other `handler_error`, `mcp_*`, other tool HTTP statuses | `failed` |
 | `unknown_tool`, `not_loaded`, `not_gated`, `provider_native` | `request` |
 | `cancelled` | `cancelled` |
 
-`describeError` returns the raw detail for logs. `throwIfAborted(signal)`
+`describeError` returns the raw detail for logs: the error's message, then a
+`caused by:` line for each error in its `cause` chain. `errorInternal` and the
+trace's `exception.message` use it. A provider error keeps its cause, with keys
+removed from each message. `throwIfAborted(signal)`
 preserves a framework error, abort, or timeout reason when execution must stop;
 `isAbortError` / `isTimeoutError` read the error name only.
 
@@ -735,17 +747,22 @@ closing a word stay as written). The carry between steps and cycles means
 spreading the dump over them does not restart the count.
 
 A system prompt is a string or a list of parts (`SystemPrompt`), and the parts
-are sent concatenated as written. With no `{ private: text }` part the whole
+are sent concatenated as written. `identity.system` is a list of lines
+(`ProfileSystem`), where each line is a string or a list of parts; every line
+that fits the turn is sent, a blank line apart. Marks are settled on the prompt
+as written, so a dropped line never changes the marks of a kept line. With no `{ private: text }` part the whole
 prompt is private; with one, the plain parts beside it are shareable — lines
 the agent is meant to say word for word, like a greeting, or a voice line. Marks
-apply per source: `identity.system` (or its `systemByRole` entry) and
+apply per source: `identity.system` and
 `req.system` are joined a blank line apart, and a mark in one leaves the other
 as private as it was written. The canary note and the `user_data` note are
 always private. Adjacent private parts read as one stretch; a run of words never
 bridges a shareable part, and shareable text never stops a reply, even where it
-repeats private words. The contract: no reply carries 12 or more consecutive
-words of private prompt text, Theorem's notes, or the canary. A paraphrase is
-not caught, and secrets never belong in the prompt. A profile whose prompt is
+repeats private words. The contract: Theorem checks every reply for 12 or more
+consecutive words of private prompt text, Theorem's notes, or the canary, and
+reports each one it finds. Under the default `flag`, the reply goes out as
+written. To keep a leak from the person, set `canary_leak` and `prompt_leak`
+to `redact` or `block`. A paraphrase is not caught, and secrets never belong in the prompt. A profile whose prompt is
 quoted throughout can still set `detect: { prompt_leak: 'ignore' }`.
 
 Trusted text reaches the provider verbatim. Injection redaction would strip a
@@ -886,9 +903,8 @@ detect: compileDetect({
     compiler where it runs (it imports `refa`). `compileDetectTables` and
     `compiledDetectModule` are the two steps it takes.
 - `defineProfile` rejects: `theorem` or `patterns` on another detector; a
-  pattern that does not compile, matches the empty text, repeats a name, is
-  longer than `MAX_PATTERN_LENGTH` (1024) or is one of more than
-  `MAX_PATTERNS` (64); `patterns` with no `compiled`, or with one compiled from
+  pattern that does not compile, matches the empty text, or repeats a name;
+  `patterns` with no `compiled`, or with one compiled from
   other patterns or by another compiler version. `compilePatterns` also
   refuses a pattern with no automaton to hold by (a backreference to text
   that varies), and one whose time is not bound by the text's length:
@@ -950,7 +966,18 @@ detect: compileDetect({
   a stretch outside the text, an empty one, or anything but a list, stops the
   text as `block` does whatever the action set; the hit names the detector, no
   match, and how it failed as its `signal`: `find_threw`, or `find_result`
-  for what it returned.
+  for what it returned. The guardrail event's `errorInternal` names the
+  detector and why it failed, with what it threw, for the builder only. A
+  request it stops throws with the same reason in its message. The trace
+  cleans what it stores with the same `find`, so it stores `[omitted]` in
+  place of the reason. The event's `errorSummary` says the same in the
+  kernel's words only, such as `Host detector 'harbor.pii' find threw
+  TimeoutError (error 3f9a1c2b)`: the error's type is its name when that is
+  letters only, else `Error`. The trace stores it as `error_summary`, and the
+  hit's `signal` too. A thrown error's reason ends with the same error id, so
+  the builder can match the trace to the host stream. A host that wants the
+  reason itself in the trace turns off the host's clean-up
+  (`observability.scrub.sensitive.host: false`).
 - A reply streams up to a pattern's match, as above. `find` cannot say where a
   match might still start, so with one the last `HOST_FIND_HOLD` (256)
   characters of a reply stay held, `HOST_FIND_HOLD_LIVE` (96) in a Live reply,
@@ -969,19 +996,19 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 
 | Boundaries | Sensitive detectors | `injection` | `tool_instructions` |
 | --- | --- | --- | --- |
-| `user` … `live_user` | `redact` | `redact` | — |
-| `tool_output_function`, `tool_failure_function` | `redact` | `redact` | `ignore` |
-| `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `redact` | `redact` | `flag` |
+| `user` … `live_user` | `flag` | `flag` | — |
+| `tool_output_function`, `tool_failure_function` | `flag` | `flag` | `ignore` |
+| `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `flag` | `flag` | `flag` |
 | `tool_arguments_*` | `flag` | `ignore` | — |
-| `tool_shown_*` | `ignore`; `credentials` `redact` | `ignore` | — |
-| `reply`, `reply_structured` | `ignore`; `credentials` `redact` | `ignore` | — |
+| `tool_shown_*` | `ignore`; `credentials` `flag` | `ignore` | — |
+| `reply`, `reply_structured` | `ignore`; `credentials` `flag` | `ignore` | — |
 | `live_reply`, `thought` | `ignore` | `ignore` | — |
 
 | Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
 | --- | --- | --- | --- | --- | --- | --- |
-| `tool_arguments_*` | `block` | `flag` | — | — | — | — |
-| `reply`, `reply_structured`, `live_reply` | `block` | `block` | `block` | `block` | `ignore` | `flag` |
-| `thought` | `redact` | `redact` | `redact` | `redact` | `ignore` | `flag` |
+| `tool_arguments_*` | `flag` | `flag` | — | — | — | — |
+| `reply`, `reply_structured`, `live_reply` | `flag` | `flag` | `flag` | `flag` | `ignore` | `flag` |
+| `thought` | `flag` | `flag` | `flag` | `flag` | `ignore` | `flag` |
 
 A dash is a boundary the detector does not apply at. The default is also the
 recommended action.
@@ -1054,6 +1081,9 @@ switch cannot mean different things on different paths.
 | `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, context, repair, history, system, and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
 | `sanitizeTurnRequestWithEvents(req, profile)` | A `SanitizedTurnRequest`: the request, one `{ type: 'guardrail' }` event for each boundary where something matched, and the `refusal` to end the turn on when a match blocks |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
+
+A request a match blocks throws an `input` error worded `detect.blocked`. Its
+message names the boundary and, when a host detector failed, why it failed.
 
 `injectionSpans` and `sensitiveSpans` return `RedactSpan[]`; `applySpans`
 (from observability) performs replacement. Detection runs on normalized text
@@ -1158,7 +1188,7 @@ is not what the generator writes.
 | Keywords | The rule runs only when the text holds one of its keywords, in any case |
 | Secret | The rule's `secretGroup`, else its first non-empty group, else the whole match. Only the secret is redacted |
 | Entropy | The match is dropped when the secret's Shannon entropy is at or under the rule's floor |
-| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match, or its lines, or when the secret holds a stopword |
+| Allowlists | The match is dropped when a global or rule allowlist matches the secret, the match, or the lines the match is on, or when the secret holds a stopword. A line that holds many matches is read once for each allowlist |
 
 Three differences from gitleaks are deliberate:
 
@@ -1184,8 +1214,8 @@ that it cannot convert exactly.
 
 `sensitiveSpans` finds, and never itself replaces. A selection is `true` (every
 group), `false` (none), or an object switching the groups it names, the rest at
-their default. Inbound, `guardrails.detect` (default `redact` for every group)
-replaces them in untrusted and assembled text; trusted text is left verbatim
+their default. Inbound, `guardrails.detect` (default `flag` for every group)
+reports them in untrusted and assembled text, and replaces them where the profile sets `redact`; trusted text is left verbatim
 (see [Trust levels](#trust-levels)). IPv4 and IPv6 addresses count inbound,
 where they are the user's personal data; no group reads the reply by default,
 because an address in a reply is not a secret (see [Egress](#egress)). A
@@ -1573,6 +1603,9 @@ It follows redirects manually, with a limit of 20 hops and Fetch-standard method
 Each target passes the same URL check before the next request. Tool auth and
 configured headers go to the configured origin only and are never re-sent once a
 redirect leaves it. OAuth discovery and token requests do not follow redirects.
+A hop whose request or body read fails throws `TheoremError` with kind
+`network`, and the error the fetch threw is its `cause`. A `dnsOverHttpsResolver`
+query that fails reads the same way.
 
 `fetchGuarded` takes an optional `resolveHost`. With it, every hop's host name
 is resolved first and the hop is refused when any address is private or the name
@@ -1585,6 +1618,9 @@ DNS lookup, such as Workers. The lookup is separate from the
 connection's own, so it stops names that point inward but not a DNS server that
 changes its answer between the two (rebinding); that stays the host egress
 layer's job. `onCheck`, when given, hears how long each hop's check took.
+`beforeSend`, when given, runs once after the first hop's checks pass and before
+anything is sent. What it throws passes unchanged, so it never reads as
+`network`. HTTP and MCP tools take their execution claim there.
 
 ```ts
 guardrails: {
@@ -1692,9 +1728,10 @@ placeholder, or a placeholder the key never fills in.
 | Sign-in | `sign_in.link` (the channel line with `{link}`), `sign_in.pending`, `sign_in.done`, `sign_in.declined`, `sign_in.expired`, `sign_in.out_of_scope` — each names `{service}` | labels |
 
 The copy-manifest lint (`scripts/docs-truth/copy-lint.mjs`) scans the **full**
-`src/kernel`, `src/guardrails`, and `src/interface` trees, and the headless
-React directories (`react/src/client`, `components`, `hooks`, `server`; the
-default UI in `react/src/ui` words its own chrome). Only
+`src/kernel`, `src/guardrails`, and `src/interface` trees, the headless
+React directories (`react/src/client`, `components`, `hooks`; the default UI
+in `react/src/ui` words its own chrome), and `web/src/client` and
+`web/src/server`. Only
 `src/guardrails/labels.ts` is auto-skipped. Everything else must either live
 in the labels or carry an explicit reason:
 
@@ -1711,13 +1748,13 @@ It does not suggest an automatic retry of the unresolved operation.
 ## Decision disclosure
 
 Decision profiles do not run the turn egress lifecycle. Their only active
-guardrail is `guardrails.disclosure.enforce`, a host pre-dispatch check over the
-JSON state that would leave the process for TypeSafe Jev. It returns only
+guardrail is `guardrails.disclosure.enforce`, a host check before dispatch. It gets the
+JSON state that would leave the process for the decision provider, and the images that
+would go with it (`assets`). It returns only
 `allow` or `block`; a block prevents the request and surfaces a `DecisionError`
-with code `disclosure_blocked` (kind `blocked`). The registry rejects the inherited shared
-guardrail fields (quota, sanitization, redaction, canary, egress, network, and
-taint) on decision profiles because none have meaningful semantics on this
-bounded request path.
+with code `disclosure_blocked` (kind `blocked`). The registry refuses every other
+guardrail field (`quota`, `detect`, `blockedReply`, `network`, and `taint`) on a
+decision profile, because none has an effect on this bounded request path.
 
 ## Exported API
 
@@ -1727,8 +1764,8 @@ From `src/guardrails/mod.ts`:
 | --- | --- |
 | Errors | `ERROR_KINDS`, `ErrorKind`, `ErrorCopy`, `ErrorCopies`, `errorKindSchema`, `errorCopiesSchema`, `TheoremError`, `TheoremErrorOptions`, `errorKind`, `kindOfHttpStatus`, `publicError`, `toErrorEvent`, `withPublicLabels`, `describeError`, `isAbortError`, `isTimeoutError`, `throwIfAborted` |
 | Injection / sensitive | `injectionSpans`, `sensitiveSpans`, `SENSITIVE_GROUPS`, `SensitiveGroup`, `SensitiveGroups`, `SensitiveSelection`, `SensitiveSwitches` |
-| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `DecisionDisclosureVerdict`, `DecisionDisclosureEnforcer`, `DecisionGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
-| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `MAX_PATTERNS`, `MAX_PATTERN_LENGTH`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |
+| Vocabulary | `TrustLevel`, `GuardrailStage`, `Severity`, `GuardrailHit`, `Verdict`, `GuardrailEvent`, `guardrailEventSchema`, `Provenance`, `ToolOrigin`, `GuardrailAction`, `GuardrailContext`, `OutboundPayload`, `ProfileGuardrailsSpec`, `HostGuardrailsSpec`, `NetworkGuardrailSpec`, `QuotaGuardrailSpec`, `ResolvedGuardrailPolicy`, `DecisionGuardrailsSpec`, `DecisionDisclosureEnforcer`, `DecisionDisclosureVerdict`, `TRUST_LEVELS`, `GUARDRAIL_STAGES`, `SEVERITIES` |
+| Detect | `DETECTORS`, `Detector`, `DETECTOR_META`, `detects`, `resolveAllow`, `DETECT_ACTIONS`, `DetectAction`, `DETECT_ACTION_META`, `DetectMeta`, `DETECT_DEFAULTS`, `DetectSpec`, `DetectorRule`, `DetectorConfig`, `DetectorDeclaration`, `DETECTOR_BOUNDARIES`, `DETECTOR_GROUPS`, `DetectorGroup`, `DETECTOR_GROUP_META`, `ResolvedDetect`, `DetectMatrix`, `DetectSources`, `DetectorSource`, `PATTERN_DETECTORS`, `HostPattern`, `CompiledPatterns`, `HostDetectorConfig`, `HostDetectorId`, `HostDetector`, `HostFind`, `HostSpan`, `HOST_FIND_HOLD`, `HOST_FIND_HOLD_LIVE`, `resolveDetect`, `detectProblem`, `BOUNDARIES`, `Boundary`, `BOUNDARY_META`, `BoundaryMeta`, `TOOL_BOUNDARIES`, `ToolBoundary`, `ToolCrossing`, `TOOL_KINDS`, `ToolKind`, `toolBoundary`, `recordOf`, `detectAt`, `Detection`, `DetectOutcome`, `actionAt`, `hintProblem`, `listsPatterns`, `patternListProblem` |
 | Policy | `resolveGuardrailPolicy` |
 | Rule ids | `DETECT_RULES`, `detectRule`, `EGRESS_RULES`, `TOOL_RULES`, `NETWORK_RULES`, `GuardrailRule` |
 | Tool boundary | `guardToolResult`, `guardToolFailureText`, `inspectToolArguments`, `toolCallEvent`, `wrapToolData`, `isRemoteOrigin`, `composeToolText`, `checkTaintGate`, `recordTaint`, `isTainted`, `isSuspicious`, `checkDestinationGate`, `turnDestinations`, `addGivenDestinations`, `addHistoryDestinations`, `addRequestDestinations`, `addResultDestinations`, `TurnDestinations`, `DestinationVerdict`, `DESTINATION_GATES`, `DestinationGate`, `directives`, `DIRECTIVE_SIGNALS`, `Directive`, `DirectiveSignal`, `advisoryLevel`, `ADVISORY_LEVELS`, `AdvisoryLevel`, `TOOL_CLOSE`, `TOOL_ORIGINS`, `TAINT_GATES`, `GuardedToolText`, `InspectedToolArguments`, `Provenance`, `ToolOrigin`, `TurnTaint`, `TaintGate`, `TaintGuardrailSpec`, `GuardrailEvent` |
@@ -1739,7 +1776,7 @@ From `src/guardrails/mod.ts`:
 | Egress / Live | `hitRules`, `EGRESS_RULES`, `BlockedReplySpec`, `BlockedReplyOnBlock`, `BLOCKED_REPLY_ON_BLOCK`, `ResolvedBlockedReply`, `UrlAllow`, `NameAllow`, `UrlDetector`, `ResolvedAllow`, `GivenUrls`, `createOutboundProgressiveGate`, `createProgressiveYieldGate`, `createLiveOutboundGateSession`, `processLiveOutboundBatch`, `finalizeLiveOutboundTurn`, `abortLiveOutboundTurn`, `LiveHeldOutput`, `LiveOutboundBatchResult`, `LiveOutboundGateSession`, `ProgressiveYieldGate`, `ProgressiveYieldGateOptions`, `ProgressiveYieldResult` |
 | Network | `assertSafeUrl`, `fetchGuarded`, `dnsOverHttpsResolver`, `isLocalhostName`, `isPrivateOrLocalAddress`, `GuardedFetchOptions`, `ResolveHost`, `DnsOverHttpsOptions`, `NetworkGuardrailSpec` |
 | Quota | `QuotaSlotStatus`, `clientIp`, `quotaBusy`, `quotaExhausted`, `releaseSlot`, `resetSlots`, `skipQuota`, `takeSlot` |
-| Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels`, `validateLabelOverrides` |
+| Labels | `LABEL_KEYS`, `LabelKey`, `CLIENT_LABEL_KEYS`, `ClientLabelKey`, `HOST_LABEL_KEYS`, `LabelOverrides`, `LabelParams`, `labelCatalogRows`, `labelDefault`, `labelText`, `overrideLabels`, `resetLabels`, `validateLabelOverrides` |
 
 From `src/guardrails/compile-egress.ts` (build time only):
 

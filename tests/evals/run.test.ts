@@ -289,13 +289,26 @@ Deno.test('concurrency runs trials side by side yet reports them in suite order'
   let peak = 0;
   const started: string[] = [];
   const inner = translator({ costUsd: 0.001 });
+  // why: A fixed sleep let a slow runner finish one call before the third began. Each call waits
+  // until three are in flight; the time limit only stops a run that never reaches three from hanging.
+  let allIn: () => void = () => {};
+  const threeInFlight = new Promise<void>((resolve) => {
+    allIn = resolve;
+  });
   const provider: TurnModel = {
     async *complete(req) {
       inFlight += 1;
       peak = Math.max(peak, inFlight);
+      if (peak === 3) allIn();
       started.push(req.history?.findLast((message) => message.role === 'user')?.content ?? '');
-      // Hold the call so the next worker overlaps it.
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      let limit: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        threeInFlight,
+        new Promise((resolve) => {
+          limit = setTimeout(resolve, 2000);
+        }),
+      ]);
+      clearTimeout(limit);
       try {
         yield* inner.complete(req);
       } finally {

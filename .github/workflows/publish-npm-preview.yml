@@ -1,7 +1,7 @@
 name: Publish npm preview
 
 # CI calls this after a push to a release branch (named for its version, like 0.3.4) passes,
-# and it publishes all three packages to npm under the `next` tag, so an app can take the change
+# and it publishes all four packages to npm under the `next` tag, so an app can take the change
 # without a release. `latest` moves only when publish-npm.yml publishes a version from main.
 on:
   workflow_call:
@@ -54,17 +54,25 @@ jobs:
       - name: Install dependencies
         run: |
           npm ci
+          npm --prefix web ci
           npm --prefix react ci
           npm --prefix studio ci
 
       - name: Build npm packages
         run: |
           npm run build:npm
+          npm run build:npm:web
           npm run build:npm:react
           npm run build:npm:studio
 
       - name: Publish to npm
         working-directory: npm
+        run: npm publish --access public --provenance --tag next
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish web package to npm
+        working-directory: web/npm
         run: npm publish --access public --provenance --tag next
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

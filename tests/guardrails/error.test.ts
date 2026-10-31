@@ -31,6 +31,8 @@ function wordedError(event: TurnEvent, labels?: LabelOverrides) {
 const LOCKED: Record<ErrorKind, string> = {
   config: 'Sorry, something went wrong.',
   request: 'Sorry, something went wrong.',
+  conflict: 'Sorry, something else is still in progress. Please try again shortly.',
+  not_found: "Sorry, that couldn't be found.",
   input: "Sorry, that file can't be used here.",
   action: "Sorry, that isn't available here.",
   auth: "Sorry, the assistant can't connect at the moment.",
@@ -75,6 +77,7 @@ Deno.test('kindOfHttpStatus maps provider statuses to kinds', () => {
     [403, 'auth'],
     [404, 'unsupported'],
     [408, 'timeout'],
+    [409, 'conflict'],
     [422, 'unsupported'],
     [429, 'rate_limit'],
     [500, 'unavailable'],
@@ -121,7 +124,7 @@ Deno.test('toErrorEvent carries the builder world only', () => {
   assertEquals(ev, { type: 'error', errorKind: 'unavailable', errorInternal: 'Gemini HTTP 503' });
   const odd = toErrorEvent({ notAnError: true });
   assertEquals(odd.errorKind, 'internal');
-  assertEquals(odd.errorInternal, '[object Object]');
+  assertEquals(odd.errorInternal, 'notAnError: true');
 });
 
 Deno.test('toErrorEvent keeps a failure copy for the host boundary', () => {
@@ -234,4 +237,15 @@ Deno.test('describeError returns the raw detail', () => {
   assertEquals(describeError(42), '42');
   assertEquals(describeError(null), 'null');
   assertEquals(describeError(new Error('')), 'Error');
+});
+
+Deno.test('describeError names a plain-object cause by its scalar fields', () => {
+  const err = new TheoremError('unavailable', 'not saved', {
+    cause: { code: 'session_state_capacity', limit: 'maxOperations', value: 128, nested: {} },
+  });
+  assertEquals(
+    describeError(err),
+    'not saved\ncaused by: code: session_state_capacity, limit: maxOperations, value: 128',
+  );
+  assertEquals(describeError(new Error('x', { cause: {} })), 'x\ncaused by: [object Object]');
 });

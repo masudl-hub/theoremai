@@ -163,6 +163,15 @@ true satisfies Equals<z.infer<typeof turnHistoryMessage>, TurnHistoryMessage>;
 /** The schema a history message parses against. */
 export const turnHistoryMessageSchema: z.ZodType<TurnHistoryMessage> = turnHistoryMessage;
 
+/**
+ * A named inject as it landed: the host's id for it and the messages it added to the conversation,
+ * after the `injected` guardrails, so a steer reads as the model read it.
+ */
+export interface InjectedMessages {
+  id: string;
+  messages: TurnHistoryMessage[];
+}
+
 /** Why a turn or live utterance ended. */
 export interface TurnStop {
   kind: TurnStopKind;
@@ -845,6 +854,8 @@ export interface CompactionFailure {
   stop?: TurnStopKind;
   /** The error it reported, when it reported one. */
   error?: ErrorKind;
+  /** Why it failed, for the builder only: `forClient` strips it for a visitor. */
+  errorInternal?: string;
   /** It completed without a summary. */
   empty?: true;
   /** Nothing in `toCompact` was left for it to read, so it did not run. */
@@ -853,6 +864,7 @@ export interface CompactionFailure {
 const compactionFailure = z.object({
   stop: z.enum(TURN_STOP_KINDS).optional(),
   error: errorKindSchema.optional(),
+  errorInternal: z.string().optional(),
   empty: z.literal(true).optional(),
   unreadable: z.literal(true).optional(),
 });
@@ -1002,8 +1014,8 @@ export type TurnEvent =
       stop?: TurnStop;
       /** Stage result fields the kernel dropped. */
       stageWarnings?: StageApplyWarning[];
-      /** The named injects (`StageResult.injectId`) that landed in the conversation at this stage. */
-      injected?: { id: string }[];
+      /** The named injects (`StageResult.injectId`) that landed in the conversation at this stage, each with the messages it added. */
+      injected?: InjectedMessages[];
       /**
        * An inject at this stage dropped a draft the user never got: of the reply text since the
        * turn began or its last `attempt`, only the first `released` characters stay the reply.
@@ -1200,7 +1212,7 @@ const TURN_EVENTS = {
     stop: turnStop.optional(),
     stageWarnings: z.array(stageApplyWarning).optional(),
     injected: z
-      .array(z.object({ id: z.string().regex(/\S/) }))
+      .array(z.object({ id: z.string().regex(/\S/), messages: z.array(turnHistoryMessage) }))
       .min(1)
       .optional(),
     released: z.number().int().nonnegative().optional(),

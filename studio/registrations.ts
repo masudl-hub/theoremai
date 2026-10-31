@@ -1,3 +1,4 @@
+import type { DecisionQuestion } from '@theoremjs/agents';
 import type { StructuredSpec, ToolAuthConfig, ToolLabels } from '@theoremjs/agents/kernel';
 import type {
   HttpMethod,
@@ -17,6 +18,8 @@ export type StudioToolLabels = Pick<
 export type StructuredRegistration = {
   id: string;
   spec: StructuredSpec;
+  /** The shapes a slot's value picks, beside the fallback `id`. */
+  also?: { id: string; spec: StructuredSpec }[];
 };
 
 export type FunctionToolRegistration = {
@@ -31,10 +34,16 @@ export type FunctionToolRegistration = {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;
-  /** Overrides the generic stub. */
+  /** The model can name tools of its step that finish before this one starts. */
+  after?: boolean;
+  /**Overrides the generic stub. */
   stubResponse?: Record<string, unknown>;
   /** The page answers the call: the kernel supplies the handler, and the page sends the output. */
   answeredBy?: 'page';
+  /** The decision profile that reads this tool's output at `post_tool`. */
+  stageAgent?: string;
+  /** What `stageAgent` asks of each passage, by id. A run fills it from that agent. */
+  stageQuestions?: Record<string, DecisionQuestion>;
 };
 
 export type HttpToolRegistration = {
@@ -55,9 +64,16 @@ export type HttpToolRegistration = {
     bodyParam?: string;
   };
   auth?: StudioToolAuth;
+  maxResponseBytes?: number;
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;
+  /** The model can name tools of its step that finish before this one starts. */
+  after?: boolean;
+  /** The decision profile that reads this tool's output at `post_tool`. */
+  stageAgent?: string;
+  /** What `stageAgent` asks of each passage, by id. A run fills it from that agent. */
+  stageQuestions?: Record<string, DecisionQuestion>;
 };
 
 export type McpToolRegistration = {
@@ -73,9 +89,17 @@ export type McpToolRegistration = {
   mcpToolName: string;
   headers?: Record<string, string>;
   auth?: StudioToolAuth;
+  maxResponseBytes?: number;
+  session?: { idleMs?: number; max?: number };
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;
+  /** The model can name tools of its step that finish before this one starts. */
+  after?: boolean;
+  /** The decision profile that reads this tool's output at `post_tool`. */
+  stageAgent?: string;
+  /** What `stageAgent` asks of each passage, by id. A run fills it from that agent. */
+  stageQuestions?: Record<string, DecisionQuestion>;
 };
 
 /** Runs one turn of another registered agent; its schemas are the kernel's fixed ones. */
@@ -94,6 +118,8 @@ export type AgentToolRegistration = {
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   labels?: StudioToolLabels;
+  /** The model can name tools of its step that finish before this one starts. */
+  after?: boolean;
 };
 
 export type ToolRegistration =

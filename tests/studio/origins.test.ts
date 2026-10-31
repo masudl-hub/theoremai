@@ -1,12 +1,13 @@
 import { assertEquals } from '@std/assert';
 import { defaultModelBinding } from '../../studio/draft.ts';
-import { createExampleDraft } from '../../studio/example.ts';
+import { createExampleDraft } from '../../studio/mod.ts';
 import {
   nodeOrigins,
   openOutcome,
   originAt,
   originLabel,
   originPlace,
+  originShortLabel,
   rowOrigin,
   settingPath,
 } from '../../studio/origins.ts';
@@ -332,15 +333,11 @@ Deno.test('the open node reads the origins of the profile or tool it started as,
 
   assertEquals(at('inputs')?.section?.path, ['inputs']);
   assertEquals(rowOrigin(at('inputs'), 'inputs.maxFiles')?.path, ['inputs']);
-  // A spread leaves the section open, and is said once over the rows it sets.
+  // A spread leaves the section open: each row it sets says so at the row.
   const guarded = at('guardrails');
   assertEquals(
-    [
-      guarded?.section,
-      guarded?.partly?.kind,
-      rowOrigin(guarded, 'guardrails.quota') === guarded?.partly,
-    ],
-    [undefined, 'spread', true],
+    [guarded?.section, rowOrigin(guarded, 'guardrails.quota')?.kind],
+    [undefined, 'spread'],
   );
   const model = at(modelBindingNodeId(binding.key));
   assertEquals([model?.section, model?.stars], [undefined, { 'models.*': 'fast' }]);
@@ -424,7 +421,7 @@ Deno.test('an origin reads as what set the value and where', () => {
       origin('a', { kind: 'spread', text: '...BASE' }),
       origin('a', { text: undefined }),
     ].map(originLabel),
-    ['Set in code · made()', 'Set in code · ...BASE', 'Set in code'],
+    ['Set in code: made()', 'Set in code: ...BASE', 'Set in code'],
   );
   assertEquals(
     [
@@ -512,4 +509,37 @@ Deno.test('questions the setup module exports another way are set in code, with 
     { path: ['decision', 'questions'], kind: 'code', text: 'export const questions' },
     { path: ['decision', 'images'], kind: 'code', text: 'export const images' },
   ]);
+});
+
+Deno.test('a spread that picks between objects sets only their keys, each at its own line', () => {
+  const files = {
+    'setup.ts': `import { defineProfile } from '@theoremjs/agents';
+const pick = Deno.env.get('PICK');
+
+export const desk = defineProfile({
+  type: 'text',
+  id: 'desk',
+  identity: { handle: 'Desk' },
+  ...(pick ? { defaultModel: pick } : {}),
+  ...(pick && { maxSteps: 4 }),
+  allowModelSelect: true,
+});
+`,
+  };
+  assertEquals(read(files), [
+    'maxSteps | code | maxSteps: 4 | setup.ts:9',
+    'defaultModel | code | defaultModel: pick | setup.ts:8',
+  ]);
+});
+
+Deno.test('a row says where it is set in code by the file and line, and its hover gives the code', () => {
+  const held = origin('a', {
+    file: '/project/backend/runtime/profile.ts',
+    line: 101,
+    text: 'x ? y : z',
+  });
+  assertEquals(
+    [originShortLabel(held), originLabel(held), originShortLabel(origin('a', { file: undefined }))],
+    ['Set in code · …/profile.ts:101', 'Set in code: x ? y : z', 'Set in code'],
+  );
 });

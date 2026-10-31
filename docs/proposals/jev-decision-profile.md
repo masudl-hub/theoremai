@@ -1,6 +1,6 @@
 # Jev decision profile — specification
 
-**Status:** historical Jev-first proposal. The current decision binding follows
+**Status:** historical. The Jev-first proposal. The current decision binding follows
 the same `protocol` / `provider` / `apiId` pattern as other model bindings;
 see `docs/contracts/kernel.md` for the implemented contract.
 

@@ -17,7 +17,7 @@ function createSchemaRegistry(): SchemaRegistry {
       if ('enforced' in spec) {
         throw new TheoremError(
           'config',
-          `registerStructured '${id}': enforced was removed; every structured schema is sent to the model as its response format`, // labels-exempt: developer contract error
+          `registerStructured '${id}': enforced was removed; every structured schema is sent to the model, as its response format or as its answer tool's input`, // labels-exempt: developer contract error
         );
       }
       if (

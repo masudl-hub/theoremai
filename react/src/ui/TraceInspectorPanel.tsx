@@ -2,6 +2,7 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { IconActivity } from '@tabler/icons-react';
 import type { TraceRecord } from '@theoremjs/agents';
 import type { ProfileObservabilityView } from '@theoremjs/agents/interface';
+import type { TraceFeed } from '@theoremjs/web/client';
 import {
   cloneElement,
   createContext,
@@ -17,7 +18,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { TraceFeed } from '../client/trace-feed.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import {
   InPlace,
@@ -66,18 +66,18 @@ export function TracePlacement({
 
 function TraceView({
   id,
-  header,
+  toggle,
   traces,
 }: {
   id: string;
-  header: ReactNode;
+  toggle: ReactNode;
   traces: TraceFeed | undefined;
 }) {
   return (
-    <RaisedPane id={id} header={header}>
+    <RaisedPane id={id}>
       {(isWide) => (
-        <Suspense fallback={null}>
-          <TraceFeedBody traces={traces} isWide={isWide} />
+        <Suspense fallback={<SidePanelHeader floating>{toggle}</SidePanelHeader>}>
+          <TraceFeedBody traces={traces} isWide={isWide} end={toggle} />
         </Suspense>
       )}
     </RaisedPane>
@@ -111,44 +111,48 @@ export function useTraceInspector(
   if (iface.observability?.record !== true)
     return { toggle: null, view: null, labels, offered: false };
   const isOpen = open ?? own;
-  const toggle =
+  const toggleOf = (size?: 'sm') =>
     open === undefined ? (
       <SidePanelToggle
         labels={labels}
         icon={<Icon icon={IconActivity} />}
         panelId={id}
         open={isOpen}
+        size={size}
         onToggle={() => setOwn((value) => !value)}
       />
     ) : null;
-  const view = isOpen ? openTrace(placement === 'panel', id, traces, toggle) : null;
+  const toggle = toggleOf();
+  const view = isOpen ? openTrace(placement === 'panel', id, traces, toggleOf('sm')) : null;
   return { toggle, view, labels, offered: true };
 }
 
-/** The open trace: filling the host's docked panel, or as its own panel with the toggle on top. */
+/** The open trace: filling the host's docked panel, or as its own panel; the toggle sits in its top row. */
 function openTrace(
   docked: boolean,
   id: string,
   traces: TraceFeed | undefined,
   toggle: ReactNode,
 ): ReactNode {
-  if (docked) return <TraceFill id={id} traces={traces} />;
-  return (
-    <TraceView
-      id={id}
-      header={toggle ? <SidePanelHeader floating>{toggle}</SidePanelHeader> : undefined}
-      traces={traces}
-    />
-  );
+  if (docked) return <TraceFill id={id} toggle={toggle} traces={traces} />;
+  return <TraceView id={id} toggle={toggle} traces={traces} />;
 }
 
 /** The trace body, filling the docked panel. The panel supplies the raised card. */
-function TraceFill({ id, traces }: { id: string; traces: TraceFeed | undefined }) {
+function TraceFill({
+  id,
+  toggle,
+  traces,
+}: {
+  id: string;
+  toggle: ReactNode;
+  traces: TraceFeed | undefined;
+}) {
   const { ref, width } = useWidth();
   return (
-    <div id={id} ref={ref} style={{ height: '100%' }}>
-      <Suspense fallback={null}>
-        <TraceFeedBody traces={traces} isWide={isSidePanelWide(width)} />
+    <div id={id} ref={ref} style={{ height: '100%', position: 'relative' }}>
+      <Suspense fallback={<SidePanelHeader floating>{toggle}</SidePanelHeader>}>
+        <TraceFeedBody traces={traces} isWide={isSidePanelWide(width)} end={toggle} />
       </Suspense>
     </div>
   );

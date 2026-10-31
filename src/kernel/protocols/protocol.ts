@@ -25,6 +25,7 @@ const MODEL_PROFILE_TYPES = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
   'embedding',
@@ -195,6 +196,11 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
   description: string;
   /** The path each profile type uses. A type with no entry is not served. */
   endpoints: Partial<Record<ModelProfileType, string>>;
+  /**
+   * The `gen_ai.operation.name` a call to each endpoint has, e.g. `'chat'`: one per endpoint. Use a
+   * GenAI semconv well-known value where one applies.
+   */
+  operationNames: Partial<Record<ModelProfileType, string>>;
   /** Every field a binding may set, each described. */
   options: z.ZodType<O>;
   continuation?: Continuation<S>;
@@ -204,7 +210,8 @@ export interface ProtocolDefinition<O = unknown, S = unknown> {
   custom?: Readonly<Record<string, z.ZodType<JsonObject>>>;
   /**
    * Turns the reply's framing into rows. Absent: SSE for a stream, one JSON row otherwise, and a
-   * body that is not JSON as one `{ eventType: 'http_body', mime_type, data }` row, base64.
+   * body that is not JSON as one `{ eventType: 'http_body', mime_type, data }` row, base64, with
+   * `id` when the reply names itself in `X-Generation-Id`.
    */
   framing?(response: Response, stream: boolean): AsyncIterable<JsonObject>;
   /** Types a failed answer. Absent: the kind follows the HTTP status. */
@@ -229,6 +236,10 @@ const definitionShape = z.object({
   name: z.string().min(1),
   description: z.string().min(1),
   endpoints: z.partialRecord(z.enum(MODEL_PROFILE_TYPES), z.string().min(1)),
+  operationNames: z.partialRecord(
+    z.enum(MODEL_PROFILE_TYPES),
+    z.string().regex(/^[a-z][a-z0-9_]*$/),
+  ),
 });
 
 function refuse(id: string, issues: string): TheoremError {
@@ -238,6 +249,18 @@ function refuse(id: string, issues: string): TheoremError {
 function checkShape(definition: { id: string } & Record<string, unknown>): void {
   const parsed = definitionShape.safeParse(definition);
   if (!parsed.success) throw refuse(String(definition.id), z.prettifyError(parsed.error));
+}
+
+function checkOperations(
+  id: string,
+  endpoints: Partial<Record<ModelProfileType, string>>,
+  operationNames: Partial<Record<ModelProfileType, string>>,
+): void {
+  const served = Object.keys(endpoints).toSorted().join(', ');
+  const named = Object.keys(operationNames).toSorted().join(', ');
+  if (served !== named)
+    // labels-exempt: builder diagnostic
+    throw refuse(id, `operationNames name [${named}]; endpoints serve [${served}]`);
 }
 
 function own<T>(
@@ -345,6 +368,7 @@ export function defineProtocol<O, S = unknown>(
   )
     // labels-exempt: builder diagnostic
     throw refuse(definition.id, 'create and options are required');
+  checkOperations(definition.id, definition.endpoints, definition.operationNames);
   return Object.freeze({
     ...definition,
     lineage: Object.freeze([definition.id]),
@@ -389,6 +413,8 @@ export interface ProtocolExtension<E = unknown, S = unknown>
   options?: z.ZodObject & z.ZodType<E>;
   /** Its own paths, where they differ from the base's. */
   endpoints?: Partial<Record<ModelProfileType, string>>;
+  /** Its own operation names, where they differ from the base's. */
+  operationNames?: Partial<Record<ModelProfileType, string>>;
   /** What it adds to the base's request (or a WebSocket's first frame), and the tools it wrote. */
   body?(
     body: JsonObject,
@@ -566,15 +592,23 @@ export function extendProtocol<O, S, E = JsonObject>(
   base: Protocol<O, S>,
   extension: ProtocolExtension<E, S>,
 ): Protocol<O & E, S> {
-  checkShape({ ...extension, endpoints: extension.endpoints ?? {} } as unknown as {
+  checkShape({
+    ...extension,
+    endpoints: extension.endpoints ?? {},
+    operationNames: extension.operationNames ?? {},
+  } as unknown as {
     id: string;
   } & Record<string, unknown>);
+  const endpoints = { ...base.endpoints, ...extension.endpoints };
+  const operationNames = { ...base.operationNames, ...extension.operationNames };
+  checkOperations(extension.id, endpoints, operationNames);
   const keys = mergeOptions(base, extension);
   return Object.freeze({
     id: extension.id,
     name: extension.name,
     description: extension.description,
-    endpoints: { ...base.endpoints, ...extension.endpoints },
+    endpoints,
+    operationNames,
     options: keys.schema,
     ...(base.continuation ? { continuation: base.continuation } : {}),
     ...(extension.reasoning ? { reasoning: extension.reasoning } : {}),

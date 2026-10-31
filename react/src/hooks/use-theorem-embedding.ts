@@ -1,10 +1,10 @@
 import type { EmbeddingInput, EmbeddingResult } from '@theoremjs/agents';
 import type {
+  ClientFailure,
   EmbeddingInterface,
   EmbeddingTransport,
   EmbedOptions,
-} from '../client/embedding-transport.ts';
-import type { ClientFailure } from '../client/failure.ts';
+} from '@theoremjs/web/client';
 import { useDescribed } from './use-described.ts';
 import { type OneCallState, useOneCall } from './use-one-call.ts';
 

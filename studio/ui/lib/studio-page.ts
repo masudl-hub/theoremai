@@ -3,49 +3,51 @@
  * package. Kept in this tab beside the conversation, never in the profile.
  */
 
+import type { StatedTurn } from '@theoremjs/web/client';
 import { useCallback, useSyncExternalStore } from 'react';
-import { type StudioRunPayload, studioPageTools } from '../../mod.ts';
+import { type SlotDraft, type StudioRunPayload, studioPageTools } from '../../mod.ts';
+import { choiceValues } from '../../slot-values.ts';
 import { isRecord, session } from './studio-session.ts';
 
 const PAGE_PREFIX = 'theorem.studio.v2.page:';
 
-/** What the builder set: the value picked for each slot, and the context as typed. */
+/** What the builder set: the value picked for each slot and condition, and the context as typed. */
 export interface PageValues {
   slots: Record<string, string>;
+  conditions: Record<string, string>;
   contextJson: string;
 }
 
 /** What the agent takes from a page. */
 export interface PageInputs {
+  /** Allowed values per slot name (descriptions stay on the profile / chat UI). */
   slots: Record<string, readonly string[]>;
+  /** Allowed values per condition name: which prompt lines the turn gets. */
+  conditions: Record<string, readonly string[]>;
   takesContext: boolean;
   /** The tools the page answers. Only a call asks the page. */
   pageTools: string[];
 }
 
-const NO_PAGE_VALUES: PageValues = { slots: {}, contextJson: '' };
+const NO_PAGE_VALUES: PageValues = { slots: {}, conditions: {}, contextJson: '' };
 
 /** The context a blank preview box suggests. */
 export const CONTEXT_PLACEHOLDER = `{
   "page": "Checkout"
 }`;
 
-/** The slots a draft's JSON declares so far: each name with a list of text. Anything else is left out. */
-export function draftSlots(slotsJson: string): Record<string, readonly string[]> {
-  try {
-    const typed: unknown = JSON.parse(slotsJson.trim() || '{}');
-    if (!isRecord(typed)) return {};
-    return Object.fromEntries(
-      Object.entries(typed).filter(
-        (entry): entry is [string, string[]] =>
-          Array.isArray(entry[1]) &&
-          entry[1].length > 0 &&
-          entry[1].every((value) => typeof value === 'string'),
-      ),
-    );
-  } catch {
-    return {};
-  }
+/** The slots a draft has so far that a page can pick from: each named, with a value, once. */
+export function draftSlots(
+  slots: readonly SlotDraft[],
+): { name: string; label: string; values: string[] }[] {
+  const seen = new Set<string>();
+  return slots.flatMap((slot) => {
+    const name = slot.name.trim();
+    const values = slot.choices.map((choice) => choice.value.trim()).filter(Boolean);
+    if (!name || !values.length || seen.has(name)) return [];
+    seen.add(name);
+    return [{ name, label: slot.label.trim() || name, values }];
+  });
 }
 
 /** Why typed context is not sent, when it is not JSON. */
@@ -63,37 +65,72 @@ export function contextErrorOf(contextJson: string): string | undefined {
 /** What the compiled agent takes from a page, or null when it takes nothing. */
 export function pageInputsOf(payload: StudioRunPayload): PageInputs | null {
   const { profile } = payload;
-  if (profile.type === 'decision' || profile.type === 'host' || profile.type === 'embedding')
+  if (
+    profile.type === 'decision' ||
+    profile.type === 'host' ||
+    profile.type === 'embedding' ||
+    profile.type === 'speech' ||
+    profile.type === 'transcription'
+  ) {
     return null;
+  }
   const inputs = 'inputs' in profile ? profile.inputs : undefined;
-  const slots = inputs?.slots ?? {};
+  const raw = inputs?.slots ?? {};
+  const slots = Object.fromEntries(
+    Object.entries(raw).flatMap(([name, decl]) => {
+      const values = choiceValues(decl);
+      return values ? [[name, values] as const] : [];
+    }),
+  );
+  const conditions = profile.identity.conditions ?? {};
   const takesContext = inputs?.context?.from.includes('client') ?? false;
   const pageTools = Object.keys(studioPageTools(payload));
-  if (!Object.keys(slots).length && !takesContext && !pageTools.length) return null;
-  return { slots, takesContext, pageTools };
+  const takesNothing =
+    !Object.keys(slots).length && !Object.keys(conditions).length && !takesContext;
+  if (takesNothing && !pageTools.length) return null;
+  return { slots, conditions, takesContext, pageTools };
 }
 
-/** The value a slot sends: the one picked while the profile still lists it, else its first. */
-function slotValue(inputs: PageInputs, values: PageValues, name: string): string {
-  const allowed = inputs.slots[name] ?? [];
-  const picked = allowed.find((value) => value === values.slots[name]);
-  return picked ?? allowed.at(0) ?? '';
+/** The value a pick sends: the one picked while the profile still lists it, else its first. */
+function pickedValue(allowed: readonly string[], picked: string | undefined): string {
+  return allowed.find((value) => value === picked) ?? allowed.at(0) ?? '';
+}
+
+/** The turn's path and conditions as picked: the `path` condition is the turn's own path. */
+function statedTurn(inputs: PageInputs, values: PageValues): StatedTurn | undefined {
+  const picks = Object.entries(inputs.conditions).map(
+    ([name, allowed]) => [name, pickedValue(allowed, values.conditions[name])] as const,
+  );
+  if (!picks.length) return undefined;
+  const { path, ...conditions } = Object.fromEntries(picks);
+  return { ...(path === undefined ? {} : { path }), conditions };
 }
 
 /** What goes with a turn or a call. Context that is not JSON is not sent, and says why. */
 export function sentPageValues(
   inputs: PageInputs | null,
   values: PageValues,
-): { slots?: Record<string, string>; context?: unknown; contextError?: string } {
+): {
+  slots?: Record<string, string>;
+  stated?: StatedTurn;
+  context?: unknown;
+  contextError?: string;
+} {
   if (!inputs) return {};
   const names = Object.keys(inputs.slots);
   const slots = names.length
-    ? Object.fromEntries(names.map((name) => [name, slotValue(inputs, values, name)]))
+    ? Object.fromEntries(
+        names.map((name) => [name, pickedValue(inputs.slots[name] ?? [], values.slots[name])]),
+      )
     : undefined;
+  const stated = statedTurn(inputs, values);
+  const sent = { slots, ...(stated ? { stated } : {}) };
   const typed = inputs.takesContext ? values.contextJson.trim() : '';
-  if (!typed) return { slots };
+  if (!typed) return sent;
   const contextError = contextErrorOf(typed);
-  return contextError ? { slots, contextError } : { slots, context: JSON.parse(typed) as unknown };
+  return contextError
+    ? { ...sent, contextError }
+    : { ...sent, context: JSON.parse(typed) as unknown };
 }
 
 function loadPageValues(agentKey: string): PageValues {
@@ -107,19 +144,21 @@ function loadPageValues(agentKey: string): PageValues {
         (entry): entry is [string, string] => typeof entry[1] === 'string',
       ),
     );
-    return { slots, contextJson: kept.contextJson };
+    const conditions = isRecord(kept.conditions)
+      ? Object.fromEntries(
+          Object.entries(kept.conditions).filter(
+            (entry): entry is [string, string] => typeof entry[1] === 'string',
+          ),
+        )
+      : {};
+    return { slots, conditions, contextJson: kept.contextJson };
   } catch {
     return NO_PAGE_VALUES;
   }
 }
 
-/** Never throws: a full or blocked store keeps nothing. */
 function savePageValues(agentKey: string, values: PageValues): void {
-  try {
-    session()?.setItem(`${PAGE_PREFIX}${agentKey}`, JSON.stringify(values));
-  } catch {
-    // Nothing is kept.
-  }
+  session()?.setItem(`${PAGE_PREFIX}${agentKey}`, JSON.stringify(values));
 }
 
 /** Each agent's values as last read or set, so the editor and the preview show the same ones. */

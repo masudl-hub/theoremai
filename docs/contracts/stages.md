@@ -97,6 +97,8 @@ interface StageContext {
   input?: unknown;
   /** pre_tool in a turn's step: every call the model made in the step, in its order, as the host was shown it. */
   stepCalls?: readonly { callId: string; tool: string; input: unknown }[];
+  /** pre_tool: the user approved this call where it stopped, at its permission or a confirmation. A sign-in is not an approval. */
+  approved?: true;
   /** True when pre_tool settled without running the body (deny or gate). */
   callNotStarted?: boolean;
   outputRaw?: unknown;
@@ -110,11 +112,16 @@ interface StageContext {
   awaiting?: boolean;
   stop?: TurnStop;
   gate?: ToolGate;
+  /**
+   * before_end on text: the answer the model just wrote, before any guardrail verdict on it and
+   * not yet in `history`. Its last step wrote no text when no message here carries any.
+   */
+  reply?: readonly TurnHistoryMessage[];
 }
 
 interface StageResult {
   inject?: TurnHistoryMessage[];
-  /** Names this inject; the stage event recording it landing carries it in `injected`. */
+  /** Names this inject; the stage event recording it landing carries it, with its messages, in `injected`. */
   injectId?: string;
   /**
    * With `inject`, at `post_tool` or `before_end` on text: how many characters of the attempt's
@@ -125,7 +132,7 @@ interface StageResult {
   abort?: boolean | { reason?: string };
   /** pre_tool: refuse the call. post_tool: replace the result with this failure. */
   deny?: { code?: string; message?: string };
-  /** pre_tool only — request confirm/permission gate (not ask_user). */
+  /** pre_tool only — request confirm/permission gate (not ask_user). Once the user grants it, the call's resume asks nothing more. */
   confirm?: true | { summary?: string };
   /** pre_tool: replace the input. post_tool: replace the raw output. Both re-validate. */
   mutate?: { input: unknown } | { output: unknown };
@@ -191,7 +198,10 @@ ran; `warnings` lists warning codes. See
    An inject with any message live cannot send as plain text (`parts`, or no
    text) is refused whole with an `inject_invalid_messages` stage warning;
    none of it is written.
-6. `before_end` inject on text: the answer the model just wrote goes into turn
+6. `before_end` on text: `StageContext.reply` is the answer the model just wrote, so a host can
+   tell a turn about to end with no answer (no text in it) and inject to ask for one. A draft a
+   detector goes on to stop is in it: the egress gate, not the host, answers that draft.
+   `before_end` inject on text: the answer the model just wrote goes into turn
    history first, then the inject, and the step loop re-enters subject to
    **maxSteps** (see Budgets), so the model goes on from its answer. On live:
    schedule ingress; does not invent a fake model pull.
@@ -217,8 +227,9 @@ provider checkpoint still covers it. Structured replies get no blank line.
 non-empty string; anything else refuses the inject whole with an
 `inject_id_invalid` warning, as does an `injectId` without an `inject`). Where
 the messages land in the conversation — not when the handler returns — the
-kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id }] }`
-naming the injects that landed at that stage, and `released` when a draft
+kernel emits `{ type: 'stage', stage, callId?, toolName?, injected: [{ id, messages }] }`
+naming the injects that landed at that stage, each with the messages it added as the model reads
+them (after the `injected` guardrails), and `released` when a draft
 dropped (see 7). An inject that never lands (a
 live cycle that aborts first, a refused live inject) is never reported, so a
 host that sent it knows to send it again. Unnamed injects land unreported.
@@ -372,6 +383,14 @@ OpenRouter, AI SDK, Gemini Live tool responses.
    every id is unknown. A wait that can never end — on the call itself, on a call that
    waits for this one, or on one that runs after it one at a time — fails the call
    (`wait_cycle`), and so does every call whose own wait is part of that loop.
+
+   A tool registered with `after: true` lets the model ask for this wait. Its input
+   gains `after`, a list of tool names. At `pre_tool` the kernel turns each name into
+   the ids of that tool's other calls in the step, joins them with `waitFor`, and takes
+   `after` out of the input before the body runs. A name with no call in the step fails
+   as `wait_unknown`. Outside a step, as in a live session, `after` waits on nothing.
+   `registerTool` refuses `after` on a tool with its own `after` input, or an input that
+   is not an object or a union of objects.
 2. On **gate**: emit gate wire for that call; **do not** start its body;
    **continue** siblings — a gate holds only its own call, and a sibling that
    gates waits too. After the batch, end with `done.stop.kind: 'gate'` +
@@ -536,7 +555,7 @@ tool-request events.
 | Gate helpers | `gatedToolFromEvents` (stop `gate`) + `awaitingFromEvents` (complete+awaiting) |
 | Abandon | The message walks away in its own turn request (`abandon`): the host settles each waiting call cancelled before the reply, and the model reads it. A call an earlier answer already settled (its client never heard) replays that settle instead |
 | Failed answer | A request that ends before the call it answers or walks away from settles puts the call back to wait (`createTheoremHandler`); the client leaves the gate to answer again. After the settle, the client keeps the result |
-| Studio steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/react/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
+| Studio steer inbox | FIFO **one consume per inject-capable stage fire**; keyed by turn id (text) or session id (live). Do not consume on `pre_tool` / `post_turn`. Each steer carries the client's id (`TheoremSteerRequest.id`) and is returned as `injectId`, so the turn names it in `stage.injected` once it lands. One owner in `@theoremjs/web/server`: `steerUnitOf` (id + user messages only) and `steerStage(inbox, key)`; a host brings only its `SteerInbox` store |
 | Snapshot | Still on `done` when `stop.kind === 'gate'` (and available on normal `done` when tools ran — not only gates) |
 
 ---

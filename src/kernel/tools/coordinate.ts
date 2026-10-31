@@ -1,10 +1,13 @@
-import { TheoremError, throwIfAborted } from '../../guardrails/error.ts';
-import { labelText } from '../../guardrails/labels.ts';
+import { errorKind, type TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
+import type { ToolGate } from '../turn-events.ts';
 import type { TurnEvent } from '../types.ts';
+import { failureEvent } from './events.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
+import { formatToolFailureForModel } from './model-text.ts';
 import {
-  operationUnavailable,
+  heldOperation,
+  operationBroken,
   operationWireValue,
   type TerminalToolEvent,
   type ToolExecutionCoordinator,
@@ -13,17 +16,20 @@ import {
   type ToolOperationOutcome,
   toolInvocationHash,
   toolOperationOutcomeSchema,
+  unresolvedOperation,
 } from './operation.ts';
+import type { ToolFailure } from './types.ts';
 
 class ReplayedOperation {
   constructor(readonly outcome: ToolOperationOutcome) {}
 }
 
-function uncertainError(cause?: unknown): TheoremError {
-  return new TheoremError('unavailable', labelText('tool.execution_uncertain'), {
-    copy: { key: 'tool.execution_uncertain' },
-    cause,
-  });
+/** A gate after the claim cannot pause a call that was already sent; only a sign-in can ask for one there. */
+function gateAfterClaim(gate: ToolGate): TheoremError {
+  return unresolvedOperation(
+    gate.kind === 'auth' ? 'auth' : 'internal',
+    `The tool asked for a ${gate.kind} gate after it was sent, so its effects are unknown`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
 }
 
 class CoordinatedExecution {
@@ -47,9 +53,9 @@ class CoordinatedExecution {
     };
     const result = await this.coordinator.begin(operation);
     if (result.kind === 'settled') throw new ReplayedOperation(result.outcome);
-    if (result.kind === 'running' || result.kind === 'uncertain') throw uncertainError();
+    if (result.kind === 'running' || result.kind === 'uncertain') throw heldOperation(result.kind);
     if (result.kind !== 'acquired' || typeof result.claimToken !== 'string' || !result.claimToken)
-      throw operationUnavailable();
+      throw operationBroken("The tool coordinator's begin returned no claim"); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     this.claim = { ...operation, claimToken: result.claimToken };
     throwIfAborted(this.signal);
     return this.claim;
@@ -61,16 +67,18 @@ class CoordinatedExecution {
       this.terminal = { ...event, tool: event.tool };
       return false;
     }
-    if (this.claim && event.tool.phase === 'gate') throw uncertainError();
+    if (this.claim && event.tool.phase === 'gate') throw gateAfterClaim(event.tool.gate);
     return true;
   }
 
-  async finish(settlement: ToolExecuteSettlement): Promise<TerminalToolEvent | undefined> {
+  async finish(
+    settlement: ToolExecuteSettlement,
+  ): Promise<{ terminal?: TerminalToolEvent; settlement: ToolExecuteSettlement }> {
     if (settlement.gated) {
-      if (this.claim) throw uncertainError();
-      return undefined;
+      if (this.claim) throw gateAfterClaim(settlement.gated);
+      return { settlement };
     }
-    if (!this.terminal) throw operationUnavailable();
+    if (!this.terminal) throw operationBroken('The tool run ended with no terminal event'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const {
       modelResult,
       outputRaw,
@@ -96,12 +104,36 @@ class CoordinatedExecution {
         pendingInject,
       },
     };
+    const whole = toolOperationOutcomeSchema.parse(operationWireValue(outcome));
+    const saved = this.withinLimit(whole);
     this.writeFailed = true;
-    const saved = toolOperationOutcomeSchema.parse(operationWireValue(outcome));
     if (this.claim) await this.coordinator.settle(this.claim, saved);
     else await this.coordinator.settleNotStarted(this.operation, saved);
     this.committed = true;
-    return saved.event;
+    return { terminal: saved.event, settlement: saved === whole ? settlement : saved.replay };
+  }
+
+  /**
+   * why: A result the coordinator cannot keep would leave a call that ran unresolved. It settles as
+   * a failure that names its size instead, and the model reads that failure, not the result.
+   */
+  private withinLimit(outcome: ToolOperationOutcome): ToolOperationOutcome {
+    const limit = this.coordinator.maxOutcomeBytes;
+    if (limit === undefined) return outcome;
+    const bytes = new TextEncoder().encode(JSON.stringify(outcome)).byteLength;
+    if (bytes <= limit) return outcome;
+    const { name, callId, operationId } = outcome.event.tool;
+    const failure: ToolFailure = {
+      code: 'result_too_large',
+      kind: 'bad_response',
+      message: `The result of ${name} is ${bytes} bytes, more than the ${limit} bytes kept for one tool result`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      details: { bytes, maxOutcomeBytes: limit },
+    };
+    const modelResult = formatToolFailureForModel(failure);
+    const event = failureEvent({ name, callId, ...(operationId ? { operationId } : {}) }, failure);
+    return toolOperationOutcomeSchema.parse(
+      operationWireValue({ event, effects: outcome.effects, replay: { modelResult, failure } }),
+    );
   }
 
   replay(error: ReplayedOperation): ToolOperationOutcome {
@@ -112,13 +144,18 @@ class CoordinatedExecution {
       saved.event.tool.callId !== callId ||
       saved.event.tool.name !== toolId
     )
-      throw operationUnavailable();
+      throw operationBroken("The tool coordinator's saved outcome is another operation's"); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     this.committed = true;
     return saved;
   }
 
   failure(error: unknown): unknown {
-    return this.claim && !this.committed ? uncertainError(error) : error;
+    if (!this.claim || this.committed) return error;
+    return unresolvedOperation(
+      errorKind(error),
+      'The tool was sent and did not settle, so its effects are unknown', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      error,
+    );
   }
 
   async close(): Promise<void> {
@@ -148,9 +185,10 @@ export async function* coordinateTool(
   throwIfAborted(signal);
   const existing = await coordinator.lookup(operation);
   throwIfAborted(signal);
-  if (existing?.kind === 'running' || existing?.kind === 'uncertain') throw uncertainError();
+  if (existing?.kind === 'running' || existing?.kind === 'uncertain')
+    throw heldOperation(existing.kind);
   if (existing?.kind === 'settled') {
-    if (!authorizeReplay) throw operationUnavailable();
+    if (!authorizeReplay) throw operationBroken('A settled tool operation has no replay check'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const saved = execution.replay(new ReplayedOperation(existing.outcome));
     await authorizeReplay(saved);
     throwIfAborted(signal);
@@ -162,15 +200,15 @@ export async function* coordinateTool(
     for (;;) {
       const next = await iterator.next();
       if (next.done) {
-        const terminal = await execution.finish(next.value);
+        const { terminal, settlement } = await execution.finish(next.value);
         if (terminal) yield terminal;
-        return next.value;
+        return settlement;
       }
       if (execution.observe(next.value)) yield next.value;
     }
   } catch (error) {
     if (error instanceof ReplayedOperation) {
-      if (!authorizeReplay) throw operationUnavailable();
+      if (!authorizeReplay) throw operationBroken('A settled tool operation has no replay check'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       const saved = execution.replay(error);
       await authorizeReplay(saved);
       yield saved.event;

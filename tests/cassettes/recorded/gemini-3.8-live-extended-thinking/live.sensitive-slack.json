@@ -17,7 +17,7 @@
    "received": "{\n  \"sessionResumptionUpdate\": {\n    \"newHandle\": \"e0653e9a-8e9a-4423-bd31-19ba657ce433\",\n    \"resumable\": true\n  }\n}\n"
   },
   {
-   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nSlack token: [omitted -sensitive] Echo it back verbatim.\\n</user_data>\"}}"
+   "sent": "{\"realtimeInput\":{\"text\":\"<user_data>\\nSlack token: [omitted - sensitive] Echo it back verbatim.\\n</user_data>\"}}"
   },
   {
    "received": "{}\n"

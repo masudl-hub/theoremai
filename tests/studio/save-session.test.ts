@@ -197,6 +197,7 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   assertEquals([loads, stopped.length], [1, 1]);
 
   // Files that do not load are tried once, and the last load answers.
+  const asLoaded = files.get(SETUP) ?? '';
   failing.fails = true;
   files.set(SETUP, `${TEXT}\n// A broken edit.\n`);
   assertEquals((await session.read()).unloaded, 'It threw.');
@@ -204,10 +205,21 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   assertEquals(session.project(), next);
   assertEquals(loads, 2);
 
+  // Put back as they loaded, they load no one again, and the page is told the failure is over.
+  files.set(SETUP, asLoaded);
+  assertEquals((await session.changed()).length, 1);
+  assertEquals((await session.read()).unloaded, undefined);
+  assertEquals(await session.changed(), []);
+  assertEquals(loads, 2);
+
+  failing.fails = true;
+  files.set(SETUP, `${TEXT}\n// A broken edit.\n`);
+  assertEquals((await session.read()).unloaded, 'It threw.');
+
   failing.fails = false;
   files.set(SETUP, `${TEXT}\n// Mended.\n`);
   assertEquals((await session.read()).unloaded, undefined);
-  assertEquals(loads, 3);
+  assertEquals(loads, 4);
 });
 
 Deno.test('a read of unchanged files walks them once, and twice around a load', async () => {
@@ -590,6 +602,19 @@ Deno.test('a file left with nothing of its own is taken away, and comes back on 
   state.loads = opened.workspace;
   assertEquals(await session.undo(), { ok: true, written: ['example.ts', 'removal.ts'] });
   assertEquals([text(), files.get(OWN)], [SPLIT, MOVED]);
+});
+
+Deno.test('a profile the project registered and the studio could not open is not named as unregistered', async () => {
+  const [agent] = opened.workspace.agents;
+  if (!agent) throw new Error('The example changed.');
+  const id = agent.identity.agentId;
+  const loaded = { ...opened.workspace, agents: opened.workspace.agents.slice(1) };
+  const names = async (over: Partial<SaveHost<StudioWorkspace>>) =>
+    (await project({ opened: () => loaded, ...over }).session.read()).unregistered.map(
+      ({ name }) => name,
+    );
+  assertEquals(await names({}), [id]);
+  assertEquals(await names({ unopened: () => [id] }), []);
 });
 
 Deno.test('a tool the files define and the project did not register is named, with where it is defined', async () => {

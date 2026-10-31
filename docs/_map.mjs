@@ -19,6 +19,7 @@ const graph = {
     package: {
       export: '.',
       doc: 'README.md',
+      realizes: ['docs/proposals/MIGRATION-boundary.md'],
       owns: ['mod.ts', 'package.json'],
       watches: [
         {
@@ -37,7 +38,11 @@ const graph = {
           sections: ['Public Entrypoints'],
         },
       ],
-      validates: ['tests/kernel/theorem.test.ts', 'scripts/docs-truth/graph.test.mjs'],
+      validates: [
+        'tests/kernel/theorem.test.ts',
+        'scripts/docs-truth/graph.test.mjs',
+        'tests/docs/readme.test.ts',
+      ],
       required_sections: ['Architecture', 'Public Entrypoints', 'Package Boundary'],
     },
 
@@ -65,6 +70,14 @@ const graph = {
       validates: ['tests/react/', 'scripts/docs-truth/graph.test.mjs'],
     },
 
+    'web-package': {
+      export: '_internal/web-package',
+      doc: 'web/README.md',
+      realizes: ['docs/proposals/host-owned-conversation.md'],
+      owns: ['web/src/', 'web/package.json'],
+      validates: ['tests/web/', 'scripts/docs-truth/graph.test.mjs'],
+    },
+
     'studio-package': {
       export: '_internal/studio-package',
       doc: 'studio/README.md',
@@ -75,6 +88,7 @@ const graph = {
     'studio-contract': {
       export: '_internal/studio-contract',
       doc: 'docs/contracts/studio.md',
+      realizes: ['docs/proposals/theorem-studio.md', 'docs/proposals/studio-trace-replay.md'],
       owns: [],
       watches: [
         {
@@ -134,7 +148,7 @@ const graph = {
           sections: ['Ownership', 'Rules'],
         },
       ],
-      validates: ['scripts/docs-truth/graph.test.mjs'],
+      validates: ['scripts/docs-truth/graph.test.mjs', 'scripts/docs-truth/proposals.test.mjs'],
       required_sections: [
         'Export',
         'Ownership',
@@ -149,6 +163,7 @@ const graph = {
             'scripts/docs-truth/export-drift.mjs',
             'scripts/docs-truth/copy-lint.mjs',
             'scripts/docs-truth/graph.test.mjs',
+            'scripts/docs-truth/proposals.mjs',
           ],
           sections: ['Rules'],
         },
@@ -175,6 +190,7 @@ const graph = {
             'scripts/verify-publish-bundle.ts',
             'scripts/build-npm.ts',
             'scripts/build-npm-react.ts',
+            'scripts/build-npm-web.ts',
           ],
           sections: ['Package vs repo documentation'],
         },
@@ -184,6 +200,13 @@ const graph = {
     kernel: {
       export: './kernel',
       doc: 'docs/contracts/kernel.md',
+      realizes: [
+        'docs/proposals/MIGRATION-tool-system.md',
+        'docs/proposals/TOOL_RESULT_FIDELITY.md',
+        'docs/proposals/honest-errors.md',
+        'docs/proposals/live-slots-greeting.md',
+        'docs/proposals/turn-event-schema.md',
+      ],
       owns: ['src/kernel/'],
       owns_except: ['src/kernel/schema.ts'],
       validates: ['tests/kernel/'],
@@ -240,6 +263,7 @@ const graph = {
     providers: {
       export: './providers',
       doc: 'docs/contracts/providers.md',
+      realizes: ['docs/proposals/protocols-and-providers.md'],
       owns: ['src/providers/'],
       watches: [
         {
@@ -264,7 +288,7 @@ const graph = {
         'tests/providers/providers.test.ts',
         'tests/providers/create-provider.test.ts',
         'tests/providers/registered-openrouter.test.ts',
-        'tests/providers/embedding-protocol.test.ts',
+        'tests/providers/embeddings-protocol.test.ts',
         'tests/providers/gemini/interactions-protocol.test.ts',
         'tests/providers/gemini/live-protocol.test.ts',
         'tests/providers/google/interactions/framing.test.ts',
@@ -273,6 +297,7 @@ const graph = {
         'tests/providers/google/live/framing.test.ts',
         'tests/providers/google/live/stream.test.ts',
         'tests/providers/open-ai/protocol.test.ts',
+        'tests/providers/open-ai/speech-response-id.test.ts',
         'tests/providers/openrouter/protocol.test.ts',
         'tests/providers/openrouter/images-protocol.test.ts',
         'tests/providers/openrouter/openai/compat.test.ts',
@@ -318,6 +343,10 @@ const graph = {
           sections: ['Local provider'],
         },
         {
+          paths: ['src/providers/open-ai/protocol.ts', 'src/kernel/protocols/runtime.ts'],
+          sections: ['Speech roles'],
+        },
+        {
           paths: [
             'src/providers/gemini/interactions-protocol.ts',
             'src/providers/google/interactions/framing.ts',
@@ -335,7 +364,7 @@ const graph = {
           sections: ['Google Live'],
         },
         {
-          paths: ['src/providers/*/embedding-protocol.ts', 'src/kernel/engine/embedding.ts'],
+          paths: ['src/providers/*/embeddings-protocol.ts', 'src/kernel/engine/embedding.ts'],
           sections: ['Embedding protocols'],
         },
       ],
@@ -344,6 +373,7 @@ const graph = {
     guardrails: {
       export: './guardrails',
       doc: 'docs/contracts/guardrails.md',
+      realizes: ['docs/proposals/guardrail-detectors.md', 'docs/proposals/guardrail-invariants.md'],
       owns: ['src/guardrails/'],
       owns_except: [
         'src/guardrails/testing.ts',
@@ -447,6 +477,10 @@ const graph = {
     observability: {
       export: './observability',
       doc: 'docs/contracts/observability.md',
+      realizes: [
+        'docs/proposals/otel-turn-traces.md',
+        'docs/proposals/otel-turn-traces-example.md',
+      ],
       owns: ['src/observability/'],
       owns_except: [
         'src/observability/jsonl.ts',
@@ -548,61 +582,6 @@ const graph = {
         { paths: ['src/cli/event-log.ts'], sections: ['Commands'] },
         { paths: ['src/cli/matrix/'], sections: ['Matrix and fixtures'] },
       ],
-    },
-
-    presets: {
-      export: './presets',
-      doc: 'docs/contracts/presets.md',
-      owns: [
-        'src/presets/mod.ts',
-        'src/presets/facts.ts',
-        'src/presets/local.ts',
-        'src/presets/openrouter.ts',
-        'src/presets/openrouter-facts.ts',
-        'src/presets/typesafe.ts',
-      ],
-      watches: [
-        {
-          path: 'src/presets/google.ts',
-          reason: 'Presets barrel re-exports Google pack',
-          sections: ['Exported API', 'Role in the package'],
-        },
-      ],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: [
-        'Export',
-        'Ownership',
-        'Role in the package',
-        'When to use',
-        'Exported API',
-      ],
-    },
-
-    'presets-google': {
-      export: './presets/google',
-      doc: 'docs/contracts/presets-google.md',
-      owns: [
-        'src/presets/google.ts',
-        'src/presets/google-limits.ts',
-        'src/presets/google/media-tokens.ts',
-      ],
-      watches: [
-        {
-          path: 'src/presets/google/speech-voices.ts',
-          reason: 'Speech voice vocabulary consumed by the Google preset pack',
-          sections: ['Vocabularies', 'Exported API'],
-        },
-      ],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: ['Export', 'Ownership', 'Builtins', 'Vocabularies', 'Exported API'],
-    },
-
-    'presets-google-speech-voices': {
-      export: './presets/google/speech-voices',
-      doc: 'docs/contracts/presets-google.md',
-      owns: ['src/presets/google/speech-voices.ts'],
-      validates: ['tests/kernel/theorem.test.ts'],
-      required_sections: ['Export', 'Ownership', 'Vocabularies', 'Exported API'],
     },
 
     interface: {

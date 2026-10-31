@@ -26,6 +26,7 @@ const echo = defineProtocol({
   name: 'Echo',
   description: 'Streams back what it is sent.',
   endpoints: { text: '/echo', live: '/live' },
+  operationNames: { text: 'chat', live: 'generate_content' },
   options: z.strictObject({ loud: z.boolean().optional().describe('Shout.') }),
   reasoning: z.strictObject({ signature: z.string() }),
   custom: { note: z.strictObject({ said: z.string() }) },
@@ -88,6 +89,64 @@ function sse(rows: JsonObject[]): Response {
   const text = `${rows.map((row) => `data: ${JSON.stringify(row)}\n\n`).join('')}data: [DONE]\n\n`;
   return new Response(text, { headers: { 'content-type': 'text/event-stream' } });
 }
+
+Deno.test('default framing puts X-Generation-Id on a binary http_body row as id', async () => {
+  const binary = defineProtocol({
+    id: 'binaryEcho',
+    name: 'Binary echo',
+    description: 'Posts and reads one binary body.',
+    endpoints: { speech: '/speak' },
+    operationNames: { speech: 'generate_content' },
+    options: z.strictObject({}),
+    create: (context) => ({
+      async *complete() {
+        for await (const _row of context.send({}, { stream: false })) {
+          yield { type: 'done', stop: { kind: 'completed' } };
+        }
+      },
+    }),
+  });
+  const speaker = defineProvider({
+    id: 'speaker',
+    name: 'Speaker',
+    description: 'Binary speech host.',
+    key: z.string(),
+    authorize: bearer(),
+    serves: () => [{ protocol: binary, baseUrl: 'https://speak.test/v1' }],
+  });
+  const registry = createProviderRegistry();
+  registry.register(speaker, { keySlot: 'main' });
+  const rows: JsonObject[] = [];
+  const call = callProtocol({
+    provider: registry.require('speaker', 'm'),
+    binding: checkBinding(
+      registry.require('speaker', 'm'),
+      { protocol: 'binaryEcho', provider: 'speaker', apiId: 'm' },
+      'speech',
+    ),
+    profileType: 'speech',
+    vault: { main: 'k' },
+    tapUpstream: (row) => {
+      if (row.eventType === 'http_body') rows.push(row);
+    },
+    fetch: () =>
+      Promise.resolve(
+        new Response(new Uint8Array([7]), {
+          headers: { 'content-type': 'audio/mpeg', 'X-Generation-Id': ' gen-from-header ' },
+        }),
+      ),
+    wait: async () => {},
+  });
+  await collect(call.complete(request));
+  assertEquals(rows, [
+    {
+      eventType: 'http_body',
+      mime_type: 'audio/mpeg',
+      data: 'Bw==',
+      id: 'gen-from-header',
+    },
+  ]);
+});
 
 interface Sent {
   url: string;
@@ -172,6 +231,26 @@ Deno.test('an extension adds options, refuses one its base has, and carries its 
   );
   assertEquals(carriesTo('echo', routed), true);
   assertEquals(carriesTo('routedEcho', echo), false);
+});
+
+Deno.test('a protocol names one operation for each endpoint it serves, and an extension keeps that true', () => {
+  assertEquals(routed.operationNames, { text: 'chat', live: 'generate_content' });
+  assertThrows(
+    () => defineProtocol({ ...echo, id: 'unnamed', operationNames: { text: 'chat' } }),
+    TheoremError,
+    'operationNames name [text]; endpoints serve [live, text]',
+  );
+  assertThrows(
+    () =>
+      extendProtocol(echo, {
+        id: 'speaks',
+        name: 'Speaks',
+        description: 'Adds speech without naming its operation.',
+        endpoints: { speech: '/speak' },
+      }),
+    TheoremError,
+    'operationNames name [live, text]; endpoints serve [live, speech, text]',
+  );
 });
 
 Deno.test('a registered provider checks its protocols, ids, and connection', () => {

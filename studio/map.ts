@@ -35,7 +35,7 @@ export interface MapNode {
   holds?: string[];
   /** A model whose label another model has too: its label with what tells the two apart. */
   long?: string;
-  /** An agent's profile type, a tool's type, a model's provider definition, or the section a shared setting fills. */
+  /** An agent's profile type, a tool's type, or the section a shared setting fills. */
   type?: string;
   /** A profile's sections, in the tree's order. */
   rows?: MapRow[];
@@ -99,7 +99,9 @@ function byRows(
 /** What a section's row says beside its name, where one line can say it. */
 function rowNote(agent: AgentDraft, facet: string, tools: ReadonlyMap<string, string>): string {
   if (facet === 'models')
-    return agent.modelBindings.map((binding) => binding.modelId || 'New model').join(', ');
+    return agent.modelBindings
+      .map((binding) => binding.modelId.trim() || 'Unnamed model')
+      .join(', ');
   if (facet === 'tools') return String(agent.tools.allow.filter((key) => tools.has(key)).length);
   if (facet === 'outputs') return agent.outputs.mode;
   return '';
@@ -121,7 +123,7 @@ export function workspaceMap(
     return {
       id: agentNodeId(agent.key),
       kind: 'agent',
-      label: agentId || 'New agent',
+      label: agentId.trim() || 'Unnamed agent',
       note: handle ? `${type} · ${handle}` : type,
       opens: agentNodeId(agent.key),
       type,
@@ -171,9 +173,8 @@ export function workspaceMap(
         models.set(id, {
           id,
           kind: 'model',
-          label: binding.modelId || 'New model',
+          label: binding.modelId.trim() || 'Unnamed model',
           note: binding.apiId,
-          type: definitions.get(binding.provider),
           opens,
           holds: [opens],
         });
@@ -195,12 +196,15 @@ export function workspaceMap(
 
   const tools = workspace.toolSpecs.map((tool): MapNode => {
     const id = toolSpecNodeId(tool.key);
-    const asked = tool.toolType === 'agent' ? agentIds.get(tool.agentKey ?? '') : undefined;
+    const asked =
+      tool.toolType === 'agent'
+        ? agentIds.get(tool.agentKey ?? '')
+        : agentIds.get(tool.stageAgentKey ?? '');
     if (asked) links.push({ from: id, to: asked, kind: 'asks' });
     return {
       id,
       kind: 'tool',
-      label: tool.toolName || 'New tool',
+      label: tool.toolName.trim() || 'Unnamed tool',
       note: tool.description,
       opens: id,
       type: tool.toolType,

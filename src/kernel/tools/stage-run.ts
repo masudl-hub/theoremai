@@ -12,6 +12,7 @@ import {
   stageEventFields,
 } from '../stages.ts';
 import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
+import { splitCallOrder, stepCallIds } from './call-order.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
 import { operationWireValue } from './operation.ts';
 import { type GateDetails, gateDetails, isGateResumeGranted } from './permission.ts';
@@ -81,12 +82,39 @@ export type PostToolStageOutcome = {
 };
 
 /** Tool `preTool` → host `pre_tool` → mutate re-parse. */
+/** What a resume already granted, so `pre_tool` asks it no second time. */
+function resumeApproval(resume: ToolContext['resume']) {
+  const granted = isGateResumeGranted(resume);
+  // why: Permission and sign-in gates come before `pre_tool`, so granting one answers nothing it asked.
+  const confirmed = granted && resume?.gateKind !== 'permission' && resume?.gateKind !== 'auth';
+  return {
+    confirmed,
+    // why: An approval skips the tool's own check it already passed — unless the user edited the arguments.
+    approvedAsIs: confirmed && resume?.edited === undefined,
+    approved: granted && resume?.gateKind !== 'auth',
+  };
+}
+
+function invalidAfterMutate(error: z.ZodError, ctx: ToolContext): PreBodyOutcome {
+  return {
+    ok: false,
+    kind: 'failed',
+    failure: {
+      code: 'invalid_input',
+      kind: 'bad_response',
+      message: labelText('tool.input_invalid_after_mutate', {}, ctx.profile.labels),
+      details: error.flatten(),
+    },
+  };
+}
+
 export async function* runPreToolPipeline(args: {
   tool: {
     name: string;
     input: { safeParse: (value: unknown) => z.ZodSafeParseResult<unknown> };
     access: ToolAccess;
     labels?: ToolLabels;
+    after?: boolean;
     preTool?: (
       input: never,
       ctx: ToolContext,
@@ -98,78 +126,55 @@ export async function* runPreToolPipeline(args: {
   stages?: ToolStageSupport;
 }): AsyncGenerator<TurnEvent, PreBodyOutcome> {
   const { tool, ctx, base, stages } = args;
+  const { input, names } = splitCallOrder(tool, args.input);
+  // why: A resumed call's step has ended, so every call it waited for has settled.
+  const after = ctx.resume ? [] : stepCallIds(names, base.callId, stages?.stepCalls);
   let toolPreTool: StageResult | undefined;
-  // why: An approval skips the tool's own check it already passed — unless the user edited the arguments.
-  const approvedAsIs =
-    isGateResumeGranted(ctx.resume) &&
-    ctx.resume?.edited === undefined &&
-    ctx.resume?.gateKind !== 'permission' &&
-    ctx.resume?.gateKind !== 'auth';
+  const { confirmed, approved, approvedAsIs } = resumeApproval(ctx.resume);
   if (tool.preTool && !approvedAsIs) {
-    toolPreTool = (await tool.preTool(args.input as never, ctx)) ?? undefined;
+    toolPreTool = (await tool.preTool(input as never, ctx)) ?? undefined;
   }
-  if (!stages && toolPreTool === undefined) {
-    return { ok: true, input: args.input };
+  if (!stages && toolPreTool === undefined && after.length === 0) {
+    return { ok: true, input };
   }
   const pre = yield* runPreToolStages({
     stages: stages ?? defaultToolStageSupport(ctx),
     toolName: tool.name,
     callId: base.callId,
-    input: args.input,
+    input,
     toolPreTool,
-    details: gateDetails(tool, args.input),
+    details: gateDetails(tool, input),
+    confirmed,
+    approved,
   });
   if (!pre.ok) {
-    if (pre.kind === 'gated') {
-      if ('input' in pre) {
-        const candidate = pre.input;
-        const parsed = tool.input.safeParse(plainToolInput(candidate));
-        if (!parsed.success) {
-          return {
-            ok: false,
-            kind: 'failed',
-            failure: {
-              code: 'invalid_input',
-              kind: 'bad_response',
-              message: labelText('tool.input_invalid_after_mutate', {}, ctx.profile.labels),
-              details: parsed.error.flatten(),
-            },
-          };
-        }
-        pre.gate = {
-          ...pre.gate,
-          ...gateDetails(tool, parsed.data),
-          preparedArguments: jsonObjectSchema.parse(operationWireValue(plainToolInput(candidate))),
-        };
-      }
-      yield stageEventFields('pre_tool', {
-        callId: base.callId,
-        toolName: tool.name,
-        callNotStarted: true,
-        gate: pre.gate,
-      });
-      yield toolEvent(base, { phase: 'gate', gate: pre.gate });
+    if (pre.kind !== 'gated') return pre;
+    if ('input' in pre) {
+      const candidate = pre.input;
+      const parsed = tool.input.safeParse(plainToolInput(candidate));
+      if (!parsed.success) return invalidAfterMutate(parsed.error, ctx);
+      pre.gate = {
+        ...pre.gate,
+        ...gateDetails(tool, parsed.data),
+        preparedArguments: jsonObjectSchema.parse(operationWireValue(plainToolInput(candidate))),
+      };
     }
+    yield stageEventFields('pre_tool', {
+      callId: base.callId,
+      toolName: tool.name,
+      callNotStarted: true,
+      gate: pre.gate,
+    });
+    yield toolEvent(base, { phase: 'gate', gate: pre.gate });
     return pre;
   }
   const reparsed = pre.mutated ? tool.input.safeParse(plainToolInput(pre.input)) : undefined;
-  if (reparsed && !reparsed.success) {
-    return {
-      ok: false,
-      kind: 'failed',
-      failure: {
-        code: 'invalid_input',
-        kind: 'bad_response',
-        message: labelText('tool.input_invalid_after_mutate', {}, args.ctx.profile.labels),
-        details: reparsed.error.flatten(),
-      },
-    };
-  }
+  if (reparsed && !reparsed.success) return invalidAfterMutate(reparsed.error, ctx);
   const waitFailure = await waitForStepCalls(
     stages,
     base.callId,
     tool.name,
-    pre.waitFor,
+    [...(pre.waitFor ?? []), ...after],
     ctx.profile.labels,
   );
   if (waitFailure) return { ok: false, kind: 'failed', failure: waitFailure };
@@ -183,12 +188,16 @@ async function* runPreToolStages(args: {
   input: unknown;
   toolPreTool?: StageResult | undefined;
   details: GateDetails;
+  /** The user granted this call's confirmation: a `confirm` asks nothing more. */
+  confirmed: boolean;
+  /** The user approved this call where it stopped: the handlers read it as `approved`. */
+  approved: boolean;
 }): AsyncGenerator<
   TurnEvent,
   | Exclude<PreBodyOutcome, { ok: true }>
   | { ok: true; input: unknown; mutated: boolean; waitFor?: string[] }
 > {
-  const { stages, toolName, callId, input, toolPreTool, details } = args;
+  const { stages, toolName, callId, input, toolPreTool, details, confirmed, approved } = args;
   const applied = yield* runStage({
     stage: 'pre_tool',
     step: stages.step,
@@ -202,6 +211,7 @@ async function* runPreToolStages(args: {
     callId,
     tool: toolName,
     input,
+    ...(approved ? { approved: true as const } : {}),
     ...(stages.stepCalls ? { stepCalls: stages.stepCalls } : {}),
   });
 
@@ -216,7 +226,7 @@ async function* runPreToolStages(args: {
       denied: true,
     };
   }
-  if (applied.confirm) {
+  if (applied.confirm && !confirmed) {
     const gate: ToolGate = {
       kind: 'confirmation',
       tool: toolName,
@@ -242,10 +252,10 @@ async function waitForStepCalls(
   stages: ToolStageSupport | undefined,
   callId: string,
   toolName: string,
-  waitFor: readonly string[] | undefined,
+  waitFor: readonly string[],
   labels: LabelOverrides | undefined,
 ): Promise<ToolFailure | undefined> {
-  if (!waitFor) return undefined;
+  if (waitFor.length === 0) return undefined;
   const outcome = stages?.wait
     ? await stages.wait(callId, waitFor)
     : { ok: false as const, reason: 'unknown' as const, callIds: [...waitFor] };

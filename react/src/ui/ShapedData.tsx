@@ -2,6 +2,7 @@ import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible, CollapsibleGroup } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
 import { useLocale } from '@astryxdesign/core/i18n';
+import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
 import { Link } from '@astryxdesign/core/Link';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Markdown } from '@astryxdesign/core/Markdown';
@@ -9,9 +10,10 @@ import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList'
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Table, type TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
+import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
-import { Component, type CSSProperties, type ReactNode, useMemo, useState } from 'react';
+import type { InteractionPart } from '@theoremjs/agents';
 import {
   fieldLabel,
   fieldReading,
@@ -20,6 +22,7 @@ import {
   isRow,
   json,
   type ListRow,
+  layoutChars,
   MAX_ROWS,
   type PlainReading,
   plainReading,
@@ -31,11 +34,13 @@ import {
   splitFields,
   unpacked,
   withUnit,
-} from '../client/shaped-data.ts';
+} from '@theoremjs/web/client';
+import { Component, type CSSProperties, type ReactNode, useMemo, useState } from 'react';
 import { Arrive, useArrive } from './arrive.tsx';
 import { useLabels } from './labels-provider.tsx';
 import { useMarkdownPlugins } from './markdown-plugins.tsx';
 import { keyedByContent } from './row-keys.ts';
+import { VoiceNote } from './VoiceNote.tsx';
 
 /**
  * Tool call data and structured replies drawn by their shape instead of as
@@ -51,6 +56,9 @@ import { keyedByContent } from './row-keys.ts';
  * - a list of other objects → a divided CollapsibleGroup, each row named by
  *   its title field and tagged with its place or kind;
  * - a list of plain values → tokens;
+ * - a list of parts (text, image, audio, video, document) → in order: text as
+ *   prose, images and videos as Thumbnails sharing one Lightbox, audio as a
+ *   voice note, a document as a token;
  * - a string holding JSON → what it holds;
  * - a plain value → text, a link, a date, Yes/No, or a dash.
  *
@@ -382,6 +390,62 @@ function Fields({ row, depth, units }: { row: Row; depth: number; units?: Row })
   );
 }
 
+type MediaPart = Exclude<InteractionPart, { type: 'text' }>;
+
+/** A media part's source: its base64 `data` as a data URL, or its `uri`. */
+function partSrc(part: MediaPart): string {
+  return 'uri' in part ? part.uri : `data:${part.mimeType};base64,${part.data}`;
+}
+
+function viewable(part: InteractionPart): part is MediaPart & { type: 'image' | 'video' } {
+  return part.type === 'image' || part.type === 'video';
+}
+
+/** A list of parts in its own order; every image and video opens in one Lightbox, so the arrows walk them all. */
+function Parts({ parts }: { parts: readonly InteractionPart[] }) {
+  const t = useLabels();
+  const shown = parts.slice(0, MAX_ROWS);
+  const media: LightboxMedia[] = [];
+  /** Each viewable part's place in the Lightbox, by its place in the list. */
+  const slides = new Map<number, number>();
+  shown.forEach((part, index) => {
+    if (!viewable(part)) return;
+    slides.set(index, media.length);
+    const alt = t(part.type === 'image' ? '@theorem.data.image' : '@theorem.data.video', {
+      index: String(media.length + 1),
+    });
+    media.push({ src: partSrc(part), alt, type: part.type });
+  });
+  const lightbox = useLightbox({ media, hasZoom: true });
+  return (
+    <VStack gap={2}>
+      {shown.map((part, index) => {
+        const key = String(index);
+        if (part.type === 'text') return <ProseReading key={key} text={part.text} />;
+        const slide = slides.get(index);
+        const item = slide === undefined ? undefined : media[slide];
+        if (slide !== undefined && item) {
+          return (
+            <Thumbnail
+              key={key}
+              src={part.type === 'image' ? item.src : undefined}
+              alt={item.alt}
+              label={item.alt}
+              onClick={() => lightbox.open(slide)}
+            />
+          );
+        }
+        if (part.type === 'audio') {
+          return <VoiceNote key={key} src={partSrc(part)} mimeType={part.mimeType} />;
+        }
+        return <Token key={key} label={part.mimeType} size="sm" />;
+      })}
+      <More total={parts.length} />
+      {lightbox.element}
+    </VStack>
+  );
+}
+
 type NodeProps = { value: unknown; depth: number; units?: Row; t: Labels };
 
 /** Each shape a value takes, drawn. */
@@ -411,6 +475,7 @@ const SHAPES: {
   ),
   rows: ({ items }, { depth }) => <Rows items={items} depth={depth} />,
   fields: ({ row }, { depth, units }) => <Fields row={row} depth={depth} units={units} />,
+  parts: ({ parts }) => <Parts parts={parts} />,
 };
 
 function Node({
@@ -480,7 +545,12 @@ export function ShapedData({ value: raw, title, lead, ledKeys = [] }: ShapedData
     const left = Object.entries(value).filter(([key]) => !ledKeys.includes(key));
     return left.length ? Object.fromEntries(left) : undefined;
   }, [value, ledKeys]);
-  if (text.length > LARGE_JSON_CHARS) {
+  // why: Base64 media draws as a picture or a player, not as text, so only the rest counts toward the limit.
+  const tooLarge = useMemo(
+    () => text.length > LARGE_JSON_CHARS && layoutChars(value) > LARGE_JSON_CHARS,
+    [text, value],
+  );
+  if (tooLarge) {
     const size = new Intl.NumberFormat(locale, {
       style: 'unit',
       unit: 'kilobyte',

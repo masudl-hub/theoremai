@@ -9,7 +9,7 @@ import {
   GOOGLE_IMAGE_INPUT_MIMES,
   GOOGLE_IMAGE_RESOLUTIONS,
   GOOGLE_VOICE_INPUT_MIMES,
-} from '../../src/presets/google.ts';
+} from '../../studio/cookbooks/providers.ts';
 
 const KIB = 1024;
 const MIB = KIB * KIB;
@@ -100,7 +100,7 @@ const gemini31FlashLive: ModelBinding = {
 };
 const sonar: ModelBinding = {
   keySlot: 'slot_a',
-  protocol: 'openRouter',
+  protocol: 'openRouterOpenAi',
   provider: 'openrouter',
   apiId: 'perplexity/sonar',
   efforts: { normal: 'low', high: 'high' },

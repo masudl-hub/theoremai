@@ -27,11 +27,6 @@ export const REQUEST_FIELDS: Record<
   },
   'runTurn.input': { type: 'TurnInput', doc: 'What the user sent for the turn.' },
   'runTurn.input.text': { type: 'string', doc: "The user's message." },
-  'runTurn.input.role': {
-    type: 'string',
-    doc: 'Picks the instruction of that name from identity.systemByRole.',
-    unset: 'The profile instruction',
-  },
   'runTurn.input.slots': {
     type: 'Record<string, string>',
     doc: 'The choice the turn makes for each slot the profile declares in inputs.slots; a slot or a value the profile does not declare is refused.',
@@ -85,6 +80,11 @@ export const REQUEST_FIELDS: Record<
   'runTurn.system': {
     type: 'SystemPrompt',
     doc: "An instruction for this request only, added to the profile's own.",
+  },
+  'runTurn.conditions': {
+    type: 'Record<string, string>',
+    doc: "This turn's facts, one value for each of identity.conditions but path.",
+    unset: 'The profile declares none',
   },
   'runTurn.path': {
     type: 'string',

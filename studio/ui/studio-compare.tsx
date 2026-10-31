@@ -1,15 +1,31 @@
-import { Button } from '@astryxdesign/core/Button';
+import { Center } from '@astryxdesign/core/Center';
+import type { ChatComposerInputHandle } from '@astryxdesign/core/Chat';
+import { ComplexSelector } from '@astryxdesign/core/ComplexSelector';
 import { Divider } from '@astryxdesign/core/Divider';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
+import { RadioList, RadioListItem } from '@astryxdesign/core/RadioList';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from '@tabler/icons-react';
-import { createHttpTransport, createTraceFeed, type TraceFeed } from '@theoremjs/react/client';
+import {
+  IconInputAi,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+} from '@tabler/icons-react';
+import {
+  type ComposerMenuAction,
+  type ComposerPendingKind,
+  type ComposerPendingMessage,
+  createComposerPendingMessage,
+  orderComposerPendingMessages,
+  removeComposerPendingMessage,
+} from '@theoremjs/agents/interface';
 import {
   ChatComposerBar,
+  DEFAULT_CHAT_MAX_WIDTH,
+  generationOptions,
   InPlace,
   PaneFailure,
   PaneLoading,
@@ -17,11 +33,28 @@ import {
   type TheoremChatHandle,
 } from '@theoremjs/react/ui';
 import {
+  type ChatController,
+  type ChatState,
+  type ClientFailure,
+  clientFailure,
+  composerFieldsFromDraft,
+  composerHasPayload,
+  createHttpTransport,
+  createTraceFeed,
+  encodeComposerDraft,
+  type SendTextOptions,
+  type StatedTurn,
+  type TraceFeed,
+} from '@theoremjs/web/client';
+import {
+  type ComponentProps,
   type ReactNode,
   type Ref,
+  type RefObject,
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -30,6 +63,7 @@ import {
 import { atStart, type StudioWorkspace } from '../mod.ts';
 import type { EditedAnswer, SaveRefusal } from '../server/save-wire.ts';
 import { useActingAs } from './lib/acting-as.ts';
+import { runsAsConversation } from './lib/conversation-types.ts';
 import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
@@ -101,41 +135,63 @@ export function useLoadedStamp(answer: EditedAnswer | undefined): string | undef
 }
 
 /**
- * One message sent to both sides, and which of them still answers it. A side rests when its turn
- * is done: the reply ended, and any question it stopped on was answered.
+ * What the edited side states. While edits load it still runs the last load, which refuses a
+ * condition only the new edits declare, so it states what that load declares.
+ */
+export function useLoadedStated(
+  stated: StatedTurn | undefined,
+  isLoaded: boolean,
+): StatedTurn | undefined {
+  const [loaded, setLoaded] = useState(stated);
+  const now = isLoaded ? stated : loaded;
+  if (JSON.stringify(now) !== JSON.stringify(loaded)) setLoaded(now);
+  return now;
+}
+
+/** A side's chat as it stands, and as it changes. Null until the side is mounted. */
+function useSideState(chat: ChatController | null): ChatState | null {
+  const subscribe = useCallback(
+    (listener: () => void) => (chat ? chat.subscribe(listener) : () => {}),
+    [chat],
+  );
+  return useSyncExternalStore(subscribe, () => chat?.getState() ?? null);
+}
+
+/**
+ * The two sides' chats, and which of them still answers. A side rests when its turn is done: the
+ * reply ended, and any question it stopped on was answered.
  */
 function usePair() {
-  const chats = useRef<Record<Side, TheoremChatHandle | null>>({ saved: null, edited: null });
-  const [busy, setBusy] = useState<readonly Side[]>([]);
-  const done = useCallback((side: Side) => {
-    setBusy((sides) => sides.filter((other) => other !== side));
+  const handles = useRef<Record<Side, TheoremChatHandle | null>>({ saved: null, edited: null });
+  const [chats, setChats] = useState<Record<Side, ChatController | null>>({
+    saved: null,
+    edited: null,
+  });
+  const [refs] = useState(() => {
+    const ref = (side: Side) => (handle: TheoremChatHandle | null) => {
+      handles.current[side] = handle;
+      const chat = handle?.controller ?? null;
+      setChats((now) => (now[side] === chat ? now : { ...now, [side]: chat }));
+    };
+    return { saved: ref('saved'), edited: ref('edited') };
+  });
+  const states = { saved: useSideState(chats.saved), edited: useSideState(chats.edited) };
+  const busy = SIDES.filter((side) => states[side] && states[side].phase !== 'idle');
+  const send = useCallback(async (text: string, options?: SendTextOptions) => {
+    const sent = SIDES.flatMap((side) => {
+      const chat = handles.current[side]?.controller;
+      return chat ? [[side, chat] as const] : [];
+    });
+    // A side's send resolves once its reply is done, or at once when it could not take it.
+    const answers = sent.map(
+      async ([side, chat]) => [side, await chat.sendText(text, options).catch(() => null)] as const,
+    );
+    return new Map(await Promise.all(answers));
   }, []);
-  const send = useCallback(
-    async (text: string) => {
-      const sent = SIDES.filter((side) => chats.current[side]);
-      setBusy(sent);
-      const answers = sent.map(async (side) => {
-        // A side's send resolves once its reply is done, or at once when it could not take it.
-        const added = await chats.current[side]?.send(text).catch(() => null);
-        done(side);
-        return [side, added ?? null] as const;
-      });
-      return new Map(await Promise.all(answers));
-    },
-    [done],
-  );
   const stop = useCallback(() => {
-    for (const side of SIDES) chats.current[side]?.stop();
+    for (const side of SIDES) handles.current[side]?.stop();
   }, []);
-  const [refs] = useState(() => ({
-    saved: (handle: TheoremChatHandle | null) => {
-      chats.current.saved = handle;
-    },
-    edited: (handle: TheoremChatHandle | null) => {
-      chats.current.edited = handle;
-    },
-  }));
-  return useMemo(() => ({ busy, send, stop, refs, chats }), [busy, send, stop, refs]);
+  return { busy, send, stop, refs, handles, chats, states };
 }
 
 /** Whether the files' side is put away, for every comparison in this tab. */
@@ -286,40 +342,355 @@ function NotRunning({ refusal, actions }: { refusal: SaveRefusal; actions?: Reac
   );
 }
 
-/** The message both sides get, and the stop for both while either answers. */
-function SharedComposer({
-  handle,
-  why,
-  isBusy,
-  onSend,
-  onStop,
-}: {
-  handle: string;
-  /** Why a message cannot go now, when it cannot. */
-  why: string | undefined;
-  isBusy: boolean;
-  onSend: (text: string) => void;
-  onStop: () => void;
-}) {
-  const [text, setText] = useState('');
+/** The phase the shared composer shows: streaming while either side streams, else gated while either waits. */
+function pairPhase(states: readonly ChatState[]): ChatState['phase'] {
+  if (states.some((state) => state.phase === 'streaming')) return 'streaming';
+  return states.some((state) => state.phase === 'gated') ? 'gated' : 'idle';
+}
+
+function allowsSteering(state: ChatState): boolean {
+  return state.iface != null && 'allowSteering' in state.iface && state.iface.allowSteering;
+}
+
+/** Each side's pending messages, once each: both sides hold a shared message under one id. */
+function pairPending(states: readonly ChatState[]): ComposerPendingMessage[] {
+  const byId = new Map(
+    states.flatMap((state) => state.pendingMessages.map((message) => [message.id, message])),
+  );
+  return orderComposerPendingMessages([...byId.values()]);
+}
+
+/** Whether a side's running turn would take a steer now. */
+const takesSteer = (state: ChatState): boolean =>
+  state.phase === 'streaming' && allowsSteering(state);
+
+type SideChat = { side: Side; chat: ChatController; state: ChatState };
+
+/** A side's name where the two are named in a line. */
+const SIDE_NAMES: Record<Side, string> = { saved: 'Saved', edited: 'Edited' };
+
+/** One column of the model control: what this side's own composer offers, and it alone. */
+function SideGeneration({ side, chat, state }: SideChat) {
+  const { selectedModel, selectedEffort } = state.session;
+  if (!state.iface) return null;
+  const { models, efforts } = generationOptions(state.iface, selectedModel);
+  const isDisabled = state.phase === 'streaming';
   return (
-    <HStack gap={2} vAlign="end" padding={3}>
-      <StackItem size="fill">
-        <ChatComposerBar
-          handle={handle}
-          draftText={text}
-          onDraftTextChange={setText}
-          onSubmit={onSend}
-          isDisabled={isBusy || why !== undefined}
-          placeholder={why ?? 'Message both'}
-        />
-      </StackItem>
-      {isBusy && <Button label="Stop" variant="ghost" onClick={onStop} />}
-    </HStack>
+    <VStack gap={3} style={{ flex: '1 1 12rem', minWidth: 0 }}>
+      {models.length > 0 ? (
+        <RadioList
+          label={SIDE_NAMES[side]}
+          size="sm"
+          isDisabled={isDisabled}
+          value={selectedModel ?? ''}
+          onChange={(modelId) => {
+            chat.setGeneration({ modelId });
+          }}
+        >
+          {models.map((model) => (
+            <RadioListItem
+              key={model.id}
+              value={model.id}
+              label={model.id}
+              description={model.label === model.id ? undefined : model.label}
+            />
+          ))}
+        </RadioList>
+      ) : (
+        <VStack gap={1}>
+          <Text type="supporting" weight="semibold">
+            {SIDE_NAMES[side]}
+          </Text>
+          <Text type="supporting" color="secondary">
+            {selectedModel}
+          </Text>
+        </VStack>
+      )}
+      {selectedModel && efforts.length > 0 && (
+        <RadioList
+          label="Effort"
+          size="sm"
+          isDisabled={isDisabled}
+          value={selectedEffort ?? ''}
+          onChange={(effort) => {
+            chat.setGeneration({ modelId: selectedModel, effort });
+          }}
+        >
+          {efforts.map((option) => (
+            <RadioListItem
+              key={option.alias}
+              value={option.alias}
+              label={option.alias}
+              description={option.level}
+            />
+          ))}
+        </RadioList>
+      )}
+    </VStack>
   );
 }
 
-export interface ProjectChatProps {
+/**
+ * The composer's model control when two chats share it: each side's choices, side by side. A pick
+ * is that side's, held by its chat, as its own composer would hold it.
+ */
+function PairGeneration({ sides }: { sides: readonly SideChat[] }) {
+  const offered = sides.filter(({ state }) => {
+    const { models, efforts } = state.iface
+      ? generationOptions(state.iface, state.session.selectedModel)
+      : { models: [], efforts: [] };
+    return models.length + efforts.length > 0;
+  });
+  if (offered.length === 0) return null;
+  const running = sides.flatMap(({ side, state }) => {
+    const model = state.session.selectedModel;
+    return model ? [{ side, model }] : [];
+  });
+  const label =
+    new Set(running.map(({ model }) => model)).size === 1
+      ? running[0].model
+      : running.map(({ side, model }) => `${SIDE_NAMES[side]} ${model}`).join(' · ');
+  return (
+    <ComplexSelector
+      label="Model"
+      isLabelHidden
+      size="sm"
+      variant="ghost"
+      placement="above"
+      startIcon={<IconInputAi size={14} />}
+      value={label}
+      triggerLabel={label}
+    >
+      {() => (
+        <HStack
+          gap={4}
+          padding={3}
+          wrap="wrap"
+          style={{
+            width: 'min(32rem, calc(100vw - 2rem))',
+            maxHeight: 'min(60vh, 28rem)',
+            overflowY: 'auto',
+          }}
+        >
+          {sides.map((side) => (
+            <SideGeneration key={side.side} {...side} />
+          ))}
+        </HStack>
+      )}
+    </ComplexSelector>
+  );
+}
+
+/**
+ * The one composer of both sides. It only types for them: each side does with what is sent what
+ * its own composer would. An idle side sends it, a busy one queues it; a steer goes to each side
+ * whose running turn takes one; and each side refuses a file its profile does not take. The model
+ * is each side's own.
+ */
+function SharedComposer({
+  sides,
+  edited,
+  inputRef,
+}: {
+  sides: readonly SideChat[];
+  edited: ChatState;
+  inputRef: RefObject<ChatComposerInputHandle | null>;
+}) {
+  const iface = edited.iface ?? undefined;
+  const [draftText, setDraftText] = useState('');
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingVoice, setPendingVoice] = useState<File[]>([]);
+  const [failure, setFailure] = useState<ClientFailure | null>(null);
+  const states = sides.map((side) => side.state);
+  const phase = pairPhase(states);
+  if (!iface) return null;
+  const options = (): SendTextOptions => ({ files: pendingFiles, voice: pendingVoice });
+  const message = async (kind: ComposerPendingKind) =>
+    createComposerPendingMessage({
+      kind,
+      draft: await encodeComposerDraft({ text: draftText, pendingFiles, pendingVoice }),
+    });
+  const clear = () => {
+    setDraftText('');
+    setPendingFiles([]);
+    setPendingVoice([]);
+  };
+  /** Each side as its own composer would: an idle side sends, a busy one takes `kind`. */
+  const deliver = async (kind: ComposerMenuAction) => {
+    const text = draftText;
+    const sent = options();
+    let shared: ComposerPendingMessage;
+    try {
+      shared = await message(kind === 'send_now' ? 'queue' : kind);
+    } catch (error) {
+      // The draft stays in the composer, with why it could not go.
+      setFailure(clientFailure(error, iface.labels));
+      return;
+    }
+    setFailure(null);
+    clear();
+    for (const { chat, state } of sides) {
+      if (kind === 'steer') {
+        if (takesSteer(state)) void chat.pend(shared);
+        continue;
+      }
+      if (kind === 'stash') {
+        void chat.pend(shared);
+        continue;
+      }
+      // why: reading the attachments took time, and a side may have finished or started since.
+      if (chat.getState().phase === 'idle') {
+        void chat.sendText(text, sent);
+        continue;
+      }
+      void (kind === 'send_now' ? chat.sendNow(shared) : chat.pend(shared));
+    }
+  };
+  const each = (act: (chat: ChatController) => void) => {
+    for (const { chat } of sides) act(chat);
+  };
+  const pending = pairPending(states);
+  return (
+    <SharedDock>
+      <ChatComposerBar
+        // why: a steer goes only to a running turn, so one that no side would take is not offered.
+        iface={{
+          ...iface,
+          ...('allowSteering' in iface
+            ? { allowSteering: sides.some(({ state }) => takesSteer(state)) }
+            : {}),
+        }}
+        draftText={draftText}
+        pendingFiles={pendingFiles}
+        pendingVoice={pendingVoice}
+        pendingMessages={pending}
+        issues={[]}
+        phase={phase}
+        failure={failure}
+        placeholder="Message both"
+        inputRef={inputRef}
+        onDraftTextChange={setDraftText}
+        onFilesSelected={(files) => {
+          setPendingFiles((prev) => [...prev, ...files]);
+        }}
+        onAttachmentRemove={(index) => {
+          setPendingFiles((prev) => prev.filter((_, at) => at !== index));
+        }}
+        onVoiceStaged={(file) => {
+          setPendingVoice([file]);
+        }}
+        onVoiceClear={() => {
+          setPendingVoice([]);
+        }}
+        onSubmit={() => {
+          void deliver('queue');
+        }}
+        onStop={() => {
+          each((chat) => {
+            chat.stop();
+          });
+        }}
+        onMenuAction={(action) => {
+          void deliver(action);
+        }}
+        generationSelect={<PairGeneration sides={sides} />}
+        slotChoices={
+          edited.slots && {
+            ...edited.slots,
+            onChange: (name, value) => {
+              each((chat) => {
+                chat.pickSlot(name, value);
+              });
+            },
+          }
+        }
+        onPendingMove={(id, direction) => {
+          each((chat) => {
+            chat.movePending(id, direction);
+          });
+        }}
+        onPendingRemove={(id) => {
+          each((chat) => {
+            chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
+          });
+        }}
+        onPendingQueue={(id) => {
+          each((chat) => {
+            chat.queuePending(id);
+          });
+        }}
+        onPendingRestore={(id) => {
+          void (async () => {
+            const restored = pending.find((held) => held.id === id);
+            if (!restored) return;
+            // As a chat restores: what the composer holds is stashed first.
+            if (composerHasPayload(draftText, pendingFiles, pendingVoice)) await deliver('stash');
+            each((chat) => {
+              chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
+            });
+            const fields = composerFieldsFromDraft(restored.draft);
+            setDraftText(fields.text);
+            setPendingFiles(fields.files);
+            setPendingVoice(fields.voice);
+          })();
+        }}
+        onPendingSendNow={(id) => {
+          for (const { chat, state } of sides) {
+            const held = state.pendingMessages.find((m) => m.id === id);
+            if (!held) continue;
+            void chat.sendNow(held);
+          }
+        }}
+      />
+    </SharedDock>
+  );
+}
+
+/**
+ * Where the shared composer sits: the width and inset of a chat's own dock.
+ * why: it sits outside both chats' layouts, so it brings the 12px sides and 24px below they give.
+ */
+function SharedDock({ children }: { children: ReactNode }) {
+  return (
+    <VStack paddingInline={3} paddingBlockEnd={6}>
+      <Center axis="horizontal" width="100%">
+        <VStack width="100%" maxWidth={DEFAULT_CHAT_MAX_WIDTH}>
+          {children}
+        </VStack>
+      </Center>
+    </VStack>
+  );
+}
+
+/** The composer while the edits cannot take a message: it says why. */
+function WaitingComposer({ handle, why }: { handle: string; why: string }) {
+  return (
+    <SharedDock>
+      <ChatComposerBar
+        handle={handle}
+        draftText=""
+        onDraftTextChange={() => {}}
+        onSubmit={() => {}}
+        isDisabled
+        placeholder={why}
+      />
+    </SharedDock>
+  );
+}
+
+export /** What a chat resumes and starts with; the page keeps its conversation through these. */
+type ChatStart = Pick<
+  ComponentProps<typeof TheoremChat>,
+  | 'conversation'
+  | 'conversationView'
+  | 'initialText'
+  | 'initialFiles'
+  | 'initialVoice'
+  | 'initialPending'
+  | 'onConversationChange'
+>;
+
+export interface ProjectChatProps extends ChatStart {
   project: ProjectSession;
   /** The id of the profile the page chats with, as its edits name it. */
   profileId: string;
@@ -333,6 +704,10 @@ export interface ProjectChatProps {
   chatRef?: Ref<TheoremChatHandle>;
   /** The value the page picked for each slot. */
   slots?: Record<string, string>;
+  /** What the edited side states, of the profile the edits make. */
+  stated?: StatedTurn;
+  /** What the files' side states, of the profile the files hold. */
+  savedStated?: StatedTurn;
   /** What the page tells the agent. */
   context?: unknown;
 }
@@ -342,9 +717,6 @@ function savedOf(tested: StudioWorkspace | undefined, profileId: string) {
   const agent = tested?.agents.find((held) => held.identity.agentId === profileId);
   return agent && tested?.starts.agents[agent.key]?.identity;
 }
-
-/** The types a chat cannot talk to: the files' side of one of these has no conversation to show. */
-const NOT_A_CHAT = new Set(['decision', 'host', 'live']);
 
 /** Why a message cannot go to both sides now, when it cannot. */
 function whyNot(failed: boolean, isReady: boolean): string | undefined {
@@ -357,12 +729,22 @@ function whyNot(failed: boolean, isReady: boolean): string | undefined {
  * is replaced, starts from what was said. Every load seals with the studio run's one key, so the
  * edited side opens the files' side's ref and goes on from there on its own.
  */
-function useConversations(isEditing: boolean) {
-  const conversations = useRef<Partial<Record<Side, string>>>({});
+function useConversations(
+  isEditing: boolean,
+  resumed: string | undefined,
+  report: ChatStart['onConversationChange'],
+) {
+  const conversations = useRef<Partial<Record<Side, string>>>({ saved: resumed });
   if (!isEditing) conversations.current.edited = undefined;
+  const reporting = useRef({ isEditing, report });
+  useLayoutEffect(() => {
+    reporting.current = { isEditing, report };
+  });
   const [onChange] = useState(() => {
-    const change = (side: Side) => (ref: string) => {
+    const change = (side: Side) => (ref: string | undefined) => {
       conversations.current[side] = ref;
+      // invariant: the page keeps one conversation, so a reload resumes what was shown.
+      if (side === 'edited' || !reporting.current.isEditing) reporting.current.report?.(ref);
     };
     return { saved: change('saved'), edited: change('edited') };
   });
@@ -453,7 +835,15 @@ export function EditedSide({
 }
 
 /** What the comparison shows now: which sides there are, and what each one runs. */
-function useComparison({ project, profileId, tested, note, traces }: ProjectChatProps) {
+function useComparison({
+  project,
+  profileId,
+  tested,
+  note,
+  traces,
+  conversation,
+  onConversationChange,
+}: ProjectChatProps) {
   const edits = useMemo(() => unsavedEdits(tested, project.profiles), [tested, project.profiles]);
   const pair = usePair();
   const isBusy = pair.busy.length > 0;
@@ -465,10 +855,14 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
   );
   const isEditing = edits !== undefined;
   // A profile the edits made a chat is another type in the files, which a chat cannot talk to.
-  const chatsInFiles = !saved || !NOT_A_CHAT.has(saved.profileType);
+  const chatsInFiles = !saved || runsAsConversation(saved.profileType);
   const inFiles =
     !isEditing || (chatsInFiles && (answer?.saved ?? project.profiles).includes(ids.saved));
-  const { conversations, onChange } = useConversations(isEditing);
+  const { conversations, onChange } = useConversations(
+    isEditing,
+    conversation,
+    onConversationChange,
+  );
   const stamp = useLoadedStamp(answer);
   const transports = useTransports(project, ids, stamp, { note, traces });
   const refused = answer && !answer.ok && !pending ? answer : undefined;
@@ -489,31 +883,63 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
 
 /**
  * The chat the page holds: a message goes to both sides while both are there and can take it, and
- * to the one side otherwise. It answers with what the edits said.
+ * to the one side otherwise. It answers with what the edits said, and its controller is theirs.
  */
 function useChatHandle(
   chatRef: Ref<TheoremChatHandle> | undefined,
   pair: ReturnType<typeof usePair>,
   only: Side | undefined,
   canSendBoth: boolean,
+  sharedInput: RefObject<ChatComposerInputHandle | null>,
 ) {
-  const { send, stop, chats } = pair;
-  const sendBoth = useCallback(
-    async (text: string) => (await send(text)).get('edited') ?? null,
-    [send],
-  );
-  useImperativeHandle(
-    chatRef,
-    () => ({
-      send: (text) => {
-        if (only) return chats.current[only]?.send(text) ?? Promise.resolve(null);
-        return canSendBoth ? sendBoth(text) : Promise.resolve(null);
+  const { send, stop, handles, chats } = pair;
+  const controller = chats[only ?? 'edited'];
+  useImperativeHandle<TheoremChatHandle | null, TheoremChatHandle | null>(
+    // invariant: a screen holds this handle only while the chat behind it is open.
+    chatRef as Ref<TheoremChatHandle | null> | undefined,
+    () =>
+      controller && {
+        send: (text, options) => {
+          if (only) return handles.current[only]?.send(text, options) ?? Promise.resolve(null);
+          if (!canSendBoth) return Promise.resolve(null);
+          return send(text, options).then((answers) => answers.get('edited') ?? null);
+        },
+        stop,
+        focus: () => {
+          if (only) handles.current[only]?.focus();
+          else sharedInput.current?.focus();
+        },
+        controller,
       },
-      stop,
-    }),
-    [only, canSendBoth, sendBoth, stop, chats],
+    [only, canSendBoth, send, stop, handles, sharedInput, controller],
   );
-  return sendBoth;
+}
+
+/** The one composer under a split, or why it waits. */
+function SharedSlot({
+  sides,
+  edited,
+  inputRef,
+  handle,
+  why,
+}: {
+  sides: ComponentProps<typeof SharedComposer>['sides'];
+  edited: ComponentProps<typeof SharedComposer>['edited'] | undefined;
+  inputRef: ComponentProps<typeof SharedComposer>['inputRef'];
+  handle: string;
+  why: string | undefined;
+}) {
+  if (edited) return <SharedComposer sides={sides} edited={edited} inputRef={inputRef} />;
+  return <WaitingComposer handle={handle} why={why ?? 'Loading your edits'} />;
+}
+
+/** The sides whose chats have opened. */
+function openSides(pair: ReturnType<typeof useComparison>['pair']) {
+  return SIDES.flatMap((side) => {
+    const chat = pair.chats[side];
+    const state = pair.states[side];
+    return chat && state ? [{ side, chat, state }] : [];
+  });
 }
 
 /**
@@ -522,14 +948,18 @@ function useChatHandle(
  * the files with the edits laid over them.
  */
 export function ProjectChat(props: ProjectChatProps) {
-  const { profileId, trace, className, chatRef, slots, context } = props;
+  const { profileId, trace, className, chatRef, slots, stated, savedStated, context } = props;
+  const { conversationView, initialText, initialFiles, initialVoice, initialPending } = props;
   const view = useComparison(props);
   const { pair, isBusy, transports, refused, isReady } = view;
+  const loadedStated = useLoadedStated(stated, isReady);
   const isSavedHidden = useSavedHidden();
   const showsSaved = view.inFiles && !(view.isEditing && isSavedHidden);
   const isShared = view.isShared && showsSaved;
   const only = isShared ? undefined : showsSaved ? 'saved' : 'edited';
-  const sendBoth = useChatHandle(chatRef, pair, only, !isBusy && isReady);
+  const sharedInput = useRef<ChatComposerInputHandle | null>(null);
+  useChatHandle(chatRef, pair, only, !isBusy && isReady, sharedInput);
+  const shared = openSides(pair);
   const common = {
     detectCodeLanguage: true,
     labels: STUDIO_LABELS,
@@ -538,6 +968,13 @@ export function ProjectChat(props: ProjectChatProps) {
     slots,
     context,
     composer: !isShared,
+    // A greeting says where to start; both sides start at the one composer under them.
+    emptyState: isShared ? null : undefined,
+    conversationView,
+    initialText,
+    initialFiles,
+    initialVoice,
+    initialPending,
   };
   return (
     <VStack height="100%">
@@ -548,6 +985,7 @@ export function ProjectChat(props: ProjectChatProps) {
               <SavedSide isCompared={view.isEditing}>
                 <TheoremChat
                   {...common}
+                  stated={savedStated}
                   transport={transports.saved}
                   // A side that comes back starts from what it had said.
                   conversation={view.conversations.current.saved}
@@ -567,6 +1005,7 @@ export function ProjectChat(props: ProjectChatProps) {
                 {transports.edited && (
                   <TheoremChat
                     {...common}
+                    stated={loadedStated}
                     // A new load is a new transport: the chat reads it in place and keeps its transcript.
                     transport={transports.edited}
                     conversation={
@@ -583,14 +1022,12 @@ export function ProjectChat(props: ProjectChatProps) {
         </HStack>
       </StackItem>
       {isShared && (
-        <SharedComposer
+        <SharedSlot
+          sides={shared}
+          edited={isReady ? (pair.states.edited ?? undefined) : undefined}
+          inputRef={sharedInput}
           handle={profileId}
           why={whyNot(refused !== undefined, isReady)}
-          isBusy={isBusy}
-          onSend={(text) => {
-            void sendBoth(text);
-          }}
-          onStop={pair.stop}
         />
       )}
     </VStack>

@@ -1,8 +1,10 @@
-import { type ErrorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
+import { type ErrorKind, errorKind, TheoremError, throwIfAborted } from '../../guardrails/error.ts';
 import { labelText } from '../../guardrails/labels.ts';
 import type { DecisionDisclosureVerdict } from '../../guardrails/types.ts';
 import type { TraceSink } from '../../observability/trace-sink.ts';
 import { type SpanHandle, traceJson } from '../../observability/trace-span.ts';
+import { operationNameOf } from '../protocols/binding.ts';
+import type { DecisionCall } from '../protocols/protocol.ts';
 import type { ProviderHostOptions } from '../protocols/runtime.ts';
 import { guardedCall } from '../provider-runtime.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
@@ -18,20 +20,57 @@ import type {
 } from '../types.ts';
 import { isRecord } from '../util/record.ts';
 import { tracedCall } from './call-trace.ts';
+import { referencedAssets } from './decision-references.ts';
 
-/** Where the provider takes decision requests, as its preset states. */
+/** Each decision failure code, and the error kind it reads as. */
 const DECISION_ERROR_KINDS = {
+  invalid_config: 'config',
   invalid_request: 'request',
+  conflict: 'conflict',
+  not_found: 'not_found',
+  invalid_input: 'input',
+  not_allowed: 'action',
   authentication: 'auth',
   permission: 'auth',
   rate_limited: 'rate_limit',
+  busy: 'busy',
+  unsupported: 'unsupported',
   unavailable: 'unavailable',
   network: 'network',
   timeout: 'timeout',
   cancelled: 'cancelled',
   malformed_response: 'bad_response',
+  refused: 'safety',
+  blocked: 'blocked',
   disclosure_blocked: 'blocked',
+  declined: 'declined',
+  failed: 'failed',
+  internal: 'internal',
 } as const satisfies Record<string, ErrorKind>;
+
+/** Each kind's code: a thrown failure keeps its kind. */
+const DECISION_CODES: Readonly<Record<ErrorKind, keyof typeof DECISION_ERROR_KINDS>> = {
+  config: 'invalid_config',
+  request: 'invalid_request',
+  conflict: 'conflict',
+  not_found: 'not_found',
+  input: 'invalid_input',
+  action: 'not_allowed',
+  auth: 'authentication',
+  rate_limit: 'rate_limited',
+  busy: 'busy',
+  unsupported: 'unsupported',
+  unavailable: 'unavailable',
+  bad_response: 'malformed_response',
+  network: 'network',
+  timeout: 'timeout',
+  safety: 'refused',
+  blocked: 'blocked',
+  declined: 'declined',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  internal: 'internal',
+};
 
 /**
  * A normalized native-decision failure; response bodies are deliberately omitted. What the
@@ -97,7 +136,8 @@ function distribution(value: unknown, labels: string[], path: string): Record<st
   const out: Record<string, number> = Object.create(null);
   for (const label of labels) out[label] = finite(value[label], `${path}.${label}`);
   const total = Object.values(out).reduce((sum, item) => sum + item, 0);
-  if (Math.abs(total - 1) > 0.001) {
+  // why: Answers come rounded to hundredths, so each label may be off by half of one.
+  if (Math.abs(total - 1) > 0.005 * labels.length + 1e-9) {
     throw new DecisionError('malformed_response', `${path} must sum to one`); // labels-exempt: upstream contract error
   }
   return out;
@@ -385,6 +425,7 @@ async function enforceDisclosure(
   model: string,
   provider: DecisionProfile['models'][string]['provider'],
   request: DecisionRequest,
+  assets: DecisionCall['assets'],
 ): Promise<void> {
   const verdict: DecisionDisclosureVerdict | undefined =
     await profile.guardrails?.disclosure?.enforce(request.state, {
@@ -392,7 +433,7 @@ async function enforceDisclosure(
       profileId: profile.id,
       model,
       questionIds: Object.keys(request.questions),
-      ...(request.assets ? { assets: request.assets } : {}),
+      ...(assets ? { assets } : {}),
     });
   if (verdict?.action === 'block') {
     throw new DecisionError('disclosure_blocked', 'Decision disclosure was blocked'); // labels-exempt: developer contract error
@@ -404,9 +445,11 @@ function decisionSpanAttributes(
   modelId: ModelId,
   binding: DecisionProfile['models'][string],
   request: DecisionRequest,
+  assets: DecisionCall['assets'],
+  operation: string | undefined,
 ) {
   return {
-    'gen_ai.operation.name': 'decide',
+    ...(operation ? { 'gen_ai.operation.name': operation } : {}),
     'gen_ai.provider.name': binding.provider,
     'gen_ai.agent.name': profile.id,
     'gen_ai.request.model': binding.apiId,
@@ -414,12 +457,12 @@ function decisionSpanAttributes(
     'theorem.decision.contract': profile.decision.contract,
     'theorem.decision.state': traceJson(request.state),
     'theorem.decision.questions': traceJson(request.questions),
-    ...(request.assets
+    ...(assets
       ? {
           // invariant: Image bytes never reach a trace; it keeps each image's type and size.
           'theorem.decision.assets': traceJson(
             Object.fromEntries(
-              Object.entries(request.assets).map(([reference, { mimeType, data }]) => [
+              Object.entries(assets).map(([reference, { mimeType, data }]) => [
                 reference,
                 { mimeType, bytes: data.length },
               ]),
@@ -448,27 +491,11 @@ function recordResult(root: SpanHandle, result: DecisionResult): void {
 
 function decisionProviderError(error: unknown): DecisionError {
   if (error instanceof DecisionError) return error;
-  const kind =
-    error instanceof TheoremError
-      ? error.kind
-      : error instanceof TypeError
-        ? 'network'
-        : 'bad_response';
-  const codes: Partial<Record<ErrorKind, keyof typeof DECISION_ERROR_KINDS>> = {
-    auth: 'authentication',
-    rate_limit: 'rate_limited',
-    network: 'network',
-    busy: 'unavailable',
-    unavailable: 'unavailable',
-    timeout: 'timeout',
-    cancelled: 'cancelled',
-    request: 'invalid_request',
-    unsupported: 'invalid_request',
-  };
+  const kind = errorKind(error);
   const code =
     kind === 'auth' && isRecord(error) && error.status === 403
       ? 'permission'
-      : (codes[kind] ?? 'malformed_response');
+      : DECISION_CODES[kind];
   return new DecisionError(
     code,
     // why: A framework failure's message holds no response body, and says what stopped the decision.
@@ -478,33 +505,51 @@ function decisionProviderError(error: unknown): DecisionError {
   );
 }
 
+/** What the provider gets: each box's image said in its instructions, and only the images a string references. */
+function sentCall(request: DecisionRequest): Omit<DecisionCall, 'apiId'> {
+  const questions = Object.fromEntries(
+    Object.entries(request.questions).map(([id, question]) => [
+      id,
+      providerQuestion(question, request.assets),
+    ]),
+  );
+  const assets = request.assets
+    ? referencedAssets(
+        [
+          request.state,
+          ...Object.values(questions).flatMap((question) => [
+            question.instructions,
+            'criteria' in question ? question.criteria : undefined,
+          ]),
+        ],
+        request.assets,
+      )
+    : {};
+  return {
+    state: request.state,
+    questions,
+    ...(Object.keys(assets).length ? { assets } : {}),
+  };
+}
+
 async function decide(
   registry: KernelRegistry,
   profile: DecisionProfile,
   [modelId, binding]: [ModelId, DecisionProfile['models'][string]],
   request: DecisionRequest,
+  sent: Omit<DecisionCall, 'apiId'>,
   options: RunDecisionOptions,
 ): Promise<DecisionResult> {
   throwIfAborted(request.signal);
   const provider = registry.providers.require(binding.provider, binding.apiId);
-  await enforceDisclosure(profile, modelId, binding.provider, request);
+  await enforceDisclosure(profile, modelId, binding.provider, request, sent.assets);
   throwIfAborted(request.signal);
   try {
     const call = guardedCall(provider, binding, 'decision', options, {
       ...(request.signal ? { signal: request.signal } : {}),
       ...(binding.timeoutMs ? { timeoutMs: binding.timeoutMs } : {}),
     });
-    const result = await call.decide({
-      apiId: binding.apiId,
-      state: request.state,
-      questions: Object.fromEntries(
-        Object.entries(request.questions).map(([id, question]) => [
-          id,
-          providerQuestion(question, request.assets),
-        ]),
-      ),
-      ...(request.assets ? { assets: request.assets } : {}),
-    });
+    const result = await call.decide({ apiId: binding.apiId, ...sent });
     if (typeof result.model !== 'string' || !result.model.trim())
       throw new DecisionError('malformed_response', labelText('provider.decision_model_missing'));
     return { ...result, answers: validateAnswers(result.answers, request.questions) };
@@ -516,8 +561,8 @@ async function decide(
 }
 
 /**
- * Exactly one decision request, traced however it ends. An ambiguous POST is never retried,
- * and a trace write failure never changes the decision's outcome.
+ * One decision, traced however it ends. A transient failure (408, 429, a 5xx gateway or a network
+ * error) is retried within five seconds; a trace write failure never changes the decision's outcome.
  */
 export async function runDecisionInRegistry(
   registry: KernelRegistry,
@@ -528,10 +573,20 @@ export async function runDecisionInRegistry(
   validateDecisionRequest(request, profile);
   const model = decisionModel(profile);
   const [modelId, binding] = model;
+  const sent = sentCall(request);
+  const provider = registry.providers.get(binding.provider);
+  const operation = provider && operationNameOf(provider, binding, 'decision');
   return await tracedCall(
     {
-      name: `decide ${binding.apiId}`,
-      attributes: decisionSpanAttributes(profile, modelId, binding, request),
+      name: operation ? `${operation} ${binding.apiId}` : binding.apiId,
+      attributes: decisionSpanAttributes(
+        profile,
+        modelId,
+        binding,
+        request,
+        sent.assets,
+        operation,
+      ),
       traceparent: request.traceparent,
       metadata: request.metadata,
       writer: {
@@ -541,7 +596,7 @@ export async function runDecisionInRegistry(
       },
     },
     async (root) => {
-      const result = await decide(registry, profile, model, request, options);
+      const result = await decide(registry, profile, model, request, sent, options);
       recordResult(root, result);
       return result;
     },

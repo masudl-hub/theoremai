@@ -15,23 +15,47 @@ import type {
   TurnHistoryMessage,
   WireFunctionTool,
 } from '../../../kernel/types.ts';
-import { withCarriedToolFiles } from '../../shared/carried-tool-files.ts';
+import {
+  withCarriedAssistantFiles,
+  withCarriedToolFiles,
+} from '../../shared/carried-tool-files.ts';
 import { historyToolIdentity } from '../../shared/tool-args.ts';
 
-/** The detail is the body's `error.message` (or raw text), so the upstream reason reaches traces. */
+/** The fields Chat Completions gives every error; any other field is the provider's own detail. */
+const STANDARD_ERROR_FIELDS: ReadonlySet<string> = new Set(['message', 'type', 'param', 'code']);
+
+/**
+ * Why a Chat Completions body says the call failed: its `error.message`, then the provider's own
+ * fields (OpenRouter's `metadata.raw` names the upstream reason), else the raw body.
+ */
+function statedError(body: unknown): string | undefined {
+  if (typeof body === 'string') return body.trim() || undefined;
+  const error = asRecord(asRecord(body)?.error);
+  if (!error) return body === undefined || body === null ? undefined : JSON.stringify(body);
+  const own = Object.fromEntries(
+    Object.entries(error).filter(([key]) => !STANDARD_ERROR_FIELDS.has(key)),
+  );
+  const said = typeof error.message === 'string' && error.message ? [error.message] : [];
+  const more = Object.keys(own).length > 0 ? [JSON.stringify(own)] : [];
+  return [...said, ...more].join(' ') || JSON.stringify(error);
+}
+
+/** A refused Chat Completions call, its kind from the status and its stated reason in the message. */
+function httpError(failure: { status: number; body: unknown }, label: string): TheoremError {
+  const detail = statedError(failure.body);
+  const head = `${label} HTTP ${String(failure.status)}`;
+  return new TheoremError(kindOfHttpStatus(failure.status), detail ? `${head}: ${detail}` : head);
+}
+
 async function httpErrorEvent(res: Response, label: string): Promise<ProducedError> {
   const text = (await res.text()).trim();
-  let detail = text;
+  let body: unknown = text;
   try {
-    const message = asRecord(asRecord(JSON.parse(text))?.error)?.message;
-    if (typeof message === 'string' && message) detail = message;
+    body = JSON.parse(text);
   } catch {
     // why: Not JSON: the raw body is the detail.
   }
-  const head = `${label} HTTP ${String(res.status)}`;
-  return toErrorEvent(
-    new TheoremError(kindOfHttpStatus(res.status), detail ? `${head}: ${detail}` : head),
-  );
+  return toErrorEvent(httpError({ status: res.status, body }, label));
 }
 
 interface GatewayHeaderConfig {
@@ -141,7 +165,9 @@ function buildChatMessages(
   if (includeSystem && req.system) {
     messages.push({ role: 'system', content: req.system });
   }
-  for (const h of withCarriedToolFiles(req.history ?? [], TOOL_MESSAGE_PART_TYPES)) {
+  // why: Chat Completions takes only text and refusals in assistant content, and endpoints that enforce it refuse the call.
+  const history = withCarriedAssistantFiles(req.history ?? []);
+  for (const h of withCarriedToolFiles(history, TOOL_MESSAGE_PART_TYPES)) {
     messages.push(wireHistoryMessage(h));
   }
   if (req.input.length > 0) {
@@ -202,8 +228,10 @@ function openAiGatewayHeaders(config: GatewayHeaderConfig): Record<string, strin
 export type { GatewayHeaderConfig };
 export {
   buildChatMessages,
+  httpError,
   httpErrorEvent,
   openAiGatewayHeaders,
   resolveResponseFormat,
+  statedError,
   wireTools,
 };

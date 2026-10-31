@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { publicError, TheoremError } from '../../guardrails/error.ts';
+import { type ErrorKind, TheoremError } from '../../guardrails/error.ts';
 import { errorKindSchema, guardrailHit, provenance } from '../../guardrails/event-schemas.ts';
 import { type JsonObject, type JsonValue, jsonObjectSchema, jsonValueSchema } from '../json.ts';
 import type { InjectUnit } from '../stages.ts';
@@ -72,6 +72,12 @@ export type BeginToolOperationResult =
   | { kind: 'uncertain' };
 
 export interface ToolExecutionCoordinator {
+  /**
+   * The most bytes, as UTF-8 JSON, it keeps for one outcome. Unset, it keeps any size. The kernel
+   * settles a larger result as the call's `result_too_large` failure, so a call that ran is never
+   * left unresolved by its size.
+   */
+  readonly maxOutcomeBytes?: number;
   lookup(
     operation: ToolOperationIdentity,
   ): Promise<Exclude<BeginToolOperationResult, { kind: 'acquired' }> | undefined>;
@@ -81,10 +87,26 @@ export interface ToolExecutionCoordinator {
   markUncertain(claim: ToolOperationClaim, reason: ToolOperationUncertainty): Promise<void>;
 }
 
-export function operationUnavailable(): TheoremError {
-  const error = new TheoremError('unavailable', '');
-  error.message = publicError(error);
-  return error;
+/** A coordinator, a page dispatch or the kernel broke the tool-operation contract. */
+export function operationBroken(reason: string): TheoremError {
+  return new TheoremError('internal', reason);
+}
+
+/** The user reads that the action is unresolved; the builder reads why, under the kind of what happened. */
+export function unresolvedOperation(
+  kind: ErrorKind,
+  reason: string,
+  cause?: unknown,
+): TheoremError {
+  return new TheoremError(kind, reason, { copy: { key: 'tool.execution_uncertain' }, cause });
+}
+
+/** The host asked to run an operation that is still running or uncertain, so the host settles it first. */
+export function heldOperation(state: 'running' | 'uncertain'): TheoremError {
+  return unresolvedOperation(
+    'conflict',
+    `The tool operation is ${state}, so it does not run again until the host settles it`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
 }
 
 export async function toolInvocationHash(value: unknown): Promise<string> {
@@ -160,18 +182,22 @@ export function operationWireValue(value: unknown): JsonValue {
   const ancestors = new Set<object>();
   const normalize = (item: unknown): unknown => {
     if (!item || typeof item !== 'object') return item;
-    if (ancestors.has(item)) throw operationUnavailable();
+    if (ancestors.has(item)) throw operationBroken('Tool operation value has a cycle'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     const prototype = Object.getPrototypeOf(item);
     if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null) {
-      throw operationUnavailable();
+      throw operationBroken('Tool operation value holds an object that is not plain data'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
-    if (Object.hasOwn(item, '__proto__')) throw operationUnavailable();
+    if (Object.hasOwn(item, '__proto__')) {
+      throw operationBroken('Tool operation value has an own __proto__ key'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    }
     ancestors.add(item);
     try {
       if (Array.isArray(item)) return item.map(normalize);
       const entries = Object.entries(Object.getOwnPropertyDescriptors(item));
-      if (entries.some(([, descriptor]) => descriptor.get || descriptor.set))
-        throw operationUnavailable();
+      const accessor = entries.find(([, descriptor]) => descriptor.get || descriptor.set);
+      if (accessor) {
+        throw operationBroken(`Tool operation value has a getter or setter at '${accessor[0]}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      }
       return Object.fromEntries(
         entries
           .filter(([, descriptor]) => descriptor.enumerable && descriptor.value !== undefined)

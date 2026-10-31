@@ -16,8 +16,10 @@ The repo has ownership and freshness checks for contracts, the root README, and 
 - `npm run lint:docs` is the check. It runs in pre-commit and CI. It fails when:
   - an owned file changes and its owning doc is not in the diff (freshness);
   - a watched section does not change when its watched files do;
-  - a barrel export is missing from the owning contract (export drift);
-  - a user-facing string in the kernel, guardrails, interface, or headless react code is not in the labels (copy lint).
+  - an entry point's export is missing from the Exported API table of its owning doc, the table names a name that nothing exports, or the README's Public Entrypoints table differs from `deno.json` (export drift);
+  - a README table, field path or example no longer matches the code (`tests/docs/readme.test.ts`);
+  - a user-facing string in the kernel, guardrails, interface, or headless react code is not in the labels (copy lint);
+  - a proposal's status line is missing, says `proposal` while an entry's `realizes` names it, or says `building` or `built` while no entry does (proposal status). When you build from a proposal, change its status and add it to the `realizes` of the entry whose doc says what shipped.
 - `docs/DOCS_TRUTH.md` describes the rules. Read it before you add or move a doc.
 
 When you add a doc, add its entry to `docs/_map.mjs` in the same change. When you move code between owners, move the ownership. Never silence the lint with a comment edit. A comment-only edit counts as a change, so the lint cannot tell you did not revise the text. Revise the text.
@@ -38,7 +40,7 @@ A comment is documentation that no check reads, so it goes stale first. The code
 // text before it free to continue a run.
 ```
 
-`npm run lint:docs` runs `scripts/docs-truth/comment-kinds.mjs`. It fails on a `//` or block comment in `src/`, `react/src/`, or `mod.ts` that has no tag. Delete a comment that restates the next line, narrates a step, or marks a section. A comment that is stale is deleted, not reworded.
+`npm run lint:docs` runs `scripts/docs-truth/comment-kinds.mjs`. It fails on a `//` or block comment in `src/`, `web/src/`, `react/src/`, or `mod.ts` that has no tag. Delete a comment that restates the next line, narrates a step, or marks a section. A comment that is stale is deleted, not reworded.
 
 The same check fails on any suppression comment (`biome-ignore`, `fallow-ignore`, `deno-lint-ignore`, `eslint-disable`, `@ts-expect-error`) in any scanned folder, tests and scripts included. Fix the cause. JSDoc is not checked here: it states what an export is for, and the kernel catalog owns the text of profile fields.
 

@@ -1,5 +1,5 @@
 import { registerTool, z } from '../../mod.ts';
-import { createTheoremHostHandler } from '../../react/src/server/mod.ts';
+import { createTheoremHostHandler } from '../../web/src/server/mod.ts';
 import { sqliteSessionStore } from './sqlite-session-store.ts';
 
 const [path, phase, endpoint, encodedAnswer, name] = Deno.args;
@@ -33,6 +33,7 @@ const handler = createTheoremHostHandler({
   profile: { id: name, type: 'host', tools: { allow: [name] } },
   session: () => name,
   sessionStore: {
+    capacity: durable.capacity,
     load: durable.load,
     async compareAndSwap(id, revision, state) {
       if (

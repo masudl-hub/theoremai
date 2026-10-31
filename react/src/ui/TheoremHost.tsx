@@ -11,6 +11,17 @@ import { Token } from '@astryxdesign/core/Token';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
 import { IconMathFunction, IconWorld } from '@tabler/icons-react';
+import type { HttpOptions, PageTools } from '@theoremjs/web/client';
+import {
+  createHostTransport,
+  type HostInterface,
+  type HostToolKind,
+  type HostToolView,
+  type HostTransport,
+  isRow,
+  json,
+  missingFields,
+} from '@theoremjs/web/client';
 import { type CSSProperties, type ReactNode, useMemo, useRef, useState } from 'react';
 import {
   type HostCallStatus,
@@ -18,18 +29,7 @@ import {
   hostCallStatus,
   hostConsoleView,
 } from '../client/host-call.ts';
-import {
-  createHostTransport,
-  type HostInterface,
-  type HostToolKind,
-  type HostToolView,
-  type HostTransport,
-} from '../client/host-transport.ts';
-import type { PageTools } from '../client/live/live-page-tool.ts';
-import { missingFields } from '../client/schema-fields.ts';
-import { isRow, json } from '../client/shaped-data.ts';
 import { toolCallLabel } from '../client/transcript-groups.ts';
-import type { HttpOptions } from '../client/transport.ts';
 import { useSecondTicker } from '../hooks/use-second-ticker.ts';
 import { type TheoremHostCall, useTheoremHost } from '../hooks/use-theorem-host.ts';
 import { Arrive, Stream } from './arrive.tsx';

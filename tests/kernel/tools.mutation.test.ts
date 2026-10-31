@@ -1,4 +1,4 @@
-import { dispatchToolBody } from '../../src/kernel/tools/events.ts';
+import { dispatchToolBody, type HandOff } from '../../src/kernel/tools/events.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
 import { labelText } from '../../src/guardrails/labels.ts';
@@ -389,17 +389,21 @@ Deno.test('tools mutation coverage asserts low-level execution event payloads', 
   const context = asValue<ToolContext>({ signal: undefined, profile: {} });
   const valid = startToolExecution({ input }, { value: 2 }, context);
   assertEquals(valid, { ok: true, data: { value: 2 } });
-  let claimed = false;
+  let claimed = 0;
   const dispatch = dispatchToolBody({}, { value: 2 }, context, base, () => {
-    claimed = true;
+    claimed++;
     return Promise.resolve(undefined);
   });
   const runningEvent = await dispatch.next();
-  assertEquals(claimed, true);
+  assertEquals(claimed, 0);
   const { at, ...running } = asValue<{ tool: { at: unknown } }>(runningEvent.value).tool;
   assertEquals(running, { phase: 'running', name: 'probe', callId: 'c1' });
   assertEquals(typeof at, 'number');
-  await dispatch.return(undefined);
+  const handOff = await dispatch.next();
+  assertEquals([handOff.done, claimed], [true, 0]);
+  await asValue<HandOff>(handOff.value).claim();
+  await asValue<HandOff>(handOff.value).claim();
+  assertEquals(claimed, 1);
   const invalid = startToolExecution({ input }, { value: 'bad' }, context);
   assertEquals(invalid, {
     ok: false,

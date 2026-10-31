@@ -24,10 +24,11 @@ import type { ModelToolResult } from '../../src/kernel/tools/types.ts';
 import type { Profile, TurnEvent } from '../../src/kernel/types.ts';
 import { eventsOf, toolEventsOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 const OMITTED_INJECTION = '[omitted - injection]';
 
-function toolProfile(detect?: DetectSpec): Profile {
+function toolProfile(detect: DetectSpec = TAKE_OUT_INBOUND): Profile {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -38,7 +39,7 @@ function toolProfile(detect?: DetectSpec): Profile {
       tools: { allow: ['local_lookup', 'remote_lookup'] },
       inputs: { text: true },
       outputs: {},
-      guardrails: { quota: { perDay: 50 }, ...(detect ? { detect } : {}) },
+      guardrails: { quota: { perDay: 50 }, detect },
     }),
   );
   return getProfile('tool_boundary');
@@ -258,7 +259,7 @@ Deno.test('a failure message is read at its own boundary, under the profile sett
   const guarded = guardToolFailureText(
     INJ_IGNORE,
     MCP,
-    resolveGuardrailPolicy(undefined),
+    resolveGuardrailPolicy({ detect: TAKE_OUT_INBOUND }),
     'tool_failure_mcp',
   );
   assertEquals(guarded.text?.includes(INJ_IGNORE), false);
@@ -270,7 +271,8 @@ Deno.test('a failure message is read at its own boundary, under the profile sett
 Deno.test('a profile that ignores a detector at a failure boundary keeps the raw message', () => {
   const policy = resolveGuardrailPolicy({
     detect: {
-      injection: { at: { tool_failure_mcp: 'ignore' } },
+      ...TAKE_OUT_INBOUND,
+      injection: { at: { ...TAKE_OUT_INBOUND.injection.at, tool_failure_mcp: 'ignore' } },
       tool_instructions: { at: { tool_failure_mcp: 'ignore' } },
     },
   });

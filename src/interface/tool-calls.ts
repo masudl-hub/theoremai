@@ -3,6 +3,7 @@
 
 import { TheoremError } from '../guardrails/error.ts';
 import { labelText } from '../guardrails/labels.ts';
+import { turnEventSchema } from '../kernel/turn-events.ts';
 import type { ToolCallEvent, TurnEvent, TurnEventOf } from '../kernel/types.ts';
 import { partialJsonObject } from '../kernel/util/partial-json.ts';
 import type { ToolCall } from './types.ts';
@@ -65,8 +66,9 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       return { ...call, outputDraft: (call.outputDraft ?? '') + tool.text };
     case 'artifact':
       return { ...call, artifacts: [...call.artifacts, tool.artifact] };
-    case 'dispatch':
     case 'progress':
+      return withAgentStep(call, tool.data);
+    case 'dispatch':
     case 'trace':
     case 'warning':
       return call;
@@ -94,23 +96,65 @@ function applyToolDraft(call: ToolCall | undefined, draft: TurnEventOf<'tool_dra
   };
 }
 
+type ToolCallEventOf = TurnEventOf<'tool'> | TurnEventOf<'tool_draft'>;
+
+/** Adds one call event to `calls`, keyed as `toolCallsOf` keys them. */
+function foldToolCall(calls: Map<string, ToolCall>, event: ToolCallEventOf): void {
+  if (event.type === 'tool_draft') {
+    calls.set(event.callId, applyToolDraft(calls.get(event.callId), event));
+    return;
+  }
+  const { tool } = event;
+  const key = tool.operationId ?? tool.callId;
+  // why: The draft is keyed by the model's callId; the call that replaces it may carry an operation ID.
+  if (tool.phase === undefined && calls.get(tool.callId)?.draft !== undefined) {
+    calls.delete(tool.callId);
+  }
+  calls.set(key, applyToolEvent(calls.get(key), tool));
+}
+
 /** Every call in `events`, in the order the model made them. */
 function toolCallsOf(events: readonly TurnEvent[]): ToolCall[] {
   const calls = new Map<string, ToolCall>();
   for (const event of events) {
-    if (event.type === 'tool_draft') {
-      calls.set(event.callId, applyToolDraft(calls.get(event.callId), event));
-      continue;
-    }
-    if (event.type !== 'tool') continue;
-    const { tool } = event;
-    const key = tool.operationId ?? tool.callId;
-    // why: The draft is keyed by the model's callId; the call that replaces it may carry an operation ID.
-    if (tool.phase === undefined && calls.get(tool.callId)?.draft !== undefined) {
-      calls.delete(tool.callId);
-    }
-    calls.set(key, applyToolEvent(calls.get(key), tool));
+    if (event.type === 'tool_draft' || event.type === 'tool') foldToolCall(calls, event);
   }
+  return [...calls.values()];
+}
+
+/**
+ * A call event of the agent an agent tool ran, which the kernel carries as the call's progress
+ * (`{ agent, event }`); any other progress is not a step.
+ */
+function agentStep(data: unknown): ToolCallEventOf | undefined {
+  if (typeof data !== 'object' || data === null || !('agent' in data) || !('event' in data)) {
+    return undefined;
+  }
+  const { event } = data as { event: { type?: unknown } | null };
+  if (event?.type !== 'tool' && event?.type !== 'tool_draft') return undefined;
+  const parsed = turnEventSchema.safeParse(event);
+  return parsed.success ? (parsed.data as ToolCallEventOf) : undefined;
+}
+
+/** `call` with the agent step its progress carries, if it carries one that fits. */
+function withAgentStep(call: ToolCall, data: unknown): ToolCall {
+  const step = agentStep(data);
+  const steps = step && withStep(call.steps ?? [], step);
+  return steps ? { ...call, steps } : call;
+}
+
+/**
+ * `steps` with one more agent step folded in, or `undefined` when it does not fit.
+ * why: A step is progress, not the stream itself: one that does not fit its call is dropped, so it
+ * never breaks the transcript of the call that carries it.
+ */
+function withStep(steps: readonly ToolCall[], event: ToolCallEventOf): ToolCall[] | undefined {
+  const calls = new Map(steps.map((step) => [step.operationId ?? step.callId, step]));
+  if (event.type === 'tool' && event.tool.phase !== undefined) {
+    const known = calls.get(event.tool.operationId ?? event.tool.callId);
+    if (known?.callId !== event.tool.callId || known.name !== event.tool.name) return undefined;
+  }
+  foldToolCall(calls, event);
   return [...calls.values()];
 }
 

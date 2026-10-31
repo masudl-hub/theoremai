@@ -1,5 +1,6 @@
 import { attachmentIssues, resolveMediaLimits } from '../kernel/registry/attachments.ts';
 import { mimeAllowed } from '../kernel/registry/catalog.ts';
+import { normalizeSlots } from '../kernel/registry/slots.ts';
 import type { ProfileInputsSpec } from '../kernel/types.ts';
 import type {
   AttachmentValidationResult,
@@ -34,7 +35,7 @@ function inputsFromSpec(inputs: ProfileInputsSpec | null | undefined): ProfileIn
     maxBytes: inputs?.maxBytes,
     maxTurnBytes: inputs?.maxTurnBytes,
     limitsByMime: inputs?.limitsByMime,
-    slots: inputs?.slots,
+    slots: normalizeSlots(inputs?.slots),
     context: inputs?.context,
   };
 }

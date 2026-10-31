@@ -27,6 +27,7 @@ import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
 import { HOST_BINDINGS } from '../fixtures/models.ts';
 import { geminiLiveCheckpoint } from '../fixtures/provider-checkpoint.ts';
+import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
 function registerLiveProfile(id: string) {
   const profile = defineProfile({
@@ -298,17 +299,34 @@ async function openLive(
     socket.close();
     await session.close();
   };
-  return { session, contexts, spoken, done };
+  return { session, frames, contexts, spoken, done };
 }
-Deno.test('a new call sends its context, then its greeting with the slot filled', async () => {
+Deno.test('a new call seeds its context before any input, then speaks its greeting with the slot filled', async () => {
   const live = await openLive(
     { greeting: 'Greet the visitor in {language}.' },
     { context: { client: { page: 'Checkout' }, server: 'tier: pro' } },
   );
-  assertEquals(live.contexts(), [
-    '<page_context from="server">\ntier: pro\n</page_context>',
-    '<page_context from="client">\n{"page":"Checkout"}\n</page_context>',
-  ]);
+  const [setup, seed, ...rest] = live.frames();
+  assertEquals((setup?.setup as { historyConfig?: unknown } | undefined)?.historyConfig, {
+    initialHistoryInClientContent: true,
+  });
+  assertEquals(seed?.clientContent, {
+    turns: [
+      {
+        role: 'user',
+        parts: [
+          { text: '<turn_context from="server">\ntier: pro\n</turn_context>' },
+          { text: '<turn_context from="client">\n{"page":"Checkout"}\n</turn_context>' },
+        ],
+      },
+    ],
+    turnComplete: true,
+  });
+  assertEquals(
+    rest.some((frame) => frame.clientContent),
+    false,
+  );
+  assertEquals(live.contexts(), []);
   assertEquals(live.spoken(), ['Greet the visitor in fr.']);
   await live.done();
 });
@@ -376,7 +394,7 @@ Deno.test('live.resumed needs session resumption, and its prompt', () => {
 Deno.test('sendContext sends each package in its fence, opens no turn, and needs no text channel', async () => {
   const live = await openLive({ ingress: { text: false } });
   await live.session.sendContext({ client: '(page) /docs' });
-  assertEquals(live.contexts(), ['<page_context from="client">\n(page) /docs\n</page_context>']);
+  assertEquals(live.contexts(), ['<turn_context from="client">\n(page) /docs\n</turn_context>']);
   assertEquals(live.spoken(), []);
   await live.done();
 });
@@ -387,6 +405,7 @@ Deno.test('sendContext refuses a sender the profile does not list, and reads the
     {
       inputs: { context: { from: ['client'], maxChars: 200 }, slots: { language: ['fr'] } },
       identity: { handle: 'live', system: 'hi' },
+      guardrails: { detect: TAKE_OUT_INBOUND },
     },
   );
   await assertRejects(
@@ -774,6 +793,7 @@ async function openToolSession(
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow },
+    guardrails: { detect: TAKE_OUT_INBOUND },
   });
   registerProfile(profile);
   const sockets: MockLiveWebSocket[] = [];
@@ -1693,7 +1713,13 @@ Deno.test('runSession pre_turn inject schedules realtime text and lands in later
   assertEquals(beforeEndSawInject, true);
   assertEquals(
     eventsOf(events, 'stage').filter((e) => e.injected !== undefined),
-    [{ type: 'stage', stage: 'pre_turn', injected: [{ id: 'steer-live' }] }],
+    [
+      {
+        type: 'stage',
+        stage: 'pre_turn',
+        injected: [{ id: 'steer-live', messages: [{ role: 'user', content: 'injected steer' }] }],
+      },
+    ],
   );
   await session.close();
 });
@@ -1828,7 +1854,13 @@ Deno.test('runSession before_end inject schedules realtime text and still emits 
   );
   assertEquals(
     eventsOf(events, 'stage').filter((e) => e.injected !== undefined),
-    [{ type: 'stage', stage: 'before_end', injected: [{ id: 'steer-end' }] }],
+    [
+      {
+        type: 'stage',
+        stage: 'before_end',
+        injected: [{ id: 'steer-end', messages: [{ role: 'user', content: 'before-end steer' }] }],
+      },
+    ],
   );
   liveMock.close();
   await session.close();
@@ -1960,16 +1992,18 @@ Deno.test('live output validation failure cannot restore an executed call as an 
     await h.modelCalls({ id: 'uncertain-live', name: 'live_uncertain_effect' });
     const paused = await h.session.executeTool({ callId: h.id('uncertain-live') });
     assertEquals(paused.gated?.kind, 'permission');
-    await assertRejects(
+    const sent = await assertRejects(
       () => h.session.executeTool({ callId: h.id('uncertain-live'), decision: 'approve' }),
       TheoremError,
-      labelText('tool.execution_uncertain'),
+      'did not settle, so its effects are unknown',
     );
-    await assertRejects(
+    assertEquals([sent.kind, sent.copy], ['internal', { key: 'tool.execution_uncertain' }]);
+    const again = await assertRejects(
       () => h.session.executeTool({ callId: h.id('uncertain-live'), decision: 'approve' }),
       TheoremError,
-      labelText('tool.execution_uncertain'),
+      'is uncertain, so it does not run again until the host settles it',
     );
+    assertEquals([again.kind, again.copy], ['conflict', { key: 'tool.execution_uncertain' }]);
     assertEquals(effects, 1);
     assertEquals(h.toolResponses().length, 0);
   } finally {

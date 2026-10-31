@@ -5,6 +5,7 @@
  * as it does.
  */
 import { type RefObject, useEffect, useRef, useState } from 'react';
+import { bootHolds, HOLD_CAP_MS } from './lib/boot-hold.ts';
 import { type BootPhase, runBoot } from './lib/boot-sequence.ts';
 import type { Reading } from './lib/read-progress.ts';
 import { ReadMap } from './read-map.tsx';
@@ -61,6 +62,45 @@ function penHasStarted(root: HTMLDivElement): boolean {
   return Number(pen?.currentTime ?? 0) > delay;
 }
 
+/** Resolves after the page's first commit: its effects, where its screens hold the mark, have run. */
+function pageCommitted(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => {
+      globalThis.setTimeout(resolve, 0);
+    });
+  });
+}
+
+/**
+ * Holds the mark until `work` settles: a piece of the screen the page opens on, so it is there when
+ * the mark gives way. Once the mark has given way, it does nothing.
+ */
+export function holdBoot(work: Promise<unknown>): void {
+  bootHolds.hold(work);
+}
+
+/**
+ * Holds the mark from the first commit until `isShown`, or for `HOLD_CAP_MS` at most, when `holds`
+ * says this piece is on the screen the page opens on. `holds` is read once, at mount.
+ */
+export function useBootHold(isShown: boolean, holds: () => boolean): void {
+  const release = useRef<() => void>(undefined);
+  const decide = useRef(holds);
+  useEffect(() => {
+    if (bootHasPlayed() || !decide.current()) return;
+    const done = bootHolds.holdUntil();
+    const cap = globalThis.setTimeout(done, HOLD_CAP_MS);
+    release.current = done;
+    return () => {
+      globalThis.clearTimeout(cap);
+      done();
+    };
+  }, []);
+  useEffect(() => {
+    if (isShown) release.current?.();
+  }, [isShown]);
+}
+
 /** Resolves when the fonts are ready, or after the cap. */
 function fontsSettled(): Promise<void> {
   return Promise.race([document.fonts.ready.then(() => undefined), sleep(FONT_CAP_MS)]);
@@ -69,8 +109,6 @@ function fontsSettled(): Promise<void> {
 export interface BootMarkProps {
   /** The shape the shell rests in for the page on screen, read when the mark gives way. */
   shape: () => ShellShape;
-  /** Settles when the page under the mark is on screen. Left out, the page is ready with its fonts. */
-  ready?: Promise<unknown>;
   /**
    * A project being read for the page. With it, the drawn mark gives way, the panel pulls in
    * beside the rail and the read is drawn there as a map. When the map has drawn all of it, the
@@ -83,12 +121,12 @@ export interface BootMarkProps {
  * The mark draws in the shell only when the page is still loading. When the dot lands, or at once
  * when the page was ready first, that same panel pulls in over the page.
  */
-function useBootPhase({ shape, ready, reading }: BootMarkProps) {
+function useBootPhase({ shape, reading }: BootMarkProps) {
   const [phase, setPhase] = useState<BootPhase>(() => (bootHasPlayed() ? 'done' : 'draw'));
   const mapDrawn = useRef<() => void>(() => {});
   const rootRef = useRef<HTMLDivElement>(null);
-  const latest = useRef({ shape, ready, reading });
-  latest.current = { shape, ready, reading };
+  const latest = useRef({ shape, reading });
+  latest.current = { shape, reading };
 
   useEffect(() => {
     const root = rootRef.current;
@@ -99,11 +137,8 @@ function useBootPhase({ shape, ready, reading }: BootMarkProps) {
       reads: !reduced && Boolean(latest.current.reading),
       reduced,
       fadeMs: FADE_MS,
-      // A page that failed to load is still a page to show.
-      settled: Promise.all([
-        fontsSettled(),
-        Promise.resolve(latest.current.ready).catch(() => undefined),
-      ]),
+      // The page is there with its fonts and everything its opening screen holds the mark for.
+      settled: Promise.all([fontsSettled(), bootHolds.settled(pageCommitted())]),
       mapDrawn: new Promise<void>((resolve) => {
         mapDrawn.current = resolve;
       }),

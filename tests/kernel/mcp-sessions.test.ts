@@ -1,8 +1,9 @@
-import { assert, assertEquals } from '@std/assert';
+import { assert, assertEquals, assertThrows } from '@std/assert';
 import { z } from 'zod';
 import { memoryCredentialSource } from '../../src/kernel/auth/credential-source.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import type { ToolExecuteSettlement } from '../../src/kernel/tools/execute.ts';
+import { createMcpSessionCache } from '../../src/kernel/tools/mcp-sessions.ts';
 import { executeRegisteredTool } from '../../src/kernel/tools/mod.ts';
 import type { ToolContext } from '../../src/kernel/tools/types.ts';
 import type { Profile } from '../../src/kernel/types.ts';
@@ -14,7 +15,7 @@ const profile: Profile = {
   id: 'sessions',
   type: 'text',
   identity: { handle: 'sessions' },
-  models: { m: { protocol: 'openRouter', provider: 'openrouter', apiId: 'test' } },
+  models: { m: { protocol: 'openRouterOpenAi', provider: 'openrouter', apiId: 'test' } },
   defaultModel: 'm',
   tools: { allow: ['search'] },
   inputs: { text: true },
@@ -286,4 +287,52 @@ Deno.test('parallel calls share one initialize', async () => {
   const server = sessionServer({});
   await withFetch(server.fetch, () => Promise.all([call(scope), call(scope), call(scope)]));
   assertEquals(count(server.seen, 'initialize'), 1);
+});
+
+Deno.test("a tool's session limits: none set keeps every session, idleMs and max drop them", async () => {
+  let clock = 0;
+  const cache = createMcpSessionCache(() => clock);
+  const session = (id: string) => () => Promise.resolve({ id, protocolVersion: 'v' });
+  const free = { tool: 'free' };
+  await cache.open('a', free, session('a'));
+  clock = 365 * 24 * 60 * 60 * 1000;
+  assertEquals(cache.get('a', free)?.id, 'a');
+
+  const idle = { tool: 'idle', idleMs: 1000 };
+  await cache.open('b', idle, session('b'));
+  clock += 1001;
+  assertEquals(cache.get('b', idle), undefined);
+
+  const capped = { tool: 'capped', max: 2 };
+  for (const key of ['c1', 'c2', 'c3']) await cache.open(key, capped, session(key));
+  assertEquals(cache.get('c1', capped), undefined);
+  assertEquals(cache.get('c2', capped)?.id, 'c2');
+  assertEquals(cache.get('c3', capped)?.id, 'c3');
+  assertEquals(cache.get('a', free)?.id, 'a');
+});
+
+Deno.test('a session limit that is not a whole number above 0 is refused when the tool registers', () => {
+  for (const session of [{ idleMs: 0 }, { max: 1.5 }]) {
+    const scope = createKernelScope();
+    assertThrows(
+      () =>
+        scope.tools.register({
+          name: 'search',
+          description: 'Search the docs',
+          type: 'mcp',
+          serverUrl: SERVER,
+          mcpToolName: 'search_docs',
+          category: 'docs',
+          access: 'read-only',
+          loadTier: 'T0',
+          permission: 'auto',
+          paths: ['*'],
+          session,
+          input: z.object({ query: z.string() }),
+          output: z.object({ answer: z.string() }),
+        }),
+      Error,
+      'needs a whole number above 0',
+    );
+  }
 });

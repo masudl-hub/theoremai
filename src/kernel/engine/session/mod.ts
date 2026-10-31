@@ -81,7 +81,12 @@ import {
   resumeForAnswer,
 } from '../../tools/gate-answer.ts';
 import { formatToolFailureForModel, formatToolResult } from '../../tools/model-text.ts';
-import type { PageToolExecution, ToolExecutionCoordinator } from '../../tools/operation.ts';
+import {
+  heldOperation,
+  type PageToolExecution,
+  type ToolExecutionCoordinator,
+  unresolvedOperation,
+} from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import { cloneTurnToolSnapshot } from '../../tools/resolve.ts';
@@ -131,8 +136,9 @@ export interface RunSessionOptions extends ProviderHostOptions {
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault?: KeyVault;
   /**
-   * Milliseconds a gated call waits for its decision (default 30 minutes). A later decision is
-   * refused (`session.gate_expired`), and the model reads the call as abandoned.
+   * Milliseconds a gated call waits for its decision. A later decision is refused
+   * (`session.gate_expired`), and the model reads the call as abandoned. Unset, the call waits
+   * until it is decided or the session closes.
    */
   gateTtlMs?: number;
   /**
@@ -258,6 +264,7 @@ function toTurnRequest(req: SessionRequest): TurnRequest {
     system: req.system,
     builtInArgs: req.builtInArgs,
     path: req.path,
+    conditions: req.conditions,
     sessionPermissions: req.sessionPermissions,
     signal: req.signal,
     metadata: req.metadata,
@@ -292,6 +299,16 @@ function openingPrompt(
 /** Refuses context the profile's `inputs.context` does not take. */
 function assertSessionContext(profile: Profile, context: TurnContext): void {
   assertTurnContext(profile, { profile: profile.id, input: { context } });
+}
+
+/** Context read at its boundary: the fenced texts that reach the model, and what matched. */
+type OpeningContext = ReturnType<typeof prepareLiveContext> & { ms: number };
+
+function readSessionContext(profile: Profile, context: TurnContext): OpeningContext {
+  assertSessionContext(profile, context);
+  const start = performance.now();
+  const prepared = prepareLiveContext(profile, context);
+  return { ...prepared, ms: performance.now() - start };
 }
 
 function applyVoiceOverride(
@@ -531,14 +548,14 @@ function buildLiveSession(args: {
   openInitialCycle: boolean;
   /** What the opening request's boundaries matched (seeded history, system text), reported first. */
   requestEvents: readonly TurnEvent[];
-  /** What the request told the agent, sent before anything draws a reply. */
-  initialContext?: TurnContext;
+  /** The request's context, read before setup; the provider seeds its texts before any input. */
+  openingContext?: OpeningContext;
   /** The greeting or resume prompt, sent once the cycle is open. */
   opening?: string;
   trace: LiveTrace;
   /** Runs the agent tools this session's calls reach. */
   agents: AgentCaller;
-  gateTtlMs: number;
+  gateTtlMs: number | undefined;
   signInGate: SignInGatePolicy;
 }): LiveSession {
   const {
@@ -715,8 +732,8 @@ function buildLiveSession(args: {
 
   /**
    * A call that ran into `gate`. A sign-in gate this session answers at once tells the model its
-   * pending note and releases the call; a call already released stays released. Either waits
-   * `gateTtlMs` for its outcome. False: the call is not released, and the caller holds it.
+   * pending note and releases the call; a call already released stays released. Either waits for
+   * its outcome, for `gateTtlMs` when it is set. False: the call is not released, and the caller holds it.
    */
   const releaseGated = (
     callId: string,
@@ -730,7 +747,10 @@ function buildLiveSession(args: {
     if (answersNow) answerModel(callId, held, readBack);
     clearTimeout(held.lapse);
     held.state = { gate, createdAt: Date.now(), released: true };
-    held.lapse = setTimeout(() => lapseReleased(callId, held), gateTtlMs);
+    held.lapse =
+      gateTtlMs === undefined
+        ? undefined
+        : setTimeout(() => lapseReleased(callId, held), gateTtlMs);
     return true;
   };
 
@@ -815,15 +835,19 @@ function buildLiveSession(args: {
   };
 
   /** Context is background: it joins no history and opens no cycle, and its addresses count as given. */
-  const landContext = (context: TurnContext) => {
-    assertSessionContext(profile, context);
-    const start = performance.now();
-    const prepared = prepareLiveContext(profile, context);
-    trace.inboundCheck(performance.now() - start, prepared.guardrails[0]);
-    for (const guardrail of prepared.guardrails) enqueuePending(guardrail);
-    for (const text of prepared.texts) {
+  const noteContext = (read: OpeningContext) => {
+    trace.inboundCheck(read.ms, read.guardrails[0]);
+    for (const guardrail of read.guardrails) enqueuePending(guardrail);
+    for (const text of read.texts) {
       addSeenUrls(givenUrls.request, text);
       addGivenDestinations(destinations, text);
+    }
+  };
+
+  const landContext = (context: TurnContext) => {
+    const read = readSessionContext(profile, context);
+    noteContext(read);
+    for (const text of read.texts) {
       assertOpen();
       connection.sendContext(text);
     }
@@ -1003,14 +1027,11 @@ function buildLiveSession(args: {
       // invariant: A dispatched call with no outcome cannot regain approval authority.
       const unresolved = dispatched || isUnresolvedOperationError(err);
       held.state = unresolved ? 'uncertain' : waiting;
-      if (unresolved)
-        throw new TheoremError(
-          'unavailable',
-          labelText('tool.execution_uncertain', {}, profile.labels),
-          {
-            copy: { key: 'tool.execution_uncertain' },
-            cause: err,
-          },
+      if (unresolved && !isUnresolvedOperationError(err))
+        throw unresolvedOperation(
+          errorKind(err),
+          'The held call was dispatched and did not settle, so its effects are unknown', // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          err,
         );
       throw err;
     } finally {
@@ -1109,14 +1130,7 @@ function buildLiveSession(args: {
         copy: { key: 'session.gate_expired' },
       });
     }
-    if (held.state === 'uncertain')
-      throw new TheoremError(
-        'unavailable',
-        labelText('tool.execution_uncertain', {}, profile.labels),
-        {
-          copy: { key: 'tool.execution_uncertain' },
-        },
-      );
+    if (held.state === 'uncertain') throw heldOperation('uncertain');
     if (gateLapsed(held)) {
       if (isReleased(held)) lapseReleased(callId, held);
       else
@@ -1149,11 +1163,9 @@ function buildLiveSession(args: {
       const { tool } = event;
       if (tool.phase === undefined) {
         if (calls.has(tool.callId) || identities.has(tool.callId)) {
-          throw new TheoremError(
-            'bad_response',
-            labelText('provider.duplicate_call', {}, profile.labels),
-            { cause: { code: 'duplicate_pending_call' } },
-          );
+          throw new TheoremError('bad_response', labelText('provider.duplicate_call'), {
+            cause: { code: 'duplicate_pending_call' },
+          });
         }
         identities.set(tool.callId, crypto.randomUUID());
       }
@@ -1418,10 +1430,11 @@ function buildLiveSession(args: {
     },
   };
 
-  const { initialContext, opening } = args;
-  if (args.openInitialCycle || initialContext || opening) {
+  const { openingContext, opening } = args;
+  if (args.openInitialCycle || openingContext || opening) {
     void withIngress(async () => {
-      if (initialContext) landContext(initialContext);
+      // why: the provider already seeded these texts; only their bookkeeping is left.
+      if (openingContext) noteContext(openingContext);
       if (!args.openInitialCycle && !opening) return;
       const opened = await openCycleIfNeeded();
       if (opening && !opened.aborted) {
@@ -1470,7 +1483,7 @@ async function openTracedSession(
 
   const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
   assertLiveProfile(profile);
-  if (req.context) assertSessionContext(profile, req.context);
+  const openingContext = req.context ? readSessionContext(profile, req.context) : undefined;
 
   if (req.snapshot) {
     gen0.tools = sessionSnapshotWithinAllow(profile, req.snapshot);
@@ -1488,6 +1501,7 @@ async function openTracedSession(
   ]);
   const completeReq: ModelRequest = {
     ...providerCompleteRequest(registry.tools, generation, system.text),
+    ...(openingContext?.texts.length ? { context: openingContext.texts } : {}),
     signal: safe.signal,
     tapUpstream: trace.sent,
   };
@@ -1546,7 +1560,7 @@ async function openTracedSession(
     historySeed: req.history,
     openInitialCycle: hasInitialInput,
     requestEvents,
-    initialContext: req.context,
+    openingContext,
     opening: hasInitialInput ? undefined : openingPrompt(profile, req, safe.input?.slots),
     trace,
     agents: sessionAgentCaller(registry, req, options, trace.agentCanaries),

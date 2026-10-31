@@ -1,12 +1,16 @@
+import type {
+  LiveConnection,
+  LiveConnectPhase,
+  LiveSessionClient,
+  LiveSessionStatus,
+} from '@theoremjs/web/client';
 import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback } from 'react';
 import { applyLiveTranscript, type LiveCaptionState } from '../../client/live/live-captions.ts';
-import type { LiveConnectPhase, LiveSessionStatus } from '../../client/live/live-state.ts';
 import {
   type LiveFacingMode,
   type LiveVideoCapture,
   startLiveVideoCapture,
 } from '../../client/live/live-video.ts';
-import type { LiveConnection, LiveSessionClient } from '../../client/live-client.ts';
 
 /** Media + session lifecycle handlers for LiveRunner. */
 export function useLiveRunnerControls(args: {

@@ -9,8 +9,10 @@ import { Theme } from '@astryxdesign/core/theme';
 import { type ReactNode, StrictMode, Suspense, use, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import kernel from '../../package.json' with { type: 'json' };
-import { BootMark } from '../ui/boot-mark.tsx';
+import { BootMark, holdBoot } from '../ui/boot-mark.tsx';
 import { theoremStudioTheme } from '../ui/built/theorem-studio.js';
+import { errorText, reportPageErrors, tellServer } from '../ui/lib/page-errors.ts';
+import { projectEndpoint } from '../ui/lib/project-address.ts';
 import { onceAnswering } from '../ui/lib/project-starting.ts';
 import { createReading } from '../ui/lib/read-progress.ts';
 import { openStudioProject } from '../ui/lib/studio-open.ts';
@@ -49,7 +51,7 @@ const reading = createReading();
 /** An agent opened in a tab of its own, or the studio on the project. */
 async function page(): Promise<ReactNode> {
   if (!onBase) {
-    const opened = openStudioRun(location.href, { project: true });
+    const opened = await openStudioRun(location.href, { project: true });
     if (opened) return <StudioRunScreen opened={opened} />;
     // The agent this tab ran is gone: back to the studio.
     location.replace('/studio/');
@@ -74,11 +76,13 @@ async function page(): Promise<ReactNode> {
 /** The page opens while the mark draws on the shell. */
 const opening = page();
 
-/** Settles once the page is in the shell, so the mark gives way to a page that is already there. */
+/** The mark is held until the page is in the shell, so it gives way to a page that is already there. */
 let pageIsIn = () => {};
-const shown = new Promise<void>((resolve) => {
-  pageIsIn = resolve;
-});
+holdBoot(
+  new Promise<void>((resolve) => {
+    pageIsIn = resolve;
+  }),
+);
 
 function Opened() {
   const here = use(opening);
@@ -86,9 +90,17 @@ function Opened() {
   return here;
 }
 
+reportPageErrors(projectEndpoint());
+
 const root = document.getElementById('root');
 if (root) {
-  createRoot(root).render(
+  // why: an error boundary catches what a component throws, so the window never sees it; the
+  // terminal should. One React does not catch reaches the window's own listener.
+  const caught = (error: unknown) => {
+    console.error(error);
+    tellServer(projectEndpoint(), errorText(error));
+  };
+  createRoot(root, { onCaughtError: caught }).render(
     <StrictMode>
       <Theme theme={theoremStudioTheme} mode="dark">
         <LayerProvider toast={TOASTS}>
@@ -104,7 +116,7 @@ if (root) {
               />
             }
           >
-            <BootMark shape={frameShape} ready={shown} reading={onBase ? reading : undefined} />
+            <BootMark shape={frameShape} reading={onBase ? reading : undefined} />
             <Suspense>
               <Opened />
             </Suspense>

@@ -5,6 +5,8 @@ import {
   userDataNote,
 } from '../../../guardrails/canary.ts';
 import {
+  describeError,
+  errorKind,
   isAbortError,
   TheoremError,
   throwIfAborted,
@@ -79,7 +81,12 @@ import { sumEventTokens, sumTurnTokens } from '../usage.ts';
 import { runAttemptsWithValidation } from './gates.ts';
 import { createAgentCaller, NESTED_THROWS, turnError } from './nested.ts';
 import { applyTurnStage } from './stages.ts';
-import { openTurnState, type StepExecutionState, type TurnTraceState } from './state.ts';
+import {
+  cutConversation,
+  openTurnState,
+  type StepExecutionState,
+  type TurnTraceState,
+} from './state.ts';
 import { shouldSkipStreamEvent } from './stream.ts';
 
 function projectForObs(
@@ -199,9 +206,9 @@ async function runCompactor(args: {
     }
   } catch (err) {
     throwIfAborted(args.signal);
-    const error = err instanceof TheoremError ? err.kind : 'internal';
+    const error = errorKind(err);
     if (NESTED_THROWS.has(error)) throw err;
-    return { droppedMedia, failure: { error } };
+    return { droppedMedia, failure: { error, errorInternal: describeError(err) } };
   }
   throwIfAborted(args.signal);
 
@@ -219,7 +226,11 @@ async function runCompactor(args: {
   if (stop !== 'completed' || error) {
     return {
       droppedMedia,
-      failure: { ...(stop ? { stop } : {}), ...(error ? { error } : {}) },
+      failure: {
+        ...(stop ? { stop } : {}),
+        ...(error ? { error } : {}),
+        ...(reported?.errorInternal ? { errorInternal: reported.errorInternal } : {}),
+      },
       ...usage,
     };
   }
@@ -274,6 +285,9 @@ function compactionOutcome(
     dropped_media: result.droppedMedia,
     ...(result.failure?.stop ? { failure_stop: result.failure.stop } : {}),
     ...(result.failure?.error ? { failure_error: result.failure.error } : {}),
+    ...(result.failure?.errorInternal
+      ? { failure_reason: traceContent(result.failure.errorInternal) }
+      : {}),
     ...(result.failure?.empty ? { failure_empty: true } : {}),
     ...(result.failure?.unreadable ? { failure_unreadable: true } : {}),
     ...(result.summary === undefined ? {} : { summary: traceContent(result.summary) }),
@@ -426,6 +440,7 @@ async function* emitTurn(args: {
     {
       stop: state.lastStop ?? { kind: 'completed' },
       ...(state.providerState &&
+      !cutConversation(state) &&
       !(
         'providerContinuation' in profile && profile.providerContinuation?.history === 'stateless'
       ) &&
@@ -676,6 +691,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   gen.builtins = gen.tools.builtins;
   if (gen.canary) gen.canary = await profileCanary(profile.id, gen.resolvedSystem);
   ctx.generation = gen;
+  ctx.root.set({ 'theorem.turn.system_lines': [...gen.systemLines] });
   ctx.canary = gen.canary;
   ctx.canaries.push(gen.canary);
   const binding = profile.models[gen.model];

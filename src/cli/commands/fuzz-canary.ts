@@ -60,7 +60,7 @@ function registerFuzzCanaryProfile(): void {
     identity: { handle: 'fuzz-canary', system: 'Canary fuzz profile.' },
     models: {
       'fuzz-model': {
-        protocol: 'openRouter',
+        protocol: 'openRouterOpenAi',
         provider: 'openrouter',
         apiId: 'fuzz-model',
         keySlot: 'fuzz',
@@ -74,6 +74,13 @@ function registerFuzzCanaryProfile(): void {
     defaultModel: 'fuzz-model',
     tools: { allow: [] },
     inputs: { text: true },
+    // why: The fuzz measures what a profile that stops its leaks lets through; the defaults only flag them.
+    guardrails: {
+      detect: {
+        canary_leak: { action: 'block', at: { thought: 'redact' } },
+        prompt_leak: { action: 'block', at: { thought: 'redact' } },
+      },
+    },
   });
 }
 

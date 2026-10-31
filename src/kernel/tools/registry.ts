@@ -4,9 +4,15 @@ import { profileInputs } from '../registry/catalog.ts';
 import type { Profile, ProfileId } from '../types.ts';
 import { activityLabelProblem } from './activity-label.ts';
 import { agentToolInputFor, agentToolOutput, agentToolProfile, normalizeAgent } from './agent.ts';
+import { withCallOrder } from './call-order.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import { pageAnswerHandler } from './page-answer.ts';
-import { assertFixedEndpointOrigin, jsonSchemaFromZod, validateToolSchema } from './schema.ts';
+import {
+  assertFixedEndpointOrigin,
+  type JsonSchema,
+  jsonSchemaFromZod,
+  validateToolSchema,
+} from './schema.ts';
 import type {
   FunctionToolDef,
   FunctionToolInput,
@@ -20,16 +26,39 @@ import type {
   ToolLabels,
 } from './types.ts';
 
+/** Each zod pair's JSON Schemas, as converted and checked: a zod schema is never changed. */
+const converted = new WeakMap<
+  z.ZodType,
+  WeakMap<z.ZodType, { inputSchema: JsonSchema; outputSchema: JsonSchema }>
+>();
+
+/** The pair's JSON Schemas, converted and checked once; registering the same schemas again reads them back. */
+function checkedSchemas(input: z.ZodType, output: z.ZodType) {
+  let byOutput = converted.get(input);
+  if (!byOutput) {
+    byOutput = new WeakMap();
+    converted.set(input, byOutput);
+  }
+  let schemas = byOutput.get(output);
+  if (!schemas) {
+    const inputSchema = jsonSchemaFromZod(input, 'input');
+    validateToolSchema(inputSchema, 'input');
+    const outputSchema = jsonSchemaFromZod(output, 'output');
+    validateToolSchema(outputSchema, 'output');
+    schemas = { inputSchema, outputSchema };
+    byOutput.set(output, schemas);
+  }
+  return schemas;
+}
+
 function schemasFromZod<TIn, TOut>(def: {
   name: string;
   input: z.ZodType<TIn>;
   output: z.ZodType<TOut>;
   labels?: ToolLabels;
 }) {
-  const inputSchema = jsonSchemaFromZod(def.input, 'input');
-  validateToolSchema(inputSchema, 'input');
-  const outputSchema = jsonSchemaFromZod(def.output, 'output');
-  validateToolSchema(outputSchema, 'output');
+  // why: A studio compile registers each tool once for every agent that uses it, again on each edit that settles.
+  const { inputSchema, outputSchema } = checkedSchemas(def.input, def.output);
   const labels = {
     activity: { input: inputSchema },
     activityPast: { input: inputSchema, output: outputSchema },
@@ -46,7 +75,8 @@ function schemasFromZod<TIn, TOut>(def: {
       );
     }
   }
-  return { inputSchema, outputSchema };
+  // invariant: Each registration gets its own copy, so nothing a tool does to its schemas reaches another.
+  return { inputSchema: structuredClone(inputSchema), outputSchema: structuredClone(outputSchema) };
 }
 
 /** The person is told which service they sign in to; the tool's builder names it, never the model or the server. */
@@ -103,6 +133,28 @@ function assertTimeout(name: string, timeoutMs: number | undefined): void {
   );
 }
 
+/** A count or size limit is a whole number above 0. */
+function assertWhole(name: string, field: string, value: number | undefined): void {
+  if (value === undefined || (Number.isInteger(value) && value > 0)) return;
+  throw new TheoremError(
+    'config',
+    `Tool "${name}" ${field} needs a whole number above 0`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
+/** What a remote tool may set on how much it reads: its body, and the pictures it names. */
+function assertReadLimits(
+  def: Pick<HttpToolDef, 'name' | 'maxResponseBytes' | 'imageLimits'>,
+): void {
+  assertWhole(def.name, 'maxResponseBytes', def.maxResponseBytes);
+  const images = def.imageLimits;
+  if (!images) return;
+  assertWhole(def.name, 'imageLimits.count', images.count);
+  assertWhole(def.name, 'imageLimits.bytes', images.bytes);
+  assertWhole(def.name, 'imageLimits.totalBytes', images.totalBytes);
+  assertTimeout(def.name, images.timeoutMs);
+}
+
 function normalizeHttp<TIn = unknown, TOut = unknown>(
   def: Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
     input: z.ZodType<TIn>;
@@ -114,6 +166,7 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
   assertQueryParam(def.name, def.auth, def.mapping?.queryParams);
   assertLimit(def.name, def.limit);
   assertTimeout(def.name, def.timeoutMs);
+  assertReadLimits(def);
   return { ...def, type: 'http', ...schemasFromZod(def) };
 }
 
@@ -125,6 +178,9 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
 ): McpToolDef<TIn, TOut> {
   assertAuthService(def.name, def.auth);
   assertQueryParam(def.name, def.auth);
+  assertReadLimits(def);
+  assertWhole(def.name, 'session.idleMs', def.session?.idleMs);
+  assertWhole(def.name, 'session.max', def.session?.max);
   return { ...def, type: 'mcp', ...schemasFromZod(def) };
 }
 
@@ -157,17 +213,19 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   if (def.type === 'agent') {
     const profile = agentToolProfile(def, findProfile, findTool);
     const inputs = profileInputs(profile);
-    const input = agentToolInputFor({ type: profile.type, ...(inputs ? { inputs } : {}) }, def);
+    const taken = agentToolInputFor({ type: profile.type, ...(inputs ? { inputs } : {}) }, def);
+    const input = def.after ? withCallOrder(def.name, taken) : taken;
     const schemas = schemasFromZod({ ...def, input, output: agentToolOutput });
     return normalizeAgent(def, input, schemas);
   }
-  if (def.type === 'http') {
-    return normalizeHttp(def);
+  const ordered = def.after ? { ...def, input: withCallOrder(def.name, def.input) } : def;
+  if (ordered.type === 'http') {
+    return normalizeHttp(ordered);
   }
-  if (def.type === 'mcp') {
-    return normalizeMcp(def);
+  if (ordered.type === 'mcp') {
+    return normalizeMcp(ordered);
   }
-  return normalizeFunction(def);
+  return normalizeFunction(ordered);
 }
 
 /** The tools a scope has registered: register, look up, and list them, find a profile for agent tools, and reset. */

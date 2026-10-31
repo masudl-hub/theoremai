@@ -25,8 +25,10 @@ import {
   newModelBinding,
   newOwnDetector,
   newPattern,
+  newSystemLine,
   newToolSpec,
   removeModelBinding,
+  type SlotDraft,
   type StudioCompileResult,
   type StudioDraft,
   setProfileType,
@@ -42,12 +44,11 @@ import { ON_TEST_KEYS, TEST_KEYS } from '../fixtures/lent-keys.ts';
 
 Deno.test('renaming a binding preserves the selected default and leaves other bindings alone', () => {
   const draft = createExampleDraft();
-  // The example's default is its second binding, `smart`.
-  const renamed = updateModelBinding(draft, draft.modelBindings[1].key, { modelId: 'primary' });
+  // The example's default is its third binding, `open`.
+  const renamed = updateModelBinding(draft, draft.modelBindings[2].key, { modelId: 'primary' });
   assertEquals(renamed.models.defaultModel, 'primary');
-  assertEquals(renamed.modelBindings[1].key, draft.modelBindings[1].key);
-  assertEquals(renamed.modelBindings[0], draft.modelBindings[0]);
-  assertEquals(renamed.modelBindings.slice(2), draft.modelBindings.slice(2));
+  assertEquals(renamed.modelBindings[2].key, draft.modelBindings[2].key);
+  assertEquals(renamed.modelBindings.slice(0, 2), draft.modelBindings.slice(0, 2));
   assert(compileStudio(renamed, ON_OWN_KEYS).ok);
   const other = updateModelBinding(renamed, draft.modelBindings[0].key, { modelId: 'secondary' });
   assertEquals(other.models.defaultModel, 'primary');
@@ -66,11 +67,26 @@ Deno.test('removing the default binding clears the default and leaves model sele
   assertEquals(removeModelBinding(draft, 'missing'), draft);
 });
 /** A turn draft's compile; decision and host drafts have their own tests. */
+/** A slot row with a choice per value, none described. */
+function slotRow(name: string, values: string[], label = ''): SlotDraft {
+  return {
+    key: `slot-${name}`,
+    name,
+    label,
+    choices: values.map((value) => ({ key: `choice-${value}`, value, description: '' })),
+  };
+}
+
 function compiled(draft: StudioDraft) {
   const result = compileStudio(draft, ON_OWN_KEYS);
   if (!result.ok) throw new Error(`unexpected issues: ${JSON.stringify(result.issues)}`);
   const { profile } = result;
-  if (profile.type === 'decision' || profile.type === 'host' || profile.type === 'embedding')
+  if (
+    profile.type === 'decision' ||
+    profile.type === 'host' ||
+    profile.type === 'embedding' ||
+    profile.type === 'transcription'
+  )
     throw new Error('expected a turn profile');
   return { ...result, profile };
 }
@@ -84,7 +100,7 @@ Deno.test('the example draft compiles to the travel concierge', () => {
   assertEquals(result.agentId, 'travel.concierge');
   assertEquals(profile.type, 'text');
   assertEquals(Object.keys(profile.models), ['fast', 'smart', 'open']);
-  assertEquals(profile.defaultModel, 'smart');
+  assertEquals(profile.defaultModel, 'open');
   assertEquals(result.customTools.length, createExampleDraft().toolSpecs.length);
   assert(profile.type === 'text' && profile.tools?.allow?.includes('geocode_city'));
   assertEquals(profile.guardrails?.blockedReply, { onBlock: 'refuse' });
@@ -93,8 +109,13 @@ Deno.test('the example draft compiles to the travel concierge', () => {
 Deno.test('what a URL detector allows compiles to what differs from the defaults, where it reads', () => {
   const draft = createExampleDraft();
   type GuardrailsOf = StudioDraft['guardrails'];
+  const reading = structuredClone(draft.guardrails.detect);
+  for (const boundary of ['reply', 'reply_structured', 'live_reply'] as const) {
+    reading.ungiven_images[boundary] = 'block';
+    reading.ungiven_links[boundary] = 'block';
+  }
   /** The `allow` of `ungiven_images` and of `ungiven_links`, as compiled. */
-  const allows = (allow: Partial<GuardrailsOf['allow']>, detect = draft.guardrails.detect) => {
+  const allows = (allow: Partial<GuardrailsOf['allow']>, detect = reading) => {
     const { guardrails } = draft;
     const spec = compiled({
       ...draft,
@@ -130,11 +151,14 @@ Deno.test('what a URL detector allows compiles to what differs from the defaults
 Deno.test('a blank allowed host is reported at its detector', () => {
   const draft = createExampleDraft();
   const { guardrails } = draft;
+  const detect = structuredClone(guardrails.detect);
+  detect.ungiven_links.reply = 'block';
   const result = compileStudio(
     {
       ...draft,
       guardrails: {
         ...guardrails,
+        detect,
         allow: {
           ...guardrails.allow,
           ungiven_links: { hosts: ['docs.acme.io', ' '], fromTools: true },
@@ -331,7 +355,7 @@ Deno.test('an option its protocol does not take is an issue at that option', () 
   const [fast, ...rest] = draft.modelBindings;
   const routed = {
     ...fast,
-    protocol: 'openRouter',
+    protocol: 'openRouterOpenAi',
     provider: 'openrouter',
     apiId: 'openrouter/free',
     options: { store: true },
@@ -697,6 +721,23 @@ Deno.test('studioNodeRef resolves only nodes the draft has', () => {
   assertEquals(studioNodeRef(draft, 'outputs'), { facet: 'outputs' });
   assertEquals(studioNodeRef(excludeFacet(draft, 'outputs'), 'outputs'), undefined);
 });
+Deno.test('an OpenRouter route compiles, prints, and a field it does not know is reported', () => {
+  const draft = createExampleDraft();
+  const key = draft.modelBindings[0].key;
+  const bound = (options: StudioDraft['modelBindings'][number]['options']) =>
+    updateModelBinding(draft, key, {
+      provider: 'openrouter',
+      protocol: 'openRouterOpenAi',
+      apiId: 'z-ai/glm-5.3-flash',
+      options,
+    });
+  const provider = { only: ['gmicloud/fp8'], allow_fallbacks: false };
+  const source = studioSource(compiled(bound({ provider })));
+  assertStringIncludes(source, "only: ['gmicloud/fp8']");
+  assertStringIncludes(source, 'allow_fallbacks: false');
+  assert(!compileStudio(bound({ provider: { onlyy: ['a'] } }), ON_OWN_KEYS).ok);
+});
+
 Deno.test('studioSource writes a module that registers the profile', () => {
   const source = studioSource(compiled(createExampleDraft()));
   assertStringIncludes(source, "import { z } from 'zod';");
@@ -719,7 +760,7 @@ Deno.test('studioSource registers each provider from its definition, and says wh
         providers: [{ id: provider, definition, ...slots }],
         modelBindings: draft.modelBindings.map((binding) => ({
           ...binding,
-          protocol: 'openRouter',
+          protocol: 'openRouterOpenAi',
           provider,
           apiId: 'openrouter/free',
         })),
@@ -791,7 +832,7 @@ Deno.test('studioSource writes a text of several lines one line to a line', () =
         ...draft.identity,
         agentId: 'demo.lines',
         handle: 'demo',
-        system: "You are the desk.\nDon't guess.",
+        system: [newSystemLine("You are the desk.\nDon't guess.")],
       },
     }),
   );
@@ -893,10 +934,10 @@ Deno.test('detect compiles to the actions the draft changes, at the boundaries t
       ?.detect;
   assertEquals(spec(detect), undefined);
   detect.credentials.reply = 'block';
-  detect.injection.tool_output_http = 'flag';
+  detect.injection.tool_output_http = 'redact';
   assertEquals(spec(detect), {
     credentials: { at: { reply: 'block' } },
-    injection: { at: { tool_output_http: 'flag' } },
+    injection: { at: { tool_output_http: 'redact' } },
   });
   const host = includeFacet(setProfileType(createExampleDraft(), 'host'), 'guardrails');
   const hosted = compileStudio(
@@ -905,7 +946,7 @@ Deno.test('detect compiles to the actions the draft changes, at the boundaries t
   );
   assert(hosted.ok);
   assertEquals(hosted.profile.guardrails?.detect, {
-    injection: { at: { tool_output_http: 'flag' } },
+    injection: { at: { tool_output_http: 'redact' } },
   });
 });
 Deno.test('a host draft compiles to its tools, with no model or identity', () => {
@@ -1170,6 +1211,23 @@ Deno.test('an activity label follows nullable, union, and referenced schemas', (
   assert(!flag.ok);
   assertEquals(flag.issues[0].message, '{ok} is true or false; a label shows text or a number.');
 });
+Deno.test('a transcription draft compiles to one voice clip and nothing else', () => {
+  const draft = setProfileType(createExampleDraft(), 'transcription', TEST_KEYS);
+  assertEquals(draft.inputs.text, false);
+  const result = compileStudio(
+    { ...draft, inputs: { ...draft.inputs, maxFiles: 1, maxBytes: 1024, maxTurnBytes: 1024 } },
+    ON_OWN_KEYS,
+  );
+  assert(result.ok, JSON.stringify(result));
+  assert(result.profile.type === 'transcription');
+  assertEquals(result.profile.inputs, {
+    text: false,
+    voice: { accept: ['audio/*'] },
+    maxFiles: 1,
+    maxBytes: 1024,
+    maxTurnBytes: 1024,
+  });
+});
 Deno.test('an image draft pins references and output settings, and reports what it cannot send', () => {
   const draft = setProfileType(createExampleDraft(), 'image', TEST_KEYS);
   const pinned = compiled({
@@ -1221,34 +1279,91 @@ Deno.test('an image draft pins references and output settings, and reports what 
     ],
   );
 });
-Deno.test('instructions by role, slots, and limits by type compile from their JSON fields', () => {
+Deno.test('slots and limits by type compile from their fields', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
     ...draft,
-    identity: { ...draft.identity, systemByRoleJson: '{"support":"Answer as support."}' },
     inputs: {
       ...draft.inputs,
-      limitsByMimeJson: '{"application/pdf":2000000}',
-      slotsJson: '{"language":["en","fr"]}',
+      limitsByMime: { 'application/pdf': 2000000 },
+      slots: [slotRow('language', ['en', 'fr'])],
     },
   });
   assert(profile.type === 'text');
-  assertEquals(profile.identity.systemByRole, { support: 'Answer as support.' });
   assertEquals(profile.inputs?.limitsByMime, { 'application/pdf': 2000000 });
   assertEquals(profile.inputs?.slots, { language: ['en', 'fr'] });
   const bad = compileStudio(
     {
       ...draft,
-      identity: { ...draft.identity, systemByRoleJson: '{"support":1}' },
-      inputs: { ...draft.inputs, limitsByMimeJson: '{"image/*":0}', slotsJson: '{"language":[]}' },
+      inputs: {
+        ...draft.inputs,
+        limitsByMime: { 'image/*': 0 },
+        slots: [slotRow('language', [])],
+      },
     },
     ON_OWN_KEYS,
   );
   assert(!bad.ok);
-  assertEquals(bad.issues.map((issue) => issue.field).sort(), [
-    'limitsByMimeJson',
-    'slotsJson',
-    'systemByRoleJson',
+  assertEquals(bad.issues.map((issue) => issue.field).sort(), ['limitsByMime', 'slots']);
+});
+Deno.test('a slot with a label or a described choice compiles to its labeled form', () => {
+  const draft = createExampleDraft();
+  const tone = slotRow('tone', ['plain', 'warm', ''], 'Tone');
+  const { profile } = compiled({
+    ...draft,
+    inputs: {
+      ...draft.inputs,
+      slots: [
+        tone,
+        {
+          ...slotRow('size', ['s', 'm']),
+          choices: [
+            { key: 'c1', value: ' s ', description: 'Small' },
+            { key: 'c2', value: 'm', description: '' },
+          ],
+        },
+      ],
+    },
+  });
+  assert(profile.type === 'text');
+  assertEquals(profile.inputs?.slots, {
+    tone: { label: 'Tone', choices: [{ value: 'plain' }, { value: 'warm' }] },
+    size: { choices: [{ value: 's', description: 'Small' }, { value: 'm' }] },
+  });
+});
+Deno.test('a slot without a name, a repeated name or value, or a value-less description fails on its row', () => {
+  const draft = createExampleDraft();
+  const described = {
+    ...slotRow('size', ['s']),
+    choices: [
+      { key: 'c1', value: 's', description: '' },
+      { key: 'c2', value: '', description: 'Medium' },
+    ],
+  };
+  const result = compileStudio(
+    {
+      ...draft,
+      inputs: {
+        ...draft.inputs,
+        slots: [
+          slotRow(' ', ['a']),
+          slotRow('tone', ['plain', 'plain']),
+          slotRow('tone', ['warm']),
+          described,
+        ],
+      },
+    },
+    ON_OWN_KEYS,
+  );
+  assert(!result.ok);
+  const slotIssues = result.issues
+    .filter((issue) => issue.field === 'slots')
+    .map((issue) => [issue.index, issue.message]);
+  assertEquals(slotIssues, [
+    [0, 'Name this slot.'],
+    [1, 'plain is a choice twice.'],
+    [2, 'Another slot is called tone.'],
+    [3, 'Every choice with a description needs a value.'],
   ]);
 });
 Deno.test('context compiles for a chat agent and a call, and needs its limit', () => {
@@ -1298,8 +1413,14 @@ Deno.test('a call’s greeting and resume prompt compile, and the resume prompt 
 });
 Deno.test('the system prompt compiles its {private: sections to parts', () => {
   const draft = createExampleDraft();
-  const withSystem = (system: string) =>
-    compileStudio({ ...draft, identity: { ...draft.identity, system } }, ON_OWN_KEYS);
+  const withSystem = (...lines: string[]) =>
+    compileStudio(
+      {
+        ...draft,
+        identity: { ...draft.identity, system: lines.map((line) => newSystemLine(line)) },
+      },
+      ON_OWN_KEYS,
+    );
   const system = (result: StudioCompileResult) => {
     assert(result.ok && result.profile.type === 'text');
     return result.profile.identity.system;
@@ -1307,21 +1428,8 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
   assertEquals(system(withSystem(' Be brief. ')), 'Be brief.');
   assertEquals(system(withSystem(' ')), undefined);
   assertEquals(system(withSystem('Say "hi". {private: Code 7731.}')), [
-    'Say "hi". ',
-    { private: 'Code 7731.' },
+    ['Say "hi". ', { private: 'Code 7731.' }],
   ]);
-  const kept = compileStudio(
-    {
-      ...draft,
-      identity: { ...draft.identity, system: [{ text: 'x', private: true }] as never },
-    },
-    ON_OWN_KEYS,
-  );
-  assert(!kept.ok);
-  assertEquals(
-    kept.issues.map((issue) => issue.message),
-    ['The system prompt must be text.'],
-  );
   const bad = withSystem('Say "hi". {private: Code 7731.');
   assert(!bad.ok);
   assertEquals(
@@ -1335,35 +1443,41 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
     ],
   );
 });
-Deno.test('instructions by role take {private: sections or parts', () => {
+Deno.test('the prompt compiles line by line, with its conditions, and a bad line is reported', () => {
   const draft = createExampleDraft();
-  const { profile } = compiled({
-    ...draft,
-    identity: {
-      ...draft.identity,
-      systemByRoleJson:
-        '{"support":"Hello. {private: Refund code R1.}","desk":["Hi. ",{"private":"Key K."}]}',
-    },
-  });
-  assert(profile.type === 'text');
-  assertEquals(profile.identity.systemByRole, {
-    support: ['Hello. ', { private: 'Refund code R1.' }],
-    desk: ['Hi. ', { private: 'Key K.' }],
-  });
-  for (const json of ['{"support":[{"private":""}]}', '{"support":"{private: open"}']) {
-    const bad = compileStudio(
+  const withPrompt = (conditionsJson: string, ...lines: string[]) =>
+    compileStudio(
       {
         ...draft,
-        identity: { ...draft.identity, systemByRoleJson: json },
+        identity: {
+          ...draft.identity,
+          conditionsJson,
+          system: lines.map((line) => newSystemLine(line)),
+        },
       },
       ON_OWN_KEYS,
     );
-    assert(!bad.ok);
-    assertEquals(
-      bad.issues.map((issue) => issue.field),
-      ['systemByRoleJson'],
-    );
-  }
+  const good = withPrompt(
+    '{ "plan": ["free", "paid"] }',
+    'Be brief.',
+    '',
+    'when plan is paid: Take your time. {private: Code 7731.}',
+  );
+  assert(good.ok && good.profile.type === 'text');
+  assertEquals(good.profile.identity.conditions, { plan: ['free', 'paid'] });
+  assertEquals(good.profile.identity.system, [
+    'Be brief.',
+    ['when plan is paid: Take your time. ', { private: 'Code 7731.' }],
+  ]);
+  const unknown = withPrompt('{ "plan": ["free"] }', 'when plan is gold: Hello.');
+  assert(!unknown.ok);
+  assertEquals(
+    unknown.issues.map(({ nodeId, field }) => ({ nodeId, field })),
+    [{ nodeId: 'identity', field: 'system' }],
+  );
+  const shape = withPrompt('{ "plan": "free" }', 'Be brief.');
+  assert(!shape.ok);
+  assertEquals(shape.issues[0]?.field, 'conditionsJson');
 });
 Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {
   const draft = createExampleDraft();
@@ -1371,7 +1485,7 @@ Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () =
     updateModelBinding(draft, draft.modelBindings[index].key, {
       options: { cache: { mode: 'system', ttl: '1h' } },
     });
-  assertEquals(draft.modelBindings[2].protocol, 'openRouter');
+  assertEquals(draft.modelBindings[2].protocol, 'openRouterOpenAi');
   const { profile } = compiled(withCache(2));
   assertEquals(profile.models.open.options, { cache: { mode: 'system', ttl: '1h' } });
   assertEquals(profile.models.fast.options, undefined);
@@ -1476,7 +1590,7 @@ Deno.test('an option the model refuses is an issue at that option, though its pr
   assert(first);
   const gemini2 = {
     ...first,
-    protocol: 'geminiEmbedding',
+    protocol: 'geminiEmbeddings',
     provider: 'gemini',
     apiId: 'gemini-embedding-2-preview',
     options: { taskType: 'CLUSTERING' },

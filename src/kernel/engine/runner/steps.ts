@@ -9,6 +9,7 @@ import type { ErrorKind } from '../../../guardrails/theorem-error.ts';
 import { recordTaint } from '../../../guardrails/tool-result.ts';
 import type { TraceAttributes } from '../../../observability/trace-span.ts';
 import { waitDefault } from '../../../providers/shared/retry.ts';
+import { ANSWER_TOOL, answersByTool, withAnswerTool } from '../../answer-tool.ts';
 import { stepReplyMessages } from '../../interaction-parts.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
@@ -52,7 +53,7 @@ import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
 import { applyStageInjects, recordReply } from './stages.ts';
-import { recordStepEvent, type StepExecutionState } from './state.ts';
+import { modelHistory, recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
 import {
   isWithheldOnBlock,
@@ -72,7 +73,7 @@ function generationForProviderStep(
   state: StepExecutionState,
   answerOnly: boolean,
 ): ResolvedGeneration {
-  const forStep = { ...generation, history: state.currentHistory };
+  const forStep = { ...generation, history: modelHistory(state) };
   if (!answerOnly) return forStep;
   return { ...forStep, builtins: [], tools: { ...generation.tools, wire: [] } };
 }
@@ -121,14 +122,19 @@ function startProviderCall(
   system: BoundSystem,
   state: StepExecutionState,
   answerOnly: boolean,
+  labels: Profile['labels'],
 ) {
   const usage = startCallUsage(system.text, {
-    history: state.currentHistory,
+    history: modelHistory(state),
     input: generation.input,
   });
   state.lastCall = usage;
   const genForStep = generationForProviderStep(generation, state, answerOnly);
-  const request = providerCompleteRequest(state.tools, genForStep, system.text);
+  const request = withAnswerTool(
+    providerCompleteRequest(state.tools, genForStep, system.text),
+    generation,
+    labels,
+  );
   addRequestUrls(state.givenUrls, request);
   addRequestDestinations(state.destinations, request, state.givenUrls.own);
   if (generation.canary && !state.canaryGiven) {
@@ -140,6 +146,7 @@ function startProviderCall(
     usage,
     binding: state.trace.binding,
     transport: genForStep.transport,
+    operation: genForStep.operationName,
     step: state.stepCount,
     attempt: state.trace.attempt,
   });
@@ -210,6 +217,52 @@ function tallyCallEvent(
   return false;
 }
 
+/**
+ * The structured output the call gave through the answer tool, shown as the step's, with the answer
+ * tool's calls taken out of the step's calls. An answer ends the turn, so the step's other calls do
+ * not run, and the call that gave it completed.
+ */
+async function* showAnswer(
+  shown: StructuredDrafts,
+  tally: CallTally,
+  step: {
+    generation: ResolvedGeneration;
+    state: StepExecutionState;
+    control: OutboundStreamControl;
+    buffer: { holdLate: boolean; holdVisible: boolean };
+    call: ReturnType<typeof startProviderCall>['call'];
+  },
+): AsyncGenerator<TurnEvent> {
+  if (!answersByTool(step.generation)) return;
+  const answer = tally.calls.find((call) => call.name === ANSWER_TOOL && !call.failure);
+  tally.calls = answer ? [] : tally.calls.filter((call) => call.name !== ANSWER_TOOL);
+  if (!answer) return;
+  if (tally.stop?.kind === 'tool') {
+    tally.stop = { kind: 'completed' };
+    step.state.lastStop = tally.stop;
+  }
+  const event: TurnEventOf<'structured'> = { type: 'structured', structured: answer.arguments };
+  if (tallyCallEvent(event, tally, step.call)) return;
+  if (releasesNow(event, step.control, step.state, step.buffer)) yield* shown.show(event);
+}
+
+/**
+ * A tool call's preview. The answer tool's streams as the structured reply's draft.
+ *
+ * why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
+ * as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
+ */
+async function* showToolDraft(
+  event: TurnEventOf<'tool_draft'>,
+  shown: StructuredDrafts,
+  generation: ResolvedGeneration,
+  buffer: { holdVisible: boolean },
+): AsyncGenerator<TurnEvent> {
+  if (buffer.holdVisible) return;
+  if (event.name === ANSWER_TOOL && answersByTool(generation)) yield* shown.draft(event.text);
+  else yield event;
+}
+
 /** What sets one model call's text apart from the reply text before it: a blank line. */
 const CALL_BREAK = '\n\n';
 
@@ -227,8 +280,8 @@ function withCallBreak(
 ): TurnEventOf<'text'> {
   if (tally.text) return event;
   const before = state.replyText;
-  const breaks =
-    before && generation.structured === null && !/\s$/.test(before) && !/^\s/.test(event.text);
+  const prose = generation.structured === null || answersByTool(generation);
+  const breaks = before && prose && !/\s$/.test(before) && !/^\s/.test(event.text);
   tally.replyAt = before.length + (breaks ? CALL_BREAK.length : 0);
   return breaks ? { ...event, text: `${CALL_BREAK}${event.text}` } : event;
 }
@@ -317,6 +370,7 @@ async function* executeAutonomousStep(
     system,
     state,
     isAnswerOnlyStep(profile, generation, state.stepCount),
+    profile.labels,
   );
   const tally: CallTally = { calls: [], reasoning: [], text: '', failures: [], replied: false };
   const control: OutboundStreamControl = {
@@ -333,7 +387,7 @@ async function* executeAutonomousStep(
     canaryGiven: state.canaryGiven,
     ...(state.ownTools ? { ownTools: state.ownTools } : {}),
   };
-  const shown = new StructuredDrafts(seen);
+  const shown = new StructuredDrafts({ ...seen, generation });
 
   try {
     for await (const event of yieldProviderEvents({
@@ -344,6 +398,7 @@ async function* executeAutonomousStep(
       signal,
       control,
       tools: state.tools,
+      answerTool: answersByTool(generation),
     })) {
       if (observeCallEvent(usage, event)) continue;
       if (event.type === 'reasoning') {
@@ -358,13 +413,11 @@ async function* executeAutonomousStep(
         continue;
       }
       if (event.type === 'tool_draft') {
-        // why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
-        // as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
-        if (!buffer.holdVisible) yield event;
+        yield* showToolDraft(event, shown, generation, buffer);
         continue;
       }
       // why: The model's history keeps what it wrote; only the reply the host gets is set apart.
-      const next = event.type === 'text' ? withCallBreak(event, tally, state, genForStep) : event;
+      const next = event.type === 'text' ? withCallBreak(event, tally, state, generation) : event;
       if (tallyCallEvent(event, tally, call)) continue;
       if (!releasesNow(next, control, state, buffer)) continue;
       yield* shown.show(next);
@@ -377,6 +430,7 @@ async function* executeAutonomousStep(
   }
 
   yield* shown.end();
+  yield* showAnswer(shown, tally, { generation, state, control, buffer, call });
   keepStreamCarry(state, control);
   const resume = resumeOf(args.mayResume, profile, tally);
   if (!resume) {

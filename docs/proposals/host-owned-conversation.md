@@ -1,6 +1,6 @@
 # Host-owned conversation
 
-Status: built for chat and Studio; live calls are still open (section 5). Section 9 records the decisions.
+**Status:** building. Built for chat and Studio; live calls are still open (section 5). Section 9 records the decisions.
 
 **Reader:** a Theorem maintainer, and Masud.
 **Job:** decide where a chat's conversation lives, and what changes if the host owns it.
@@ -10,11 +10,11 @@ Status: built for chat and Studio; live calls are still open (section 5). Sectio
 
 The **conversation** is two things together: the **transcript**, which the person reads, and the **history**, which the model reads on the next turn.
 
-Today the browser owns both. The server handler says so in its own header (`react/src/server/handler.ts`): the browser owns the conversation text, and the server owns every decision that grants authority.
+Today the browser owns both. The server handler says so in its own header (`web/src/server/handler.ts`): the browser owns the conversation text, and the server owns every decision that grants authority.
 
 This has three results:
 
-1. **The browser decides what the model reads.** The browser sends the whole history with every message. The handler removes system messages, then passed user, assistant, and tool messages to the model unchanged (a filter in `react/src/server/handler.ts`, now deleted).
+1. **The browser decides what the model reads.** The browser sends the whole history with every message. The handler removes system messages, then passed user, assistant, and tool messages to the model unchanged (a filter in `web/src/server/handler.ts`, now deleted).
 2. **A host cannot choose where the conversation lives.** The handler takes a `sessionStore` for tool approvals and paused calls. It takes nothing for the conversation.
 3. **A server-owned action on a past message has nothing to act on.** "Try again" on a failed turn is the first case. The server does not know the message, so the browser must send it again.
 
@@ -38,7 +38,7 @@ The model treats a tool result as a fact from the system. A visitor can use this
 The handler checks history in two narrow places only:
 
 - A message that walks away from a paused call must leave exactly those calls open (checkWalkAway, now deleted).
-- A `providerState` the browser sends must belong to this server session, and its tool results must match the settled calls (`requireOwnedCheckpoint` in `react/src/server/checkpoint-ownership.ts`).
+- A `providerState` the browser sends must belong to this server session, and its tool results must match the settled calls (`requireOwnedCheckpoint` in `web/src/server/checkpoint-ownership.ts`).
 
 A plain turn with no `providerState` goes through neither check.
 
@@ -68,16 +68,16 @@ The intent was **host-owned**: the host decides where the conversation comes fro
 
 | Piece | Owner today | Source |
 | --- | --- | --- |
-| Transcript | Browser (`useTheoremChat` state) | `react/src/hooks/use-theorem-chat-state.ts` |
-| History the model reads | Browser builds it after each turn | `react/src/client/run-commit.ts` |
-| History sent each turn | Browser, in `input.history` | `TheoremTurnInput` in `react/src/client/transport.ts` |
+| Transcript | Browser (`createChatController` state) | `web/src/client/chat.ts` |
+| History the model reads | Browser builds it after each turn | `web/src/client/run-commit.ts` |
+| History sent each turn | Browser, in `input.history` | `TheoremTurnInput` in `web/src/client/transport.ts` |
 | Saving between visits | The page, through onChatChange and initialChat (deleted) | `react/src/ui/TheoremChat.tsx` |
 | Studio's saving | The tab's `sessionStorage`, trimmed to a size budget | `studio/ui/lib/studio-conversation.ts` |
 | Rewinding to an earlier message | Browser cuts its own history | `handleBranch`, `branchInterfaceTurnSession` |
 | Compaction size | Browser keeps `historyTokens` from each `done` | `src/interface/session.ts` |
-| Live call history | Browser keeps it from each `provider_checkpoint`, sends it when it reopens | `react/src/client/live-client.ts` |
-| Tool approvals, paused and settled calls | Server session | `react/src/server/session-store.ts` |
-| Provider checkpoints the session owns | Server session | `react/src/server/checkpoint-ownership.ts` |
+| Live call history | Browser keeps it from each `provider_checkpoint`, sends it when it reopens | `web/src/client/live-client.ts` |
+| Tool approvals, paused and settled calls | Server session | `web/src/server/session-store.ts` |
+| Provider checkpoints the session owns | Server session | `web/src/server/checkpoint-ownership.ts` |
 
 The kernel is not part of the problem. `runTurn` takes `input.history` from its caller and owns nothing. The caller is the host, so the kernel is host-owned already.
 
@@ -103,7 +103,7 @@ The host owns the conversation. The browser sends the new message and draws what
 4. The browser reads the transcript from the server when it mounts, and after each turn.
 5. `input.history` leaves the browser's request. The server never reads history from the browser.
 
-The store, as built (`react/src/server/conversation-store.ts`). Every read and write names the session, so a ref from another session opens nothing.
+The store, as built (`web/src/server/conversation-store.ts`). Every read and write names the session, so a ref from another session opens nothing.
 
 ```ts
 interface TheoremConversationStore {
@@ -124,7 +124,7 @@ The **ref** is an opaque string that the store issues. The browser keeps it and 
 | A database store | The conversation's id | The same id |
 | The sealed store | The seal | A new seal |
 
-`expectedRevision` stops two tabs from writing over each other's turns. The session store already writes this way (`compareAndSwap` in `react/src/server/session-store.ts`). The sealed store cannot detect this case (section 8).
+`expectedRevision` stops two tabs from writing over each other's turns. The session store already writes this way (`compareAndSwap` in `web/src/server/session-store.ts`). The sealed store cannot detect this case (section 8).
 
 ## 5. What changes
 
@@ -203,7 +203,7 @@ The host chooses the store. There is one code path: the handler always reads fro
 | Where the store is required | Only in `createTheoremHandler`. `runTurn` keeps taking history from its caller. | "The host decides, Theorem runs" |
 | A host that calls `runTurn` directly | The sealed store is exported on its own, so such a host can seal and open its conversation without the handler. | ml_deno's case |
 
-Found on 14 Oct: the chat ignores the history in a `compaction` event. `appendAssistantEventsToHistory` in `react/src/client/run-commit.ts` appends to the old history, and `applyTurnEventsToSession` keeps only the token count. So the browser keeps sending the uncompacted history. When the server owns the history, the server writes the compacted history, and this bug goes away.
+Found on 14 Oct: the chat ignores the history in a `compaction` event. `appendAssistantEventsToHistory` in `web/src/client/run-commit.ts` appends to the old history, and `applyTurnEventsToSession` keeps only the token count. So the browser keeps sending the uncompacted history. When the server owns the history, the server writes the compacted history, and this bug goes away.
 
 Found while building, 14 Oct: an answer or a walk-away matched its gate by the provider's call id alone. A provider can reuse a call id, so an old answer could settle a new gate. Both now match the call id and the kernel's operation id.
 

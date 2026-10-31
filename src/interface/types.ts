@@ -16,9 +16,11 @@ import type {
   ProfileContextSpec,
   ProfileOutputsSpec,
   ProviderEvidence,
+  SlotDecl,
   Source,
   SpeechProfile,
   TextProfile,
+  TranscriptionProfile,
   TurnStop,
   TurnTokens,
 } from '../kernel/types.ts';
@@ -82,7 +84,8 @@ export interface ProfileInputsInterface {
   maxBytes?: number;
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
-  slots?: Record<string, string[]>;
+  /** Normalized slot decls (`label?` + `choices`); legacy string lists are expanded upstream. */
+  slots?: Record<string, SlotDecl>;
   context?: ProfileContextSpec;
 }
 
@@ -140,6 +143,13 @@ export type SpeechProfileInterface = Omit<
 > &
   ComposerInterfaceFields;
 
+/** A transcription profile as a client sees it, without its server-only fields. */
+export type TranscriptionProfileInterface = Omit<
+  TranscriptionProfile,
+  'guardrails' | 'observability' | 'labels' | 'models' | 'outputs' | 'inputs'
+> &
+  ComposerInterfaceFields;
+
 /** A live profile as a client sees it, without its server-only fields. */
 export type LiveProfileInterface = Omit<
   LiveProfile,
@@ -160,6 +170,7 @@ export type ProfileInterface =
   | TextProfileInterface
   | ImageProfileInterface
   | SpeechProfileInterface
+  | TranscriptionProfileInterface
   | LiveProfileInterface;
 
 /** Turn/chat composer profiles — excludes live (realtime streams, no turn inputs block). */
@@ -251,6 +262,8 @@ export interface ToolCall {
   /** When it last settled: complete, failed, cancelled, or gated (epoch ms). */
   endedAt?: number;
   artifacts: unknown[];
+  /** An agent tool's: the calls its agent made, in order, from the call's `progress` phases. */
+  steps?: ToolCall[];
 }
 
 export interface ToolBlock extends TranscriptBlockBase {
@@ -272,9 +285,9 @@ export interface StructuredBlock extends TranscriptBlockBase {
 export interface MediaBlock extends TranscriptBlockBase {
   kind: 'media';
   mimeType: string;
-  /** Base64 for model-generated or attached media. Absent when `url` is set. */
+  /** Base64 for media a model generated, a tool returned or a person attached. Absent when `url` is set. */
   data?: string;
-  /** Remote http(s) URL promoted from completed tool output. Absent when `data` is set. */
+  /** Remote URL from completed tool output or a tool's media part. Absent when `data` is set. */
   url?: string;
   /** A smaller copy of `url` for previews, when the tool output offered one. */
   previewUrl?: string;

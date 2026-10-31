@@ -1,8 +1,9 @@
 import { getProfile, runTurn } from '../../kernel/default-scope.ts';
 import type { ProviderHostOptions } from '../../kernel/protocols/runtime.ts';
 import { requireModelProfile } from '../../kernel/registry/resolve.ts';
-import type { TurnRequest } from '../../kernel/types.ts';
+import type { TurnRequest, TurnWiring } from '../../kernel/types.ts';
 import { createCliTraceCapture, printRunEvent, printTraceRecord } from '../event-log.ts';
+import { preparedRequest } from '../setup.ts';
 
 export interface RunOptions {
   profile: string;
@@ -11,19 +12,21 @@ export interface RunOptions {
   search?: boolean;
   map?: boolean;
   provider?: ProviderHostOptions;
+  prepare?: TurnWiring['prepare'];
   verbose?: boolean;
   trace?: boolean;
   traceDir?: string;
 }
 
-export async function runCommand(options: RunOptions): Promise<void> {
+/** Runs one turn and prints it; false when the turn could not run or failed. */
+export async function runCommand(options: RunOptions): Promise<boolean> {
   requireModelProfile(getProfile(options.profile), 'agents run');
   const provider = options.provider;
   if (!provider) {
     console.error(
-      '\n\x1b[31mExecution Failed\x1b[0m: Theorem CLI does not create providers or read keys. Run turns from a host app with an explicit ProviderHostOptions.\n',
+      '\n\x1b[31mExecution Failed\x1b[0m: Theorem CLI does not create providers or read keys. Pass --setup <file> to run on the provider your setup file wires, or run turns from a host app with an explicit ProviderHostOptions.\n',
     );
-    return;
+    return false;
   }
 
   const prompt = options.prompt || 'Hello! Please introduce your capabilities.';
@@ -35,13 +38,13 @@ export async function runCommand(options: RunOptions): Promise<void> {
       console.error(
         '\n\x1b[31mExecution Failed\x1b[0m: --search requires googleSearch on models.*.builtInTools for the selected model.\n',
       );
-      return;
+      return false;
     }
     if (options.map && !builtins.has('googleMaps')) {
       console.error(
         '\n\x1b[31mExecution Failed\x1b[0m: --map requires googleMaps on models.*.builtInTools for the selected model.\n',
       );
-      return;
+      return false;
     }
   }
 
@@ -57,16 +60,21 @@ export async function runCommand(options: RunOptions): Promise<void> {
   const traceCapture = options.trace ? createCliTraceCapture(options.traceDir) : undefined;
 
   try {
-    for await (const event of runTurn(req, provider, traceCapture?.sink)) {
+    const turn = await preparedRequest(options.prepare, req);
+    let failed = false;
+    for await (const event of runTurn(turn, provider, traceCapture?.sink)) {
+      if (event.type === 'error') failed = true;
       printRunEvent(event, { verbose: options.verbose });
     }
     console.log('\n');
     if (options.trace) {
       printTraceRecord(traceCapture?.records.at(-1), options.verbose === true);
     }
+    return !failed;
   } catch (err) {
     console.error(
       `\n\x1b[31mExecution Failed\x1b[0m: ${err instanceof Error ? err.message : String(err)}\n`,
     );
+    return false;
   }
 }

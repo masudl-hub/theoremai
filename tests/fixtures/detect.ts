@@ -9,6 +9,7 @@ import {
 } from '../../src/guardrails/detect-at.ts';
 import {
   DETECTORS,
+  type DetectAction,
   type Detector,
   type DetectorRule,
   type DetectSpec,
@@ -86,7 +87,7 @@ export function replyStream(
 /** The hint a retry carries after {@linkcode blockNaming} blocked a reply. */
 export const TERM_HINT = labelDefault('detect.hint.own', { label: 'Test term' });
 
-export function blockNaming(term: string): DetectSpec {
+export function blockNaming(term: string): Exclude<DetectSpec, DetectAction> {
   return {
     'test.term': {
       label: 'Test term',

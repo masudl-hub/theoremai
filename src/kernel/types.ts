@@ -60,6 +60,7 @@ import type {
   CompactionSignal,
   DoneFields,
   GroundingEvent,
+  InjectedMessages,
   InteractionMediaPart,
   InteractionMediaRefPart,
   InteractionPart,
@@ -106,6 +107,7 @@ export type {
   FieldMeta,
   GroundingEvent,
   HostProfileToolsSpec,
+  InjectedMessages,
   InteractionMediaPart,
   InteractionMediaRefPart,
   InteractionPart,
@@ -206,6 +208,7 @@ export interface ProfileImageSpec {
 }
 
 import type { DecisionModelBinding, ModelBinding } from './protocols/binding.ts';
+import type { ProviderHostOptions } from './protocols/runtime.ts';
 
 export type { DecisionModelBinding, ModelBinding };
 
@@ -526,6 +529,27 @@ export interface ProfileModelFields {
   maxSteps?: number;
 }
 
+/**
+ * One allowed value for an `inputs.slots` entry. `value` is what the turn sends and what
+ * `{name}` fills; optional `description` is visitor-facing UI copy only.
+ */
+export interface SlotChoice {
+  value: string;
+  description?: string;
+}
+
+/**
+ * One named slot: optional group `label` for the UI, and its choices. A bare `string[]` is
+ * still accepted on define and normalized to `{ choices: [{ value }] }`.
+ */
+export interface SlotDecl {
+  label?: string;
+  choices: SlotChoice[];
+}
+
+/** Authoring form for one slot: legacy value list, or a labeled declaration. */
+export type SlotDeclInput = string[] | SlotDecl;
+
 /** What a profile accepts as input. */
 export interface ProfileInputsSpec {
   text?: boolean;
@@ -535,7 +559,7 @@ export interface ProfileInputsSpec {
   maxBytes?: number;
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
-  slots?: Record<string, string[]>;
+  slots?: Record<string, SlotDeclInput>;
   context?: ProfileContextSpec;
 }
 
@@ -563,7 +587,7 @@ export interface PrivateSystemPart {
   private: string;
 }
 
-/** One part of a system prompt: plain text or a part kept out of traces. */
+/** One part of a system prompt: shareable text, or private text a reply may not repeat. */
 export type SystemPart = string | PrivateSystemPart;
 
 /**
@@ -572,6 +596,15 @@ export type SystemPart = string | PrivateSystemPart;
  * part is `{ private }`, the plain strings beside it are shareable.
  */
 export type SystemPrompt = string | readonly SystemPart[];
+
+/** One line of a profile's prompt: text, or parts kept together. A leading `when` decides it. */
+export type SystemLine = string | readonly SystemPart[];
+
+/** A profile's prompt: a string, or lines. Every line that fits is sent, a blank line apart. */
+export type ProfileSystem = string | readonly SystemLine[];
+
+/** The facts a host states on each turn, by name, each with the values it can take. */
+export type ProfileConditions = Readonly<Record<string, readonly string[]>>;
 
 /** A stretch of the system prompt as sent, and whether a reply may repeat it. */
 export interface SystemPiece {
@@ -582,8 +615,9 @@ export interface SystemPiece {
 /** A profile's handle and system prompt. */
 export interface ProfileIdentity {
   handle: string;
-  system?: SystemPrompt;
-  systemByRole?: Record<string, SystemPrompt>;
+  /** The facts this agent's turns state, by name, with the values each can take. */
+  conditions?: ProfileConditions;
+  system?: ProfileSystem;
 }
 
 /** The fields every profile type shares. */
@@ -694,8 +728,10 @@ export interface DecisionRequest {
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
   /**
-   * Images by reference. Write a reference as a string where its image belongs, in `state`, in a
-   * question's instructions, or in its criteria; the provider puts the image there.
+   * Images by reference. Write a reference in a string where its image belongs, in `state`, in a
+   * question's instructions, or in its criteria, as the whole string or inside it; the model reads
+   * the image in its place, once for each use. Keys are never read. Only the images some string
+   * references are sent, so pick references that cannot occur in your text by accident.
    */
   assets?: Record<string, DecisionAsset>;
   signal?: AbortSignal;
@@ -835,6 +871,23 @@ export interface SpeechProfile extends Omit<ProfileCommon, 'identity'> {
   turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
+/** A transcription profile's inputs: voice clips within byte limits, and no text. */
+export type TranscriptionInputsSpec = Required<Pick<ProfileInputsSpec, 'voice'>> &
+  Pick<ProfileInputsSpec, 'maxFiles' | 'maxBytes' | 'maxTurnBytes' | 'limitsByMime'>;
+
+/**
+ * Speech to text: a voice clip in, what was said out as the turn's text. No tools, no system
+ * prompt, and no canary, because the model follows no instruction and has nothing of the profile's to leak.
+ */
+export interface TranscriptionProfile
+  extends Omit<ProfileCommon, 'identity' | 'outputs' | 'maxSteps'> {
+  type: 'transcription';
+  identity: Pick<ProfileIdentity, 'handle'>;
+  inputs: TranscriptionInputsSpec & { text: false };
+  outputs?: undefined;
+  maxSteps?: undefined;
+}
+
 /** A profile that holds a live audio session. */
 export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
@@ -866,6 +919,7 @@ export type Profile =
   | TextProfile
   | ImageProfile
   | SpeechProfile
+  | TranscriptionProfile
   | LiveProfile
   | DecisionProfile
   | EmbeddingProfile
@@ -918,7 +972,6 @@ export interface TurnRepairRequest {
 /** What the user sent for a turn: text, slots, attachments, voice, and history. */
 export interface TurnInput {
   text?: string;
-  role?: string;
   slots?: Record<string, string>;
   /** What the page or the host wants the model to know, by sender; the profile's `inputs.context` allows it. */
   context?: TurnContext;
@@ -983,6 +1036,8 @@ export interface TurnRequest {
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
   path?: string;
+  /** This turn's facts, one value for each of `profile.identity.conditions` but `path`. */
+  conditions?: Readonly<Record<string, string>>;
   /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
   /**
@@ -1035,6 +1090,25 @@ export interface TurnRequest {
   onAgentCall?: AgentCallHook;
 }
 
+/**
+ * How an application runs its turns: the one value its own call sites, its web handler and the
+ * studio all use, so they cannot run a turn differently. An app that calls `runTurn` itself
+ * writes `runTurn(await wiring.prepare(turn), wiring.provider)`.
+ */
+export interface TurnWiring {
+  /** Registers the application's profiles and tools. Called once, before the first turn. */
+  register?: () => void | Promise<void>;
+  /** The keys, network and limits each model call runs on. */
+  provider?: ProviderHostOptions;
+  /**
+   * The turn the application runs, from the one it is given: the profile, the input with the
+   * conversation's history, and the application's context as `host`. Set what the application
+   * sets per turn, such as `system`, `credentials`, `onStage`, `onAgentCall`, `path` and
+   * `metadata`. Text, image and speech turns run through it.
+   */
+  prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
+}
+
 /** A profile projected for a client, with its secrets and server-only fields removed. */
 export interface ProjectedProfile extends ProfileModelFields {
   id: string;
@@ -1076,6 +1150,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   execution?: ToolExecutionCoordinator;
   pageExecution?: PageToolExecution;
   transport: ProviderTransport;
+  /** The protocol's `gen_ai.operation.name` for this profile type; absent when no provider is registered for the binding. */
+  operationName?: string;
   tools: TurnToolSnapshot;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
@@ -1094,6 +1170,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   canary: string;
   /** Snapshotted synchronously before any async work; the runner binds the canary on top. */
   resolvedSystem: readonly SystemPiece[];
+  /** Which of the profile's prompt lines fit this turn, by number from 1. */
+  systemLines: readonly number[];
   /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
   host?: unknown;
 }
@@ -1112,6 +1190,8 @@ export interface ModelRequest extends Omit<ProviderGenerationConfig, 'summaries'
   image: ImageResponseFormat | null;
   speech?: ProfileSpeechSpec;
   live?: ProfileLiveSpec;
+  /** Live: the fenced context the session opens with, seeded after `history` so it lands before any input. */
+  context?: string[];
   /** Scrubbed SSE / HTTP rows for traces. */
   tapUpstream?: (row: Record<string, unknown>) => void;
   /** Host abort signal. */
@@ -1137,6 +1217,8 @@ export interface SessionRequest {
   /** As `TurnRequest.builtInArgs`. */
   builtInArgs?: BuiltInArgs;
   path?: string;
+  /** As `TurnRequest.conditions`. */
+  conditions?: Readonly<Record<string, string>>;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
   /** The value chosen for each of the profile's `inputs.slots`. */

@@ -5,9 +5,8 @@ import numpy as np
 K=os.path.expanduser('~/Development/.guardrail-data/kaggle')
 A,B=(sys.argv[1:3]+['hz-small','t22n'])[:2] if len(sys.argv)<3 else sys.argv[1:3]
 def path(m,s):
-    if s in('full','bsbtest'): return f"{K}/k-t22s/out/out/{s}-{m}.json" if m.startswith('t22') else f"{K}/k-full/out/out/{s}-{m}.json"
-    if s=='bspp': return f"{K}/k-t22s/out/out/bspp-{m}.json" if m.startswith('t22') else f"{K}/k-bspp/out/out/bspp-{m}.json"
-    return f"{K}/{'k-t22/out/out' if m.startswith('t22') else 'k-diag/out/out'}/{s}-{m}.json"
+    if s in('full','bsbtest','bspp'): return f"{K}/{dict(t='k-t22s',u='k-u22s')[m[0]] if m[0] in 'tu' else 'k-bspp' if s=='bspp' else 'k-full'}/out/out/{s}-{m}.json"
+    return f"{K}/{dict(t='k-t22',u='k-u22').get(m[0],'k-diag')}/out/out/{s}-{m}.json"
 lg=lambda p:np.log(np.clip(p,1e-7,1-1e-7)/(1-np.clip(p,1e-7,1-1e-7)))
 def maxby(v,o,n):
     r=np.full(n,-np.inf); np.maximum.at(r,o,v); return r
@@ -44,17 +43,18 @@ for name,f in {'waab':'pm-waab/waab.jsonl','inwild':'pm-leads/inwild.jsonl','too
     for i,r in enumerate(rs): p=r['set'].split('-'); gs[p[0]+('-'+p[1] if name=='warp' else '')].append(i)
     for g,ks in gs.items():
         y=np.array([rs[i]['y'] for i in ks])
-        if y.any() and not y.all(): G[g]=({m:s[m][ks] for m in M},y)
+        G[g]=({m:s[m][ks] for m in M},y)
 print('AUC on own benign rows\n'+f"{'set':16}{'n+':>6}{'n-':>6} "+' '.join(f'{m[:8]:>8}' for m in M))
-for g,(s,y) in G.items(): print(f'{g[:16]:16}{int(y.sum()):6}{int((1-y).sum()):6} '+' '.join(f'{auc(s[m][y==1],s[m][y==0]):8.3f}' for m in M))
+for g,(s,y) in G.items():
+    if y.any() and not y.all(): print(f'{g[:16]:16}{int(y.sum()):6}{int((1-y).sum()):6} '+' '.join(f'{auc(s[m][y==1],s[m][y==0]):8.3f}' for m in M))
 print('\nflag % at 1% of benign bsafe-validate pages\n'+f"{'set':24}{'y':>2}{'n':>7} "+' '.join(f'{m[:8]:>8}' for m in M))
 for g,(s,y) in G.items():
     for c in (1,0):
-        if g=='bsafe-validate' and c==0: continue
+        if (g=='bsafe-validate' and c==0) or not (y==c).any(): continue
         print(f'{g[:24]:24}{c:2}{int((y==c).sum()):7} '+' '.join(f'{100*(s[m][y==c]>th[m]).mean():8.1f}' for m in M))
 nt=np.array(json.load(open(path(A,'full')))['ntok'])
 print('\nbench sets of 200 rows or more whose median row is under 128 tokens: flag % at the same thresholds\n'+f"{'set':30}{'y':>2}{'n':>7}{'tok':>6} "+' '.join(f'{m[:8]:>8}' for m in M))
 for g in sorted(set(fs)):
     for c in (1,0):
         q=(fs==g)&(fy==c)
-        if q.sum()>=200 and np.median(nt[q])<128: print(f'{g[:30]:30}{c:2}{int(q.sum()):7}{int(np.median(nt[q])):6} '+' '.join(f'{100*(F[m][q]>th[m]).mean():8.1f}' for m in M))
+        if q.sum()>=200 and (np.median(nt[q])<128 or g=='c:wildjailbreak-benign'): print(f'{g[:30]:30}{c:2}{int(q.sum()):7}{int(np.median(nt[q])):6} '+' '.join(f'{100*(F[m][q]>th[m]).mean():8.1f}' for m in M))

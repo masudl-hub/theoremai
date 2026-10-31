@@ -9,7 +9,9 @@
 #   pia:   PIArena rows whose context and injected task no bench row holds, as Horizon's eval suite builds them: the context
 #          cut to 6,000 characters, and the task put in at a sentence boundary (attack) or left out (benign). Then the
 #          agentic-prompt-injection-5k and boundary-pairs train splits. Reads them from new-2810/.
-# Usage: [PAIRS=n] extra2.py <fair|quick|pages|bsb|pia> <data dir> <out.jsonl>
+#   undrawn: the corpus rows that no earlier run drew: the repo-hard rows outside train.jsonl and the bench (both labels), and the
+#          wildjailbreak adversarial_benign rows outside the bench. The attacks of wildjailbreak stay out (R2).
+# Usage: [PAIRS=n] extra2.py <fair|quick|pages|bsb|pia|undrawn> <data dir> <out.jsonl>
 import json, sys, random, os, glob
 mode, D, out = sys.argv[1:4]; C = f'{D}/linear-2210/clf'
 ev = set()
@@ -56,6 +58,13 @@ elif mode == 'pia':
             put('piarena-train', 1, ctx[:cut] + ' ' + r['injected_task'] + ' ' + ctx[cut:]); put('piarena-train', 0, ctx)
     for d, s in (('a5k', 'a5k-train'), ('bp', 'bp-train')):
         for r in pq.read_table(f'{D}/new-2810/{d}/train.parquet').to_pylist(): put(s, int(r['label']), r['text'])
+elif mode == 'undrawn':
+    ev |= {json.loads(l)['text'] for l in open(f'{C}/full7/train.jsonl')}
+    for l in open(f'{D}/guardrail-corpus/repo-hard-negatives.jsonl'):
+        r = json.loads(l); put('c:repo-hard' if r['label'] else 'repo-hard-benign-train', r['label'], r['text'])
+    for f in sorted(glob.glob(f'{D}/guardrail-corpus/allenai_wildjailbreak_tsv_*.json')):
+        for x in json.load(open(f))['rows']:
+            if x['row']['data_type'] == 'adversarial_benign': put('wildjailbreak-benign-train', 0, x['row']['adversarial'])
 else:
     sample = set()
     for f in (f'{C}/sample.jsonl', f'{C}/screen.jsonl', f'{C}/newsets/rows2.jsonl'): sample |= {json.loads(l)['text'] for l in open(f)}

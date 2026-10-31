@@ -225,6 +225,9 @@ export function stitchCookbook(
   const draft = recipe.toolsAllow
     ? {
         ...baseDraft,
+        modelBindings: baseDraft.modelBindings.map(
+          ({ compactTiming: _timing, compactWith: _with, ...binding }) => binding,
+        ),
         toolSpecs: baseDraft.toolSpecs
           .filter((tool) => recipe.toolsAllow?.includes(tool.toolName))
           .map(({ stageAgentKey: _stage, ...tool }) => tool),

@@ -207,7 +207,7 @@ class Src {
 
 interface ParsedModule {
   tools: Record<string, unknown>[];
-  structured?: { id: string; spec: Record<string, unknown> };
+  structures: { id: string; spec: Record<string, unknown> }[];
   profile?: Record<string, unknown>;
   provider?: { definition: string; spec: Record<string, unknown> };
   questions?: Record<string, unknown>;
@@ -582,13 +582,13 @@ function readCall(src: Src, parsed: ParsedModule): void {
     if (typeof id !== 'string' || !isRecord(spec)) {
       src.fail('registerStructured() needs an id and a spec.');
     }
-    parsed.structured = { id, spec };
+    parsed.structures.push({ id, spec });
   }
 }
 
 function parseModule(text: string, of: Src['of'] = 'profile'): ParsedModule {
   const src = new Src(text, of);
-  const parsed: ParsedModule = { tools: [], spans: [] };
+  const parsed: ParsedModule = { tools: [], structures: [], spans: [] };
   for (src.skip(); !src.done; src.skip()) {
     if (src.peekIdent() === 'import') {
       src.expectIdent();
@@ -963,6 +963,7 @@ function toolOf(
     // A page tool's source has no handler: its stub is the studio's own, so it is kept.
     stubOutputJson: page ? current?.stubOutputJson : stubOf(type, spec),
     answeredBy: page ? 'page' : undefined,
+    after: spec.after === true ? true : undefined,
     ...toolRoute(spec),
     agentKey: agentId ? agentKeyOf?.(agentId) : undefined,
     maxCallsPerTurn: whole(spec.maxCallsPerTurn),
@@ -1203,15 +1204,25 @@ function itemRulesOf(
 
 function outputsOf(
   outputs: Record<string, unknown> | undefined,
-  structured: ParsedModule['structured'],
+  structures: ParsedModule['structures'],
 ): StudioDraft['outputs'] {
+  const picks = record(outputs?.structured);
+  const structured = picks
+    ? structures.find(({ id }) => id === text(picks.fallback))
+    : structures[0];
   const schemaId = structured?.id ?? text(outputs?.structured);
+  const shapes = Object.entries(record(picks?.map) ?? {}).map(([choice, id]) => ({
+    choice,
+    schemaId: text(id),
+    schemaJson: jsonText(structures.find((shape) => shape.id === id)?.spec.jsonSchema),
+  }));
   const streaming = record(outputs?.streaming);
   const validation = record(outputs?.validation);
   return {
     mode: schemaId ? 'structured' : 'text',
     schemaId,
     schemaJson: jsonText(structured?.spec.jsonSchema),
+    ...(picks ? { bySlot: { slot: text(picks.by), shapes } } : {}),
     streamMode: text(streaming?.mode) as StudioDraft['outputs']['streamMode'],
     streamThoughts: streaming?.streamThoughts !== false,
     validationEnabled: validation !== undefined,
@@ -1422,7 +1433,8 @@ function draftFrom(
     tools: { t2Loader: text(tools.t2Loader), parallel: tools.parallel === true },
     toolSpecs: [],
     inputs: inputs && type !== 'decision' ? inputsOf(inputs, current.inputs) : current.inputs,
-    outputs: outputs || parsed.structured ? outputsOf(outputs, parsed.structured) : current.outputs,
+    outputs:
+      outputs || parsed.structures.length ? outputsOf(outputs, parsed.structures) : current.outputs,
     turnBehaviour: section(profile.turnBehaviour, turnOf, current.turnBehaviour),
     guardrails: section(profile.guardrails, guardrailsOf, current.guardrails),
     observability: section(profile.observability, observabilityOf, current.observability),

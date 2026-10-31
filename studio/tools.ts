@@ -38,6 +38,7 @@ export function registerCustomTool(
     loadTier: tool.loadTier,
     permission: tool.permission,
     ...(tool.labels ? { labels: tool.labels } : {}),
+    ...(tool.after ? { after: true } : {}),
   };
   if (tool.type === 'agent') {
     tools.register({
@@ -124,7 +125,9 @@ export function registerDefined(
 ): Profile {
   registerStudioTools(registry.tools, customTools, handlers);
   if (structured && profile.type !== 'live') {
-    registry.schemas.register(structured.id, structured.spec);
+    for (const { id, spec } of [structured, ...(structured.also ?? [])]) {
+      registry.schemas.register(id, spec);
+    }
   }
   registry.profiles.register(profile);
   return profile;

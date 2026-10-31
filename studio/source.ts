@@ -150,13 +150,21 @@ function withItemChecks(
 
 /** A tool's registration, as a call; `indent` places it in a function body. */
 function toolSource(tool: ToolRegistration, indent = 0): string {
+  const { inputSchema, outputSchema, ...rawFields } = tool;
+  const {
+    stageAgent,
+    stageQuestions: _stageQuestions,
+    ...fields
+  } = rawFields as typeof rawFields & {
+    stageAgent?: string;
+    stageQuestions?: unknown;
+  };
   const call = (fields: Record<string, unknown>) => {
     const pad = '  '.repeat(indent);
-    return `${pad}registerTool(${literal(fields, indent)});\n`;
-  };
-  const { inputSchema, outputSchema, ...rawFields } = tool;
-  const { stageAgent: _stageAgent, ...fields } = rawFields as typeof rawFields & {
-    stageAgent?: string;
+    const owed = stageAgent
+      ? `${pad}// Your host runs ${stageAgent} on this tool's output, at post_tool.\n`
+      : '';
+    return `${owed}${pad}registerTool(${literal(fields, indent)});\n`;
   };
   // The kernel fixes an agent tool's schemas.
   if (fields.type === 'agent') return call(fields);
@@ -302,7 +310,9 @@ export function studioSource(compiled: CompiledStudio): string {
     ...providers.code,
     ...customTools.map((tool) => toolSource(tool)),
     ...(structured
-      ? [`registerStructured(${quoteSource(structured.id)}, ${literal(structured.spec, 0)});\n`]
+      ? [structured, ...(structured.also ?? [])].map(
+          ({ id, spec }) => `registerStructured(${quoteSource(id)}, ${literal(spec, 0)});\n`,
+        )
       : []),
     `const profile = ${defined.code};\n\nregisterProfile(profile);\n`,
     ...(compiled.questions
@@ -494,6 +504,10 @@ export function workspaceSource(compiled: CompiledWorkspace, project?: ProjectCo
     }
     if (agent.structured) {
       lines.push(`registerStructured(${name}.structured.id, ${name}.structured.spec);\n`);
+      for (const at of (agent.structured.also ?? []).keys()) {
+        const shape = `${name}.structured.also[${at}]`;
+        lines.push(`registerStructured(${shape}.id, ${shape}.spec);\n`);
+      }
     }
     lines.push(`registerProfile(${name}.profile);\n`);
     return lines.join('\n');

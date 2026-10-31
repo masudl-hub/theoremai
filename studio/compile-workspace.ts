@@ -36,9 +36,8 @@ export type WorkspaceCompileResult =
   | ({ ok: true } & CompiledWorkspace)
   | { ok: false; issues: StudioIssue[] };
 
-/** The agents an agent tool can run, and the one type that can summarise. */
+/** The agents an agent tool can run. */
 const CALLABLE_TYPES = new Set(['text', 'image', 'speech']);
-const STAGE_READER_TYPES = new Set(['decision', 'text']);
 
 /** A reference from one agent to another, and the node and field that hold it. */
 interface Reference {
@@ -203,8 +202,14 @@ function wrongTypeMessage(ref: Reference, target: AgentDraft | undefined): strin
   if (ref.field === 'agentKey' && !CALLABLE_TYPES.has(type)) {
     return `'${id}' is a ${type} agent. An agent tool runs a text, image, or speech agent.`;
   }
-  if (ref.field === 'stageAgentKey' && !STAGE_READER_TYPES.has(type)) {
-    return `'${id}' is a ${type} agent. A tool reader runs a decision or text agent.`;
+  if (ref.field === 'stageAgentKey' && type !== 'decision') {
+    return `'${id}' is a ${type} agent. A tool reader runs a decision agent.`;
+  }
+  if (
+    ref.field === 'stageAgentKey' &&
+    !target.decision.questions.some((question) => question.type === 'choice')
+  ) {
+    return `'${id}' has no choice question. A tool reader keeps a passage on the first choice.`;
   }
   if (ref.field === 'compactWith' && type !== 'text') {
     return `'${id}' is a ${type} agent. Only a text agent summarises.`;
@@ -363,7 +368,11 @@ export function workspaceRunAgent(
       customTools,
       ...(structured ? { structured } : {}),
     }));
-  return { ...chatted, dependencies };
+  const customTools = chatted.customTools.map((tool) => {
+    const reader = tool.type === 'agent' ? undefined : byId.get(tool.stageAgent ?? '');
+    return reader?.questions ? { ...tool, stageQuestions: reader.questions } : tool;
+  });
+  return { ...chatted, customTools, dependencies };
 }
 
 /** The agent ids a compiled agent names: its agent tools', stage readers', and its compaction's. */

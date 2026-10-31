@@ -61,6 +61,8 @@ export interface StudioRuntimeBase {
   onAgentCall?: (
     call: AgentCall,
   ) => { refuse: string } | undefined | Promise<{ refuse: string } | undefined>;
+  /** Before a tool's reader reads each passage: throw to stop it, and the model reads the output whole. */
+  onReaderCall?: () => void | Promise<void>;
 }
 
 /** A run, and what it runs on: a run on lent keys carries the keys it is held to. */

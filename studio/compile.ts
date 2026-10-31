@@ -717,6 +717,7 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail, agentInputOf: AgentToolInpu
     permission: tool.permission,
     loadTier: tool.loadTier,
     paths: paths.length ? paths : ['*'],
+    ...(tool.after ? { after: true } : {}),
     ...schemas,
   };
 }
@@ -1150,6 +1151,26 @@ function compileLiveInputs(inputs: InputsDraft, report: Report): { inputs?: Live
   return { inputs: { ...(slots ? { slots } : {}), ...(context ? { context } : {}) } };
 }
 
+/** The shapes a slot's value picks: its schemas, and what `outputs.structured` writes. */
+function compileSlotShapes(
+  outputs: OutputsDraft,
+  fallback: string,
+  report: (nodeId: string, message: string, field?: string) => void,
+) {
+  const { slot, shapes } = outputs.bySlot ?? { slot: '', shapes: [] };
+  const also: NonNullable<StructuredRegistration['also']> = [];
+  const map: Record<string, string> = {};
+  for (const shape of shapes) {
+    const schema = parseJsonSchema(shape.schemaJson, `The reply shape for '${shape.choice}'`);
+    if (!schema.ok) report('outputs', schema.error, 'schemaJson');
+    else {
+      also.push({ id: shape.schemaId, spec: { jsonSchema: schema.schema } });
+      map[shape.choice] = shape.schemaId;
+    }
+  }
+  return also.length ? { also, written: { by: slot, map, fallback } } : undefined;
+}
+
 /** `shaped`: the type takes a structured reply and its validation (text only). */
 function compileOutputs(
   outputs: OutputsDraft,
@@ -1169,6 +1190,8 @@ function compileOutputs(
       structured = { id, spec: { jsonSchema: schema.schema } };
     }
   }
+  const bySlot = structured && compileSlotShapes(outputs, structured.id, report);
+  if (structured && bySlot) structured = { ...structured, also: bySlot.also };
   if (validationEnabled) {
     checkWhole(report, 'outputs', 'maxRetries', 'Validation max retries', outputs.maxRetries, 0);
   }
@@ -1190,7 +1213,7 @@ function compileOutputs(
     ...(outputs.streamThoughts ? {} : { streamThoughts: false }),
   };
   const spec: ProfileOutputsSpec = {
-    ...(structured ? { structured: structured.id } : {}),
+    ...(structured ? { structured: bySlot?.written ?? structured.id } : {}),
     ...(Object.keys(validation).length ? { validation } : {}),
     ...(Object.keys(streaming).length ? { streaming } : {}),
   };

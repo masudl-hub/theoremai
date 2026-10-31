@@ -72,6 +72,7 @@ import {
   type StudioRuntime,
   studioScope,
 } from './runtime-scope.ts';
+import { bothStages, toolReaderStage, toolReaders } from './tool-readers.ts';
 import { createStudioTraceRouter, type StudioTraceLine } from './traces.ts';
 import type { StudioSteerLine } from './transport.ts';
 
@@ -300,7 +301,16 @@ export async function* streamStudioTurn(
         ...(request.effort ? { effort: request.effort } : {}),
         ...(request.stated ? { stated: request.stated } : {}),
         signal,
-        onStage: steerStage(args.steer, inbox),
+        onStage: bothStages(
+          steerStage(args.steer, inbox),
+          toolReaderStage(toolReaders(args.customTools), async (reader, state) => {
+            await runtime.onReaderCall?.();
+            return scope.runDecision(
+              { profile: reader.profile, state, questions: reader.questions, signal },
+              runtimeProvider(runtime, scope, scope.profiles.get(reader.profile)),
+            );
+          }),
+        ),
       });
       if (!host || !opened) {
         return runner.run({

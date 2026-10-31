@@ -38,6 +38,7 @@ import {
   studioSource,
   withLibraryDraft,
   workspaceFromDraft,
+  workspaceRunAgent,
 } from '../../studio/mod.ts';
 import { firstLine } from '../fixtures/prompt-line.ts';
 
@@ -82,10 +83,13 @@ Deno.test('the research scout starts without effort select or attachments', () =
 });
 
 Deno.test('the research scout rewrites a candidate whose quote no tool returned, then drops it', async () => {
-  const scout = compiled(createResearchWorkspace()).agents[1]?.profile;
+  const { agents } = compiled(createResearchWorkspace());
+  const scout = agents.find((agent) => agent.agentId === 'research.scout')?.profile;
   assert(scout?.type === 'text', 'the scout is a text agent');
   const validation = scout.outputs?.validation;
-  assertEquals(scout.outputs?.structured, RESEARCH_REPLY_SCHEMA_ID);
+  const shapes = scout.outputs?.structured;
+  assert(shapes && typeof shapes === 'object');
+  assertEquals(shapes.fallback, RESEARCH_REPLY_SCHEMA_ID);
   assertEquals(validation?.items?.candidates?.onFail, 'fix');
   assert((validation?.maxRetries ?? 0) >= 1, 'the answer and the rewrite each need a retry');
   const check = resolveDraftItemCheck(scout.id, 'candidates');
@@ -98,7 +102,9 @@ Deno.test('the research scout rewrites a candidate whose quote no tool returned,
 });
 
 Deno.test('the research agents print a real key slot, and say the quote check is owed', () => {
-  const [reader, scout] = compiled(createResearchWorkspace()).agents;
+  const { agents } = compiled(createResearchWorkspace());
+  const reader = agents.find((agent) => agent.agentId === 'research.pagereader');
+  const scout = agents.find((agent) => agent.agentId === 'research.scout');
   assert(reader && scout);
   assert(studioSource(reader).includes("keySlot: 'typesafe'"));
   assert(studioSource(scout).includes('The check of each item of'));
@@ -106,14 +112,21 @@ Deno.test('the research agents print a real key slot, and say the quote check is
 
 Deno.test('the research scout links its page-reading tools to the Jev page reader', () => {
   const result = compiled(createResearchWorkspace());
-  assertEquals(
-    result.agents.map((agent) => agent.agentId),
-    ['research.pagereader', 'research.scout'],
-  );
+  assertEquals(result.agents.map((agent) => agent.agentId).sort(), [
+    'research.compactor',
+    'research.console',
+    'research.embedder',
+    'research.illustrator',
+    'research.judge',
+    'research.pagereader',
+    'research.podcast',
+    'research.scout',
+    'research.scout.live',
+  ]);
   const seed = JSON.parse(RESEARCH_PAGE_READER_STATE) as { question?: string; passage?: string };
   assert(typeof seed.question === 'string' && seed.question.length > 0);
   assert(typeof seed.passage === 'string' && seed.passage.length > 0);
-  const scout = result.agents[1];
+  const scout = result.agents.find((agent) => agent.agentId === 'research.scout');
   const stageRead = scout?.customTools
     .filter((tool) => tool.type !== 'agent' && tool.stageAgent === 'research.pagereader')
     .map((tool) => tool.name);
@@ -127,9 +140,61 @@ Deno.test('the research scout links its page-reading tools to the Jev page reade
   const added = addResearchExample(workspaceFromDraft(createExampleDraft()));
   assertEquals(
     added.agents.map((agent) => agent.identity.agentId),
-    ['travel.concierge', 'research.scout', 'research.pagereader'],
+    [
+      'travel.concierge',
+      'research.scout',
+      'research.pagereader',
+      'research.compactor',
+      'research.podcast',
+      'research.illustrator',
+      'research.embedder',
+      'research.scout.live',
+      'research.console',
+      'research.judge',
+    ],
   );
   compiled(added);
+});
+
+Deno.test('the research scout carries the cookbook list', () => {
+  const result = compiled(createResearchWorkspace());
+  const run = workspaceRunAgent(result, 'research.scout');
+  assert(run);
+  const { profile, structured, customTools, dependencies } = run;
+  const tool = (name: string) => customTools.find((each) => each.name === name);
+  assert(profile.type === 'text');
+  assertEquals(profile.outputs?.structured, {
+    by: 'focus',
+    map: { 'Hugging Face Open Research': 'research.models' },
+    fallback: 'research.reply',
+  });
+  assertEquals(
+    structured?.also?.map((shape) => shape.id),
+    ['research.models'],
+  );
+  assertEquals(tool('read_readme')?.after, true);
+  assertEquals(tool('export_report')?.access, 'read-write');
+  const device = tool('check_device');
+  assert(device?.type === 'function');
+  assertEquals(device.answeredBy, 'page');
+  assertEquals(profile.models.gemini?.builtInTools, ['googleSearch']);
+  assertEquals(profile.models.open?.compaction?.profile, 'research.compactor');
+  assertEquals(Object.keys(profile.identity.systemByRole ?? {}), ['reviewer', 'student']);
+  assertEquals(Object.keys(profile.guardrails?.detect ?? {}).includes('research.retraction'), true);
+  assertEquals(profile.guardrails?.taint?.afterRemoteRead, 'write');
+  const readReadme = tool('read_readme');
+  assert(readReadme && readReadme.type !== 'agent');
+  assertEquals(Object.keys(readReadme.stageQuestions ?? {}), ['passage']);
+  assertEquals(dependencies.map((each) => each.profile.id).sort(), [
+    'research.compactor',
+    'research.illustrator',
+    'research.pagereader',
+    'research.podcast',
+  ]);
+  const source = studioSource(run);
+  assert(source.includes('Your host runs research.pagereader'));
+  assert(!source.includes('stageQuestions'));
+  assert(source.includes("registerStructured('research.models'"));
 });
 
 Deno.test('every cookbook in COOKBOOKS compiles and slices cleanly', async () => {

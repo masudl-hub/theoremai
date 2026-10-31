@@ -223,10 +223,17 @@ export interface InputsDraft {
   contextMaxChars: number | null;
 }
 
+/** The reply shapes a slot's value picks; any other value takes the outputs' own schema. */
+export interface SlotShapesDraft {
+  slot: string;
+  shapes: { choice: string; schemaId: string; schemaJson: string }[];
+}
+
 export interface OutputsDraft {
   mode: 'text' | 'structured';
   schemaId: string;
   schemaJson: string;
+  bySlot?: SlotShapesDraft;
   /** `''` omits it (kernel default: SSE). */
   streamMode: '' | StreamMode;
   streamThoughts: boolean;

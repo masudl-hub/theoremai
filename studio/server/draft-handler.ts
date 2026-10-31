@@ -74,8 +74,8 @@ export type StudioDraftHandlerOptions = {
   lent?: LentRuntime;
   /**
    * Spends one of `kind` for whoever sent `request`, before it runs. Throw a `TheoremError` to refuse
-   * it: the screen reads the error's wording. Every decision, host tool call, and agent tool turn on
-   * the lent keys passes through it. Default: nothing is counted.
+   * it: the screen reads the error's wording. Every decision, host tool call, agent tool turn, and
+   * passage a tool's reader reads on the lent keys passes through it. Default: nothing is counted.
    */
   spend?: (kind: StudioSpend, request: Request) => void | Promise<void>;
   /**
@@ -204,6 +204,7 @@ export function createStudioDraftHandler(
     execution: boundary.toolExecution,
     pageExecution: boundary.pageExecution,
     onAgentCall: agentCall(request),
+    onReaderCall: spend && (() => spend('decision', request)),
   });
 
   /** A draft as a run takes it. */

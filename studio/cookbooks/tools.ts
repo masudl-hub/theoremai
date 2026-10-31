@@ -84,11 +84,70 @@ export function demoInputsSpec(): StudioInputsSpec {
 const QUESTION_PROPERTY = `"question": { "type": "string", "minLength": 1, "description": "What you need from this source, as one specific question.", "examples": ["What datasets are evaluated?"] }`;
 
 const COOKBOOK_TOOL_SPECS: StudioToolSeed[] = [
+  {
+    id: 'tool-export-report',
+    data: {
+      toolName: 'export_report',
+      activity: 'Exporting {title}',
+      activityPast: 'Exported {title}',
+      request: 'export a report called {title}',
+      toolType: 'function',
+      description: "Save a finished report to the reader's workspace (studio stub).",
+      category: 'demo',
+      access: 'read-write',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      inputJson: `{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "description": "The report's title", "examples": ["Episodic memory for agents"] },
+    "body": { "type": "string", "description": "The report, in Markdown" }
+  },
+  "required": ["title", "body"]
+}`,
+      outputJson: `{
+  "type": "object",
+  "properties": { "saved": { "type": "boolean" } },
+  "required": ["saved"]
+}`,
+      stubOutputJson: `{ "saved": true }`,
+    },
+  },
+  {
+    id: 'tool-check-device',
+    data: {
+      toolName: 'check_device',
+      activity: 'Checking this device',
+      activityPast: 'Checked this device',
+      request: 'check what this device can run',
+      toolType: 'function',
+      answeredBy: 'page',
+      description:
+        'Report whether this device has WebGPU and how much memory it has, to judge which models it can run.',
+      category: 'demo',
+      access: 'read-only',
+      permission: 'auto',
+      loadTier: 'T0',
+      paths: ['*'],
+      inputJson: `{ "type": "object", "properties": {} }`,
+      outputJson: `{
+  "type": "object",
+  "properties": {
+    "webgpu": { "type": "boolean" },
+    "memoryGb": { "type": "number" }
+  },
+  "required": ["webgpu", "memoryGb"]
+}`,
+      stubOutputJson: `{ "webgpu": true, "memoryGb": 16 }`,
+    },
+  },
   // --- Research Scout tools (Exa, arXiv, Hugging Face, GitHub, Context7, DeepWiki) ---
   {
     id: 'tool-read-pages',
     data: {
       toolName: 'read_pages',
+      after: true,
       activity: 'Reading {urls.0}',
       activityPast: `when urls.length is 1: Read {urls.0}
 Read {urls.length} pages
@@ -209,6 +268,7 @@ Found hits for {search|that query}`,
     id: 'tool-read-model-card',
     data: {
       toolName: 'read_model_card',
+      after: true,
       activity: 'Reading model card {owner}/{name}',
       activityPast: 'Read model card {owner}/{name}',
       activityFailed: 'Could not read model card {owner}/{name}',
@@ -239,6 +299,7 @@ Found hits for {search|that query}`,
     id: 'tool-read-dataset-card',
     data: {
       toolName: 'read_dataset_card',
+      after: true,
       activity: 'Reading dataset card {owner}/{name}',
       activityPast: 'Read dataset card {owner}/{name}',
       activityFailed: 'Could not read dataset card {owner}/{name}',
@@ -305,6 +366,7 @@ Found hits for {q|that query}`,
     id: 'tool-read-readme',
     data: {
       toolName: 'read_readme',
+      after: true,
       activity: 'Reading README of {owner}/{repo}',
       activityPast: 'Read README of {owner}/{repo}',
       activityFailed: 'Could not read README of {owner}/{repo}',
@@ -777,6 +839,7 @@ Found hits for {q|that query}`,
     id: 'tool-context7-docs',
     data: {
       toolName: 'read_library_docs',
+      after: true,
       activity: 'Reading the {libraryId} docs',
       activityPast: 'Read the {libraryId} docs',
       activityFailed: 'Could not read the {libraryId|library} docs',
@@ -1467,6 +1530,8 @@ export const DEMO_RESEARCH_TOOLS: readonly string[] = [
   'find_library',
   'read_library_docs',
   'ask_repo_docs',
+  'export_report',
+  'check_device',
 ];
 
 /** The research tools whose output is a full page or card that `research.pagereader` filters at `post_tool`. */

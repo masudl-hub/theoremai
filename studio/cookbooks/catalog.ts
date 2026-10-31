@@ -1,6 +1,7 @@
 import { embeddingModelLimits } from '@theoremjs/agents';
 import { DETECTOR_BOUNDARIES, DETECTORS } from '@theoremjs/agents/guardrails';
 import {
+  COMPACTION_DRAFT_DEFAULTS,
   createBlankDraft,
   type DecisionDraft,
   type DecisionImageDraft,
@@ -11,7 +12,11 @@ import {
   type GuardrailsDraft,
   includableFacets,
   includeFacet,
+  newOwnDetector,
+  newPattern,
   newSystemLine,
+  type OwnDetectorDraft,
+  type SlotDraft,
   type StudioDraft,
   setProfileType,
   type ToolSpecDraft,
@@ -109,6 +114,16 @@ Tool & Fact Grounding:
 Audio briefings:
 - When asked for a podcast, a briefing, or anything to listen to, write a short spoken script of what you found, in plain sentences with no markdown, and pass it to narrate. Then say in one line what the briefing covers.`;
 
+export const DEMO_LIVE_RESEARCH_SYSTEM = `Role: A research scout, on a call.
+
+Speaking:
+- Speak in short, natural sentences. No lists, no markdown, no reading out of URLs or ids unless asked.
+- Give the finding first, then say where it came from.
+
+Tool & Fact Grounding:
+- Ground every claim about a paper, model, or dataset in the tools before you answer. Never invent one.
+- Never name a tool or say that you are calling one.`;
+
 export const DEMO_LIVE_CONCIERGE_SYSTEM = `Role: Elite, charismatic travel concierge, on a call.
 
 Speaking:
@@ -196,6 +211,28 @@ export const RESEARCH_REPLY_SCHEMA_JSON = JSON.stringify(
   null,
   2,
 );
+
+const RESEARCH_MODELS_SCHEMA_ID = 'research.models';
+
+/** `research.reply` when the focus is the Hub: its `candidates` hold one entry per model. */
+function researchModelsSchemaJson(): string {
+  const reply = JSON.parse(RESEARCH_REPLY_SCHEMA_JSON) as {
+    properties: { candidates: { items: { properties: object; required: string[] } } };
+  };
+  const { candidates } = reply.properties;
+  const model = {
+    ...candidates.items,
+    properties: {
+      ...candidates.items.properties,
+      kind: { type: 'string', enum: ['model'] },
+      task: { type: 'string', description: 'The pipeline task the Hub lists for it.' },
+      license: { type: 'string', description: 'Its license as the Hub lists it.' },
+    },
+    required: [...candidates.items.required, 'task', 'license'],
+  };
+  const properties = { ...reply.properties, candidates: { ...candidates, items: model } };
+  return JSON.stringify({ ...reply, properties }, null, 2);
+}
 
 /** The agent id the decision example opens under; its run starts with the pantry's state and pictures. */
 export const DECISION_EXAMPLE_AGENT_ID = 'pantry.jev';
@@ -479,37 +516,128 @@ export const RESEARCH_PAGE_READER_STATE = JSON.stringify(
   2,
 );
 
-/** The decision page-reader (`research.pagereader`) that filters passages for `research.scout` at `post_tool`. */
-export function createPageReaderExampleDraft(): StudioDraft {
+/** A research agent on Jev, which answers on the state it is given. */
+function researchDecisionDraft(
+  identity: Pick<StudioDraft['identity'], 'agentId' | 'handle'>,
+  contract: string,
+  questions: DecisionDraft['questions'],
+): StudioDraft {
   const draft = setProfileType(createBlankDraft(), 'decision', EXAMPLE_PICKS);
   const binding = draft.modelBindings[0];
   return {
     ...draft,
-    identity: {
-      ...draft.identity,
-      agentId: RESEARCH_PAGE_READER_AGENT_ID,
-      handle: 'pagereader',
-    },
+    identity: { ...draft.identity, ...identity },
     models: { ...draft.models, key: 'typesafe' },
-    modelBindings: binding ? [{ ...binding, apiId: 'jev-latest', keySlot: 'typesafe' }] : [],
-    decision: {
-      ...draft.decision,
-      contract: 'research.page-passages.v1',
-      questions: [
-        exampleQuestion(
-          'passage',
-          'choice',
-          'Does `passage` state a fact a careful researcher would want when answering `question`, including facts that do not settle it and anything contradictory?',
+    modelBindings: binding
+      ? [{ ...binding, apiId: 'jev-1.14.0', keySlot: 'typesafe', options: { images: true } }]
+      : [],
+    decision: { ...draft.decision, contract, questions },
+  };
+}
+
+/** The decision page-reader (`research.pagereader`) that filters passages for `research.scout` at `post_tool`. */
+export function createPageReaderExampleDraft(): StudioDraft {
+  return researchDecisionDraft(
+    { agentId: RESEARCH_PAGE_READER_AGENT_ID, handle: 'pagereader' },
+    'research.page-passages.v1',
+    [
+      exampleQuestion(
+        'passage',
+        'choice',
+        'Does `passage` state a fact a careful researcher would want when answering `question`, including facts that do not settle it and anything contradictory?',
+        [
+          ['relevant', 'The passage states such a fact.'],
           [
-            ['relevant', 'The passage states such a fact.'],
-            [
-              'not_relevant',
-              'The passage does not: it is about something else, or is only a heading, navigation, a reference or a list of links.',
-            ],
+            'not_relevant',
+            'The passage does not: it is about something else, or is only a heading, navigation, a reference or a list of links.',
           ],
+        ],
+      ),
+    ],
+  );
+}
+
+/** A standalone check: does a quote back the claim made from it. */
+function createResearchJudgeDraft(): StudioDraft {
+  return researchDecisionDraft(
+    { agentId: 'research.judge', handle: 'judge' },
+    'research.quote-check.v1',
+    [
+      exampleQuestion('backing', 'choice', 'Does `quote` back `claim`?', [
+        ['backed', 'The quote states the claim, or something that plainly entails it.'],
+        ['not_backed', 'The quote is about something else, or says less than the claim.'],
+      ]),
+    ],
+  );
+}
+
+/** The agent `research.scout` compacts its history with. */
+function createResearchCompactorDraft(): StudioDraft {
+  return exampleTextDraft(
+    {
+      agentId: 'research.compactor',
+      handle: 'compactor',
+      system: [
+        newSystemLine(
+          'Summarise the research so far. Keep every source URL, every exact quote, and every open lead.',
         ),
       ],
     },
+    { tools: { t2Loader: '', parallel: false }, toolSpecs: [] },
+  );
+}
+
+/** The speech agent that reads `research.scout`'s findings as a podcast. */
+function createResearchPodcastDraft(): StudioDraft {
+  const draft = createNarratorExampleDraft();
+  return {
+    ...draft,
+    identity: { ...draft.identity, agentId: 'research.podcast', handle: 'podcast' },
+  };
+}
+
+/** The image agent that draws a paper's method. */
+function createResearchIllustratorDraft(): StudioDraft {
+  const draft = setProfileType(createBlankDraft(), 'image', EXAMPLE_PICKS);
+  return {
+    ...draft,
+    identity: { ...draft.identity, agentId: 'research.illustrator', handle: 'illustrator' },
+  };
+}
+
+/** Embeddings to rank abstracts by a question. It keeps no store. */
+function createResearchEmbedderDraft(): StudioDraft {
+  const draft = createGeminiEmbeddingExampleDraft();
+  return {
+    ...draft,
+    identity: { ...draft.identity, agentId: 'research.embedder', handle: 'embedder' },
+  };
+}
+
+/** The research scout on a call: the same tools, a live model, and an instruction for speech. */
+function createResearchLiveDraft(): StudioDraft {
+  const draft = setProfileType(createResearchScoutDraft(), 'live', EXAMPLE_PICKS);
+  return {
+    ...draft,
+    identity: {
+      ...draft.identity,
+      agentId: 'research.scout.live',
+      system: [newSystemLine(DEMO_LIVE_RESEARCH_SYSTEM)],
+    },
+  };
+}
+
+/** The scout's tools with no model, `read_pages` first, to call by hand. */
+function createResearchConsoleDraft(): StudioDraft {
+  const draft = createConsoleExampleDraft();
+  const tools = exampleTools(DEMO_RESEARCH_TOOLS);
+  return {
+    ...draft,
+    identity: { ...draft.identity, agentId: 'research.console' },
+    toolSpecs: [
+      ...tools.filter((tool) => tool.toolName === 'read_pages'),
+      ...tools.filter((tool) => tool.toolName !== 'read_pages'),
+    ],
   };
 }
 
@@ -522,6 +650,10 @@ export function createResearchScoutDraft(): StudioDraft {
   );
   return {
     ...base,
+    identity: {
+      ...base.identity,
+      systemByRoleJson: JSON.stringify(RESEARCH_SYSTEM_BY_ROLE, null, 2),
+    },
     // Goals starts here: leave attachments and effort select off so examples earn them.
     inputs: {
       ...base.inputs,
@@ -530,6 +662,7 @@ export function createResearchScoutDraft(): StudioDraft {
       maxFiles: null,
       maxBytes: null,
       maxTurnBytes: null,
+      slots: [researchFocusSlot()],
     },
     models: {
       defaultModel: 'open',
@@ -563,6 +696,7 @@ export function createResearchScoutDraft(): StudioDraft {
         defaultEffort: 'normal',
         allowEffortSelect: false,
         summaries: true,
+        builtInTools: ['googleSearch'],
       }),
     ],
     turnBehaviour: {
@@ -581,6 +715,16 @@ export function createResearchScoutDraft(): StudioDraft {
       mode: 'structured',
       schemaId: RESEARCH_REPLY_SCHEMA_ID,
       schemaJson: RESEARCH_REPLY_SCHEMA_JSON,
+      bySlot: {
+        slot: 'focus',
+        shapes: [
+          {
+            choice: RESEARCH_MODELS_FOCUS,
+            schemaId: RESEARCH_MODELS_SCHEMA_ID,
+            schemaJson: researchModelsSchemaJson(),
+          },
+        ],
+      },
       streamMode: 'sse',
       streamThoughts: true,
       validationEnabled: true,
@@ -591,7 +735,51 @@ export function createResearchScoutDraft(): StudioDraft {
       ...blank.guardrails,
       detect: flagAllDetect(blank.guardrails.detect),
       allowedHosts: RESEARCH_ALLOWED_HOSTS.split(',').map((host) => host.trim()),
+      // why: export_report writes, so a page the scout read can't steer what it saves.
+      taintAfterRemoteRead: 'write',
+      own: [researchRetractionDetector()],
     },
+  };
+}
+
+/** What the scout adds to its system prompt for a reviewer or a student. */
+const RESEARCH_SYSTEM_BY_ROLE = {
+  reviewer: 'The reader reviews papers. Lead with weak evidence and what would refute a claim.',
+  student: 'The reader is learning the field. Define each term the first time you use it.',
+};
+
+/** The focus that answers in `research.models`. */
+const RESEARCH_MODELS_FOCUS = 'Hugging Face Open Research';
+
+/** Where a turn looks first. */
+function researchFocusSlot(): SlotDraft {
+  return {
+    key: draftKey('slot'),
+    name: 'focus',
+    label: 'Focus',
+    choices: [RESEARCH_MODELS_FOCUS, 'arXiv', 'GitHub', 'Anywhere'].map((value) => ({
+      key: draftKey('choice'),
+      value,
+      description: '',
+    })),
+  };
+}
+
+/** Flags a page that says its paper was taken back. */
+function researchRetractionDetector(): OwnDetectorDraft {
+  const blank = newOwnDetector();
+  return {
+    ...blank,
+    key: 'research.retraction',
+    label: 'Retracted paper',
+    at: { ...blank.at, tool_output_http: 'flag', tool_output_mcp: 'flag' },
+    patterns: [
+      {
+        ...newPattern(),
+        name: 'retraction',
+        words: ['retracted', 'retraction notice', 'withdrawn by the authors'],
+      },
+    ],
   };
 }
 
@@ -620,14 +808,62 @@ function withPageReader(workspace: StudioWorkspace): StudioWorkspace {
   );
 }
 
-/** The research scout and the Jev page reader it filters pages with, added to a workspace. */
-export function addResearchExample(workspace: StudioWorkspace): StudioWorkspace {
-  return withPageReader(addAgent(workspace, createResearchScoutDraft()));
+/** Has `caller` compact its history with the agent last added. */
+function withCompactor(workspace: StudioWorkspace, caller: string): StudioWorkspace {
+  const compactWith = workspace.agents.at(-1)?.key;
+  return {
+    ...workspace,
+    agents: workspace.agents.map((agent) =>
+      agent.key === caller
+        ? {
+            ...agent,
+            modelBindings: agent.modelBindings.map((binding) => ({
+              ...binding,
+              ...COMPACTION_DRAFT_DEFAULTS,
+              compactTiming: 'before' as const,
+              compactWith,
+            })),
+          }
+        : agent,
+    ),
+  };
 }
 
-/** A workspace of the research scout and its Jev page reader, with the scout in the chat. */
+/** The page reader and the rest of the scout's team, added after the scout, which stays selected. */
+function withResearchTeam(workspace: StudioWorkspace): StudioWorkspace {
+  const scout = workspace.agents.at(-1);
+  if (!scout) return workspace;
+  const read = withPageReader(workspace);
+  const summarised = withCompactor(addAgent(read, createResearchCompactorDraft()), scout.key);
+  const voiced = withAgentTool(summarised, scout.key, createResearchPodcastDraft(), {
+    toolName: 'record_podcast',
+    description: 'Has the podcast agent read a script of the findings aloud and returns the audio.',
+    activity: 'Recording the podcast',
+    activityPast: 'Recorded the podcast',
+  });
+  const drawn = withAgentTool(voiced, scout.key, createResearchIllustratorDraft(), {
+    toolName: 'draw_method',
+    description: "Has the illustrator draw a paper's method and returns the image.",
+    activity: 'Drawing the method',
+    activityPast: 'Drew the method',
+  });
+  const team = [
+    createResearchEmbedderDraft(),
+    createResearchLiveDraft(),
+    createResearchConsoleDraft(),
+    createResearchJudgeDraft(),
+  ].reduce(addAgent, drawn);
+  return markAgentStart({ ...team, selected: agentNodeId(scout.key) }, scout.key);
+}
+
+/** The research scout and its team, added to a workspace. */
+export function addResearchExample(workspace: StudioWorkspace): StudioWorkspace {
+  return withResearchTeam(addAgent(workspace, createResearchScoutDraft()));
+}
+
+/** A workspace of the research scout and its team, with the scout in the chat. */
 export function createResearchWorkspace(): StudioWorkspace {
-  return withPageReader(workspaceFromDraft(createResearchScoutDraft()));
+  return withResearchTeam(workspaceFromDraft(createResearchScoutDraft()));
 }
 
 /** A fresh copy of the travel concierge draft: a text agent with the tools a trip needs. */
@@ -696,37 +932,51 @@ function architectDraft(): StudioDraft {
   );
 }
 
+/** Adds `draft` as an agent, and an agent tool that lets `caller` run it, leaving `caller` selected. */
+function withAgentTool(
+  workspace: StudioWorkspace,
+  caller: string,
+  draft: StudioDraft,
+  tool: Pick<ToolSpecDraft, 'toolName' | 'description' | 'activity' | 'activityPast'>,
+): StudioWorkspace {
+  const pair = addAgent(workspace, draft);
+  const called = pair.agents.at(-1);
+  if (!called) return pair;
+  const taken = pair.toolSpecs.map((spec) => spec.toolName);
+  const spec = defaultToolSpec({
+    ...tool,
+    toolName: freeName(tool.toolName, taken, (n) => `${tool.toolName}_${n}`),
+    toolType: 'agent',
+    agentKey: called.key,
+    category: 'demo',
+  });
+  return {
+    ...pair,
+    agents: pair.agents.map((agent) =>
+      agent.key === caller
+        ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, spec.key] } }
+        : agent,
+    ),
+    toolSpecs: [...pair.toolSpecs, spec],
+    selected: agentNodeId(caller),
+  };
+}
+
 /**
  * Adds the narrator after the workspace's last agent, the architect, and the `narrate` agent tool
  * that lets the architect call it. The architect is left selected.
  */
 function withNarrator(workspace: StudioWorkspace): StudioWorkspace {
   const architect = workspace.agents.at(-1);
-  const pair = addAgent(workspace, createNarratorExampleDraft());
-  const narrator = pair.agents.at(-1);
-  if (!architect || !narrator) return pair;
-  const taken = pair.toolSpecs.map((tool) => tool.toolName);
-  const narrate = defaultToolSpec({
-    toolName: freeName('narrate', taken, (n) => `narrate_${n}`),
-    toolType: 'agent',
-    agentKey: narrator.key,
-    description: 'Has the narrator read a script aloud and returns the audio.',
-    activity: 'Recording the briefing',
-    activityPast: 'Recorded the briefing',
-    category: 'demo',
-  });
+  if (!architect) return workspace;
   // The architect starts with `narrate` allowed, so a reset keeps the two linked.
   return markAgentStart(
-    {
-      ...pair,
-      agents: pair.agents.map((agent) =>
-        agent.key === architect.key
-          ? { ...agent, tools: { ...agent.tools, allow: [...agent.tools.allow, narrate.key] } }
-          : agent,
-      ),
-      toolSpecs: [...pair.toolSpecs, narrate],
-      selected: agentNodeId(architect.key),
-    },
+    withAgentTool(workspace, architect.key, createNarratorExampleDraft(), {
+      toolName: 'narrate',
+      description: 'Has the narrator read a script aloud and returns the audio.',
+      activity: 'Recording the briefing',
+      activityPast: 'Recorded the briefing',
+    }),
     architect.key,
   );
 }
@@ -815,10 +1065,28 @@ export const COOKBOOKS: Readonly<Record<CookbookId, CookbookEntry>> = {
     description:
       'Ask a hard question about models, papers, or memory. It searches the Hub, arXiv, and GitHub, cuts each page to the passages that bear on the question, and will not let a quote through unchecked.',
     tags: {
-      includes: ['text', 'decision', 'http-tools', 'mcp-tools', 'guardrails', 'post-tool'],
+      includes: [
+        'text',
+        'decision',
+        'embedding',
+        'speech',
+        'live',
+        'host',
+        'http-tools',
+        'mcp-tools',
+        'agent-tools',
+        'function-tools',
+        'guardrails',
+        'post-tool',
+      ],
     },
     teaches: [
       'A multi-agent system: text agent `research.scout` plus decision agent `research.pagereader` (Jev).',
+      'One agent of each type around it: `research.compactor` (text), `research.podcast` (speech), `research.illustrator` (image), `research.embedder` (embedding), `research.scout.live` (live), `research.console` (host), and `research.judge` (decision).',
+      'A reply shaped by what the turn states: `focus` picks `research.models` or `research.reply` through `outputs.structured.by`.',
+      'Call order the model chooses: a tool with `after` runs once the tools it names in the same step have settled.',
+      'A write tool (`export_report`) that `taintAfterRemoteRead` refuses once a page has been read, and a tool the page answers (`check_device`).',
+      'One custom detector, `research.retraction`, and a prompt line per role through `systemByRole`.',
       'Staging page-read tools at `post_tool` via `stageAgentKey`: `read_pages`, `read_model_card`, `read_dataset_card`, `read_readme`, and `read_library_docs` are filtered by the page-reader before the scout sees them.',
       'Parallel tool calls (`tools.parallel: true`) across HTTP tools (arXiv, GitHub, Hub cards) and MCP tools (Exa `search_web` / `read_pages`, Context7 library docs, DeepWiki `ask_repo_docs`).',
       'Guardrails that flag every detector on untrusted page text, with `allowedHosts` limited to the research hosts.',

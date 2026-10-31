@@ -32,6 +32,7 @@ def auc(p,n):
 full=[{k:v for k,v in json.loads(l).items() if k!='text'} for l in open(f'{K}/k-full/out/rows/full.jsonl')]
 F=methods('full'); fy=np.array([r['y'] for r in full]); fs=np.array([r['set'] for r in full])
 M=list(F); ben=np.where((fs=='bsafe-validate')&(fy==0))[0]
+BUDGETS=(0.1,0.5,1,2,5)
 th={m:np.sort(F[m][ben])[::-1][int(.01*len(ben))] for m in M}
 G={}  # name: (scores per method, y)
 v=np.where(fs=='bsafe-validate')[0]; G['bsafe-validate']=({m:F[m][v] for m in M},fy[v])
@@ -52,6 +53,13 @@ for g,(s,y) in G.items():
     for c in (1,0):
         if (g=='bsafe-validate' and c==0) or not (y==c).any(): continue
         print(f'{g[:24]:24}{c:2}{int((y==c).sum()):7} '+' '.join(f'{100*(s[m][y==c]>th[m]).mean():8.1f}' for m in M))
+print('\nrecall curve: flag % at each share of the benign bsafe-validate pages; attacks, then the benign rows of the same sets\n'+f"{'set':24}{'y':>2}{'n':>7}{'model':>10} "+' '.join(f'{b:>6}%' for b in BUDGETS))
+for g,(s,y) in G.items():
+    for c in (1,0):
+        if (g=='bsafe-validate' and c==0) or not (y==c).any(): continue
+        for m in M[:2]+['or']:
+            ts=[np.sort(F[m][ben])[::-1][int(b/100*len(ben))] for b in BUDGETS]
+            print(f'{g[:24]:24}{c:2}{int((y==c).sum()):7}{m[:10]:>10} '+' '.join(f'{100*(s[m][y==c]>t).mean():7.1f}' for t in ts))
 nt=np.array(json.load(open(path('hz-small','full')))['ntok'])
 print('\nbench sets of 200 rows or more whose median row is under 128 tokens: flag % at the same thresholds\n'+f"{'set':30}{'y':>2}{'n':>7}{'tok':>6} "+' '.join(f'{m[:8]:>8}' for m in M))
 for g in sorted(set(fs)):

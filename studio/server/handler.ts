@@ -233,15 +233,23 @@ export function printableProfile<P extends Profile>(profile: P): P {
   return plainSetting(recording) as P;
 }
 
+const registeredShape = (id: string) => ({
+  id,
+  spec: { jsonSchema: getStructured(id).jsonSchema },
+});
+
 /**
- * The schema a profile's replies take, as registered. None when the profile names one nothing
- * registers, or one for each slot: the editor holds a single schema.
+ * The schemas a profile's replies take, as registered: its one schema, or the fallback beside the
+ * shapes a slot picks. None when the profile names one nothing registers.
  */
 function replySchema(profile: Profile) {
-  const id = 'outputs' in profile ? profile.outputs?.structured : undefined;
-  if (typeof id !== 'string') return undefined;
+  const written = 'outputs' in profile ? profile.outputs?.structured : undefined;
+  if (!written) return undefined;
   try {
-    return { id, spec: { jsonSchema: getStructured(id).jsonSchema } };
+    if (typeof written === 'string') return registeredShape(written);
+    const picked = new Set(Object.values(written.map));
+    picked.delete(written.fallback);
+    return { ...registeredShape(written.fallback), also: [...picked].map(registeredShape) };
   } catch {
     return undefined;
   }

@@ -44,6 +44,41 @@ const thinker = compileStudio(
 assert(thinker.ok && thinker.structured);
 registerStructured(thinker.structured.id, thinker.structured.spec);
 registerProfile(thinker.profile);
+// An agent whose reply takes the shape a slot picks.
+const SHORT = { type: 'object', properties: { line: { type: 'string' } }, required: ['line'] };
+const shaper = compileStudio(
+  {
+    ...example,
+    identity: { ...example.identity, agentId: 'open-shaper', handle: 'shaper' },
+    included: [...example.included, 'inputs', 'outputs'],
+    inputs: {
+      ...example.inputs,
+      slots: [
+        {
+          key: 'slot-length',
+          name: 'length',
+          label: '',
+          choices: [{ key: 'choice-short', value: 'short', description: '' }],
+        },
+      ],
+    },
+    outputs: {
+      ...example.outputs,
+      mode: 'structured',
+      schemaId: 'open.full',
+      schemaJson: JSON.stringify(SCHEMA),
+      bySlot: {
+        slot: 'length',
+        shapes: [{ choice: 'short', schemaId: 'open.short', schemaJson: JSON.stringify(SHORT) }],
+      },
+    },
+  },
+  ON_OWN_KEYS,
+);
+assert(shaper.ok && shaper.structured);
+registerStructured(shaper.structured.id, shaper.structured.spec);
+for (const { id, spec } of shaper.structured.also ?? []) registerStructured(id, spec);
+registerProfile(shaper.profile);
 registerTool({
   type: 'agent',
   name: 'open_think',
@@ -109,6 +144,18 @@ Deno.test('a project opens with the schema its replies take and the agent each a
   // Nothing the files hold is missing: the project compiles as it opens, so it can be saved.
   const compiled = compileWorkspace(workspace, ON_OWN_KEYS);
   assertEquals(compiled.ok ? [] : compiled.issues.map((issue) => issue.message), []);
+});
+
+Deno.test('a project opens with each shape a slot picks, not only the fallback', async () => {
+  const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
+  const { workspace }: StudioDescription = await (await handler(request)).json();
+  const agent = workspace.agents.find((held) => held.identity.agentId === 'open-shaper');
+  assert(agent);
+  assertEquals(JSON.parse(agent.outputs.schemaJson), SCHEMA);
+  const [shape] = agent.outputs.bySlot?.shapes ?? [];
+  assertEquals(agent.outputs.bySlot?.slot, 'length');
+  assertEquals([shape?.choice, shape?.schemaId], ['short', 'open.short']);
+  assertEquals(JSON.parse(shape?.schemaJson ?? 'null'), SHORT);
 });
 
 Deno.test('a project opens with its own providers, each with the definition it is registered from', async () => {

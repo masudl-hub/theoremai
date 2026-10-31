@@ -922,15 +922,17 @@ export class LiveSessionClient {
   public setSlots(slots: Record<string, string> | undefined): void {
     if (JSON.stringify(slots) === JSON.stringify(this.options.slots)) return;
     this.options = { ...this.options, slots };
-    if (this.providerState && !this.opening && this.ws?.readyState === WebSocket.OPEN) {
-      this.handleDrop();
-    }
+    this.takeUpAgain();
   }
 
   /** The call's prompt lines, as `setSlots` takes its slots. */
   public setStated(stated: StatedTurn | undefined): void {
     if (JSON.stringify(stated) === JSON.stringify(this.options.stated)) return;
     this.options = { ...this.options, stated };
+    this.takeUpAgain();
+  }
+
+  private takeUpAgain(): void {
     if (this.providerState && !this.opening && this.ws?.readyState === WebSocket.OPEN) {
       this.handleDrop();
     }

@@ -671,6 +671,41 @@ Deno.test('a call the provider ends at its limit is taken up again when it has a
   }
 });
 
+Deno.test('a changed pick takes an open call up again with the lines it chooses', async () => {
+  const live = liveHarness();
+  const statuses: string[] = [];
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    voiceIngress: false,
+    stated: { conditions: { plan: 'free' } },
+    onStatusChange: (status) => void statuses.push(status),
+  });
+  try {
+    await client.connect();
+    await live.ready(live.sockets[0], [handleEvent('handle-1')]);
+    assertEquals(live.sockets[0].sent, [
+      { type: 'open', stated: { conditions: { plan: 'free' } } },
+    ]);
+    client.setStated({ conditions: { plan: 'free' } });
+    assertEquals(statuses.at(-1), 'listening');
+    client.setStated({ conditions: { plan: 'paid' } });
+    assertEquals(statuses.at(-1), 'reconnecting');
+    live.fire(500);
+    await Promise.resolve();
+    await live.ready(live.sockets[1]);
+    assertEquals(live.sockets[1].sent, [
+      {
+        type: 'open',
+        stated: { conditions: { plan: 'paid' } },
+        resume: { providerState: checkpointFixture, awayMs: 0 },
+      },
+    ]);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
 Deno.test('a changed slot takes an open call up again with it; with no handle the next call has it', async () => {
   const live = liveHarness();
   const statuses: string[] = [];

@@ -17,6 +17,7 @@ import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/Segme
 import { StackItem } from '@astryxdesign/core/Stack';
 import { pixel, proportional, Table } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
+import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
@@ -218,7 +219,6 @@ import {
   newPattern,
   newSlot,
   newSlotChoice,
-  newSystemLine,
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
@@ -2363,13 +2363,9 @@ function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
   );
 }
 
-const CONDITIONS_PLACEHOLDER = `{
-  "plan": ["free", "paid"]
+const SYSTEM_BY_ROLE_PLACEHOLDER = `{
+  "support": "Answer as the support desk."
 }`;
-
-/** How tall a prompt line starts: one line alone is the whole prompt. */
-const ONLY_LINE_ROWS = 8;
-const LINE_ROWS = 3;
 
 type SetBinding = (change: Partial<ModelBindingDraft>) => void;
 

@@ -661,23 +661,27 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     },
   ),
   identity: field(
-    '{ handle, system?, systemByRole? }',
+    '{ handle, conditions?, system?, systemByRole? }',
     "The agent's display name and the system instruction it is given.",
   ),
   'identity.handle': field(
     'string',
     'The name hosts and users see for this agent, at most 32 characters; the model never sees it. It is also the role a turn gets when it names none, so identity.systemByRole may hold an entry under it.',
   ),
+  'identity.conditions': field(
+    'Record<string, string[]>',
+    'The facts every turn states, by name, with the values each can take. A line of identity.system reads them as "when plan is free: …". A condition named path reads the turn\'s path.',
+  ),
   'identity.system': field(
-    'string | Array<string | { private: string }>',
-    'The instruction the model gets on every turn unless a systemByRole entry replaces it; some providers send it for an image profile only with includeText on. Mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
+    'string | Array<string | Array<string | { private: string }>>',
+    'The instruction the model gets, as one string or a list of lines; some providers send it for an image profile only with includeText on. A line that opens "when plan is free: …" goes only on turns where that fits, and every line that fits is sent, a blank line apart. A line can be a list of parts; mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
   ),
   'identity.systemByRole': field(
-    'Record<string, string | Array<string | { private: string }>>',
+    'Record<string, string | Array<string | Array<string | { private: string }>>>',
     'Other system instructions, picked by the role a turn names.',
   ),
   'identity.systemByRole.*': field(
-    'string | Array<string | { private: string }>',
+    'string | Array<string | Array<string | { private: string }>>',
     'The instruction that replaces identity.system when a turn names this role.',
   ),
   models: field(

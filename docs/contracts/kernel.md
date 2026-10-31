@@ -71,7 +71,7 @@ A `Profile` binds:
 | Block | Role |
 | --- | --- |
 | `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'`, or `'embedding'` (`PROFILE_TYPES`) |
-| `identity` | `handle`, optional `system` / `systemByRole` — absent on `host`; `handle` only on `speech` and `decision` |
+| `identity` | `handle`, optional `conditions`, `system`, and `systemByRole` — absent on `host`; `handle` only on `speech` and `decision`. `system` is a string or a list of lines. See [Prompt lines](#prompt-lines). |
 | `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID, and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` — absent on `host`; `decision` binds exactly one model and never selects |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image`; `parallel` on every type that takes `tools` |
 | `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. Each `inputs.slots` entry is a value list or `{ label?, choices: { value, description? }[] }` (normalized at define); optional `label` / `description` are UI-only. `{name}` in `identity.system` becomes the chosen **value** for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
@@ -390,6 +390,34 @@ guardrails default on, and Interactions streaming defaults to SSE
 
 `projectProfile` / `resolveTurn` project a registered profile + `TurnRequest`
 into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consume.
+
+
+## Prompt lines
+
+Use prompt lines when one agent speaks differently by channel, plan, or any other fact the host knows. `identity.conditions` names the facts and their values. Each entry of `identity.system` is a **line**. A line that opens with `when` goes only on turns where it fits.
+
+```ts
+identity: {
+  handle: 'desk',
+  conditions: { path: ['web', 'imessage'], plan: ['free', 'paid'] },
+  system: [
+    'You are the Harbor desk.',
+    'when plan is free: Keep replies to one paragraph.',
+    'when path is imessage: Write plain text.',
+  ],
+}
+runTurn({ profile: 'desk', path: 'web', conditions: { plan: 'free' }, input });
+```
+
+| Rule | Owner |
+| --- | --- |
+| Every line that fits is sent, in order, a blank line apart. `req.system` follows the lines. | `pickSystemLines`, `resolveTurnSystemPrompt` |
+| A turn states every condition with a listed value. `path` reads the turn's own `path`. | `turnFacts` |
+| A `when` reads conditions and slots. It uses the activity-label grammar. `+`, `is null`, and dotted names are refused. | `systemLinesProblem` |
+| A condition chooses lines and never fills text. Only a slot fills `{name}`. | `fillSlots` |
+| A line is a string or a list of parts. A bare `{ private }` in the list of lines is refused. | `assertSystemLines` |
+| Marks are settled on the prompt as written, so a dropped line never changes the marks of a kept line. | `pickSystemLines` |
+| A tool in `tools.allow` may list only paths that `identity.conditions.path` lists. A turn checks this, because a tool can register after its profile. | `toolPathProblem` |
 
 ## Turn lifecycle
 
@@ -1190,7 +1218,7 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 
 | Block | On live? | Notes |
 | --- | --- | --- |
-| `identity` | yes | `handle`, `system` / `systemByRole` |
+| `identity` | yes | `handle`, `conditions`, `system` / `systemByRole` |
 | `model` | yes | A binding whose protocol has a `live` endpoint, such as `geminiLive` |
 | `live` | yes | Voice, VAD, transcription, resumption, compression, **`ingress`** (realtime mic / camera / text toggles; text off unless `ingress.text: true`) |
 | `tools` | yes | `{ allow: ToolId[]; parallel? }` — `parallel` orders a step a host runs through `invokeToolStep`. Every allowlisted id and every model `builtInTools` id is wired once at Gemini Live setup regardless of `loadTier` (declarations cannot be added mid-session, so on live every allowed tool is effectively T0) |

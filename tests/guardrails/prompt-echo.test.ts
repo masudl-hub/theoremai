@@ -395,7 +395,7 @@ function registerMarkedProfile(id: string): string {
     defineProfile({
       type: 'text',
       id,
-      identity: { handle: 'sol', system: MARKED },
+      identity: { handle: 'sol', system: [MARKED] },
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
@@ -438,7 +438,7 @@ Deno.test("runTurn stops a reply repeating Theorem's notes after a shareable par
     defineProfile({
       type: 'text',
       id: 'echo_marked_note',
-      identity: { handle: 'sol', system: [{ private: PRIVATE_RULES }, ` Say: "${VOICE}"`] },
+      identity: { handle: 'sol', system: [[{ private: PRIVATE_RULES }, ` Say: "${VOICE}"`]] },
       ...geminiModels('gemini35FlashLite'),
       tools: { allow: [] },
       inputs: { text: true },
@@ -482,7 +482,7 @@ async function liveSays(id: string, said: string): Promise<TurnEvent[]> {
     defineProfile({
       type: 'live',
       id,
-      identity: { handle: 'sol', system: MARKED },
+      identity: { handle: 'sol', system: [MARKED] },
       models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'slotA' } },
       live: { voice: 'Aoede' },
       tools: { allow: [] },

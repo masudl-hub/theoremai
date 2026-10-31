@@ -86,6 +86,11 @@ export const REQUEST_FIELDS: Record<
     type: 'SystemPrompt',
     doc: "An instruction for this request only, added to the profile's own.",
   },
+  'runTurn.conditions': {
+    type: 'Record<string, string>',
+    doc: "This turn's facts, one value for each of identity.conditions but path.",
+    unset: 'The profile declares none',
+  },
   'runTurn.path': {
     type: 'string',
     doc: 'The channel the turn comes from; only tools whose paths name it, or *, are offered.',

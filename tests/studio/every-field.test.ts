@@ -210,7 +210,7 @@ const PROFILES = [
     id: 'every-text',
     identity: {
       handle: 'writer',
-      system: ['You write.', { private: 'House rules.' }],
+      system: [['You write.', { private: 'House rules.' }]],
       systemByRole: { admin: 'You write for staff.' },
     },
     models: {

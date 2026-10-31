@@ -38,7 +38,7 @@ import {
   THINKING_LEVELS,
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
-import { assertSystemPrompt } from '../system-parts.ts';
+import { assertSystemLines, systemLinesProblem } from '../system-lines.ts';
 import type { ToolRegistry } from '../tools/registry.ts';
 import { profileToolAllow, profileToolsSpec } from '../tools/resolve.ts';
 import type {
@@ -611,10 +611,24 @@ function assertIdentitySystem(input: ProfileDefinition): void {
     input.type === 'embedding'
   )
     return;
-  const { system, systemByRole } = input.identity;
-  if (system !== undefined) assertSystemPrompt(system, `Profile ${input.id} identity.system`);
-  for (const [role, prompt] of Object.entries(systemByRole ?? {})) {
-    assertSystemPrompt(prompt, `Profile ${input.id} identity.systemByRole.${role}`);
+  const { conditions, system, systemByRole } = input.identity;
+  const slots: Record<string, readonly string[]> = {};
+  for (const [name, decl] of Object.entries(
+    normalizeProfileInputsSlots(input.inputs)?.slots ?? {},
+  )) {
+    slots[name] = slotValues(decl);
+  }
+  const prompts: [string, unknown][] = [
+    ['identity.system', system ?? ''],
+    ...Object.entries(systemByRole ?? {}).map(([role, prompt]): [string, unknown] => [
+      `identity.systemByRole.${role}`,
+      prompt,
+    ]),
+  ];
+  for (const [where, prompt] of prompts) {
+    assertSystemLines(prompt, `Profile ${input.id} ${where}`);
+    const problem = systemLinesProblem(prompt, conditions, slots);
+    if (problem) throw new TheoremError('config', `Profile ${input.id} ${where}: ${problem}`); // labels-exempt: developer contract error
   }
 }
 
@@ -685,6 +699,7 @@ function defineProfile(input: ProfileDefinition): Profile {
       ? { handle: input.identity.handle }
       : {
           handle: input.identity.handle,
+          conditions: input.identity.conditions,
           system: input.identity.system,
           systemByRole: input.identity.systemByRole,
         };

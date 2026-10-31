@@ -59,6 +59,7 @@ import {
   type ProfileLiveSpec,
   type ProfileOutputsSpec,
   type ProfileSpeechSpec,
+  type ProfileSystem,
   type ProviderLimits,
   type SlotDeclInput,
   type SystemPrompt,
@@ -561,6 +562,10 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
   return parseRecord(raw, isString);
 }
 
+/** A prompt written as parts is one line of the profile's prompt. */
+const oneLine = (prompt: SystemPrompt): ProfileSystem =>
+  typeof prompt === 'string' ? prompt : [prompt];
+
 const isSystemPrompt = (value: unknown): value is SystemPrompt =>
   systemPromptProblem(value, 'system') === undefined;
 
@@ -568,7 +573,7 @@ const isSystemPrompt = (value: unknown): value is SystemPrompt =>
 function compileSystemByRole(
   raw: string,
   report: (message: string) => void,
-): Record<string, SystemPrompt> | undefined {
+): Record<string, ProfileSystem> | undefined {
   const byRole = parseRecord(raw, isSystemPrompt);
   if (byRole === null) {
     report(
@@ -577,10 +582,10 @@ function compileSystemByRole(
     return undefined;
   }
   if (!byRole) return undefined;
-  const compiled: Record<string, SystemPrompt> = {};
+  const compiled: Record<string, ProfileSystem> = {};
   for (const [role, prompt] of Object.entries(byRole)) {
     if (typeof prompt !== 'string') {
-      compiled[role] = prompt;
+      compiled[role] = [prompt];
       continue;
     }
     const parsed = parseSystemMarkup(prompt);
@@ -588,7 +593,7 @@ function compileSystemByRole(
       report(`${role}: ${parsed.message}`);
       return undefined;
     }
-    if (parsed.prompt !== undefined) compiled[role] = parsed.prompt;
+    if (parsed.prompt !== undefined) compiled[role] = oneLine(parsed.prompt);
   }
   return compiled;
 }
@@ -2194,7 +2199,7 @@ function assemble(
       ? parseSystemMarkup(draft.identity.system)
       : { ok: false, message: 'The system prompt must be text.' };
   if (!parsedSystem.ok) report('identity', parsedSystem.message, 'system');
-  const system = parsedSystem.ok ? parsedSystem.prompt : undefined;
+  const system = parsedSystem.ok ? parsedSystem.prompt && oneLine(parsedSystem.prompt) : undefined;
   const systemByRole = compileSystemByRole(draft.identity.systemByRoleJson, (message) => {
     report('identity', message, 'systemByRoleJson');
   });

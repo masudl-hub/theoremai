@@ -20,6 +20,7 @@ export const PROFILE_FIELD_PRESENCE: Readonly<Record<string, ProfileFieldPresenc
   'profile.type': { required: true },
   identity: { required: true },
   'identity.handle': { required: true },
+  'identity.conditions': { unset: 'The turn states no conditions' },
   'identity.system': { unset: "Only the kernel's notes" },
   tools: { required: true },
   'tools.allow': { required: true },

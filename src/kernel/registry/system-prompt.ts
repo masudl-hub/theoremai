@@ -1,4 +1,5 @@
-import { joinSystemPieces, mapSystemPrompt, systemPieces } from '../system-parts.ts';
+import { pickSystemLines, turnFacts } from '../system-lines.ts';
+import { joinSystemPieces, systemPieces } from '../system-parts.ts';
 import type { ModelProfile, SystemPiece, TurnRequest } from '../types.ts';
 import { fillSlots } from './slot-fill.ts';
 import { pickSystemRole } from './system-role.ts';
@@ -12,7 +13,8 @@ function systemFromProfile(
   profile: ModelProfile,
   role: string,
   slots: Record<string, string> | undefined,
-): SystemPiece[] {
+  req: TurnRequest,
+): SystemPiece[][] {
   if (profile.type === 'speech') {
     return [];
   }
@@ -21,10 +23,9 @@ function systemFromProfile(
   if (!prompt) {
     return [];
   }
-  return systemPieces(
-    mapSystemPrompt(prompt, `Profile ${profile.id} identity.system`, (text) =>
-      fillSlots(profile, text, slots, 'identity.system'),
-    ),
+  const facts = turnFacts(profile.id, profile.identity.conditions, req, slots);
+  return pickSystemLines(prompt, facts, (text) =>
+    fillSlots(profile, text, slots, 'identity.system'),
   );
 }
 
@@ -36,7 +37,7 @@ function systemFromProfile(
 function resolveTurnSystemPrompt(profile: ModelProfile, req: TurnRequest): SystemPiece[] {
   const role = pickSystemRole(profile, req.input?.role);
   return joinSystemPieces([
-    systemFromProfile(profile, role, req.input?.slots),
+    ...systemFromProfile(profile, role, req.input?.slots, req),
     req.system === undefined ? [] : systemPieces(req.system),
   ]);
 }

@@ -264,6 +264,7 @@ function toTurnRequest(req: SessionRequest): TurnRequest {
     system: req.system,
     builtInArgs: req.builtInArgs,
     path: req.path,
+    conditions: req.conditions,
     sessionPermissions: req.sessionPermissions,
     signal: req.signal,
     metadata: req.metadata,

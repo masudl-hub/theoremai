@@ -102,7 +102,13 @@ function registryWith(): ToolRegistry {
 const tools = registryWith();
 
 function textProfile(allow: string[], extra: Record<string, unknown> = {}): Profile {
-  return as<Profile>({ id: 'p', type: 'text', tools: { allow, ...extra }, models: {} });
+  return as<Profile>({
+    id: 'p',
+    type: 'text',
+    identity: { handle: 'p' },
+    tools: { allow, ...extra },
+    models: {},
+  });
 }
 
 function modelProfile(
@@ -114,6 +120,7 @@ function modelProfile(
   return as<Profile>({
     id: 'p',
     type,
+    identity: { handle: 'p' },
     tools: { allow, ...extra },
     models: { m: builtInTools ? { builtInTools } : {} },
   });
@@ -352,6 +359,41 @@ Deno.test('initialBuiltins keeps builtins that are T0, or any tier for live, min
   check(initialBuiltins(tools, as<Profile>({ type: 'text' }), ['ca', 'cb']), [], 'T2 not initial');
 });
 
+Deno.test('resolveTurnTools refuses a tool whose path the profile does not list', () => {
+  const declared = as<Profile>({
+    id: 'p',
+    type: 'text',
+    identity: { handle: 'p', conditions: { path: ['web'] } },
+    tools: { allow: ['f1'] },
+    models: {},
+  });
+  const offPath = createToolRegistry();
+  offPath.register({
+    type: 'function',
+    name: 'f1',
+    description: 'f1 description',
+    category: 'test',
+    access: 'read-only',
+    paths: ['fax'],
+    loadTier: 'T0',
+    permission: 'auto',
+    input: inputSchema,
+    output: z.object({}),
+    handler: () => ({}),
+  });
+  try {
+    resolveTurnTools(offPath, declared, req(), undefined);
+    throw new Error('expected a refusal');
+  } catch (err) {
+    check(
+      (err as Error).message,
+      'Profile p: Tool f1 lists path "fax", which is not one of web.',
+      'refusal',
+    );
+    check(err instanceof TheoremError, true, 'kind');
+  }
+});
+
 Deno.test('resolveTurnTools gates custom then model builtins and derives builtins, visible, executable, and wire', () => {
   const profile = modelProfile('text', ['f0', 'f1', 'f2', 'fweb'], ['b0', 'b1', 'bweb', 'f0']);
   const state = resolveTurnTools(
@@ -406,6 +448,7 @@ Deno.test('resolveTurnTools resolves no model builtins for host and decision pro
   const profile = as<Profile>({
     id: 'p',
     type: 'text',
+    identity: { handle: 'p' },
     tools: { allow: ['f0'] },
     models: { undefined: { builtInTools: ['b0'] } },
   });

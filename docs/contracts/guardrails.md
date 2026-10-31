@@ -747,7 +747,10 @@ closing a word stay as written). The carry between steps and cycles means
 spreading the dump over them does not restart the count.
 
 A system prompt is a string or a list of parts (`SystemPrompt`), and the parts
-are sent concatenated as written. With no `{ private: text }` part the whole
+are sent concatenated as written. `identity.system` is a list of lines
+(`ProfileSystem`), where each line is a string or a list of parts; every line
+that fits the turn is sent, a blank line apart. Marks are settled on the prompt
+as written, so a dropped line never changes the marks of a kept line. With no `{ private: text }` part the whole
 prompt is private; with one, the plain parts beside it are shareable — lines
 the agent is meant to say word for word, like a greeting, or a voice line. Marks
 apply per source: `identity.system` (or its `systemByRole` entry) and

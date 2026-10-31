@@ -93,9 +93,9 @@ function textProfile(id: string, identity: object) {
 
 Deno.test('defineProfile rejects a malformed identity.system or systemByRole entry', () => {
   assertThrows(
-    () => textProfile('parts_bad_system', { system: [{ private: '' }] }),
+    () => textProfile('parts_bad_system', { system: [[{ private: '' }]] }),
     TheoremError,
-    'Profile parts_bad_system identity.system[0].private must not be empty',
+    'Profile parts_bad_system identity.system[0][0].private must not be empty',
   );
   assertThrows(
     () => textProfile('parts_bad_role', { systemByRole: { editor: [] } }),
@@ -134,7 +134,7 @@ Deno.test("marks apply per source: a { private } part in the turn's prompt leave
 Deno.test("marks apply per source: the profile's marks leave an unmarked turn prompt private", () => {
   registerProfile(
     textProfile('parts_profile_marked', {
-      system: ['Greet with "hello". ', { private: 'Never discount.' }],
+      system: [['Greet with "hello". ', { private: 'Never discount.' }]],
     }),
   );
   const { generation } = resolveTurn({
@@ -151,7 +151,7 @@ Deno.test('a systemByRole entry takes parts like identity.system', () => {
   registerProfile(
     textProfile('parts_role', {
       system: 'Base.',
-      systemByRole: { editor: ['Edit politely. ', { private: 'Editor key.' }] },
+      systemByRole: { editor: [['Edit politely. ', { private: 'Editor key.' }]] },
     }),
   );
   const { generation } = resolveTurn({

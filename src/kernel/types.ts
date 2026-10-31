@@ -597,6 +597,15 @@ export type SystemPart = string | PrivateSystemPart;
  */
 export type SystemPrompt = string | readonly SystemPart[];
 
+/** One line of a profile's prompt: text, or parts kept together. A leading `when` decides it. */
+export type SystemLine = string | readonly SystemPart[];
+
+/** A profile's prompt: a string, or lines. Every line that fits is sent, a blank line apart. */
+export type ProfileSystem = string | readonly SystemLine[];
+
+/** The facts a host states on each turn, by name, each with the values it can take. */
+export type ProfileConditions = Readonly<Record<string, readonly string[]>>;
+
 /** A stretch of the system prompt as sent, and whether a reply may repeat it. */
 export interface SystemPiece {
   text: string;
@@ -606,8 +615,10 @@ export interface SystemPiece {
 /** A profile's handle and system prompt. */
 export interface ProfileIdentity {
   handle: string;
-  system?: SystemPrompt;
-  systemByRole?: Record<string, SystemPrompt>;
+  /** The facts this agent's turns state, by name, with the values each can take. */
+  conditions?: ProfileConditions;
+  system?: ProfileSystem;
+  systemByRole?: Record<string, ProfileSystem>;
 }
 
 /** The fields every profile type shares. */
@@ -1009,6 +1020,8 @@ export interface TurnRequest {
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
   path?: string;
+  /** This turn's facts, one value for each of `profile.identity.conditions` but `path`. */
+  conditions?: Readonly<Record<string, string>>;
   /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
   metadata?: Record<string, unknown>;
   /**
@@ -1186,6 +1199,8 @@ export interface SessionRequest {
   /** As `TurnRequest.builtInArgs`. */
   builtInArgs?: BuiltInArgs;
   path?: string;
+  /** As `TurnRequest.conditions`. */
+  conditions?: Readonly<Record<string, string>>;
   sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
   /** The value chosen for each of the profile's `inputs.slots`. */

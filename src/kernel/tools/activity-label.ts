@@ -31,8 +31,8 @@ type Forms = { one: string; other: string };
 type Placeholder = { path: string; fallback?: string; forms?: Forms | 'unreadable' };
 type Route = { side: Side; keys: string[]; prefixed: boolean };
 /** `expected: null` is the check "is null". */
-type Check = { path: string; negated: boolean; expected: string | null };
-type Line = { joined: boolean; when: Check[] | 'unreadable'; text: string };
+export type Check = { path: string; negated: boolean; expected: string | null };
+export type Line = { joined: boolean; when: Check[] | 'unreadable'; text: string };
 /** A line on its own, or a run of neighbouring `+` lines that show together. */
 type Entry = { joined: boolean; lines: { line: Line; number: number }[] };
 
@@ -102,14 +102,20 @@ function parseChecks(raw: string): Check[] | 'unreadable' {
   return checks;
 }
 
-/** `+ when status is archived: archiving {name}` is a joined line, with one check, then its text. */
-function parseLine(raw: string): Line {
+/** A line's head, with its text exactly as written after the condition. */
+export function splitWhen(raw: string): Line {
   const joined = JOINED.test(raw);
-  const rest = raw.replace(JOINED, '').trim();
+  const rest = raw.replace(JOINED, '').trimStart();
   if (!/^when(\s|$)/.test(rest)) return { joined, when: [], text: rest };
   const end = rest.search(WHEN_ENDS);
   if (end < 0) return { joined, when: 'unreadable', text: '' };
-  return { joined, when: parseChecks(rest.slice(4, end)), text: rest.slice(end + 1).trim() };
+  return { joined, when: parseChecks(rest.slice(4, end)), text: rest.slice(end + 1).trimStart() };
+}
+
+/** `+ when status is archived: archiving {name}` is a joined line, with one check, then its text. */
+function parseLine(raw: string): Line {
+  const line = splitWhen(raw);
+  return { ...line, text: line.text.trim() };
 }
 
 function entriesOf(template: LabelTemplate): Entry[] {
@@ -131,7 +137,7 @@ function checkKeys(path: string): string[] | undefined {
 }
 
 // why: "is not" is the plain opposite of "is", so a field the model left out is not any value.
-function checkHolds(check: Check, input: unknown): boolean {
+export function checkHolds(check: Check, input: unknown): boolean {
   const keys = checkKeys(check.path);
   if (!keys) return false;
   const value = valueAt(input, keys);
@@ -418,7 +424,11 @@ function oneOf(values: readonly string[]): string {
     : `${shown.slice(0, -1).join(', ')}${shown.length > 2 ? ',' : ''} or ${shown.at(-1)}`;
 }
 
-function checkProblem(check: Check, input: unknown): string | undefined {
+export function checkProblem(
+  check: Check,
+  input: unknown,
+  reads = "this tool's input", // labels-exempt: builder diagnostic
+): string | undefined {
   const keys = checkKeys(check.path);
   if (!keys) {
     return `A "when" reads what the model sent; "${check.path}" is only there once the call is done.`; // labels-exempt: builder diagnostic
@@ -427,7 +437,7 @@ function checkProblem(check: Check, input: unknown): string | undefined {
   if (found.holds === 'missing') {
     const fields = inputFields(input).slice(0, 4);
     const tryThese = fields.length ? ` Try ${oneOf(fields)}.` : ''; // labels-exempt: builder diagnostic
-    return `"${check.path}" in the "when" is not a field of this tool's input.${tryThese}`; // labels-exempt: builder diagnostic
+    return `"${check.path}" in the "when" is not a field of ${reads}.${tryThese}`; // labels-exempt: builder diagnostic
   }
   if (found.holds === 'group') {
     return `"${check.path}" in the "when" is a list or group; a "when" compares text, a number, or true or false.`; // labels-exempt: builder diagnostic

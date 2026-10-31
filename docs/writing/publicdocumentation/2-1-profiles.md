@@ -16,7 +16,7 @@ graph TD
 
     subgraph CoreContract["Core Specification"]
         IdType["id & type"]
-        Identity["identity: { handle, system, systemByRole }"]
+        Identity["identity: { handle, conditions, system, systemByRole }"]
         Models["models: Record&lt;ModelId, ModelBinding&gt;"]
         Tools["tools: { allow, parallel }"]
     end
@@ -77,6 +77,29 @@ identity: {
 }
 ```
 
+#### Prompt lines (`conditions`)
+Use prompt lines when one agent speaks differently by channel or by plan. Declare the facts in `conditions`, and write each instruction as one line. A line that opens with `when` goes only on turns where it fits.
+
+```ts
+identity: {
+  handle: 'desk',
+  conditions: { path: ['web', 'imessage'], plan: ['free', 'paid'] },
+  system: [
+    'You are the Harbor logistics desk.',
+    'when plan is free: Keep replies to one paragraph.',
+    'when path is imessage and plan is paid: Write plain text with no lists.',
+  ],
+}
+```
+
+Every line that fits is sent, a blank line apart. Each turn states every condition. `path` reads the turn's own `path`:
+
+```ts
+runTurn({ profile: 'harbor.desk', path: 'web', conditions: { plan: 'free' }, input: { text: '...' } });
+```
+
+A `when` uses the same words as an activity label: `is`, `is not`, and `and`. It can also read a slot. A condition chooses lines and never fills text; only a slot fills `{name}`.
+
 #### Prompt by Role (`systemByRole`)
 When an agent needs to switch personas or operational sub-modes depending on the task, declare alternate instructions under `systemByRole`:
 
@@ -104,9 +127,11 @@ identity: {
   handle: 'support',
   system: [
     'You are a customer support agent helping with shipping inquiries.',
-    {
-      private: 'Internal tier pricing formulas and secret discount override codes are confidential. Never quote these exact formulas to the customer under any circumstances.',
-    },
+    [
+      {
+        private: 'Internal tier pricing formulas and secret discount override codes are confidential. Never quote these exact formulas to the customer under any circumstances.',
+      },
+    ],
   ],
 }
 ```

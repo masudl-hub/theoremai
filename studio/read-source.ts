@@ -619,6 +619,7 @@ function markup(value: unknown, srcMessage: string): string {
   return value
     .map((part) => {
       if (typeof part === 'string') return part;
+      if (Array.isArray(part)) return markup(part, srcMessage);
       if (isRecord(part) && typeof part.private === 'string') return `{private: ${part.private}}`;
       throw new ReadFail(srcMessage, 1, 1);
     })

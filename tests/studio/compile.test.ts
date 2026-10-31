@@ -1406,8 +1406,7 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
   assertEquals(system(withSystem(' Be brief. ')), 'Be brief.');
   assertEquals(system(withSystem(' ')), undefined);
   assertEquals(system(withSystem('Say "hi". {private: Code 7731.}')), [
-    'Say "hi". ',
-    { private: 'Code 7731.' },
+    ['Say "hi". ', { private: 'Code 7731.' }],
   ]);
   const kept = compileStudio(
     {
@@ -1446,8 +1445,8 @@ Deno.test('instructions by role take {private: sections or parts', () => {
   });
   assert(profile.type === 'text');
   assertEquals(profile.identity.systemByRole, {
-    support: ['Hello. ', { private: 'Refund code R1.' }],
-    desk: ['Hi. ', { private: 'Key K.' }],
+    support: [['Hello. ', { private: 'Refund code R1.' }]],
+    desk: [['Hi. ', { private: 'Key K.' }]],
   });
   for (const json of ['{"support":[{"private":""}]}', '{"support":"{private: open"}']) {
     const bad = compileStudio(

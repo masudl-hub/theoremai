@@ -180,18 +180,21 @@ const common = {
   observability: observability.optional(),
 };
 
-const systemPrompt = z.union([
+const systemPart = z.union([z.string(), z.strictObject({ private: z.string().min(1) })]);
+
+const profileSystem = z.union([
   z.string(),
   z
-    .array(z.union([z.string(), z.strictObject({ private: z.string().min(1) })]))
+    .array(z.union([z.string(), z.array(systemPart).readonly()]))
     .min(1)
     .readonly(),
 ]);
 
 const identity = z.object({
   handle: z.string(),
-  system: systemPrompt.optional(),
-  systemByRole: z.record(z.string(), systemPrompt).optional(),
+  conditions: z.record(z.string(), z.array(z.string()).readonly()).readonly().optional(),
+  system: profileSystem.optional(),
+  systemByRole: z.record(z.string(), profileSystem).optional(),
 });
 
 const profileInterface = z.discriminatedUnion('type', [

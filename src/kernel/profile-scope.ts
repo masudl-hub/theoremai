@@ -91,6 +91,11 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: MODEL_PROFILE_TYPES,
     reason: 'a host profile has no agent identity — it runs no model',
   },
+  'identity.conditions': {
+    profileTypes: ['text', 'image', 'live'],
+    reason:
+      'speech has no system channel (the input text is the transcript), a decision is asked only through its questions, and an embedding call embeds its input alone',
+  },
   'identity.system': {
     profileTypes: ['text', 'image', 'live'],
     reason:

@@ -1,6 +1,6 @@
 # Horizon small cut to the chosen layers and the 76k-token vocabulary, trained to copy Horizon on its windows (teach4.jsonl),
 # then scored on EVAL with score.py's windows. Saves to prune/<name> when the SELECT metric on held-out windows improves.
-# DEV=cuda AMP=1 trains in fp16 (a T4 has no bf16). On MPS the cache is emptied every 100 batches, or it grows past 40 GB. NOSCORE=1 stops after training. LOAD=<dir> starts from a saved model.
+# DEV=cuda AMP=1 trains in fp16 (a T4 has no bf16). On MPS the cache is emptied every 100 batches, or it grows past 40 GB. NOSCORE=1 stops after training. LOAD=<dir> starts from a saved model. QUANT=8 or 4 scores with the weights of a q_g_w build.
 # SRC=<dir> cuts from a saved cut model instead of Horizon; TMAP then names the Horizon layer behind each kept layer.
 # LOSS=bce copies Horizon's probability; LOSS=mse copies its logit. HID=<weight> also copies the hidden state of the Horizon layer
 # behind each kept layer (Horizon runs alongside). SCHED=cos warms up for 6% of steps, then decays the learning rate to 0.
@@ -140,6 +140,13 @@ if __name__ == '__main__':
     if os.path.exists(ck): os.remove(ck)
     if not EP: os.makedirs(out_dir, exist_ok=True)
     if os.environ.get('NOSCORE'): sys.exit(0)
+    if os.environ.get('QUANT'):  # the weights of trim.py's q_g_w builds, read back as floats: int8 embedding table, Linear weights at QUANT bits, symmetric, blocks of 32
+        bits, top = int(os.environ['QUANT']), lambda b: 2 ** (b - 1) - 1
+        with torch.no_grad():
+            for x in m.modules():
+                if isinstance(x, torch.nn.Embedding): w = x.weight; s = w.abs().max() / top(8); w.copy_((w / s).round() * s)
+                elif isinstance(x, torch.nn.Linear):
+                    for b in x.weight.split(32, 1): s = b.abs().amax(1, keepdim=True).clamp_min(1e-12) / top(bits); b.copy_((b / s).round() * s)
     m.eval(); rows = [json.loads(l) for l in open(os.environ.get('EVAL', f'{S.WORK}/sample.jsonl'))]; allw, owner = [], []
     for i, r in enumerate(rows):
         ws, _ = S.windows(tok, r['text']); allw += [[lut.get(t, unk) for t in w] for w in ws]; owner += [i] * len(ws)

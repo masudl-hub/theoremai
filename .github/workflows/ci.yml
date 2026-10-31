@@ -122,6 +122,13 @@ jobs:
       - name: Drive the studio
         run: npm --prefix studio run test:browser
 
+      - name: Keep what the failed tests saw
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: studio-browser-failures
+          path: studio/test-results/
+
   # The tests are type-checked once here, so each shard runs them without checking again.
   test-types:
     runs-on: ubuntu-latest

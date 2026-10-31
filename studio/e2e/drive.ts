@@ -23,7 +23,9 @@ export async function open(page: Page, agent = 'desk') {
   await page.getByRole('button', { name: agent, exact: true }).first().click();
 }
 
-export const composer = (page: Page) => page.getByLabel('Message input').last();
+/** why: a chat stays mounted while it closes, so the last composer in the page may be out of sight. */
+export const composer = (page: Page) =>
+  page.getByLabel('Message input').locator('visible=true').last();
 
 export async function send(page: Page, text: string) {
   await composer(page).fill(text);

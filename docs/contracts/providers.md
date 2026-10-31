@@ -399,7 +399,15 @@ to the kernel vector result.
 | `openRouterImages` | Image at `/images` |
 | `openRouterDecisions` | Decision at `decisionUrl`, by default `https://openrouter.ai/api/alpha/decisions` |
 
-`openRouterOpenAi` extends `openAi`. On text, it asks the router for providers that support every supplied parameter.
+`openRouterOpenAi` extends `openAi`. On text, it sets `provider.require_parameters` so that the router uses only upstreams that support every supplied parameter.
+Set `options.provider` to choose the upstreams. It takes OpenRouter's own `provider` fields under their own names, and each field goes out as written, so a host can turn `require_parameters` off.
+This example pins one endpoint:
+
+```ts
+options: { provider: { only: ['gmicloud/fp8'], allow_fallbacks: false } }
+```
+
+If the pinned endpoint cannot serve a request, the request fails. It does not fall back. Copy the slug from the model's page on OpenRouter.
 It decodes text, reasoning, fragmented tool arguments, structured output, citations, and usage.
 It writes reasoning details as `reasoning` parts and sends them back with the history on the next request.
 It writes the `webSearch` built-in as `web_search_options`.

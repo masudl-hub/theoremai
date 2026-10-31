@@ -314,7 +314,7 @@ export interface ProtocolOptionField {
   /** Where it sits under the model's `options`, dotted: `store`, `cache.mode`. */
   path: string;
   label: string;
-  kind: 'boolean' | 'choice' | 'text' | 'number';
+  kind: 'boolean' | 'choice' | 'text' | 'number' | 'names';
   /** The protocol refuses the model without it. */
   required: boolean;
   /** What the protocol says the option is. */
@@ -332,13 +332,14 @@ interface OptionSchema {
   const?: unknown;
   anyOf?: OptionSchema[];
   description?: string;
+  items?: OptionSchema;
   properties?: Record<string, OptionSchema>;
   required?: string[];
 }
 
 /**
  * The options `protocol` takes, a field per setting, read from its own schema. A setting inside an
- * object is a field of its own; one a row cannot hold (a list, a free record) is left to code. Given
+ * object is a field of its own; one a row cannot hold (a list of objects, a free record) is left to code. Given
  * the model, an option it refuses is left out, unless `options` already holds it: that row stays,
  * where its issue shows.
  */
@@ -406,6 +407,8 @@ function fieldsOf(node: OptionSchema, prefix: string, held: boolean): ProtocolOp
       }
     }
     if (property.type === 'boolean') return [{ ...base, kind: 'boolean' as const }];
+    if (property.type === 'array' && property.items?.type === 'string')
+      return [{ ...base, kind: 'names' as const }];
     if (property.type === 'string') return [{ ...base, kind: 'text' as const }];
     if (property.type === 'number' || property.type === 'integer')
       return [{ ...base, kind: 'number' as const }];
@@ -415,7 +418,10 @@ function fieldsOf(node: OptionSchema, prefix: string, held: boolean): ProtocolOp
 
 /** An option's name as a row labels it: `persistViaInteractionId` is Persist via interaction id. */
 function optionLabel(name: string): string {
-  const words = name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 

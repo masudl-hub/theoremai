@@ -715,6 +715,23 @@ Deno.test('studioNodeRef resolves only nodes the draft has', () => {
   assertEquals(studioNodeRef(draft, 'outputs'), { facet: 'outputs' });
   assertEquals(studioNodeRef(excludeFacet(draft, 'outputs'), 'outputs'), undefined);
 });
+Deno.test('an OpenRouter route compiles, prints, and a field it does not know is reported', () => {
+  const draft = createExampleDraft();
+  const key = draft.modelBindings[0].key;
+  const bound = (options: StudioDraft['modelBindings'][number]['options']) =>
+    updateModelBinding(draft, key, {
+      provider: 'openrouter',
+      protocol: 'openRouterOpenAi',
+      apiId: 'z-ai/glm-5.3-flash',
+      options,
+    });
+  const provider = { only: ['gmicloud/fp8'], allow_fallbacks: false };
+  const source = studioSource(compiled(bound({ provider })));
+  assertStringIncludes(source, "only: ['gmicloud/fp8']");
+  assertStringIncludes(source, 'allow_fallbacks: false');
+  assert(!compileStudio(bound({ provider: { onlyy: ['a'] } }), ON_OWN_KEYS).ok);
+});
+
 Deno.test('studioSource writes a module that registers the profile', () => {
   const source = studioSource(compiled(createExampleDraft()));
   assertStringIncludes(source, "import { z } from 'zod';");

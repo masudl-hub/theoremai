@@ -92,6 +92,27 @@ Deno.test('openRouterOpenAi extends openAi and only it takes OpenRouter reasonin
   assertEquals(carriesTo('openRouterOpenAi', openAi), false);
 });
 
+Deno.test('openRouterOpenAi sends the host routing beside its own, and the host wins', async () => {
+  const provider = { only: ['gmicloud/fp8'], allow_fallbacks: false };
+  const { sent, call } = setup(
+    [{ choices: [{ delta: { content: 'Rain.' }, finish_reason: 'stop' }] }],
+    { provider },
+  );
+  await collect(callProtocol(call).complete(request));
+  assertEquals(sent[0]?.provider, { require_parameters: true, ...provider });
+
+  const off = setup([{ choices: [{ delta: { content: 'Rain.' }, finish_reason: 'stop' }] }], {
+    provider: { require_parameters: false },
+  });
+  await collect(callProtocol(off.call).complete(request));
+  assertEquals(off.sent[0]?.provider, { require_parameters: false });
+});
+
+Deno.test('openRouterOpenAi refuses a routing field it does not know', () => {
+  const parsed = openRouterOpenAi.options.safeParse({ provider: { onlyy: ['a'] } });
+  assertEquals(parsed.success, false);
+});
+
 Deno.test('openRouterOpenAi writes its body: effort, routing, cache, session, web search, reasoning', async () => {
   const { sent, call } = setup(
     [{ choices: [{ delta: { content: 'Rain.' }, finish_reason: 'stop' }] }],

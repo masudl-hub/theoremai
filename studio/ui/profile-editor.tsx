@@ -1400,7 +1400,7 @@ function ProtocolOptionRow({
 }) {
   const value = optionAt(binding.options, option.path);
   const field = `options.${option.path}`;
-  const write = (next: string | number | boolean | undefined) => {
+  const write = (next: string | number | boolean | string[] | undefined) => {
     set({ options: withOption(binding.options, option.path, next) });
   };
   const common = {
@@ -1447,6 +1447,18 @@ function ProtocolOptionRow({
           hint={option.description}
           onChange={(next) => {
             write(next ?? undefined);
+          }}
+        />
+      );
+    case 'names':
+      return (
+        <NamesRow
+          label={option.label}
+          path="models.*.options"
+          field={field}
+          value={Array.isArray(value) ? value.filter((name) => typeof name === 'string') : []}
+          onChange={(next) => {
+            write(next.length ? next : undefined);
           }}
         />
       );

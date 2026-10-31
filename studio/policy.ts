@@ -110,6 +110,7 @@ const MODEL_IDS: Record<ModelProfileType, string> = {
   text: 'fast',
   image: 'image',
   speech: 'voice',
+  transcription: 'transcription',
   live: 'live',
   decision: 'decision',
   embedding: 'embedding',

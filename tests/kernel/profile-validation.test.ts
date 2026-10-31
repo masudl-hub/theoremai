@@ -110,12 +110,12 @@ Deno.test('a definition must be an object with an id and a known type', () => {
   }
   check(
     said(textProfile({ type: 'video' })),
-    'Profile p: type must be one of text, image, speech, live, decision, embedding, host',
+    'Profile p: type must be one of text, image, speech, transcription, live, decision, embedding, host',
     'unknown type',
   );
   check(
     said(textProfile({ type: undefined })),
-    'Profile p: type must be one of text, image, speech, live, decision, embedding, host',
+    'Profile p: type must be one of text, image, speech, transcription, live, decision, embedding, host',
     'no type',
   );
 });

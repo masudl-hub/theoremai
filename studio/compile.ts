@@ -16,6 +16,7 @@ import {
   type SpeechProfileDefinition,
   type TextProfileDefinition,
   TheoremError,
+  type TranscriptionProfileDefinition,
 } from '@theoremjs/agents';
 import {
   BOUNDARIES,
@@ -135,6 +136,7 @@ export type StudioProfileDefinition =
   | TextProfileDefinition
   | ImageProfileDefinition
   | SpeechProfileDefinition
+  | TranscriptionProfileDefinition
   | LiveProfileDefinition
   | DecisionProfileDefinition
   | EmbeddingProfileDefinition

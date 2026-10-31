@@ -30,6 +30,7 @@ export const PROFILE_TYPES = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
   'embedding',
@@ -644,14 +645,16 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The name this profile is registered and looked up by, at most 64 characters; registering the same id again replaces it.',
   ),
   'profile.type': field(
-    "'text' | 'image' | 'speech' | 'live' | 'decision' | 'embedding' | 'host'",
-    'What kind of agent this is, and so what each call gives back: text, image, speech, live, decision, embedding, or host.',
+    "'text' | 'image' | 'speech' | 'transcription' | 'live' | 'decision' | 'embedding' | 'host'",
+    'What kind of agent this is, and so what each call gives back: text, image, speech, transcription, live, decision, embedding, or host.',
     PROFILE_TYPES,
     {
       text: 'A chat or task agent. Each turn the model answers in text, or in JSON when outputs ask for a structured reply, and can call tools on the way.',
       image: 'Makes pictures from a prompt, in the shape, size, and format the image block sets.',
       speech:
         'Gives your app a voice. Each turn reads text aloud in the voice the speech block names.',
+      transcription:
+        'Turns a voice clip into text. Each turn takes one clip and gives back what was said.',
       live: 'For talking in real time. One continuous voice and video session, rather than separate turns.',
       decision:
         'For when your app needs a judgement, not a reply. It answers questions about a JSON state, each with a choice, a score, or a number.',
@@ -884,7 +887,10 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     ATTACHMENT_ACCEPT_MIMES,
     "Types the kernel knows; a listed type it doesn't know is refused when a turn sends it.",
   ),
-  'inputs.voice': field('{ accept: string[] }', 'Lets turns send voice clips.'),
+  'inputs.voice': field(
+    '{ accept: string[] }',
+    'Lets turns send voice clips. A transcription profile must set it.',
+  ),
   'inputs.voice.accept': field(
     'string[]',
     'The audio types a voice clip may be; audio/* matches them all.',

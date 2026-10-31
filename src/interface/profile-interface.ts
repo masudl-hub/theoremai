@@ -245,6 +245,15 @@ const profileInterface = z.discriminatedUnion('type', [
   }),
   z.object({
     ...common,
+    type: z.literal('transcription'),
+    identity: z.object({ handle: z.string() }),
+    maxSteps: z.undefined().optional(),
+    outputs: outputs.optional(),
+    inputs,
+    canStop: z.literal(true),
+  }),
+  z.object({
+    ...common,
     type: z.literal('speech'),
     identity: z.object({ handle: z.string() }),
     outputs: outputs.optional(),

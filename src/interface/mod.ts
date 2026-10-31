@@ -125,6 +125,7 @@ export type {
   TextProfileInterface,
   TranscriptBlock,
   TranscriptBlockKind,
+  TranscriptionProfileInterface,
   UserTurnDraft,
 } from './types.ts';
 export { streamThoughtsEnabled } from './types.ts';

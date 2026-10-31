@@ -100,6 +100,7 @@ Deno.test('OpenRouter serves chat, images, and decisions at its defaults, signed
       'openRouterEmbeddings',
       'openRouterImages',
       'openRouterOpenAi',
+      'openRouterTranscriptions',
     ],
   );
   const sent = await chat(registry, 'openrouter', 'openRouterOpenAi', { main: 'k-main' });
@@ -201,6 +202,7 @@ Deno.test('OpenRouter, TypeSafe, and a local server share one registry and its p
       'openRouterEmbeddings',
       'openRouterImages',
       'openRouterOpenAi',
+      'openRouterTranscriptions',
       'systemOne',
     ],
   );

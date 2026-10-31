@@ -30,6 +30,7 @@ import { profileInputs, requireModelBinding } from './catalog.ts';
 import {
   assertOutputMode,
   assertSpeechRole,
+  assertTranscriptionRole,
   assertTurnContext,
   assertTurnSlots,
   resolveImageFormat,
@@ -209,11 +210,12 @@ function resolveLiveSpec(
 
 /**
  * A canary for the turn while `canary_leak` reads somewhere, else none. Speech
- * has no system prompt to plant one in.
+ * and transcription have no system prompt to plant one in.
  */
 function plantedCanary(profile: ModelProfile): string {
   const { detect } = resolveGuardrailPolicy(profile.guardrails);
-  return profile.type !== 'speech' && detects(detect, 'canary_leak') ? mintCanary() : '';
+  const noPrompt = profile.type === 'speech' || profile.type === 'transcription';
+  return !noPrompt && detects(detect, 'canary_leak') ? mintCanary() : '';
 }
 
 /**
@@ -270,6 +272,7 @@ function resolveTurnInRegistry(
     );
   }
   assertSpeechRole(profile, safe);
+  assertTranscriptionRole(profile, safe);
   const builtInArgs = resolveBuiltInArgs(profile, picked, binding, safe.builtInArgs);
   const transport = resolveTransport(profile, binding);
   const provider = registry.providers.get(binding.provider);

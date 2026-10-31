@@ -51,6 +51,7 @@ Theorem supports 7 first-class profile types. The `type` determines which runner
 | **`embedding`** | Vector representation for semantic search and document retrieval. | [Embedding Profiles](2-1-6-embedding-profiles.md) |
 | **`image`** | Media asset generation and editing from text prompts, configured via the `image` block (`aspectRatio`, `resolution`, `mimeType`). | [Image Profiles](2-1-4-image-profiles.md) |
 | **`speech`** | Text-to-speech audio synthesis, configured via the `speech` block (`voice`, `style`, `speed`, `format`). | [Speech Profiles](2-1-5-speech-profiles.md) |
+| **`transcription`** | Speech to text: one voice clip in, the words out as text. | [Transcription Profiles](2-1-8-transcription-profiles.md) |
 | **`host`** | Governed passthrough tool runner with no underlying model, executing MCP, HTTP, and local tools under standard boundary guardrails. | [Host Profiles](2-1-7-host-profiles.md) |
 
 ---

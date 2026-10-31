@@ -10,6 +10,7 @@ export const ALL_PROFILE_TYPES: readonly ProfileType[] = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
   'embedding',
@@ -19,6 +20,7 @@ const MODEL_PROFILE_TYPES: readonly ProfileType[] = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
   'embedding',
@@ -27,10 +29,11 @@ const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
 /** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
 const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
 const TURN_INPUT_REASON =
-  'a decision takes JSON state, and live takes its input through live.ingress';
+  'a decision takes JSON state, live takes its input through live.ingress, and transcription takes only a clip';
 /** Types that take slots and context: the turn types, and a call. */
 const SLOT_TYPES: readonly ProfileType[] = ['text', 'image', 'live'];
-const SLOT_REASON = 'a decision takes JSON state, and an embedding call embeds its input alone';
+const SLOT_REASON =
+  'a decision takes JSON state, and transcription and embedding calls take their input alone';
 export interface ProfileFieldScope {
   profileTypes: readonly ProfileType[];
   /** Why other types can't take it — shown in `defineProfile` errors and authoring UIs. */
@@ -44,8 +47,8 @@ export interface ProfileFieldScope {
 /** Guardrails a host profile may set keep `host`; the rest guard a model turn. */
 function turnGuardrailTypes(key: string): readonly ProfileType[] {
   return (HOST_GUARDRAIL_FIELDS as readonly string[]).includes(key)
-    ? [...TURN_TYPES, 'host']
-    : TURN_TYPES;
+    ? [...TURN_TYPES, 'transcription', 'host']
+    : [...TURN_TYPES, 'transcription'];
 }
 /**
  * The profile's own settings, which no section holds. The catalog names each `profile.<key>`, as
@@ -113,14 +116,14 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'models.*.compaction': {
     profileTypes: ['text', 'image', 'speech'],
     reason:
-      'live compacts with live.contextCompression, and decision and embedding calls keep no conversation to compact',
+      'live compacts with live.contextCompression, and transcription, decision, and embedding calls keep no conversation to compact',
   },
   'profile.defaultModel': {
-    profileTypes: [...TURN_TYPES, 'embedding'],
+    profileTypes: [...TURN_TYPES, 'transcription', 'embedding'],
     reason: 'a host profile runs no model and a decision declares exactly one',
   },
   'profile.allowModelSelect': {
-    profileTypes: [...TURN_TYPES, 'embedding'],
+    profileTypes: [...TURN_TYPES, 'transcription', 'embedding'],
     reason: 'a host profile runs no model and a decision declares exactly one',
   },
   'profile.maxSteps': {
@@ -133,7 +136,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   live: { profileTypes: ['live'], reason: 'only live profiles open a realtime session' },
   tools: {
     profileTypes: ['text', 'image', 'live', 'host'],
-    reason: 'speech, decision, and embedding profiles call no tools',
+    reason: 'speech, transcription, decision, and embedding profiles call no tools',
   },
   'tools.t1Policy': {
     profileTypes: ['text', 'image'],
@@ -146,16 +149,16 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
       'live function declarations are fixed at session setup, and a host profile can execute every allowed tool',
   },
   inputs: {
-    profileTypes: ['text', 'image', 'live', 'decision', 'embedding'],
+    profileTypes: ['text', 'image', 'transcription', 'live', 'decision', 'embedding'],
     reason: 'speech input is the transcript, and a host profile takes no turns',
   },
   'inputs.voice': {
-    profileTypes: ['text'],
+    profileTypes: ['text', 'transcription'],
     reason:
       'no image model reads audio, live takes audio through live.ingress, a decision takes JSON state, and an embedding call takes text and files',
   },
   'inputs.text': {
-    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
+    profileTypes: [...TURN_INPUT_TYPES, 'transcription', 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.attachments': {
@@ -163,19 +166,19 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: TURN_INPUT_REASON,
   },
   'inputs.maxFiles': {
-    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
+    profileTypes: [...TURN_INPUT_TYPES, 'transcription', 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.maxBytes': {
-    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
+    profileTypes: [...TURN_INPUT_TYPES, 'transcription', 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.maxTurnBytes': {
-    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
+    profileTypes: [...TURN_INPUT_TYPES, 'transcription', 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.limitsByMime': {
-    profileTypes: [...TURN_INPUT_TYPES, 'embedding'],
+    profileTypes: [...TURN_INPUT_TYPES, 'transcription', 'embedding'],
     reason: TURN_INPUT_REASON,
   },
   'inputs.slots': {
@@ -197,7 +200,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   outputs: {
     profileTypes: ['text', 'image', 'speech'],
     reason:
-      'live output is the realtime session, and decision, embedding, and host profiles produce no turn output',
+      'live output is the realtime session, a transcription gives back its text, and decision, embedding, and host profiles produce no turn output',
   },
   'outputs.structured': {
     profileTypes: ['text'],
@@ -235,16 +238,16 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
   'guardrails.blockedReply': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'only a reply can be blocked, and speech, decision, embedding, and host profiles write none',
+      'only a reply can be blocked, and speech, transcription, decision, embedding, and host profiles write none',
   },
   'guardrails.network': {
     profileTypes: ['text', 'image', 'live', 'host'],
-    reason: 'speech, decision, and embedding profiles call no tools',
+    reason: 'speech, transcription, decision, and embedding profiles call no tools',
   },
   'guardrails.taint': {
     profileTypes: ['text', 'image', 'live'],
     reason:
-      'speech, decision, and embedding profiles call no tools, and a host profile runs no turn to taint',
+      'speech, transcription, decision, and embedding profiles call no tools, and a host profile runs no turn to taint',
   },
   'guardrails.disclosure': {
     profileTypes: ['decision'],

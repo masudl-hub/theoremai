@@ -925,6 +925,16 @@ function imageInputs(inputs: InputsDraft): InputsDraft {
   };
 }
 
+/** Inputs a transcription profile can take: a voice clip and nothing else. */
+function transcriptionInputs(inputs: InputsDraft): InputsDraft {
+  return {
+    ...inputs,
+    text: false,
+    attachmentsAccept: [],
+    voiceAccept: inputs.voiceAccept.length ? inputs.voiceAccept : ['audio/*'],
+  };
+}
+
 /** Updates a binding and keeps the default model attached to it through an id change. */
 export function updateModelBinding(
   draft: StudioDraft,
@@ -1035,7 +1045,12 @@ export function setProfileType(
     modelBindings.some((binding) => isGoogleRoute(modelRoute(draft.providers, type, binding)));
   return {
     ...retyped,
-    inputs: type === 'image' ? imageInputs(draft.inputs) : draft.inputs,
+    inputs:
+      type === 'image'
+        ? imageInputs(draft.inputs)
+        : type === 'transcription'
+          ? transcriptionInputs(draft.inputs)
+          : draft.inputs,
     ...(voiceless ? { speech: { ...draft.speech, voice: GOOGLE_STARTING_VOICE } } : {}),
     models: {
       ...draft.models,
@@ -1053,6 +1068,7 @@ const MODEL_PROFILE_TYPES: readonly ModelProfileType[] = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
 ];

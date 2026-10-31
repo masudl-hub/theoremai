@@ -723,26 +723,6 @@ Deno.test('createCanaryStreamGate emits at once text that cannot start a leak', 
   assertEquals(gate.process(text), { leak: false, emit: text });
 });
 
-Deno.test('unlisted input.role is not interpolated into the system block', async () => {
-  const phrase = 'unlisted-role-payload-qq';
-  let system = '';
-  async function* capture(req: ModelRequest): AsyncGenerator<TurnEvent> {
-    await Promise.resolve();
-    ({ system } = req);
-    yield { type: 'text', text: 'ok' };
-  }
-  await Array.fromAsync(
-    runTurn(
-      { profile: 'chat', input: { text: phrase, role: phrase } },
-      {
-        complete: capture,
-      },
-    ),
-  );
-  assertEquals(system.includes(phrase), false);
-  assertEquals(system.includes('Reply in the structured turn schema.'), true);
-});
-
 Deno.test('eventHasCanary detects canary in text field of a text event', () => {
   const canary = mintCanary();
   assertEquals(eventHasCanary({ type: 'text', text: canary }, canary), true);

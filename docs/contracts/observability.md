@@ -16,6 +16,7 @@ named `<operation> <apiId>`. The first-party protocols state these names:
 | `geminiInteractions` | `text`, `image`, `speech` | `generate_content` |
 | `geminiLive` | `live` | `generate_content` |
 | `openRouterImages` | `image` | `generate_content` |
+| `openRouterTranscriptions` | `transcription` | `transcribe` |
 | `geminiEmbeddings`, `openRouterEmbeddings`, `ollamaEmbeddings` | `embedding` | `embeddings` |
 | `openRouterDecisions`, `systemOne` | `decision` | `decide` |
 

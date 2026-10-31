@@ -20,6 +20,7 @@ import type {
   Source,
   SpeechProfile,
   TextProfile,
+  TranscriptionProfile,
   TurnStop,
   TurnTokens,
 } from '../kernel/types.ts';
@@ -142,6 +143,13 @@ export type SpeechProfileInterface = Omit<
 > &
   ComposerInterfaceFields;
 
+/** A transcription profile as a client sees it, without its server-only fields. */
+export type TranscriptionProfileInterface = Omit<
+  TranscriptionProfile,
+  'guardrails' | 'observability' | 'labels' | 'models' | 'outputs' | 'inputs'
+> &
+  ComposerInterfaceFields;
+
 /** A live profile as a client sees it, without its server-only fields. */
 export type LiveProfileInterface = Omit<
   LiveProfile,
@@ -162,6 +170,7 @@ export type ProfileInterface =
   | TextProfileInterface
   | ImageProfileInterface
   | SpeechProfileInterface
+  | TranscriptionProfileInterface
   | LiveProfileInterface;
 
 /** Turn/chat composer profiles — excludes live (realtime streams, no turn inputs block). */

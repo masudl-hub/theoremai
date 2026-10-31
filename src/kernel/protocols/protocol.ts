@@ -25,6 +25,7 @@ const MODEL_PROFILE_TYPES = [
   'text',
   'image',
   'speech',
+  'transcription',
   'live',
   'decision',
   'embedding',

@@ -204,7 +204,12 @@ const fake: TurnModel = { complete: fakeComplete };
 const LONG_FLASH = 40000;
 function withTools(id: ProfileId, extra: ToolId[]) {
   const profile = getProfile(id);
-  if (profile.type === 'speech' || profile.type === 'decision' || profile.type === 'embedding') {
+  if (
+    profile.type === 'speech' ||
+    profile.type === 'transcription' ||
+    profile.type === 'decision' ||
+    profile.type === 'embedding'
+  ) {
     throw new Error(`withTools: profile '${id}' does not support tools`);
   }
   return withProfileTools(profile, extra);

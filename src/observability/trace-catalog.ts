@@ -307,7 +307,13 @@ const CASE_KINDS: Readonly<Record<'capability' | 'regression', TraceOptionMeta>>
 
 const OPERATIONS: Readonly<
   Record<
-    'invoke_agent' | 'chat' | 'generate_content' | 'execute_tool' | 'decide' | 'embeddings',
+    | 'invoke_agent'
+    | 'chat'
+    | 'generate_content'
+    | 'transcribe'
+    | 'execute_tool'
+    | 'decide'
+    | 'embeddings',
     TraceOptionMeta
   >
 > = {
@@ -317,6 +323,7 @@ const OPERATIONS: Readonly<
     label: 'Generate content',
     doc: 'A model call that generates content other than over chat completions: Gemini, speech, or images.',
   },
+  transcribe: { label: 'Transcribe', doc: 'One transcription call: a voice clip in, text out.' },
   execute_tool: { label: 'Run tool', doc: 'A tool call theorem ran.' },
   decide: {
     label: 'Decide',
@@ -1738,6 +1745,7 @@ function traceSpanMeta(span: TraceSpan): TraceSpanMeta {
       );
     case 'chat':
     case 'generate_content':
+    case 'transcribe':
       return withSubject(
         'theorem.request.live' in span.attributes ? 'response' : 'call',
         stringAttribute(span, 'gen_ai.request.model'),

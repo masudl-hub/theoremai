@@ -313,6 +313,7 @@ export type {
   ProfileRegistry,
   SpeechProfileDefinition,
   TextProfileDefinition,
+  TranscriptionProfileDefinition,
 } from './src/kernel/registry/profiles.ts';
 export { createProfileRegistry, defineProfile } from './src/kernel/registry/profiles.ts';
 export { pickModel } from './src/kernel/registry/resolve.ts';

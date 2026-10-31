@@ -342,6 +342,11 @@ const PROFILE_TYPE_SEGMENTS: Segment<StudioProfileType>[] = [
   { value: 'text', label: 'Text', icon: PROFILE_TYPE_ICON.text },
   { value: 'image', label: 'Image', icon: PROFILE_TYPE_ICON.image },
   { value: 'speech', label: 'Speech', icon: PROFILE_TYPE_ICON.speech },
+  {
+    value: 'transcription',
+    label: 'Transcription',
+    icon: PROFILE_TYPE_ICON.transcription,
+  },
   { value: 'live', label: 'Live', icon: PROFILE_TYPE_ICON.live },
   { value: 'decision', label: 'Decision', icon: PROFILE_TYPE_ICON.decision },
   { value: 'embedding', label: 'Embedding', icon: PROFILE_TYPE_ICON.embedding },
@@ -561,6 +566,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
         )}
       </InspectorSection>
       {identity.profileType !== 'speech' &&
+        identity.profileType !== 'transcription' &&
         identity.profileType !== 'decision' &&
         identity.profileType !== 'host' && <SystemPromptSection identity={identity} set={set} />}
     </>
@@ -1945,29 +1951,34 @@ function InputAcceptsSection({
   inputs,
   set,
   image,
+  voiceOnly,
   hasSizes,
-}: InputsSectionProps & { image: boolean; hasSizes: boolean }) {
+}: InputsSectionProps & { image: boolean; voiceOnly: boolean; hasSizes: boolean }) {
   const attachmentPicker = image ? IMAGE_ATTACHMENT_PICKER : ATTACHMENT_PICKER;
   return (
     <InspectorSection title="Accepts" path="inputs">
-      <SwitchRow
-        label="Text"
-        path="inputs.text"
-        value={inputs.text}
-        onChange={(text) => {
-          set({ text });
-        }}
-      />
-      <AcceptRow
-        label="Attachments"
-        path="inputs.attachments.accept"
-        value={{ accept: inputs.attachmentsAccept, limits: inputs.limitsByMime }}
-        picker={attachmentPicker}
-        hasSizes={hasSizes}
-        onChange={({ accept, limits }) => {
-          set({ attachmentsAccept: accept, limitsByMime: limits });
-        }}
-      />
+      {!voiceOnly && (
+        <>
+          <SwitchRow
+            label="Text"
+            path="inputs.text"
+            value={inputs.text}
+            onChange={(text) => {
+              set({ text });
+            }}
+          />
+          <AcceptRow
+            label="Attachments"
+            path="inputs.attachments.accept"
+            value={{ accept: inputs.attachmentsAccept, limits: inputs.limitsByMime }}
+            picker={attachmentPicker}
+            hasSizes={hasSizes}
+            onChange={({ accept, limits }) => {
+              set({ attachmentsAccept: accept, limitsByMime: limits });
+            }}
+          />
+        </>
+      )}
       {!image && (
         <AcceptRow
           label="Voice"
@@ -2332,19 +2343,21 @@ function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
   const set = patch(setDraft, 'inputs');
   /** An image profile takes images, video, and PDF as references, and no voice. */
   const image = draft.identity.profileType === 'image';
+  const voiceOnly = !draftAllows(draft, 'inputs.attachments.accept');
   return (
     <>
-      {draftAllows(draft, 'inputs.attachments.accept') && (
+      {(!voiceOnly || draftAllows(draft, 'inputs.voice')) && (
         <InputAcceptsSection
           inputs={inputs}
           set={set}
           image={image}
+          voiceOnly={voiceOnly}
           hasSizes={draftAllows(draft, 'inputs.limitsByMime')}
         />
       )}
       {draftAllows(draft, 'inputs.maxFiles') && <InputLimitsSection inputs={inputs} set={set} />}
       {draftAllows(draft, 'inputs.context') && <InputContextSection inputs={inputs} set={set} />}
-      <InputSlotsSections inputs={inputs} set={set} />
+      {draftAllows(draft, 'inputs.slots') && <InputSlotsSections inputs={inputs} set={set} />}
     </>
   );
 }

@@ -244,8 +244,14 @@ function runtimeProfileDefinition(
   def: ProfileDefinition,
   runtime: StudioRuntime,
 ): ProfileDefinition {
-  // A speech, decision, or embedding profile calls no tools: no network or taint hold governs it.
-  if (def.type === 'speech' || def.type === 'decision' || def.type === 'embedding') return def;
+  // A speech, transcription, decision, or embedding profile calls no tools: no network or taint hold governs it.
+  if (
+    def.type === 'speech' ||
+    def.type === 'transcription' ||
+    def.type === 'decision' ||
+    def.type === 'embedding'
+  )
+    return def;
   // A host runs one tool per call, so a turn never reads before it acts; the kernel refuses taint there.
   if (def.type === 'host') {
     return {

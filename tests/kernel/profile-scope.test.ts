@@ -56,9 +56,19 @@ Deno.test('decision inputs are catalogued apart from turn inputs', () => {
   assertEquals(fieldMeta('inputs.state')?.required, true);
   assertEquals(fieldMeta('inputs.maxStateBytes')?.profileTypes, ['decision']);
   assertEquals(fieldMeta('inputs.maxStateBytes')?.unset, 'No cap');
-  for (const path of ['inputs.text', 'inputs.attachments.accept']) {
-    assertEquals(fieldMeta(path)?.profileTypes, ['text', 'image', 'embedding'], path);
+  assertEquals(fieldMeta('inputs.attachments.accept')?.profileTypes, [
+    'text',
+    'image',
+    'embedding',
+  ]);
+  for (const path of ['inputs.text', 'inputs.maxFiles', 'inputs.maxBytes', 'inputs.maxTurnBytes']) {
+    assertEquals(
+      fieldMeta(path)?.profileTypes,
+      ['text', 'image', 'transcription', 'embedding'],
+      path,
+    );
   }
+  assertEquals(fieldMeta('inputs.voice.accept')?.profileTypes, ['text', 'transcription']);
   for (const path of ['inputs.slots.*', 'inputs.context.from']) {
     assertEquals(fieldMeta(path)?.profileTypes, ['text', 'image', 'live'], path);
   }

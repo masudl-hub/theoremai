@@ -4,7 +4,7 @@
  */
 import type { LentKeys, LentModel, ModelProfileType } from '../../studio/mod.ts';
 
-const GEMINI: Record<Exclude<ModelProfileType, 'decision'>, LentModel> = {
+const GEMINI: Record<Exclude<ModelProfileType, 'decision' | 'transcription'>, LentModel> = {
   text: { id: 'gemini-3.1-flash-lite', label: '3.1 Flash Lite' },
   image: { id: 'gemini-3.1-flash-lite-image', label: '3.1 Flash Lite Image' },
   speech: { id: 'gemini-3.1-flash-tts-preview', label: '3.1 Flash TTS' },
@@ -19,7 +19,7 @@ const JEV: LentModel = { id: 'jev-latest', label: 'Jev' };
 const JEV_BOXES: LentModel = { id: 'jev-1.14.0', label: 'Jev 1.14' };
 
 /** The protocol each Gemini model of a type is spoken to in. */
-const GEMINI_PROTOCOL: Record<Exclude<ModelProfileType, 'decision'>, string> = {
+const GEMINI_PROTOCOL: Record<Exclude<ModelProfileType, 'decision' | 'transcription'>, string> = {
   text: 'geminiInteractions',
   image: 'geminiInteractions',
   speech: 'geminiInteractions',
@@ -29,6 +29,7 @@ const GEMINI_PROTOCOL: Record<Exclude<ModelProfileType, 'decision'>, string> = {
 
 const models: LentKeys['models'] = (type, definition) => {
   if (type === 'decision') return definition === 'typesafe' ? [JEV, JEV_BOXES] : [];
+  if (type === 'transcription') return [];
   if (definition === 'gemini') return type === 'text' ? [GEMINI.text, SECOND_TEXT] : [GEMINI[type]];
   return definition === 'openrouter' && type === 'text' ? [ROUTER] : [];
 };
@@ -39,7 +40,9 @@ export const TEST_KEYS: LentKeys = {
   start: (type) =>
     type === 'decision'
       ? { protocol: 'systemOne', provider: 'typesafe', apiId: JEV.id }
-      : { protocol: GEMINI_PROTOCOL[type], provider: 'gemini', apiId: GEMINI[type].id },
+      : type === 'transcription'
+        ? { protocol: 'openRouterTranscriptions', provider: 'openrouter', apiId: 'transcriber' }
+        : { protocol: GEMINI_PROTOCOL[type], provider: 'gemini', apiId: GEMINI[type].id },
   violation: (binding) => {
     const type = binding.decision ? 'decision' : undefined;
     const offered = type

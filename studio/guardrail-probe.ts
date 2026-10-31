@@ -773,9 +773,17 @@ function probeStatus(guardrails: readonly GuardrailEvent[], refused: boolean): P
 function assertProbeable(
   profile: ProfileDefinition,
   probe: GuardrailProbe,
-): asserts profile is Exclude<ProfileDefinition, { type: 'decision' | 'embedding' }> {
+): asserts profile is Exclude<
+  ProfileDefinition,
+  { type: 'decision' | 'embedding' | 'transcription' }
+> {
   const refusal = probeRefusal(profile);
-  if (refusal || profile.type === 'decision' || profile.type === 'embedding') {
+  if (
+    refusal ||
+    profile.type === 'decision' ||
+    profile.type === 'embedding' ||
+    profile.type === 'transcription'
+  ) {
     throw new TheoremError('request', refusal ?? ''); // labels-exempt: builder diagnostic
   }
   if (!probeBoundariesOf(profile).includes(probe.boundary)) {

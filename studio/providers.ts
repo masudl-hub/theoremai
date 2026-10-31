@@ -306,7 +306,9 @@ export function modelRoute(
 }
 
 function isModelProfileType(type: string): type is ModelProfileType {
-  return ['text', 'image', 'speech', 'live', 'decision', 'embedding'].includes(type);
+  return ['text', 'image', 'speech', 'transcription', 'live', 'decision', 'embedding'].includes(
+    type,
+  );
 }
 
 /** One option a protocol takes, as a row edits it. */

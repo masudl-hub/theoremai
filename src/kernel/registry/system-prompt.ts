@@ -13,7 +13,7 @@ function systemFromProfile(
   slots: Record<string, string> | undefined,
   req: TurnRequest,
 ): KeptSystemLine[] {
-  if (profile.type === 'speech') {
+  if (profile.type === 'speech' || profile.type === 'transcription') {
     return [];
   }
   const prompt = profile.identity.system;

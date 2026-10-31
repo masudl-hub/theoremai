@@ -48,7 +48,7 @@ class AgentCallFailed extends Error {
   }
 }
 
-/** The agents an agent tool can run: each has a turn that takes text. */
+/** The agents an agent tool can run: each has a turn that takes text, which a transcription turn does not. */
 const AGENT_TOOL_TYPES: ReadonlySet<Profile['type']> = new Set(['text', 'image', 'speech']);
 
 // why: Bytes that are not base64, or a text of only spaces, would be refused inside the called turn as the host's error and end the caller's turn; checked here, the model reads a failed call.

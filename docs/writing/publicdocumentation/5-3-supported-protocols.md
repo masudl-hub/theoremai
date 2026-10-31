@@ -34,6 +34,7 @@ A protocol declares which profile types it serves through its `endpoints` map. I
 | **`openAi`** | `text`, `speech` | `/chat/completions`, `/audio/speech` | Standard OpenAI-compatible chat completions and text-to-speech endpoints. |
 | **`geminiLive`** | `live` | `/google.ai.generativelanguage.v1beta...` | Real-time bidirectional WebSockets for audio, camera video, and barge-in interruption handling. |
 | **`openRouterImages`** | `image` | `/images` | Dedicated image generation endpoint with optional companion conversational text (`includeText`). |
+| **`openRouterTranscriptions`** | `transcription` | `/audio/transcriptions` | Speech to text. Sends one inline voice clip and returns the words as the turn's text. |
 | **`openRouterDecisions`** | `decision` | `/alpha/decisions` | Multi-question judgment against JSON state assets in a single synchronous call. |
 | **`systemOne`** | `decision` | `/systemone` | TypeSafe decision evaluation protocol supporting image assets and long context flags. |
 | **`geminiEmbeddings`** | `embedding` | `/models/{apiId}:embedContent` | Google vector generation supporting text, multimodal media inputs, and task-type routing. |

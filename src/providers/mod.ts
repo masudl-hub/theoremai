@@ -82,5 +82,7 @@ export { openRouterEmbeddings } from './openrouter/embeddings-protocol.ts';
 export { openRouterImages } from './openrouter/images-protocol.ts';
 export { openRouterOpenAi } from './openrouter/protocol.ts';
 export { openRouterProvider } from './openrouter/provider.ts';
+export type { OpenRouterTranscriptionsOptions } from './openrouter/transcriptions-protocol.ts';
+export { openRouterTranscriptions } from './openrouter/transcriptions-protocol.ts';
 export { systemOne } from './system-one/protocol.ts';
 export { typesafeProvider } from './typesafe/provider.ts';

@@ -69,6 +69,8 @@ import type {
   ProfileValidationSpec,
   SpeechProfile,
   TextProfile,
+  TranscriptionInputsSpec,
+  TranscriptionProfile,
 } from '../types.ts';
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeAllowed, profileInputs } from './catalog.ts';
@@ -126,6 +128,16 @@ export type SpeechProfileDefinition = Omit<ProfileDefinitionBase, 'identity'> & 
   turnBehaviour?: MediaTurnBehaviourSpec;
 };
 
+/** What a host writes to define a transcription profile. */
+export type TranscriptionProfileDefinition = Omit<
+  ProfileDefinitionBase,
+  'identity' | 'outputs' | 'maxSteps'
+> & {
+  type: 'transcription';
+  identity: TranscriptionProfile['identity'];
+  inputs: TranscriptionInputsSpec & { text?: false };
+};
+
 /** What a host writes to define a live profile. */
 export type LiveProfileDefinition = ProfileDefinitionBase & {
   type: 'live';
@@ -168,6 +180,7 @@ export type ProfileDefinition =
   | SpeechProfileDefinition
   | LiveProfileDefinition
   | DecisionProfileDefinition
+  | TranscriptionProfileDefinition
   | EmbeddingProfileDefinition
   | HostProfileDefinition;
 
@@ -195,6 +208,32 @@ function defineEmbeddingProfile(input: EmbeddingProfileDefinition): EmbeddingPro
     defaultModel: resolveDefaultModel(input.id, input),
     allowModelSelect: input.allowModelSelect,
     inputs: input.inputs,
+    guardrails: input.guardrails,
+    observability: input.observability,
+    labels: input.labels,
+  };
+}
+
+function defineTranscriptionProfile(input: TranscriptionProfileDefinition): TranscriptionProfile {
+  assertModelsNonEmpty(input.id, input.models);
+  assertGuardrails(input.id, input.guardrails as ProfileGuardrailsSpec | undefined);
+  assertObservability(input.id, input.observability);
+  for (const [modelId, binding] of Object.entries(input.models))
+    assertModelBinding(input.id, modelId, binding);
+  if ('text' in input.inputs && input.inputs.text !== false) {
+    throw new TheoremError(
+      'config',
+      `Profile ${input.id}: a transcription takes a voice clip, so inputs.text must be false`, // labels-exempt: developer config error
+    );
+  }
+  return {
+    type: 'transcription',
+    id: input.id,
+    identity: { handle: input.identity.handle },
+    ...profileModelFields(input),
+    providerContinuation: undefined,
+    maxSteps: undefined,
+    inputs: { ...input.inputs, text: false },
     guardrails: input.guardrails,
     observability: input.observability,
     labels: input.labels,
@@ -511,7 +550,10 @@ function assertTurnBehaviour(
   profileId: string,
   input: Exclude<
     ProfileDefinition,
-    HostProfileDefinition | DecisionProfileDefinition | EmbeddingProfileDefinition
+    | HostProfileDefinition
+    | DecisionProfileDefinition
+    | EmbeddingProfileDefinition
+    | TranscriptionProfileDefinition
   >,
 ): void {
   const tb = input.turnBehaviour as ProfileTurnBehaviourSpec | undefined;
@@ -608,6 +650,7 @@ function assertIdentitySystem(input: ProfileDefinition): void {
     input.type === 'host' ||
     input.type === 'decision' ||
     input.type === 'speech' ||
+    input.type === 'transcription' ||
     input.type === 'embedding'
   )
     return;
@@ -630,6 +673,8 @@ function defineProfile(input: TextProfileDefinition): TextProfile;
 function defineProfile(input: ImageProfileDefinition): ImageProfile;
 /** Validate a speech definition and return the profile. */
 function defineProfile(input: SpeechProfileDefinition): SpeechProfile;
+/** Validate a transcription definition and return the profile. */
+function defineProfile(input: TranscriptionProfileDefinition): TranscriptionProfile;
 /** Validate a live definition and return the profile. */
 function defineProfile(input: LiveProfileDefinition): LiveProfile;
 /** Validate a decision definition and return the profile. */
@@ -676,6 +721,9 @@ function defineProfile(input: ProfileDefinition): Profile {
   }
   if (input.type === 'embedding') {
     return defineEmbeddingProfile(input);
+  }
+  if (input.type === 'transcription') {
+    return defineTranscriptionProfile(input);
   }
   assertModelsNonEmpty(input.id, input.models);
   assertTurnBehaviour(input.id, input);

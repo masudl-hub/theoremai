@@ -81,7 +81,12 @@ function compiled(draft: StudioDraft) {
   const result = compileStudio(draft, ON_OWN_KEYS);
   if (!result.ok) throw new Error(`unexpected issues: ${JSON.stringify(result.issues)}`);
   const { profile } = result;
-  if (profile.type === 'decision' || profile.type === 'host' || profile.type === 'embedding')
+  if (
+    profile.type === 'decision' ||
+    profile.type === 'host' ||
+    profile.type === 'embedding' ||
+    profile.type === 'transcription'
+  )
     throw new Error('expected a turn profile');
   return { ...result, profile };
 }
@@ -1205,6 +1210,23 @@ Deno.test('an activity label follows nullable, union, and referenced schemas', (
   const flag = compile({ type: 'object', properties: { ok: { type: 'boolean' } } }, 'Done: {ok}');
   assert(!flag.ok);
   assertEquals(flag.issues[0].message, '{ok} is true or false; a label shows text or a number.');
+});
+Deno.test('a transcription draft compiles to one voice clip and nothing else', () => {
+  const draft = setProfileType(createExampleDraft(), 'transcription', TEST_KEYS);
+  assertEquals(draft.inputs.text, false);
+  const result = compileStudio(
+    { ...draft, inputs: { ...draft.inputs, maxFiles: 1, maxBytes: 1024, maxTurnBytes: 1024 } },
+    ON_OWN_KEYS,
+  );
+  assert(result.ok, JSON.stringify(result));
+  assert(result.profile.type === 'transcription');
+  assertEquals(result.profile.inputs, {
+    text: false,
+    voice: { accept: ['audio/*'] },
+    maxFiles: 1,
+    maxBytes: 1024,
+    maxTurnBytes: 1024,
+  });
 });
 Deno.test('an image draft pins references and output settings, and reports what it cannot send', () => {
   const draft = setProfileType(createExampleDraft(), 'image', TEST_KEYS);

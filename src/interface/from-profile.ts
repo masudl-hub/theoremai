@@ -181,6 +181,13 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
         turnBehaviour: profile?.type === 'speech' ? profile.turnBehaviour : undefined,
         canStop: true,
       });
+    case 'transcription':
+      return profileInterfaceSchema.parse({
+        ...shared,
+        type: 'transcription',
+        inputs,
+        canStop: true,
+      });
     case 'live':
       return profileInterfaceSchema.parse({
         ...shared,

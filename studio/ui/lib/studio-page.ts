@@ -89,7 +89,8 @@ export function pageInputsOf(payload: StudioRunPayload): PageInputs | null {
     profile.type === 'decision' ||
     profile.type === 'host' ||
     profile.type === 'embedding' ||
-    profile.type === 'speech'
+    profile.type === 'speech' ||
+    profile.type === 'transcription'
   ) {
     return null;
   }

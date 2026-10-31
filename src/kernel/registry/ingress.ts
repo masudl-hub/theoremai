@@ -70,6 +70,23 @@ function assertSpeechRole(profile: Profile, req: TurnRequest): void {
   }
 }
 
+/** A transcription turn has one job: a clip goes in. No system prompt reaches a model that follows none. */
+function assertTranscriptionRole(profile: Profile, req: TurnRequest): void {
+  if (profile.type !== 'transcription') return;
+  if (req.system) {
+    throw new TheoremError(
+      'config',
+      `Profile ${profile.id} (transcription) takes no system prompt — the input is the clip`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+  if (!req.input?.voice?.length) {
+    throw new TheoremError(
+      'request',
+      `Profile ${profile.id} (transcription) requires a voice clip`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    );
+  }
+}
+
 /** The profile's speech settings with this turn's laid over them. */
 function resolveSpeech(profile: Profile, req: TurnRequest): ProfileSpeechSpec | undefined {
   return profile.type === 'speech'
@@ -237,6 +254,7 @@ function assertTurnContext(profile: Profile, req: TurnRequest): void {
 export {
   assertOutputMode,
   assertSpeechRole,
+  assertTranscriptionRole,
   assertTurnContext,
   assertTurnSlots,
   resolveImageFormat,

@@ -871,6 +871,23 @@ export interface SpeechProfile extends Omit<ProfileCommon, 'identity'> {
   turnBehaviour?: MediaTurnBehaviourSpec;
 }
 
+/** A transcription profile's inputs: voice clips within byte limits, and no text. */
+export type TranscriptionInputsSpec = Required<Pick<ProfileInputsSpec, 'voice'>> &
+  Pick<ProfileInputsSpec, 'maxFiles' | 'maxBytes' | 'maxTurnBytes' | 'limitsByMime'>;
+
+/**
+ * Speech to text: a voice clip in, what was said out as the turn's text. No tools, no system
+ * prompt, and no canary, because the model follows no instruction and has nothing of the profile's to leak.
+ */
+export interface TranscriptionProfile
+  extends Omit<ProfileCommon, 'identity' | 'outputs' | 'maxSteps'> {
+  type: 'transcription';
+  identity: Pick<ProfileIdentity, 'handle'>;
+  inputs: TranscriptionInputsSpec & { text: false };
+  outputs?: undefined;
+  maxSteps?: undefined;
+}
+
 /** A profile that holds a live audio session. */
 export interface LiveProfile extends Omit<ProfileCommon, 'outputs'> {
   type: 'live';
@@ -902,6 +919,7 @@ export type Profile =
   | TextProfile
   | ImageProfile
   | SpeechProfile
+  | TranscriptionProfile
   | LiveProfile
   | DecisionProfile
   | EmbeddingProfile

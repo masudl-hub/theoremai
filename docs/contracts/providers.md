@@ -27,7 +27,7 @@ Keep the wire in the protocol. Keep the address and the sign-in in the provider.
 | `src/kernel/provider-runtime.ts` | Event validation, terminal checks, and checkpoints |
 | `src/kernel/provider-live.ts` | Normalized live operations for the session runner |
 | `src/providers/open-ai/protocol.ts` | The `openAi` protocol |
-| `src/providers/openrouter/` | The `openRouterOpenAi`, `openRouterImages`, and `openRouterDecisions` protocols, and `openRouterProvider` |
+| `src/providers/openrouter/` | The `openRouterOpenAi`, `openRouterImages`, `openRouterTranscriptions`, and `openRouterDecisions` protocols, and `openRouterProvider` |
 | `src/providers/openrouter/openai/reasoning-state.ts` | Native reasoning details for replay |
 | `src/providers/gemini/` | The `geminiInteractions` and `geminiLive` protocols, and `geminiProvider` |
 | `src/providers/google/interactions/` | Gemini Interactions request and event translation |
@@ -65,7 +65,7 @@ Register providers before profiles. Use the registered provider's model helper t
 
 | Provider | Serves |
 | --- | --- |
-| `openRouterProvider` (`openrouter`) | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterDecisions` (decision) |
+| `openRouterProvider` (`openrouter`) | `openRouterOpenAi` (text, speech), `openRouterImages` (image), `openRouterTranscriptions` (transcription), `openRouterDecisions` (decision) |
 | `geminiProvider` (`gemini`) | `geminiInteractions` (text, image, speech), `geminiLive` (live) |
 | Planned local embedding adapter | Embeddings through a host-supplied local runtime |
 | `localProvider` (`local`) | `openAi` (text, speech), `ollamaEmbeddings` (embedding) |
@@ -397,6 +397,7 @@ to the kernel vector result.
 | --- | --- |
 | `openRouterOpenAi` | Text at `/chat/completions`, speech at `/audio/speech` |
 | `openRouterImages` | Image at `/images` |
+| `openRouterTranscriptions` | Transcription at `/audio/transcriptions` |
 | `openRouterDecisions` | Decision at `decisionUrl`, by default `https://openrouter.ai/api/alpha/decisions` |
 
 `openRouterOpenAi` extends `openAi`. On text, it sets `provider.require_parameters` so that the router uses only upstreams that support every supplied parameter.
@@ -406,6 +407,8 @@ This example pins one endpoint:
 ```ts
 options: { provider: { only: ['gmicloud/fp8'], allow_fallbacks: false } }
 ```
+
+`openRouterTranscriptions` sends one inline clip as `input_audio`, in JSON, and reads the words from `text`. Its `options.provider` takes `zdr` and `data_collection` only. OpenRouter's transcription endpoint ignores `only`, `order`, and `ignore`, so the binding refuses them, and a clip it has no format name for fails with a `request` error.
 
 If the pinned endpoint cannot serve a request, the request fails. It does not fall back. Copy the slug from the model's page on OpenRouter.
 It decodes text, reasoning, fragmented tool arguments, structured output, citations, and usage.
@@ -585,7 +588,7 @@ The root also exports the default-scope registry functions, the binding schemas,
 | --- | --- |
 | Providers | `defineProvider`, `createProviderRegistry`, `Provider`, `ProviderDefinition`, `Registration`, `RegisteredProvider`, `ProviderRegistry`, `geminiProvider`, `openRouterProvider`, `typesafeProvider`, `localProvider` |
 | Sign-in | `bearer`, `header`, `query`, `Authorize`, `Signer`, `Outgoing`, `Serve`, `endpointUrlSchema` |
-| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
+| Protocols | `defineProtocol`, `extendProtocol`, `carriesTo`, `modelOptions`, `geminiInteractions`, `geminiLive`, `geminiEmbeddings`, `openAi`, `openRouterOpenAi`, `openRouterImages`, `openRouterTranscriptions`, `OpenRouterTranscriptionsOptions`, `openRouterDecisions`, `openRouterEmbeddings`, `ollamaEmbeddings`, `embeddingModelLimits`, `systemOne`, `Protocol`, `ProtocolDefinition`, `ProtocolExtension`, `ExtensionBodyAt`, `ExtensionReader`, `ModelProfileType` |
 | Protocol operations | `ProtocolContext`, `ProtocolOperations`, `ProtocolRequest`, `ProtocolSession`, `ProtocolSocket`, `ProtocolEvent`, `ProtocolContentEvent`, `SendInit`, `UpstreamFailure`, `Continuation`, `DecisionCall`, `EmbeddingCall`, `EmbeddingMediaKind`, `EmbeddingModelLimits`, `LiveToolResult` |
 | Model bindings | `ModelBinding`, `DecisionModelBinding` |
 | Provider data | `JsonValue`, `JsonObject`, `jsonValueSchema`, `jsonObjectSchema`, `PriceTable`, `ModelPrice`, `Rates` |

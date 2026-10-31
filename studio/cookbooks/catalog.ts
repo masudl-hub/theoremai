@@ -59,6 +59,11 @@ const EXAMPLE_PICKS: ModelPicks = {
         return { ...firstServed('gemini', type), apiId: 'gemini-3.1-flash-tts-preview' };
       case 'image':
         return { ...firstServed('gemini', type), apiId: 'gemini-3.1-flash-lite-image' };
+      case 'transcription':
+        return {
+          ...firstServed('openrouter', type),
+          apiId: 'mistralai/voxtral-mini-transcribe-3-0',
+        };
       case 'text':
         return { ...firstServed('gemini', type), apiId: 'gemini-3.1-flash-lite' };
       case 'embedding':

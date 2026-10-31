@@ -182,6 +182,7 @@ export type {
   ProfileRegistry,
   SpeechProfileDefinition,
   TextProfileDefinition,
+  TranscriptionProfileDefinition,
 } from './registry/profiles.ts';
 export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
 export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';

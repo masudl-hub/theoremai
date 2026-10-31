@@ -202,6 +202,8 @@ export interface ToolHostHooks<TIn = unknown> {
     | undefined
     | Promise<import('../stages.ts').StageResult | undefined>;
   exposeToModel?: boolean;
+  /** The model gets an `after` field: the tools in the same step that must settle before this call starts. */
+  after?: boolean;
 }
 
 export interface ToolOutputHooks<TOut = unknown> {
@@ -385,6 +387,7 @@ export interface AgentToolDef extends ToolBase {
   /** Channels the profile takes that the calling model can't fill; only `onAgentCall` sends them. */
   hostOnly?: AgentToolChannel[];
   preTool?: ToolHostHooks<AgentToolInput>['preTool'];
+  after?: ToolHostHooks<AgentToolInput>['after'];
   exposeToModel?: boolean;
 }
 

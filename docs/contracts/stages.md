@@ -383,6 +383,14 @@ OpenRouter, AI SDK, Gemini Live tool responses.
    every id is unknown. A wait that can never end — on the call itself, on a call that
    waits for this one, or on one that runs after it one at a time — fails the call
    (`wait_cycle`), and so does every call whose own wait is part of that loop.
+
+   A tool registered with `after: true` lets the model ask for this wait. Its input
+   gains `after`, a list of tool names. At `pre_tool` the kernel turns each name into
+   the ids of that tool's other calls in the step, joins them with `waitFor`, and takes
+   `after` out of the input before the body runs. A name with no call in the step fails
+   as `wait_unknown`. Outside a step, as in a live session, `after` waits on nothing.
+   `registerTool` refuses `after` on a tool with its own `after` input, or an input that
+   is not an object or a union of objects.
 2. On **gate**: emit gate wire for that call; **do not** start its body;
    **continue** siblings — a gate holds only its own call, and a sibling that
    gates waits too. After the batch, end with `done.stop.kind: 'gate'` +

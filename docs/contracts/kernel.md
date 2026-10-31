@@ -477,8 +477,8 @@ Live sessions emit the same stage names around utterance cycles and
    (shared with `invokeTool`), threading the host's `credentials` source (`ToolCredentialSource`, read one slot at a time as a signed-in tool runs) for authenticated HTTP/MCP tools and the opaque `host` context slot; `pre_tool` / `post_tool` stages + `preTool` run on that path.
    Every call of a step is announced first. With `tools.parallel: true` they then run side
    by side; left out or false, one at a time in the order the model made them. A call whose
-   `pre_tool` answers `waitFor` starts its body once those calls settle
-   ([stages.md](./stages.md#same-round-batch-rules)). The step ends when each has settled.
+   `pre_tool` answers `waitFor`, or that names tools in `after`, starts its body once those
+   calls settle ([stages.md](./stages.md#same-round-batch-rules)). The step ends when each has settled.
    Each reads the turn's taint, destinations, and visible tools as they stood when the step
    began, so a tool the `tools.t2Loader` loads can be called from the next step. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
@@ -962,7 +962,7 @@ const { phase, events } = await runTool({ profile, name: 'lookup_order', input: 
 
 | Layer | Owner | Role |
 | --- | --- | --- |
-| Registry | Host startup | Schema, handler, `access`, `loadTier`, `permission`, wire metadata |
+| Registry | Host startup | Schema, handler, `access`, `loadTier`, `permission`, `after`, wire metadata |
 | Profile | Host | `tools.allow` / `tools.t1Policy` / `tools.t2Loader`; `models.*.builtInTools` |
 | Turn | Host | `sessionPermissions` for consent; `credentials` source for authenticated HTTP/MCP tools (read per slot, only when a tool signs in); path / input / transport |
 | Execution | Kernel | Shared `executeRegisteredTool` for model and `invokeTool` paths |

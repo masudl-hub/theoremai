@@ -4,6 +4,7 @@ import { profileInputs } from '../registry/catalog.ts';
 import type { Profile, ProfileId } from '../types.ts';
 import { activityLabelProblem } from './activity-label.ts';
 import { agentToolInputFor, agentToolOutput, agentToolProfile, normalizeAgent } from './agent.ts';
+import { withCallOrder } from './call-order.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import { pageAnswerHandler } from './page-answer.ts';
 import {
@@ -212,17 +213,19 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   if (def.type === 'agent') {
     const profile = agentToolProfile(def, findProfile, findTool);
     const inputs = profileInputs(profile);
-    const input = agentToolInputFor({ type: profile.type, ...(inputs ? { inputs } : {}) }, def);
+    const taken = agentToolInputFor({ type: profile.type, ...(inputs ? { inputs } : {}) }, def);
+    const input = def.after ? withCallOrder(def.name, taken) : taken;
     const schemas = schemasFromZod({ ...def, input, output: agentToolOutput });
     return normalizeAgent(def, input, schemas);
   }
-  if (def.type === 'http') {
-    return normalizeHttp(def);
+  const ordered = def.after ? { ...def, input: withCallOrder(def.name, def.input) } : def;
+  if (ordered.type === 'http') {
+    return normalizeHttp(ordered);
   }
-  if (def.type === 'mcp') {
-    return normalizeMcp(def);
+  if (ordered.type === 'mcp') {
+    return normalizeMcp(ordered);
   }
-  return normalizeFunction(def);
+  return normalizeFunction(ordered);
 }
 
 /** The tools a scope has registered: register, look up, and list them, find a profile for agent tools, and reset. */

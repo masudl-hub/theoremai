@@ -1683,6 +1683,13 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       always_confirm: 'Asks every time.',
     },
   ),
+  'registerTool.after': {
+    ...field(
+      'boolean',
+      'Gives the model an after field on this tool: the tools called in the same step that must settle before this call starts. The kernel removes the field before the tool, the stages or a gate read the input. A name with no other call in the step fails the call wait_unknown.',
+    ),
+    unset: 'The model sets no order',
+  },
   'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
   'registerTool.labels': field(
     'ToolLabels',

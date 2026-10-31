@@ -10,7 +10,7 @@
 # (1-a) of itself plus a of the mean of the dropped layers nearest it. LENS=<weight> copies Horizon's score read from the layer behind
 # each kept layer through Horizon's own head. FRAC=<f> trains on that share of training pages (a cut that needs a ruling, R4). HID, LENS and MERGE need SRC unset or TMAP.
 # SETS=<sets.json> (teach_set.py sets) and WEIGHT=<set>=<w>,... scale the loss and the rank pairs on every window of those sets.
-# MIL=1 trains on row labels alone (a row is an attack if its top teach label is over 0.5): each batch is B rows, and only the window the current model ranks top in each row takes the loss. LOSS=bce.
+# MIL=1 trains on row labels alone (a row is an attack if its top teach label is over 0.5): each batch is B rows, and only the window the current model ranks top in each row takes the loss. LOSS=bce. MIX=<w> also copies the teach logit on one random window of each row, at weight w.
 # EMBK=<k> scores with the word table cut to rank k, as a table of k columns and a k x 384 projection would hold it. FACT=<k> trains with that table and projection, from the rank-k cut, and saves their product.
 # A stop signal (SIGTERM, as the swap guard sends) or every CKPT=<n> batches saves prune/<name>/ckpt.pt; the same command resumes from it.
 # Usage: prune.py <name> <layers> <epochs>
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     if os.environ.get('WEIGHT'):
         sets = json.load(open(os.environ['SETS'])); sw = {a: float(b) for a, b in (x.split('=') for x in os.environ['WEIGHT'].split(','))}
         swt = [sw.get(sets[w['owner']], 1.0) for w in W]
-    MIL = os.environ.get('MIL') == '1'; peak = {}
+    MIL, MIX = os.environ.get('MIL') == '1', float(os.environ.get('MIX', '0')); peak = {}
     for k, w in enumerate(W): peak[w['owner']] = max(peak.get(w['owner'], 0.0), p[k])
     goal = [float(peak[w['owner']] > .5) for w in W] if MIL else p
     cls, sep = lut[tok.cls_token_id], lut[tok.sep_token_id]
@@ -133,7 +133,7 @@ if __name__ == '__main__':
         else: tr.sort(key=lambda k: len(ids[k]) + random.random() * 64); bs = rows() if MIL else pages() if PAGE else [tr[s:s + B] for s in range(0, len(tr), B)]; random.shuffle(bs); tot, first = 0, 0
         for nb, ks in enumerate(bs):
             if nb < first: continue
-            if MIL: ks = tops(ks)
+            if MIL: alt = list({W[k]['owner']: k for k in random.sample(ks, len(ks))}.values()); ks = tops(ks)
             x, am = batch(ks); out, hs = forward(x, am, hidden=bool(HID or LENS)); t = torch.tensor([tl[k] for k in ks], device=dev); sv = torch.tensor([swt[k] for k in ks], device=dev); w = torch.tensor([wt[k] for k in ks], device=dev) * sv
             if LOSS == 'bce': loss = (F.binary_cross_entropy_with_logits(out, torch.tensor([goal[k] for k in ks], device=dev), reduction='none') * w).mean()
             else: loss = (((out - t) ** 2) * w).mean() / 16
@@ -153,7 +153,9 @@ if __name__ == '__main__':
                     if LENS and i < len(tmap) - 1:
                         with torch.autocast('cuda', dtype=torch.float16, enabled=amp): sl = lens(m, hs[i + 1], am, False)
                         loss = loss + LENS * F.mse_loss(sl, tlens[i]) / 16 / (len(tmap) - 1)
-            opt.zero_grad(); scaler.scale(loss).backward(); scaler.step(opt); scaler.update(); sched.step(); tot += loss.item() * len(ks)
+            opt.zero_grad(); scaler.scale(loss).backward()
+            if MIL and MIX: scaler.scale(MIX * ((logit(*batch(alt)) - torch.tensor([tl[k] for k in alt], device=dev)) ** 2).mean() / 16).backward()
+            scaler.step(opt); scaler.update(); sched.step(); tot += loss.item() * len(ks)
             if dev == 'mps' and nb % 100 == 99: torch.mps.empty_cache()
             if stop: save(ep, nb, bs, tot); print('stopped at', ep, nb, flush=True); sys.exit(3)
             if CK and nb % CK == CK - 1: save(ep, nb, bs, tot)

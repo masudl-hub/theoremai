@@ -5,15 +5,15 @@ import numpy as np
 K=os.path.expanduser('~/Development/.guardrail-data/kaggle')
 A,B=(sys.argv[1:3]+['hz-small','t22n'])[:2] if len(sys.argv)<3 else sys.argv[1:3]
 def path(m,s):
-    if s in('full','bsbtest','bspp'): return f"{K}/{dict(t='k-t22s',u='k-u22s')[m[0]] if m[0] in 'tu' else 'k-bspp' if s=='bspp' else 'k-full'}/out/out/{s}-{m}.json"
-    return f"{K}/{dict(t='k-t22',u='k-u22').get(m[0],'k-diag')}/out/out/{s}-{m}.json"
+    if s in('full','bsbtest','bspp'): return f"{K}/{dict(t='k-t22s',u='k-u22s',m='k-m22s',f='k-m22s')[m[0]] if m[0] in 'tumf' else 'k-bspp' if s=='bspp' else 'k-full'}/out/out/{s}-{m}.json"
+    return f"{K}/{dict(t='k-t22',u='k-u22',m='k-m22',f='k-m22').get(m[0],'k-diag')}/out/out/{s}-{m}.json"
 lg=lambda p:np.log(np.clip(p,1e-7,1-1e-7)/(1-np.clip(p,1e-7,1-1e-7)))
 def maxby(v,o,n):
     r=np.full(n,-np.inf); np.maximum.at(r,o,v); return r
 def methods(s):
     a,b=[json.load(open(path(m,s))) for m in (A,B)]
     assert a['owner']==b['owner'],s
-    o=np.array(a['owner']); n=len(a['ntok']); N=np.array(a['ntok'],float).clip(1); x,y=lg(np.array(a['prob'])),lg(np.array(b['prob']))
+    o=np.array(a['owner']); N=np.array(json.load(open(path('hz-small',s)))['ntok'],float).clip(1); n=len(N); x,y=lg(np.array(a['prob'])),lg(np.array(b['prob']))
     H,T=maxby(x,o,n),maxby(y,o,n); R={A:H,B:T,'mean':maxby((x+y)/2,o,n),'and':maxby(np.minimum(x,y),o,n),'or':np.maximum(H,T)}
     for c in (64,128,256): w=np.minimum(1,N/c); R[f'switch{c}']=w*T+(1-w)*H
     for c in (1,2): R[f'lenpen{c}']=T+c*np.minimum(0,np.log(N/64))
@@ -52,7 +52,7 @@ for g,(s,y) in G.items():
     for c in (1,0):
         if (g=='bsafe-validate' and c==0) or not (y==c).any(): continue
         print(f'{g[:24]:24}{c:2}{int((y==c).sum()):7} '+' '.join(f'{100*(s[m][y==c]>th[m]).mean():8.1f}' for m in M))
-nt=np.array(json.load(open(path(A,'full')))['ntok'])
+nt=np.array(json.load(open(path('hz-small','full')))['ntok'])
 print('\nbench sets of 200 rows or more whose median row is under 128 tokens: flag % at the same thresholds\n'+f"{'set':30}{'y':>2}{'n':>7}{'tok':>6} "+' '.join(f'{m[:8]:>8}' for m in M))
 for g in sorted(set(fs)):
     for c in (1,0):

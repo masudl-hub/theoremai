@@ -7,6 +7,7 @@ const SECTION_NOTES = {
   models: 'Add a model here, then select its binding in the tree to configure it.',
   'models.decision': 'A decision uses one model. Select its binding in the tree to configure it.',
   decisionModel: 'This binding answers the questions configured under Decision.',
+  system: 'A blank line starts a new line. Wrap private text as {private: …}.',
   slots: "Each slot's picker sets what the preview sends. It is not saved in the profile.",
   context: 'Preview is what the studio sends as the page. It is not saved in the profile.',
   compaction: "The studio's chat compacts only before a turn.",

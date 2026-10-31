@@ -82,6 +82,7 @@ import type {
   ImageReferenceDraft,
   InputsDraft,
   LiveDraft,
+  ConditionDraft,
   ModelBindingDraft,
   ObservabilityDraft,
   OutputsDraft,
@@ -563,25 +564,45 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
   return parseRecord(raw, isString);
 }
 
-const isValueList = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every(isString);
+/** The conditions a draft declares so far: each one named with a value, the first of a name. */
+export function draftConditions(conditions: readonly ConditionDraft[]): Record<string, string[]> {
+  const declared: Record<string, string[]> = {};
+  for (const { name, values } of conditions) {
+    const named = name.trim();
+    if (named && values.length > 0 && !Object.hasOwn(declared, named)) declared[named] = values;
+  }
+  return declared;
+}
 
-/** The conditions a draft declares so far: none while they are not JSON. */
-export function draftConditions(conditionsJson: string): Record<string, string[]> {
-  return parseRecord(conditionsJson, isValueList) ?? {};
+/** What is wrong with each condition, reported on its row. Gives whether any was. */
+function reportConditions(
+  conditions: readonly ConditionDraft[],
+  slots: Record<string, readonly string[]>,
+  report: Report,
+): boolean {
+  const seen = new Set<string>();
+  let wrong = false;
+  conditions.forEach(({ name, values }, at) => {
+    const named = name.trim();
+    if (!named && values.length === 0) return;
+    const problem = !named
+      ? 'This condition needs a name.'
+      : seen.has(named)
+        ? `Two conditions are called "${named}".`
+        : systemLinesProblem('', { [named]: values }, slots);
+    seen.add(named);
+    if (!problem) return;
+    wrong = true;
+    report('identity', problem, 'conditions', at);
+  });
+  return wrong;
 }
 
 /** The prompt's lines and the facts they read, each problem reported on the identity section. */
 function compilePrompt(draft: StudioDraft, report: Report) {
-  const conditions = parseRecord(draft.identity.conditionsJson, isValueList);
-  if (conditions === null) {
-    report('identity', 'Conditions must be a JSON object of lists of values.', 'conditionsJson');
-  }
-  const lines = draft.identity.system.flatMap(({ text }) => {
-    const parsed = parseSystemMarkup(text);
-    if (!parsed.ok) report('identity', parsed.message, 'system');
-    return parsed.ok && parsed.prompt !== undefined ? [parsed.prompt] : [];
-  });
+  const parsed = parseSystemMarkup(draft.identity.system);
+  if (!parsed.ok) report('identity', parsed.message, 'system');
+  const lines = parsed.ok ? parsed.lines : [];
   const [first] = lines;
   const system: ProfileSystem | undefined =
     lines.length === 0
@@ -589,14 +610,16 @@ function compilePrompt(draft: StudioDraft, report: Report) {
       : lines.length === 1 && typeof first === 'string'
         ? first
         : lines;
-  const declared = conditions ?? undefined;
-  if (system !== undefined && conditions !== null) {
-    const slots = Object.fromEntries(
-      draft.inputs.slots.map((slot) => [
-        slot.name.trim(),
-        slot.choices.map((choice) => choice.value.trim()).filter(Boolean),
-      ]),
-    );
+  const slots = Object.fromEntries(
+    draft.inputs.slots.map((slot) => [
+      slot.name.trim(),
+      slot.choices.map((choice) => choice.value.trim()).filter(Boolean),
+    ]),
+  );
+  const wrong = reportConditions(draft.identity.conditions, slots, report);
+  const conditions = draftConditions(draft.identity.conditions);
+  const declared = Object.keys(conditions).length > 0 ? conditions : undefined;
+  if (system !== undefined && !wrong) {
     const problem = systemLinesProblem(system, declared, slots);
     if (problem) report('identity', problem, 'system');
   }

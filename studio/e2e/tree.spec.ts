@@ -68,6 +68,31 @@ test('a new tool goes on the agent and Save writes both', async ({ page }) => {
   expect(allText()).toContain("'wipe_desk', 'stamp_note'");
 });
 
+test('headers and resource attributes are rows, and Save writes them as objects', async ({
+  page,
+}) => {
+  await open(page);
+  await page.getByRole('button', { name: 'Observability', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Add attribute' }).click();
+  await page.getByRole('textbox', { name: 'Attribute 1 name' }).fill('service.name');
+  await page.getByRole('textbox', { name: 'Attribute 1 value' }).fill('desk');
+  await page.getByRole('button', { name: 'Add attribute' }).click();
+  await page.getByRole('textbox', { name: 'Attribute 2 name' }).fill('port');
+  await page.getByRole('textbox', { name: 'Attribute 2 value' }).fill('8080');
+  await page.getByRole('radio', { name: /Tools, 4/ }).click();
+  await page.getByRole('button', { name: 'Add tool' }).click();
+  await page.getByRole('radio', { name: 'HTTP' }).click();
+  await page.getByRole('textbox', { name: 'Endpoint' }).fill(`${FAKE}/requests`);
+  await page.getByRole('button', { name: 'Add header' }).click();
+  await page.getByRole('textbox', { name: 'Header 1 name' }).fill('Accept');
+  await page.getByRole('textbox', { name: 'Header 1 value' }).fill('text/plain');
+  await saveAll(page);
+  await expect(saved(page)).toBeVisible();
+  expect(allText()).toContain("Accept: 'text/plain'");
+  expect(allText()).toContain("'service.name': 'desk'");
+  expect(allText()).toContain('port: 8080');
+});
+
 test('discard takes every edit back from settings', async ({ page }) => {
   await open(page);
   const handle = page.getByRole('textbox', { name: 'Handle' }).first();

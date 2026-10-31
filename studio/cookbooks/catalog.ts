@@ -14,7 +14,6 @@ import {
   includeFacet,
   newOwnDetector,
   newPattern,
-  newSystemLine,
   type OwnDetectorDraft,
   type SlotDraft,
   type StudioDraft,
@@ -476,7 +475,7 @@ function exampleTextDraft(
   const inputs = demoInputsSpec();
   return {
     ...blank,
-    identity: { ...identity, profileType: 'text', conditionsJson: '' },
+    identity: { ...identity, profileType: 'text', conditions: [] },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'labels'],
     models: { defaultModel: 'open', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: defaultTextModelBindings(),
@@ -582,11 +581,8 @@ function createResearchCompactorDraft(): StudioDraft {
     {
       agentId: 'research.compactor',
       handle: 'compactor',
-      system: [
-        newSystemLine(
-          'Summarise the research so far. Keep every source URL, every exact quote, and every open lead.',
-        ),
-      ],
+      system:
+        'Summarise the research so far. Keep every source URL, every exact quote, and every open lead.',
     },
     { tools: { t2Loader: '', parallel: false }, toolSpecs: [] },
   );
@@ -627,7 +623,7 @@ function createResearchLiveDraft(): StudioDraft {
     identity: {
       ...draft.identity,
       agentId: 'research.scout.live',
-      system: [newSystemLine(DEMO_LIVE_RESEARCH_SYSTEM)],
+      system: DEMO_LIVE_RESEARCH_SYSTEM,
     },
   };
 }
@@ -653,7 +649,7 @@ export function createResearchScoutDraft(): StudioDraft {
     {
       agentId: 'research.scout',
       handle: 'scout',
-      system: [DEMO_RESEARCH_SYSTEM, ...RESEARCH_READER_LINES].map((line) => newSystemLine(line)),
+      system: [DEMO_RESEARCH_SYSTEM, ...RESEARCH_READER_LINES].join('\n\n'),
     },
     { tools: { t2Loader: '', parallel: true }, toolSpecs: exampleTools(DEMO_RESEARCH_TOOLS) },
   );
@@ -891,7 +887,7 @@ export function createExampleDraft(): StudioDraft {
     {
       agentId: 'travel.concierge',
       handle: 'concierge',
-      system: [newSystemLine(DEMO_CONCIERGE_SYSTEM)],
+      system: DEMO_CONCIERGE_SYSTEM,
     },
     {
       tools: { t2Loader: 'discover_tools', parallel: false },
@@ -908,7 +904,7 @@ export function createLiveExampleDraft(): StudioDraft {
     identity: {
       ...draft.identity,
       agentId: 'travel.concierge.live',
-      system: [newSystemLine(DEMO_LIVE_CONCIERGE_SYSTEM)],
+      system: DEMO_LIVE_CONCIERGE_SYSTEM,
     },
   };
 }
@@ -945,7 +941,7 @@ function architectDraft(): StudioDraft {
     {
       agentId: 'code.architect',
       handle: 'architect',
-      system: [newSystemLine(DEMO_ARCHITECT_SYSTEM)],
+      system: DEMO_ARCHITECT_SYSTEM,
     },
     { tools: { t2Loader: '', parallel: false }, toolSpecs: exampleTools(DEMO_ARCHITECT_TOOLS) },
   );

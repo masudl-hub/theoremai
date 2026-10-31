@@ -11,6 +11,7 @@ import { MASK } from '../../src/surface/mod.ts';
 import { ON_OWN_KEYS, type StudioRunsOn } from '../../studio/lent-keys.ts';
 import {
   COMPACTION_DRAFT_DEFAULTS,
+  type ConditionDraft,
   compileStudio,
   createBlankDraft,
   createExampleDraft,
@@ -25,7 +26,6 @@ import {
   newModelBinding,
   newOwnDetector,
   newPattern,
-  newSystemLine,
   newToolSpec,
   removeModelBinding,
   type SlotDraft,
@@ -832,7 +832,7 @@ Deno.test('studioSource writes a text of several lines one line to a line', () =
         ...draft.identity,
         agentId: 'demo.lines',
         handle: 'demo',
-        system: [newSystemLine("You are the desk.\nDon't guess.")],
+        system: "You are the desk.\nDon't guess.",
       },
     }),
   );
@@ -1417,7 +1417,7 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
     compileStudio(
       {
         ...draft,
-        identity: { ...draft.identity, system: lines.map((line) => newSystemLine(line)) },
+        identity: { ...draft.identity, system: lines.join('\n\n') },
       },
       ON_OWN_KEYS,
     );
@@ -1445,39 +1445,56 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
 });
 Deno.test('the prompt compiles line by line, with its conditions, and a bad line is reported', () => {
   const draft = createExampleDraft();
-  const withPrompt = (conditionsJson: string, ...lines: string[]) =>
+  const withPrompt = (conditions: ConditionDraft[], system: string) =>
     compileStudio(
       {
         ...draft,
         identity: {
           ...draft.identity,
-          conditionsJson,
-          system: lines.map((line) => newSystemLine(line)),
+          conditions,
+          system,
         },
       },
       ON_OWN_KEYS,
     );
+  const plan = (...values: string[]) => [{ key: 'plan', name: 'plan', values }];
   const good = withPrompt(
-    '{ "plan": ["free", "paid"] }',
-    'Be brief.',
-    '',
-    'when plan is paid: Take your time. {private: Code 7731.}',
+    plan('free', 'paid'),
+    'Be brief.\n\n\nwhen plan is paid: Take your time. {private: Code 7731.\n\nKeep it.}',
   );
   assert(good.ok && good.profile.type === 'text');
   assertEquals(good.profile.identity.conditions, { plan: ['free', 'paid'] });
   assertEquals(good.profile.identity.system, [
     'Be brief.',
-    ['when plan is paid: Take your time. ', { private: 'Code 7731.' }],
+    ['when plan is paid: Take your time. ', { private: 'Code 7731.\n\nKeep it.' }],
   ]);
-  const unknown = withPrompt('{ "plan": ["free"] }', 'when plan is gold: Hello.');
+  const unknown = withPrompt(plan('free'), 'when plan is gold: Hello.');
   assert(!unknown.ok);
   assertEquals(
     unknown.issues.map(({ nodeId, field }) => ({ nodeId, field })),
     [{ nodeId: 'identity', field: 'system' }],
   );
-  const shape = withPrompt('{ "plan": "free" }', 'Be brief.');
-  assert(!shape.ok);
-  assertEquals(shape.issues[0]?.field, 'conditionsJson');
+  const wrongRows = (...rows: { name: string; values: string[] }[]) => {
+    const wrong = withPrompt(
+      rows.map((row, at) => ({ ...row, key: String(at) })),
+      'Be brief.',
+    );
+    assert(!wrong.ok);
+    return wrong.issues.map(({ field, index, message }) => ({ field, index, message }));
+  };
+  assertEquals(wrongRows({ name: 'plan', values: [] }), [
+    { field: 'conditions', index: 0, message: 'Condition "plan" lists no values.' },
+  ]);
+  assertEquals(wrongRows({ name: '', values: ['free'] }), [
+    { field: 'conditions', index: 0, message: 'This condition needs a name.' },
+  ]);
+  assertEquals(
+    wrongRows({ name: 'plan', values: ['free'] }, { name: 'plan', values: ['paid'] }),
+    [{ field: 'conditions', index: 1, message: 'Two conditions are called "plan".' }],
+  );
+  const untouched = withPrompt([{ key: 'new', name: '', values: [] }], 'Be brief.');
+  assert(untouched.ok && untouched.profile.type === 'text');
+  assertEquals(untouched.profile.identity.conditions, undefined);
 });
 Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {
   const draft = createExampleDraft();

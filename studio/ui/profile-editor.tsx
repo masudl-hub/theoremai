@@ -170,6 +170,7 @@ import {
   agentToolTarget,
   bindingSlots,
   COMPACTION_DRAFT_DEFAULTS,
+  type ConditionDraft,
   canSize,
   type DecisionDraft,
   type DecisionImageDraft,
@@ -218,8 +219,8 @@ import {
   newOwnDetector,
   newPattern,
   newSlot,
+  newCondition,
   newSlotChoice,
-  newSystemLine,
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
@@ -265,6 +266,7 @@ import { IconGoogle, IconOpenAi, IconOpenRouter, IconTypeSafe } from './brand-ic
 import {
   type Choice,
   ChoiceRow,
+  EntriesRow,
   InspectorGroupTitle,
   InspectorRow,
   InspectorSection,
@@ -494,65 +496,114 @@ function SystemPromptSection({
   identity: StudioDraft['identity'];
   set: SetSection<'identity'>;
 }) {
-  const { system } = identity;
-  const setLine = (key: string, text: string) => {
-    set({ system: system.map((line) => (line.key === key ? { ...line, text } : line)) });
-  };
   return (
-    <InspectorSection title="System prompt">
-      {system.map((line, at) => (
-        <HStack key={line.key} gap={1} vAlign="start">
-          <StackItem size="fill">
-            <TextAreaRow
-              label={`Line ${String(at + 1)}`}
-              path="identity.system"
-              field="system"
-              rows={system.length === 1 ? ONLY_LINE_ROWS : LINE_ROWS}
-              value={line.text}
-              placeholder={fieldMeta('identity.system')?.unset}
-              onChange={(text) => {
-                setLine(line.key, text);
-              }}
-            />
-          </StackItem>
-          {system.length > 1 && (
-            <IconButton
-              label={`Remove line ${String(at + 1)}`}
-              variant="ghost"
-              size="sm"
-              icon={<Icon icon={IconX} size="sm" />}
-              onClick={() => {
-                set({ system: system.filter(({ key }) => key !== line.key) });
-              }}
-            />
-          )}
-        </HStack>
-      ))}
-      <HStack>
-        <Button
-          label="Add line"
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={IconPlus} size="sm" />}
-          onClick={() => {
-            set({ system: [...system, newSystemLine()] });
-          }}
-        />
-      </HStack>
+    <InspectorSection title="System prompt" note={sectionNote('system')}>
       <TextAreaRow
-        label="Conditions"
-        path="identity.conditions"
-        field="conditionsJson"
-        value={identity.conditionsJson}
-        rows={4}
-        hasSpellCheck={false}
-        placeholder={CONDITIONS_PLACEHOLDER}
-        onChange={(conditionsJson) => {
-          set({ conditionsJson });
+        label="Prompt"
+        path="identity.system"
+        field="system"
+        rows={PROMPT_ROWS}
+        value={identity.system}
+        placeholder={fieldMeta('identity.system')?.unset}
+        onChange={(system) => {
+          set({ system });
         }}
       />
-      <ConditionPreviewRows conditionsJson={identity.conditionsJson} />
     </InspectorSection>
+  );
+}
+
+/** One condition: its name, the values it takes as tokens, and the button that removes it. */
+function ConditionSection({
+  condition,
+  at,
+  onChange,
+  onRemove,
+}: {
+  condition: ConditionDraft;
+  at: number;
+  onChange: (change: Partial<ConditionDraft>) => void;
+  onRemove: () => void;
+}) {
+  const status = useFieldStatus()('conditions', at);
+  const name = condition.name.trim() || `Condition ${String(at + 1)}`;
+  return (
+    <InspectorSection title={name} path="identity.conditions">
+      <TextRow
+        label="Name"
+        path="identity.conditions"
+        status={status}
+        value={condition.name}
+        placeholder="plan"
+        onChange={(next) => {
+          onChange({ name: next });
+        }}
+      />
+      <NamesRow
+        label="Values"
+        path="identity.conditions"
+        value={condition.values}
+        placeholder="free"
+        onChange={(values) => {
+          onChange({ values });
+        }}
+      />
+      <HStack>
+        <Button
+          label={`Remove ${name}`}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconTrash} size="sm" />}
+          onClick={onRemove}
+        />
+      </HStack>
+    </InspectorSection>
+  );
+}
+
+/** Every condition, each in its own section, and the page's pick for each above them. */
+function ConditionSections({
+  identity,
+  set,
+}: {
+  identity: StudioDraft['identity'];
+  set: SetSection<'identity'>;
+}) {
+  const { conditions } = identity;
+  return (
+    <>
+      <InspectorSection title="Conditions" path="identity.conditions">
+        <ConditionPreviewRows conditions={conditions} />
+        <HStack>
+          <Button
+            label="Add condition"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconPlus} size="sm" />}
+            onClick={() => {
+              set({ conditions: [...conditions, newCondition()] });
+            }}
+          />
+        </HStack>
+      </InspectorSection>
+      {conditions.map((condition, at) => (
+        <ConditionSection
+          key={condition.key}
+          condition={condition}
+          at={at}
+          onChange={(change) => {
+            set({
+              conditions: conditions.map((each) =>
+                each.key === condition.key ? { ...each, ...change } : each,
+              ),
+            });
+          }}
+          onRemove={() => {
+            set({ conditions: conditions.filter((each) => each.key !== condition.key) });
+          }}
+        />
+      ))}
+    </>
   );
 }
 
@@ -603,7 +654,12 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
       {identity.profileType !== 'speech' &&
         identity.profileType !== 'transcription' &&
         identity.profileType !== 'decision' &&
-        identity.profileType !== 'host' && <SystemPromptSection identity={identity} set={set} />}
+        identity.profileType !== 'host' && (
+          <>
+            <SystemPromptSection identity={identity} set={set} />
+            <ConditionSections identity={identity} set={set} />
+          </>
+        )}
     </>
   );
 }
@@ -2174,9 +2230,9 @@ function SlotPreviewRows({ slots }: { slots: readonly SlotDraft[] }) {
 }
 
 /** The value the studio's page states for each condition declared so far. Kept in this tab. */
-function ConditionPreviewRows({ conditionsJson }: { conditionsJson: string }) {
+function ConditionPreviewRows({ conditions }: { conditions: readonly ConditionDraft[] }) {
   const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
-  return Object.entries(draftConditions(conditionsJson)).map(([name, allowed]) => (
+  return Object.entries(draftConditions(conditions)).map(([name, allowed]) => (
     <ChoiceRow
       key={name}
       label={name}
@@ -2417,13 +2473,8 @@ function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
   );
 }
 
-const CONDITIONS_PLACEHOLDER = `{
-  "plan": ["free", "paid"]
-}`;
-
-/** How tall a prompt line starts: one line alone is the whole prompt. */
-const ONLY_LINE_ROWS = 8;
-const LINE_ROWS = 3;
+/** How tall the system prompt starts. */
+const PROMPT_ROWS = 12;
 
 type SetBinding = (change: Partial<ModelBindingDraft>) => void;
 
@@ -5173,10 +5224,6 @@ function FlagList<K extends string>({
 
 const PERCENT = new Intl.NumberFormat('en-US', { style: 'percent' });
 
-const RESOURCE_PLACEHOLDER = `{
-  "service.name": "my-agent"
-}`;
-
 /** The observability slice of the draft and its setter, for each observability section. */
 interface ObservabilitySectionProps {
   observability: ObservabilityDraft;
@@ -5274,14 +5321,15 @@ function TraceStorageSection({ observability, set }: ObservabilitySectionProps) 
           set({ rotateAfterMiB });
         }}
       />
-      <TextAreaRow
+      <EntriesRow
         label="Resource"
+        noun="Attribute"
         path="observability.resource"
         field="resourceJson"
         value={observability.resourceJson}
-        rows={3}
-        hasSpellCheck={false}
-        placeholder={RESOURCE_PLACEHOLDER}
+        typed
+        namePlaceholder="service.name"
+        valuePlaceholder="my-agent"
         onChange={(resourceJson) => {
           set({ resourceJson });
         }}
@@ -5392,10 +5440,6 @@ function placeholderHint(schemas: string[]): string | undefined {
   }
   return names.size ? `Can use ${[...names].join(' ')}` : undefined;
 }
-
-const HEADERS_PLACEHOLDER = `{
-  "Accept": "application/json"
-}`;
 
 /** Adds a new tool to the draft and opens it. */
 export function addToolSpec(
@@ -6082,14 +6126,14 @@ function StubSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 /** The static headers HTTP and MCP tools both send. */
 function HeadersRow({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   return (
-    <TextAreaRow
+    <EntriesRow
       label="Headers"
+      noun="Header"
       path="registerTool.headers"
       field="headersJson"
       value={tool.headersJson ?? ''}
-      rows={4}
-      hasSpellCheck={false}
-      placeholder={HEADERS_PLACEHOLDER}
+      namePlaceholder="Accept"
+      valuePlaceholder="application/json"
       onChange={(headersJson) => {
         set({ headersJson });
       }}

@@ -592,7 +592,8 @@ class Planner {
           return;
         }
       }
-      if (!same(value, before)) {
+      // A block the file left empty reads as no block once the studio's own fill-ins come out.
+      if (!same(value, before) && !(before === undefined && same(value, {}))) {
         this.note('changed', path, { source, node });
         return;
       }

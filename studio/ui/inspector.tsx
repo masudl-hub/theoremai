@@ -1,4 +1,5 @@
 import type { InputStatus } from '@astryxdesign/core/Field';
+import { Button } from '@astryxdesign/core/Button';
 import { FieldStatus } from '@astryxdesign/core/FieldStatus';
 import { HoverCard } from '@astryxdesign/core/HoverCard';
 import { HStack } from '@astryxdesign/core/HStack';
@@ -25,10 +26,10 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconArrowBackUp, IconCheck, IconCode, IconCopy } from '@tabler/icons-react';
+import { IconArrowBackUp, IconCheck, IconCode, IconCopy, IconPlus, IconX } from '@tabler/icons-react';
 import { fieldMeta } from '@theoremjs/agents';
 import { type ReactNode, useContext, useState } from 'react';
-import { originLabel, originPlace, originShortLabel, STUDIO_PROFILE_TYPES } from '../mod.ts';
+import { draftKey, originLabel, originPlace, originShortLabel, STUDIO_PROFILE_TYPES } from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 import {
   ISSUE_ROW_ATTRIBUTE,
@@ -37,6 +38,7 @@ import {
   useFieldStatus,
   useRowOrigin,
 } from './inspector-context.ts';
+import { type Entry, entriesOf, entriesText } from './lib/entries.ts';
 import { tabFills } from './lib/tab-fills.ts';
 
 /**
@@ -386,6 +388,113 @@ function FillRow({
     >
       <StackItem size="fill">{children}</StackItem>
     </InspectorRow>
+  );
+}
+
+/**
+ * The names and values of an object the draft holds as JSON text, a row each. The rows are kept
+ * here while they are typed, since a row with no name is no part of the object yet, and start
+ * again from `value` when something else changes it. `typed` takes any JSON as a value.
+ */
+export function EntriesRow({
+  label,
+  noun,
+  path,
+  field,
+  value,
+  typed = false,
+  namePlaceholder,
+  valuePlaceholder,
+  onChange,
+}: {
+  label: string;
+  /** What one row is: "Header" gives "Add header" and "Header 1 name". */
+  noun: string;
+  path: string;
+  /** The draft field whose issues show on this row. */
+  field: string;
+  value: string;
+  typed?: boolean;
+  namePlaceholder: string;
+  valuePlaceholder: string;
+  onChange: (next: string) => void;
+}) {
+  const status = useFieldStatus()(field);
+  const [entries, setEntries] = useState(() => entriesOf(value, typed));
+  const [held, setHeld] = useState(value);
+  if (value !== held) {
+    setHeld(value);
+    setEntries(entriesOf(value, typed));
+  }
+  const change = (next: Entry[]) => {
+    const text = entriesText(next, typed);
+    setEntries(next);
+    setHeld(text);
+    onChange(text);
+  };
+  return (
+    <VStack gap={1}>
+      <Tooltip content={fieldMeta(path)?.doc} hasHoverIndication={false}>
+        <Text type="label" weight="semibold">
+          {label}
+        </Text>
+      </Tooltip>
+      {entries.map((entry, at) => {
+        const row = `${noun} ${String(at + 1)}`;
+        const set = (patch: Partial<Entry>) => {
+          change(entries.map((each) => (each.key === entry.key ? { ...each, ...patch } : each)));
+        };
+        return (
+          <HStack key={entry.key} gap={1} vAlign="center">
+            <StackItem size="fill">
+              <TextInput
+                label={`${row} name`}
+                isLabelHidden
+                size="sm"
+                status={status}
+                value={entry.name}
+                placeholder={namePlaceholder}
+                onChange={(name) => {
+                  set({ name });
+                }}
+              />
+            </StackItem>
+            <StackItem size="fill">
+              <TextInput
+                label={`${row} value`}
+                isLabelHidden
+                size="sm"
+                value={entry.value}
+                placeholder={valuePlaceholder}
+                onChange={(next) => {
+                  set({ value: next });
+                }}
+              />
+            </StackItem>
+            <IconButton
+              label={`Remove ${row.toLowerCase()}`}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={IconX} size="sm" />}
+              onClick={() => {
+                change(entries.filter((each) => each.key !== entry.key));
+              }}
+            />
+          </HStack>
+        );
+      })}
+      <HStack>
+        <Button
+          label={`Add ${noun.toLowerCase()}`}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconPlus} size="sm" />}
+          onClick={() => {
+            change([...entries, { key: draftKey('entry'), name: '', value: '' }]);
+          }}
+        />
+      </HStack>
+    </VStack>
   );
 }
 

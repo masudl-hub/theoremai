@@ -1,7 +1,6 @@
 import { assert, assertEquals } from '@std/assert';
 import { createSurfaceRuntime } from '../../src/surface/mod.ts';
 import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
-import { firstLine } from '../../tests/fixtures/prompt-line.ts';
 import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
   addAgent,
@@ -69,7 +68,7 @@ Deno.test("th30's set lands in the store as its own edit, and the visitor's make
   assertEquals(notes, []);
   store.updateDraft({
     ...store.getDraft(),
-    identity: { ...store.getDraft().identity, system: firstLine(store.getDraft(), 'x') },
+    identity: { ...store.getDraft().identity, system: 'x' },
   });
   assertEquals(notes.length, 1);
   const stale = (await runtime.answer(

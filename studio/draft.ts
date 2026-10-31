@@ -74,20 +74,23 @@ export type StudioTurnProfileType = Exclude<StudioProfileType, 'decision' | 'hos
 
 export const STUDIO_PROFILE_TYPES: readonly StudioProfileType[] = PROFILE_TYPES;
 
-/** One line of the prompt, with private sections wrapped as `{private: …}`. */
-export interface SystemLineDraft {
+/** A fact each turn states: its name and the values it can take. */
+export interface ConditionDraft {
   key: string;
-  text: string;
+  name: string;
+  values: string[];
 }
 
 export interface IdentityDraft {
   agentId: string;
   profileType: StudioProfileType | '';
   handle: string;
-  /** Unused on speech, which has no system channel. */
-  system: SystemLineDraft[];
-  /** The facts each turn states, as a JSON object of lists of values; blank omits them. */
-  conditionsJson: string;
+  /**
+   * The whole prompt as typed: a blank line starts a new line, and private sections are wrapped as
+   * `{private: …}`. Unused on speech, which has no system channel.
+   */
+  system: string;
+  conditions: ConditionDraft[];
 }
 
 export interface ModelsDraft {
@@ -480,7 +483,8 @@ export interface StudioDraft {
 export function draftKey(
   prefix:
     | 'agent'
-    | 'line'
+    | 'condition'
+    | 'entry'
     | 'model'
     | 'tool'
     | 'question'
@@ -736,8 +740,8 @@ export function newSlot(slots: readonly SlotDraft[]): SlotDraft {
   return { key: draftKey('slot'), name, label: '', choices: [newSlotChoice(), newSlotChoice()] };
 }
 
-export function newSystemLine(text = ''): SystemLineDraft {
-  return { key: draftKey('line'), text };
+export function newCondition(): ConditionDraft {
+  return { key: draftKey('condition'), name: '', values: [] };
 }
 
 export function newSlotChoice(): SlotChoiceDraft {
@@ -776,8 +780,8 @@ export function createBlankDraft(): StudioDraft {
       agentId: '',
       profileType: '',
       handle: '',
-      system: [newSystemLine()],
-      conditionsJson: '',
+      system: '',
+      conditions: [],
     },
     included: ['observability', 'labels'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },

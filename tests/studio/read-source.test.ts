@@ -68,6 +68,47 @@ Deno.test('the decision example file reads back into the same file', async () =>
   roundTrip(await createDecisionExampleDraft());
 });
 
+Deno.test('a prompt and its conditions read back as one box and a row each', () => {
+  const draft = createExampleDraft();
+  const edited = {
+    ...draft,
+    identity: {
+      ...draft.identity,
+      conditions: [{ key: 'plan', name: 'plan', values: ['free', 'paid'] }],
+      system: 'Be brief.\n\nwhen plan is paid: Take your time. {private: One.\n\nTwo.}',
+    },
+  };
+  roundTrip(edited);
+  const compiled = compileStudio(edited, ON_OWN_KEYS);
+  assert(compiled.ok);
+  const read = readStudioSource(studioSource(compiled), edited);
+  assert(read.ok);
+  assertEquals(read.draft.identity.system, edited.identity.system);
+  assertEquals(read.draft.identity.conditions, edited.identity.conditions);
+});
+
+Deno.test('a when line with a blank line in it is refused, since one box would split it', () => {
+  const draft = createExampleDraft();
+  const line = 'when plan is paid: Take your time.';
+  const compiled = compileStudio(
+    {
+      ...draft,
+      identity: {
+        ...draft.identity,
+        conditions: [{ key: 'plan', name: 'plan', values: ['free', 'paid'] }],
+        system: `Be brief.\n\n${line}`,
+      },
+    },
+    ON_OWN_KEYS,
+  );
+  assert(compiled.ok);
+  const source = studioSource(compiled);
+  assert(source.includes(line));
+  const read = readStudioSource(source.replace(line, `${line}\\n\\nAnd more.`), draft);
+  assert(!read.ok);
+  assertEquals(read.errors[0]?.message, 'A "when" line in the system prompt can\'t hold a blank line.');
+});
+
 Deno.test('both taint settings in the file come back into the draft', () => {
   const draft = createExampleDraft();
   draft.guardrails.taintAfterRemoteRead = 'write';

@@ -29,6 +29,7 @@ import {
 } from '@theoremjs/agents/schema';
 import { canonical } from './canonical.ts';
 import {
+  type ConditionDraft,
   createBlankDraft,
   type DecisionImageDraft,
   type DecisionQuestionDraft,
@@ -45,7 +46,6 @@ import {
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
   type StudioProfileType,
-  type SystemLineDraft,
   type ToolSpecDraft,
 } from './draft.ts';
 import {
@@ -55,6 +55,7 @@ import {
   type StudioProvider,
 } from './providers.ts';
 import { stubOutputFromSchema } from './stub.ts';
+import { parseSystemMarkup } from './system-markup.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
 /** Where a read stopped, one-based, on the file the visitor is editing. */
@@ -627,8 +628,13 @@ function markup(value: unknown, srcMessage: string): string {
     .join('');
 }
 
-/** A prompt as the draft holds it: one entry per line, and a bare `{ private }` is no line. */
-function promptLines(value: unknown, current: readonly SystemLineDraft[]): SystemLineDraft[] {
+const WHEN_LINE = /^\s*when\s/;
+
+/**
+ * A prompt as the draft holds it: its lines as one text, a blank line between them. A bare
+ * `{ private }` is no line, and a `when` line holding a blank line can't be told from two lines.
+ */
+function promptText(value: unknown): string {
   const srcMessage = 'The system prompt has to be text.';
   const lines = Array.isArray(value) ? value : [value];
   const texts = lines.map((line: unknown) => {
@@ -637,10 +643,28 @@ function promptLines(value: unknown, current: readonly SystemLineDraft[]): Syste
     }
     return markup(line, srcMessage);
   });
-  return (texts.length ? texts : ['']).map((text, at) => ({
-    key: current[at]?.key ?? draftKey('line'),
-    text,
-  }));
+  for (const text of texts) {
+    const parsed = parseSystemMarkup(text);
+    if (WHEN_LINE.test(text) && parsed.ok && parsed.lines.length > 1) {
+      throw new ReadFail('A "when" line in the system prompt can\'t hold a blank line.', 1, 1);
+    }
+  }
+  return texts.join('\n\n');
+}
+
+/** Conditions as the draft holds them: a row each, keeping the row of a name it already has. */
+function conditionRows(value: unknown, current: readonly ConditionDraft[]): ConditionDraft[] {
+  if (value === undefined) return [];
+  const srcMessage = 'Conditions have to be lists of values.';
+  if (!isRecord(value)) throw new ReadFail(srcMessage, 1, 1);
+  return Object.entries(value).map(([name, values]) => {
+    if (!Array.isArray(values)) throw new ReadFail(srcMessage, 1, 1);
+    return {
+      key: current.find((row) => row.name === name)?.key ?? draftKey('condition'),
+      name,
+      values: values.map((each) => text(each)),
+    };
+  });
 }
 
 function jsonText(value: unknown): string {
@@ -1114,8 +1138,8 @@ function identityOf(
     agentId: text(profile.id),
     profileType: type,
     handle: text(identity.handle),
-    system: promptLines(identity.system, current.system),
-    conditionsJson: isRecord(identity.conditions) ? jsonText(identity.conditions) : '',
+    system: promptText(identity.system),
+    conditions: conditionRows(identity.conditions, current.conditions),
   };
 }
 

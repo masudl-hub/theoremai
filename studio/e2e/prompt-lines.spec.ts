@@ -7,13 +7,25 @@ const systemOf = async (page: Page) => {
   return JSON.stringify(first?.content ?? '');
 };
 
+const declarePlan = async (page: Page) => {
+  await page.getByRole('button', { name: 'Add condition' }).first().click();
+  await page.getByRole('textbox', { name: 'Name' }).last().fill('plan');
+  const values = page.getByRole('combobox', { name: 'Values' }).last();
+  await values.fill('free');
+  await values.press('Enter');
+  await values.fill('paid');
+  await values.press('Enter');
+};
+
+const addPaidLine = async (page: Page) => {
+  const prompt = page.getByRole('textbox', { name: 'Prompt' }).first();
+  await prompt.fill(`${await prompt.inputValue()}\n\nwhen plan is paid: Mention the garden.`);
+};
+
 const withLines = async (page: Page) => {
   await open(page);
-  await page.getByRole('textbox', { name: 'Conditions' }).fill('{ "plan": ["free", "paid"] }');
-  await page.getByRole('button', { name: 'Add line' }).click();
-  await page
-    .getByRole('textbox', { name: 'Line 2' })
-    .fill('when plan is paid: Mention the garden.');
+  await declarePlan(page);
+  await addPaidLine(page);
   await expect(page.getByText('Edited (studio)')).toBeVisible();
   await page.getByRole('button', { name: 'Hide saved' }).click();
 };
@@ -36,7 +48,7 @@ test('a picked condition sends the line it chooses', async ({ page }) => {
 
 test('both sides run when only the edit declares conditions', async ({ page }) => {
   await open(page);
-  await page.getByRole('textbox', { name: 'Conditions' }).fill('{ "plan": ["free", "paid"] }');
+  await declarePlan(page);
   await expect(page.getByText('Edited (studio)')).toBeVisible();
   await send(page, 'third');
   await expect(page.getByText('Fake reply on full to "third"')).toHaveCount(2);
@@ -58,15 +70,33 @@ test('the trace names the prompt lines the turn sent', async ({ page }) => {
 
 test('an image agent runs with the conditions the edit declares', async ({ page }) => {
   await open(page, 'picture');
-  await page.getByRole('textbox', { name: 'Conditions' }).fill('{ "plan": ["free", "paid"] }');
-  await page.getByRole('button', { name: 'Add line' }).click();
-  await page
-    .getByRole('textbox', { name: 'Line 2' })
-    .fill('when plan is paid: Mention the garden.');
+  await declarePlan(page);
+  await addPaidLine(page);
   await page.getByRole('combobox', { name: 'plan' }).click();
   await page.getByRole('option', { name: 'paid' }).click();
   await expect(page.getByText('Edited (studio)')).toBeVisible();
   await page.getByRole('button', { name: 'Hide saved' }).click();
   await send(page, 'a red pixel');
   await expect(page.getByRole('img', { name: 'Generated image' })).toBeVisible();
+});
+
+test('a private section in the box stays private, across a blank line', async ({ page }) => {
+  await open(page);
+  const prompt = page.getByRole('textbox', { name: 'Prompt' }).first();
+  const loaded = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/edited') &&
+      response.request().postData()?.includes('Say hello'),
+  );
+  await prompt.fill('Say hello. {private: Code 7731.\n\nKeep it.}\n\nThen help.');
+  await loaded;
+  await expect(page.getByText('Edited (studio)')).toBeVisible();
+  await page.getByRole('button', { name: 'Hide saved' }).click();
+  await send(page, 'fifth');
+  await expect(page.getByText('Fake reply on full to "fifth"')).toBeVisible();
+  const system = await systemOf(page);
+  expect(system).toContain('Say hello.');
+  expect(system).toContain('Code 7731.\\n\\nKeep it.');
+  expect(system).toContain('Then help.');
+  expect(system).not.toContain('{private');
 });

@@ -73,7 +73,10 @@ Deno.test('a slot sends its first value until one is picked, and a dropped value
 
 Deno.test("conditions send their first value until picked, and path goes as the turn's own", () => {
   const draft = createExampleDraft();
-  draft.identity.conditionsJson = '{"path":["web","voice"],"plan":["free","paid"]}';
+  draft.identity.conditions = [
+    { key: 'path', name: 'path', values: ['web', 'voice'] },
+    { key: 'plan', name: 'plan', values: ['free', 'paid'] },
+  ];
   const inputs = pageInputsOf(payloadOf(draft));
   assertEquals(sentPageValues(inputs, { slots: {}, conditions: {}, contextJson: '' }).stated, {
     path: 'web',

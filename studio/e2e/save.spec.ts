@@ -9,7 +9,7 @@ const original = readFileSync(desk, 'utf8');
 const originalTools = readFileSync(tools, 'utf8');
 
 const handle = (page: Page) => page.getByRole('textbox', { name: 'Handle' }).first();
-const prompt = (page: Page) => page.getByRole('textbox', { name: 'Line 1' }).first();
+const prompt = (page: Page) => page.getByRole('textbox', { name: 'Prompt' }).first();
 const saveToken = (page: Page) => page.getByRole('button', { name: 'Save', exact: true }).first();
 const edited = (from: string, to: string) => original.replace(from, to);
 

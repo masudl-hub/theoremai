@@ -21,7 +21,12 @@ import {
   z,
 } from '@theoremjs/agents';
 import type { Equals } from '@theoremjs/agents/kernel';
-import { type HostErrorBody, hostErrorBodySchema } from './transport.ts';
+import {
+  type HostErrorBody,
+  hostErrorBodySchema,
+  type StatedTurn,
+  statedTurnSchema,
+} from './transport.ts';
 import {
   type MalformedEvent,
   readWireLine,
@@ -41,6 +46,8 @@ export type LiveOpenMessage = {
   slots?: Record<string, string>;
   /** What the page tells the agent as the call opens: the client's context package. */
   context?: unknown;
+  /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
   /** A call that dropped, taken up again: the provider's handle, and how long the caller was away. */
   resume?: { providerState: ProviderCheckpoint; awayMs: number };
   /** The host's own `openMessage`, for its relay to read. */
@@ -51,6 +58,7 @@ const liveOpenMessage = z.object({
   history: z.array(turnHistoryMessageSchema).optional(),
   slots: z.record(z.string(), z.string()).optional(),
   context: z.unknown().optional(),
+  stated: statedTurnSchema.optional(),
   resume: z
     .object({ providerState: providerCheckpointSchema, awayMs: z.number().nonnegative() })
     .optional(),

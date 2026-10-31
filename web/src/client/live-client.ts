@@ -47,7 +47,7 @@ import {
 } from './live-messages.ts';
 import { MIC_CAPTURE_PROCESSOR, micCaptureWorkletUrl } from './mic-capture.ts';
 import { downsampleAndConvertToInt16, pcm16BytesToFloat32 } from './pcm-downsample.ts';
-import { type ClientTurnEvent, hostError } from './transport.ts';
+import { type ClientTurnEvent, hostError, type StatedTurn } from './transport.ts';
 import { issuedOperationId } from './turn-client.ts';
 
 type LiveToolCall = {
@@ -101,6 +101,8 @@ export interface LiveClientOptions {
   openMessage?: Record<string, unknown>;
   /** The value chosen for each of the profile's `inputs.slots`, fixed for the call. */
   slots?: Record<string, string>;
+  /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
   /** What the page tells the agent as the call opens; `setContext` replaces it during the call. */
   context?: unknown;
   relayUrl?: string;
@@ -347,11 +349,12 @@ export class LiveSessionClient {
 
   /** The first message: the call's values, and the handle and time away when it takes a dropped call up again. */
   private openMessage(): LiveOpenMessage {
-    const { slots, openMessage: host } = this.options;
+    const { slots, stated, openMessage: host } = this.options;
     return {
       type: 'open',
       ...(this.history.length ? { history: structuredClone(this.history) } : {}),
       ...(slots ? { slots } : {}),
+      ...(stated ? { stated } : {}),
       ...(this.context === undefined ? {} : { context: this.context }),
       ...(this.providerState
         ? {

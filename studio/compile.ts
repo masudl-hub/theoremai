@@ -63,6 +63,7 @@ import {
   type ProviderLimits,
   type SlotDeclInput,
   type SystemPrompt,
+  systemLinesProblem,
   systemPromptProblem,
 } from '@theoremjs/agents/kernel';
 import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
@@ -127,7 +128,7 @@ import {
   defaultModelRequired,
   inputLimitsRequired,
 } from './requirements.ts';
-import { parseSystemMarkup, type SystemMarkup } from './system-markup.ts';
+import { parseSystemMarkup } from './system-markup.ts';
 import { parseJsonSchema } from './tool-schema.ts';
 import { modelBindingNodeId, toolSpecNodeId } from './tree.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
@@ -565,6 +566,41 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
 /** A prompt written as parts is one line of the profile's prompt. */
 const oneLine = (prompt: SystemPrompt): ProfileSystem =>
   typeof prompt === 'string' ? prompt : [prompt];
+
+const isValueList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(isString);
+
+/** The prompt's lines and the facts they read, each problem reported on the identity section. */
+function compilePrompt(draft: StudioDraft, report: Report) {
+  const conditions = parseRecord(draft.identity.conditionsJson, isValueList);
+  if (conditions === null) {
+    report('identity', 'Conditions must be a JSON object of lists of values.', 'conditionsJson');
+  }
+  const lines = draft.identity.system.flatMap(({ text }) => {
+    const parsed = parseSystemMarkup(text);
+    if (!parsed.ok) report('identity', parsed.message, 'system');
+    return parsed.ok && parsed.prompt !== undefined ? [parsed.prompt] : [];
+  });
+  const [first] = lines;
+  const system: ProfileSystem | undefined =
+    lines.length === 0
+      ? undefined
+      : lines.length === 1 && typeof first === 'string'
+        ? first
+        : lines;
+  const declared = conditions ?? undefined;
+  if (system !== undefined && conditions !== null) {
+    const slots = Object.fromEntries(
+      draft.inputs.slots.map((slot) => [
+        slot.name.trim(),
+        slot.choices.map((choice) => choice.value.trim()).filter(Boolean),
+      ]),
+    );
+    const problem = systemLinesProblem(system, declared, slots);
+    if (problem) report('identity', problem, 'system');
+  }
+  return { system, conditions: declared };
+}
 
 const isSystemPrompt = (value: unknown): value is SystemPrompt =>
   systemPromptProblem(value, 'system') === undefined;
@@ -2194,12 +2230,7 @@ function assemble(
 ): Omit<CompiledStudio, 'agentId' | 'providers'> {
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
-  const parsedSystem: SystemMarkup =
-    typeof draft.identity.system === 'string'
-      ? parseSystemMarkup(draft.identity.system)
-      : { ok: false, message: 'The system prompt must be text.' };
-  if (!parsedSystem.ok) report('identity', parsedSystem.message, 'system');
-  const system = parsedSystem.ok ? parsedSystem.prompt && oneLine(parsedSystem.prompt) : undefined;
+  const { system, conditions } = compilePrompt(draft, report);
   const systemByRole = compileSystemByRole(draft.identity.systemByRoleJson, (message) => {
     report('identity', message, 'systemByRoleJson');
   });
@@ -2229,6 +2260,7 @@ function assemble(
     id: draft.identity.agentId.trim(),
     identity: {
       handle: draft.identity.handle.trim(),
+      ...(conditions ? { conditions } : {}),
       ...(system ? { system } : {}),
       ...(systemByRole ? { systemByRole } : {}),
     },

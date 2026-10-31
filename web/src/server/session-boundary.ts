@@ -34,6 +34,8 @@ export interface SessionBoundaryOptions {
   sessionStore: TheoremSessionStore;
   gateTtlMs?: number;
   operationRetentionMs?: number;
+  /** As `TheoremHandlerOptions.pageStatesTurn`: refuses a live call's `stated` unless set. */
+  pageStatesTurn?: boolean;
   pageToolBroker?: PageToolBroker;
   /** How long the page has to answer a tool call it runs, in milliseconds. Unset, it waits. */
   pageToolTimeoutMs?: number;
@@ -41,7 +43,7 @@ export interface SessionBoundaryOptions {
 
 export type PreparedLiveOpen = Pick<
   SessionRequest,
-  'history' | 'slots' | 'context' | 'providerState' | 'awayMs'
+  'history' | 'slots' | 'context' | 'providerState' | 'awayMs' | 'path' | 'conditions'
 >;
 
 export interface TheoremSessionBoundary {
@@ -91,6 +93,9 @@ export async function createTheoremSessionBoundary(
     toolExecution: sessionToolCoordinator(store, id),
     async prepareLiveOpen(raw, server) {
       const open = checkRequest(liveOpenMessageSchema, raw, 'live open');
+      if (open.stated && !options.pageStatesTurn) {
+        throw new TheoremError('request', labelText('error.request'));
+      }
       const prepared = liveSessionOpen(open, server);
       const state = await store.read(id);
       const providerState = await requireOwnedCheckpoint(

@@ -35,6 +35,7 @@ import {
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
+  type SystemLineDraft,
   type GuardrailsDraft,
   type ImageReferenceDraft,
   INLINE_LABELS,
@@ -626,6 +627,22 @@ function markup(value: unknown, srcMessage: string): string {
     .join('');
 }
 
+/** A prompt as the draft holds it: one entry per line, and a bare `{ private }` is no line. */
+function promptLines(value: unknown, current: readonly SystemLineDraft[]): SystemLineDraft[] {
+  const srcMessage = 'The system prompt has to be text.';
+  const lines = Array.isArray(value) ? value : [value];
+  const texts = lines.map((line: unknown) => {
+    if (Array.isArray(value) && typeof line !== 'string' && !Array.isArray(line)) {
+      throw new ReadFail(srcMessage, 1, 1);
+    }
+    return markup(line, srcMessage);
+  });
+  return (texts.length ? texts : ['']).map((text, at) => ({
+    key: current[at]?.key ?? draftKey('line'),
+    text,
+  }));
+}
+
 function jsonText(value: unknown): string {
   if (value === undefined) return '';
   return JSON.stringify(value, null, 2);
@@ -1097,7 +1114,8 @@ function identityOf(
     agentId: text(profile.id),
     profileType: type,
     handle: text(identity.handle),
-    system: markup(identity.system, 'The system prompt has to be text.'),
+    system: promptLines(identity.system, current.system),
+    conditionsJson: isRecord(identity.conditions) ? jsonText(identity.conditions) : '',
     systemByRoleJson: isRecord(byRole) || Array.isArray(byRole) ? jsonText(byRole) : '',
   };
 }

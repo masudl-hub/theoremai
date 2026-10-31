@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from '@std/assert';
-import type { ProviderCheckpoint } from '../../mod.ts';
+import { labelText, type ProviderCheckpoint, TheoremError } from '../../mod.ts';
 import {
   createMemorySessionStore,
   createTheoremSessionBoundary,
@@ -167,4 +167,26 @@ Deno.test('settlement invalidates older native ownership even when the effect co
     ).providerState?.data,
     { cursor: 'after-effect' },
   );
+});
+
+Deno.test('a live call says which prompt lines it gets only on a page the host trusts', async () => {
+  const stated = { path: 'web', conditions: { plan: 'paid' } };
+  const refusing = await createTheoremSessionBoundary({
+    request,
+    session: () => 'untrusted',
+    sessionStore: createMemorySessionStore(),
+  });
+  const refused = await assertRejects(
+    () => refusing.prepareLiveOpen({ type: 'open', stated }),
+    TheoremError,
+  );
+  assertEquals(refused.message, labelText('error.request'));
+  const trusting = await createTheoremSessionBoundary({
+    request,
+    session: () => 'trusted',
+    sessionStore: createMemorySessionStore(),
+    pageStatesTurn: true,
+  });
+  const prepared = await trusting.prepareLiveOpen({ type: 'open', stated });
+  assertEquals({ path: prepared.path, conditions: prepared.conditions }, stated);
 });

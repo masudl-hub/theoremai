@@ -53,6 +53,7 @@ import type {
   ConversationLine,
   ConversationView,
   EncodedBlob,
+  StatedTurn,
   TheoremTurnInput,
 } from '../client/transport.ts';
 import {
@@ -295,6 +296,7 @@ export type ReplyTurn = {
   providerState?: ProviderCheckpoint;
   model?: string;
   effort?: string;
+  stated?: StatedTurn;
 };
 
 /** What a reply's model run takes from the host. */
@@ -312,6 +314,7 @@ export type ReplyRunner = {
   ): Promise<TurnHistoryMessage[] | undefined>;
   model?: string;
   effort?: string;
+  stated?: StatedTurn;
   signal: AbortSignal;
 };
 
@@ -373,7 +376,7 @@ function committed(
 function pausedOn(
   conversation: StoredConversation,
   reply: Reply,
-  runner: Pick<ReplyRunner, 'model' | 'effort'>,
+  runner: Pick<ReplyRunner, 'model' | 'effort' | 'stated'>,
 ): StoredConversation {
   const paused: PausedReply = {
     events: reply.events,
@@ -383,6 +386,7 @@ function pausedOn(
     endedAt: Date.now(),
     ...(runner.model ? { model: runner.model } : {}),
     ...(runner.effort ? { effort: runner.effort } : {}),
+    ...(runner.stated ? { stated: runner.stated } : {}),
   };
   return { ...conversation, ...metered(conversation, reply.events), paused };
 }
@@ -447,6 +451,7 @@ async function* runReply(
       providerState: conversation.providerState,
       model: runner.model,
       effort: runner.effort,
+      ...(runner.stated ? { stated: runner.stated } : {}),
     });
     for await (const event of events) {
       reply.events.push(event);
@@ -758,7 +763,12 @@ export async function* answerReply(args: {
     host,
     { ...opened, conversation: waiting },
     reply,
-    { ...runner, model: runner.model ?? paused.model, effort: runner.effort ?? paused.effort },
+    {
+      ...runner,
+      model: runner.model ?? paused.model,
+      effort: runner.effort ?? paused.effort,
+      ...(paused.stated ? { stated: paused.stated } : {}),
+    },
     {
       history: replyHistory(reply),
       ...(waiting.inputTokens === undefined ? {} : { inputTokens: waiting.inputTokens }),

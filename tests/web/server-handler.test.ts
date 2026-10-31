@@ -5,6 +5,7 @@ import {
   type LabelKey,
   labelDefault,
   type ProfileDefinition,
+  type ProfileIdentity,
   registerTool,
   TheoremError,
   type TurnEvent,
@@ -39,11 +40,15 @@ import { scriptedProvider } from '../fixtures/scripted.ts';
 import { sqliteSessionStore } from '../fixtures/sqlite-session-store.ts';
 
 const SYSTEM = 'secret persona instructions';
-function profile(id: string, allow: string[] = []): ProfileDefinition {
+function profile(
+  id: string,
+  allow: string[] = [],
+  identity: ProfileIdentity = { handle: 'helper', system: SYSTEM },
+): ProfileDefinition {
   return {
     type: 'text',
     id,
-    identity: { handle: 'helper', system: SYSTEM },
+    identity,
     models: {
       stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' },
     },
@@ -2065,4 +2070,75 @@ Deno.test("a held call runs on, once answered, with the context the application'
     ),
   );
   assertEquals(hostsSeen, [{ keeper: 'k1', loading: 'from prepare' }]);
+});
+
+/** A profile whose prompt turns on the page's picks. */
+function linedProfile(id: string, allow: string[] = []): ProfileDefinition {
+  return profile(id, allow, {
+    handle: 'helper',
+    conditions: { path: ['web', 'voice'], plan: ['free', 'paid'] },
+    system: ['when path is web: Web line.', 'when plan is paid: Paid line.', 'Every line.'],
+  });
+}
+const PICKED = { path: 'web', conditions: { plan: 'paid' } };
+
+Deno.test('a page the host trusts says which prompt lines its turn gets', async () => {
+  const seen: { system?: string }[] = [];
+  const handler = handlerFor({
+    profile: linedProfile('handler-stated'),
+    provider: () => fixtureHostOptions(textProvider('ok', seen)),
+    pageStatesTurn: true,
+  });
+  await collect((onEvent) =>
+    transportFor(handler).turn({ input: { text: 'hi' }, stated: PICKED }, onEvent),
+  );
+  assertEquals(seen[0]?.system?.includes('Paid line.'), true);
+  assertEquals(seen[0]?.system?.includes('Web line.'), true);
+});
+
+Deno.test('a page saying which prompt lines it gets is refused unless the host trusts it', async () => {
+  const seen: { system?: string }[] = [];
+  const handler = handlerFor({
+    profile: linedProfile('handler-stated-refused'),
+    provider: () => fixtureHostOptions(textProvider('ok', seen)),
+  });
+  await assertRefused(
+    () =>
+      collect((onEvent) =>
+        transportFor(handler).turn({ input: { text: 'hi' }, stated: PICKED }, onEvent),
+      ),
+    'error.request',
+  );
+  assertEquals(seen, []);
+});
+
+Deno.test('a reply paused on a gate keeps its prompt lines when it goes on', async () => {
+  ran.length = 0;
+  const seen: { system?: string }[] = [];
+  const model = toolCallingProvider('handler_delete', 'kept');
+  const handler = handlerFor({
+    profile: linedProfile('handler-stated-paused', ['handler_delete']),
+    provider: () =>
+      fixtureHostOptions({
+        complete: (req) => {
+          seen.push({ system: req.system });
+          return model.complete(req);
+        },
+      }),
+    pageStatesTurn: true,
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) =>
+    transport.turn({ input: { text: 'delete' }, stated: PICKED }, onEvent),
+  );
+  const gate = pausedGate(turn);
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(ran, ['kept']);
+  assertEquals(seen.length, 2);
+  assertEquals(seen[1]?.system?.includes('Paid line.'), true);
 });

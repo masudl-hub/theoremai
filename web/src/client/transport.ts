@@ -113,6 +113,19 @@ export const theoremReplaySchema: z.ZodType<TheoremReplay> = theoremReplay;
 /** An id the client made: trimmed, never blank. */
 const clientId = z.string().trim().min(1);
 
+/** Which prompt lines a turn gets: the path it says it came by, and its `identity.conditions`. */
+export type StatedTurn = {
+  path?: string;
+  conditions?: Record<string, string>;
+};
+const statedTurn = z.object({
+  path: z.string().optional(),
+  conditions: z.record(z.string(), z.string()).optional(),
+});
+true satisfies Equals<z.infer<typeof statedTurn>, StatedTurn>;
+/** A stated turn off the wire. */
+export const statedTurnSchema: z.ZodType<StatedTurn> = statedTurn;
+
 /**
  * One message. The host resolves the profile and owns the conversation: the
  * client sends only the message and the ref of the conversation it continues.
@@ -127,6 +140,8 @@ export type TheoremTurnRequest = {
   conversation?: string;
   model?: string;
   effort?: string;
+  /** For a host that lets its page choose (`pageStatesTurn`); any other host refuses it. */
+  stated?: StatedTurn;
   /** Client-generated id so mid-turn steers can find this turn's inbox. */
   turnId?: string;
   /** invariant: Both issued IDs identify each paused action that this message abandons. */
@@ -146,6 +161,7 @@ const theoremTurnRequest = z.object({
   conversation: z.string().min(1).optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
+  stated: statedTurn.optional(),
   turnId: clientId.optional(),
   abandon: z.array(gateReferenceSchema).min(1).optional(),
   replay: theoremReplay.pick({ sessionPermissions: true }).optional(),

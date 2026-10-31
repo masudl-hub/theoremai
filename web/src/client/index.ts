@@ -218,6 +218,7 @@ export {
   postJson,
   postNdjson,
   readNdjsonStream,
+  type StatedTurn,
   type TheoremConversationRequest,
   type TheoremInvokeRequest,
   type TheoremReplay,

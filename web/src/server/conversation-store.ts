@@ -24,6 +24,7 @@ import {
 import type { TranscriptBlock } from '@theoremjs/agents/interface';
 import { type Equals, openSecret, sealSecret } from '@theoremjs/agents/kernel';
 import { transcriptBlockSchema } from '../client/transcript-schema.ts';
+import { type StatedTurn, statedTurnSchema } from '../client/transport.ts';
 import { type MemorySessionStoreOptions, memoryStoreLimits } from './session-store.ts';
 
 /** A reply paused on gates: its events so far, and the history it was given. */
@@ -37,9 +38,10 @@ export type PausedReply = {
   workedMs: number;
   /** When the reply last paused (epoch ms). */
   endedAt: number;
-  /** The model and effort the reply ran with, for the run that goes on after its gates. */
+  /** The model, effort, and stated turn the reply ran with, for the run that goes on after its gates. */
   model?: string;
   effort?: string;
+  stated?: StatedTurn;
 };
 
 /** One conversation as the host stores it. */
@@ -70,6 +72,7 @@ const pausedReply = z.object({
   endedAt: z.number(),
   model: z.string().optional(),
   effort: z.string().optional(),
+  stated: statedTurnSchema.optional(),
 });
 true satisfies Equals<z.infer<typeof pausedReply>, PausedReply>;
 

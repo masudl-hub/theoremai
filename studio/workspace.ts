@@ -804,13 +804,14 @@ export interface FilesMerge {
   files: StudioWorkspace;
 }
 
-const DRAFT_KEY = /^(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}$/;
+const KEY_SHAPE = '(agent|line|model|tool|question|criterion|reference)-[0-9a-f]{8}';
+const DRAFT_KEY = new RegExp(`^${KEY_SHAPE}$`);
 
 /** A value as text with each key named by where it first stands, so two opens of one thing read the same. */
 function keyless(value: unknown): string {
   const names = new Map<string, string>();
   return JSON.stringify(value).replace(
-    /\b(agent|model|tool|question|criterion|reference)-[0-9a-f]{8}\b/g,
+    new RegExp(`\\b${KEY_SHAPE}\\b`, 'g'),
     (key) => {
       if (!names.has(key)) names.set(key, `#${names.size}`);
       return names.get(key) ?? key;

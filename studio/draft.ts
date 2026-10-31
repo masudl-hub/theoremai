@@ -74,12 +74,20 @@ export type StudioTurnProfileType = Exclude<StudioProfileType, 'decision' | 'hos
 
 export const STUDIO_PROFILE_TYPES: readonly StudioProfileType[] = PROFILE_TYPES;
 
+/** One line of the prompt, with private sections wrapped as `{private: …}`. */
+export interface SystemLineDraft {
+  key: string;
+  text: string;
+}
+
 export interface IdentityDraft {
   agentId: string;
   profileType: StudioProfileType | '';
   handle: string;
-  /** Private sections are wrapped as `{private: …}`. Unused on speech, which has no system channel. */
-  system: string;
+  /** Unused on speech, which has no system channel. */
+  system: SystemLineDraft[];
+  /** The facts each turn states, as a JSON object of lists of values; blank omits them. */
+  conditionsJson: string;
   /** Other instructions by the role a turn names, as a JSON object of strings (with `{private: …}` sections) or parts; blank omits it. */
   systemByRoleJson: string;
 }
@@ -467,6 +475,7 @@ export interface StudioDraft {
 export function draftKey(
   prefix:
     | 'agent'
+    | 'line'
     | 'model'
     | 'tool'
     | 'question'
@@ -722,6 +731,10 @@ export function newSlot(slots: readonly SlotDraft[]): SlotDraft {
   return { key: draftKey('slot'), name, label: '', choices: [newSlotChoice(), newSlotChoice()] };
 }
 
+export function newSystemLine(text = ''): SystemLineDraft {
+  return { key: draftKey('line'), text };
+}
+
 export function newSlotChoice(): SlotChoiceDraft {
   return { key: draftKey('choice'), value: '', description: '' };
 }
@@ -754,7 +767,14 @@ export function newCriteria(type: DecisionQuestionType): DecisionCriterionDraft[
  */
 export function createBlankDraft(): StudioDraft {
   return {
-    identity: { agentId: '', profileType: '', handle: '', system: '', systemByRoleJson: '' },
+    identity: {
+      agentId: '',
+      profileType: '',
+      handle: '',
+      system: [newSystemLine()],
+      conditionsJson: '',
+      systemByRoleJson: '',
+    },
     included: ['observability', 'labels'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
     modelBindings: [],

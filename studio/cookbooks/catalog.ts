@@ -11,6 +11,7 @@ import {
   type GuardrailsDraft,
   includableFacets,
   includeFacet,
+  newSystemLine,
   type StudioDraft,
   setProfileType,
   type ToolSpecDraft,
@@ -433,7 +434,7 @@ function exampleTextDraft(
   const inputs = demoInputsSpec();
   return {
     ...blank,
-    identity: { ...identity, profileType: 'text', systemByRoleJson: '' },
+    identity: { ...identity, profileType: 'text', conditionsJson: '', systemByRoleJson: '' },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'labels'],
     models: { defaultModel: 'open', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: defaultTextModelBindings(),
@@ -516,7 +517,7 @@ export function createPageReaderExampleDraft(): StudioDraft {
 export function createResearchScoutDraft(): StudioDraft {
   const blank = createBlankDraft();
   const base = exampleTextDraft(
-    { agentId: 'research.scout', handle: 'scout', system: DEMO_RESEARCH_SYSTEM },
+    { agentId: 'research.scout', handle: 'scout', system: [newSystemLine(DEMO_RESEARCH_SYSTEM)] },
     { tools: { t2Loader: '', parallel: true }, toolSpecs: exampleTools(DEMO_RESEARCH_TOOLS) },
   );
   return {
@@ -632,7 +633,11 @@ export function createResearchWorkspace(): StudioWorkspace {
 /** A fresh copy of the travel concierge draft: a text agent with the tools a trip needs. */
 export function createExampleDraft(): StudioDraft {
   return exampleTextDraft(
-    { agentId: 'travel.concierge', handle: 'concierge', system: DEMO_CONCIERGE_SYSTEM },
+    {
+      agentId: 'travel.concierge',
+      handle: 'concierge',
+      system: [newSystemLine(DEMO_CONCIERGE_SYSTEM)],
+    },
     {
       tools: { t2Loader: 'discover_tools', parallel: false },
       toolSpecs: exampleTools(DEMO_CONCIERGE_TOOLS),
@@ -648,7 +653,7 @@ export function createLiveExampleDraft(): StudioDraft {
     identity: {
       ...draft.identity,
       agentId: 'travel.concierge.live',
-      system: DEMO_LIVE_CONCIERGE_SYSTEM,
+      system: [newSystemLine(DEMO_LIVE_CONCIERGE_SYSTEM)],
     },
   };
 }
@@ -682,7 +687,11 @@ export function createConsoleExampleDraft(): StudioDraft {
 /** The code architect on its own: the code and docs tools, before the narrator joins it. */
 function architectDraft(): StudioDraft {
   return exampleTextDraft(
-    { agentId: 'code.architect', handle: 'architect', system: DEMO_ARCHITECT_SYSTEM },
+    {
+      agentId: 'code.architect',
+      handle: 'architect',
+      system: [newSystemLine(DEMO_ARCHITECT_SYSTEM)],
+    },
     { tools: { t2Loader: '', parallel: false }, toolSpecs: exampleTools(DEMO_ARCHITECT_TOOLS) },
   );
 }

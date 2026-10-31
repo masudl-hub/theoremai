@@ -50,18 +50,44 @@ Deno.test('an agent that takes nothing from a page has no page inputs', () => {
 
 Deno.test('a slot sends its first value until one is picked, and a dropped value falls back', () => {
   const inputs = pageInputsOf(withPage('text').payload);
-  assertEquals(sentPageValues(inputs, { slots: {}, contextJson: '' }), {
+  assertEquals(sentPageValues(inputs, { slots: {}, conditions: {}, contextJson: '' }), {
     slots: { language: 'en' },
   });
-  const picked = { slots: { language: 'fr' }, contextJson: '{"page":"Checkout"}' };
+  const picked = {
+    slots: { language: 'fr' },
+    conditions: {},
+    contextJson: '{"page":"Checkout"}',
+  };
   assertEquals(sentPageValues(inputs, picked), {
     slots: { language: 'fr' },
     context: { page: 'Checkout' },
   });
-  assertEquals(sentPageValues(inputs, { slots: { language: 'de' }, contextJson: '{' }), {
-    slots: { language: 'en' },
-    contextError: 'Context must be JSON.',
+  assertEquals(
+    sentPageValues(inputs, { slots: { language: 'de' }, conditions: {}, contextJson: '{' }),
+    {
+      slots: { language: 'en' },
+      contextError: 'Context must be JSON.',
+    },
+  );
+});
+
+Deno.test("conditions send their first value until picked, and path goes as the turn's own", () => {
+  const draft = createExampleDraft();
+  draft.identity.conditionsJson = '{"path":["web","voice"],"plan":["free","paid"]}';
+  const inputs = pageInputsOf(payloadOf(draft));
+  assertEquals(sentPageValues(inputs, { slots: {}, conditions: {}, contextJson: '' }).stated, {
+    path: 'web',
+    conditions: { plan: 'free' },
   });
+  const picked = { slots: {}, conditions: { path: 'voice', plan: 'gone' }, contextJson: '' };
+  assertEquals(sentPageValues(inputs, picked).stated, {
+    path: 'voice',
+    conditions: { plan: 'free' },
+  });
+  assertEquals(
+    sentPageValues(pageInputsOf(payloadOf(createExampleDraft())), picked).stated,
+    undefined,
+  );
 });
 
 Deno.test('a labeled slot decl compiles and still sends its choice values', () => {
@@ -92,9 +118,12 @@ Deno.test('a labeled slot decl compiles and still sends its choice values', () =
     },
   });
   assertEquals(pageInputsOf(payload)?.slots, { language: ['en', 'fr'] });
-  assertEquals(sentPageValues(pageInputsOf(payload), { slots: {}, contextJson: '' }), {
-    slots: { language: 'en' },
-  });
+  assertEquals(
+    sentPageValues(pageInputsOf(payload), { slots: {}, conditions: {}, contextJson: '' }),
+    {
+      slots: { language: 'en' },
+    },
+  );
 });
 
 Deno.test('a call and a chat both ask the page to answer a tool', () => {

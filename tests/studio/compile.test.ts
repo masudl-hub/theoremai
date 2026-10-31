@@ -13,6 +13,7 @@ import {
   COMPACTION_DRAFT_DEFAULTS,
   compileStudio,
   createBlankDraft,
+  newSystemLine,
   createExampleDraft,
   defaultToolSpec,
   draftAllows,
@@ -826,7 +827,7 @@ Deno.test('studioSource writes a text of several lines one line to a line', () =
         ...draft.identity,
         agentId: 'demo.lines',
         handle: 'demo',
-        system: "You are the desk.\nDon't guess.",
+        system: [newSystemLine("You are the desk.\nDon't guess.")],
       },
     }),
   );
@@ -1397,8 +1398,11 @@ Deno.test('a call’s greeting and resume prompt compile, and the resume prompt 
 });
 Deno.test('the system prompt compiles its {private: sections to parts', () => {
   const draft = createExampleDraft();
-  const withSystem = (system: string) =>
-    compileStudio({ ...draft, identity: { ...draft.identity, system } }, ON_OWN_KEYS);
+  const withSystem = (...lines: string[]) =>
+    compileStudio(
+      { ...draft, identity: { ...draft.identity, system: lines.map((line) => newSystemLine(line)) } },
+      ON_OWN_KEYS,
+    );
   const system = (result: StudioCompileResult) => {
     assert(result.ok && result.profile.type === 'text');
     return result.profile.identity.system;
@@ -1408,18 +1412,6 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
   assertEquals(system(withSystem('Say "hi". {private: Code 7731.}')), [
     ['Say "hi". ', { private: 'Code 7731.' }],
   ]);
-  const kept = compileStudio(
-    {
-      ...draft,
-      identity: { ...draft.identity, system: [{ text: 'x', private: true }] as never },
-    },
-    ON_OWN_KEYS,
-  );
-  assert(!kept.ok);
-  assertEquals(
-    kept.issues.map((issue) => issue.message),
-    ['The system prompt must be text.'],
-  );
   const bad = withSystem('Say "hi". {private: Code 7731.');
   assert(!bad.ok);
   assertEquals(
@@ -1432,6 +1424,41 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
       },
     ],
   );
+});
+Deno.test('the prompt compiles line by line, with its conditions, and a bad line is reported', () => {
+  const draft = createExampleDraft();
+  const withPrompt = (conditionsJson: string, ...lines: string[]) =>
+    compileStudio(
+      {
+        ...draft,
+        identity: {
+          ...draft.identity,
+          conditionsJson,
+          system: lines.map((line) => newSystemLine(line)),
+        },
+      },
+      ON_OWN_KEYS,
+    );
+  const good = withPrompt(
+    '{ "plan": ["free", "paid"] }',
+    'Be brief.',
+    '',
+    'when plan is paid: Take your time. {private: Code 7731.}',
+  );
+  assert(good.ok && good.profile.type === 'text');
+  assertEquals(good.profile.identity.conditions, { plan: ['free', 'paid'] });
+  assertEquals(good.profile.identity.system, [
+    'Be brief.',
+    ['when plan is paid: Take your time. ', { private: 'Code 7731.' }],
+  ]);
+  const unknown = withPrompt('{ "plan": ["free"] }', 'when plan is gold: Hello.');
+  assert(!unknown.ok);
+  assertEquals(unknown.issues.map(({ nodeId, field }) => ({ nodeId, field })), [
+    { nodeId: 'identity', field: 'system' },
+  ]);
+  const shape = withPrompt('{ "plan": "free" }', 'Be brief.');
+  assert(!shape.ok);
+  assertEquals(shape.issues[0]?.field, 'conditionsJson');
 });
 Deno.test('instructions by role take {private: sections or parts', () => {
   const draft = createExampleDraft();

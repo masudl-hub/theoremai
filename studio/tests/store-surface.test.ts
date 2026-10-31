@@ -14,6 +14,7 @@ import {
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { createStudioStore } from '../ui/lib/studio-store.ts';
 import { tab } from './tab.ts';
+import { firstLine } from '../../tests/fixtures/prompt-line.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 
@@ -68,7 +69,7 @@ Deno.test("th30's set lands in the store as its own edit, and the visitor's make
   assertEquals(notes, []);
   store.updateDraft({
     ...store.getDraft(),
-    identity: { ...store.getDraft().identity, system: 'x' },
+    identity: { ...store.getDraft().identity, system: firstLine(store.getDraft(), 'x') },
   });
   assertEquals(notes.length, 1);
   const stale = (await runtime.answer(

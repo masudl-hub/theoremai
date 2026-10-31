@@ -31,6 +31,7 @@ import {
   type ConversationView,
   type DecisionTransport,
   decisionAssets,
+  type StatedTurn,
   type TheoremConversationRequest,
   type TheoremHostCallRequest,
   type TheoremInvokeRequest,
@@ -159,6 +160,7 @@ function studioRunner(args: {
   sessionPermissions: string[] | undefined;
   model?: string;
   effort?: string;
+  stated?: StatedTurn;
   signal: AbortSignal;
   onStage?: ReturnType<typeof steerStage>;
 }): ReplyRunner {
@@ -172,6 +174,7 @@ function studioRunner(args: {
           pageExecution: runtime.pageExecution,
           metadata,
           input: turn.input,
+          ...turn.stated,
           ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
           providerState: turn.providerState,
           sessionPermissions: args.sessionPermissions,
@@ -193,6 +196,7 @@ function studioRunner(args: {
     },
     ...(args.model ? { model: args.model } : {}),
     ...(args.effort ? { effort: args.effort } : {}),
+    ...(args.stated ? { stated: args.stated } : {}),
     signal,
   };
 }
@@ -294,11 +298,17 @@ export async function* streamStudioTurn(
         sessionPermissions,
         ...(request.model ? { model: request.model } : {}),
         ...(request.effort ? { effort: request.effort } : {}),
+        ...(request.stated ? { stated: request.stated } : {}),
         signal,
         onStage: steerStage(args.steer, inbox),
       });
       if (!host || !opened) {
-        return runner.run({ input: message.input, model: request.model, effort: request.effort });
+        return runner.run({
+          input: message.input,
+          model: request.model,
+          effort: request.effort,
+          ...(request.stated ? { stated: request.stated } : {}),
+        });
       }
       const walkAway = walked.map(({ reference, invoke }) => ({
         ...reference,

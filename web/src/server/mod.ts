@@ -9,6 +9,7 @@
 export { theoremHostCallRequestSchema } from '../client/host-transport.ts';
 export type { LiveClientMessage, LiveOpenMessage } from '../client/live-messages.ts';
 export {
+  type StatedTurn,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
   theoremReplaySchema,

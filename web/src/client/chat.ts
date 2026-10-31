@@ -44,6 +44,7 @@ import {
   type ChatLineSink,
   type ConversationView,
   isUnknownConversation,
+  type StatedTurn,
   type TheoremTransport,
   type TheoremTurnRequest,
   type TurnEventSink,
@@ -89,6 +90,8 @@ export type ChatOptions = {
    * `pickSlot`), starting at its first allowed value.
    */
   slots?: Record<string, string>;
+  /** Which prompt lines each turn gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
   /** Told each time the visitor picks a slot, with every slot's value. */
   onSlotsChange?: (slots: Record<string, string>) => void;
   /** What the page wants the agent to know: any JSON. The latest value goes with every turn. */
@@ -943,11 +946,12 @@ class Chat implements ChatController {
   }
 
   #withValues(request: TheoremTurnRequest): TheoremTurnRequest {
-    const { iface, slots: fixed, context } = this.#options;
+    const { iface, slots: fixed, context, stated } = this.#options;
     const slots = slotsOf(iface, fixed, this.#picked).values;
-    if (slots === undefined && context === undefined) return request;
+    if (slots === undefined && context === undefined && stated === undefined) return request;
     return {
       ...request,
+      ...(stated === undefined ? {} : { stated }),
       input: {
         ...request.input,
         ...(slots === undefined ? {} : { slots }),

@@ -71,7 +71,7 @@ Deno.test('an agent kept with a field of another type is set aside', () => {
   const workspace = twoAgents();
   const [first] = workspace.agents;
   assert(first);
-  const identity = { ...first.identity, system: [{ text: 'x', private: true }] };
+  const identity = { ...first.identity, system: 'An older shape.' };
   keep({ ...workspace, agents: [{ ...first, identity }] });
   assertEquals(restoreStudio().kind, 'discarded');
   tab.clear();

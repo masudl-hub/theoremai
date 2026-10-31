@@ -17,6 +17,7 @@ import {
   withLibraryDraft,
   withProvider,
 } from '../../studio/mod.ts';
+import { firstLine } from '../fixtures/prompt-line.ts';
 
 /** One agent's draft changed, as the editor form changes it. */
 function edit(
@@ -33,7 +34,7 @@ const system =
   (text: string) =>
   (draft: StudioDraft): StudioDraft => ({
     ...draft,
-    identity: { ...draft.identity, system: text },
+    identity: { ...draft.identity, system: firstLine(draft, text) },
   });
 const handle =
   (text: string) =>
@@ -71,7 +72,7 @@ Deno.test("a setting only the files changed is the files', and the builder keeps
   const merge = mergedWithFiles(edits, files, old);
   const agent = first(merge.workspace);
   assertEquals(agent.key, key);
-  assertEquals(agent.identity.system, 'Mine.');
+  assertEquals(agent.identity.system[0]?.text, 'Mine.');
   assertEquals(agent.identity.handle, 'from-editor');
   assertEquals(merge.conflicts, []);
   assertEquals(
@@ -80,14 +81,14 @@ Deno.test("a setting only the files changed is the files', and the builder keeps
   );
   // The files' value is the start, so only the builder's edit is left to save.
   assertEquals(merge.workspace.starts.agents[key]?.identity.handle, 'from-editor');
-  assertEquals(merge.workspace.starts.agents[key]?.identity.system, first(old).identity.system);
+  assertEquals(merge.workspace.starts.agents[key]?.identity.system[0]?.text, first(old).identity.system[0]?.text);
 });
 
 Deno.test('with no edits here the merge is the files, at their start', () => {
   const old = createArchitectWorkspace();
   const files = filesAfter((opened) => edit(opened, first(opened).key, system('Theirs.')));
   const merge = mergedWithFiles(old, files, old);
-  assertEquals(first(merge.workspace).identity.system, 'Theirs.');
+  assertEquals(first(merge.workspace).identity.system[0]?.text, 'Theirs.');
   assertEquals(merge.updated.length, 1);
   assert(atStart(merge.workspace));
 });
@@ -143,12 +144,12 @@ Deno.test("a setting both changed is a conflict: the builder's stands until they
   const merge = mergedWithFiles(edits, files, old);
   assertEquals(
     merge.conflicts.map(({ kind, key, path, mine, theirs }) => ({ kind, key, path, mine, theirs })),
-    [{ kind: 'agent', key, path: ['identity', 'system'], mine: 'Mine.', theirs: 'Theirs.' }],
+    [{ kind: 'agent', key, path: ['identity', 'system', 0, 'text'], mine: 'Mine.', theirs: 'Theirs.' }],
   );
-  assertEquals(first(merge.workspace).identity.system, 'Mine.');
-  assertEquals(first(withFilesChosen(merge, [])).identity.system, 'Mine.');
+  assertEquals(first(merge.workspace).identity.system[0]?.text, 'Mine.');
+  assertEquals(first(withFilesChosen(merge, [])).identity.system[0]?.text, 'Mine.');
   const taken = withFilesChosen(merge, [0]);
-  assertEquals(first(taken).identity.system, 'Theirs.');
+  assertEquals(first(taken).identity.system[0]?.text, 'Theirs.');
   // The edit that did not conflict stays either way.
   assertEquals(first(taken).identity.handle, 'mine');
 });
@@ -254,7 +255,7 @@ Deno.test('an agent the builder removed stays removed, and is a conflict when th
     [architect.key],
   );
   assertEquals(merge.conflicts, []);
-  assertEquals(first(merge.workspace).identity.system, 'Theirs.');
+  assertEquals(first(merge.workspace).identity.system[0]?.text, 'Theirs.');
 
   const onIt = filesAfter((opened) => edit(opened, opened.agents[1]?.key ?? '', system('Theirs.')));
   const clash = mergedWithFiles(edits, onIt, old);
@@ -268,7 +269,7 @@ Deno.test('an agent the builder removed stays removed, and is a conflict when th
     back.agents.map((agent) => agent.identity.agentId),
     [architect.identity.agentId, narrator.identity.agentId],
   );
-  assertEquals(back.agents[1]?.identity.system, 'Theirs.');
+  assertEquals(back.agents[1]?.identity.system[0]?.text, 'Theirs.');
   // The tool that ran it comes back with it, for the agent the files let use it.
   const ran = back.toolSpecs.find((tool) => tool.agentKey === back.agents[1]?.key);
   assert(ran && back.agents[0]?.tools.allow.includes(ran.key));
@@ -302,7 +303,7 @@ Deno.test("a tool the files changed is the files', under the key the studio hold
     merge.updated.map((each) => [each.kind, each.name, each.path.join('.')]),
     [['tool', tool.toolName, 'description']],
   );
-  assertEquals(first(merge.workspace).identity.system, 'Mine.');
+  assertEquals(first(merge.workspace).identity.system[0]?.text, 'Mine.');
 });
 
 Deno.test('an agent the builder added stays through a change to the files, edited or not', () => {
@@ -318,7 +319,7 @@ Deno.test('an agent the builder added stays through a change to the files, edite
       merge.workspace.agents.map((agent) => agent.key),
       edits.agents.map((agent) => agent.key),
     );
-    assertEquals(first(merge.workspace).identity.system, 'Theirs.');
+    assertEquals(first(merge.workspace).identity.system[0]?.text, 'Theirs.');
     assertEquals(merge.workspace.starts.agents[copy.key], added.starts.agents[copy.key]);
   }
   // With no reading of the old files to say otherwise, nothing the studio holds is taken away.
@@ -428,7 +429,7 @@ Deno.test("an agent the files rename keeps its key and the builder's edits", () 
   assertEquals(merge.workspace.agents.length, old.agents.length);
   const agent = first(merge.workspace);
   assertEquals(
-    [agent.key, agent.identity.agentId, agent.identity.system],
+    [agent.key, agent.identity.agentId, agent.identity.system[0]?.text],
     [key, 'renamed-desk', 'Mine.'],
   );
 });

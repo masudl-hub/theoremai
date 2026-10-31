@@ -94,6 +94,7 @@ import {
   theoremHostCallRequestSchema,
 } from '../client/host-transport.ts';
 import {
+  type StatedTurn,
   type TheoremInvokeRequest,
   type TheoremRewound,
   theoremConversationRequestSchema,
@@ -192,6 +193,11 @@ export type TheoremHandlerOptions = {
    * answered, with the `host`, `onStage` and `credentials` it gives for that call's turn.
    */
   prepare?: TurnWiring['prepare'];
+  /**
+   * Let the page say which prompt lines a turn gets (`stated`), for a page the host trusts as it
+   * trusts itself: the studio's. Unset refuses them, so a public page never chooses its own lines.
+   */
+  pageStatesTurn?: boolean;
   /**
    * The server's own stage handler, on every call this handler runs, a host's included: after
    * the application's, before steering. For a rule the server adds to whatever the application
@@ -796,6 +802,7 @@ async function* chatTurn(
         host,
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.effort ? { effort: turn.effort } : {}),
+        ...turn.stated,
       },
       {
         credentials: sessionCredentials(ctx, session.id),
@@ -823,7 +830,7 @@ function chatRunner(
   ctx: HandlerContext,
   request: Request,
   session: Session,
-  generation: { model?: string; effort?: string; turnId?: string },
+  generation: { model?: string; effort?: string; turnId?: string; stated?: StatedTurn },
 ): ReplyRunner {
   const key = generation.turnId ? inboxKey(session.id, generation.turnId) : undefined;
   const stop = new AbortController();
@@ -846,6 +853,7 @@ function chatRunner(
     },
     ...(generation.model ? { model: generation.model } : {}),
     ...(generation.effort ? { effort: generation.effort } : {}),
+    ...(generation.stated ? { stated: generation.stated } : {}),
     signal,
   };
 }
@@ -870,6 +878,9 @@ async function turn(
   session: Session,
 ): Promise<Response> {
   const body = await readBody(request, theoremTurnRequestSchema, ctx.options.maxRequestBytes);
+  if (body.stated && !ctx.options.pageStatesTurn) {
+    throw new TheoremError('request', labelText('error.request'));
+  }
   const message = postedMessage(
     chatInterface(chat),
     body.input,
@@ -882,7 +893,12 @@ async function turn(
     // labels-exempt: internal diagnostic; the user reads error.request
     if (body.abandon) throw statelessRefusal('walk away from');
     return eventStream(ctx, request, () =>
-      runner.run({ input: message.input, model: body.model, effort: body.effort }),
+      runner.run({
+        input: message.input,
+        model: body.model,
+        effort: body.effort,
+        ...(body.stated ? { stated: body.stated } : {}),
+      }),
     );
   }
   const opened = await openConversation(host, body.conversation, {

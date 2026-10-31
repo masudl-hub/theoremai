@@ -39,6 +39,7 @@ import {
   withLibraryDraft,
   workspaceFromDraft,
 } from '../../studio/mod.ts';
+import { firstLine } from '../fixtures/prompt-line.ts';
 
 function compiled(workspace: StudioWorkspace) {
   const result = compileWorkspace(workspace, ON_OWN_KEYS);
@@ -211,7 +212,7 @@ Deno.test('resetting an agent puts back its start and leaves the other agents al
   const edited = removeLibraryTool(
     withLibraryDraft(start, concierge.key, {
       ...view,
-      identity: { ...view.identity, agentId: 'my.agent', system: 'Changed.' },
+      identity: { ...view.identity, agentId: 'my.agent', system: firstLine(view, 'Changed.') },
     }),
     weather.key,
   );
@@ -237,7 +238,7 @@ Deno.test('resetting everything puts every agent and tool back, and a swap of na
     assert(view);
     return withLibraryDraft(workspace, key, {
       ...view,
-      identity: { ...view.identity, agentId, system: 'Changed.' },
+      identity: { ...view.identity, agentId, system: firstLine(view, 'Changed.') },
     });
   };
   const parked = swap(start, concierge.key, 'parked');
@@ -269,7 +270,7 @@ Deno.test('two opens of the same files print the same, and an edit prints anothe
   assert(architect && view);
   const edited = withLibraryDraft(first, architect.key, {
     ...view,
-    identity: { ...view.identity, system: 'Changed.' },
+    identity: { ...view.identity, system: firstLine(view, 'Changed.') },
   });
   assert(filesPrint(edited) !== filesPrint(first));
 });
@@ -291,7 +292,7 @@ Deno.test('edits brought back over changed files keep the edits and take the res
     assert(view);
     return withLibraryDraft(workspace, key, {
       ...view,
-      identity: { ...view.identity, system: text },
+      identity: { ...view.identity, system: firstLine(view, text) },
     });
   };
   const old = createArchitectWorkspace();
@@ -314,14 +315,17 @@ Deno.test('edits brought back over changed files keep the edits and take the res
 
   const back = rebased(edits, files);
   const by = (id: string) => back.agents.find((agent) => agent.identity.agentId === id);
-  assertEquals(by(architect.identity.agentId)?.identity.system, 'Edited in the studio.');
-  assertEquals(by(narrator.identity.agentId)?.identity.system, 'Edited in the editor.');
+  assertEquals(by(architect.identity.agentId)?.identity.system[0]?.text, 'Edited in the studio.');
+  assertEquals(by(narrator.identity.agentId)?.identity.system[0]?.text, 'Edited in the editor.');
   assertEquals(back.agents.length, edits.agents.length);
   assertEquals(back.toolSpecs[0]?.description, 'From the editor.');
   // Only the builder's own edits are left to save: the starts are the files'.
   assertEquals(back.starts.tools[tool.key]?.description, 'From the editor.');
-  assertEquals(back.starts.agents[narrator.key]?.identity.system, 'Edited in the editor.');
-  assertEquals(back.starts.agents[architect.key]?.identity.system, architect.identity.system);
+  assertEquals(back.starts.agents[narrator.key]?.identity.system[0]?.text, 'Edited in the editor.');
+  assertEquals(
+    back.starts.agents[architect.key]?.identity.system[0]?.text,
+    architect.identity.system[0]?.text,
+  );
 });
 
 Deno.test('opening the files again keeps the keys in use and brings back a removed agent', () => {
@@ -332,7 +336,7 @@ Deno.test('opening the files again keeps the keys in use and brings back a remov
   assert(view);
   const renamed = withLibraryDraft(held, architect.key, {
     ...view,
-    identity: { ...view.identity, agentId: 'renamed', system: 'Changed.' },
+    identity: { ...view.identity, agentId: 'renamed', system: firstLine(view, 'Changed.') },
   });
   const keys = (workspace: StudioWorkspace) => [
     ...workspace.agents.map((agent) => agent.key),

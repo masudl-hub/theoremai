@@ -15,6 +15,7 @@ export function browserExecution() {
     request: new Request('https://studio.local'),
     session: () => id,
     sessionStore: memory,
+    pageStatesTurn: true,
   });
   const store = sessionStateStore(memory, undefined, DEFAULT_OPERATION_RETENTION_MS);
   const page = sessionPageDispatch(store, id, createMemoryPageToolBroker());

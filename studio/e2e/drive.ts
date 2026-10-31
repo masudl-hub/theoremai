@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { expect, type Page, test } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 
 export const FAKE = `http://127.0.0.1:${process.env.FAKE_MODEL_PORT}`;
 
@@ -37,8 +37,18 @@ export async function sendBy(page: Page, choice: string | RegExp, text: string) 
   await page.getByRole('menuitem', { name: choice }).click();
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.request.delete(`${FAKE}/requests`);
+/**
+ * invariant: `seen` holds only the requests of the test that reads it.
+ * why: an auto fixture, because a `beforeEach` here registers for the first spec that loads this file.
+ */
+export const test = base.extend<{ forgetRequests: undefined }>({
+  forgetRequests: [
+    async ({ request }, use) => {
+      await request.delete(`${FAKE}/requests`);
+      await use(undefined);
+    },
+    { auto: true },
+  ],
 });
 
 /** The fixture's copy on disk, which Save writes. */
@@ -67,4 +77,4 @@ export async function putProjectBack(page: Page) {
   await page.close();
 }
 
-export { expect, test };
+export { expect };

@@ -57,7 +57,7 @@ test('a duplicate runs, Save writes its file, and Save takes it back out', async
 
 test('a new tool goes on the agent and Save writes both', async ({ page }) => {
   await open(page);
-  await page.getByRole('radio', { name: /Tools, 3/ }).click();
+  await page.getByRole('radio', { name: /Tools, 4/ }).click();
   await page.getByRole('button', { name: 'Add tool' }).click();
   await expect(page.getByRole('textbox', { name: 'Name' })).toHaveValue('my_tool');
   await page.getByRole('textbox', { name: 'Name' }).fill('stamp_note');
@@ -131,7 +131,7 @@ test("an http tool is tested against its endpoint, within the agent's network gu
   page,
 }) => {
   await open(page);
-  await page.getByRole('radio', { name: /Tools, 3/ }).click();
+  await page.getByRole('radio', { name: /Tools, 4/ }).click();
   await page.getByRole('button', { name: 'Add tool' }).click();
   await page.getByRole('radio', { name: 'HTTP' }).click();
   await page.getByRole('textbox', { name: 'Endpoint' }).fill(`${FAKE}/requests`);

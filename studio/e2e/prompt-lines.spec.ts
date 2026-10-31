@@ -55,3 +55,18 @@ test('the trace names the prompt lines the turn sent', async ({ page }) => {
   const row = page.getByRole('term').filter({ hasText: 'Prompt lines sent' });
   await expect(row.locator('xpath=following-sibling::*[1]')).toHaveText(/1.*2/);
 });
+
+test('an image agent runs with the conditions the edit declares', async ({ page }) => {
+  await open(page, 'picture');
+  await page.getByRole('textbox', { name: 'Conditions' }).fill('{ "plan": ["free", "paid"] }');
+  await page.getByRole('button', { name: 'Add line' }).click();
+  await page
+    .getByRole('textbox', { name: 'Line 2' })
+    .fill('when plan is paid: Mention the garden.');
+  await page.getByRole('combobox', { name: 'plan' }).click();
+  await page.getByRole('option', { name: 'paid' }).click();
+  await expect(page.getByText('Edited (studio)')).toBeVisible();
+  await page.getByRole('button', { name: 'Hide saved' }).click();
+  await send(page, 'a red pixel');
+  await expect(page.getByRole('img', { name: 'Generated image' })).toBeVisible();
+});

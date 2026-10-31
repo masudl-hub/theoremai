@@ -142,9 +142,10 @@ export function useLoadedStated(
   stated: StatedTurn | undefined,
   isLoaded: boolean,
 ): StatedTurn | undefined {
-  const loaded = useRef(stated);
-  if (isLoaded) loaded.current = stated;
-  return loaded.current;
+  const [loaded, setLoaded] = useState(stated);
+  const now = isLoaded ? stated : loaded;
+  if (JSON.stringify(now) !== JSON.stringify(loaded)) setLoaded(now);
+  return now;
 }
 
 /** A side's chat as it stands, and as it changes. Null until the side is mounted. */
@@ -893,7 +894,7 @@ function useChatHandle(
 ) {
   const { send, stop, handles, chats } = pair;
   const controller = chats[only ?? 'edited'];
-  useImperativeHandle(
+  useImperativeHandle<TheoremChatHandle | null, TheoremChatHandle | null>(
     // invariant: a screen holds this handle only while the chat behind it is open.
     chatRef as Ref<TheoremChatHandle | null> | undefined,
     () =>
@@ -1023,7 +1024,7 @@ export function ProjectChat(props: ProjectChatProps) {
       {isShared && (
         <SharedSlot
           sides={shared}
-          edited={isReady ? pair.states.edited : undefined}
+          edited={isReady ? (pair.states.edited ?? undefined) : undefined}
           inputRef={sharedInput}
           handle={profileId}
           why={whyNot(refused !== undefined, isReady)}

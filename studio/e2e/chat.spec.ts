@@ -15,6 +15,18 @@ test('a tool that reads runs without asking', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Approve' })).toHaveCount(0);
 });
 
+test("a tool's image stands in the reply where the call ran", async ({ page }) => {
+  await open(page);
+  await send(page, '[call draw_city {"city":"Faro"}]');
+  const image = page.getByRole('button', { name: 'Generated image' });
+  const answer = page.getByText('Tool answered on full');
+  await expect(answer).toBeVisible();
+  await expect(image).toBeVisible();
+  const above = async (locator: typeof image) => (await locator.boundingBox())?.y ?? 0;
+  expect(await above(image)).toBeLessThan(await above(answer));
+  await expect(page.getByRole('button', { name: /Worked for/ })).toBeVisible();
+});
+
 test('an approved write runs and the reply goes on', async ({ page }) => {
   await open(page);
   await send(page, WRITE);

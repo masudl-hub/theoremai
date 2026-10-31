@@ -298,6 +298,23 @@ function standaloneBlock(event: TurnEvent, idPrefix: string): TranscriptBlock | 
   }
 }
 
+/**
+ * The media a tool returned beside its output, where the call stands in the reply.
+ * why: a tool sends a picture when it runs, so the picture comes before what the model says next.
+ */
+function appendToolParts(blocks: TranscriptBlock[], tool: ToolCallEvent, idPrefix: string): void {
+  if (tool.phase !== 'complete') return;
+  for (const part of tool.parts ?? []) {
+    if (part.type === 'text') continue;
+    blocks.push({
+      id: nextBlockId(idPrefix),
+      kind: 'media',
+      mimeType: part.mimeType,
+      ...('data' in part ? { data: part.data } : { url: part.uri }),
+    });
+  }
+}
+
 /** Resets only the turn id sequence, so streaming refolds keep stable `turn-*` keys. */
 function foldTurnEvents(
   events: readonly TurnEvent[],
@@ -328,6 +345,7 @@ function foldTurnEvents(
       case 'tool':
         upsertToolBlock(blocks, event.tool);
         appendPromotedToolMedia(blocks, event.tool, idPrefix, promotedMediaUrls);
+        appendToolParts(blocks, event.tool, idPrefix);
         break;
       case 'structured_draft':
         upsertStructuredDraft(blocks, event.text, idPrefix);

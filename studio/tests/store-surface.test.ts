@@ -1,6 +1,7 @@
 import { assert, assertEquals } from '@std/assert';
 import { createSurfaceRuntime } from '../../src/surface/mod.ts';
 import { TEST_KEYS } from '../../tests/fixtures/lent-keys.ts';
+import { firstLine } from '../../tests/fixtures/prompt-line.ts';
 import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
   addAgent,
@@ -14,7 +15,6 @@ import {
 import { type StudioSurfaceHost, studioSurface } from '../surface.ts';
 import { createStudioStore } from '../ui/lib/studio-store.ts';
 import { tab } from './tab.ts';
-import { firstLine } from '../../tests/fixtures/prompt-line.ts';
 
 const KEY = ['AIzaSy', 'TESTONLY0000000000000000000000000'].join('');
 

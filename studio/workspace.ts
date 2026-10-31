@@ -810,13 +810,10 @@ const DRAFT_KEY = new RegExp(`^${KEY_SHAPE}$`);
 /** A value as text with each key named by where it first stands, so two opens of one thing read the same. */
 function keyless(value: unknown): string {
   const names = new Map<string, string>();
-  return JSON.stringify(value).replace(
-    new RegExp(`\\b${KEY_SHAPE}\\b`, 'g'),
-    (key) => {
-      if (!names.has(key)) names.set(key, `#${names.size}`);
-      return names.get(key) ?? key;
-    },
-  );
+  return JSON.stringify(value).replace(new RegExp(`\\b${KEY_SHAPE}\\b`, 'g'), (key) => {
+    if (!names.has(key)) names.set(key, `#${names.size}`);
+    return names.get(key) ?? key;
+  });
 }
 
 /**

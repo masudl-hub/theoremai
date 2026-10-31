@@ -81,7 +81,10 @@ Deno.test("a setting only the files changed is the files', and the builder keeps
   );
   // The files' value is the start, so only the builder's edit is left to save.
   assertEquals(merge.workspace.starts.agents[key]?.identity.handle, 'from-editor');
-  assertEquals(merge.workspace.starts.agents[key]?.identity.system[0]?.text, first(old).identity.system[0]?.text);
+  assertEquals(
+    merge.workspace.starts.agents[key]?.identity.system[0]?.text,
+    first(old).identity.system[0]?.text,
+  );
 });
 
 Deno.test('with no edits here the merge is the files, at their start', () => {
@@ -144,7 +147,15 @@ Deno.test("a setting both changed is a conflict: the builder's stands until they
   const merge = mergedWithFiles(edits, files, old);
   assertEquals(
     merge.conflicts.map(({ kind, key, path, mine, theirs }) => ({ kind, key, path, mine, theirs })),
-    [{ kind: 'agent', key, path: ['identity', 'system', 0, 'text'], mine: 'Mine.', theirs: 'Theirs.' }],
+    [
+      {
+        kind: 'agent',
+        key,
+        path: ['identity', 'system', 0, 'text'],
+        mine: 'Mine.',
+        theirs: 'Theirs.',
+      },
+    ],
   );
   assertEquals(first(merge.workspace).identity.system[0]?.text, 'Mine.');
   assertEquals(first(withFilesChosen(merge, [])).identity.system[0]?.text, 'Mine.');

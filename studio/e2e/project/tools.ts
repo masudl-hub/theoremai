@@ -2,6 +2,10 @@ import { registerTool, z } from '@theoremjs/agents';
 
 const IN_ANY_TURN = { loadTier: 'T0' as const, paths: ['*'], type: 'function' as const };
 
+/** One red pixel: what `draw_city` draws. */
+const PIXEL =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+
 export function registerTools(): void {
   registerTool({
     ...IN_ANY_TURN,
@@ -13,6 +17,25 @@ export function registerTools(): void {
     input: z.object({ city: z.string().min(1).describe('The city.') }),
     output: z.object({ city: z.string(), country: z.string() }),
     handler: (input) => ({ city: (input as { city: string }).city, country: 'PT' }),
+  });
+  registerTool({
+    ...IN_ANY_TURN,
+    access: 'read-only',
+    permission: 'auto',
+    name: 'draw_city',
+    description: 'Draws a city.',
+    category: 'places',
+    input: z.object({ city: z.string().min(1).describe('The city.') }),
+    output: z.object({
+      drawn: z.boolean(),
+      parts: z.array(
+        z.object({ type: z.literal('image'), mimeType: z.string(), data: z.string() }),
+      ),
+    }),
+    handler: () => ({
+      drawn: true,
+      parts: [{ type: 'image' as const, mimeType: 'image/png', data: PIXEL }],
+    }),
   });
   registerTool({
     ...IN_ANY_TURN,

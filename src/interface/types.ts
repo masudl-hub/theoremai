@@ -285,9 +285,9 @@ export interface StructuredBlock extends TranscriptBlockBase {
 export interface MediaBlock extends TranscriptBlockBase {
   kind: 'media';
   mimeType: string;
-  /** Base64 for model-generated or attached media. Absent when `url` is set. */
+  /** Base64 for media a model generated, a tool returned or a person attached. Absent when `url` is set. */
   data?: string;
-  /** Remote http(s) URL promoted from completed tool output. Absent when `data` is set. */
+  /** Remote URL from completed tool output or a tool's media part. Absent when `data` is set. */
   url?: string;
   /** A smaller copy of `url` for previews, when the tool output offered one. */
   previewUrl?: string;

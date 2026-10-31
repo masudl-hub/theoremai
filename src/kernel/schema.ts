@@ -381,7 +381,6 @@ function field(
 export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'models',
   'models.*.efforts',
-  'identity.systemByRole',
   'labels',
   'inputs.slots',
   'inputs.limitsByMime',
@@ -661,12 +660,12 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     },
   ),
   identity: field(
-    '{ handle, conditions?, system?, systemByRole? }',
+    '{ handle, conditions?, system? }',
     "The agent's display name and the system instruction it is given.",
   ),
   'identity.handle': field(
     'string',
-    'The name hosts and users see for this agent, at most 32 characters; the model never sees it. It is also the role a turn gets when it names none, so identity.systemByRole may hold an entry under it.',
+    'The name hosts and users see for this agent, at most 32 characters; the model never sees it.',
   ),
   'identity.conditions': field(
     'Record<string, string[]>',
@@ -675,14 +674,6 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   'identity.system': field(
     'string | Array<string | Array<string | { private: string }>>',
     'The instruction the model gets, as one string or a list of lines; some providers send it for an image profile only with includeText on. A line that opens "when plan is free: …" goes only on turns where that fits, and every line that fits is sent, a blank line apart. A line can be a list of parts; mark what must not leak as { private: text }; only that is guarded. With none, the whole prompt is.',
-  ),
-  'identity.systemByRole': field(
-    'Record<string, string | Array<string | Array<string | { private: string }>>>',
-    'Other system instructions, picked by the role a turn names.',
-  ),
-  'identity.systemByRole.*': field(
-    'string | Array<string | Array<string | { private: string }>>',
-    'The instruction that replaces identity.system when a turn names this role.',
   ),
   models: field(
     'Record<ModelId, ModelBinding | DecisionModelBinding>',

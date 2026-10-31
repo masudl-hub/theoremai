@@ -17,7 +17,6 @@ import {
 } from '../../kernel/default-scope.ts';
 import { startCallUsage } from '../../kernel/engine/runner/usage.ts';
 import { startCallTrace } from '../../kernel/engine/turn-trace.ts';
-import { pickSystemRole } from '../../kernel/registry/system-role.ts';
 import { bindSystem } from '../../kernel/system-parts.ts';
 import type { ModelRequest, TurnEvent, TurnModel, TurnRequest } from '../../kernel/types.ts';
 import { resolveObservabilityPolicy } from '../../observability/resolve-policy.ts';
@@ -309,7 +308,6 @@ function printOverhead(raw: AggregatedMetrics, kernel: AggregatedMetrics): void 
 interface PhaseTimings {
   sanitizeMs: number;
   resolveMs: number;
-  systemMs: number;
   canaryMs: number;
   totalSetupMs: number;
 }
@@ -321,21 +319,17 @@ function measureSetupPhases(): PhaseTimings {
   const safe = sanitizeTurnRequest(req, getProfile(req.profile));
   const t1 = performance.now();
 
-  const { profile, generation } = resolveTurn(safe);
+  const { generation } = resolveTurn(safe);
   const t2 = performance.now();
 
-  pickSystemRole(profile, safe.input?.role);
-  const t3 = performance.now();
-
   bindSystem(generation.resolvedSystem, [canaryNote(generation.canary)]);
-  const t4 = performance.now();
+  const t3 = performance.now();
 
   return {
     sanitizeMs: t1 - t0,
     resolveMs: t2 - t1,
-    systemMs: t3 - t2,
-    canaryMs: t4 - t3,
-    totalSetupMs: t4 - t0,
+    canaryMs: t3 - t2,
+    totalSetupMs: t3 - t0,
   };
 }
 
@@ -352,7 +346,6 @@ function printPhaseBreakdown(iterations: number): void {
 
   const sanitize = median(results.map((r) => r.sanitizeMs));
   const resolve = median(results.map((r) => r.resolveMs));
-  const system = median(results.map((r) => r.systemMs));
   const canary = median(results.map((r) => r.canaryMs));
   const total = median(results.map((r) => r.totalSetupMs));
 
@@ -360,7 +353,6 @@ function printPhaseBreakdown(iterations: number): void {
   console.log('─'.repeat(72));
   console.log(`  sanitizeTurnRequest    ${fmtMs(sanitize).padStart(10)}`);
   console.log(`  resolveTurn            ${fmtMs(resolve).padStart(10)}`);
-  console.log(`  pickSystemRole         ${fmtMs(system).padStart(10)}`);
   console.log(`  bindSystem             ${fmtMs(canary).padStart(10)}`);
   console.log(`  ─────────────────────────────`);
   console.log(`  Total setup            ${fmtMs(total).padStart(10)}`);

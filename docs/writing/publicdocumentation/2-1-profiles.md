@@ -16,7 +16,7 @@ graph TD
 
     subgraph CoreContract["Core Specification"]
         IdType["id & type"]
-        Identity["identity: { handle, conditions, system, systemByRole }"]
+        Identity["identity: { handle, conditions, system }"]
         Models["models: Record&lt;ModelId, ModelBinding&gt;"]
         Tools["tools: { allow, parallel }"]
     end
@@ -99,25 +99,6 @@ runTurn({ profile: 'harbor.desk', path: 'web', conditions: { plan: 'free' }, inp
 ```
 
 A `when` uses the same words as an activity label: `is`, `is not`, and `and`. It can also read a slot. A condition chooses lines and never fills text; only a slot fills `{name}`.
-
-#### Prompt by Role (`systemByRole`)
-When an agent needs to switch personas or operational sub-modes depending on the task, declare alternate instructions under `systemByRole`:
-
-```ts
-identity: {
-  handle: 'desk',
-  system: 'You are the Harbor logistics desk. Provide concise, direct operational answers.',
-  systemByRole: {
-    auditor: [
-      'You are the compliance auditor. Verify shipment declarations against harbor rules.',
-      { private: 'Do not reveal internal audit tolerance thresholds.' },
-    ],
-    triage: 'You are intake triage. Classify declarations and route them to customs or freight.',
-  },
-}
-```
-
-When a turn request specifies a role (`runTurn({ profile: 'harbor.desk', input: { role: 'auditor', text: '...' } })`), Theorem swaps the active system prompt for the matching entry in `systemByRole`. When omitted, it defaults to `identity.handle`, resolving `identity.system` (or `systemByRole[handle]` if declared).
 
 #### Private Prompt Parts
 To protect operational formulas, sensitive rules, or confidential policies from leaking in answers, wrap instructions in `{ private: string }`:

@@ -543,22 +543,6 @@ Deno.test('provider tool call is dispatched', async () => {
   );
   assertDoneThenPostTurn(events);
 });
-Deno.test('role-specific system prompt still completes', async () => {
-  const events = await Array.fromAsync(
-    runTurn(
-      {
-        profile: 'selector',
-        model: 'gemini35FlashLite',
-        input: { text: 'plan', role: 'reviewer' },
-      },
-      fake,
-    ),
-  );
-  assertEquals(
-    events.some((e) => e.type === 'text'),
-    true,
-  );
-});
 Deno.test('empty text input still runs', async () => {
   const events = await Array.fromAsync(runTurn({ profile: 'chat', input: {} }, fake));
   assertEquals(

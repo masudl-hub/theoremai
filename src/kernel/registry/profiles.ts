@@ -611,25 +611,17 @@ function assertIdentitySystem(input: ProfileDefinition): void {
     input.type === 'embedding'
   )
     return;
-  const { conditions, system, systemByRole } = input.identity;
+  const { conditions, system } = input.identity;
   const slots: Record<string, readonly string[]> = {};
   for (const [name, decl] of Object.entries(
     normalizeProfileInputsSlots(input.inputs)?.slots ?? {},
   )) {
     slots[name] = slotValues(decl);
   }
-  const prompts: [string, unknown][] = [
-    ['identity.system', system ?? ''],
-    ...Object.entries(systemByRole ?? {}).map(([role, prompt]): [string, unknown] => [
-      `identity.systemByRole.${role}`,
-      prompt,
-    ]),
-  ];
-  for (const [where, prompt] of prompts) {
-    assertSystemLines(prompt, `Profile ${input.id} ${where}`);
-    const problem = systemLinesProblem(prompt, conditions, slots);
-    if (problem) throw new TheoremError('config', `Profile ${input.id} ${where}: ${problem}`); // labels-exempt: developer contract error
-  }
+  const prompt = system ?? '';
+  assertSystemLines(prompt, `Profile ${input.id} identity.system`);
+  const problem = systemLinesProblem(prompt, conditions, slots);
+  if (problem) throw new TheoremError('config', `Profile ${input.id} identity.system: ${problem}`); // labels-exempt: developer contract error
 }
 
 /** Validate a definition and return the profile; throws on a malformed one. */
@@ -701,7 +693,6 @@ function defineProfile(input: ProfileDefinition): Profile {
           handle: input.identity.handle,
           conditions: input.identity.conditions,
           system: input.identity.system,
-          systemByRole: input.identity.systemByRole,
         };
   const guardrails = input.guardrails;
   const observability = input.observability;

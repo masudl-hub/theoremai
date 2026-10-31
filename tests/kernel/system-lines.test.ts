@@ -151,16 +151,6 @@ Deno.test('parts of one line stay together, exactly as written', () => {
   );
 });
 
-Deno.test('a role reads lines the same way', () => {
-  const prompt = define({
-    handle: 'x',
-    conditions: CONDITIONS,
-    system: 'default',
-    systemByRole: { critic: ['crit', 'when plan is free: F'] },
-  });
-  assertEquals(sent(prompt, { ...WEB_FREE, input: { role: 'critic' } }), 'crit\n\nF');
-});
-
 Deno.test('a prompt line is refused at registration for each broken shape', () => {
   const cases: [ProfileSystem, RegExp][] = [
     [['when path is fax: x'], /never "fax"/],

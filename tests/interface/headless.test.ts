@@ -122,7 +122,7 @@ Deno.test('clientProfileInterface is the interface without its system prompts', 
   const profile = defineProfile({
     ...ATTACHMENT_PROFILE,
     id: 'interface.text.client',
-    identity: { handle: 'vision_bot', system: 'You see images.', systemByRole: { a: 'Role A.' } },
+    identity: { handle: 'vision_bot', system: 'You see images.' },
     labels: { 'error.failed': 'That went wrong.' },
   });
   const full = interfaceFromProfile(profile, defaultKernelScope.tools);

@@ -13,7 +13,6 @@ import {
   COMPACTION_DRAFT_DEFAULTS,
   compileStudio,
   createBlankDraft,
-  newSystemLine,
   createExampleDraft,
   defaultToolSpec,
   draftAllows,
@@ -26,6 +25,7 @@ import {
   newModelBinding,
   newOwnDetector,
   newPattern,
+  newSystemLine,
   newToolSpec,
   removeModelBinding,
   type SlotDraft,
@@ -1257,11 +1257,10 @@ Deno.test('an image draft pins references and output settings, and reports what 
     ],
   );
 });
-Deno.test('instructions by role, slots, and limits by type compile from their fields', () => {
+Deno.test('slots and limits by type compile from their fields', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
     ...draft,
-    identity: { ...draft.identity, systemByRoleJson: '{"support":"Answer as support."}' },
     inputs: {
       ...draft.inputs,
       limitsByMime: { 'application/pdf': 2000000 },
@@ -1269,13 +1268,11 @@ Deno.test('instructions by role, slots, and limits by type compile from their fi
     },
   });
   assert(profile.type === 'text');
-  assertEquals(profile.identity.systemByRole, { support: 'Answer as support.' });
   assertEquals(profile.inputs?.limitsByMime, { 'application/pdf': 2000000 });
   assertEquals(profile.inputs?.slots, { language: ['en', 'fr'] });
   const bad = compileStudio(
     {
       ...draft,
-      identity: { ...draft.identity, systemByRoleJson: '{"support":1}' },
       inputs: {
         ...draft.inputs,
         limitsByMime: { 'image/*': 0 },
@@ -1285,11 +1282,7 @@ Deno.test('instructions by role, slots, and limits by type compile from their fi
     ON_OWN_KEYS,
   );
   assert(!bad.ok);
-  assertEquals(bad.issues.map((issue) => issue.field).sort(), [
-    'limitsByMime',
-    'slots',
-    'systemByRoleJson',
-  ]);
+  assertEquals(bad.issues.map((issue) => issue.field).sort(), ['limitsByMime', 'slots']);
 });
 Deno.test('a slot with a label or a described choice compiles to its labeled form', () => {
   const draft = createExampleDraft();
@@ -1400,7 +1393,10 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
   const draft = createExampleDraft();
   const withSystem = (...lines: string[]) =>
     compileStudio(
-      { ...draft, identity: { ...draft.identity, system: lines.map((line) => newSystemLine(line)) } },
+      {
+        ...draft,
+        identity: { ...draft.identity, system: lines.map((line) => newSystemLine(line)) },
+      },
       ON_OWN_KEYS,
     );
   const system = (result: StudioCompileResult) => {
@@ -1453,42 +1449,13 @@ Deno.test('the prompt compiles line by line, with its conditions, and a bad line
   ]);
   const unknown = withPrompt('{ "plan": ["free"] }', 'when plan is gold: Hello.');
   assert(!unknown.ok);
-  assertEquals(unknown.issues.map(({ nodeId, field }) => ({ nodeId, field })), [
-    { nodeId: 'identity', field: 'system' },
-  ]);
+  assertEquals(
+    unknown.issues.map(({ nodeId, field }) => ({ nodeId, field })),
+    [{ nodeId: 'identity', field: 'system' }],
+  );
   const shape = withPrompt('{ "plan": "free" }', 'Be brief.');
   assert(!shape.ok);
   assertEquals(shape.issues[0]?.field, 'conditionsJson');
-});
-Deno.test('instructions by role take {private: sections or parts', () => {
-  const draft = createExampleDraft();
-  const { profile } = compiled({
-    ...draft,
-    identity: {
-      ...draft.identity,
-      systemByRoleJson:
-        '{"support":"Hello. {private: Refund code R1.}","desk":["Hi. ",{"private":"Key K."}]}',
-    },
-  });
-  assert(profile.type === 'text');
-  assertEquals(profile.identity.systemByRole, {
-    support: [['Hello. ', { private: 'Refund code R1.' }]],
-    desk: [['Hi. ', { private: 'Key K.' }]],
-  });
-  for (const json of ['{"support":[{"private":""}]}', '{"support":"{private: open"}']) {
-    const bad = compileStudio(
-      {
-        ...draft,
-        identity: { ...draft.identity, systemByRoleJson: json },
-      },
-      ON_OWN_KEYS,
-    );
-    assert(!bad.ok);
-    assertEquals(
-      bad.issues.map((issue) => issue.field),
-      ['systemByRoleJson'],
-    );
-  }
 });
 Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {
   const draft = createExampleDraft();

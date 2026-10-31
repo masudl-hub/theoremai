@@ -62,9 +62,7 @@ import {
   type ProfileSystem,
   type ProviderLimits,
   type SlotDeclInput,
-  type SystemPrompt,
   systemLinesProblem,
-  systemPromptProblem,
 } from '@theoremjs/agents/kernel';
 import { resolveObservabilityPolicy } from '@theoremjs/agents/observability';
 import {
@@ -563,10 +561,6 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
   return parseRecord(raw, isString);
 }
 
-/** A prompt written as parts is one line of the profile's prompt. */
-const oneLine = (prompt: SystemPrompt): ProfileSystem =>
-  typeof prompt === 'string' ? prompt : [prompt];
-
 const isValueList = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(isString);
 
@@ -600,38 +594,6 @@ function compilePrompt(draft: StudioDraft, report: Report) {
     if (problem) report('identity', problem, 'system');
   }
   return { system, conditions: declared };
-}
-
-const isSystemPrompt = (value: unknown): value is SystemPrompt =>
-  systemPromptProblem(value, 'system') === undefined;
-
-/** Each role's text takes `{private: …}` sections like the system prompt; a list of parts passes as written. */
-function compileSystemByRole(
-  raw: string,
-  report: (message: string) => void,
-): Record<string, ProfileSystem> | undefined {
-  const byRole = parseRecord(raw, isSystemPrompt);
-  if (byRole === null) {
-    report(
-      'Instructions by role must be a JSON object of text, or of lists of text and { "private": text }.',
-    );
-    return undefined;
-  }
-  if (!byRole) return undefined;
-  const compiled: Record<string, ProfileSystem> = {};
-  for (const [role, prompt] of Object.entries(byRole)) {
-    if (typeof prompt !== 'string') {
-      compiled[role] = [prompt];
-      continue;
-    }
-    const parsed = parseSystemMarkup(prompt);
-    if (!parsed.ok) {
-      report(`${role}: ${parsed.message}`);
-      return undefined;
-    }
-    if (parsed.prompt !== undefined) compiled[role] = oneLine(parsed.prompt);
-  }
-  return compiled;
 }
 
 /** A record field's value, reporting `message` on `field` when it doesn't parse. */
@@ -2254,9 +2216,6 @@ function assemble(
   const facets = new Set<string>(draftFacets(draft));
   const allows = (path: string) => draftAllows(draft, path);
   const { system, conditions } = compilePrompt(draft, report);
-  const systemByRole = compileSystemByRole(draft.identity.systemByRoleJson, (message) => {
-    report('identity', message, 'systemByRoleJson');
-  });
   const modelFields = compileModels(draft, type, report, agentIdOf);
   const { outputs, structured } = facets.has('outputs')
     ? compileOutputs(draft.outputs, allows('outputs.structured'), report)
@@ -2285,7 +2244,6 @@ function assemble(
       handle: draft.identity.handle.trim(),
       ...(conditions ? { conditions } : {}),
       ...(system ? { system } : {}),
-      ...(systemByRole ? { systemByRole } : {}),
     },
     ...modelFields,
     ...(facets.has('image') ? { image: compileImage(draft.image, report) } : {}),

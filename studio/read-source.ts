@@ -35,7 +35,6 @@ import {
   defaultModelBinding,
   defaultToolSpec,
   draftKey,
-  type SystemLineDraft,
   type GuardrailsDraft,
   type ImageReferenceDraft,
   INLINE_LABELS,
@@ -46,6 +45,7 @@ import {
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
   type StudioProfileType,
+  type SystemLineDraft,
   type ToolSpecDraft,
 } from './draft.ts';
 import {
@@ -1109,7 +1109,6 @@ function identityOf(
   type: StudioProfileType | '',
 ): StudioDraft['identity'] {
   const identity = record(profile.identity) ?? {};
-  const byRole = identity.systemByRole;
   return {
     ...current,
     agentId: text(profile.id),
@@ -1117,7 +1116,6 @@ function identityOf(
     handle: text(identity.handle),
     system: promptLines(identity.system, current.system),
     conditionsJson: isRecord(identity.conditions) ? jsonText(identity.conditions) : '',
-    systemByRoleJson: isRecord(byRole) || Array.isArray(byRole) ? jsonText(byRole) : '',
   };
 }
 

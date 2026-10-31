@@ -645,15 +645,15 @@ function createResearchConsoleDraft(): StudioDraft {
 export function createResearchScoutDraft(): StudioDraft {
   const blank = createBlankDraft();
   const base = exampleTextDraft(
-    { agentId: 'research.scout', handle: 'scout', system: [newSystemLine(DEMO_RESEARCH_SYSTEM)] },
+    {
+      agentId: 'research.scout',
+      handle: 'scout',
+      system: [DEMO_RESEARCH_SYSTEM, ...RESEARCH_READER_LINES].map((line) => newSystemLine(line)),
+    },
     { tools: { t2Loader: '', parallel: true }, toolSpecs: exampleTools(DEMO_RESEARCH_TOOLS) },
   );
   return {
     ...base,
-    identity: {
-      ...base.identity,
-      systemByRoleJson: JSON.stringify(RESEARCH_SYSTEM_BY_ROLE, null, 2),
-    },
     // Goals starts here: leave attachments and effort select off so examples earn them.
     inputs: {
       ...base.inputs,
@@ -662,7 +662,7 @@ export function createResearchScoutDraft(): StudioDraft {
       maxFiles: null,
       maxBytes: null,
       maxTurnBytes: null,
-      slots: [researchFocusSlot()],
+      slots: [researchFocusSlot(), researchReaderSlot()],
     },
     models: {
       defaultModel: 'open',
@@ -743,10 +743,10 @@ export function createResearchScoutDraft(): StudioDraft {
 }
 
 /** What the scout adds to its system prompt for a reviewer or a student. */
-const RESEARCH_SYSTEM_BY_ROLE = {
-  reviewer: 'The reader reviews papers. Lead with weak evidence and what would refute a claim.',
-  student: 'The reader is learning the field. Define each term the first time you use it.',
-};
+const RESEARCH_READER_LINES = [
+  'when reader is reviewer: The reader reviews papers. Lead with weak evidence and what would refute a claim.',
+  'when reader is student: The reader is learning the field. Define each term the first time you use it.',
+];
 
 /** The focus that answers in `research.models`. */
 const RESEARCH_MODELS_FOCUS = 'Hugging Face Open Research';
@@ -758,6 +758,20 @@ function researchFocusSlot(): SlotDraft {
     name: 'focus',
     label: 'Focus',
     choices: [RESEARCH_MODELS_FOCUS, 'arXiv', 'GitHub', 'Anywhere'].map((value) => ({
+      key: draftKey('choice'),
+      value,
+      description: '',
+    })),
+  };
+}
+
+/** Who the scout writes for, which picks its lines in `RESEARCH_READER_LINES`. */
+function researchReaderSlot(): SlotDraft {
+  return {
+    key: draftKey('slot'),
+    name: 'reader',
+    label: 'Reader',
+    choices: ['anyone', 'reviewer', 'student'].map((value) => ({
       key: draftKey('choice'),
       value,
       description: '',
@@ -1086,7 +1100,7 @@ export const COOKBOOKS: Readonly<Record<CookbookId, CookbookEntry>> = {
       'A reply shaped by what the turn states: `focus` picks `research.models` or `research.reply` through `outputs.structured.by`.',
       'Call order the model chooses: a tool with `after` runs once the tools it names in the same step have settled.',
       'A write tool (`export_report`) that `taintAfterRemoteRead` refuses once a page has been read, and a tool the page answers (`check_device`).',
-      'One custom detector, `research.retraction`, and a prompt line per role through `systemByRole`.',
+      'One custom detector, `research.retraction`, and a prompt line for each `reader` through a `when` line.',
       'Staging page-read tools at `post_tool` via `stageAgentKey`: `read_pages`, `read_model_card`, `read_dataset_card`, `read_readme`, and `read_library_docs` are filtered by the page-reader before the scout sees them.',
       'Parallel tool calls (`tools.parallel: true`) across HTTP tools (arXiv, GitHub, Hub cards) and MCP tools (Exa `search_web` / `read_pages`, Context7 library docs, DeepWiki `ask_repo_docs`).',
       'Guardrails that flag every detector on untrusted page text, with `allowedHosts` limited to the research hosts.',

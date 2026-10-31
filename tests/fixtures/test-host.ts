@@ -126,7 +126,7 @@ const selector: ProfileDefinition = {
   id: 'selector',
   identity: {
     handle: 'primary',
-    systemByRole: { primary: 'You are Primary.', reviewer: 'You are Reviewer.' },
+    system: 'You are Primary.',
   },
   models: {
     gemini35FlashLite: {

@@ -179,7 +179,10 @@ Deno.test('the research scout carries the cookbook list', () => {
   assertEquals(device.answeredBy, 'page');
   assertEquals(profile.models.gemini?.builtInTools, ['googleSearch']);
   assertEquals(profile.models.open?.compaction?.profile, 'research.compactor');
-  assertEquals(Object.keys(profile.identity.systemByRole ?? {}), ['reviewer', 'student']);
+  assertEquals(profile.inputs?.slots?.reader, {
+    label: 'Reader',
+    choices: [{ value: 'anyone' }, { value: 'reviewer' }, { value: 'student' }],
+  });
   assertEquals(Object.keys(profile.guardrails?.detect ?? {}).includes('research.retraction'), true);
   assertEquals(profile.guardrails?.taint?.afterRemoteRead, 'write');
   const readReadme = tool('read_readme');

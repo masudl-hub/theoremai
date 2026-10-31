@@ -753,7 +753,7 @@ that fits the turn is sent, a blank line apart. Marks are settled on the prompt
 as written, so a dropped line never changes the marks of a kept line. With no `{ private: text }` part the whole
 prompt is private; with one, the plain parts beside it are shareable — lines
 the agent is meant to say word for word, like a greeting, or a voice line. Marks
-apply per source: `identity.system` (or its `systemByRole` entry) and
+apply per source: `identity.system` and
 `req.system` are joined a blank line apart, and a mark in one leaves the other
 as private as it was written. The canary note and the `user_data` note are
 always private. Adjacent private parts read as one stretch; a run of words never

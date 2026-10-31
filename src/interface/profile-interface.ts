@@ -194,7 +194,6 @@ const identity = z.object({
   handle: z.string(),
   conditions: z.record(z.string(), z.array(z.string()).readonly()).readonly().optional(),
   system: profileSystem.optional(),
-  systemByRole: z.record(z.string(), profileSystem).optional(),
 });
 
 const profileInterface = z.discriminatedUnion('type', [

@@ -618,7 +618,6 @@ export interface ProfileIdentity {
   /** The facts this agent's turns state, by name, with the values each can take. */
   conditions?: ProfileConditions;
   system?: ProfileSystem;
-  systemByRole?: Record<string, ProfileSystem>;
 }
 
 /** The fields every profile type shares. */
@@ -955,7 +954,6 @@ export interface TurnRepairRequest {
 /** What the user sent for a turn: text, slots, attachments, voice, and history. */
 export interface TurnInput {
   text?: string;
-  role?: string;
   slots?: Record<string, string>;
   /** What the page or the host wants the model to know, by sender; the profile's `inputs.context` allows it. */
   context?: TurnContext;

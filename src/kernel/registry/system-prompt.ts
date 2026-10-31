@@ -2,7 +2,6 @@ import { type KeptSystemLine, pickSystemLines, turnFacts } from '../system-lines
 import { joinSystemPieces, systemPieces } from '../system-parts.ts';
 import type { ModelProfile, SystemPiece, TurnRequest } from '../types.ts';
 import { fillSlots } from './slot-fill.ts';
-import { pickSystemRole } from './system-role.ts';
 
 /**
  * `identity.system` is trusted author-time copy and crosses no boundary: no detector reads it.
@@ -11,15 +10,13 @@ import { pickSystemRole } from './system-role.ts';
  */
 function systemFromProfile(
   profile: ModelProfile,
-  role: string,
   slots: Record<string, string> | undefined,
   req: TurnRequest,
 ): KeptSystemLine[] {
   if (profile.type === 'speech') {
     return [];
   }
-  const { systemByRole, system } = profile.identity;
-  const prompt = systemByRole?.[role] || system || '';
+  const prompt = profile.identity.system;
   if (!prompt) {
     return [];
   }
@@ -38,8 +35,7 @@ function resolveTurnSystem(
   profile: ModelProfile,
   req: TurnRequest,
 ): { pieces: SystemPiece[]; lines: number[] } {
-  const role = pickSystemRole(profile, req.input?.role);
-  const kept = systemFromProfile(profile, role, req.input?.slots, req);
+  const kept = systemFromProfile(profile, req.input?.slots, req);
   return {
     pieces: joinSystemPieces([
       ...kept.map(({ pieces }) => pieces),

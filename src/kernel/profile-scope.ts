@@ -101,11 +101,6 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason:
       'speech has no system channel (the input text is the transcript), a decision is asked only through its questions, and an embedding call embeds its input alone',
   },
-  'identity.systemByRole': {
-    profileTypes: ['text', 'image', 'live'],
-    reason:
-      'speech has no system channel (the input text is the transcript), a decision is asked only through its questions, and an embedding call embeds its input alone',
-  },
   models: { profileTypes: MODEL_PROFILE_TYPES, reason: 'a host profile runs no model' },
   'models.*.protocol': {
     profileTypes: MODEL_PROFILE_TYPES,

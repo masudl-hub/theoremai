@@ -67,6 +67,11 @@ import {
 import { profileAllowsInject, stageAbortStop } from '../../stop.ts';
 import { bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
+import {
+  assertBackgroundCoordinator,
+  type ToolBackgroundService,
+  type ToolBackgroundSupport,
+} from '../../tools/background.ts';
 import { failedActivity, failureEvent } from '../../tools/events.ts';
 import {
   executeRegisteredTool,
@@ -132,6 +137,7 @@ function pageAnswerForLiveRequest(
 /** Options for opening a live session: the key vault, a provider's own settings, a WebSocket opener, how long a gated call waits for its decision, and the sign-in gate policy. */
 export interface RunSessionOptions extends ProviderHostOptions {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundService;
   pageExecution?: PageToolExecution;
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault?: KeyVault;
@@ -178,10 +184,18 @@ function isReleased(held: HeldCall): boolean {
   return typeof held.state === 'object' && held.state.released === true;
 }
 
-type SettledPhase = Extract<ToolPhaseEvent, { phase: 'complete' | 'error' | 'gate' }>;
+type SettledPhase = Extract<
+  ToolPhaseEvent,
+  { phase: 'complete' | 'error' | 'gate' | 'background' }
+>;
 
 function isSettledPhase(tool: ToolPhaseEvent): tool is SettledPhase {
-  return tool.phase === 'complete' || tool.phase === 'error' || tool.phase === 'gate';
+  return (
+    tool.phase === 'complete' ||
+    tool.phase === 'error' ||
+    tool.phase === 'gate' ||
+    tool.phase === 'background'
+  );
 }
 
 /**
@@ -525,6 +539,7 @@ function* yieldLiveNonDoneEvents(
 
 function buildLiveSession(args: {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundService;
   pageExecution?: PageToolExecution;
   tools: ToolRegistry;
   profile: LiveProfile;
@@ -588,6 +603,15 @@ function buildLiveSession(args: {
   let wakeHost: (() => void) | undefined;
   const includeMatch = resolveObservabilityPolicy(profile.observability).include
     .guardrailMatchPreview;
+  const background: ToolBackgroundSupport | undefined = args.background && {
+    service: args.background,
+    project: (event) =>
+      projectGuardrailTurnEvent(withPublicLabels(event, profile.labels), includeMatch),
+    openTrace: (callId) => {
+      const { open, finish } = trace.toolRecord(callId);
+      return { open, end: finish };
+    },
+  };
 
   let cycle: 'idle' | 'open' = 'idle';
   let cycleStep = 0;
@@ -980,6 +1004,7 @@ function buildLiveSession(args: {
       tools: args.tools,
       agents: args.agents,
       execution: args.execution,
+      ...(background ? { background } : {}),
       profile,
       name: held.name,
       input,
@@ -1414,6 +1439,7 @@ function buildLiveSession(args: {
       }
       forward();
       settleHeld(callId, held, readBack);
+      if (settled.phase === 'background') return {};
       return settled.phase === 'complete'
         ? { outputRaw: settled.output, ...(settled.awaiting ? { awaiting: true } : {}) }
         : { failure: settled.failure };
@@ -1481,7 +1507,11 @@ async function openTracedSession(
   if (refusal) throw refusal;
   throwIfAborted(safe.signal);
 
-  const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
+  assertBackgroundCoordinator(options.background, options.execution);
+  const { profile, generation: gen0 } = resolveTurnInRegistry(
+    registry,
+    options.background ? { ...safe, background: options.background } : safe,
+  );
   assertLiveProfile(profile);
   const openingContext = req.context ? readSessionContext(profile, req.context) : undefined;
 
@@ -1541,6 +1571,7 @@ async function openTracedSession(
 
   return buildLiveSession({
     execution: options.execution,
+    ...(options.background ? { background: options.background } : {}),
     pageExecution: options.pageExecution,
     tools: registry.tools,
     profile,

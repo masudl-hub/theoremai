@@ -620,6 +620,8 @@ export interface TurnToolSnapshot {
   path?: string;
   sessionPermissions?: string[];
   wire: WireFunctionTool[];
+  /** The request has a background service, so `ask` tools offer the `background` argument. */
+  modelBackground?: boolean;
 }
 const turnToolSnapshot = z.object({
   builtins: z.array(z.string()),
@@ -629,6 +631,7 @@ const turnToolSnapshot = z.object({
   path: z.string().optional(),
   sessionPermissions: z.array(z.string()).optional(),
   wire: z.array(wireFunctionTool),
+  modelBackground: z.boolean().optional(),
 });
 true satisfies Equals<z.infer<typeof turnToolSnapshot>, TurnToolSnapshot>;
 /** The schema a tool snapshot parses against. */
@@ -740,10 +743,12 @@ export type ToolPhaseEvent = ToolPhaseBase &
         readBack?: string;
         parts?: InteractionPart[];
         activityPast?: string;
-        /** An agent tool's call: the called agent's own usage, which the caller's `done.tokens` includes. */
+        /** An agent tool's call: the called agent's own usage. The caller's `done.tokens` includes it, unless the call settled after `done`. */
         tokens?: TurnTokens;
       }
     | { phase: 'gate'; gate: ToolGate; readBack?: string }
+    /** The model reads `readBack` now and the call goes on; its real end reaches the host alone. */
+    | { phase: 'background'; readBack: string }
     | {
         phase: 'error';
         failure: ToolFailure;
@@ -789,6 +794,7 @@ const toolPhaseEvent = z.discriminatedUnion('phase', [
     gate: toolGate,
     readBack: z.string().optional(),
   }),
+  z.object({ ...toolPhaseBase, phase: z.literal('background'), readBack: z.string() }),
   z.object({
     ...toolPhaseBase,
     phase: z.literal('error'),

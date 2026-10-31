@@ -10,6 +10,8 @@ import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import type { ProfileTurnResumptionSpec } from '../../src/kernel/stop.ts';
 import { agentToolOrigin } from '../../src/kernel/tools/agent.ts';
+import type { ToolBackgroundHandle } from '../../src/kernel/tools/background.ts';
+import { createMemoryToolExecution } from '../../src/kernel/tools/memory-execution.ts';
 import type { AgentCall, AgentCallHook, AgentToolDef } from '../../src/kernel/tools/types.ts';
 import type {
   ModelRequest,
@@ -1003,4 +1005,64 @@ Deno.test("a stop on the caller stops its called agent, and the caller's turn en
     // why: A stopped turn may end by throwing; only the order is checked.
   }
   assertEquals({ agentSawStop, agentSettled }, { agentSawStop: true, agentSettled: true });
+});
+
+Deno.test("a detached agent tool settles with the called agent's tokens, and its children run inline", async () => {
+  const scope = scopeWith({ background: 'always' }, ['lookup']);
+  const execution = createMemoryToolExecution();
+  const handles: ToolBackgroundHandle[] = [];
+  const late: TurnEvent[] = [];
+  const events: TurnEvent[] = [];
+  const release = Promise.withResolvers<void>();
+  let researcherStep = 0;
+  const model: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (!isResearcher(req)) {
+        const first = !JSON.stringify(req.history).includes('still running');
+        yield { type: 'tokens', tokens: CALLER_TOKENS };
+        if (first) {
+          yield {
+            type: 'tool',
+            tool: { name: 'ask_researcher', arguments: { text: 'q' }, callId: 'call_0' },
+          };
+          return;
+        }
+        yield { type: 'text', text: 'Looking into it.' };
+        return;
+      }
+      await release.promise;
+      researcherStep += 1;
+      yield { type: 'tokens', tokens: RESEARCHER_TOKENS };
+      if (researcherStep === 1) {
+        yield { type: 'tool', tool: { name: 'lookup', arguments: {}, callId: 'child' } };
+        return;
+      }
+      yield { type: 'text', text: 'found' };
+    },
+  };
+  for await (const event of runScopedTurn(
+    scope,
+    {
+      profile: CALLER,
+      input: { text: 'Go' },
+      execution,
+      background: {
+        detached: (handle) => handles.push(handle),
+        event: (event) => {
+          late.push(event);
+        },
+      },
+    },
+    model,
+  )) {
+    events.push(event);
+  }
+  assertEquals(toolPhases(events, 'background').length, 1);
+  assertEquals(toolPhases(events, 'complete').length, 0);
+  release.resolve();
+  await handles[0]?.done;
+  assertEquals(handles.length, 1);
+  const [complete] = toolPhases(late, 'complete').filter((t) => t.name === 'ask_researcher');
+  assertEquals(complete?.phase === 'complete' ? complete.tokens?.total : undefined, 90);
 });

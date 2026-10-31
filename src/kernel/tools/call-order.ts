@@ -9,17 +9,22 @@ function orderField() {
   return z.array(z.string()).optional().describe(labelText('tool.after_field'));
 }
 
-/** `input` with the model's `after` field. A tool's own `after` is refused, never replaced. */
-export function withCallOrder<TIn>(name: string, input: z.ZodType<TIn>): z.ZodType<TIn> {
+/** `input` with a field the kernel adds for the model. A tool's own field of that name is refused, never replaced. */
+export function withModelField<TIn>(
+  name: string,
+  input: z.ZodType<TIn>,
+  field: string,
+  shape: () => z.ZodType,
+): z.ZodType<TIn> {
   const ordered = (schema: z.ZodType): z.ZodType => {
     if (schema instanceof z.ZodObject) {
-      if (FIELD in schema.shape) {
+      if (field in schema.shape) {
         throw new TheoremError(
           'config',
-          `Tool '${name}' sets after, and its input already has a field of that name`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+          `Tool '${name}' sets ${field}, and its input already has a field of that name`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
         );
       }
-      return schema.safeExtend({ [FIELD]: orderField() });
+      return schema.safeExtend({ [field]: shape() });
     }
     if (schema instanceof z.ZodDiscriminatedUnion) {
       const options = (schema.options as z.ZodType[]).map(ordered);
@@ -33,10 +38,15 @@ export function withCallOrder<TIn>(name: string, input: z.ZodType<TIn>): z.ZodTy
     }
     throw new TheoremError(
       'config',
-      `Tool '${name}' sets after, which needs an object input or a union of objects`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Tool '${name}' sets ${field}, which needs an object input or a union of objects`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   };
   return ordered(input) as z.ZodType<TIn>;
+}
+
+/** `input` with the model's `after` field. */
+export function withCallOrder<TIn>(name: string, input: z.ZodType<TIn>): z.ZodType<TIn> {
+  return withModelField(name, input, FIELD, orderField);
 }
 
 /** The call's input without `after`, and the tool names `after` held. */

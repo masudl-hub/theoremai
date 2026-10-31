@@ -27,6 +27,7 @@ import type { InteractionPart, Profile, ToolId, TurnEvent, TurnTokens } from '..
 import { isRecord } from '../util/record.ts';
 import { fillActivityLabel } from './activity-label.ts';
 import { type AgentCaller, AgentCallFailed, agentToolOrigin } from './agent.ts';
+import { planDetach, splitBackground, type ToolBackgroundSupport } from './background.ts';
 import { coordinateTool } from './coordinate.ts';
 import {
   dispatchToolBody,
@@ -1147,6 +1148,7 @@ async function* settleBodyOutcome(args: {
 
 interface RegisteredToolCall {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundSupport;
   invocation?: unknown;
   onDispatch?: () => void;
   beginBody?: (preparedInput: unknown) => Promise<ToolOperationClaim | undefined>;
@@ -1285,10 +1287,18 @@ export async function* executeRegisteredTool(
     ...args,
     ctx: { ...args.ctx, operationId: args.ctx.operationId ?? crypto.randomUUID() },
   };
+  const operationId = args.ctx.operationId ?? crypto.randomUUID();
+  const detach = planDetach({
+    tool: args.tools.get(args.name),
+    input: args.input,
+    support: args.background,
+    base: { name: args.name, callId: args.callId, operationId },
+    labels: args.profile.labels,
+  });
   return yield* coordinateTool(
     args.execution,
     {
-      operationId: args.ctx.operationId ?? crypto.randomUUID(),
+      operationId,
       callId: args.callId,
       profileId: args.profile.id,
       toolId: args.name,
@@ -1300,9 +1310,12 @@ export async function* executeRegisteredTool(
       context: args.invocation,
     },
     args.ctx.signal,
-    (beginBody) =>
+    (beginBody, hooks) =>
       executeTracedTool({
         ...args,
+        ...(detach ? { openSpan: detach.trace.open } : {}),
+        ctx: { ...args.ctx, signal: hooks.signal },
+        ...(args.stages ? { stages: { ...args.stages, ...hooks } } : {}),
         beginBody: async (input) => {
           const claim = (await beginBody?.(input)) ?? (await args.beginBody?.(input));
           args.onDispatch?.();
@@ -1318,6 +1331,7 @@ export async function* executeRegisteredTool(
         resume: args.ctx.resume,
         snapshot: args.snapshot,
       }),
+    detach,
   );
 }
 
@@ -1371,7 +1385,8 @@ async function* runRegisteredTool(
   args: RegisteredToolCall,
   tool: RegisteredTool | undefined,
 ): AsyncGenerator<TurnEvent, ToolExecuteSettlement> {
-  const { profile, name, input, callId, ctx, snapshot, stages } = args;
+  const { profile, name, callId, ctx, snapshot, stages } = args;
+  const { input } = splitBackground(tool?.type === 'builtin' ? undefined : tool, args.input);
   const safeInput = plainToolInput(input);
   const operationId = ctx.operationId ?? crypto.randomUUID();
   const base = {

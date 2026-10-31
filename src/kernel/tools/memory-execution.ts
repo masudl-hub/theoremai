@@ -6,6 +6,7 @@ import {
   type ToolOperationClaim,
   type ToolOperationIdentity,
   type ToolOperationOutcome,
+  type ToolOperationReply,
 } from './operation.ts';
 
 export interface MemoryToolExecutionOptions {
@@ -17,6 +18,7 @@ export interface MemoryToolExecutionOptions {
 
 type OperationRecord =
   | { state: 'running'; claimToken: string }
+  | { state: 'background'; claimToken: string; reply: ToolOperationReply }
   | { state: 'uncertain' }
   | { state: 'settled'; outcome: ToolOperationOutcome };
 
@@ -39,11 +41,15 @@ export function createMemoryToolExecution(
     const record = records.get(keyOf(operation));
     if (!record) return undefined;
     if (record.state === 'settled') return { kind: 'settled', outcome: record.outcome };
+    if (record.state === 'background') return { kind: 'background', reply: record.reply };
     return { kind: record.state };
   };
   const holds = (claim: ToolOperationClaim) => {
     const record = records.get(keyOf(claim));
-    return record?.state === 'running' && record.claimToken === claim.claimToken;
+    return (
+      (record?.state === 'running' || record?.state === 'background') &&
+      record.claimToken === claim.claimToken
+    );
   };
   const full = () =>
     new TheoremError(
@@ -62,6 +68,11 @@ export function createMemoryToolExecution(
       const claimToken = crypto.randomUUID();
       records.set(keyOf(operation), { state: 'running', claimToken });
       return Promise.resolve({ kind: 'acquired', claimToken });
+    },
+    detach: (claim, reply) => {
+      if (!holds(claim)) return Promise.reject(notHeld());
+      records.set(keyOf(claim), { state: 'background', claimToken: claim.claimToken, reply });
+      return Promise.resolve();
     },
     settle: (claim, outcome) => {
       if (!holds(claim)) return Promise.reject(notHeld());

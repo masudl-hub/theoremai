@@ -189,6 +189,8 @@ export const LABEL_KEYS = [
   'tool.wait_unknown',
   'tool.wait_cycle',
   'tool.after_field',
+  'tool.background_field',
+  'tool.background_started',
   'tool.not_visible',
   'tool.builtin_not_enabled',
   'tool.provider_native',
@@ -584,6 +586,10 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'tool.not_loaded_t2': "Tool '{tool}' is not loaded — call {loader} to load it first",
   'tool.wait_unknown': "Tool '{tool}' waits for calls that are not in this step: {calls}",
   'tool.wait_cycle': "Tool '{tool}' waits for calls that cannot finish before it: {calls}",
+  'tool.background_field':
+    'Set to true to get a reply now and let this call finish after the turn. Leave out to wait for its result.',
+  'tool.background_started':
+    '{tool} is still running. Its result is not ready, so do not state one.',
   'tool.after_field':
     'Tools you are calling in this same step that must finish before this call starts. Leave out to set no order.',
   'tool.not_visible': "Tool '{tool}' is not visible this turn",
@@ -921,6 +927,10 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     "Told to the model when a call's pre_tool waitFor names calls that are not in its step. Takes {tool} and {calls}.",
   'tool.wait_cycle':
     "Told to the model when a call's pre_tool waitFor names calls that cannot settle before it, because they wait for it or run after it. Takes {tool} and {calls}.",
+  'tool.background_field':
+    "What the model reads on the background field of a tool that sets registerTool.background to ask. Read when the tool registers, so a profile's labels do not change it.",
+  'tool.background_started':
+    'Told to the model when a call goes on after its reply: the call runs in the background and its result comes later.',
   'tool.after_field':
     "What the model reads on the after field of a tool that sets registerTool.after. Read when the tool registers, so a profile's labels do not change it.",
   'tool.not_visible':

@@ -687,6 +687,7 @@ async function* handleModelCalls(
       executeRegisteredTool({
         tools: state.tools,
         execution: generation.execution,
+        ...(state.background ? { background: state.background } : {}),
         invocation: {
           model: generation.model,
           input: generation.input,

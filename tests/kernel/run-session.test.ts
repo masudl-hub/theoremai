@@ -15,10 +15,12 @@ import {
   resetTools,
   runSession,
 } from '../../src/kernel/default-scope.ts';
-import type { SignInGatePolicy } from '../../src/kernel/engine/session/mod.ts';
+import type { RunSessionOptions, SignInGatePolicy } from '../../src/kernel/engine/session/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
+import type { ToolBackgroundHandle } from '../../src/kernel/tools/background.ts';
+import { createMemoryToolExecution } from '../../src/kernel/tools/memory-execution.ts';
 import { prepareTurnToolSnapshot } from '../../src/kernel/tools/mod.ts';
 import type { InvokeToolResume } from '../../src/kernel/tools/types.ts';
 import type { TurnEvent } from '../../src/kernel/types.ts';
@@ -784,6 +786,7 @@ async function openToolSession(
     gateTtlMs?: number;
     signInGate?: SignInGatePolicy;
     resolveHost?: ResolveHost;
+    background?: Pick<RunSessionOptions, 'background' | 'execution'>;
   } = {},
 ) {
   const profile = defineProfile({
@@ -813,6 +816,7 @@ async function openToolSession(
       },
       ...(extra.gateTtlMs !== undefined ? { gateTtlMs: extra.gateTtlMs } : {}),
       ...(extra.signInGate ? { signInGate: extra.signInGate } : {}),
+      ...extra.background,
     },
   );
   const [mock] = sockets;
@@ -962,6 +966,51 @@ Deno.test('runSession executeTool sends the guarded text a turn sends, never the
   assertEquals(String(settled.outputModel?.modelText).startsWith('found the record\n'), true);
   assertEquals(String(settled.outputModel?.modelText).includes('123-45-6789'), false);
   await h.close();
+});
+Deno.test('runSession executeTool answers at the reply and settles to the host alone', async () => {
+  clearProfiles();
+  resetTools();
+  const release = Promise.withResolvers<{ finding: string }>();
+  registerTool({
+    type: 'function',
+    name: 'live_slow_job',
+    description: 'A slow job',
+    category: 'test',
+    access: 'read-only',
+    paths: ['*'],
+    loadTier: 'T0',
+    permission: 'auto',
+    background: 'always',
+    input: z.object({}),
+    output: z.object({ finding: z.string() }),
+    handler: () => release.promise,
+  });
+  const handles: ToolBackgroundHandle[] = [];
+  const late: TurnEvent[] = [];
+  const execution = createMemoryToolExecution();
+  const h = await openToolSession(['live_slow_job'], {
+    background: {
+      execution,
+      background: {
+        detached: (handle) => handles.push(handle),
+        event: (event) => {
+          late.push(event);
+        },
+      },
+    },
+  });
+  await h.modelCalls({ id: 'c1', name: 'live_slow_job' });
+  await h.session.executeTool({ callId: h.id('c1') });
+  const [answer] = h.toolResponses();
+  assertEquals(JSON.stringify(answer?.response).includes('still running'), true);
+  await h.close();
+  release.resolve({ finding: 'done late' });
+  await handles[0]?.done;
+  assertEquals(h.toolResponses().length, 1);
+  assertEquals(
+    late.some((event) => event.type === 'tool' && event.tool.phase === 'complete'),
+    true,
+  );
 });
 Deno.test('runSession executeTool runs only a call the model made, once, with its arguments', async () => {
   clearProfiles();

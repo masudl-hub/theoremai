@@ -91,7 +91,11 @@ export function resolveModelBuiltinIds(
   });
 }
 
-export function wireForTool(tools: ToolRegistry, name: string): WireFunctionTool | undefined {
+export function wireForTool(
+  tools: ToolRegistry,
+  name: string,
+  modelBackground?: boolean,
+): WireFunctionTool | undefined {
   const tool = tools.get(name);
   if (!tool || tool.type === 'builtin') {
     return undefined;
@@ -100,14 +104,18 @@ export function wireForTool(tools: ToolRegistry, name: string): WireFunctionTool
     type: 'function',
     name: tool.name,
     description: tool.description,
-    parameters: tool.inputSchema,
+    parameters: (modelBackground && tool.askInputSchema) || tool.inputSchema,
   };
 }
 
-export function buildWire(tools: ToolRegistry, visible: ToolId[]): WireFunctionTool[] {
+export function buildWire(
+  tools: ToolRegistry,
+  visible: ToolId[],
+  modelBackground?: boolean,
+): WireFunctionTool[] {
   const out: WireFunctionTool[] = [];
   for (const id of visible) {
-    const wire = wireForTool(tools, id);
+    const wire = wireForTool(tools, id, modelBackground);
     if (wire) {
       out.push(wire);
     }
@@ -120,7 +128,7 @@ export function promoteTool(tools: ToolRegistry, state: TurnToolSnapshot, id: To
     return;
   }
   state.visible.push(id);
-  const wire = wireForTool(tools, id);
+  const wire = wireForTool(tools, id, state.modelBackground);
   if (wire && !state.wire.some((w) => w.name === id)) {
     state.wire.push(wire);
   }
@@ -171,6 +179,17 @@ function assertToolPathsDeclared(tools: ToolRegistry, profile: Profile): void {
   if (problem) throw new TheoremError('config', `Profile ${profile.id}: ${problem}`); // labels-exempt: developer contract error
 }
 
+/** A T2 loader changes the turn that called it, so it must finish in that turn. */
+function assertLoaderAnswersInTurn(tools: ToolRegistry, profile: Profile): void {
+  const loader = profileToolsSpec(profile)?.t2Loader;
+  const tool = loader === undefined ? undefined : tools.get(loader);
+  if (!tool || tool.type === 'builtin' || (tool.background ?? 'never') === 'never') return;
+  throw new TheoremError(
+    'config',
+    `Profile ${profile.id}: tools.t2Loader '${tool.name}' sets background, and a loader cannot detach`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+}
+
 export function resolveTurnTools(
   tools: ToolRegistry,
   profile: Profile,
@@ -178,6 +197,7 @@ export function resolveTurnTools(
   modelId: ModelId | undefined,
 ): TurnToolSnapshot {
   assertToolPathsDeclared(tools, profile);
+  assertLoaderAnswersInTurn(tools, profile);
   const customAllowed = resolveAllowedCustomToolIds(tools, profile, req);
   const modelBuiltins =
     profile.type === 'host' ||
@@ -190,6 +210,7 @@ export function resolveTurnTools(
   const builtins = initialBuiltins(tools, profile, gated);
   const visible = initialVisible(tools, profile, gated);
   const executable = visible.filter((id) => isExecutable(tools, id));
+  const modelBackground = req.background !== undefined;
   return {
     builtins,
     gated,
@@ -197,7 +218,8 @@ export function resolveTurnTools(
     executable,
     path: req.path,
     sessionPermissions: req.sessionPermissions,
-    wire: buildWire(tools, visible),
+    wire: buildWire(tools, visible, modelBackground),
+    ...(modelBackground ? { modelBackground } : {}),
   };
 }
 
@@ -223,6 +245,7 @@ export function cloneTurnToolSnapshot(state: TurnToolSnapshot): TurnToolSnapshot
     path: state.path,
     sessionPermissions: state.sessionPermissions ? [...state.sessionPermissions] : undefined,
     wire: state.wire.map((w) => ({ ...w, parameters: structuredClone(w.parameters) })),
+    ...(state.modelBackground ? { modelBackground: state.modelBackground } : {}),
   };
 }
 

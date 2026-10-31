@@ -153,7 +153,9 @@ function appendToolDenialToHistory(
 /** `undefined` while the call is open. */
 function settledToolContent(call: ToolCall): string | undefined {
   const phase = call.state?.phase;
-  return phase === 'complete' || phase === 'error' ? toolReadBack(call) : undefined;
+  return phase === 'complete' || phase === 'error' || phase === 'background'
+    ? toolReadBack(call)
+    : undefined;
 }
 
 /**

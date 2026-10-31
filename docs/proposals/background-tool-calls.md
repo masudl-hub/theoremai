@@ -1,12 +1,10 @@
 # Background tool calls: answer now, finish later
 
-**Status:** proposal. Nothing is built. Masud chose the option on 2026-10-30. No code until Masud says go.
+**Status:** built. It is on branch 0.3.3. The contract is [Background tool calls](../contracts/kernel.md#background-tool-calls). This document keeps the reasons. Masud chose the option on 2026-10-30.
 
 **Reader:** a Theorem maintainer, Masud, and the Bonsai team.
 **Job:** say how a tool call gives the model a reply now, lets the turn go on, and settles after the turn ends.
-**After reading:** you know what a host gets, what the kernel must change, and which questions are still open.
-
-Names in this document that the code does not have yet are proposed names: `registerTool.background`, `afterMs`, `detach`, `stop`, `graceMs`, `tool.background_started`, the `background` tool phase and result kind, and the host's stop reasons.
+**After reading:** you know what a host gets, what the kernel changed, and which questions are still open.
 
 ## 1. The problem
 
@@ -59,7 +57,7 @@ sequenceDiagram
     Note over Host: stores the outcome, wakes Bonsai
 ```
 
-The host supplies a trusted service on `TurnRequest`, `InvokeToolRequest` and `SessionRequest`, in the same way as `execution` and `pageExecution`. Profiles and request bodies cannot inject it.
+The host supplies a trusted service on `TurnRequest`, `InvokeToolRequest` and `RunSessionOptions`, in the same way as `execution` and `pageExecution`. Profiles and request bodies cannot inject it.
 
 A turn without the service runs every tool inline, whatever its setting, and the model gets no `background` argument. No late result exists, so nothing is lost. One profile can detach on web and run inline on a channel that only hears from the host when it asks.
 
@@ -78,7 +76,7 @@ The model reads `tool.background_started` from the label catalog. A profile over
 
 The run stays in `coordinateTool`. `CoordinatedExecution` already holds the claim, so it decides when the reply happens and orders it against settlement.
 
-- `"always"` and an `"ask"` the model used fire through `onDispatch`.
+- `"always"` and an `"ask"` the model used fire when the claim is taken.
 - `{ afterMs }` runs a timer against the body. The timer stops when the body ends, before `post_tool`.
 - At the reply, `coordinateTool` saves it, yields the `background` event and returns to the turn. A task it started keeps reading the run, and passes events to the sink.
 
@@ -109,7 +107,7 @@ A probe on 2026-10-30 ran an agent tool with a child tool, and stopped it throug
 
 So a stop reaches children and the order is correct. But no call settles as stopped. Theorem owns this stop, because only the kernel can tell a stop from a lost worker.
 
-- `stop(reason)` aborts the call's signal. The host names the reason, such as `stopped` for a later turn or `timed_out` for a system timeout.
+- `stop(reason)` aborts the call's signal. The host names the reason, for a later turn or a system timeout.
 - After a stop the call settles with that reason, whatever the body does. The reason is the failure's `code`, with kind `cancelled` and `effects: 'unknown'`. `finish` builds this failure, as `withinLimit` builds `result_too_large`.
 - A body that throws, or one that returns in the same moment, settles the same way. Any late result is dropped.
 - A stop after settlement does nothing.

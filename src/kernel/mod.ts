@@ -303,6 +303,12 @@ export { systemLinesProblem } from './system-lines.ts';
 export { systemPromptProblem } from './system-parts.ts';
 export { activityLabelProblem } from './tools/activity-label.ts';
 export { agentToolInputFor, agentToolOutput } from './tools/agent.ts';
+export type {
+  ToolBackground,
+  ToolBackgroundCall,
+  ToolBackgroundHandle,
+  ToolBackgroundService,
+} from './tools/background.ts';
 export {
   type AnsweredGate,
   answerGatedCall,
@@ -345,6 +351,7 @@ export {
   withCredentialQuery,
 } from './tools/mod.ts';
 export type {
+  BackgroundToolEvent,
   BeginToolOperationResult,
   PageToolDispatch,
   PageToolExecution,

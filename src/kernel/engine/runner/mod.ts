@@ -35,6 +35,7 @@ import type { KernelRegistry } from '../../registry/kernel-registry.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import { type BoundSystem, bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
+import { assertBackgroundCoordinator, type ToolBackgroundSupport } from '../../tools/background.ts';
 import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
 import type { InvokeToolRequest } from '../../tools/types.ts';
 import { keptReply, turnDoneOf } from '../../turn-events.ts';
@@ -59,6 +60,7 @@ import type {
   TurnToolSnapshot,
 } from '../../types.ts';
 import { findLast } from '../../util/find-last.ts';
+import { detachedTrace } from '../background.ts';
 import {
   type CompactionTokens,
   type CompactorRun,
@@ -387,6 +389,7 @@ async function* emitTurn(args: {
   provider: TurnModel;
   trace: TurnTraceState;
   agents: AgentCaller | undefined;
+  background: ToolBackgroundSupport | undefined;
   /** Filled when the turn opens, so `post_turn` (after compaction-after, or after an abort) reuses it. */
   outState: { state?: StepExecutionState };
 }): AsyncGenerator<TurnEvent> {
@@ -398,6 +401,7 @@ async function* emitTurn(args: {
     generation,
     trace: args.trace,
     ...(args.agents ? { agents: args.agents } : {}),
+    ...(args.background ? { background: args.background } : {}),
   });
   args.outState.state = state;
 
@@ -473,6 +477,7 @@ async function* streamTurnEvents(
     provider,
     trace: ctx.trace,
     agents: ctx.agents,
+    background: ctx.background,
     outState: ctx,
   })) {
     const attached = await maybeAttachAfter(event, ctx, gen, compactionSpec);
@@ -535,6 +540,7 @@ type TraceCtx = {
   observability?: ResolvedObservabilityPolicy;
   state?: StepExecutionState;
   agents?: AgentCaller;
+  background?: ToolBackgroundSupport;
 };
 
 function newTraceCtx(
@@ -605,6 +611,29 @@ async function* runTurnInRegistry(
     guardrails: ctx.known?.guardrails,
   });
   ctx.observability = policy;
+  const { background: service } = req;
+  if (service) {
+    ctx.background = {
+      service,
+      project: (event) =>
+        withPublicLabels(projectForObs(event, ctx.observability), ctx.known?.labels),
+      openTrace: () =>
+        detachedTrace({
+          traceparent: tree.root.traceparent(),
+          write: (spans) =>
+            writeTrace(
+              sink,
+              buildRecord({
+                spans,
+                policy,
+                canaries: ctx.canaries,
+                ...(req.metadata ? { metadata: req.metadata } : {}),
+              }),
+              policy,
+            ),
+        }),
+    };
+  }
   try {
     yield* runTracedTurn(ctx, provider);
   } finally {
@@ -658,6 +687,7 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
 }
 
 async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<TurnEvent> {
+  assertBackgroundCoordinator(ctx.req.background, ctx.req.execution);
   const checkStart = performance.now();
   const sanitized = sanitizeTurnRequestWithEvents(
     ctx.req,

@@ -499,7 +499,7 @@ Live sessions emit the same stage names around utterance cycles and
    Every call of a step is announced first. With `tools.parallel: true` they then run side
    by side; left out or false, one at a time in the order the model made them. A call whose
    `pre_tool` answers `waitFor`, or that names tools in `after`, starts its body once those
-   calls settle ([stages.md](./stages.md#same-round-batch-rules)). The step ends when each has settled.
+   calls settle ([stages.md](./stages.md#same-round-batch-rules)). The step ends when each has settled, or has its reply and goes on in the background ([Background tool calls](#background-tool-calls)).
    Each reads the turn's taint, destinations, and visible tools as they stood when the step
    began, so a tool the `tools.t2Loader` loads can be called from the next step. After the step, each call's result is recorded in the order the
    model made the calls, and its `post_tool` may inject. Gate (`stop.kind: 'gate'`) suspends the batch.
@@ -1046,9 +1046,54 @@ An error after the claim keeps the kind of its cause and reads with the `tool.ex
 `ModelToolResult` retains the guarded read-back, media, provenance, and suspicious content signals.
 `toolOperationOutcomeSchema` validates terminal events and replay data, including guarded model read-back and provenance.
 `ToolOperationUncertainty` distinguishes interrupted execution, failed settlement writes, and a lost worker.
-The executor saves settlement before it emits completion. An incomplete body or settlement failure retains a protected claim.
+The executor saves settlement before it emits completion. An incomplete body or settlement failure retains a protected claim. A `stop` with a reason is the one exception ([Background tool calls](#background-tool-calls)).
 Live sessions also retain uncertain held calls after dispatch. They cannot execute again on the same connection.
 Recovery across connections requires a host-owned durable coordinator.
+
+### Background tool calls
+
+Use `registerTool.background` when a tool takes longer than a person should wait. The model gets a reply, the turn goes on, and the kernel keeps running the body. The host stores the result and decides what to do with it.
+
+| Setting | The model gets its reply |
+| --- | --- |
+| `'always'` | At the hand-off, when the body starts |
+| `{ afterMs }` | When the body has run past this time |
+| `'ask'` | At the hand-off if the model sets the `background` argument. Otherwise when the body ends |
+| `'never'` or unset | When the body ends |
+
+If the body ends before that moment, the model reads the real result. Bad input, a permission gate and a sign-in gate happen before the hand-off, so they also answer in the turn. A gated `'always'` tool detaches when the host resumes it.
+
+Only an `'ask'` tool gets the `background` argument, and only in a turn with the service. The argument stays in the call and its invocation hash. The kernel removes it before the input check.
+
+The host passes a trusted `ToolBackgroundService` as `background` on `TurnRequest` and `InvokeToolRequest`, and on `RunSessionOptions` for a live session. Without it every tool runs inline, whatever its setting. The service needs a coordinator with `detach`. Without one the request reads as `config`.
+
+- `detached(handle)` receives a `ToolBackgroundHandle` for each detached call, with `stop` and `done`. `done` resolves when the call has settled or been marked.
+- `event(event, call)` receives each later event of that call, after the same projection a turn's events get.
+
+The coordinator saves the reply through `detach(claim, reply)` before the turn reads it. `lookup` and `begin` then return `kind: 'background'`, so a second run reads the settled result if one exists, and the reply if not. A failed `detach` save stops the body, and the call ends as `settlement_write_failed`.
+
+The call counts as settled for its step at the reply. `waitFor` and one-at-a-time order release there. A sibling's failure or the turn's `signal` reaches the call only until the reply. After that, only `stop` does.
+
+| Call | Result |
+| --- | --- |
+| `stop(reason)` | The call settles as a `cancelled` failure with `reason` as its `code` and `effects: 'unknown'`, whatever the body does |
+| `stop()` | A shutdown. The call ends as `execution_interrupted` |
+| `stop(reason, { graceMs })` | The same, and a body that ignores its signal past this time is cut. The kernel drops its later events |
+| Any stop after settlement | Nothing |
+
+After the reply:
+
+- `post_tool` runs at the real end. Its `inject` and `abort` are removed, because no turn is open.
+- A body that returns `awaiting` settles as a failure with the code `awaiting_after_reply`.
+- An agent tool's tokens go on the late terminal event, not on `done`.
+- The call writes its own trace record at its real end, joined to the turn through `traceparent`.
+- `maxOutcomeBytes` applies to the final outcome.
+
+The late result reaches the model only through the host, in `input.context` or `input.history` of a later turn.
+
+Only a top-level call detaches. A tool inside an agent tool runs inline. A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and on a `tools.t2Loader` tool, and on a tool with its own `background` input.
+
+The work is bound to the process. It stops with the process and does not restart, and the claim stays open for the host's sweep. The host keeps the turn's `host` value, `credentials` and `onStage` valid until the call settles. `@theoremjs/web` does not pass the service, so its tools run inline.
 React's `createTheoremSessionBoundary` applies the same authenticated namespace and atomic store to live setup.
 It rejects unowned native state before transport. Ownership includes an operation-state fingerprint.
 A ledger change invalidates old live ownership, including a settlement after checkpoint creation.
@@ -1856,7 +1901,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
 | Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `TranscriptionProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `normalizeProfileInputsSlots`, `normalizeSlotDecl`, `normalizeSlots`, `slotValues`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn`, `resolveTurnSystemPrompt`, `systemLinesProblem` |
 | Tools | `ANSWER_TOOL`, `ToolRegistry`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `ToolContext`, `GateReference`, `gateReferenceSchema`, `executeRegisteredTool`, `McpRpcResponse`, `ModelToolResult`, `PageAnswer`, `CredentialRefusedError` |
-| Tool execution | `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
+| Tool execution | `ToolBackground`, `ToolBackgroundCall`, `ToolBackgroundHandle`, `ToolBackgroundService`, `BackgroundToolEvent`, `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource`, `ProtectedResourceMetadata`, `AuthorizationServerMetadata`, `OAuthTokens`, `OAuth2Credential`, `ToolCredential`, `OAuthTransportOptions`, `OAuthEndpoints`, `CreatePkceFlowOptions`, `PkceFlowResult`, `ExchangePkceCodeOptions`, `ExchangePkceCodeResult`, `RefreshOAuthTokenOptions`, `SealedStatePayload`, `toBase64Url`, `fromBase64Url`, `credentialFromTypedSecret`, `credentialForSignInGate` |
 | Structured | `SchemaRegistry`, `createSchemaRegistry`, `getStructured`, `registerStructured` |
 | Stop / resume | `ProfileTurnBehaviourSpec`, `MediaTurnBehaviourSpec`, `ProfileTurnResumptionSpec`, `TurnContinueFrom`, `TurnStop`, `TurnStopKind`, `ContinueStopKind`, `CONTINUE_STOP_KINDS`, `AUTO_CONTINUE_DELAY_MS`, `DEFAULT_ALLOW_CONTINUE`, `DEFAULT_AUTO_CONTINUE`, `GenerationStopError`, `isContinueStopKind`, `isGenerationStopError`, `isResumeableStop`, `isUserCancelledStop`, `profileAllowsSteering`, `profileAllowsInject`, `profileTurnResumption`, `shouldAutoContinue`, `turnStopFromClientStreamEnd`, `turnStopFromInteractionStatus`, `turnStopFromOpenAiFinishReason` |

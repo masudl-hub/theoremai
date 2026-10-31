@@ -40,6 +40,7 @@ import type {
   TurnTraceLink,
 } from '../types.ts';
 import type { LabelTemplate } from './activity-label.ts';
+import type { ToolBackground, ToolBackgroundService } from './background.ts';
 import type { PageToolExecution, ToolExecutionCoordinator } from './operation.ts';
 import type { UncheckedOutput } from './unchecked-output.ts';
 
@@ -204,6 +205,10 @@ export interface ToolHostHooks<TIn = unknown> {
   exposeToModel?: boolean;
   /** The model gets an `after` field: the tools in the same step that must settle before this call starts. */
   after?: boolean;
+  /** When the model gets its reply. Unset is `never`: when the body ends. A turn without a background service runs inline. */
+  background?: ToolBackground;
+  /** `inputSchema` with the `background` argument. The registry sets it on an `ask` tool. */
+  askInputSchema?: Record<string, unknown>;
 }
 
 export interface ToolOutputHooks<TOut = unknown> {
@@ -388,6 +393,7 @@ export interface AgentToolDef extends ToolBase {
   hostOnly?: AgentToolChannel[];
   preTool?: ToolHostHooks<AgentToolInput>['preTool'];
   after?: ToolHostHooks<AgentToolInput>['after'];
+  background?: ToolHostHooks<AgentToolInput>['background'];
   exposeToModel?: boolean;
 }
 
@@ -508,6 +514,7 @@ export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 /** A request to run a held tool call outside a turn. */
 export interface InvokeToolRequest {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundService;
   /** invariant: Only the trusted host restores the kernel-issued identity from saved authority. */
   operationId?: string;
   profile: string;

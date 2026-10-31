@@ -203,6 +203,7 @@ const graph = {
       realizes: [
         'docs/proposals/MIGRATION-tool-system.md',
         'docs/proposals/TOOL_RESULT_FIDELITY.md',
+        'docs/proposals/background-tool-calls.md',
         'docs/proposals/honest-errors.md',
         'docs/proposals/live-slots-greeting.md',
         'docs/proposals/turn-event-schema.md',

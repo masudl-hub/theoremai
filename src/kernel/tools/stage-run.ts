@@ -45,6 +45,8 @@ export interface ToolStageSupport {
   wait?: StepWait;
   /** The host sees a handler's drafts: `outputs.streaming.mode` `sse`. Unset outside a turn's step. */
   drafts?: boolean;
+  /** Told when the body has ended, before `post_tool` reads it. */
+  bodyEnded?: () => void;
 }
 
 function defaultToolStageSupport(ctx: ToolContext): ToolStageSupport {
@@ -287,6 +289,7 @@ export async function* runPostToolStages(args: {
   mutable: boolean;
 }): AsyncGenerator<TurnEvent, PostToolStageOutcome> {
   const { stages, toolName, callId, mutable, ...call } = args;
+  stages.bodyEnded?.();
   const applied = yield* runStage({
     ...call,
     stage: 'post_tool',

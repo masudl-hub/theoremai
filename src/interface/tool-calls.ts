@@ -61,6 +61,7 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       };
     case 'cancel':
     case 'gate':
+    case 'background':
       return { ...settled(call), state: tool, endedAt: tool.at };
     case 'draft':
       return { ...call, outputDraft: (call.outputDraft ?? '') + tool.text };
@@ -167,15 +168,19 @@ function toolCallRanWith(call: ToolCall): Record<string, unknown> {
   );
 }
 
-/** A tool event that settles its call: the call completed or failed. */
+/** A tool event that settles its call for the turn: the call completed, failed or went on in the background. */
 type SettledToolCallEvent = TurnEventOf<'tool'> & {
-  tool: Extract<ToolCallEvent, { phase: 'complete' | 'error' }>;
+  tool: Extract<ToolCallEvent, { phase: 'complete' | 'error' | 'background' }>;
 };
 
-/** True when the event is the complete or error event of the tool call with this id. */
+/** True when the event settles the tool call with this id for its turn: it ended, or the model has its reply and the call goes on. */
 function settlesToolCall(event: TurnEvent, callId: string): event is SettledToolCallEvent {
   if (event.type !== 'tool' || event.tool.callId !== callId) return false;
-  return event.tool.phase === 'complete' || event.tool.phase === 'error';
+  return (
+    event.tool.phase === 'complete' ||
+    event.tool.phase === 'error' ||
+    event.tool.phase === 'background'
+  );
 }
 
 /**

@@ -4,7 +4,8 @@ import { profileInputs } from '../registry/catalog.ts';
 import type { Profile, ProfileId } from '../types.ts';
 import { activityLabelProblem } from './activity-label.ts';
 import { agentToolInputFor, agentToolOutput, agentToolProfile, normalizeAgent } from './agent.ts';
-import { withCallOrder } from './call-order.ts';
+import { assertBackgroundSetting, backgroundField } from './background.ts';
+import { withCallOrder, withModelField } from './call-order.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import { pageAnswerHandler } from './page-answer.ts';
 import {
@@ -202,7 +203,29 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
   return { ...def, handler, type: 'function', ...schemasFromZod(def) };
 }
 
+/** Checks the tool's `background`, and gives an `ask` tool the schema a turn with the service sends. */
+function withBackground<TIn, TOut>(tool: RegisteredTool<TIn, TOut>): RegisteredTool<TIn, TOut> {
+  if (tool.type === 'builtin') return tool;
+  assertBackgroundSetting({
+    name: tool.name,
+    ...(tool.background !== undefined ? { background: tool.background } : {}),
+    ...(tool.type === 'function' && tool.answeredBy ? { answeredBy: tool.answeredBy } : {}),
+  });
+  if (tool.background !== 'ask') return tool;
+  const input: z.ZodType = tool.input;
+  const asked = withModelField(tool.name, input, 'background', backgroundField);
+  return { ...tool, askInputSchema: checkedSchemas(asked, tool.output).inputSchema };
+}
+
 function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
+  def: ToolDefinitionInput<TIn, TOut>,
+  findProfile: (id: ProfileId) => Profile | undefined,
+  findTool: (name: string) => RegisteredTool | undefined,
+): RegisteredTool<TIn, TOut> {
+  return withBackground(normalizeDefinition(def, findProfile, findTool));
+}
+
+function normalizeDefinition<TIn = unknown, TOut = unknown>(
   def: ToolDefinitionInput<TIn, TOut>,
   findProfile: (id: ProfileId) => Profile | undefined,
   findTool: (name: string) => RegisteredTool | undefined,

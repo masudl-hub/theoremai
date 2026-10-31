@@ -8,6 +8,10 @@ export const REQUEST_FIELDS: Record<
   `runTurn.${keyof TurnRequest | `input.${keyof TurnInput}`}`,
   FieldMeta
 > = {
+  'runTurn.background': {
+    type: 'ToolBackgroundService',
+    doc: 'Host-issued service for tool calls that go on after their reply. It needs a coordinator with detach. Without it every tool runs inline.',
+  },
   'runTurn.pageExecution': {
     type: 'PageToolExecution',
     doc: 'Host-issued browser dispatch with a claimed operation and correlated result.',

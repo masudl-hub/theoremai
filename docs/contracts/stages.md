@@ -59,7 +59,7 @@ ceiling on host side effects.
 | --- | --- | --- | --- |
 | `pre_turn` | Once per user turn / live utterance cycle, before model work for that cycle | if inject allowed | `abort` |
 | `pre_tool` | Per `callId`, after chosen, before body | no | `deny`, `confirm` (gate), `mutate`, `waitFor`, `abort` |
-| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort` |
+| `post_tool` | Per `callId`, after the body (success / fail / awaiting), before the terminal `tool` event. For a call past its reply this is the real end, and `inject` and `abort` are removed ([background tool calls](./kernel.md#background-tool-calls)) | if inject allowed | `deny`, `mutate`, `labelFailed`, `abort` |
 | `before_end` | About to end the turn / utterance cycle; host may extend | if inject allowed | `abort` |
 | `post_turn` | After cycle-ending `done` | **never** (ignored) | observe only |
 

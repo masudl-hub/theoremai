@@ -1687,6 +1687,13 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'The model sets no order',
   },
+  'registerTool.background': {
+    ...field(
+      "'always' | { afterMs: number } | 'ask' | 'never'",
+      "When the model gets its reply while the body goes on. 'always': at the hand-off. { afterMs }: once the body has run past this time. 'ask': at the hand-off if the model sets the background argument. A turn with no background service runs the tool inline.",
+    ),
+    unset: "'never': the model gets its reply when the body ends",
+  },
   'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
   'registerTool.labels': field(
     'ToolLabels',

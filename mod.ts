@@ -426,6 +426,12 @@ export {
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
 export { systemLinesProblem } from './src/kernel/system-lines.ts';
+export type {
+  ToolBackground,
+  ToolBackgroundCall,
+  ToolBackgroundHandle,
+  ToolBackgroundService,
+} from './src/kernel/tools/background.ts';
 export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
 export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
 export type { MemoryToolExecutionOptions } from './src/kernel/tools/memory-execution.ts';
@@ -456,6 +462,7 @@ export {
   withCredentialQuery,
 } from './src/kernel/tools/mod.ts';
 export type {
+  BackgroundToolEvent,
   BeginToolOperationResult,
   PageToolDispatch,
   PageToolExecution,

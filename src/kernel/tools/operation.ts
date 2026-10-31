@@ -45,6 +45,16 @@ export interface PageToolExecution {
   dispatch(claim: ToolOperationClaim, signal?: AbortSignal): Promise<PageToolDispatch>;
 }
 
+export type BackgroundToolEvent = TurnEventOf<'tool'> & {
+  tool: Extract<TurnEventOf<'tool'>['tool'], { phase: 'background' }>;
+};
+
+/** What the model reads when a call goes on after its turn. */
+export interface ToolOperationReply {
+  event: BackgroundToolEvent;
+  replay: { modelResult: ModelToolResult };
+}
+
 export interface ToolOperationOutcome {
   event: TerminalToolEvent;
   effects: 'not_started' | 'completed' | 'unknown';
@@ -68,6 +78,7 @@ export type ToolOperationUncertainty =
 export type BeginToolOperationResult =
   | { kind: 'acquired'; claimToken: string }
   | { kind: 'settled'; outcome: ToolOperationOutcome }
+  | { kind: 'background'; reply: ToolOperationReply }
   | { kind: 'running' }
   | { kind: 'uncertain' };
 
@@ -82,6 +93,11 @@ export interface ToolExecutionCoordinator {
     operation: ToolOperationIdentity,
   ): Promise<Exclude<BeginToolOperationResult, { kind: 'acquired' }> | undefined>;
   begin(operation: ToolOperationIdentity): Promise<BeginToolOperationResult>;
+  /**
+   * Keeps the reply the model reads for a call that goes on after its turn. The claim stays held
+   * for `settle` or `markUncertain`. A coordinator without it cannot take a background service.
+   */
+  detach?(claim: ToolOperationClaim, reply: ToolOperationReply): Promise<void>;
   settle(claim: ToolOperationClaim, outcome: ToolOperationOutcome): Promise<void>;
   settleNotStarted(operation: ToolOperationIdentity, outcome: ToolOperationOutcome): Promise<void>;
   markUncertain(claim: ToolOperationClaim, reason: ToolOperationUncertainty): Promise<void>;
@@ -138,20 +154,31 @@ const terminalSchema = TURN_EVENT_SCHEMAS.tool.transform((event, ctx) => {
   return z.NEVER;
 });
 
+const modelResultSchema = z.strictObject({
+  finding: z.string(),
+  data: jsonValueSchema.optional(),
+  parts: z.array(interactionPartSchema).optional(),
+  modelText: z.string().optional(),
+  provenance: provenance.optional(),
+  suspicious: z.array(guardrailHit).optional(),
+});
+
+const backgroundSchema = TURN_EVENT_SCHEMAS.tool.transform((event, ctx) => {
+  if (event.tool.phase === 'background') return { ...event, tool: event.tool };
+  ctx.addIssue({ code: 'custom' });
+  return z.NEVER;
+});
+
+export const toolOperationReplySchema: z.ZodType<ToolOperationReply> = z.strictObject({
+  event: backgroundSchema,
+  replay: z.strictObject({ modelResult: modelResultSchema }),
+});
+
 export const toolOperationOutcomeSchema: z.ZodType<ToolOperationOutcome> = z.strictObject({
   event: terminalSchema,
   effects: z.enum(['not_started', 'completed', 'unknown']),
   replay: z.strictObject({
-    modelResult: z
-      .strictObject({
-        finding: z.string(),
-        data: jsonValueSchema.optional(),
-        parts: z.array(interactionPartSchema).optional(),
-        modelText: z.string().optional(),
-        provenance: provenance.optional(),
-        suspicious: z.array(guardrailHit).optional(),
-      })
-      .optional(),
+    modelResult: modelResultSchema.optional(),
     outputRaw: jsonValueSchema.optional(),
     failure: z
       .strictObject({

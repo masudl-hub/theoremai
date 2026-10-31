@@ -25,6 +25,7 @@ import type {
   TurnStopKind,
 } from './schema.ts';
 import type { StageHandler } from './stages.ts';
+import type { ToolBackgroundService } from './tools/background.ts';
 import type { GateDecision } from './tools/gate-answer.ts';
 import type { PageToolExecution, ToolExecutionCoordinator } from './tools/operation.ts';
 import type {
@@ -1011,6 +1012,7 @@ export interface TurnTraceLink {
 /** A request to `runTurn`: the profile, the input, and the host's hooks and keys. */
 export interface TurnRequest {
   execution?: ToolExecutionCoordinator;
+  background?: ToolBackgroundService;
   pageExecution?: PageToolExecution;
   providerState?: ProviderCheckpoint;
   profile: ProfileId;

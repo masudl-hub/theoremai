@@ -225,7 +225,7 @@ export interface TextBlock extends TranscriptBlockBase {
 /** Where a call stands: the latest phase that changes its status. */
 export type ToolCallState = Extract<
   ToolPhaseEvent,
-  { phase: 'running' | 'gate' | 'complete' | 'error' | 'cancel' }
+  { phase: 'running' | 'gate' | 'background' | 'complete' | 'error' | 'cancel' }
 >;
 
 /** invariant: An issued operation joins its request and phases; historical calls use callId. */

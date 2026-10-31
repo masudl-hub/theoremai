@@ -4,6 +4,7 @@ import type { OwnTools } from '../../../guardrails/tool-leak.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
+import type { ToolBackgroundSupport } from '../../tools/background.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
@@ -34,6 +35,8 @@ interface StepExecutionState {
   tools: ToolRegistry;
   /** Runs the turn's agent tools; absent where none can run (a compactor's own turn). */
   agents?: AgentCaller;
+  /** Absent where every tool runs inline: a nested turn, or no background service. */
+  background?: ToolBackgroundSupport;
   trace: TurnTraceState;
   currentHistory: TurnHistoryMessage[];
   /** Where this turn begins in `currentHistory`: what came before is the conversation the host passed. */
@@ -135,6 +138,7 @@ function openTurnState(args: {
   trace: TurnTraceState;
   allEmittedEvents?: TurnEvent[];
   agents?: AgentCaller;
+  background?: ToolBackgroundSupport;
 }): StepExecutionState {
   const { profile, generation } = args;
   const ownTools = ownToolsOf(args.tools, profile);
@@ -157,6 +161,7 @@ function openTurnState(args: {
     canaryScanned: new WeakSet(),
     ...(ownTools ? { ownTools } : {}),
     ...(args.agents ? { agents: args.agents } : {}),
+    ...(args.background ? { background: args.background } : {}),
   };
   if (profile.type === 'text') {
     appendUserInput(state, generation.input);

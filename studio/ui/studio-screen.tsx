@@ -3169,6 +3169,7 @@ type KeptRun = {
     | 'initialText'
     | 'onConversationChange'
     | 'slots'
+    | 'statedOf'
     | 'context'
     | 'tested'
   >;

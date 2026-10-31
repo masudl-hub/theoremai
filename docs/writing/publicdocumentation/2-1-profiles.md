@@ -118,7 +118,7 @@ identity: {
 }
 ```
 
-Private prompt parts are delivered to the model as instructions, but monitored during generation. If a completion repeats verbatim phrases from a private part, Theorem halts the reply at Boundary 4 (egress) before any tokens reach the client. Both `identity.system` and entries in `identity.systemByRole` support private parts.
+Private prompt parts are delivered to the model as instructions, but monitored during generation. If a completion repeats verbatim phrases from a private part, Theorem halts the reply at Boundary 4 (egress) before any tokens reach the client.
 
 ### 3. `models`
 

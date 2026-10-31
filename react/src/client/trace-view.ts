@@ -458,6 +458,10 @@ function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+function isNumberList(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'number');
+}
+
 /** An object, or a list of objects, as items to read by a catalog entry's fields. */
 function fieldItems(value: unknown): Record<string, unknown>[] | undefined {
   if (isRecord(value)) return [value];
@@ -484,6 +488,9 @@ export function traceValueShape(
   if (typeof value === 'string') return { kind: 'text', value };
   if (typeof value === 'number' || typeof value === 'boolean') return { kind: 'scalar', value };
   if (isStringList(value)) return { kind: 'list', value };
+  if (meta?.format === 'list' && isNumberList(value)) {
+    return { kind: 'list', value: value.map(String) };
+  }
   const items = meta?.fields ? fieldItems(value) : undefined;
   return meta?.fields && items
     ? { kind: 'fields', fields: meta.fields, items }

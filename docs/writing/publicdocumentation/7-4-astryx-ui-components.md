@@ -57,6 +57,7 @@ export function VesselDispatchChat() {
 ```
 
 - **`slots`**: Locks slot values or provides default choices in the composer bar.
+- **`stated`**: Says the path and conditions that choose the turn's prompt lines. The server reads it only with `pageStatesTurn` set, so use it on a page you trust as yourself.
 - **`context`**: Transmits background client state with every turn. The agent reads this context without generating conversational replies to it.
 - **`pageTools`**: Handles tools declared with `answeredBy: 'page'`. The client executes the function and returns output over HTTP without displaying prompt dialogs to the user.
 - **`trace`**: Renders an interactive trace inspector panel when the profile has observability enabled.

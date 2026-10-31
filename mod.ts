@@ -220,8 +220,6 @@ export {
   runToolStep,
   runTurn,
 } from './src/kernel/default-scope.ts';
-export { resolveTurnSystemPrompt } from './src/kernel/registry/system-prompt.ts';
-export { systemLinesProblem } from './src/kernel/system-lines.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
   compactionMeter,
@@ -319,6 +317,7 @@ export { createProfileRegistry, defineProfile } from './src/kernel/registry/prof
 export { pickModel } from './src/kernel/registry/resolve.ts';
 export type { SchemaRegistry } from './src/kernel/registry/schemas.ts';
 export { createSchemaRegistry } from './src/kernel/registry/schemas.ts';
+export { resolveTurnSystemPrompt } from './src/kernel/registry/system-prompt.ts';
 export type {
   AuthUnauthenticatedPolicy,
   ContinueStopKind,
@@ -426,6 +425,7 @@ export {
   turnStopFromInteractionStatus,
   turnStopFromOpenAiFinishReason,
 } from './src/kernel/stop.ts';
+export { systemLinesProblem } from './src/kernel/system-lines.ts';
 export { authorizeToolReplay } from './src/kernel/tools/execute.ts';
 export { GATE_DECISIONS, type GateDecision } from './src/kernel/tools/gate-answer.ts';
 export type { MemoryToolExecutionOptions } from './src/kernel/tools/memory-execution.ts';

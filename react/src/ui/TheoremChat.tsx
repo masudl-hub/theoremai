@@ -10,7 +10,7 @@ import {
   type ComposerProfileInterface,
   removeComposerPendingMessage,
 } from '@theoremjs/agents/interface';
-import type { ChatController, PageTools } from '@theoremjs/web/client';
+import type { ChatController, PageTools, StatedTurn } from '@theoremjs/web/client';
 import {
   type ConversationView,
   createHttpTransport,
@@ -74,6 +74,8 @@ export type TheoremChatProps = {
   slots?: Record<string, string>;
   /** Told each time the visitor chooses a slot in the composer, with every slot's value. */
   onSlotsChange?: (slots: Record<string, string>) => void;
+  /** Which prompt lines each turn gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
   /**
    * What the page wants the agent to know: any JSON. The latest value goes with every
    * turn, and the profile's `inputs.context.from` must list `client`.
@@ -285,6 +287,7 @@ function ChatBody({
   composer: hasComposer = true,
   slots,
   onSlotsChange,
+  stated,
   context,
   pageTools,
   onTurnEvent,
@@ -302,6 +305,7 @@ function ChatBody({
     onConversationChange,
     slots,
     onSlotsChange,
+    stated,
     context,
     pageTools,
     onTurnEvent,

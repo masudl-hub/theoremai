@@ -43,6 +43,7 @@ import {
   createTraceFeed,
   encodeComposerDraft,
   type SendTextOptions,
+  type StatedTurn,
   type TraceFeed,
 } from '@theoremjs/web/client';
 import {
@@ -131,6 +132,19 @@ export function useLoadedStamp(answer: EditedAnswer | undefined): string | undef
   const now = answer === undefined ? undefined : answer.ok ? answer.stamp : loaded;
   if (now !== loaded) setLoaded(now);
   return now;
+}
+
+/**
+ * What the edited side states. While edits load it still runs the last load, which refuses a
+ * condition only the new edits declare, so it states what that load declares.
+ */
+export function useLoadedStated(
+  stated: StatedTurn | undefined,
+  isLoaded: boolean,
+): StatedTurn | undefined {
+  const loaded = useRef(stated);
+  if (isLoaded) loaded.current = stated;
+  return loaded.current;
 }
 
 /** A side's chat as it stands, and as it changes. Null until the side is mounted. */
@@ -689,6 +703,10 @@ export interface ProjectChatProps extends ChatStart {
   chatRef?: Ref<TheoremChatHandle>;
   /** The value the page picked for each slot. */
   slots?: Record<string, string>;
+  /** What the edited side states, of the profile the edits make. */
+  stated?: StatedTurn;
+  /** What the files' side states, of the profile the files hold. */
+  savedStated?: StatedTurn;
   /** What the page tells the agent. */
   context?: unknown;
 }
@@ -929,9 +947,11 @@ function openSides(pair: ReturnType<typeof useComparison>['pair']) {
  * the files with the edits laid over them.
  */
 export function ProjectChat(props: ProjectChatProps) {
-  const { profileId, trace, className, chatRef, slots, context } = props;
+  const { profileId, trace, className, chatRef, slots, stated, savedStated, context } = props;
+  const { conversationView, initialText, initialFiles, initialVoice, initialPending } = props;
   const view = useComparison(props);
   const { pair, isBusy, transports, refused, isReady } = view;
+  const loadedStated = useLoadedStated(stated, isReady);
   const isSavedHidden = useSavedHidden();
   const showsSaved = view.inFiles && !(view.isEditing && isSavedHidden);
   const isShared = view.isShared && showsSaved;
@@ -964,6 +984,7 @@ export function ProjectChat(props: ProjectChatProps) {
               <SavedSide isCompared={view.isEditing}>
                 <TheoremChat
                   {...common}
+                  stated={savedStated}
                   transport={transports.saved}
                   // A side that comes back starts from what it had said.
                   conversation={view.conversations.current.saved}
@@ -983,6 +1004,7 @@ export function ProjectChat(props: ProjectChatProps) {
                 {transports.edited && (
                   <TheoremChat
                     {...common}
+                    stated={loadedStated}
                     // A new load is a new transport: the chat reads it in place and keeps its transcript.
                     transport={transports.edited}
                     conversation={

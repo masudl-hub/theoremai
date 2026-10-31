@@ -111,6 +111,7 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
     const client = new LiveSessionClient({
       ...connection,
       slots: b.slots,
+      stated: b.stated,
       context: b.context,
       voiceIngress: b.voiceAvailable,
       onConnectPhase: (phase) => {

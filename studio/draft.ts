@@ -88,8 +88,6 @@ export interface IdentityDraft {
   system: SystemLineDraft[];
   /** The facts each turn states, as a JSON object of lists of values; blank omits them. */
   conditionsJson: string;
-  /** Other instructions by the role a turn names, as a JSON object of strings (with `{private: …}` sections) or parts; blank omits it. */
-  systemByRoleJson: string;
 }
 
 export interface ModelsDraft {
@@ -780,7 +778,6 @@ export function createBlankDraft(): StudioDraft {
       handle: '',
       system: [newSystemLine()],
       conditionsJson: '',
-      systemByRoleJson: '',
     },
     included: ['observability', 'labels'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },

@@ -476,7 +476,7 @@ function exampleTextDraft(
   const inputs = demoInputsSpec();
   return {
     ...blank,
-    identity: { ...identity, profileType: 'text', conditionsJson: '', systemByRoleJson: '' },
+    identity: { ...identity, profileType: 'text', conditionsJson: '' },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'labels'],
     models: { defaultModel: 'open', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: defaultTextModelBindings(),

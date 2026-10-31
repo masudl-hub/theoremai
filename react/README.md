@@ -369,6 +369,8 @@ Three more props give the call values from the page. The profile declares each o
 | `context` | `inputs.context` with `from: ['client']` | Any JSON the agent should know, such as the page the person is on. |
 | `pageTools` | A function tool with `answeredBy: 'page'` | A function for each page tool, by name. It returns `{ output }`. |
 
+`stated` is a fourth prop, for a page you trust as yourself. It says the `path` and `conditions` that choose the call's prompt lines, and the server reads it only with `pageStatesTurn` set. A change during a call takes the call up again, as a slot does. `TheoremChat` takes the same prop, on each turn.
+
 ```tsx
 <LiveRunner
   iface={iface}

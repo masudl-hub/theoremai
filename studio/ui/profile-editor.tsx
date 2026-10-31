@@ -17,7 +17,6 @@ import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/Segme
 import { StackItem } from '@astryxdesign/core/Stack';
 import { pixel, proportional, Table } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
-import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
@@ -180,6 +179,7 @@ import {
   defaultModelRequired,
   definitionOf,
   draftAllows,
+  draftConditions,
   draftKey,
   expandAccept,
   GOOGLE_BUILTIN_TOOLS,
@@ -219,6 +219,7 @@ import {
   newPattern,
   newSlot,
   newSlotChoice,
+  newSystemLine,
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
@@ -493,31 +494,64 @@ function SystemPromptSection({
   identity: StudioDraft['identity'];
   set: SetSection<'identity'>;
 }) {
+  const { system } = identity;
+  const setLine = (key: string, text: string) => {
+    set({ system: system.map((line) => (line.key === key ? { ...line, text } : line)) });
+  };
   return (
     <InspectorSection title="System prompt">
-      <TextArea
-        label="System prompt"
-        isLabelHidden
-        size="sm"
-        rows={8}
-        value={identity.system}
-        placeholder={fieldMeta('identity.system')?.unset}
-        onChange={(system) => {
-          set({ system });
-        }}
-      />
+      {system.map((line, at) => (
+        <HStack key={line.key} gap={1} vAlign="start">
+          <StackItem size="fill">
+            <TextAreaRow
+              label={`Line ${String(at + 1)}`}
+              path="identity.system"
+              field="system"
+              rows={system.length === 1 ? ONLY_LINE_ROWS : LINE_ROWS}
+              value={line.text}
+              placeholder={fieldMeta('identity.system')?.unset}
+              onChange={(text) => {
+                setLine(line.key, text);
+              }}
+            />
+          </StackItem>
+          {system.length > 1 && (
+            <IconButton
+              label={`Remove line ${String(at + 1)}`}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={IconX} size="sm" />}
+              onClick={() => {
+                set({ system: system.filter(({ key }) => key !== line.key) });
+              }}
+            />
+          )}
+        </HStack>
+      ))}
+      <HStack>
+        <Button
+          label="Add line"
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconPlus} size="sm" />}
+          onClick={() => {
+            set({ system: [...system, newSystemLine()] });
+          }}
+        />
+      </HStack>
       <TextAreaRow
-        label="By role"
-        path="identity.systemByRole"
-        field="systemByRoleJson"
-        value={identity.systemByRoleJson}
+        label="Conditions"
+        path="identity.conditions"
+        field="conditionsJson"
+        value={identity.conditionsJson}
         rows={4}
         hasSpellCheck={false}
-        placeholder={SYSTEM_BY_ROLE_PLACEHOLDER}
-        onChange={(systemByRoleJson) => {
-          set({ systemByRoleJson });
+        placeholder={CONDITIONS_PLACEHOLDER}
+        onChange={(conditionsJson) => {
+          set({ conditionsJson });
         }}
       />
+      <ConditionPreviewRows conditionsJson={identity.conditionsJson} />
     </InspectorSection>
   );
 }
@@ -2139,6 +2173,26 @@ function SlotPreviewRows({ slots }: { slots: readonly SlotDraft[] }) {
   ));
 }
 
+/** The value the studio's page states for each condition declared so far. Kept in this tab. */
+function ConditionPreviewRows({ conditionsJson }: { conditionsJson: string }) {
+  const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
+  return Object.entries(draftConditions(conditionsJson)).map(([name, allowed]) => (
+    <ChoiceRow
+      key={name}
+      label={name}
+      path="identity.conditions"
+      isRequired
+      value={allowed.find((value) => value === values.conditions[name]) ?? allowed[0]}
+      options={allowed}
+      onChange={(next) => {
+        if (next) {
+          setValues({ ...values, conditions: { ...values.conditions, [name]: next } });
+        }
+      }}
+    />
+  ));
+}
+
 /** One of a slot's choices: the value a turn sends, what the page says of it, and a remove button. */
 function SlotChoiceRow({
   choice,
@@ -2363,9 +2417,13 @@ function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
   );
 }
 
-const SYSTEM_BY_ROLE_PLACEHOLDER = `{
-  "support": "Answer as the support desk."
+const CONDITIONS_PLACEHOLDER = `{
+  "plan": ["free", "paid"]
 }`;
+
+/** How tall a prompt line starts: one line alone is the whole prompt. */
+const ONLY_LINE_ROWS = 8;
+const LINE_ROWS = 3;
 
 type SetBinding = (change: Partial<ModelBindingDraft>) => void;
 

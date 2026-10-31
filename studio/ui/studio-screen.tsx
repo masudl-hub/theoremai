@@ -3079,6 +3079,10 @@ function PreviewBody({
   const pageInputs = useMemo(() => (payload ? pageInputsOf(payload) : null), [payload]);
   const [pageValues] = usePageValues(chatWith);
   const sent = useMemo(() => sentPageValues(pageInputs, pageValues), [pageInputs, pageValues]);
+  const statedOf = useCallback(
+    (of: StudioRunPayload) => sentPageValues(pageInputsOf(of), pageValues).stated,
+    [pageValues],
+  );
   const shown: KeptRun | null =
     payload && !unserved
       ? {
@@ -3095,6 +3099,7 @@ function PreviewBody({
               else clearConversation(run.chatKey);
             },
             slots: sent.slots,
+            statedOf,
             context: sent.context,
             tested,
           },

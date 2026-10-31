@@ -1,3 +1,5 @@
+import type { StatedTurn } from '../transport.ts';
+
 /** The page's result for a call: the tool's output schema checks it, then the model reads it. */
 export type PageToolAnswer = { output: unknown };
 
@@ -17,6 +19,8 @@ export type PageTools = Record<string, PageTool>;
 export type LiveCallOptions = {
   /** The value chosen for each of the profile's `inputs.slots`, read as the call starts. */
   slots?: Record<string, string>;
+  /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
+  stated?: StatedTurn;
   /**
    * What the page tells the agent: any JSON. It goes with the call's opening, and
    * again whenever it changes, as background the agent reads without replying.

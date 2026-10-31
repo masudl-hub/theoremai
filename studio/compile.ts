@@ -566,6 +566,11 @@ function parseHeaders(raw: string | undefined): Record<string, string> | undefin
 const isValueList = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(isString);
 
+/** The conditions a draft declares so far: none while they are not JSON. */
+export function draftConditions(conditionsJson: string): Record<string, string[]> {
+  return parseRecord(conditionsJson, isValueList) ?? {};
+}
+
 /** The prompt's lines and the facts they read, each problem reported on the identity section. */
 function compilePrompt(draft: StudioDraft, report: Report) {
   const conditions = parseRecord(draft.identity.conditionsJson, isValueList);

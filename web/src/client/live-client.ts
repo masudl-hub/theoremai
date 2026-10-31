@@ -927,6 +927,15 @@ export class LiveSessionClient {
     }
   }
 
+  /** The call's prompt lines, as `setSlots` takes its slots. */
+  public setStated(stated: StatedTurn | undefined): void {
+    if (JSON.stringify(stated) === JSON.stringify(this.options.stated)) return;
+    this.options = { ...this.options, stated };
+    if (this.providerState && !this.opening && this.ws?.readyState === WebSocket.OPEN) {
+      this.handleDrop();
+    }
+  }
+
   /**
    * Replace the page's context package. In a call it reaches the agent as
    * background, with no reply; before one, it goes with the call's opening.

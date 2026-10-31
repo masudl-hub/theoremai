@@ -53,6 +53,7 @@ import {
   unsavedEdits,
   useEditedLoad,
   useLoadedStamp,
+  useLoadedStated,
   useSavedHidden,
 } from './studio-compare.tsx';
 import { ChooseConflictsContext } from './studio-conflicts.tsx';
@@ -118,6 +119,8 @@ export interface StudioRunnerProps {
   chatRef?: ChatProps['chatRef'];
   /** The value the page picked for each slot, for a chat's turns and a call's start. */
   slots?: ChatProps['slots'];
+  /** What a run of a profile states: it declares its own conditions. */
+  statedOf?: (of: StudioRunPayload) => ChatProps['stated'];
   /** What the page tells the agent. */
   context?: ChatProps['context'];
   /**
@@ -168,6 +171,7 @@ function Run({
   onConversationChange,
   chatRef,
   slots,
+  statedOf,
   context,
   tested,
   project,
@@ -194,6 +198,7 @@ function Run({
         onConversationChange={onConversationChange}
         chatRef={chatRef}
         slots={slots}
+        statedOf={statedOf}
         context={context}
         tested={tested}
       />
@@ -254,6 +259,7 @@ function Run({
       onConversationChange={onConversationChange}
       chatRef={chatRef}
       slots={slots}
+      statedOf={statedOf}
       context={context}
     />
   );
@@ -366,6 +372,7 @@ type SideProps = Pick<
   | 'slots'
   | 'context'
 > & {
+  stated?: ChatProps['stated'];
   /** Where this side's profile answers: the files' own, or the load of the edits. */
   endpoint: string;
   /**
@@ -388,6 +395,7 @@ function SideRun({
   columns,
   chatRef,
   slots,
+  stated,
   context,
 }: SideProps) {
   const { type } = payload.profile;
@@ -435,6 +443,7 @@ function SideRun({
         className={className}
         chatRef={chatRef}
         slots={slots}
+        stated={stated}
         context={context}
       />
     );
@@ -449,6 +458,7 @@ function SideRun({
       note={note}
       trace={trace}
       slots={slots}
+      stated={stated}
       context={context}
     />
   );
@@ -465,6 +475,7 @@ function ProjectSides({
   edits,
   traces,
   chatRef,
+  statedOf,
   ...shared
 }: Omit<RunProps, 'runtime' | 'tested'> & {
   project: ProjectSession;
@@ -474,6 +485,7 @@ function ProjectSides({
   const { answer, pending } = useEditedLoad(project, edits, false);
   const stamp = useLoadedStamp(answer);
   const refused = answer && !answer.ok && !pending ? answer : undefined;
+  const stated = useLoadedStated(statedOf?.(payload), !pending && !refused);
   const isSavedHidden = useSavedHidden();
   // The edited side's own feed, so its traces are not the files' side's.
   const [editedTraces] = useState(createTraceFeed);
@@ -485,6 +497,7 @@ function ProjectSides({
             <SideRun
               {...shared}
               payload={saved}
+              stated={statedOf?.(saved)}
               endpoint={projectProfileEndpoint(project, saved.agentId)}
               traces={traces}
             />
@@ -508,6 +521,7 @@ function ProjectSides({
               {...shared}
               load={stamp}
               payload={payload}
+              stated={stated}
               endpoint={editedProfileEndpoint(project, payload.agentId)}
               traces={editedTraces}
               chatRef={chatRef}
@@ -529,7 +543,7 @@ function ProjectRun({
   tested,
   ...run
 }: Omit<RunProps, 'runtime'> & { project: ProjectSession }) {
-  const { payload } = run;
+  const { payload, statedOf } = run;
   const edits = useMemo(() => unsavedEdits(tested, project.profiles), [tested, project.profiles]);
   const starts = edits?.starts;
   const providers = edits?.providers;
@@ -561,11 +575,19 @@ function ProjectRun({
         onConversationChange={run.onConversationChange}
         chatRef={run.chatRef}
         slots={run.slots}
+        stated={statedOf?.(payload)}
+        savedStated={statedOf?.(saved ?? payload)}
         context={run.context}
       />
     );
   if (!edits)
-    return <SideRun {...run} endpoint={projectProfileEndpoint(project, payload.agentId)} />;
+    return (
+      <SideRun
+        {...run}
+        stated={statedOf?.(payload)}
+        endpoint={projectProfileEndpoint(project, payload.agentId)}
+      />
+    );
   return <ProjectSides {...run} project={project} saved={saved} edits={edits} />;
 }
 function TurnRun({
@@ -584,8 +606,10 @@ function TurnRun({
   onConversationChange,
   chatRef,
   slots,
+  statedOf,
   context,
 }: RunProps) {
+  const stated = statedOf?.(payload);
   const iface = useMemo(() => studioInterface(payload), [payload]);
   /** The studio's page answers each page tool with the tool's stub. */
   const pageTools = useMemo(() => studioPageTools(payload), [payload]);
@@ -609,6 +633,7 @@ function TurnRun({
       note={note}
       trace={trace}
       slots={slots}
+      stated={stated}
       context={context}
     />
   ) : (
@@ -627,6 +652,7 @@ function TurnRun({
       onConversationChange={onConversationChange}
       chatRef={chatRef}
       slots={slots}
+      stated={stated}
       context={context}
       pageTools={pageTools}
     />

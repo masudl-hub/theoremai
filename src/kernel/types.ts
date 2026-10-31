@@ -1154,6 +1154,8 @@ export interface ResolvedGeneration extends ProviderGenerationConfig {
   canary: string;
   /** Snapshotted synchronously before any async work; the runner binds the canary on top. */
   resolvedSystem: readonly SystemPiece[];
+  /** Which of the profile's prompt lines fit this turn, by number from 1. */
+  systemLines: readonly number[];
   /** `TurnRequest.host`, carried to tool contexts only. Never sent to providers or traces. */
   host?: unknown;
 }

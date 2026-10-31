@@ -237,6 +237,7 @@ class LiveTrace {
   /** Attach the resolved request; frames are recorded from here on. */
   bind(binding: LiveTraceBinding): void {
     this.bound = binding;
+    this.root.set({ 'theorem.turn.system_lines': [...binding.generation.systemLines] });
   }
 
   /** The adapter's `tapUpstream`: every frame sent, as it is sent. */

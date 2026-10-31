@@ -691,6 +691,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   gen.builtins = gen.tools.builtins;
   if (gen.canary) gen.canary = await profileCanary(profile.id, gen.resolvedSystem);
   ctx.generation = gen;
+  ctx.root.set({ 'theorem.turn.system_lines': [...gen.systemLines] });
   ctx.canary = gen.canary;
   ctx.canaries.push(gen.canary);
   const binding = profile.models[gen.model];

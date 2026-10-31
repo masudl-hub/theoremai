@@ -136,27 +136,30 @@ function lineFits(line: Line, facts: Record<string, string>): boolean {
   return line.when.every((check) => checkHolds(check, facts));
 }
 
+/** A line that fit a turn: its number in the prompt as written, from 1, and its pieces. */
+export type KeptSystemLine = { line: number; pieces: SystemPiece[] };
+
 /**
- * The pieces of every line that fits, one list per line. Whether plain text is shareable is settled
- * on the prompt as written, so a line dropped on this turn never changes the marks of one that stayed.
+ * Every line that fits. Whether plain text is shareable is settled on the prompt as written, so a
+ * line dropped on this turn never changes the marks of one that stayed.
  */
 export function pickSystemLines(
   prompt: ProfileSystem,
   facts: Record<string, string>,
   fill: (text: string) => string,
-): SystemPiece[][] {
+): KeptSystemLine[] {
   const lines = linesOf(prompt);
   const marked = lines.flat().some((part) => typeof part !== 'string');
-  const kept: SystemPiece[][] = [];
-  for (const parts of lines) {
+  const kept: KeptSystemLine[] = [];
+  for (const [at, parts] of lines.entries()) {
     const line = headOf(parts);
     if (!lineFits(line, facts)) continue;
     const pieces: SystemPiece[] = [];
-    for (const [at, part] of parts.entries()) {
-      const text = fill(at === 0 ? line.text : textOf(part));
+    for (const [partAt, part] of parts.entries()) {
+      const text = fill(partAt === 0 ? line.text : textOf(part));
       if (text) pieces.push({ text, private: typeof part === 'string' ? !marked : true });
     }
-    kept.push(pieces);
+    kept.push({ line: at + 1, pieces });
   }
   return kept;
 }

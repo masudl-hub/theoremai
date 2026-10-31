@@ -1,4 +1,4 @@
-import { pickSystemLines, turnFacts } from '../system-lines.ts';
+import { type KeptSystemLine, pickSystemLines, turnFacts } from '../system-lines.ts';
 import { joinSystemPieces, systemPieces } from '../system-parts.ts';
 import type { ModelProfile, SystemPiece, TurnRequest } from '../types.ts';
 import { fillSlots } from './slot-fill.ts';
@@ -14,7 +14,7 @@ function systemFromProfile(
   role: string,
   slots: Record<string, string> | undefined,
   req: TurnRequest,
-): SystemPiece[][] {
+): KeptSystemLine[] {
   if (profile.type === 'speech') {
     return [];
   }
@@ -34,12 +34,24 @@ function systemFromProfile(
  * keeps its own marks: a `{ private }` part in `req.system` leaves the
  * profile's prompt as private as it was written.
  */
-function resolveTurnSystemPrompt(profile: ModelProfile, req: TurnRequest): SystemPiece[] {
+function resolveTurnSystem(
+  profile: ModelProfile,
+  req: TurnRequest,
+): { pieces: SystemPiece[]; lines: number[] } {
   const role = pickSystemRole(profile, req.input?.role);
-  return joinSystemPieces([
-    ...systemFromProfile(profile, role, req.input?.slots, req),
-    req.system === undefined ? [] : systemPieces(req.system),
-  ]);
+  const kept = systemFromProfile(profile, role, req.input?.slots, req);
+  return {
+    pieces: joinSystemPieces([
+      ...kept.map(({ pieces }) => pieces),
+      req.system === undefined ? [] : systemPieces(req.system),
+    ]),
+    lines: kept.map(({ line }) => line),
+  };
 }
 
-export { resolveTurnSystemPrompt };
+/** The whole prompt a turn sends, for what reads it outside a turn. */
+function resolveTurnSystemPrompt(profile: ModelProfile, req: TurnRequest): SystemPiece[] {
+  return resolveTurnSystem(profile, req).pieces;
+}
+
+export { resolveTurnSystem, resolveTurnSystemPrompt };

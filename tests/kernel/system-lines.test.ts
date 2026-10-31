@@ -2,7 +2,10 @@ import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import { resolveTurnSystemPrompt } from '../../src/kernel/registry/system-prompt.ts';
+import {
+  resolveTurnSystem,
+  resolveTurnSystemPrompt,
+} from '../../src/kernel/registry/system-prompt.ts';
 import {
   assertSystemLines,
   systemLinesProblem,
@@ -229,4 +232,15 @@ Deno.test('a tool path outside the path condition is named, and star or unset pa
     undefined,
   );
   assertEquals(toolPathProblem(undefined, [{ name: 'bad', paths: ['fax'] }]), undefined);
+});
+
+Deno.test('a turn records which lines of the prompt fit it, by number from 1', () => {
+  const written = define({
+    handle: 'h',
+    conditions: CONDITIONS,
+    system: ['always', 'when path is alexa: spoken', 'when plan is free: free'],
+  });
+  const turn = { profile: 'lines', input: {}, ...WEB_FREE };
+  assertEquals(resolveTurnSystem(written, turn).lines, [1, 3]);
+  assertEquals(systemText(resolveTurnSystem(written, turn).pieces), 'always\n\nfree');
 });

@@ -37,7 +37,7 @@ import {
   resolveSpeech,
 } from './ingress.ts';
 import type { KernelRegistry } from './kernel-registry.ts';
-import { resolveTurnSystemPrompt } from './system-prompt.ts';
+import { resolveTurnSystem } from './system-prompt.ts';
 
 function isModelProfile(profile: Profile): profile is ModelProfile {
   return profile.type !== 'host' && profile.type !== 'decision' && profile.type !== 'embedding';
@@ -274,6 +274,7 @@ function resolveTurnInRegistry(
   const transport = resolveTransport(profile, binding);
   const provider = registry.providers.get(binding.provider);
   const operationName = provider && operationNameOf(provider, binding, profile.type);
+  const system = resolveTurnSystem(profile, safe);
   return {
     profile,
     generation: {
@@ -303,7 +304,8 @@ function resolveTurnInRegistry(
       live: profile.type === 'live' ? resolveLiveSpec(profile.live, profile.guardrails) : undefined,
       input: resolveInputParts(profile, safe),
       canary: plantedCanary(profile),
-      resolvedSystem: resolveTurnSystemPrompt(profile, safe),
+      resolvedSystem: system.pieces,
+      systemLines: system.lines,
       host: safe.host,
     },
   };

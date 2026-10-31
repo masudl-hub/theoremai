@@ -693,6 +693,12 @@ const SPAN_ATTRIBUTES: Readonly<Record<string, TraceAttributeMeta>> = {
     'milliseconds',
     "Time every check on this call's streamed output took, together; each check's own time is on its `theorem.guardrail` event.",
   ),
+  'theorem.turn.system_lines': attr(
+    'agent',
+    'Prompt lines sent',
+    'list',
+    "Which of the profile's prompt lines fit this turn, by number from 1.",
+  ),
   'theorem.step': attr('agent', 'Step', 'number', 'Which model call of the turn this is, from 1.'),
   'theorem.attempt': attr(
     'agent',

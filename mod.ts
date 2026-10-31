@@ -220,6 +220,8 @@ export {
   runToolStep,
   runTurn,
 } from './src/kernel/default-scope.ts';
+export { resolveTurnSystemPrompt } from './src/kernel/registry/system-prompt.ts';
+export { systemLinesProblem } from './src/kernel/system-lines.ts';
 export type { CompactionSplit, CompactionTokens } from './src/kernel/engine/compaction.ts';
 export {
   compactionMeter,

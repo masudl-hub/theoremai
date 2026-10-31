@@ -298,6 +298,8 @@ export {
   turnStopFromOpenAiFinishReason,
 } from './stop.ts';
 export { systemPromptProblem } from './system-parts.ts';
+export { systemLinesProblem } from './system-lines.ts';
+export { resolveTurnSystemPrompt } from './registry/system-prompt.ts';
 export { activityLabelProblem } from './tools/activity-label.ts';
 export { agentToolInputFor, agentToolOutput } from './tools/agent.ts';
 export {

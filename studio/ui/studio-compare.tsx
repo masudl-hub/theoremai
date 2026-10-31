@@ -46,12 +46,14 @@ import {
   type TraceFeed,
 } from '@theoremjs/web/client';
 import {
+  type ComponentProps,
   type ReactNode,
   type Ref,
   type RefObject,
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -661,7 +663,19 @@ function WaitingComposer({ handle, why }: { handle: string; why: string }) {
   );
 }
 
-export interface ProjectChatProps {
+export /** What a chat resumes and starts with; the page keeps its conversation through these. */
+type ChatStart = Pick<
+  ComponentProps<typeof TheoremChat>,
+  | 'conversation'
+  | 'conversationView'
+  | 'initialText'
+  | 'initialFiles'
+  | 'initialVoice'
+  | 'initialPending'
+  | 'onConversationChange'
+>;
+
+export interface ProjectChatProps extends ChatStart {
   project: ProjectSession;
   /** The id of the profile the page chats with, as its edits name it. */
   profileId: string;
@@ -696,12 +710,22 @@ function whyNot(failed: boolean, isReady: boolean): string | undefined {
  * is replaced, starts from what was said. Every load seals with the studio run's one key, so the
  * edited side opens the files' side's ref and goes on from there on its own.
  */
-function useConversations(isEditing: boolean) {
-  const conversations = useRef<Partial<Record<Side, string>>>({});
+function useConversations(
+  isEditing: boolean,
+  resumed: string | undefined,
+  report: ChatStart['onConversationChange'],
+) {
+  const conversations = useRef<Partial<Record<Side, string>>>({ saved: resumed });
   if (!isEditing) conversations.current.edited = undefined;
+  const reporting = useRef({ isEditing, report });
+  useLayoutEffect(() => {
+    reporting.current = { isEditing, report };
+  });
   const [onChange] = useState(() => {
     const change = (side: Side) => (ref: string | undefined) => {
       conversations.current[side] = ref;
+      // invariant: the page keeps one conversation, so a reload resumes what was shown.
+      if (side === 'edited' || !reporting.current.isEditing) reporting.current.report?.(ref);
     };
     return { saved: change('saved'), edited: change('edited') };
   });
@@ -792,7 +816,15 @@ export function EditedSide({
 }
 
 /** What the comparison shows now: which sides there are, and what each one runs. */
-function useComparison({ project, profileId, tested, note, traces }: ProjectChatProps) {
+function useComparison({
+  project,
+  profileId,
+  tested,
+  note,
+  traces,
+  conversation,
+  onConversationChange,
+}: ProjectChatProps) {
   const edits = useMemo(() => unsavedEdits(tested, project.profiles), [tested, project.profiles]);
   const pair = usePair();
   const isBusy = pair.busy.length > 0;
@@ -807,7 +839,11 @@ function useComparison({ project, profileId, tested, note, traces }: ProjectChat
   const chatsInFiles = !saved || runsAsConversation(saved.profileType);
   const inFiles =
     !isEditing || (chatsInFiles && (answer?.saved ?? project.profiles).includes(ids.saved));
-  const { conversations, onChange } = useConversations(isEditing);
+  const { conversations, onChange } = useConversations(
+    isEditing,
+    conversation,
+    onConversationChange,
+  );
   const stamp = useLoadedStamp(answer);
   const transports = useTransports(project, ids, stamp, { note, traces });
   const refused = answer && !answer.ok && !pending ? answer : undefined;
@@ -837,28 +873,54 @@ function useChatHandle(
   canSendBoth: boolean,
   sharedInput: RefObject<ChatComposerInputHandle | null>,
 ) {
-  const { send, stop, handles } = pair;
+  const { send, stop, handles, chats } = pair;
+  const controller = chats[only ?? 'edited'];
   useImperativeHandle(
-    chatRef,
-    () => ({
-      send: (text, options) => {
-        if (only) return handles.current[only]?.send(text, options) ?? Promise.resolve(null);
-        if (!canSendBoth) return Promise.resolve(null);
-        return send(text, options).then((answers) => answers.get('edited') ?? null);
+    // invariant: a screen holds this handle only while the chat behind it is open.
+    chatRef as Ref<TheoremChatHandle | null> | undefined,
+    () =>
+      controller && {
+        send: (text, options) => {
+          if (only) return handles.current[only]?.send(text, options) ?? Promise.resolve(null);
+          if (!canSendBoth) return Promise.resolve(null);
+          return send(text, options).then((answers) => answers.get('edited') ?? null);
+        },
+        stop,
+        focus: () => {
+          if (only) handles.current[only]?.focus();
+          else sharedInput.current?.focus();
+        },
+        controller,
       },
-      stop,
-      focus: () => {
-        if (only) handles.current[only]?.focus();
-        else sharedInput.current?.focus();
-      },
-      get controller() {
-        const chat = handles.current[only ?? 'edited']?.controller;
-        if (!chat) throw new Error('The chat is not open yet.');
-        return chat;
-      },
-    }),
-    [only, canSendBoth, send, stop, handles, sharedInput],
+    [only, canSendBoth, send, stop, handles, sharedInput, controller],
   );
+}
+
+/** The one composer under a split, or why it waits. */
+function SharedSlot({
+  sides,
+  edited,
+  inputRef,
+  handle,
+  why,
+}: {
+  sides: ComponentProps<typeof SharedComposer>['sides'];
+  edited: ComponentProps<typeof SharedComposer>['edited'] | undefined;
+  inputRef: ComponentProps<typeof SharedComposer>['inputRef'];
+  handle: string;
+  why: string | undefined;
+}) {
+  if (edited) return <SharedComposer sides={sides} edited={edited} inputRef={inputRef} />;
+  return <WaitingComposer handle={handle} why={why ?? 'Loading your edits'} />;
+}
+
+/** The sides whose chats have opened. */
+function openSides(pair: ReturnType<typeof useComparison>['pair']) {
+  return SIDES.flatMap((side) => {
+    const chat = pair.chats[side];
+    const state = pair.states[side];
+    return chat && state ? [{ side, chat, state }] : [];
+  });
 }
 
 /**
@@ -876,11 +938,7 @@ export function ProjectChat(props: ProjectChatProps) {
   const only = isShared ? undefined : showsSaved ? 'saved' : 'edited';
   const sharedInput = useRef<ChatComposerInputHandle | null>(null);
   useChatHandle(chatRef, pair, only, !isBusy && isReady, sharedInput);
-  const shared = SIDES.flatMap((side) => {
-    const chat = pair.chats[side];
-    const state = pair.states[side];
-    return chat && state ? [{ side, chat, state }] : [];
-  });
+  const shared = openSides(pair);
   const common = {
     detectCodeLanguage: true,
     labels: STUDIO_LABELS,
@@ -889,6 +947,13 @@ export function ProjectChat(props: ProjectChatProps) {
     slots,
     context,
     composer: !isShared,
+    // A greeting says where to start; both sides start at the one composer under them.
+    emptyState: isShared ? null : undefined,
+    conversationView,
+    initialText,
+    initialFiles,
+    initialVoice,
+    initialPending,
   };
   return (
     <VStack height="100%">
@@ -933,15 +998,15 @@ export function ProjectChat(props: ProjectChatProps) {
           )}
         </HStack>
       </StackItem>
-      {isShared &&
-        (isReady && pair.states.edited ? (
-          <SharedComposer sides={shared} edited={pair.states.edited} inputRef={sharedInput} />
-        ) : (
-          <WaitingComposer
-            handle={profileId}
-            why={whyNot(refused !== undefined, isReady) ?? 'Loading your edits'}
-          />
-        ))}
+      {isShared && (
+        <SharedSlot
+          sides={shared}
+          edited={isReady ? pair.states.edited : undefined}
+          inputRef={sharedInput}
+          handle={profileId}
+          why={whyNot(refused !== undefined, isReady)}
+        />
+      )}
     </VStack>
   );
 }

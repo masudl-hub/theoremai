@@ -32,8 +32,8 @@ const testKeySchema = z
   .strict();
 
 export interface TestKeyOptions {
-  /** A provider the project registers from a definition of its own, by id. */
-  projectProvider?: (id: string) => RegisteredProvider | undefined;
+  /** The providers the project registers, some from definitions of its own. */
+  projectProviders?: () => readonly RegisteredProvider[];
   /** Resolves the provider's host, so a check from a shared server reaches public addresses only. */
   resolveHost?: ResolveHost;
   /** The server is the builder's alone: the check reaches whatever the provider names. */
@@ -53,7 +53,7 @@ export async function testKey(request: Request, options: TestKeyOptions = {}): P
     const definition = kernelDefinition(asked.provider.definition);
     provider = definition
       ? registerStudioProvider(createProviderRegistry(), asked.provider, definition)
-      : options.projectProvider?.(asked.provider.id);
+      : options.projectProviders?.().find((each) => each.id === asked.provider.id);
   } catch (error) {
     return Response.json(clientError(error), { status: 400 });
   }

@@ -2,6 +2,7 @@ import { assert, assertEquals, assertRejects } from '@std/assert';
 import type { ProfileDefinition } from '../../mod.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import type { DetectorRule } from '../../src/guardrails/detectors.ts';
+import { createProviderRegistry } from '../../src/kernel/mod.ts';
 import {
   type GuardrailProbeResult,
   PROBE_BOUNDARIES,
@@ -20,6 +21,7 @@ import {
   workspaceRunAgent,
 } from '../../studio/mod.ts';
 import { PROBE_BATTERY } from '../../studio/probe-battery.ts';
+import { registerStudioProvider } from '../../studio/providers.ts';
 import { TEST_KEYS } from '../fixtures/lent-keys.ts';
 import { TAKE_OUT_INBOUND } from '../fixtures/take-out.ts';
 
@@ -378,4 +380,28 @@ Deno.test('a live reply is read as it is spoken: the user gets the refusal, not 
   assertEquals(result.status, 'blocked');
   assert(result.guardrails.some((event) => event.boundary === 'live_reply'));
   assertEquals(result.passed?.includes(TEST_OPENAI_KEY), false);
+});
+
+Deno.test("a draft on the project's own provider is probed", async () => {
+  const run = concierge();
+  const router = registerStudioProvider(createProviderRegistry(), {
+    id: 'router',
+    definition: 'openrouter',
+    connection: { baseUrl: 'http://127.0.0.1:1/v1' },
+  });
+  const profile = {
+    ...run.profile,
+    models: { full: { protocol: 'openRouterOpenAi', provider: 'router', apiId: 'fake/full' } },
+    defaultModel: 'full',
+  } as ProfileDefinition;
+  await assertRejects(() =>
+    runGuardrailProbe({ ...run, profile, probe: { boundary: 'user', text: KEY } }),
+  );
+  const result = await runGuardrailProbe({
+    ...run,
+    profile,
+    projectProviders: [router],
+    probe: { boundary: 'user', text: KEY },
+  });
+  assertEquals(result.status, 'redacted');
 });

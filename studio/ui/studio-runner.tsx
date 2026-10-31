@@ -101,8 +101,7 @@ export interface StudioRunnerProps {
   /** Called on each request the conversation sends: a turn, call, decision, or live session. */
   onActivity?: () => void;
   /**
-   * The ref of a chat conversation to resume, as `onConversationChange` reported it (text and
-   * image agents run in the page). A project's chat is not resumed: its key is the run's.
+   * The ref of a chat conversation to resume, as `onConversationChange` reported it.
    */
   conversation?: ChatProps['conversation'];
   /** The conversation under `conversation` as the server showed it, drawn at once. */
@@ -186,6 +185,13 @@ function Run({
         flush={flush}
         columns={columns}
         note={note}
+        conversation={conversation}
+        conversationView={conversationView}
+        initialText={initialText}
+        initialFiles={initialFiles}
+        initialVoice={initialVoice}
+        initialPending={initialPending}
+        onConversationChange={onConversationChange}
         chatRef={chatRef}
         slots={slots}
         context={context}
@@ -546,6 +552,13 @@ function ProjectRun({
         traces={run.traces}
         trace={run.trace}
         className={run.className}
+        conversation={run.conversation}
+        conversationView={run.conversationView}
+        initialText={run.initialText}
+        initialFiles={run.initialFiles}
+        initialVoice={run.initialVoice}
+        initialPending={run.initialPending}
+        onConversationChange={run.onConversationChange}
         chatRef={run.chatRef}
         slots={run.slots}
         context={run.context}

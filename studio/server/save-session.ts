@@ -571,8 +571,10 @@ export function createSaveSession<Loaded>(
     changed: () =>
       inTurn(() => {
         const now = held();
-        if (now === loadedFrom) return Promise.resolve([]);
-        const [was, is] = [loadedFrom, now].map(
+        // invariant: files put back after a load that failed are news; the page still says it failed.
+        const last = unloaded?.from ?? loadedFrom;
+        if (now === last) return Promise.resolve([]);
+        const [was, is] = [last, now].map(
           (text) => new Map(JSON.parse(text) as [string, string][]),
         );
         const files = [...new Set([...(was?.keys() ?? []), ...(is?.keys() ?? [])])];

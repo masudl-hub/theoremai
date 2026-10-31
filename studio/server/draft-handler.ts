@@ -104,8 +104,8 @@ export type StudioDraftHandlerOptions = {
    * whatever the draft says, so no visitor reaches the host's own network.
    */
   draftNetwork?: boolean;
-  /** A provider the project registers from a definition of its own, so its key can be checked. */
-  projectProvider?: (id: string) => RegisteredProvider | undefined;
+  /** The project's providers: a key is checked on them, and a probed draft's models name them. */
+  projectProviders?: () => readonly RegisteredProvider[];
 };
 
 /**
@@ -396,12 +396,18 @@ export function createStudioDraftHandler(
     const path = new URL(request.url).pathname;
     const route = path.startsWith(`${STUDIO_BASE}/`) ? path.slice(STUDIO_BASE.length + 1) : '';
     const routes: Record<string, (request: Request) => Promise<Response>> = {
-      probe: (asked) => draftProbe(asked, options.onProbePassed, defer ?? (() => {})),
+      probe: (asked) =>
+        draftProbe(
+          asked,
+          options.onProbePassed,
+          defer ?? (() => {}),
+          options.projectProviders?.() ?? [],
+        ),
       'test-key': (asked) =>
         testKey(asked, {
           resolveHost,
           draftNetwork: options.draftNetwork,
-          projectProvider: options.projectProvider,
+          projectProviders: options.projectProviders,
         }),
       'test-connection': (asked) =>
         testConnection(asked, { resolveHost, draftNetwork: options.draftNetwork }),

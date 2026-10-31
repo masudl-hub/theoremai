@@ -197,6 +197,7 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   assertEquals([loads, stopped.length], [1, 1]);
 
   // Files that do not load are tried once, and the last load answers.
+  const asLoaded = files.get(SETUP) ?? '';
   failing.fails = true;
   files.set(SETUP, `${TEXT}\n// A broken edit.\n`);
   assertEquals((await session.read()).unloaded, 'It threw.');
@@ -204,10 +205,21 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
   assertEquals(session.project(), next);
   assertEquals(loads, 2);
 
+  // Put back as they loaded, they load no one again, and the page is told the failure is over.
+  files.set(SETUP, asLoaded);
+  assertEquals((await session.changed()).length, 1);
+  assertEquals((await session.read()).unloaded, undefined);
+  assertEquals(await session.changed(), []);
+  assertEquals(loads, 2);
+
+  failing.fails = true;
+  files.set(SETUP, `${TEXT}\n// A broken edit.\n`);
+  assertEquals((await session.read()).unloaded, 'It threw.');
+
   failing.fails = false;
   files.set(SETUP, `${TEXT}\n// Mended.\n`);
   assertEquals((await session.read()).unloaded, undefined);
-  assertEquals(loads, 3);
+  assertEquals(loads, 4);
 });
 
 Deno.test('a read of unchanged files walks them once, and twice around a load', async () => {

@@ -54,3 +54,6 @@ tmp/probe-runs/*
 
 # Local agent sessions and worktrees
 .claude/
+
+# The studio's browser tests
+studio/test-results/

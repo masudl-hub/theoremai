@@ -6,7 +6,7 @@ const OPEN = {
   project: 'bench',
   workspace: {},
   problems: [],
-  asks: { asked: [], inside: [] },
+  asks: { asked: [], destructive: [], inside: [] },
 } as unknown as StudioDescription;
 
 Deno.test('a project with nothing to look at prints nothing', () => {

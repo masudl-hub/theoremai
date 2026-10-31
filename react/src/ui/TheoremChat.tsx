@@ -87,7 +87,7 @@ export type TheoremChatProps = {
   /** Every event of every turn, as it arrives: also the ones the chat shows nothing for. */
   onTurnEvent?: UseTheoremChatOptions['onTurnEvent'];
   placeholder?: string;
-  /** Shown above the centred composer before the first message. Default: the agent's handle and a prompt. */
+  /** Shown above the centred composer before the first message. Default: the agent's handle and a prompt; `null` shows nothing. */
   emptyState?: ReactNode;
   density?: 'compact' | 'balanced' | 'spacious';
   /**
@@ -393,7 +393,7 @@ function ChatLanding({
   return (
     <VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
       <ChatColumn maxWidth={maxWidth}>
-        {emptyState ?? (
+        {emptyState === undefined ? (
           <VStack gap={1}>
             <Text type="supporting" as="h2">
               {handle}
@@ -402,6 +402,8 @@ function ChatLanding({
               {t('@theorem.chat.greeting')}
             </Text>
           </VStack>
+        ) : (
+          emptyState
         )}
       </ChatColumn>
       {composer && (
@@ -438,7 +440,12 @@ function ChatThread({
   }) {
   return (
     <VStack height="100%">
+      {/* why: ChatLayout's dock frosts the transcript above the composer, and offers no way to turn it off. */}
+      <style href="theorem-chat-thread" precedence="default">
+        {'.theorem-chat-thread > :last-child > div:empty { display: none; }'}
+      </style>
       <ChatLayout
+        className="theorem-chat-thread"
         density={density}
         scrollRef={scrollRef}
         // why: Scrolling past either end does not bounce the transcript and its docked composer.

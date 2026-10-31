@@ -7,6 +7,8 @@ import {
   studioLiveConnection,
   studioPageTools,
 } from '../mod.ts';
+import { useActingAs } from './lib/acting-as.ts';
+import { liveSocketAddress } from './lib/project-traces.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 
 /** What a live call is run with, wherever it runs. */
@@ -34,10 +36,13 @@ export function StudioLive({
 
 /** A project's live profile: the call runs in the project, through the studio's local server. */
 export function ProjectLive({ endpoint, ...props }: StudioLiveProps & { endpoint: string }) {
+  const { actingAs } = useActingAs();
   return (
     <LiveView
       {...props}
-      connect={() => ({ createSocket: () => new WebSocket(endpoint.replace(/^http/, 'ws')) })}
+      connect={() => ({
+        createSocket: () => new WebSocket(liveSocketAddress(endpoint, actingAs)),
+      })}
     />
   );
 }

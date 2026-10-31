@@ -61,8 +61,10 @@ import {
   studioInterface,
   studioPageTools,
 } from '../mod.ts';
+import { useActingAs } from './lib/acting-as.ts';
 import { pageConversationKey } from './lib/studio-conversation.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
+import { startProjectConversation, useProject } from './lib/studio-project.ts';
 
 /** A trace file the builder imported. */
 export interface OpenedTrace {
@@ -513,6 +515,8 @@ function ReplayConsole({
   runtime: StudioBrowserRuntime | null;
   onLive: (start: LiveStart) => void;
 }) {
+  const project = useProject();
+  const { actingAs } = useActingAs();
   const diverged = useRef<ReplayDivergence>(undefined);
   const [status, setStatus] = useState<ReplayStatus>({ kind: 'running', turn: 0 });
   const [traces] = useState(createTraceFeed);
@@ -592,7 +596,9 @@ function ReplayConsole({
   }, [from, replay, script, sendText]);
   const live = async (turn: number) => {
     const blocks = script.turns.slice(0, turn).flatMap((each) => each.blocks);
-    const started = await startLive(payload, runtime, blocks);
+    const started = project
+      ? await startProjectConversation(project, payload.agentId, blocks, actingAs)
+      : await startLive(payload, runtime, blocks);
     onLive({ ...started, text: script.turns[turn]?.text ?? '' });
   };
   const replayed = shown === 'replayed';

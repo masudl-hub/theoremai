@@ -6,6 +6,7 @@
 import type { StatedTurn } from '@theoremjs/web/client';
 import { useCallback, useSyncExternalStore } from 'react';
 import { type SlotDraft, type StudioRunPayload, studioPageTools } from '../../mod.ts';
+import { choiceValues } from '../../slot-values.ts';
 import { isRecord, session } from './studio-session.ts';
 
 const PAGE_PREFIX = 'theorem.studio.v2.page:';
@@ -34,27 +35,6 @@ const NO_PAGE_VALUES: PageValues = { slots: {}, conditions: {}, contextJson: '' 
 export const CONTEXT_PLACEHOLDER = `{
   "page": "Checkout"
 }`;
-
-function choiceValues(decl: unknown): string[] | undefined {
-  if (
-    Array.isArray(decl) &&
-    decl.length > 0 &&
-    decl.every((value) => typeof value === 'string' && value.trim() !== '')
-  ) {
-    return decl;
-  }
-  if (!isRecord(decl) || !Array.isArray(decl.choices) || decl.choices.length === 0) {
-    return undefined;
-  }
-  const values: string[] = [];
-  for (const choice of decl.choices) {
-    if (!isRecord(choice) || typeof choice.value !== 'string' || choice.value.trim() === '') {
-      return undefined;
-    }
-    values.push(choice.value);
-  }
-  return values;
-}
 
 /** The slots a draft has so far that a page can pick from: each named, with a value, once. */
 export function draftSlots(

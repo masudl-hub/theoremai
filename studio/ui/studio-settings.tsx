@@ -575,11 +575,16 @@ function SectionBody({ section, ...props }: StudioSettingsProps & { section: Set
       return <ConfirmationSettings shared={props.shared} />;
     case 'keys':
       return (
+        // why: a project's runs sign with the vault its own entry sets, so a key typed here runs nothing.
         <Group
           title="Model keys"
-          about="Your own keys, to run an agent with. Never saved, never written to your project."
+          about={
+            props.project
+              ? "This project's runs sign with the keys in its entry's provider vault. The studio does not read or change them."
+              : 'Your own keys, to run an agent with. Never saved, never written to your project.'
+          }
         >
-          {props.keys}
+          {props.project ? null : props.keys}
         </Group>
       );
     case 'people':

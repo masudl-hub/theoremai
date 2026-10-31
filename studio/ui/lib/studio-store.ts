@@ -188,7 +188,7 @@ interface StoreState {
 }
 
 /** Keeps the workspace, masked, in the tab's records. */
-function writeWorkspace(state: StoreState): void {
+function writeWorkspace(state: StoreState, isLeaving = false): void {
   state.timer = undefined;
   const record: StoredWorkspace = {
     v: STUDIO_WORKSPACE_VERSION,
@@ -196,7 +196,9 @@ function writeWorkspace(state: StoreState): void {
     revision: state.revision,
     ...(state.files === undefined ? {} : { files: state.files }),
   };
-  session()?.setItem(state.slot, JSON.stringify(record));
+  const text = JSON.stringify(record);
+  if (isLeaving) session()?.setItemLeaving(state.slot, text);
+  else session()?.setItem(state.slot, text);
 }
 
 /** Queues a write, unless one is already queued. */
@@ -486,11 +488,11 @@ export function createStudioStore(
       state.files = files;
       scheduleWrite(state);
     },
-    /** Writes now if a write is pending; the route calls it on pagehide and unmount. */
-    flush() {
+    /** Writes now if a write is pending; the route calls it on pagehide, as `isLeaving`, and unmount. */
+    flush(isLeaving = false) {
       if (state.timer === undefined) return;
       clearTimeout(state.timer);
-      writeWorkspace(state);
+      writeWorkspace(state, isLeaving);
     },
   };
 }

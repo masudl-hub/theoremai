@@ -41,7 +41,7 @@ const projectAddress: Plugin = {
  * tests) is the page's to read, and the project's own files never come through here: they are
  * the project's server's (`studio/server/serve.ts`).
  */
-const SERVED = ['studio', 'react', 'src', 'mod.ts', 'package.json', 'node_modules'];
+const SERVED = ['studio', 'react', 'web', 'src', 'mod.ts', 'package.json', 'node_modules'];
 
 /**
  * Serves the studio as a page of its own, at `/studio/` so a run tab's address is the one the

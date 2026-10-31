@@ -1019,13 +1019,6 @@ function editorTitle(draft: StudioDraft, id: string): string | undefined {
   return profileGraphFacet(ref.facet)?.label;
 }
 
-/** The editor's heading: Tools with the tools list and no tool open; else the open node's title. */
-function headingOf(list: WorkspaceList, editing: string, title: string | undefined) {
-  return list === 'tools' && toolSpecKeyOf(editing) === undefined
-    ? profileGraphFacet('tools')?.label
-    : title;
-}
-
 /** Waits before compiling after an edit, so typing doesn't recompile on every key. */
 const COMPILE_DEBOUNCE_MS = 300;
 
@@ -1616,13 +1609,13 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
     [store],
   );
   useEffect(() => {
-    const flush = () => {
-      store.flush();
+    const leave = () => {
+      store.flush(true);
     };
-    globalThis.addEventListener('pagehide', flush);
+    globalThis.addEventListener('pagehide', leave);
     return () => {
-      globalThis.removeEventListener('pagehide', flush);
-      flush();
+      globalThis.removeEventListener('pagehide', leave);
+      store.flush();
     };
   }, [store]);
   const { files, refreshOrigins, filesChanged, conflict, settle, showConflict, watchFiles } =
@@ -1753,15 +1746,19 @@ function useProjectFiles(project: ProjectSession | undefined, store: StudioStore
     },
     [conflict, project, store, keep],
   );
+  const [watch, setWatch] = useState({ available: false, on: getPref('watch') === 'on' });
+  const watching = useRef(watch.on);
   useEffect(() => {
-    globalThis.addEventListener('focus', refreshOrigins);
+    // why: coming back from the editor is when its saves wait; with the watch off they keep waiting.
+    const onFocus = () => {
+      if (watching.current) refreshOrigins();
+    };
+    globalThis.addEventListener('focus', onFocus);
     return () => {
-      globalThis.removeEventListener('focus', refreshOrigins);
+      globalThis.removeEventListener('focus', onFocus);
     };
   }, [refreshOrigins]);
 
-  const [watch, setWatch] = useState({ available: false, on: getPref('watch') === 'on' });
-  const watching = useRef(watch.on);
   const setWatching = useCallback(
     (on: boolean) => {
       watching.current = on;
@@ -3551,7 +3548,7 @@ function Studio({ opened }: { opened: StudioOpened }) {
                         }
                       >
                         <EditorColumn
-                          heading={view.keysOpen ? 'Keys' : headingOf(tree.list, editing, title)}
+                          heading={view.keysOpen ? 'Keys' : title}
                           state={state}
                           connection={connection}
                           view={view}
@@ -3851,15 +3848,29 @@ function SharedLine({
 }
 
 /** Over a node one place in the project's files sets whole: what sets it, where, and the way there. */
-function OriginBanner({ origin, onOpen }: { origin: SettingOrigin; onOpen: () => void }) {
+function OriginBanner({
+  origin,
+  unloaded,
+  onOpen,
+}: {
+  origin: SettingOrigin;
+  /** Files that stopped loading hide every definition in them. */
+  unloaded: boolean;
+  onOpen: () => void;
+}) {
   const place = originPlace(origin);
+  const broken = unloaded && origin.kind === 'unfound';
   // The cause is the title. Here: what it does to this page, then the way out.
-  const way = place ? `Edit it at ${place}.` : originWay(origin);
+  const way = broken
+    ? 'The alert above says what stopped them.'
+    : place
+      ? `Edit it at ${place}.`
+      : originWay(origin);
   return (
     <Section variant="transparent" padding={3}>
       <Banner
         status="info"
-        title={originLabel(origin)}
+        title={broken ? 'Your files stopped loading' : originLabel(origin)}
         description={`Read-only here. ${way}`}
         endContent={place && <Button label="Open" variant="ghost" size="sm" onClick={onOpen} />}
       />
@@ -3957,6 +3968,7 @@ function EditorColumn({
       {said && (
         <OriginBanner
           origin={said}
+          unloaded={state.files?.unloaded !== undefined}
           onOpen={() => {
             openOrigin(said);
           }}

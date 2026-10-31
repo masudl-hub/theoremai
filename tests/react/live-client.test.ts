@@ -570,6 +570,27 @@ Deno.test('a call opens with its slots, context, and host message; a changed con
   }
 });
 
+Deno.test('a video frame goes to the open call; a muted call says so', async () => {
+  const live = liveHarness();
+  const client = new LiveSessionClient({
+    createSocket: live.createSocket,
+    openMessage: { type: 'draft' },
+    voiceIngress: false,
+  });
+  try {
+    await client.connect();
+    const [socket] = live.sockets;
+    await live.ready(socket);
+    client.sendVideo('frame');
+    assertEquals(socket.sent.at(-1), { type: 'video', data: 'frame', mimeType: 'image/jpeg' });
+    assertEquals(client.toggleMute(), true);
+    assertEquals(client.toggleMute(), false);
+  } finally {
+    client.disconnect();
+    live.restore();
+  }
+});
+
 Deno.test('a dropped call with a resumption handle reconnects, and reports the time away', async () => {
   const live = liveHarness();
   const statuses: string[] = [];

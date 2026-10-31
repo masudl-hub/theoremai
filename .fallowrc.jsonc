@@ -44,6 +44,9 @@
     "studio/app/main.tsx",
     "studio/app/vite.config.ts",
     "studio/tests/**/*.ts",
+    // The browser suite's fake model and server: playwright.config.ts starts them, by path.
+    "studio/e2e/serve.mjs",
+    "studio/e2e/fake-model.mjs",
     "react/src/studio/main.tsx"
   ],
   // @astryxdesign/cli is used only as the `astryx` binary in react's theme scripts; whether fallow

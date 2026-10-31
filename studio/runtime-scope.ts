@@ -11,6 +11,7 @@ import {
   type Profile,
   type ProfileDefinition,
   type Provider,
+  type RegisteredProvider,
   type ResolveHost,
   TheoremError,
   type ToolExecutionCoordinator,
@@ -450,14 +451,26 @@ export async function studioScope(
 /**
  * A new scope holding drafts as written, the last one returned: no runtime
  * rewrites their guardrails or checks their model bindings. For a run that
- * calls no model and reaches no host. Never cache or share it.
+ * calls no model and reaches no host. Never cache or share it. `providers` are the project's: a
+ * draft's model names them, and they stand over a studio provider of the same id.
  */
-export async function writtenScope(drafts: readonly StudioDependency[]): Promise<{
+export async function writtenScope(
+  drafts: readonly StudioDependency[],
+  providers: readonly RegisteredProvider[] = [],
+): Promise<{
   scope: KernelScope;
   profile: Profile | undefined;
 }> {
   const scope = createKernelScope();
   registerRuntimeProviders(scope);
+  for (const { definition, id, connection, keySlot, fallbackKeySlot } of providers) {
+    scope.providers.replace(definition as Provider, {
+      id,
+      connection,
+      ...(keySlot ? { keySlot } : {}),
+      ...(fallbackKeySlot ? { fallbackKeySlot } : {}),
+    });
+  }
   let profile: Profile | undefined;
   for (const draft of drafts) {
     await refuseSlowSchemaPatterns(draft.customTools);

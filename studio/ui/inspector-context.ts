@@ -51,7 +51,7 @@ export const ConfirmWrite = createContext<(ask: WriteAsk) => Promise<boolean>>((
 );
 
 /** The project's tools that write: the ones the studio makes ask, and the ones it cannot. */
-export const ProjectAsks = createContext<StudioAsks>({ asked: [], inside: [] });
+export const ProjectAsks = createContext<StudioAsks>({ asked: [], destructive: [], inside: [] });
 
 /** The origin a section around a row has already named, so the row does not name it again. */
 export const SaidOrigin = createContext<SettingOrigin | undefined>(undefined);

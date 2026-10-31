@@ -13,6 +13,7 @@
  * @module
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   checkKey,
   type DecisionAsset,
@@ -31,6 +32,7 @@ import {
 } from '@theoremjs/agents';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
 import { createProviderRegistry } from '@theoremjs/agents/kernel';
+import type { TheoremRewound } from '@theoremjs/web/client';
 import {
   createSealedConversationStore,
   createTheoremDecisionHandler,
@@ -39,10 +41,19 @@ import {
   createTheoremHostHandler,
   type DecisionQuestionsBuilder,
   isQuestionsBuilder,
+  readBody,
+  startConversation,
   type TheoremConversationStore,
+  theoremStartRequestSchema,
 } from '@theoremjs/web/server';
 import { differingSettings } from '../agreement.ts';
-import { type StudioAsks, studioAskStage, studioAsks } from '../asks.ts';
+import {
+  ASK_WRITES_HEADER,
+  ASK_WRITES_PARAM,
+  type StudioAsks,
+  studioAskStage,
+  studioAsks,
+} from '../asks.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
@@ -72,6 +83,7 @@ import type { ToolRegistration } from '../registrations.ts';
 import { withPatterns } from '../runtime-scope.ts';
 import { studioSource } from '../source.ts';
 import { createStudioDraftHandler, STUDIO_BASE } from './draft-handler.ts';
+import { errorJson } from './draft-replies.ts';
 import { createStudioLiveHandler, type StudioUpgrade } from './live.ts';
 
 export { STUDIO_BASE } from './draft-handler.ts';
@@ -467,9 +479,12 @@ function describeStudio(
     ...(modelProblems.length ? { modelProblems } : {}),
     ...(differences.length ? { differences } : {}),
     ...(unheld.length ? { unheld } : {}),
-    asks: { asked: [], inside: [] },
+    asks: { asked: [], destructive: [], inside: [] },
   };
 }
+
+/** Which tools that write the running request's builder said should ask. */
+const runAsks = new AsyncLocalStorage<string | null>();
 
 /**
  * Which registered tools ask the builder before each run, whatever their own setting: a run in
@@ -559,7 +574,7 @@ export function corsHeaders(
 ): Record<string, string> {
   return {
     'access-control-allow-origin': request.headers.get('origin') ?? pageOrigins[0] ?? '',
-    'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}`,
+    'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}, ${ASK_WRITES_HEADER}`,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     vary: 'origin',
   };
@@ -694,7 +709,11 @@ function profileHandlers(
         if (options.upgrade) {
           served.set(
             profile.id,
-            createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade, ask),
+            createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade, {
+              ask,
+              session: shared.session,
+              host: shared.host,
+            }),
           );
         } else problems.push({ profile: profile.id, message: NO_SOCKET });
         continue;
@@ -714,21 +733,28 @@ function profileHandlers(
         continue;
       }
       // The page shows a run's trace, so the profile is served writing its records to the run.
+      if (profile.type === 'host') {
+        served.set(
+          profile.id,
+          withRunTraces(createTheoremHostHandler({ profile: tracedToPage(profile), ...shared })),
+        );
+        continue;
+      }
+      // A stateless profile keeps no conversation, so it takes no store.
+      const isStateless = profile.providerContinuation?.history === 'stateless';
+      const chat = createTheoremHandler({
+        profile: tracedToPage(profile),
+        provider: options.provider ?? {},
+        ...(options.prepare ? { prepare: options.prepare } : {}),
+        ...(isStateless ? {} : { conversationStore: chatStore() }),
+        // The studio's page is the builder's own: its picks choose the prompt lines.
+        pageStatesTurn: true,
+        ...shared,
+      });
       served.set(
         profile.id,
         withRunTraces(
-          profile.type === 'host'
-            ? createTheoremHostHandler({ profile: tracedToPage(profile), ...shared })
-            : createTheoremHandler({
-                profile: tracedToPage(profile),
-                provider: options.provider ?? {},
-                ...(options.prepare ? { prepare: options.prepare } : {}),
-                // A stateless profile keeps no conversation, so it takes no store.
-                ...(profile.providerContinuation?.history === 'stateless'
-                  ? {}
-                  : { conversationStore: chatStore() }),
-                ...shared,
-              }),
+          isStateless ? chat : startsConversations(chat, profile, chatStore(), shared.session),
         ),
       );
     } catch (error) {
@@ -739,6 +765,33 @@ function profileHandlers(
     }
   }
   return served;
+}
+
+/**
+ * `serve`, and `<profile>/conversation/start`: a chat that opens on blocks a trace holds, in the
+ * asking person's session, for a replay that goes on live.
+ * why: the project's run must open it, on the project's providers, and this server is the
+ * builder's alone. `createTheoremHandler` takes no transcript from a browser.
+ */
+function startsConversations(
+  serve: Serve,
+  profile: Profile,
+  store: TheoremConversationStore,
+  session: (request: Request) => string,
+): Serve {
+  return async (request) => {
+    const path = new URL(request.url).pathname;
+    if (!path.endsWith('/conversation/start')) return serve(request);
+    if (request.method !== 'POST') return new Response(null, { status: 405 });
+    try {
+      const { blocks } = await readBody(request, theoremStartRequestSchema);
+      const host = { sessionId: session(request), store };
+      const { ref, view } = await startConversation(host, profile, blocks);
+      return json(200, { conversation: ref, view } satisfies TheoremRewound, {});
+    } catch (error) {
+      return errorJson(error);
+    }
+  };
 }
 
 /** `answer` with the page's CORS headers on it. */
@@ -824,7 +877,7 @@ export function createStudioHandler(
   const served = profileHandlers(
     handlerOptions,
     description.problems,
-    studioAskStage(description.asks.asked),
+    studioAskStage(description.asks, () => runAsks.getStore() === 'destructive'),
   );
   const prefix = `${base}/profiles/`;
   const peoplePath = `${base}/people`;
@@ -832,7 +885,7 @@ export function createStudioHandler(
   // This server is the builder's alone, so a connection test reaches what the draft's runs reach.
   const draft = createStudioDraftHandler({
     draftNetwork: true,
-    projectProvider: (id) => listProviders().find((provider) => provider.id === id),
+    projectProviders: listProviders,
   });
 
   const run = async (request: Request, path: string): Promise<Response> => {
@@ -842,7 +895,10 @@ export function createStudioHandler(
     if (!serve) return json(404, {}, cors);
     const read = readActingAs(request, people);
     if (!read.ok) return json(400, { message: read.message }, cors);
-    const response = await serve(request);
+    const asks =
+      request.headers.get(ASK_WRITES_HEADER) ??
+      new URL(request.url).searchParams.get(ASK_WRITES_PARAM);
+    const response = await runAsks.run(asks, () => serve(request));
     // A socket's answer goes back as it is: it is not a response the page reads.
     if (response.status === 101) return response;
     return withCors(Promise.resolve(response), cors);

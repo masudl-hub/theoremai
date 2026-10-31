@@ -171,7 +171,8 @@ async function typeChecks(): Promise<{ ok: boolean; output: string }> {
   const decoder = new TextDecoder();
   return {
     ok: success,
-    output: (decoder.decode(stderr) + decoder.decode(stdout)).trim().slice(-4000),
+    // why: a checker told to colour by the builder's shell does so past NO_COLOR.
+    output: stripVTControlCharacters(decoder.decode(stderr) + decoder.decode(stdout)).trim(),
   };
 }
 

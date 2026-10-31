@@ -9,7 +9,7 @@ import {
   type ToolPermission,
   type TurnEvent,
 } from '../../mod.ts';
-import { studioAsks, writeAsk, writeAskLine } from '../../studio/asks.ts';
+import { ASK_WRITES_HEADER, studioAsks, writeAsk, writeAskLine } from '../../studio/asks.ts';
 import { newConversationKey } from '../../studio/conversation-key.ts';
 import { defaultToolSpec } from '../../studio/draft.ts';
 import { createStudioHandler, type StudioDescription } from '../../studio/server/handler.ts';
@@ -81,7 +81,7 @@ const handler = createStudioHandler({
 });
 
 /** The studio's page: keeps the session cookie the handler issues. */
-function transport() {
+function transport(askWrites?: 'always' | 'destructive') {
   let cookie = '';
   return createHostTransport({
     endpoint: `${BASE}/profiles/asks-desk`,
@@ -89,6 +89,7 @@ function transport() {
       const headers = new Headers(init?.headers);
       headers.set('host', HOST);
       if (cookie) headers.set('cookie', cookie);
+      if (askWrites) headers.set(ASK_WRITES_HEADER, askWrites);
       const response = await handler(new Request(url, { ...init, headers }));
       const issued = response.headers.get('set-cookie');
       if (issued) cookie = issued.split(';')[0] ?? '';
@@ -118,6 +119,7 @@ Deno.test('the page reads each tool as the files set it, and which ones the stud
   );
   assertEquals(asks, {
     asked: ['asks_write', 'asks_remove', 'asks_reads_itself'],
+    destructive: ['asks_remove'],
     inside: [],
   });
 });
@@ -156,6 +158,7 @@ Deno.test('a tool a called agent runs is left as it is, and the call to that age
   );
   assertEquals(asks, {
     asked: ['outer_write', 'ask_lead'],
+    destructive: [],
     inside: ['inner_write', 'ask_writer'],
   });
 });
@@ -185,6 +188,21 @@ Deno.test('a tool that writes stops before every run, and runs only once the bui
       assertEquals(toolEventsOf(settled, 'complete')[0]?.output, { id });
     }
   }
+});
+
+Deno.test('a run set to ask for destructive tools alone runs the rest straight away', async () => {
+  const page = transport('destructive');
+  const written = await collect((onEvent) =>
+    page.call({ name: 'asks_write', input: { id: 'straight' } }, onEvent),
+  );
+  assertEquals(
+    [toolEventsOf(written, 'gate').length, toolEventsOf(written, 'complete')[0]?.output],
+    [0, { id: 'straight' }],
+  );
+  const removed = await collect((onEvent) =>
+    page.call({ name: 'asks_remove', input: { id: 'asked' } }, onEvent),
+  );
+  assert(toolEventsOf(removed, 'gate').at(-1), 'a destructive tool ran unasked');
 });
 
 Deno.test("the studio asks once, and the project's own code reads the tool as the files set it", async () => {

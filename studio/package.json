@@ -18,6 +18,7 @@
   "description": "The studio's source: the profile draft, its tree and compiler, source export, and the studio screen. `npm run build:npm:studio` builds @theoremjs/studio from it into npm/, at the root package's version; this folder is never published itself. Opt-in: nothing here is installed with the kernel or the React package; `npm install` in this folder is what lets the screen run on its own.",
   "scripts": {
     "test": "node installed.mjs && npm run theme:check && deno test --config ../deno.json --no-check --allow-read --allow-write --allow-env --allow-sys tests",
+    "test:browser": "playwright test --config e2e/playwright.config.ts",
     "theme:build": "node ../scripts/theme.mjs build studio",
     "theme:check": "node ../scripts/theme.mjs check studio"
   },
@@ -44,6 +45,7 @@
   "devDependencies": {
     "@astryxdesign/core": "0.7.4",
     "@astryxdesign/theme-neutral": "0.7.4",
+    "@playwright/test": "1.63.0",
     "@stylexjs/stylex": "0.19.0",
     "@theoremjs/agents": "file:..",
     "@theoremjs/react": "file:../react",

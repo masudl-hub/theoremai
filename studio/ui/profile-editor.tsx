@@ -17,7 +17,6 @@ import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/Segme
 import { StackItem } from '@astryxdesign/core/Stack';
 import { pixel, proportional, Table } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
-import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
 import { Token } from '@astryxdesign/core/Token';
@@ -219,6 +218,7 @@ import {
   newPattern,
   newSlot,
   newSlotChoice,
+  newSystemLine,
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
@@ -302,6 +302,7 @@ import {
   draftSlots,
   usePageValues,
 } from './lib/studio-page.ts';
+import { type StudioPrefs, usePref } from './lib/studio-prefs.ts';
 import { useProject } from './lib/studio-project.ts';
 import {
   setToolCredential,
@@ -2362,9 +2363,13 @@ function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
   );
 }
 
-const SYSTEM_BY_ROLE_PLACEHOLDER = `{
-  "support": "Answer as the support desk."
+const CONDITIONS_PLACEHOLDER = `{
+  "plan": ["free", "paid"]
 }`;
+
+/** How tall a prompt line starts: one line alone is the whole prompt. */
+const ONLY_LINE_ROWS = 8;
+const LINE_ROWS = 3;
 
 type SetBinding = (change: Partial<ModelBindingDraft>) => void;
 
@@ -5586,8 +5591,12 @@ function ToolLoadingSection({
 const MS = new Intl.NumberFormat('en-US', { style: 'unit', unit: 'millisecond' });
 
 /** The result's headline: the status line, or for an MCP server, what it offers. */
-function probeTitle(result: ProbeResult, tool: ToolSpecDraft): string {
+function probeTitle(result: ProbeResult, tool: ToolSpecDraft, inProject: boolean): string {
   const took = result.elapsedMs === undefined ? '' : ` · ${MS.format(result.elapsedMs)}`;
+  // why: on a project the test keeps to the agent's guardrail, as its runs do; the way out is there.
+  if (inProject && result.code === 'ssrf_blocked') {
+    return "This agent's network guardrail doesn't allow this address, so a run couldn't call it either. Change it in Guardrails, under Network.";
+  }
   if (!result.ok && result.error) return result.error;
   if (tool.toolType === 'mcp' && result.tools) {
     // The route only checks for the remote tool when one is named.
@@ -5729,6 +5738,7 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
   const shown = useContext(ShownProbe);
   const [result, setResult] = useState(shown);
   const http = tool.toolType === 'http';
+  const inProject = useProject() !== null;
   const method = tool.method ?? HTTP_METHODS[0];
   // A result answers the request as it was: once what it reaches or sends changes, it's dropped.
   const target = probeTarget(tool, method);
@@ -5769,7 +5779,7 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
       {result && (
         <Banner
           status={probeStatus(result)}
-          title={probeTitle(result, tool)}
+          title={probeTitle(result, tool, inProject)}
           description={probeDetails(result)}
         />
       )}
@@ -6373,8 +6383,12 @@ function AuthSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
 }
 
 /** What the studio does about a tool that writes, when that is not what Permission says. */
-function studioAskNote(asks: StudioAsks, tool: string): string | undefined {
-  if (asks.asked.includes(tool))
+function studioAskNote(
+  asks: StudioAsks,
+  tool: string,
+  askWrites: StudioPrefs['askWrites'],
+): string | undefined {
+  if ((askWrites === 'destructive' ? asks.destructive : asks.asked).includes(tool))
     return 'In the studio this tool asks before every run, because it writes. Your application runs it as Permission says.';
   if (asks.inside.includes(tool))
     return 'This tool writes, and the studio cannot make it ask: a called agent runs it, and a question inside a called agent has no one to answer it. The call to that agent asks instead.';
@@ -6391,7 +6405,7 @@ function PolicySection({
   tool: ToolSpecDraft;
   set: SetTool;
 }) {
-  const note = studioAskNote(useContext(ProjectAsks), tool.toolName);
+  const note = studioAskNote(useContext(ProjectAsks), tool.toolName, usePref('askWrites'));
   return (
     <InspectorSection title="Policy" note={note}>
       <SegmentedRow

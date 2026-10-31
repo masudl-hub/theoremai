@@ -37,6 +37,8 @@ export interface StoredWorkspace {
 export interface TabStorage {
   getItem(name: string): string | null;
   setItem(name: string, value: string): void;
+  /** `setItem` as the page goes: the next load of this tab reads it, whether or not the keep did. */
+  setItemLeaving(name: string, value: string): void;
   removeItem(name: string): void;
   keys(): string[];
 }
@@ -47,6 +49,8 @@ export type TabLocks = Pick<LockManager, 'request' | 'query'>;
 /** In this tab's sessionStorage: the id its records are kept under. */
 const TAB_ID = 'theorem.studio.tab';
 const TAB_LOCK = 'theorem.studio.tab:';
+/** In this tab's sessionStorage: the record the page wrote as it went, until the next load. */
+const LEAVING = 'theorem.studio.leaving';
 /** Held while a tab claims its records and while a sweep runs, so a sweep never sees a tab half open. */
 const SWEEP_LOCK = 'theorem.studio.sweep';
 
@@ -75,6 +79,26 @@ export function tabSession(): Storage | null {
     return typeof sessionStorage === 'undefined' ? null : sessionStorage;
   } catch {
     return null;
+  }
+}
+
+/** Sets aside or clears the record in `LEAVING`. A full or blocked sessionStorage keeps nothing. */
+function setLeaving(record?: { name: string; value: string }): void {
+  try {
+    if (record) tabSession()?.setItem(LEAVING, JSON.stringify(record));
+    else tabSession()?.removeItem(LEAVING);
+  } catch {
+    // The keep's own write may still land.
+  }
+}
+
+/** The record the last page set aside, if it left one. */
+function readLeaving(): { name: string; value: string } | undefined {
+  try {
+    const raw = tabSession()?.getItem(LEAVING);
+    return raw ? (JSON.parse(raw) as { name: string; value: string }) : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -156,11 +180,24 @@ export async function openTabStorage(
   };
   const { id, kept } = locks ? await locks.request(SWEEP_LOCK, claim) : await claim();
   const records = new Map(kept);
+  const setItem = (name: string, value: string) => {
+    records.set(name, value);
+    keep.put(id, name, value);
+  };
+  const leaving = readLeaving();
+  if (leaving) setItem(leaving.name, leaving.value);
+  setLeaving();
   const storage: TabStorage = {
     getItem: (name) => records.get(name) ?? null,
     setItem: (name, value) => {
-      records.set(name, value);
-      keep.put(id, name, value);
+      setItem(name, value);
+      // why: a page brought back from the browser's cache goes on, and this write is newer.
+      setLeaving();
+    },
+    // why: a write to the keep begun on pagehide does not finish before a reload reads it.
+    setItemLeaving: (name, value) => {
+      setItem(name, value);
+      setLeaving({ name, value });
     },
     removeItem: (name) => {
       if (records.delete(name)) keep.remove(id, name);

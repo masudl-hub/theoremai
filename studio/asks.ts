@@ -47,10 +47,17 @@ export interface AskTool {
   profile?: string;
 }
 
+/** The header a run carries the builder's choice of which tools that write ask in. */
+export const ASK_WRITES_HEADER = 'x-theorem-studio-ask-writes';
+/** The same on a live socket's address: a browser's `WebSocket` sends no headers. */
+export const ASK_WRITES_PARAM = 'ask-writes';
+
 /** Which of a project's tools the studio makes ask, and which it cannot. */
 export interface StudioAsks {
   /** The tools that ask before each run here and would not in the application. */
   asked: string[];
+  /** Those of `asked` that can reach a destructive tool: they ask whatever the builder chose. */
+  destructive: string[];
   /**
    * The tools that write and run unasked: a called agent runs them, and a question inside a called
    * agent has no one to answer it. The call to that agent asks instead.
@@ -71,20 +78,27 @@ export function studioAsks(
   const runs = (tool: AskTool) =>
     tool.type === 'agent' && tool.profile ? allowed(tool.profile) : [];
   const inside = new Set(tools.flatMap(runs));
-  const writes = (tool: AskTool, seen: Set<string>): boolean => {
+  const reaches = (tool: AskTool, is: (tool: AskTool) => boolean, seen: Set<string>): boolean => {
     if (seen.has(tool.name)) return false;
     seen.add(tool.name);
-    if (tool.access !== 'read-only') return true;
+    if (is(tool)) return true;
     return runs(tool).some((name) => {
       const inner = named.get(name);
-      return inner !== undefined && writes(inner, seen);
+      return inner !== undefined && reaches(inner, is, seen);
     });
   };
   // A provider's built-in tool runs on the provider and never stops on a question.
-  const writing = tools.filter((tool) => tool.type !== 'builtin' && writes(tool, new Set()));
+  const writing = tools.filter(
+    (tool) =>
+      tool.type !== 'builtin' && reaches(tool, (each) => each.access !== 'read-only', new Set()),
+  );
+  const asked = writing.filter(
+    (tool) => !inside.has(tool.name) && tool.permission !== 'always_confirm',
+  );
   return {
-    asked: writing
-      .filter((tool) => !inside.has(tool.name) && tool.permission !== 'always_confirm')
+    asked: asked.map((tool) => tool.name),
+    destructive: asked
+      .filter((tool) => reaches(tool, (each) => each.access === 'destructive', new Set()))
       .map((tool) => tool.name),
     inside: writing.filter((tool) => inside.has(tool.name)).map((tool) => tool.name),
   };
@@ -96,13 +110,19 @@ const STUDIO_ASK_SUMMARY = 'The studio asks before every run of a tool that writ
 /**
  * The studio's question before each run of an `asked` tool, as a stage. The tool's registration
  * is left as the project set it, so the project's own code reads its own setting. A call the
- * builder already approved where it stopped is not asked again.
+ * builder already approved where it stopped is not asked again. `destructiveOnly` reads the run's
+ * own choice, since the builder can change it between two runs.
  */
-export function studioAskStage(asked: readonly string[]): StageHandler | undefined {
+export function studioAskStage(
+  { asked, destructive }: StudioAsks,
+  destructiveOnly: () => boolean,
+): StageHandler | undefined {
   if (asked.length === 0) return undefined;
-  const ask = new Set(asked);
   return (ctx) =>
-    ctx.stage === 'pre_tool' && !ctx.approved && ctx.tool !== undefined && ask.has(ctx.tool)
+    ctx.stage === 'pre_tool' &&
+    !ctx.approved &&
+    ctx.tool !== undefined &&
+    (destructiveOnly() ? destructive : asked).includes(ctx.tool)
       ? { confirm: { summary: STUDIO_ASK_SUMMARY } }
       : undefined;
 }

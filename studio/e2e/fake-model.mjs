@@ -84,41 +84,45 @@ function send(response, row) {
   response.write(`data: ${JSON.stringify(row)}\n\n`);
 }
 
+/** The tool the person's last message marks, unless a tool already answered it. */
+const markedCall = (body) =>
+  toolResult(body) ? null : /\[call (\w+) (\{.*?\})\]/.exec(textOf(said(body)));
+
+const declares = (body, name) => (body.tools ?? []).some((tool) => tool.function?.name === name);
+
+/** Streams a first word and waits for its release, when the person's last message says to. */
+async function holdIfMarked(body, request, response) {
+  const hold = toolResult(body) ? null : /\[hold (\w+)\]/.exec(textOf(said(body)));
+  if (!hold) return;
+  send(response, chunk(body.model, { role: 'assistant', content: 'Working ' }));
+  await new Promise((release) => {
+    held.set(hold[1], release);
+    request.on('close', release);
+  });
+}
+
+function sendCall(body, response, [, name, args]) {
+  const call = {
+    index: 0,
+    id: `call_${requests.length}`,
+    type: 'function',
+    function: { name, arguments: args },
+  };
+  send(response, chunk(body.model, { role: 'assistant', tool_calls: [call] }));
+  send(response, chunk(body.model, {}, 'tool_calls'));
+}
+
+function sendText(body, response, content) {
+  send(response, chunk(body.model, { role: 'assistant', content }));
+  send(response, chunk(body.model, {}, 'stop'));
+}
+
 async function stream(body, request, response) {
-  const text = textOf(said(body));
-  const marked = toolResult(body) ? null : /\[call (\w+) (\{.*?\})\]/.exec(text);
-  const declared = (body.tools ?? []).map((tool) => tool.function?.name);
-  const call = marked && declared.includes(marked[1]) ? marked : null;
+  const marked = markedCall(body);
   response.writeHead(200, { 'content-type': 'text/event-stream' });
-  const hold = toolResult(body) ? null : /\[hold (\w+)\]/.exec(text);
-  if (hold) {
-    send(response, chunk(body.model, { role: 'assistant', content: 'Working ' }));
-    await new Promise((release) => {
-      held.set(hold[1], release);
-      request.on('close', release);
-    });
-  }
-  if (call) {
-    send(
-      response,
-      chunk(body.model, {
-        role: 'assistant',
-        tool_calls: [
-          {
-            index: 0,
-            id: `call_${requests.length}`,
-            type: 'function',
-            function: { name: call[1], arguments: call[2] },
-          },
-        ],
-      }),
-    );
-    send(response, chunk(body.model, {}, 'tool_calls'));
-  } else {
-    const content = marked ? undeclared(marked[1]) : reply(body);
-    send(response, chunk(body.model, { role: 'assistant', content }));
-    send(response, chunk(body.model, {}, 'stop'));
-  }
+  await holdIfMarked(body, request, response);
+  if (marked && declares(body, marked[1])) sendCall(body, response, marked);
+  else sendText(body, response, marked ? undeclared(marked[1]) : reply(body));
   send(response, usage(body.model));
   response.end('data: [DONE]\n\n');
 }
@@ -160,29 +164,25 @@ function liveReply(sent) {
   return said ? `Fake live to "${said}"` : undefined;
 }
 
+const markedLiveCall = (sent) => /\[call (\w+) (\{.*\})\]/.exec(sent.realtimeInput?.text ?? '');
+
+function callLive(socket, [, name, args]) {
+  const functionCalls = [{ id: 'live_call', name, args: JSON.parse(args) }];
+  socket.write(frame({ toolCall: { functionCalls } }));
+}
+
+function sayLive(socket, text) {
+  if (!text) return;
+  socket.write(frame({ serverContent: { outputTranscription: { text } } }));
+  socket.write(frame({ serverContent: { turnComplete: true } }));
+}
+
 /** Answers one frame of a live call: the setup, a marked tool call, a tool's result, or a text. */
 function answerLive(socket, sent, declared) {
   if (sent.setup) socket.write(frame({ setupComplete: {} }));
-  const call = /\[call (\w+) (\{.*\})\]/.exec(sent.realtimeInput?.text ?? '');
-  if (call && !declared.has(call[1])) {
-    socket.write(frame({ serverContent: { outputTranscription: { text: undeclared(call[1]) } } }));
-    socket.write(frame({ serverContent: { turnComplete: true } }));
-    return;
-  }
-  if (call) {
-    socket.write(
-      frame({
-        toolCall: {
-          functionCalls: [{ id: 'live_call', name: call[1], args: JSON.parse(call[2]) }],
-        },
-      }),
-    );
-    return;
-  }
-  const reply = liveReply(sent);
-  if (!reply) return;
-  socket.write(frame({ serverContent: { outputTranscription: { text: reply } } }));
-  socket.write(frame({ serverContent: { turnComplete: true } }));
+  const call = markedLiveCall(sent);
+  if (call && declared.has(call[1])) callLive(socket, call);
+  else sayLive(socket, call ? undeclared(call[1]) : liveReply(sent));
 }
 
 /** Gemini Live, on one socket: answers the setup, and each text it is sent. */

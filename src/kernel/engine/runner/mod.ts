@@ -36,7 +36,7 @@ import { resolveTurnInRegistry } from '../../registry/resolve.ts';
 import { type BoundSystem, bindSystem } from '../../system-parts.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
 import { assertBackgroundCoordinator, type ToolBackgroundSupport } from '../../tools/background.ts';
-import { cloneTurnToolSnapshot, expandT1Policy } from '../../tools/resolve.ts';
+import { cloneTurnToolSnapshot, expandT1Policy, promoteTurnTools } from '../../tools/resolve.ts';
 import type { InvokeToolRequest } from '../../tools/types.ts';
 import { keptReply, turnDoneOf } from '../../turn-events.ts';
 import type {
@@ -717,6 +717,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   if (sanitized.refusal) throw sanitized.refusal;
   const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
   await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
+  promoteTurnTools(ctx.registry.tools, gen.tools, ctx.safe.promoted ?? []);
   if (ctx.compacting === 'self') gen.tools = noTools();
   gen.builtins = gen.tools.builtins;
   if (gen.canary) gen.canary = await profileCanary(profile.id, gen.resolvedSystem);

@@ -23,4 +23,10 @@ function toolSnapshotFromEvents(events: readonly TurnEvent[]): TurnToolSnapshot 
   return done?.type === 'done' ? done.tools : undefined;
 }
 
-export { promotedToolIdsFromEvents, toolSnapshotFromEvents };
+/** The tools a paused reply holds: those on the list it paused with, and those a call has loaded since. */
+function replyToolIdsFromEvents(events: readonly TurnEvent[]): ToolId[] {
+  const visible = toolSnapshotFromEvents(events)?.visible ?? [];
+  return [...new Set([...visible, ...promotedToolIdsFromEvents(events)])];
+}
+
+export { promotedToolIdsFromEvents, replyToolIdsFromEvents, toolSnapshotFromEvents };

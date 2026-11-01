@@ -574,6 +574,42 @@ Deno.test('t2Loader function promotes T2 ids from { loaded }', async () => {
   const complete = lastTool(events, 'load_tools');
   assertEquals(outputOf(complete), { loaded: ['record_lookup'] });
 });
+Deno.test('a turn opens with the T2 tools it is told the reply already had', async () => {
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: 'turn_promoted_probe',
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 1,
+      tools: { allow: ['load_tools', 'record_lookup'], t2Loader: 'load_tools' },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 10 } },
+    }),
+  );
+  const listed: string[][] = [];
+  const model: TurnModel = {
+    complete: (req) =>
+      (async function* () {
+        listed.push((req.wireTools ?? []).map((tool) => tool.name));
+        yield { type: 'text' as const, text: 'done' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })(),
+  };
+  const asks = [undefined, ['record_lookup'], ['load_tools', 'not_allowed', 'record_lookup']];
+  for (const promoted of asks) {
+    const turn = runTurn(
+      { profile: 'turn_promoted_probe', input: { text: 'x' }, ...(promoted ? { promoted } : {}) },
+      model,
+    );
+    for await (const _ of turn);
+  }
+  assertEquals(listed, [
+    ['load_tools'],
+    ['load_tools', 'record_lookup'],
+    ['load_tools', 'record_lookup'],
+  ]);
+});
 Deno.test('loader promote rejects non-T2 tool ids', () => {
   registerProfile(
     defineProfile({

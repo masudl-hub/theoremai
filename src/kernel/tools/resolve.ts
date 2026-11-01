@@ -278,7 +278,16 @@ export async function expandT1Policy(
   if (!Array.isArray(selected)) {
     throw new TheoremError('config', `Profile '${profile.id}' tools.t1Policy must return ToolId[]`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
-  for (const id of selected) {
+  promoteTurnTools(tools, state, selected);
+}
+
+/** Puts the T2 tools among `ids` that the turn may call on its list; any other id is left out. */
+export function promoteTurnTools(
+  tools: ToolRegistry,
+  state: TurnToolSnapshot,
+  ids: readonly ToolId[],
+): void {
+  for (const id of ids) {
     if (!state.gated.includes(id)) {
       continue;
     }

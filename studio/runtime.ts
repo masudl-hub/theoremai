@@ -183,6 +183,7 @@ function studioRunner(args: {
           signal,
           ...(turn.model ? { model: turn.model } : {}),
           ...(turn.effort ? { effort: turn.effort } : {}),
+          ...(turn.promoted ? { promoted: turn.promoted } : {}),
           ...(args.onStage ? { onStage: args.onStage } : {}),
           onAgentCall: agentCallHook(scope, runtime),
         },

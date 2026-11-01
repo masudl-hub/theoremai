@@ -1074,6 +1074,12 @@ export interface TurnRequest {
    * Compared to `profile.turnBehaviour.resumption.maxContinues` when that cap is set.
    */
   continuation?: number;
+  /**
+   * Tools this reply already had when an earlier run of it paused. The turn opens with them on its
+   * list, so an answered call does not take back what the model loaded. An id `tools.allow` or the
+   * path does not grant is left out, as for `tools.t1Policy`.
+   */
+  promoted?: ToolId[];
   input?: TurnInput;
   /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
   credentials?: ToolCredentialSource;

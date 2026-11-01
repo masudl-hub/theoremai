@@ -144,6 +144,10 @@ export const REQUEST_FIELDS: Record<
     type: 'number',
     doc: 'Which continue attempt this is, from 1; checked against the maxContinues of the profile.',
   },
+  'runTurn.promoted': {
+    type: 'ToolId[]',
+    doc: 'Tools this reply already had when an earlier run of it paused; the turn opens with them on its list.',
+  },
   'runTurn.speech': {
     type: 'TurnSpeech',
     doc: "This turn's voice, style, and speed; each one given replaces the profile's speech field of that name. Refused on a profile that is not speech.",

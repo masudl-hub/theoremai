@@ -1488,10 +1488,9 @@ Deno.test('the prompt compiles line by line, with its conditions, and a bad line
   assertEquals(wrongRows({ name: '', values: ['free'] }), [
     { field: 'conditions', index: 0, message: 'This condition needs a name.' },
   ]);
-  assertEquals(
-    wrongRows({ name: 'plan', values: ['free'] }, { name: 'plan', values: ['paid'] }),
-    [{ field: 'conditions', index: 1, message: 'Two conditions are called "plan".' }],
-  );
+  assertEquals(wrongRows({ name: 'plan', values: ['free'] }, { name: 'plan', values: ['paid'] }), [
+    { field: 'conditions', index: 1, message: 'Two conditions are called "plan".' },
+  ]);
   const untouched = withPrompt([{ key: 'new', name: '', values: [] }], 'Be brief.');
   assert(untouched.ok && untouched.profile.type === 'text');
   assertEquals(untouched.profile.identity.conditions, undefined);

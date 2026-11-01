@@ -254,11 +254,8 @@ test('the map opens, finds a setting and closes', async ({ page }) => {
   await expect(search).toBeHidden();
 });
 
-test('only destructive tools asks for those alone', async ({ page }) => {
+test('a tool asks only as its Permission says', async ({ page }) => {
   await open(page);
-  await settings(page, 'Confirmations');
-  await page.getByRole('radio', { name: 'Only destructive tools' }).click();
-  await closeSettings(page);
   await send(page, '[call file_note {"note":"x"}]');
   await expect(page.getByText('Tool answered on full')).toBeVisible();
   await send(page, '[call wipe_desk {"confirm":true}]');

@@ -9,11 +9,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const hooks = [
   {
     name: 'pre-commit',
-    label: 'pre-commit → npm run lint:docs (docs-truth)',
+    label: 'pre-commit → npm run lint:docs (docs-truth) on the tree being committed',
   },
   {
     name: 'pre-push',
-    label: 'pre-push → fallow audit --base main (coverage-aware when present)',
+    label:
+      'pre-push → CI lint job on the pushed commit, then fallow audit (coverage-aware when present)',
   },
 ];
 

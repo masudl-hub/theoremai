@@ -389,10 +389,7 @@ Deno.test('edits brought back over changed files keep the edits and take the res
   // Only the builder's own edits are left to save: the starts are the files'.
   assertEquals(back.starts.tools[tool.key]?.description, 'From the editor.');
   assertEquals(back.starts.agents[narrator.key]?.identity.system, 'Edited in the editor.');
-  assertEquals(
-    back.starts.agents[architect.key]?.identity.system,
-    architect.identity.system,
-  );
+  assertEquals(back.starts.agents[architect.key]?.identity.system, architect.identity.system);
 });
 
 Deno.test('opening the files again keeps the keys in use and brings back a removed agent', () => {

@@ -1,6 +1,6 @@
 import { composer, expect, open, release, seen, send, sendBy, test } from './drive.ts';
 
-const WRITE = '[call file_note {"note":"milk"}]';
+const ASKS = '[call wipe_desk {"confirm":true}]';
 
 test('a message gets the reply', async ({ page }) => {
   await open(page);
@@ -29,21 +29,21 @@ test("a tool's image stands in the reply where the call ran", async ({ page }) =
 
 test('an approved write runs and the reply goes on', async ({ page }) => {
   await open(page);
-  await send(page, WRITE);
+  await send(page, ASKS);
   await page.getByRole('button', { name: 'Approve' }).click();
   await expect(page.getByText('Tool answered on full')).toBeVisible();
   const asked = (await seen(page)).at(-1)?.body.messages ?? [];
-  expect(JSON.stringify(asked.filter((message) => message.role === 'tool'))).toContain('filed');
+  expect(JSON.stringify(asked.filter((message) => message.role === 'tool'))).toContain('wiped');
 });
 
 test('a rejected write does not run and the reply goes on', async ({ page }) => {
   await open(page);
-  await send(page, WRITE);
+  await send(page, ASKS);
   await page.getByRole('button', { name: 'Reject' }).click();
-  await expect(page.getByText('Tool answered on full')).toBeVisible();
+  await expect(page.getByText('Tool failed on full')).toBeVisible();
   const asked = (await seen(page)).at(-1)?.body.messages ?? [];
   expect(JSON.stringify(asked.filter((message) => message.role === 'tool'))).not.toContain(
-    '"filed":true',
+    '"wiped":3',
   );
 });
 

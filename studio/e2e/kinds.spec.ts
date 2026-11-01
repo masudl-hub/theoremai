@@ -75,9 +75,9 @@ test('a live call runs a tool as the person picked, and asks first', async ({ pa
   await page.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'Start voice call' }).click();
   await expect(page.getByText('listening')).toBeVisible();
-  await send(page, '[call file_note {"note":"from the call"}]');
+  await send(page, '[call wipe_desk {"confirm":true}]');
   await page.getByRole('button', { name: 'Approve' }).click();
-  await expect(page.getByText('Live tool file_note answered')).toBeVisible();
+  await expect(page.getByText('Live tool wipe_desk answered')).toBeVisible();
   const answer = (await seen(page)).find((call) => 'toolResponse' in call.body);
   expect(JSON.stringify(answer?.body)).toContain('north-ana');
 });

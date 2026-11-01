@@ -4,12 +4,10 @@ import {
   type NodeOrigins,
   ON_OWN_KEYS,
   rowOrigin,
-  type StudioAsks,
   type StudioIssue,
   type StudioProvider,
   type StudioRunPayload,
   type StudioRunsOn,
-  type WriteAsk,
 } from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 
@@ -41,17 +39,6 @@ export const RowOrigins = createContext<{
   scope: NodeOrigins;
   open: (origin: SettingOrigin) => void;
 } | null>(null);
-
-/**
- * Asks the builder before a real run of a tool that writes, and answers whether to run it. Where
- * no page mounts the question, the run is refused.
- */
-export const ConfirmWrite = createContext<(ask: WriteAsk) => Promise<boolean>>(() =>
-  Promise.resolve(false),
-);
-
-/** The project's tools that write: the ones the studio makes ask, and the ones it cannot. */
-export const ProjectAsks = createContext<StudioAsks>({ asked: [], destructive: [], inside: [] });
 
 /** The origin a section around a row has already named, so the row does not name it again. */
 export const SaidOrigin = createContext<SettingOrigin | undefined>(undefined);

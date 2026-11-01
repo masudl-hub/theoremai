@@ -23,17 +23,11 @@ Deno.test('a preference the builder never set, or a browser that keeps nothing, 
     watch: 'on',
     filesToast: 'on',
     askShared: 'always',
-    askWrites: 'always',
   });
   for (const from of [storage(), null]) {
     assertEquals(
-      [
-        readPref(from, 'editor'),
-        readPref(from, 'watch'),
-        readPref(from, 'askShared'),
-        readPref(from, 'askWrites'),
-      ],
-      ['', 'on', 'always', 'always'],
+      [readPref(from, 'editor'), readPref(from, 'watch'), readPref(from, 'askShared')],
+      ['', 'on', 'always'],
     );
   }
   const blocked: PrefStorage = {
@@ -57,23 +51,20 @@ Deno.test('a choice is kept under its own key, and the default is kept as nothin
   writePref(kept, 'watch', 'off');
   writePref(kept, 'filesToast', 'off');
   writePref(kept, 'askShared', 'never');
-  writePref(kept, 'askWrites', 'destructive');
   assertEquals(kept.held, {
     'theorem.studio.editor': 'cursor',
     'theorem.studio.watch': 'off',
     'theorem.studio.files-toast': 'off',
     'theorem.studio.ask-shared': 'never',
-    'theorem.studio.ask-writes': 'destructive',
   });
   assertEquals(
-    [readPref(kept, 'editor'), readPref(kept, 'watch'), readPref(kept, 'askWrites')],
-    ['cursor', 'off', 'destructive'],
+    [readPref(kept, 'editor'), readPref(kept, 'watch'), readPref(kept, 'askShared')],
+    ['cursor', 'off', 'never'],
   );
   writePref(kept, 'editor', '');
   writePref(kept, 'watch', 'on');
   writePref(kept, 'filesToast', 'on');
   writePref(kept, 'askShared', 'always');
-  writePref(kept, 'askWrites', 'always');
   assertEquals(kept.held, {});
 });
 
@@ -81,10 +72,10 @@ Deno.test('a kept text the studio does not know reads as the default, and is nev
   const kept = storage({
     'theorem.studio.editor': '/tmp/code',
     'theorem.studio.watch': 'sometimes',
-    'theorem.studio.ask-writes': 'never',
+    'theorem.studio.ask-shared': 'sometimes',
   });
   assertEquals(
-    [readPref(kept, 'editor'), readPref(kept, 'watch'), readPref(kept, 'askWrites')],
+    [readPref(kept, 'editor'), readPref(kept, 'watch'), readPref(kept, 'askShared')],
     ['', 'on', 'always'],
   );
   // An editor Settings does not offer is not kept: the page sends only one it offers.

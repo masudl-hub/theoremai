@@ -80,10 +80,7 @@ Deno.test("a setting only the files changed is the files', and the builder keeps
   );
   // The files' value is the start, so only the builder's edit is left to save.
   assertEquals(merge.workspace.starts.agents[key]?.identity.handle, 'from-editor');
-  assertEquals(
-    merge.workspace.starts.agents[key]?.identity.system,
-    first(old).identity.system,
-  );
+  assertEquals(merge.workspace.starts.agents[key]?.identity.system, first(old).identity.system);
 });
 
 Deno.test('with no edits here the merge is the files, at their start', () => {

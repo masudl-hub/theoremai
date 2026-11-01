@@ -11,7 +11,7 @@ npm install
 deno install
 ```
 
-`npm install` also installs the git hooks. The pre-commit hook runs `npm run lint:docs`. The pre-push hook runs `fallow audit --base main`. Please do not skip a hook. If a hook fails, fix the cause.
+`npm install` also installs the git hooks. The pre-commit hook runs `npm run lint:docs` on the tree being committed. The pre-push hook runs CI's lint job on the commit being pushed, then `fallow audit`. Please do not skip a hook. If a hook fails, fix the cause.
 
 ## Run the checks
 

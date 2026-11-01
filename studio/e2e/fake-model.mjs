@@ -3,6 +3,7 @@
  * machine. It answers from what the person said, and keeps every request for the test to read.
  *
  *   [call tool {json}]  calls that tool once; its result gets a reply
+ *                       invariant: as a real model, it calls only a tool the request declares
  *   [hold name]         streams a first word, then waits for POST /release/name
  *   [fail 503]          answers with that status
  *
@@ -54,6 +55,12 @@ function toolResult(body) {
 
 const plan = (model) => (model.endsWith('/free') ? 'free' : 'full');
 
+/** Why a marked call can't be made, for a reply a test can't mistake for the tool's. */
+const undeclared = (name) => `Fake model was not given a tool named ${name}`;
+/** invariant: a tool's refusal reads as one, so a test can't take it for the tool's answer. */
+const toolWord = (result) =>
+  JSON.stringify(result).includes('Tool error (') ? 'failed' : 'answered';
+
 /** The reply's text: it names what it read, so a test sees what reached the model. */
 function reply(body) {
   const message = said(body);
@@ -62,7 +69,9 @@ function reply(body) {
     ? message.content.filter((part) => part.type !== 'text').length
     : 0;
   return [
-    toolResult(body) ? `Tool answered on ${plan(body.model)}` : `Fake reply on ${plan(body.model)}`,
+    toolResult(body)
+      ? `Tool ${toolWord(toolResult(body))} on ${plan(body.model)}`
+      : `Fake reply on ${plan(body.model)}`,
     toolResult(body) ? '' : `to "${textOf(message).slice(0, 60)}"`,
     images ? `with ${images} attached` : '',
     steered.length ? 'steered' : '',
@@ -77,7 +86,9 @@ function send(response, row) {
 
 async function stream(body, request, response) {
   const text = textOf(said(body));
-  const call = toolResult(body) ? null : /\[call (\w+) (\{.*?\})\]/.exec(text);
+  const marked = toolResult(body) ? null : /\[call (\w+) (\{.*?\})\]/.exec(text);
+  const declared = (body.tools ?? []).map((tool) => tool.function?.name);
+  const call = marked && declared.includes(marked[1]) ? marked : null;
   response.writeHead(200, { 'content-type': 'text/event-stream' });
   const hold = toolResult(body) ? null : /\[hold (\w+)\]/.exec(text);
   if (hold) {
@@ -104,7 +115,8 @@ async function stream(body, request, response) {
     );
     send(response, chunk(body.model, {}, 'tool_calls'));
   } else {
-    send(response, chunk(body.model, { role: 'assistant', content: reply(body) }));
+    const content = marked ? undeclared(marked[1]) : reply(body);
+    send(response, chunk(body.model, { role: 'assistant', content }));
     send(response, chunk(body.model, {}, 'stop'));
   }
   send(response, usage(body.model));
@@ -142,16 +154,21 @@ function readFrames(bytes) {
 
 /** What a live call says to one frame, when the frame asks for anything: the tool's result, or a text. */
 function liveReply(sent) {
-  const answered = sent.toolResponse?.functionResponses?.[0]?.name;
-  if (answered) return `Live tool ${answered} answered`;
+  const answered = sent.toolResponse?.functionResponses?.[0];
+  if (answered) return `Live tool ${answered.name} ${toolWord(answered)}`;
   const said = sent.realtimeInput?.text;
   return said ? `Fake live to "${said}"` : undefined;
 }
 
 /** Answers one frame of a live call: the setup, a marked tool call, a tool's result, or a text. */
-function answerLive(socket, sent) {
+function answerLive(socket, sent, declared) {
   if (sent.setup) socket.write(frame({ setupComplete: {} }));
   const call = /\[call (\w+) (\{.*\})\]/.exec(sent.realtimeInput?.text ?? '');
+  if (call && !declared.has(call[1])) {
+    socket.write(frame({ serverContent: { outputTranscription: { text: undeclared(call[1]) } } }));
+    socket.write(frame({ serverContent: { turnComplete: true } }));
+    return;
+  }
   if (call) {
     socket.write(
       frame({
@@ -177,6 +194,7 @@ function live(request, socket) {
     `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
   );
   let waiting = Buffer.alloc(0);
+  const declared = new Set();
   socket.on('error', () => undefined);
   socket.on('data', (bytes) => {
     const { texts, rest } = readFrames(Buffer.concat([waiting, bytes]));
@@ -184,7 +202,9 @@ function live(request, socket) {
     for (const text of texts) {
       const sent = JSON.parse(text);
       requests.push({ url: request.url?.split('?')[0], body: sent });
-      answerLive(socket, sent);
+      for (const group of sent.setup?.tools ?? [])
+        for (const tool of group.functionDeclarations ?? []) declared.add(tool.name);
+      answerLive(socket, sent, declared);
     }
   });
 }

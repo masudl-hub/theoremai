@@ -124,14 +124,12 @@ import {
   studioTree,
   toolSpecKeyOf,
   type WorkspaceCompileResult,
-  type WriteAsk,
   withAgentDraft,
   withFilesChosen,
   withProvider,
   workspaceNodeRef,
   workspaceRunAgent,
   workspaceTree,
-  writeAsk,
 } from '../mod.ts';
 import type { StudioActingAs } from '../people.ts';
 import { slotProviders } from '../requirements.ts';
@@ -161,16 +159,13 @@ import {
 import { flushSync } from 'react-dom';
 import { ActingAsButton } from './acting-as-button.tsx';
 import { AddProviderButton } from './add-provider.tsx';
-import { useConfirmWrite } from './confirm-write.tsx';
 import {
-  ConfirmWrite,
   GuardrailTest,
   ISSUE_ROW_ATTRIBUTE,
   LeavePage,
   ListBadges,
   LocalConnection,
   ProbedAgent,
-  ProjectAsks,
   QuestionLink,
   RowOrigins,
   RunsOn,
@@ -194,7 +189,6 @@ import { STUDIO_EXAMPLES } from './lib/studio-examples.ts';
 import { pageInputsOf, sentPageValues, usePageValues } from './lib/studio-page.ts';
 import { getPref, setPref } from './lib/studio-prefs.ts';
 import {
-  NO_ASKS,
   openInEditor,
   openProject,
   ProjectContext,
@@ -1256,7 +1250,6 @@ type SurfacePage = {
   /** Starts the open agent's chat again, for the person runs act as. */
   newConversation: () => void;
   project: ProjectSession | null;
-  confirmWrite: (ask: WriteAsk) => Promise<boolean>;
 };
 
 /**
@@ -1345,11 +1338,6 @@ function keyAndToolMembers(
       const tool = store.getDraft().toolSpecs.find((candidate) => candidate.key === key);
       if (!tool) return { ok: false, error: 'No such tool.' };
       const sample = JSON.stringify(input ?? sampleToolInput(tool.toolName, tool.inputJson) ?? {});
-      // A tool that writes runs only once the builder read the input and said so.
-      const ask = writeAsk(tool, sample);
-      if (ask && !(await page.current.confirmWrite(ask))) {
-        return { ok: false, error: 'The builder chose not to run it.' };
-      }
       return runToolProbe(tool, sample, toolCredential(key), store.getDraft().guardrails);
     },
   };
@@ -1634,7 +1622,6 @@ function useStudioWorkspace(start: RestoredStudio, project: ProjectSession | und
     update,
     shared,
     origins: files?.origins,
-    asks: files?.asks,
     files,
     refreshOrigins,
     filesChanged,
@@ -3432,10 +3419,8 @@ function useStudioPage(opened: StudioOpened) {
   );
   useArrivalToast(opened, store);
   const { replaceWorkspace, copy } = usePageActions(store, view, run.setConversation);
-  const asking = useConfirmWrite();
   const openKeys = useOpenKeys(view.setKeysOpen);
   const chatRef = useStudioSurface(store, {
-    confirmWrite: asking.confirm,
     on: connection.on,
     connection,
     replaceWorkspace,
@@ -3467,7 +3452,6 @@ function useStudioPage(opened: StudioOpened) {
     copy,
     chatRef,
     title,
-    asking,
     project,
     actingAs,
   };
@@ -3481,7 +3465,7 @@ function useStudioPage(opened: StudioOpened) {
 function Studio({ opened }: { opened: StudioOpened }) {
   const page = useStudioPage(opened);
   const { state, connection, view, frame, selected, editing, issueReveal, compile } = page;
-  const { goToIssue, sheet, setSheet, run, copy, chatRef, title, asking, project, actingAs } = page;
+  const { goToIssue, sheet, setSheet, run, copy, chatRef, title, project, actingAs } = page;
   const { questionLink } = page;
   const { store, draft } = state;
   const tree = useWorkspaceTree(state, view, selected, setSheet);
@@ -3510,85 +3494,80 @@ function Studio({ opened }: { opened: StudioOpened }) {
   return (
     <ProjectContext.Provider value={project}>
       <ActingAsContext.Provider value={actingAs}>
-        <ConfirmWrite value={asking.confirm}>
-          <ProjectAsks value={state.asks ?? NO_ASKS}>
-            {asking.dialog}
-            <SharedChange store={state.store} />
-            <SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
-              <QuestionLink value={questionLink}>
-                <GuardrailTest.Provider value={guardrailTest}>
-                  <Layout
-                    ref={frame.layoutCallbackRef}
-                    className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
-                    padding={0}
-                    start={
-                      <SidePanel
-                        frame={frame}
-                        tree={tree}
-                        draft={draft}
-                        onAddAgent={addAgentFrom}
-                        setSheet={setSheet}
-                        settings={
-                          view.settingsOpen &&
-                          project && (
-                            <SettingsPane
-                              state={state}
-                              connection={connection}
-                              project={project}
-                              setConversation={run.setConversation}
-                            />
-                          )
-                        }
-                        map={
-                          view.mapOpen && (
-                            <Suspense fallback={null}>
-                              <StudioMap
-                                workspace={state.workspace}
-                                shared={state.shared}
-                                selected={view.keysOpen ? '' : selected}
-                                onOpen={view.open}
-                                onClose={closeMap}
-                              />
-                            </Suspense>
-                          )
-                        }
-                      >
-                        <EditorColumn
-                          heading={view.keysOpen ? 'Keys' : title}
+        <SharedChange store={state.store} />
+        <SaveScope project={project} state={state} blocked={Boolean(compile.blocked)}>
+          <QuestionLink value={questionLink}>
+            <GuardrailTest.Provider value={guardrailTest}>
+              <Layout
+                ref={frame.layoutCallbackRef}
+                className={frameClass(sheet, view.mapOpen, view.settingsOpen)}
+                padding={0}
+                start={
+                  <SidePanel
+                    frame={frame}
+                    tree={tree}
+                    draft={draft}
+                    onAddAgent={addAgentFrom}
+                    setSheet={setSheet}
+                    settings={
+                      view.settingsOpen &&
+                      project && (
+                        <SettingsPane
                           state={state}
                           connection={connection}
-                          view={view}
-                          compile={compile}
-                          selected={selected}
-                          editing={editing}
-                          frame={frame}
-                          issueReveal={issueReveal}
-                          goToIssue={goToIssue}
-                          copy={copy}
-                          setSheet={setSheet}
+                          project={project}
+                          setConversation={run.setConversation}
                         />
-                      </SidePanel>
+                      )
                     }
-                    content={
-                      <PreviewPane
-                        store={store}
-                        chatAgents={chatAgents}
-                        chatWith={state.workspace.chatWith}
-                        compile={compile}
-                        run={run}
-                        connection={connection}
-                        chatRef={chatRef}
-                        setSheet={setSheet}
-                        onIssue={goToIssue}
-                        testing={testing && Boolean(compile.payload)}
-                      />
+                    map={
+                      view.mapOpen && (
+                        <Suspense fallback={null}>
+                          <StudioMap
+                            workspace={state.workspace}
+                            shared={state.shared}
+                            selected={view.keysOpen ? '' : selected}
+                            onOpen={view.open}
+                            onClose={closeMap}
+                          />
+                        </Suspense>
+                      )
                     }
+                  >
+                    <EditorColumn
+                      heading={view.keysOpen ? 'Keys' : title}
+                      state={state}
+                      connection={connection}
+                      view={view}
+                      compile={compile}
+                      selected={selected}
+                      editing={editing}
+                      frame={frame}
+                      issueReveal={issueReveal}
+                      goToIssue={goToIssue}
+                      copy={copy}
+                      setSheet={setSheet}
+                    />
+                  </SidePanel>
+                }
+                content={
+                  <PreviewPane
+                    store={store}
+                    chatAgents={chatAgents}
+                    chatWith={state.workspace.chatWith}
+                    compile={compile}
+                    run={run}
+                    connection={connection}
+                    chatRef={chatRef}
+                    setSheet={setSheet}
+                    onIssue={goToIssue}
+                    testing={testing && Boolean(compile.payload)}
                   />
-                </GuardrailTest.Provider>
-              </QuestionLink>
-            </SaveScope>
-          </ProjectAsks>
-        </ConfirmWrite>
+                }
+              />
+            </GuardrailTest.Provider>
+          </QuestionLink>
+        </SaveScope>
       </ActingAsContext.Provider>
     </ProjectContext.Provider>
   );

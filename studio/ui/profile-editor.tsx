@@ -211,6 +211,7 @@ import {
   type ModelBindingDraft,
   modelRoute,
   modelSlots,
+  newCondition,
   newCriteria,
   newCriterion,
   newDecisionImage,
@@ -219,7 +220,6 @@ import {
   newOwnDetector,
   newPattern,
   newSlot,
-  newCondition,
   newSlotChoice,
   newToolSpec,
   nextAccept,
@@ -238,7 +238,6 @@ import {
   type SlotChoiceDraft,
   type SlotDraft,
   STUDIO_TRACE_DESTINATION,
-  type StudioAsks,
   type StudioDraft,
   type StudioIssue,
   type StudioProfileType,
@@ -259,7 +258,6 @@ import {
   toolSpecNodeId,
   updateModelBinding,
   withOption,
-  writeAsk,
 } from '../mod.ts';
 import { AddProviderButton } from './add-provider.tsx';
 import { IconGoogle, IconOpenAi, IconOpenRouter, IconTypeSafe } from './brand-icons.tsx';
@@ -285,13 +283,11 @@ import {
   TextRow,
 } from './inspector.tsx';
 import {
-  ConfirmWrite,
   GuardrailTest,
   LeavePage,
   ListBadges,
   LocalConnection,
   NodeIssues,
-  ProjectAsks,
   QuestionLink,
   RowOrigins,
   RunsOn,
@@ -307,7 +303,6 @@ import {
   draftSlots,
   usePageValues,
 } from './lib/studio-page.ts';
-import { type StudioPrefs, usePref } from './lib/studio-prefs.ts';
 import { useProject } from './lib/studio-project.ts';
 import {
   setToolCredential,
@@ -5853,11 +5848,7 @@ function ToolTest({ tool, guardrails }: { tool: ToolSpecDraft; guardrails: Guard
     setResult(undefined);
   }
 
-  const confirmWrite = useContext(ConfirmWrite);
   const run = async () => {
-    // A tool that writes runs only once the builder read the input and said so.
-    const ask = writeAsk(tool, sampleInput);
-    if (ask && !(await confirmWrite(ask))) return;
     setPending(true);
     try {
       setResult(await runToolProbe(tool, sampleInput, credential, guardrails));
@@ -6487,19 +6478,6 @@ function AuthSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   );
 }
 
-/** What the studio does about a tool that writes, when that is not what Permission says. */
-function studioAskNote(
-  asks: StudioAsks,
-  tool: string,
-  askWrites: StudioPrefs['askWrites'],
-): string | undefined {
-  if ((askWrites === 'destructive' ? asks.destructive : asks.asked).includes(tool))
-    return 'In the studio this tool asks before every run, because it writes. Your application runs it as Permission says.';
-  if (asks.inside.includes(tool))
-    return 'This tool writes, and the studio cannot make it ask: a called agent runs it, and a question inside a called agent has no one to answer it. The call to that agent asks instead.';
-  return undefined;
-}
-
 /** Who may call the tool, whether it asks first, when it loads and on which paths. */
 function PolicySection({
   draft,
@@ -6510,9 +6488,8 @@ function PolicySection({
   tool: ToolSpecDraft;
   set: SetTool;
 }) {
-  const note = studioAskNote(useContext(ProjectAsks), tool.toolName, usePref('askWrites'));
   return (
-    <InspectorSection title="Policy" note={note}>
+    <InspectorSection title="Policy">
       <SegmentedRow
         label="Access"
         path="registerTool.access"

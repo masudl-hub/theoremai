@@ -1,6 +1,5 @@
 import { resolveObservabilityPolicy } from '@theoremjs/agents';
 import type { TraceFeed } from '@theoremjs/web/client';
-import { ASK_WRITES_HEADER, ASK_WRITES_PARAM } from '../../asks.ts';
 import type { StudioRunPayload } from '../../mod.ts';
 import {
   ACTING_AS_PARAM,
@@ -10,7 +9,6 @@ import {
 } from '../../people.ts';
 import { eachLine, NDJSON } from '../../stream-lines.ts';
 import { studioTraceLine } from '../../transport.ts';
-import { getPref } from './studio-prefs.ts';
 
 /** Whether the agent records traces, so the page can offer them: the rule every view reads. */
 export function recordsTraces(payload: StudioRunPayload | null): boolean {
@@ -37,15 +35,10 @@ function withoutTraces(traces: TraceFeed): TransformStream<Uint8Array, Uint8Arra
   });
 }
 
-/**
- * `fetch` for a project's runs: the studio's local server sends each run's trace behind its events.
- * Each run says which tools that write ask, as the builder's setting stands when it starts.
- */
+/** `fetch` for a project's runs: the studio's local server sends each run's trace behind its events. */
 function tracedFetch(traces: TraceFeed): typeof fetch {
   return async (input, init) => {
-    const headers = new Headers(init?.headers);
-    headers.set(ASK_WRITES_HEADER, getPref('askWrites'));
-    const response = await fetch(input, { ...init, headers });
+    const response = await fetch(input, init);
     if (!response.body || !response.headers.get('content-type')?.startsWith(NDJSON))
       return response;
     return new Response(response.body.pipeThrough(withoutTraces(traces)), {
@@ -67,7 +60,6 @@ function tracedFetch(traces: TraceFeed): typeof fetch {
  */
 export function liveSocketAddress(endpoint: string, actingAs: StudioActingAs | undefined): string {
   const address = new URL(endpoint.replace(/^http/, 'ws'));
-  address.searchParams.set(ASK_WRITES_PARAM, getPref('askWrites'));
   if (actingAs) address.searchParams.set(ACTING_AS_PARAM, actingAsHeader(actingAs));
   return address.href;
 }

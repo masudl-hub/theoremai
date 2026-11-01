@@ -56,7 +56,7 @@ export function registerTools(): void {
     description: 'Clears every note on the desk.',
     category: 'desk',
     input: z.object({ confirm: z.literal(true) }),
-    output: z.object({ wiped: z.number() }),
-    handler: () => ({ wiped: 3 }),
+    output: z.object({ wiped: z.number(), by: z.string() }),
+    handler: (_input, ctx) => ({ wiped: 3, by: (ctx.host as { person: string }).person }),
   });
 }

@@ -13,7 +13,6 @@
  * @module
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   checkKey,
   type DecisionAsset,
@@ -27,7 +26,6 @@ import {
   type Profile,
   type ProviderHostOptions,
   type RegisteredProvider,
-  type StageHandler,
   type TurnWiring,
 } from '@theoremjs/agents';
 import { compileDetect } from '@theoremjs/agents/guardrails/compile';
@@ -47,13 +45,6 @@ import {
   theoremStartRequestSchema,
 } from '@theoremjs/web/server';
 import { differingSettings } from '../agreement.ts';
-import {
-  ASK_WRITES_HEADER,
-  ASK_WRITES_PARAM,
-  type StudioAsks,
-  studioAskStage,
-  studioAsks,
-} from '../asks.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
@@ -127,8 +118,6 @@ export type StudioDescription = {
   unregistered?: Unregistered[];
   /** Where the files define each provider the project registered. */
   providerPlaces?: ProviderPlace[];
-  /** The tools that write: the ones the studio makes ask before each run, and the ones it cannot. */
-  asks: StudioAsks;
   /** What the project printed when its files stopped loading. The page then shows the last load that did. */
   unloaded?: string;
   /** The editor the studio command opens files in when the page names none, by its command. */
@@ -487,24 +476,7 @@ function describeStudio(
     ...(modelProblems.length ? { modelProblems } : {}),
     ...(differences.length ? { differences } : {}),
     ...(unheld.length ? { unheld } : {}),
-    asks: { asked: [], destructive: [], inside: [] },
   };
-}
-
-/** Which tools that write the running request's builder said should ask. */
-const runAsks = new AsyncLocalStorage<string | null>();
-
-/**
- * Which registered tools ask the builder before each run, whatever their own setting: a run in
- * the studio is the project's real code, on whatever it reaches. The question is the studio's own
- * stage, so the registrations and the project's files stay as they are.
- */
-function writesToAsk(): StudioAsks {
-  const profiles = new Map(listProfiles().map((profile) => [profile.id as string, profile]));
-  return studioAsks(listTools(), (id) => {
-    const profile = profiles.get(id);
-    return profile && 'tools' in profile ? profile.tools.allow : [];
-  });
 }
 
 export function json(status: number, body: unknown, headers: HeadersInit): Response {
@@ -582,7 +554,7 @@ export function corsHeaders(
 ): Record<string, string> {
   return {
     'access-control-allow-origin': request.headers.get('origin') ?? pageOrigins[0] ?? '',
-    'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}, ${ASK_WRITES_HEADER}`,
+    'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}`,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     vary: 'origin',
   };
@@ -665,7 +637,6 @@ const NO_SOCKET =
 function profileHandlers(
   options: StudioHandlerOptions,
   problems: StudioProblem[],
-  ask: StageHandler | undefined,
 ): Map<string, Serve> {
   const served = new Map<string, Serve>();
   // `run` refused a pick it cannot read before any handler is reached, so here it reads.
@@ -679,7 +650,6 @@ function profileHandlers(
     session: (request: Request) => actingAsSession(actingAs(request)),
     clientEvents: STUDIO_READER,
     ...(host ? { host: (request: Request) => host(request, actingAs(request)) } : {}),
-    ...(ask ? { onStage: ask } : {}),
   };
   // One store for every chat profile: one key, so any of them opens a ref its session holds.
   let conversationStore: TheoremConversationStore | undefined;
@@ -718,7 +688,6 @@ function profileHandlers(
           served.set(
             profile.id,
             createStudioLiveHandler(profile, options.provider ?? {}, options.upgrade, {
-              ask,
               session: shared.session,
               host: shared.host,
             }),
@@ -875,18 +844,13 @@ export function createStudioHandler(
     options.questions ?? {},
     options.images ?? {},
   );
-  description.asks = writesToAsk();
   const peopleProblem = options.people === undefined ? undefined : peopleFault(options.people);
   // People the page cannot be offered are not offered: every run acts as no one, and the page says why.
   const people = options.people && !peopleProblem ? options.people : undefined;
   if (people) description.people = peopleOffer(people);
   if (peopleProblem) description.peopleProblem = peopleProblem;
   const handlerOptions = { ...options, people };
-  const served = profileHandlers(
-    handlerOptions,
-    description.problems,
-    studioAskStage(description.asks, () => runAsks.getStore() === 'destructive'),
-  );
+  const served = profileHandlers(handlerOptions, description.problems);
   const prefix = `${base}/profiles/`;
   const peoplePath = `${base}/people`;
   // The screen's own requests (the guardrail probe, the key and connection tests) need no project.
@@ -903,10 +867,7 @@ export function createStudioHandler(
     if (!serve) return json(404, {}, cors);
     const read = readActingAs(request, people);
     if (!read.ok) return json(400, { message: read.message }, cors);
-    const asks =
-      request.headers.get(ASK_WRITES_HEADER) ??
-      new URL(request.url).searchParams.get(ASK_WRITES_PARAM);
-    const response = await runAsks.run(asks, () => serve(request));
+    const response = await serve(request);
     // A socket's answer goes back as it is: it is not a response the page reads.
     if (response.status === 101) return response;
     return withCors(Promise.resolve(response), cors);

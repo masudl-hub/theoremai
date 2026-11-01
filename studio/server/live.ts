@@ -12,7 +12,6 @@ import {
   type ProviderHostOptions,
   resolveObservabilityPolicy,
   runSession,
-  type StageHandler,
   TheoremError,
   type TraceSink,
 } from '@theoremjs/agents';
@@ -76,7 +75,7 @@ async function relay(
   profile: Profile,
   provider: ProviderHostOptions,
   boundary: TheoremSessionBoundary,
-  { ask, host }: { ask: StageHandler | undefined; host: unknown },
+  { host }: { host: unknown },
 ): Promise<void> {
   let session: LiveSession;
   try {
@@ -86,7 +85,6 @@ async function relay(
       {
         ...(await boundary.prepareLiveOpen(open)),
         profile: profile.id,
-        ...(ask ? { onStage: ask } : {}),
         ...(host === undefined ? {} : { host }),
       },
       { ...provider, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
@@ -129,7 +127,6 @@ export function createStudioLiveHandler(
   provider: ProviderHostOptions,
   upgrade: StudioUpgrade,
   options: {
-    ask?: StageHandler;
     /** Who the run acts as, by session, as a chat's is. */
     session: (request: Request) => string;
     /** The application's context for the tools (`ctx.host`), as a chat's turn has it. */
@@ -141,7 +138,7 @@ export function createStudioLiveHandler(
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') {
       return new Response(null, { status: 426, headers: { upgrade: 'websocket' } });
     }
-    const { ask, session, host } = options;
+    const { session, host } = options;
     const boundary = await createTheoremSessionBoundary({
       request,
       sessionStore,
@@ -150,7 +147,7 @@ export function createStudioLiveHandler(
     });
     const { socket, response } = upgrade(request);
     if (boundary.setCookie) response.headers.append('set-cookie', boundary.setCookie);
-    void relay(socket, profile, provider, boundary, { ask, host: host?.(request) });
+    void relay(socket, profile, provider, boundary, { host: host?.(request) });
     return response;
   };
 }

@@ -432,7 +432,7 @@ async function* invokeTraced(
 }
 
 /** The step a call runs in: the calls `pre_tool` sees and the wait its `waitFor` holds on. */
-type InvokeStep = Pick<ToolStageSupport, 'stepCalls' | 'wait' | 'bodyEnded'>;
+type InvokeStep = Pick<ToolStageSupport, 'stepCalls' | 'wait' | 'bodyEnded' | 'spent'>;
 
 /** One call, coordinated: replayed when its operation already ran, else executed. */
 function runCall(
@@ -486,7 +486,11 @@ function runCall(
         failBeforeTool,
         canaries,
         beginBody,
-        { ...step, ...(hooks.bodyEnded ? { bodyEnded: hooks.bodyEnded } : {}) },
+        {
+          ...step,
+          ...(hooks.bodyEnded ? { bodyEnded: hooks.bodyEnded } : {}),
+          ...(hooks.spent ? { spent: hooks.spent } : {}),
+        },
       ),
     (outcome) =>
       authorizeToolReplay({

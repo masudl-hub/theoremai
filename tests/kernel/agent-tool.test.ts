@@ -1066,3 +1066,64 @@ Deno.test("a detached agent tool settles with the called agent's tokens, and its
   const [complete] = toolPhases(late, 'complete').filter((t) => t.name === 'ask_researcher');
   assertEquals(complete?.phase === 'complete' ? complete.tokens?.total : undefined, 90);
 });
+
+Deno.test('a stopped agent tool settles with the tokens its agent had spent', async () => {
+  const scope = scopeWith({ background: 'always' }, ['lookup']);
+  const handles: ToolBackgroundHandle[] = [];
+  const late: TurnEvent[] = [];
+  const spent = Promise.withResolvers<void>();
+  let researcherStep = 0;
+  const model: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (!isResearcher(req)) {
+        if (JSON.stringify(req.history).includes('still running')) {
+          yield { type: 'text', text: 'Looking into it.' };
+          return;
+        }
+        yield {
+          type: 'tool',
+          tool: { name: 'ask_researcher', arguments: { text: 'q' }, callId: 'call_0' },
+        };
+        return;
+      }
+      researcherStep += 1;
+      if (researcherStep === 1) {
+        yield { type: 'tokens', tokens: RESEARCHER_TOKENS };
+        yield { type: 'tool', tool: { name: 'lookup', arguments: {}, callId: 'child' } };
+        return;
+      }
+      spent.resolve();
+      await new Promise<void>((resolve) => {
+        req.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+      throw req.signal?.reason ?? new DOMException('stopped', 'AbortError');
+    },
+  };
+  for await (const _ of runScopedTurn(
+    scope,
+    {
+      profile: CALLER,
+      input: { text: 'Go' },
+      execution: createMemoryToolExecution(),
+      background: {
+        detached: (handle) => handles.push(handle),
+        event: (event) => {
+          late.push(event);
+        },
+      },
+    },
+    model,
+  )) {
+    // why: The turn ends at the reply; the agent keeps running.
+  }
+  await spent.promise;
+  handles[0]?.stop('stopped');
+  await handles[0]?.done;
+  const [failed] = toolPhases(late, 'error').filter((t) => t.name === 'ask_researcher');
+  assertEquals(failed?.phase === 'error' ? failed.failure.code : undefined, 'stopped');
+  assertEquals(
+    failed?.phase === 'error' ? failed.tokens?.total : undefined,
+    RESEARCHER_TOKENS.total,
+  );
+});

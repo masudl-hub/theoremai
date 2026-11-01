@@ -1093,7 +1093,7 @@ After the reply:
 
 - `post_tool` runs at the real end. Its `inject` and `abort` are removed, because no turn is open.
 - A body that returns `awaiting` settles as a failure with the code `awaiting_after_reply`.
-- An agent tool's tokens go on the late terminal event, not on `done`.
+- An agent tool's tokens go on the late terminal event, not on `done`. A stopped agent tool reports the tokens spent so far.
 - The call writes its own trace record at its real end, joined to the turn through `traceparent`.
 - `maxOutcomeBytes` applies to the final outcome.
 

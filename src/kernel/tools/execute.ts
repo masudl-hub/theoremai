@@ -20,6 +20,7 @@ import {
   type ToolCallEnd,
   type ToolOutcome,
 } from '../engine/tool-trace.ts';
+import { sumTurnTokens } from '../engine/usage.ts';
 import { jsonObjectSchema } from '../json.ts';
 import type { InjectUnit } from '../stages.ts';
 import { isAwaitingUserInput, type Source } from '../turn-events.ts';
@@ -1609,6 +1610,7 @@ async function* executeAgentTool(args: {
     });
     // why: A retry throws away the reply drafted so far; the drafts stop there, and the output arrives whole.
     let retried = false;
+    const seen: TurnEvent[] = [];
     for (;;) {
       const next = await run.next();
       if (next.done) {
@@ -1618,6 +1620,12 @@ async function* executeAgentTool(args: {
         return;
       }
       const event = next.value;
+      seen.push(event);
+      if (event.type === 'tokens' || event.type === 'tool') {
+        const spent = sumTurnTokens(seen);
+        // why: A stopped agent throws before it returns its usage.
+        if (spent) args.stages?.spent?.(spent);
+      }
       if (event.type === 'attempt') retried = true;
       if (event.type === 'text' || event.type === 'structured_draft') {
         if (!retried) yield { kind: 'draft', text: event.text };

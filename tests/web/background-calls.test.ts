@@ -196,6 +196,7 @@ Deno.test('a chat turn replies now, and the session keeps the late result', asyn
       provider: () => fixtureHostOptions(caller()),
       conversationStore: createMemoryConversationStore(),
       sessionStore,
+      session: () => 'one-person',
       onError: (err) => console.error(err),
       background: ({ sessionId }) => {
         sessions.push(sessionId);
@@ -207,10 +208,22 @@ Deno.test('a chat turn replies now, and the session keeps the late result', asyn
       fetch: (url, init) => handler(new Request(url, init)),
     });
     const events: TurnEvent[] = [];
+    let ref = '';
     await transport.turn({ input: { text: 'hello' } }, (line) => {
-      if (line.type !== 'conversation' && line.type !== 'unsupported' && line.type !== 'malformed')
-        events.push(line);
+      if (line.type === 'conversation') ref = line.ref;
+      else if (line.type !== 'unsupported' && line.type !== 'malformed') events.push(line);
     });
+    const shown = async () =>
+      (await transport.conversation({ conversation: ref })).transcript.flatMap((block) =>
+        block.kind === 'tool' ? [block.tool.state?.phase] : [],
+      );
+    const failures = async () =>
+      (await transport.conversation({ conversation: ref })).transcript.flatMap((block) =>
+        block.kind === 'tool' && block.tool.state?.phase === 'error'
+          ? [block.tool.state.failure.code]
+          : [],
+      );
+    assertEquals(await shown(), ['background']);
     assertEquals(
       events.filter((event) => event.type === 'text').map((event) => event.text),
       ['Looking into it.'],
@@ -226,6 +239,28 @@ Deno.test('a chat turn replies now, and the session keeps the late result', asyn
     assertEquals(operation.outcome.event.tool.phase, 'complete');
     assert(operation.reply);
     assert(late.some((event) => event.type === 'tool' && event.tool.phase === 'complete'));
+    assertEquals(await shown(), ['complete']);
+    const swap = async (operations: Record<string, unknown>) => {
+      const snapshot = await sessionStore.load(sessions[0]);
+      assert(snapshot);
+      await sessionStore.compareAndSwap(sessions[0], snapshot.revision, {
+        ...snapshot.state,
+        operations: operations as never,
+      });
+    };
+    const { outcome: _outcome, settledAt: _at, retainUntil: _until, ...held } = operation;
+    await swap({
+      [operation.operationId]: {
+        ...held,
+        status: 'uncertain',
+        claimToken: 'lost',
+        reason: 'worker_lost',
+        detectedAt: 1,
+      },
+    });
+    assertEquals(await failures(), ['worker_lost']);
+    await swap({});
+    assertEquals(await failures(), ['outcome_not_retained']);
   } finally {
     release();
   }

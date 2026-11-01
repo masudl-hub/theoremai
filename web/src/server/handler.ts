@@ -1,4 +1,5 @@
 import { withPublicLabels } from '@theoremjs/agents/guardrails';
+import type { ConversationView } from '../client/transport.ts';
 import {
   checkPageToolTimeout,
   createMemoryPageToolBroker,
@@ -79,6 +80,7 @@ import {
   gatedToolsFromEvents,
   interfaceFromProfile,
   promotedToolIdsFromEvents,
+  type TranscriptBlock,
   toolSnapshotFromEvents,
 } from '@theoremjs/agents/interface';
 import {
@@ -122,7 +124,11 @@ import {
   statelessRefusal,
   waitingCalls,
 } from './conversation.ts';
-import { type TheoremConversationStore, unknownConversation } from './conversation-store.ts';
+import {
+  type StoredConversation,
+  type TheoremConversationStore,
+  unknownConversation,
+} from './conversation-store.ts';
 import {
   createMemoryCredentialStore,
   type TheoremCredentialStore,
@@ -949,7 +955,72 @@ async function conversation(
   const host = conversationHost(ctx, session);
   if (!host) throw statelessRefusal('read');
   const opened = await openConversation(host, body.conversation, { kind: 'read' });
-  return jsonResponse(200, conversationView(host, opened.conversation));
+  return jsonResponse(200, await currentView(ctx, session, host, opened.conversation));
+}
+
+/**
+ * why: The transcript keeps a detached call as the turn left it. The session holds what became of
+ * it, so a call that has ended does not read as running.
+ */
+async function currentView(
+  ctx: HandlerContext,
+  session: Session,
+  host: ConversationHost,
+  conversation: StoredConversation,
+): Promise<ConversationView> {
+  const view = conversationView(host, conversation);
+  if (!view.transcript.some(isDetachedBlock)) return view;
+  const { operations } = await ctx.sessions.read(session.id);
+  return {
+    ...view,
+    transcript: view.transcript.map((block) =>
+      isDetachedBlock(block) ? lateBlock(block, operations, host, ctx.profile) : block,
+    ),
+  };
+}
+
+type ToolBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
+
+function isDetachedBlock(block: TranscriptBlock): block is ToolBlock {
+  return block.kind === 'tool' && block.tool.state?.phase === 'background';
+}
+
+/** A detached call's block as its operation stands. One the session no longer holds has no known end. */
+function lateBlock(
+  block: ToolBlock,
+  operations: TheoremSessionState['operations'],
+  host: ConversationHost,
+  profile: Profile,
+): ToolBlock {
+  const { tool } = block;
+  const id = tool.operationId;
+  const operation = id && Object.hasOwn(operations, id) ? operations[id] : undefined;
+  if (operation?.status === 'running' || operation?.status === 'background') return block;
+  if (operation?.status === 'settled') {
+    const settled = host.forReader(operation.outcome.event);
+    if (settled.type !== 'tool') return block;
+    const { tool: state } = settled;
+    if (!('phase' in state) || (state.phase !== 'complete' && state.phase !== 'error'))
+      return block;
+    return { ...block, tool: { ...tool, state, endedAt: operation.settledAt } };
+  }
+  const message = labelText('tool.execution_uncertain', {}, profile.labels);
+  const failure = {
+    code: operation?.status === 'uncertain' ? operation.reason : 'outcome_not_retained',
+    kind: 'internal',
+    message,
+  } as const;
+  const { name, callId } = tool;
+  const at =
+    operation?.status === 'uncertain' ? operation.detectedAt : (tool.state?.at ?? Date.now());
+  return {
+    ...block,
+    tool: {
+      ...tool,
+      state: { name, callId, at, phase: 'error', failure, readBack: message },
+      endedAt: at,
+    },
+  };
 }
 
 /** The conversation cut after one block; a reply that waits on gates is walked away from first. */
@@ -971,7 +1042,7 @@ async function rewind(ctx: HandlerContext, request: Request, session: Session): 
   if (next.ref === null) throw new TheoremError('internal', labelText('error.internal'));
   const rewound: TheoremRewound = {
     conversation: next.ref,
-    view: conversationView(host, next.conversation),
+    view: await currentView(ctx, session, host, next.conversation),
   };
   return jsonResponse(200, rewound);
 }

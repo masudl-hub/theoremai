@@ -11,7 +11,7 @@ import {
   type StepCall,
   stageEventFields,
 } from '../stages.ts';
-import type { Profile, TurnEvent, TurnHistoryMessage } from '../types.ts';
+import type { Profile, TurnEvent, TurnHistoryMessage, TurnTokens } from '../types.ts';
 import { splitCallOrder, stepCallIds } from './call-order.ts';
 import { type ToolCallBase, toolEvent } from './events.ts';
 import { operationWireValue } from './operation.ts';
@@ -47,6 +47,8 @@ export interface ToolStageSupport {
   drafts?: boolean;
   /** Told when the body has ended, before `post_tool` reads it. */
   bodyEnded?: () => void;
+  /** Told what an agent tool's turn has spent so far. */
+  spent?: (tokens: TurnTokens) => void;
 }
 
 function defaultToolStageSupport(ctx: ToolContext): ToolStageSupport {

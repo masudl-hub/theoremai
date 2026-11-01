@@ -2,7 +2,7 @@ import { errorKind, type TheoremError, throwIfAborted } from '../../guardrails/e
 import { settleable } from '../engine/runner/step-order.ts';
 import { type JsonObject, jsonObjectSchema } from '../json.ts';
 import type { ToolGate } from '../turn-events.ts';
-import type { TurnEvent } from '../types.ts';
+import type { TurnEvent, TurnTokens } from '../types.ts';
 import type { ToolBackgroundCall, ToolDetach } from './background.ts';
 import { failureEvent } from './events.ts';
 import type { ToolExecuteSettlement } from './execute.ts';
@@ -36,6 +36,7 @@ class ReplayedReply {
 export interface ToolCallHooks {
   signal: AbortSignal | undefined;
   bodyEnded?: () => void;
+  spent?: (tokens: TurnTokens) => void;
 }
 
 export type ToolRun = (
@@ -102,10 +103,12 @@ function failedOutcome(
   base: { name: string; callId: string; operationId?: string },
   effects: ToolOperationOutcome['effects'],
   failure: ToolFailure,
+  tokens?: TurnTokens,
 ): ToolOperationOutcome {
   const { name, callId, operationId } = base;
   const modelResult = formatToolFailureForModel(failure);
-  const event = failureEvent({ name, callId, ...(operationId ? { operationId } : {}) }, failure);
+  const failed = failureEvent({ name, callId, ...(operationId ? { operationId } : {}) }, failure);
+  const event = tokens ? { ...failed, tool: { ...failed.tool, tokens } } : failed;
   return toolOperationOutcomeSchema.parse(
     operationWireValue({ event, effects, replay: { modelResult, failure } }),
   );
@@ -125,6 +128,7 @@ class CoordinatedExecution {
   private writeFailed = false;
   private terminal?: TerminalToolEvent;
   private stopped?: { reason?: string };
+  private spent?: TurnTokens;
   private cut = settleable<typeof CUT>();
   private graceTimer?: ReturnType<typeof setTimeout>;
 
@@ -152,6 +156,10 @@ class CoordinatedExecution {
     throwIfAborted(this.signal);
     this.trigger?.claimed();
     return this.claim;
+  }
+
+  spend(tokens: TurnTokens): void {
+    this.spent = tokens;
   }
 
   observe(event: TurnEvent): boolean {
@@ -349,7 +357,7 @@ class CoordinatedExecution {
     failure: ToolFailure,
     emit: (event: TurnEvent) => Promise<void>,
   ): Promise<void> {
-    const saved = failedOutcome(this.base(), 'unknown', failure);
+    const saved = failedOutcome(this.base(), 'unknown', failure, this.spent);
     await this.save(saved);
     await emit(saved.event);
   }
@@ -468,6 +476,7 @@ export async function* coordinateTool(
   }
   const iterator = run((input) => execution.beginBody(input), {
     signal: callSignal,
+    spent: (tokens) => execution.spend(tokens),
     ...(trigger ? { bodyEnded: trigger.bodyEnded } : {}),
   });
   let handedOff = false;

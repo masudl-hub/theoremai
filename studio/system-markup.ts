@@ -72,4 +72,4 @@ function parseSystemMarkup(text: string): SystemMarkup {
 }
 
 export type { SystemMarkup };
-export { parseSystemMarkup };
+export { parseSystemMarkup, promptLine };

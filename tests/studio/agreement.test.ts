@@ -122,3 +122,16 @@ Deno.test('a host profile differs in detect only at the tool boundaries, the one
     true,
   );
 });
+
+Deno.test('a prompt differs in its words, not in the white space at the end of a line or a section', () => {
+  const profile = (system: unknown) => ({ type: 'text', identity: { handle: 'a', system } });
+  assertEquals(differingSettings(profile('Be brief.\n'), profile('Be brief.')), []);
+  assertEquals(
+    differingSettings(
+      profile([['Greet. ', { private: 'Code 7731. \n' }], 'Help.\n']),
+      profile([['Greet. ', { private: 'Code 7731.' }], 'Help.']),
+    ),
+    [],
+  );
+  assertEquals(differingSettings(profile('Be brief.'), profile('Be long.')), ['identity.system']);
+});

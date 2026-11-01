@@ -17,6 +17,7 @@ import {
 } from '@theoremjs/agents/guardrails';
 import { unsetValue } from '@theoremjs/agents/kernel';
 import { STUDIO_POLICY_UNSET } from './policy.ts';
+import { promptLine } from './system-markup.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -74,14 +75,40 @@ function detectAsRead(detect: unknown, boundaries: readonly Boundary[]): unknown
   };
 }
 
-/** A profile with its `detect` as the kernel reads it. */
-function asRead(profile: unknown): unknown {
-  if (
-    !isRecord(profile) ||
-    !isRecord(profile.guardrails) ||
-    profile.guardrails.detect === undefined
-  )
-    return profile;
+/**
+ * A prompt as the studio holds it: no white space at the ends of a line or a private section.
+ * why: this is studio policy, so a prompt written with a closing newline opens as the same prompt.
+ */
+function promptAsHeld(system: unknown): unknown {
+  if (typeof system === 'string') return system.trim();
+  if (!Array.isArray(system)) return system;
+  return system.map((line: unknown) => {
+    if (typeof line === 'string') return line.trim();
+    if (!Array.isArray(line)) return line;
+    return promptLine(
+      line.map((part) =>
+        isRecord(part) && typeof part.private === 'string'
+          ? { private: part.private.trim() }
+          : part,
+      ),
+    );
+  });
+}
+
+/** A profile with its prompt as the studio holds it. */
+function promptRead(profile: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(profile.identity) || profile.identity.system === undefined) return profile;
+  return {
+    ...profile,
+    identity: { ...profile.identity, system: promptAsHeld(profile.identity.system) },
+  };
+}
+
+/** A profile with its prompt as the studio holds it and its `detect` as the kernel reads it. */
+function asRead(project: unknown): unknown {
+  if (!isRecord(project)) return project;
+  const profile = promptRead(project);
+  if (!isRecord(profile.guardrails) || profile.guardrails.detect === undefined) return profile;
   return {
     ...profile,
     guardrails: {

@@ -51,7 +51,7 @@ import { tabFills } from './lib/tab-fills.ts';
  * The label column, wide enough for the longest label ("Temperature", "Attachments") on one line.
  * The template's is 80, which fits its shorter labels.
  */
-const LABEL_COLUMN = 96;
+export const LABEL_COLUMN = 96;
 
 /**
  * Whether the field at `path` must be set, and what leaving it out does, from the kernel's catalog.
@@ -1045,6 +1045,49 @@ export function ListRow({
 /** A names row suggests nothing; every token is one the user typed. */
 const NO_SUGGESTIONS = { search: () => [], bootstrap: () => [] };
 
+/** Names as tokens, typed and committed with Enter. Duplicates and blanks never make a token. */
+export function NamesInput({
+  label,
+  status,
+  value,
+  placeholder,
+  isDisabled,
+  disabledMessage,
+  overflow = 'unfocusedInline',
+  onChange,
+}: {
+  label: string;
+  status?: InputStatus;
+  value: string[];
+  placeholder?: string;
+  isDisabled?: boolean;
+  disabledMessage?: string;
+  /** `none` keeps every token in sight, at the same height, focused or not. */
+  overflow?: 'none' | 'unfocusedInline';
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <Tokenizer
+      label={label}
+      status={status}
+      isLabelHidden
+      size="sm"
+      value={value.map((name) => ({ id: name, label: name }))}
+      searchSource={NO_SUGGESTIONS}
+      hasCreate
+      debounceMs={0}
+      placeholder={placeholder}
+      isDisabled={isDisabled}
+      disabledMessage={disabledMessage}
+      tokenOverflowBehavior={overflow}
+      onChange={(items) => {
+        const names = items.map((item) => item.label.trim()).filter(Boolean);
+        onChange([...new Set(names)]);
+      }}
+    />
+  );
+}
+
 /**
  * Free-form names, typed and committed with Enter, each a token. Duplicates and blanks never make
  * it in. `disabledMessage` says why, when `isDisabled`.
@@ -1079,25 +1122,17 @@ export function NamesRow({
       hasNote={Boolean(status?.message)}
     >
       <StackItem size="fill">
-        <Tokenizer
+        <NamesInput
           label={label}
           status={status}
-          isLabelHidden
-          size="sm"
-          value={value.map((name) => ({ id: name, label: name }))}
-          searchSource={NO_SUGGESTIONS}
-          hasCreate
-          debounceMs={0}
+          value={value}
           placeholder={placeholder ?? unset}
           isDisabled={isDisabled}
           disabledMessage={disabledMessage}
-          tokenOverflowBehavior="unfocusedInline"
-          onChange={(items) => {
-            const names = items.map((item) => item.label.trim()).filter(Boolean);
-            onChange([...new Set(names)]);
-          }}
+          onChange={onChange}
         />
       </StackItem>
     </InspectorRow>
   );
 }
+

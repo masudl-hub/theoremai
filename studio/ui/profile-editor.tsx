@@ -270,7 +270,9 @@ import {
   InspectorGroupTitle,
   InspectorRow,
   InspectorSection,
+  LABEL_COLUMN,
   ListRow,
+  NamesInput,
   NamesRow,
   NumberRow,
   OriginLine,
@@ -513,8 +515,8 @@ function SystemPromptSection({
   );
 }
 
-/** One condition: its name, the values it takes as tokens, and the button that removes it. */
-function ConditionSection({
+/** One condition on one row: its name, the values it takes as tokens, and its remove button. */
+function ConditionRow({
   condition,
   at,
   onChange,
@@ -526,43 +528,50 @@ function ConditionSection({
   onRemove: () => void;
 }) {
   const status = useFieldStatus()('conditions', at);
-  const name = condition.name.trim() || `Condition ${String(at + 1)}`;
+  const row = `Condition ${String(at + 1)}`;
   return (
-    <InspectorSection title={name} path="identity.conditions">
-      <TextRow
-        label="Name"
-        path="identity.conditions"
-        status={status}
-        value={condition.name}
-        placeholder="plan"
-        onChange={(next) => {
-          onChange({ name: next });
-        }}
-      />
-      <NamesRow
-        label="Values"
-        path="identity.conditions"
-        value={condition.values}
-        placeholder="free"
-        onChange={(values) => {
-          onChange({ values });
-        }}
-      />
-      <HStack>
-        <Button
-          label={`Remove ${name}`}
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={IconTrash} size="sm" />}
-          onClick={onRemove}
+    <HStack gap={1} vAlign="start">
+      <StackItem size="static">
+        <HStack width={LABEL_COLUMN}>
+          <StackItem size="fill">
+            <TextInput
+              label={`${row} name`}
+              isLabelHidden
+              size="sm"
+              status={status}
+              value={condition.name}
+              placeholder="plan"
+              onChange={(name) => {
+                onChange({ name });
+              }}
+            />
+          </StackItem>
+        </HStack>
+      </StackItem>
+      <StackItem size="fill">
+        <NamesInput
+          label={`${row} values`}
+          value={condition.values}
+          placeholder="free"
+          overflow="none"
+          onChange={(values) => {
+            onChange({ values });
+          }}
         />
-      </HStack>
-    </InspectorSection>
+      </StackItem>
+      <IconButton
+        label={`Remove ${row.toLowerCase()}`}
+        variant="ghost"
+        size="sm"
+        icon={<Icon icon={IconX} size="sm" />}
+        onClick={onRemove}
+      />
+    </HStack>
   );
 }
 
-/** Every condition, each in its own section, and the page's pick for each above them. */
-function ConditionSections({
+/** Every condition, one to a row, and the page's pick for each below them. */
+function ConditionSection({
   identity,
   set,
 }: {
@@ -571,23 +580,9 @@ function ConditionSections({
 }) {
   const { conditions } = identity;
   return (
-    <>
-      <InspectorSection title="Conditions" path="identity.conditions">
-        <ConditionPreviewRows conditions={conditions} />
-        <HStack>
-          <Button
-            label="Add condition"
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={IconPlus} size="sm" />}
-            onClick={() => {
-              set({ conditions: [...conditions, newCondition()] });
-            }}
-          />
-        </HStack>
-      </InspectorSection>
+    <InspectorSection title="Conditions" path="identity.conditions">
       {conditions.map((condition, at) => (
-        <ConditionSection
+        <ConditionRow
           key={condition.key}
           condition={condition}
           at={at}
@@ -603,7 +598,19 @@ function ConditionSections({
           }}
         />
       ))}
-    </>
+      <HStack>
+        <Button
+          label="Add condition"
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconPlus} size="sm" />}
+          onClick={() => {
+            set({ conditions: [...conditions, newCondition()] });
+          }}
+        />
+      </HStack>
+      <ConditionPreviewRows conditions={conditions} />
+    </InspectorSection>
   );
 }
 
@@ -657,7 +664,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
         identity.profileType !== 'host' && (
           <>
             <SystemPromptSection identity={identity} set={set} />
-            <ConditionSections identity={identity} set={set} />
+            <ConditionSection identity={identity} set={set} />
           </>
         )}
     </>

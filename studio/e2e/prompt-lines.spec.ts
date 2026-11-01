@@ -9,8 +9,8 @@ const systemOf = async (page: Page) => {
 
 const declarePlan = async (page: Page) => {
   await page.getByRole('button', { name: 'Add condition' }).first().click();
-  await page.getByRole('textbox', { name: 'Name' }).last().fill('plan');
-  const values = page.getByRole('combobox', { name: 'Values' }).last();
+  await page.getByRole('textbox', { name: 'Condition 1 name' }).fill('plan');
+  const values = page.getByRole('combobox', { name: 'Condition 1 values' });
   await values.fill('free');
   await values.press('Enter');
   await values.fill('paid');
@@ -29,6 +29,17 @@ const withLines = async (page: Page) => {
   await expect(page.getByText('Edited (studio)')).toBeVisible();
   await page.getByRole('button', { name: 'Hide saved' }).click();
 };
+
+test('each condition is one row, and its values stay in sight', async ({ page }) => {
+  await open(page);
+  await declarePlan(page);
+  await page.getByRole('button', { name: 'Add condition' }).first().click();
+  await page.getByRole('textbox', { name: 'Condition 2 name' }).fill('group');
+  await page.getByRole('textbox', { name: 'Condition 1 name' }).click();
+  await expect(page.getByRole('group', { name: 'Condition 1 values' })).toContainText('paid');
+  await page.getByRole('button', { name: 'Remove condition 2' }).click();
+  await expect(page.getByRole('textbox', { name: 'Condition 2 name' })).toBeHidden();
+});
 
 test('the first value is stated until the builder picks another', async ({ page }) => {
   await withLines(page);

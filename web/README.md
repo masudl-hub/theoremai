@@ -131,8 +131,13 @@ const boundary = await createTheoremSessionBoundary({
 });
 const open = parseLiveOpenMessage(firstFrame);
 const session = await runSession(
-  { profile, ...await boundary.prepareLiveOpen(open, hostContext) },
-  { vault: hostKeyVault, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
+  {
+    profile,
+    ...await boundary.prepareLiveOpen(open, hostContext),
+    execution: boundary.toolExecution,
+    pageExecution: boundary.pageExecution,
+  },
+  { vault: hostKeyVault },
 );
 for await (const event of session.events()) {
   if ((event.type === 'done' || event.type === 'provider_checkpoint') && event.providerState) {
@@ -447,9 +452,9 @@ These claims do not provide exactly-once effects at the destination. Use the ope
 Concurrent pending attempts can reach preparation before one claims the body.
 Permission checks and pre-body hooks must be read-only or independently idempotent. The kernel cannot prove hook purity.
 A live session does not restore a dispatched call after an unexpected failure. It retains an uncertain call on that connection.
-To retain execution claims across connections, supply a durable coordinator through `RunSessionOptions.execution`.
+To retain execution claims across connections, supply a durable coordinator as `execution` on `SessionRequest`.
 Browser dispatch uses a host-owned `PageToolExecution` service beside the execution coordinator.
-`createTheoremHandler` supplies both services. Live relays pass the session boundary's `pageExecution` and `toolExecution` to `runSession`.
+`createTheoremHandler` supplies both services. Live relays put the session boundary's `pageExecution` and `toolExecution` on `SessionRequest`.
 
 A tool with a `background` setting runs inline until you pass the `background` option to `createTheoremHandler`. The option takes `{ request, sessionId }` and returns a `ToolBackgroundService`, which receives each detached call and its late events. The session keeps the call as `background` until it settles, and a late settlement does not invalidate a checkpoint. Keep the service's values valid after the request ends. A live relay passes its service to `runSession`.
 Forward live page results to `answerPageResult`. Preserve checkpoint ownership through `beforeEvent` when using the Studio bridge.

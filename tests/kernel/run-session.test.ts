@@ -15,7 +15,7 @@ import {
   resetTools,
   runSession,
 } from '../../src/kernel/default-scope.ts';
-import type { RunSessionOptions, SignInGatePolicy } from '../../src/kernel/engine/session/mod.ts';
+import type { SignInGatePolicy } from '../../src/kernel/engine/session/mod.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import { defaultKernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
@@ -23,7 +23,7 @@ import type { ToolBackgroundHandle } from '../../src/kernel/tools/background.ts'
 import { createMemoryToolExecution } from '../../src/kernel/tools/memory-execution.ts';
 import { prepareTurnToolSnapshot } from '../../src/kernel/tools/mod.ts';
 import type { InvokeToolResume } from '../../src/kernel/tools/types.ts';
-import type { TurnEvent } from '../../src/kernel/types.ts';
+import type { SessionRequest, TurnEvent } from '../../src/kernel/types.ts';
 import { OMIT_INJECTION } from '../../src/observability/spans.ts';
 import { eventsOf } from '../fixtures/events.ts';
 import { MockLiveWebSocket } from '../fixtures/live-socket.ts';
@@ -786,7 +786,7 @@ async function openToolSession(
     gateTtlMs?: number;
     signInGate?: SignInGatePolicy;
     resolveHost?: ResolveHost;
-    background?: Pick<RunSessionOptions, 'background' | 'execution'>;
+    background?: Pick<SessionRequest, 'background' | 'execution'>;
   } = {},
 ) {
   const profile = defineProfile({
@@ -805,6 +805,7 @@ async function openToolSession(
       profile: profile.id,
       ...(extra.onStage ? { onStage: extra.onStage } : {}),
       ...(extra.resolveHost ? { resolveHost: extra.resolveHost } : {}),
+      ...extra.background,
     },
     {
       vault: { main: 'test-key' },
@@ -816,7 +817,6 @@ async function openToolSession(
       },
       ...(extra.gateTtlMs !== undefined ? { gateTtlMs: extra.gateTtlMs } : {}),
       ...(extra.signInGate ? { signInGate: extra.signInGate } : {}),
-      ...extra.background,
     },
   );
   const [mock] = sockets;
@@ -2058,4 +2058,87 @@ Deno.test('live output validation failure cannot restore an executed call as an 
   } finally {
     await h.close();
   }
+});
+
+function registerTwoModelLive(id: string, allowModelSelect: boolean) {
+  const paid = {
+    ...HOST_BINDINGS.gemini31FlashLive,
+    keySlot: 'paid',
+    efforts: { normal: 'minimal', deep: 'high' },
+    defaultEffort: 'normal',
+    allowEffortSelect: true,
+  } as const;
+  const free = { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'free', apiId: 'gemini-free-live' };
+  registerProfile(
+    defineProfile({
+      type: 'live',
+      id,
+      identity: { handle: 'live', system: 'hi' },
+      models: { paid, free },
+      defaultModel: 'paid',
+      allowModelSelect,
+      live: { voice: 'Aoede' },
+      tools: { allow: [] },
+    }),
+  );
+}
+
+async function setupOf(request: SessionRequest, vault: Record<string, string>) {
+  const mock = new MockLiveWebSocket();
+  mock.readyState = 1;
+  const session = await runSession(request, {
+    vault,
+    openWebSocket: () => Promise.resolve(mock as unknown as WebSocket),
+  });
+  const setup = mock.sent.find((frame) => frame.includes('"setup"')) ?? '';
+  mock.close();
+  await session.close();
+  return setup;
+}
+
+Deno.test("a live call opens on the model it picks, on that model's key", async () => {
+  clearProfiles();
+  resetTools();
+  registerTwoModelLive('session_live_pick', true);
+  const setup = await setupOf(
+    { profile: 'session_live_pick', model: 'free' },
+    { free: 'free-key' },
+  );
+  assertStringIncludes(setup, 'gemini-free-live');
+});
+
+Deno.test('a live call with no pick opens on the default model', async () => {
+  clearProfiles();
+  resetTools();
+  registerTwoModelLive('session_live_default', true);
+  const setup = await setupOf({ profile: 'session_live_default' }, { paid: 'paid-key' });
+  assertStringIncludes(setup, HOST_BINDINGS.gemini31FlashLive.apiId);
+});
+
+Deno.test('a live call sends the effort it picks', async () => {
+  clearProfiles();
+  resetTools();
+  registerTwoModelLive('session_live_effort', true);
+  const setup = await setupOf(
+    { profile: 'session_live_effort', effort: 'deep' },
+    { paid: 'paid-key' },
+  );
+  assertStringIncludes(setup, '"thinkingLevel":"high"');
+});
+
+Deno.test('a live call is refused a pick the profile does not allow, or a model it does not have', async () => {
+  clearProfiles();
+  resetTools();
+  registerTwoModelLive('session_live_closed', false);
+  registerTwoModelLive('session_live_open', true);
+  await assertRejects(
+    () => setupOf({ profile: 'session_live_closed', model: 'free' }, { free: 'free-key' }),
+    TheoremError,
+    'does not allow model selection',
+  );
+  await assertRejects(
+    () => setupOf({ profile: 'session_live_open', model: 'nope' }, { free: 'free-key' }),
+    TheoremError,
+    "Unknown model 'nope'",
+  );
 });

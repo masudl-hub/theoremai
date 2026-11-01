@@ -18,6 +18,7 @@ import type {
   ModelBinding,
 } from '../types.ts';
 import { tracedCall } from './call-trace.ts';
+import { runIdentity } from './turn-trace.ts';
 
 export interface RunEmbeddingOptions extends ProviderHostOptions {
   sink?: TraceSink;
@@ -150,12 +151,14 @@ export async function runEmbeddingInRegistry(
         ...(operation ? { 'gen_ai.operation.name': operation } : {}),
         'gen_ai.provider.name': binding.provider,
         'gen_ai.agent.name': profile.id,
+        ...runIdentity(request),
         'gen_ai.request.model': binding.apiId,
         'theorem.model.id': modelId,
         'theorem.embedding.inputs': inputs.length,
         ...(request.task ? { 'theorem.embedding.task': request.task } : {}),
       },
       traceparent: request.traceparent,
+      links: request.links,
       metadata: request.metadata,
       writer: {
         override: options.sink,

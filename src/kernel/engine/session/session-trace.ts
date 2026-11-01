@@ -44,6 +44,8 @@ import {
   guardrailCheckAttributes,
   OutputFold,
   optional,
+  runChoice,
+  runIdentity,
   startCallTrace,
   traceLinks,
   usageAttributes,
@@ -610,11 +612,11 @@ function startLiveTrace(
   });
   const identity: TraceAttributes = {
     'gen_ai.agent.name': req.profile,
-    ...optional('gen_ai.conversation.id', req.conversationId),
+    ...runIdentity(req),
   };
   const tree = startTrace(`invoke_agent ${req.profile}`, {
     kind: 'INTERNAL',
-    attributes: { 'gen_ai.operation.name': 'invoke_agent', ...identity },
+    attributes: { 'gen_ai.operation.name': 'invoke_agent', ...identity, ...runChoice(req) },
     links: traceLinks(req.links),
     ...(req.traceparent ? { traceparent: req.traceparent } : {}),
   });

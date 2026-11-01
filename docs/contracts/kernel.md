@@ -72,7 +72,7 @@ A `Profile` binds:
 | --- | --- |
 | `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'`, or `'embedding'` (`PROFILE_TYPES`) |
 | `identity` | `handle`, optional `conditions` and `system` — absent on `host`; `handle` only on `speech` and `decision`. `system` is a string or a list of lines. See [Prompt lines](#prompt-lines). |
-| `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID, and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect` / `maxSteps` — absent on `host`; `decision` binds exactly one model and never selects |
+| `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID, and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect`, and `maxSteps` except on `live` — absent on `host`; `decision` binds exactly one model and never selects |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image`; `parallel` on every type that takes `tools` |
 | `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. Each `inputs.slots` entry is a value list or `{ label?, choices: { value, description? }[] }` (normalized at define); optional `label` / `description` are UI-only. `{name}` in `identity.system` becomes the chosen **value** for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
@@ -553,6 +553,7 @@ Trace context on the request, all optional:
 | Field | Recorded as |
 | --- | --- |
 | `traceparent` | W3C parent of the root span; the turn joins that trace. Without it the turn starts a new trace. A malformed value throws. |
+| `projectId` | `theorem.project.id` |
 | `conversationId` | `gen_ai.conversation.id` |
 | `links` (`TurnTraceLink[]`) | Span links on the root: `{ traceparent, kind: 'resume' \| 'continue' \| 'retry', stop? }` |
 | `metadata` | Stored on the record untouched |
@@ -560,8 +561,15 @@ Trace context on the request, all optional:
 The terminal `done` carries `traceparent` (the turn's root), which a later
 request passes in `links`. `ToolContext.traceparent` is the call's
 `execute_tool` span, so a tool that runs a specialist or makes its own
-outbound calls parents them there. `SessionRequest` and `InvokeToolRequest`
-take `traceparent`, `conversationId`, `links`, and `metadata` the same way.
+outbound calls parents them there. `RunControls` holds these fields and `signal`.
+`TurnRequest`, `SessionRequest`, `InvokeToolRequest`, `DecisionRequest`,
+`EmbeddingRequest`, and `CompactHistoryRequest` all take it, and each records
+the fields the same way.
+
+`TurnRequest` and `SessionRequest` share `AgentRunRequest`, so a live call takes
+`model`, `effort`, `execution`, `background`, and `pageExecution` as a turn does.
+A live call resolves `model` and `effort` by the same rules: `allowModelSelect`
+and `allowEffortSelect` must be set. The trace records `model_select` and the effort.
 
 `runTurn`, `runSession`, `resolveTurn`, and `projectProfile` refuse a `'host'`
 profile with `TheoremError` (`requireModelProfile`); host profiles only execute
@@ -1020,7 +1028,7 @@ The host must reserve storage before returning an acquired claim. React handlers
 Capacity exhaustion must refuse dispatch. It must not remove unresolved claims to authorize another attempt.
 A coordinator may declare `maxOutcomeBytes`, the most bytes of UTF-8 JSON it keeps for one outcome. One that declares none keeps any size. `createMemoryToolExecution` takes it as an option and has no default.
 A larger result settles as the call's `result_too_large` failure, of kind `bad_response`, with the same `effects`. The model reads that failure, not the result.
-`TurnRequest`, `InvokeToolRequest`, and `RunSessionOptions` carry this service. Profiles and provider options do not.
+`TurnRequest`, `SessionRequest`, and `InvokeToolRequest` carry this service. Profiles and provider options do not.
 Nested agent turns inherit it. Each child tool action receives its own operation ID.
 `ToolOperationIdentity` binds both IDs, the profile, the tool, and an accepted invocation hash.
 Its optional `invocation` contains `SavedToolInvocation`. New body claims retain accepted data and final prepared input.
@@ -1065,7 +1073,7 @@ If the body ends before that moment, the model reads the real result. Bad input,
 
 Only an `'ask'` tool gets the `background` argument, and only in a turn with the service. The argument stays in the call and its invocation hash. The kernel removes it before the input check.
 
-The host passes a trusted `ToolBackgroundService` as `background` on `TurnRequest` and `InvokeToolRequest`, and on `RunSessionOptions` for a live session. Without it every tool runs inline, whatever its setting. The service needs a coordinator with `detach`. Without one the request reads as `config`.
+The host passes a trusted `ToolBackgroundService` as `background` on `TurnRequest`, `SessionRequest`, and `InvokeToolRequest`. Without it every tool runs inline, whatever its setting. The service needs a coordinator with `detach`. Without one the request reads as `config`.
 
 - `detached(handle)` receives a `ToolBackgroundHandle` for each detached call, with `stop` and `done`. `done` resolves when the call has settled or been marked.
 - `event(event, call)` receives each later event of that call, after the same projection a turn's events get.
@@ -1589,8 +1597,7 @@ for await (const event of runTurn(req, hostOptions)) {
 
 `compactHistory` runs the compactor on the history `done.compaction` carried,
 with the same split, reading, outcomes, and trace event as `before`, in a trace
-of its own (`traceparent`, `conversationId`, and `metadata` join it to the
-turn's). `model` defaults to the profile's default model, which must have
+of its own (`RunControls` join it to the turn's). `model` defaults to the profile's default model, which must have
 `compaction`. It returns `CompactionResult` (`outcome`, `toCompact`,
 `history`, `summary` / `failure`, `droppedMedia`, the compactor's `tokens`),
 or `undefined` when the split leaves nothing to compact. The compactor resolves its registered binding.

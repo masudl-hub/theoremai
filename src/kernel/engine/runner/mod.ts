@@ -892,7 +892,9 @@ async function compactHistoryInRegistry(
   const turnReq: TurnRequest = {
     profile: req.profile,
     input: {},
-    ...(req.conversationId ? { conversationId: req.conversationId } : {}),
+    conversationId: req.conversationId,
+    projectId: req.projectId,
+    links: req.links,
   };
   const tree = startTrace(`invoke_agent ${req.profile}`, {
     ...turnSpanOptions(turnReq),

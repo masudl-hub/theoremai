@@ -127,8 +127,8 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     reason: 'a host profile runs no model and a decision declares exactly one',
   },
   'profile.maxSteps': {
-    profileTypes: TURN_TYPES,
-    reason: 'only model turns take tool-loop steps',
+    profileTypes: ['text', 'image', 'speech'],
+    reason: 'only turns take tool-loop steps; a live call has no one reply to count them against',
   },
   decision: { profileTypes: ['decision'], reason: 'only decision profiles carry a contract' },
   image: { profileTypes: ['image'], reason: 'only image profiles generate images' },

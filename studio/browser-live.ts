@@ -88,10 +88,10 @@ class BrowserLiveSocket implements LiveSocket {
           profile: profile.id,
           metadata: traces.metadata,
           signal: runtime.signal,
-        },
-        {
           execution: runtime.execution ?? page?.execution,
           pageExecution: runtime.pageExecution ?? page?.pageExecution,
+        },
+        {
           vault: runtime.providers.vault,
           fetch: runtime.providers.fetch,
           wait: runtime.providers.wait,

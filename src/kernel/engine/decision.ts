@@ -21,6 +21,7 @@ import type {
 import { isRecord } from '../util/record.ts';
 import { tracedCall } from './call-trace.ts';
 import { referencedAssets } from './decision-references.ts';
+import { runIdentity } from './turn-trace.ts';
 
 /** Each decision failure code, and the error kind it reads as. */
 const DECISION_ERROR_KINDS = {
@@ -452,6 +453,7 @@ function decisionSpanAttributes(
     ...(operation ? { 'gen_ai.operation.name': operation } : {}),
     'gen_ai.provider.name': binding.provider,
     'gen_ai.agent.name': profile.id,
+    ...runIdentity(request),
     'gen_ai.request.model': binding.apiId,
     'theorem.model.id': modelId,
     'theorem.decision.contract': profile.decision.contract,
@@ -588,6 +590,7 @@ export async function runDecisionInRegistry(
         operation,
       ),
       traceparent: request.traceparent,
+      links: request.links,
       metadata: request.metadata,
       writer: {
         override: options.sink,

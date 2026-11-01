@@ -112,6 +112,8 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
       ...connection,
       slots: b.slots,
       stated: b.stated,
+      model: b.model,
+      effort: b.effort,
       context: b.context,
       voiceIngress: b.voiceAvailable,
       onConnectPhase: (phase) => {

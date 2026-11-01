@@ -776,3 +776,20 @@ Deno.test('resolveTurn leaves protocol options on the binding and projects sessi
   assertEquals(cached.models.sonar.options?.cache, { mode: 'system', ttl: '5m' });
   assertEquals(generation.sessionId, 'sess-1');
 });
+
+Deno.test('a live profile refuses maxSteps: a call has no one reply to count steps against', () => {
+  assertThrows(
+    () =>
+      defineProfile({
+        type: 'live',
+        id: 'live_steps',
+        identity: { handle: 'live', system: 'hi' },
+        models: modelBindings('gemini31FlashLive'),
+        live: { voice: 'Aoede' },
+        tools: { allow: [] },
+        maxSteps: 3,
+      } as Parameters<typeof defineProfile>[0]),
+    Error,
+    "type 'live' must not set maxSteps",
+  );
+});

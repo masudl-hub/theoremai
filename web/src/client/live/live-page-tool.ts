@@ -21,6 +21,10 @@ export type LiveCallOptions = {
   slots?: Record<string, string>;
   /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
   stated?: StatedTurn;
+  /** The model picked for the call, read as the call starts, when the profile allows it. */
+  model?: string;
+  /** That model's effort, read as the call starts, when the binding allows it. */
+  effort?: string;
   /**
    * What the page tells the agent: any JSON. It goes with the call's opening, and
    * again whenever it changes, as background the agent reads without replying.

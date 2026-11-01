@@ -48,6 +48,10 @@ export type LiveOpenMessage = {
   context?: unknown;
   /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
   stated?: StatedTurn;
+  /** The model picked for the call, when the profile allows it. */
+  model?: string;
+  /** That model's effort, when the binding allows it. */
+  effort?: string;
   /** A call that dropped, taken up again: the provider's handle, and how long the caller was away. */
   resume?: { providerState: ProviderCheckpoint; awayMs: number };
   /** The host's own `openMessage`, for its relay to read. */
@@ -59,6 +63,8 @@ const liveOpenMessage = z.object({
   slots: z.record(z.string(), z.string()).optional(),
   context: z.unknown().optional(),
   stated: statedTurnSchema.optional(),
+  model: z.string().optional(),
+  effort: z.string().optional(),
   resume: z
     .object({ providerState: providerCheckpointSchema, awayMs: z.number().nonnegative() })
     .optional(),

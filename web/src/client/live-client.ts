@@ -103,6 +103,10 @@ export interface LiveClientOptions {
   slots?: Record<string, string>;
   /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
   stated?: StatedTurn;
+  /** The model picked for the call, when the profile allows it. */
+  model?: string;
+  /** That model's effort, when the binding allows it. */
+  effort?: string;
   /** What the page tells the agent as the call opens; `setContext` replaces it during the call. */
   context?: unknown;
   relayUrl?: string;
@@ -349,12 +353,14 @@ export class LiveSessionClient {
 
   /** The first message: the call's values, and the handle and time away when it takes a dropped call up again. */
   private openMessage(): LiveOpenMessage {
-    const { slots, stated, openMessage: host } = this.options;
+    const { slots, stated, model, effort, openMessage: host } = this.options;
     return {
       type: 'open',
       ...(this.history.length ? { history: structuredClone(this.history) } : {}),
       ...(slots ? { slots } : {}),
       ...(stated ? { stated } : {}),
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
       ...(this.context === undefined ? {} : { context: this.context }),
       ...(this.providerState
         ? {

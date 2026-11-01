@@ -17,10 +17,12 @@ import type { ToolCallEvent, ToolCallRequest, ToolFailure } from '../tools/types
 import type {
   InteractionPart,
   ModelBinding,
+  ModelChoice,
   ModelEvent,
   ModelRequest,
   ProviderEvidence,
   ProviderTransport,
+  RunControls,
   TurnEvent,
   TurnEventOf,
   TurnHistoryMessage,
@@ -970,17 +972,31 @@ function traceLinks(links: readonly TurnTraceLink[] | undefined): SpanLinkInput[
   }));
 }
 
+/** What a run's request says about the run, on its root span. */
+function runIdentity(req: Pick<RunControls, 'conversationId' | 'projectId'>): TraceAttributes {
+  return {
+    ...optional('gen_ai.conversation.id', req.conversationId),
+    ...optional('theorem.project.id', req.projectId),
+  };
+}
+
+/** The pick a run's request made; absent when it took the defaults. */
+function runChoice(req: ModelChoice): TraceAttributes {
+  return {
+    ...optional('theorem.request.effort', req.effort),
+    ...optional('theorem.request.model_select', req.model),
+  };
+}
+
 function turnSpanOptions(req: TurnRequest): SpanOptions {
   return {
     kind: 'INTERNAL',
     attributes: {
       'gen_ai.operation.name': 'invoke_agent',
       'gen_ai.agent.name': req.profile,
-      ...optional('gen_ai.conversation.id', req.conversationId),
+      ...runIdentity(req),
       'gen_ai.input.messages': turnInputMessages(req.input),
-      ...optional('theorem.request.effort', req.effort),
-      ...optional('theorem.request.model_select', req.model),
-      ...optional('theorem.project.id', req.projectId),
+      ...runChoice(req),
     },
     links: traceLinks(req.links),
   };
@@ -1047,6 +1063,8 @@ export {
   OutputFold,
   optional,
   recordException,
+  runChoice,
+  runIdentity,
   startCallTrace,
   toolArgumentsText,
   traceLinks,

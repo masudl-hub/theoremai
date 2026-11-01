@@ -136,9 +136,6 @@ function pageAnswerForLiveRequest(
 
 /** Options for opening a live session: the key vault, a provider's own settings, a WebSocket opener, how long a gated call waits for its decision, and the sign-in gate policy. */
 export interface RunSessionOptions extends ProviderHostOptions {
-  execution?: ToolExecutionCoordinator;
-  background?: ToolBackgroundService;
-  pageExecution?: PageToolExecution;
   /** The host's keys by slot; the session uses the slots its profile names. */
   vault?: KeyVault;
   /**
@@ -272,23 +269,7 @@ function sessionSnapshotWithinAllow(
 }
 
 function toTurnRequest(req: SessionRequest): TurnRequest {
-  return {
-    profile: req.profile,
-    providerState: req.providerState,
-    system: req.system,
-    builtInArgs: req.builtInArgs,
-    path: req.path,
-    conditions: req.conditions,
-    sessionPermissions: req.sessionPermissions,
-    signal: req.signal,
-    metadata: req.metadata,
-    host: req.host,
-    input: {
-      text: '',
-      history: req.history,
-      slots: req.slots,
-    },
-  };
+  return { ...req, input: { text: '', history: req.history, slots: req.slots } };
 }
 
 /**
@@ -1507,11 +1488,8 @@ async function openTracedSession(
   if (refusal) throw refusal;
   throwIfAborted(safe.signal);
 
-  assertBackgroundCoordinator(options.background, options.execution);
-  const { profile, generation: gen0 } = resolveTurnInRegistry(
-    registry,
-    options.background ? { ...safe, background: options.background } : safe,
-  );
+  assertBackgroundCoordinator(req.background, req.execution);
+  const { profile, generation: gen0 } = resolveTurnInRegistry(registry, safe);
   assertLiveProfile(profile);
   const openingContext = req.context ? readSessionContext(profile, req.context) : undefined;
 
@@ -1570,9 +1548,9 @@ async function openTracedSession(
   trace.setup(connection.setup);
 
   return buildLiveSession({
-    execution: options.execution,
-    ...(options.background ? { background: options.background } : {}),
-    pageExecution: options.pageExecution,
+    execution: req.execution,
+    ...(req.background ? { background: req.background } : {}),
+    pageExecution: req.pageExecution,
     tools: registry.tools,
     profile,
     canary: generation.canary,

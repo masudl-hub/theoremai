@@ -27,7 +27,15 @@ export function liveSessionOpen(
   server?: unknown,
 ): Pick<
   SessionRequest,
-  'slots' | 'context' | 'providerState' | 'awayMs' | 'history' | 'path' | 'conditions'
+  | 'slots'
+  | 'context'
+  | 'providerState'
+  | 'awayMs'
+  | 'history'
+  | 'path'
+  | 'conditions'
+  | 'model'
+  | 'effort'
 > {
   const context = turnContext(open.context, server);
   return {
@@ -35,6 +43,8 @@ export function liveSessionOpen(
     ...(open.slots ? { slots: open.slots } : {}),
     ...(context ? { context } : {}),
     ...open.stated,
+    ...(open.model ? { model: open.model } : {}),
+    ...(open.effort ? { effort: open.effort } : {}),
     ...(open.resume
       ? { providerState: open.resume.providerState, awayMs: open.resume.awayMs }
       : {}),

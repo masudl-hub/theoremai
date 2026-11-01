@@ -139,7 +139,7 @@ export type TranscriptionProfileDefinition = Omit<
 };
 
 /** What a host writes to define a live profile. */
-export type LiveProfileDefinition = ProfileDefinitionBase & {
+export type LiveProfileDefinition = Omit<ProfileDefinitionBase, 'maxSteps'> & {
   type: 'live';
   live: NonNullable<LiveProfile['live']>;
   inputs?: LiveProfile['inputs'];

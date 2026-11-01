@@ -40,11 +40,13 @@ Deno.test('native live approval dispatch uses saved prepared input and settles o
   });
   const socket = new MockLiveWebSocket();
   const session = await scope.runSession(
-    { profile: 'live_page' },
     {
-      vault: { key: 'fixture' },
+      profile: 'live_page',
       execution: boundary.toolExecution,
       pageExecution: boundary.pageExecution,
+    },
+    {
+      vault: { key: 'fixture' },
       openWebSocket: () => {
         queueMicrotask(() => socket.open());
         return Promise.resolve(socket as unknown as WebSocket);

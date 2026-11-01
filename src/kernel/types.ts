@@ -270,8 +270,35 @@ export interface CompactionSpec {
   trigger?: (ctx: CompactionTriggerContext) => boolean | Promise<boolean>;
 }
 
+/** What every request that runs a model takes: how to stop it, and where its trace goes. */
+export interface RunControls {
+  /** Stops the run when it aborts, and cancels in-flight provider HTTP where the adapter supports it. */
+  signal?: AbortSignal;
+  /** Host-owned metadata preserved on the run's trace records; the kernel does not interpret it. */
+  metadata?: Record<string, unknown>;
+  /**
+   * W3C `traceparent` of the host span this run goes under. The run's root span joins that trace
+   * as its child; without it the run starts a new trace. A malformed value throws.
+   */
+  traceparent?: string;
+  /** Your project id, recorded on the trace. */
+  projectId?: string;
+  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
+  conversationId?: string;
+  /** Earlier traces this run follows. */
+  links?: TurnTraceLink[];
+}
+
+/** Which of the profile's models a run uses, and how hard it thinks. */
+export interface ModelChoice {
+  /** Selected model id when `profile.allowModelSelect` is true. */
+  model?: ModelId;
+  /** Selected effort alias when the binding has `allowEffortSelect`. */
+  effort?: string;
+}
+
 /** `compactHistory` input, for `timing: 'after'`: the host passes back what `done.compaction` carried. */
-export interface CompactHistoryRequest {
+export interface CompactHistoryRequest extends RunControls {
   /** The profile whose model binding carries the `compaction` spec. */
   profile: ProfileId;
   /** That binding; defaults to the profile's `defaultModel`. */
@@ -279,10 +306,6 @@ export interface CompactHistoryRequest {
   history: TurnHistoryMessage[];
   /** `done.compaction.tokens`: a failed compactor drops `toCompact` only when this is over `maxTokens`. */
   tokens: number;
-  signal?: AbortSignal;
-  traceparent?: string;
-  conversationId?: string;
-  metadata?: Record<string, unknown>;
 }
 
 /** A structured-output schema given inline. */
@@ -724,7 +747,7 @@ export interface DecisionAsset {
 }
 
 /** A request to `runDecision`: the profile, the state to judge, and the questions to answer. */
-export interface DecisionRequest {
+export interface DecisionRequest extends RunControls {
   profile: ProfileId;
   state: Exclude<DecisionJson, null>;
   questions: Record<string, DecisionQuestion>;
@@ -735,15 +758,6 @@ export interface DecisionRequest {
    * references are sent, so pick references that cannot occur in your text by accident.
    */
   assets?: Record<string, DecisionAsset>;
-  signal?: AbortSignal;
-  /** Host-owned metadata preserved on the decision's trace record; the kernel does not interpret it. */
-  metadata?: Record<string, unknown>;
-  /**
-   * W3C `traceparent` of the host span this decision runs under. The `decide`
-   * root joins that trace as its child; without it the decision starts a new
-   * trace. A malformed value throws.
-   */
-  traceparent?: string;
 }
 
 /** The model's answer to one decision question. */
@@ -806,14 +820,11 @@ export interface EmbeddingProfile extends Omit<ProfileCommon, 'identity' | 'outp
 export type EmbeddingTask = 'query' | 'document';
 
 /** A request to `runEmbedding`. */
-export interface EmbeddingRequest {
+export interface EmbeddingRequest extends RunControls {
   profile: ProfileId;
   model?: ModelId;
   input: EmbeddingInput | readonly EmbeddingInput[];
   task?: EmbeddingTask;
-  signal?: AbortSignal;
-  metadata?: Record<string, unknown>;
-  traceparent?: string;
 }
 
 /** One vector returned for one ordered embedding input. */
@@ -1009,23 +1020,13 @@ export interface TurnTraceLink {
   stop?: TurnStopKind;
 }
 
-/** A request to `runTurn`: the profile, the input, and the host's hooks and keys. */
-export interface TurnRequest {
+/** What `runTurn` and `runSession` both take: an agent's profile, its model, and the host's hooks and keys. */
+export interface AgentRunRequest extends RunControls, ModelChoice {
   execution?: ToolExecutionCoordinator;
   background?: ToolBackgroundService;
   pageExecution?: PageToolExecution;
   providerState?: ProviderCheckpoint;
   profile: ProfileId;
-  projectId?: string;
-  /**
-   * Sticky routing / cache session key for OpenRouter (`session_id`).
-   * Not the same as `projectId` or Gemini `previousInteractionId`.
-   */
-  sessionId?: string;
-  /** Selected model id when `profile.allowModelSelect` is true. */
-  model?: ModelId;
-  /** Selected effort alias when the binding has `allowEffortSelect`. */
-  effort?: string;
   /**
    * Args for built-in tools on the chosen model's `builtInTools`, by tool id.
    * Each is parsed by the schema the provider's adapter declares for that tool.
@@ -1033,35 +1034,43 @@ export interface TurnRequest {
   builtInArgs?: BuiltInArgs;
   /** Host-provided dynamic system prompt combined with profile persona */
   system?: SystemPrompt;
-  /** This turn's voice, style, and speed, over `profile.speech`. Speech profiles only. */
-  speech?: TurnSpeech;
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
   path?: string;
-  /** This turn's facts, one value for each of `profile.identity.conditions` but `path`. */
+  /** This run's facts, one value for each of `profile.identity.conditions` but `path`. */
   conditions?: Readonly<Record<string, string>>;
-  /** Host-owned metadata preserved for traces; the kernel does not interpret it. */
-  metadata?: Record<string, unknown>;
-  /**
-   * W3C `traceparent` of the host span this turn runs under. The turn's root
-   * span joins that trace as its child; without it the turn starts a new trace.
-   * A malformed value throws.
-   */
-  traceparent?: string;
-  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
-  conversationId?: string;
-  links?: TurnTraceLink[];
   /**
    * Opaque application context handed to tool `handler` / `preTool` and
    * `tools.t1Policy` as `ctx.host`. The kernel never reads, logs, traces, or
    * serializes it.
    */
   host?: unknown;
+  /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
+  credentials?: ToolCredentialSource;
   /**
-   * Optional abort signal. When aborted, THEOREM stops the turn and cancels
-   * in-flight provider HTTP where the adapter supports it.
+   * Resolves remote tool and OAuth host names before each request; a name that
+   * resolves to a private address is refused (see `fetchGuarded`).
    */
-  signal?: AbortSignal;
+  resolveHost?: ResolveHost;
+  /** Text `runTurn` and `runSession` emit stages and apply the returned affordances. A session's is set once. */
+  onStage?: StageHandler;
+  /**
+   * Runs before each agent tool call in this run, and in the turns those
+   * calls run. Shape the called agent's request (history, model, provider) or
+   * refuse the call. Omit it: the agent runs on what the model sent.
+   */
+  onAgentCall?: AgentCallHook;
+}
+
+/** A request to `runTurn`: the shared controls and the turn's input. */
+export interface TurnRequest extends AgentRunRequest {
+  /**
+   * Sticky routing / cache session key for OpenRouter (`session_id`).
+   * Not the same as `projectId` or Gemini `previousInteractionId`.
+   */
+  sessionId?: string;
+  /** This turn's voice, style, and speed, over `profile.speech`. Speech profiles only. */
+  speech?: TurnSpeech;
   /**
    * Continue a prior resumeable stop. On text profiles the turn's user message
    * is the continue instruction (no `input.text`); the host passes the partial
@@ -1086,21 +1095,6 @@ export interface TurnRequest {
    */
   stepsTaken?: number;
   input?: TurnInput;
-  /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
-  credentials?: ToolCredentialSource;
-  /**
-   * Resolves remote tool and OAuth host names before each request; a name that
-   * resolves to a private address is refused (see `fetchGuarded`).
-   */
-  resolveHost?: ResolveHost;
-  /** Text `runTurn` emits stages and applies the returned affordances. */
-  onStage?: StageHandler;
-  /**
-   * Runs before each agent tool call in this turn, and in the turns those
-   * calls run. Shape the called agent's request (history, model, provider) or
-   * refuse the call. Omit it: the agent runs on what the model sent.
-   */
-  onAgentCall?: AgentCallHook;
 }
 
 /**
@@ -1220,19 +1214,9 @@ export interface TurnModel {
  * Host request to open a long-lived live session (`runSession`).
  * Profile must be `type: 'live'`.
  */
-export interface SessionRequest {
-  providerState?: ProviderCheckpoint;
-  profile: ProfileId;
-  /** Host-built system prompt merged with profile identity.system. */
-  system?: SystemPrompt;
+export interface SessionRequest extends AgentRunRequest {
   /** Override `profile.live.voice` for this session. */
   voice?: string;
-  /** As `TurnRequest.builtInArgs`. */
-  builtInArgs?: BuiltInArgs;
-  path?: string;
-  /** As `TurnRequest.conditions`. */
-  conditions?: Readonly<Record<string, string>>;
-  sessionPermissions?: string[];
   history?: TurnHistoryMessage[];
   /** The value chosen for each of the profile's `inputs.slots`. */
   slots?: Record<string, string>;
@@ -1250,38 +1234,6 @@ export interface SessionRequest {
    * `tools.allow`; ids outside it are refused.
    */
   snapshot?: TurnToolSnapshot;
-  signal?: AbortSignal;
-  /** Host-owned metadata preserved on every record the session writes. */
-  metadata?: Record<string, unknown>;
-  /**
-   * W3C `traceparent` of the host span this session runs under. The session's
-   * root span joins that trace as its child; without it the session starts a
-   * new trace. A malformed value throws.
-   */
-  traceparent?: string;
-  /** Host conversation id, recorded as `gen_ai.conversation.id`. */
-  conversationId?: string;
-  links?: TurnTraceLink[];
-  /** Immutable for the session; there is no `setOnStage`. */
-  onStage?: StageHandler;
-  /**
-   * As `TurnRequest.onAgentCall`, for the agent tools this session's calls run.
-   * Omit it: each agent runs on what the model sent, with the session's own
-   * provider options.
-   */
-  onAgentCall?: AgentCallHook;
-  /**
-   * Default credentials for `executeTool` (per-call args override). Without one, the
-   * session keeps keys typed at its sign-in gates in memory.
-   */
-  credentials?: ToolCredentialSource;
-  /**
-   * Resolves remote tool and OAuth host names before each request; a name that
-   * resolves to a private address is refused (see `fetchGuarded`).
-   */
-  resolveHost?: ResolveHost;
-  /** Opaque host slot for stages / tool execute (per-call args override). */
-  host?: unknown;
 }
 
 /**

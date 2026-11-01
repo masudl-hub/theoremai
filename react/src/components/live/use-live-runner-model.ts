@@ -115,6 +115,8 @@ export function useLiveRunnerModel(
   const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
     slots: options.slots,
     stated: options.stated,
+    model: options.model,
+    effort: options.effort,
     context: options.context,
     pageTools: options.pageTools,
     voiceAvailable,

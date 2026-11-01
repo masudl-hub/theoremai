@@ -1816,3 +1816,35 @@ Deno.test('a profile that compacts itself must be a text profile that takes text
     'Profile compaction.self.no_text model m compaction: a profile that compacts itself must be a text profile that takes text',
   );
 });
+
+const LINK = {
+  traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+  kind: 'retry',
+} as const;
+
+Deno.test("a compaction's trace names its project and the trace it follows", async () => {
+  const speaker = registerCompactionPair('compaction.controls', AFTER_SPEC);
+  const records: TraceRecord[] = [];
+  await compactHistory(
+    {
+      profile: speaker,
+      history: [...OLD, ...RECENT],
+      tokens: 800,
+      projectId: 'p1',
+      conversationId: 'c1',
+      links: [LINK],
+    },
+    {
+      complete: () =>
+        compactorSays(
+          { type: 'text', text: 'Summary' },
+          { type: 'done', stop: { kind: 'completed' } },
+        )(),
+    },
+    catalogedSink(records),
+  );
+  const root = records[0]?.spans[0];
+  assertEquals(root?.attributes['theorem.project.id'], 'p1');
+  assertEquals(root?.attributes['gen_ai.conversation.id'], 'c1');
+  assertEquals(root?.links.length, 1);
+});

@@ -713,18 +713,20 @@ function ModelPolicySection({
               set({ providerHistory });
             }}
           />
-          <NumberRow
-            label="Max steps"
-            path="profile.maxSteps"
-            units="steps"
-            field="maxSteps"
-            value={models.maxSteps}
-            min={1}
-            isIntegerOnly
-            onChange={(maxSteps) => {
-              set({ maxSteps });
-            }}
-          />
+          {draftAllows(draft, 'profile.maxSteps') && (
+            <NumberRow
+              label="Max steps"
+              path="profile.maxSteps"
+              units="steps"
+              field="maxSteps"
+              value={models.maxSteps}
+              min={1}
+              isIntegerOnly
+              onChange={(maxSteps) => {
+                set({ maxSteps });
+              }}
+            />
+          )}
         </>
       )}
       <SlotRow

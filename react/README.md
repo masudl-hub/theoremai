@@ -371,6 +371,8 @@ Three more props give the call values from the page. The profile declares each o
 
 `stated` is a fourth prop, for a page you trust as yourself. It says the `path` and `conditions` that choose the call's prompt lines, and the server reads it only with `pageStatesTurn` set. A change during a call takes the call up again, as a slot does. `TheoremChat` takes the same prop, on each turn.
 
+`model` and `effort` pick the call's model when the profile sets `allowModelSelect`. They are read when the call starts.
+
 ```tsx
 <LiveRunner
   iface={iface}

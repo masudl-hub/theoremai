@@ -835,6 +835,8 @@ Deno.test('a relay reads the open message into the session request, with the hos
       type: 'open',
       slots: { language: 'fr' },
       context: { page: '/docs' },
+      model: 'free',
+      effort: 'deep',
       resume: { providerState: checkpointFixture, awayMs: 4200 },
       host: { type: 'draft' },
     }),
@@ -842,6 +844,8 @@ Deno.test('a relay reads the open message into the session request, with the hos
   assertEquals(liveSessionOpen(open, { tier: 'pro' }), {
     slots: { language: 'fr' },
     context: { client: { page: '/docs' }, server: { tier: 'pro' } },
+    model: 'free',
+    effort: 'deep',
     providerState: checkpointFixture,
     awayMs: 4200,
   });

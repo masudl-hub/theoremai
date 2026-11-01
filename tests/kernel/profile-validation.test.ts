@@ -843,6 +843,7 @@ Deno.test('a field the type may carry only as its off value names that value', (
         models: {
           m: { ...BINDING, protocol: 'geminiLive' },
         },
+        maxSteps: undefined,
         inputs: { text: true },
       }),
     ).startsWith("Profile p: type 'live' must not set inputs.text — "),

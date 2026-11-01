@@ -85,9 +85,11 @@ async function relay(
       {
         ...(await boundary.prepareLiveOpen(open)),
         profile: profile.id,
+        execution: boundary.toolExecution,
+        pageExecution: boundary.pageExecution,
         ...(host === undefined ? {} : { host }),
       },
-      { ...provider, execution: boundary.toolExecution, pageExecution: boundary.pageExecution },
+      provider,
       pageSink(socket, profile),
     );
   } catch (error) {

@@ -884,6 +884,8 @@ export type ChoiceRowProps<T extends string> = {
   value: T | '';
   options: readonly Choice<T>[];
   isDisabled?: boolean;
+  /** False for a choice that always holds a value, so it offers no way to clear it. */
+  hasClear?: boolean;
   hasSearch?: boolean;
   /** The options are still arriving. */
   isLoading?: boolean;
@@ -911,6 +913,7 @@ export function ChoiceRow<T extends string>({
   options,
   isDisabled,
   isRequired,
+  hasClear = true,
   hasSearch,
   isLoading,
   emptyText,
@@ -957,7 +960,7 @@ export function ChoiceRow<T extends string>({
       hasNote={Boolean(status?.message)}
     >
       <StackItem size="fill">
-        {required ? (
+        {required || !hasClear ? (
           <Selector
             {...shared}
             isRequired

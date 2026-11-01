@@ -663,8 +663,8 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
         identity.profileType !== 'decision' &&
         identity.profileType !== 'host' && (
           <>
-            <SystemPromptSection identity={identity} set={set} />
             <ConditionSection identity={identity} set={set} />
+            <SystemPromptSection identity={identity} set={set} />
           </>
         )}
     </>
@@ -2244,7 +2244,7 @@ function ConditionPreviewRows({ conditions }: { conditions: readonly ConditionDr
       key={name}
       label={name}
       path="identity.conditions"
-      isRequired
+      hasClear={false}
       value={allowed.find((value) => value === values.conditions[name]) ?? allowed[0]}
       options={allowed}
       onChange={(next) => {

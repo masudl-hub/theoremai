@@ -37,6 +37,7 @@ test('each condition is one row, and its values stay in sight', async ({ page })
   await page.getByRole('textbox', { name: 'Condition 2 name' }).fill('group');
   await page.getByRole('textbox', { name: 'Condition 1 name' }).click();
   await expect(page.getByRole('group', { name: 'Condition 1 values' })).toContainText('paid');
+  await expect(page.getByText('Required')).toHaveCount(3);
   await page.getByRole('button', { name: 'Remove condition 2' }).click();
   await expect(page.getByRole('textbox', { name: 'Condition 2 name' })).toBeHidden();
 });

@@ -42,13 +42,17 @@ if (!Number.isInteger(port) || !project) {
 
 const page = readFileSync(PAGE_FILE, 'utf8').replaceAll(PROJECT_PLACEHOLDER, project);
 
-/** The build's files, each with the path a request names it by, less the page (served with its project filled in). Nothing else is ever read. */
+/**
+ * The build's files, each with the path a request names it by, less the page (served with its project filled in). Nothing else is ever read.
+ * why: held from the start, so a reinstall while the studio runs can't pull a file from under the page it opened with.
+ */
 const FILES = [];
 (function list(dir, named) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const file = path.join(dir, entry.name);
     if (entry.isDirectory()) list(file, `${named}${entry.name}/`);
-    else if (entry.isFile() && file !== PAGE_FILE) FILES.push([`${named}${entry.name}`, file]);
+    else if (entry.isFile() && file !== PAGE_FILE)
+      FILES.push([`${named}${entry.name}`, file, readFileSync(file)]);
   }
 })(root, '');
 
@@ -61,8 +65,8 @@ function fileFor(pathname) {
     return undefined;
   }
   // why: the request only picks among the build's own files; what is read comes from the list, never from the address.
-  for (const [name, file] of FILES) {
-    if (name === relative) return { body: readFileSync(file), type: TYPES[path.extname(file)] };
+  for (const [name, file, body] of FILES) {
+    if (name === relative) return { body, type: TYPES[path.extname(file)] };
   }
   return undefined;
 }

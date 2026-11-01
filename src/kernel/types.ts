@@ -1080,6 +1080,11 @@ export interface TurnRequest {
    * path does not grant is left out, as for `tools.t1Policy`.
    */
   promoted?: ToolId[];
+  /**
+   * Steps this reply already took when an earlier run of it paused. They count against `maxSteps`,
+   * so an answered call does not give the reply its steps back. Read `done.steps`.
+   */
+  stepsTaken?: number;
   input?: TurnInput;
   /** Credentials for authenticated HTTP / MCP tools, read by auth slot when a tool needs one. */
   credentials?: ToolCredentialSource;

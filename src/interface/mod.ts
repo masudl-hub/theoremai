@@ -102,7 +102,8 @@ export type { SettledToolCallEvent } from './tool-calls.ts';
 export { argumentsSoFar, settlesToolCall, toolCallRanWith, toolCallsOf } from './tool-calls.ts';
 export {
   promotedToolIdsFromEvents,
-  replyToolIdsFromEvents,
+  type ReplyCarried,
+  replyCarriedFromEvents,
   toolSnapshotFromEvents,
 } from './tool-invoke.ts';
 export type { PromotedToolMedia } from './tool-media.ts';

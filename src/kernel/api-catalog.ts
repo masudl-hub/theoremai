@@ -148,6 +148,10 @@ export const REQUEST_FIELDS: Record<
     type: 'ToolId[]',
     doc: 'Tools this reply already had when an earlier run of it paused; the turn opens with them on its list.',
   },
+  'runTurn.stepsTaken': {
+    type: 'number',
+    doc: 'Steps this reply already took when an earlier run of it paused; they count against maxSteps.',
+  },
   'runTurn.speech': {
     type: 'TurnSpeech',
     doc: "This turn's voice, style, and speed; each one given replaces the profile's speech field of that name. Refused on a profile that is not speech.",

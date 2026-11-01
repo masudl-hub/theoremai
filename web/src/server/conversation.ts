@@ -42,7 +42,8 @@ import {
   historyFromTranscriptBlocks,
   type PendingAttachment,
   prepareUserTurn,
-  replyToolIdsFromEvents,
+  type ReplyCarried,
+  replyCarriedFromEvents,
   settlesToolCall,
   streamThoughtsEnabled,
   type TranscriptBlock,
@@ -299,8 +300,8 @@ export type ReplyTurn = {
   model?: string;
   effort?: string;
   stated?: StatedTurn;
-  /** The tools the reply had when it paused, for a reply that goes on. */
-  promoted?: ToolId[];
+  /** The tools and steps the reply had when it paused, for a reply that goes on. */
+  carried?: ReplyCarried;
 };
 
 /** What a reply's model run takes from the host. */
@@ -319,7 +320,7 @@ export type ReplyRunner = {
   model?: string;
   effort?: string;
   stated?: StatedTurn;
-  promoted?: ToolId[];
+  carried?: ReplyCarried;
   signal: AbortSignal;
 };
 
@@ -457,7 +458,7 @@ async function* runReply(
       model: runner.model,
       effort: runner.effort,
       ...(runner.stated ? { stated: runner.stated } : {}),
-      ...(runner.promoted ? { promoted: runner.promoted } : {}),
+      ...(runner.carried ? { carried: runner.carried } : {}),
     });
     for await (const event of events) {
       reply.events.push(event);
@@ -774,7 +775,7 @@ export async function* answerReply(args: {
       model: runner.model ?? paused.model,
       effort: runner.effort ?? paused.effort,
       ...(paused.stated ? { stated: paused.stated } : {}),
-      promoted: replyToolIdsFromEvents(reply.events),
+      carried: replyCarriedFromEvents(reply.events),
     },
     {
       history: replyHistory(reply),

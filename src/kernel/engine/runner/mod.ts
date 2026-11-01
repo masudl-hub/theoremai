@@ -443,6 +443,7 @@ async function* emitTurn(args: {
   const done = turnDoneOf(
     {
       stop: state.lastStop ?? { kind: 'completed' },
+      steps: state.stepCount,
       ...(state.providerState &&
       !cutConversation(state) &&
       !(

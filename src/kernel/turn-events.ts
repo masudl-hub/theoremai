@@ -918,6 +918,8 @@ export interface DoneBase {
   tokens?: TurnTokens;
   /** The turn's root span as a W3C `traceparent`, for a later request's `links`. */
   traceparent?: string;
+  /** The model calls that count against `maxSteps` so far, those of `stepsTaken` included. */
+  steps?: number;
   compaction?: CompactionSignal;
   /** A user utterance interrupted an in-flight live response (barge-in). */
   interrupted?: boolean;
@@ -1113,6 +1115,7 @@ const doneBase = {
   type: z.literal('done'),
   tokens: turnTokens.optional(),
   traceparent: z.string().optional(),
+  steps: z.number().int().nonnegative().optional(),
   compaction: compactionSignal.optional(),
   interrupted: z.boolean().optional(),
   interactionId: z.string().optional(),

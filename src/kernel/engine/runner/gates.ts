@@ -683,9 +683,10 @@ async function* executeSingleAttemptCycle(args: {
 }): AsyncGenerator<TurnEvent, AttemptStepAction> {
   const { flow, state, profile, system, provider } = args;
 
-  // invariant: Fresh maxSteps budget per validation/egress attempt. before_end inject
-  // re-entry inside this cycle still accumulates stepCount (do not reset there).
-  state.stepCount = 0;
+  // invariant: Fresh maxSteps budget per validation/egress attempt, past the steps an earlier run
+  // of this reply took. before_end inject re-entry inside this cycle still accumulates stepCount
+  // (do not reset there).
+  state.stepCount = flow.currentReq.stepsTaken ?? 0;
   // invariant: The attempt's reply spans its before_end re-entries; only a new attempt starts it again.
   state.replyText = '';
   state.replyMessages = [];

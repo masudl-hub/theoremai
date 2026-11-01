@@ -777,6 +777,10 @@ async function* executeAttempt(args: {
   // why: Buffered delivery holds each attempt's text and media until it passes; streamed delivery shows them live.
   const holdVisible = validation !== undefined && generation.stream === false;
 
+  // why: A reply that spent its steps before it paused has no step left to read the answered call.
+  if (isStepLimitReached(state.stepCount, generation.maxSteps ?? 0)) {
+    state.lastStop = { kind: 'step_limit' };
+  }
   // why: Ceiling is cumulative `state.stepCount` across before_end inject re-entries
   // within this attempt. Validation/egress repair resets stepCount at the start
   // of each attempt cycle.

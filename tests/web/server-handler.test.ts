@@ -1228,6 +1228,50 @@ Deno.test('a reply that goes on after an answered gate keeps the tool that call 
   );
   assertEquals(listed, [['handler_gated_loader'], ['handler_gated_loader', 'handler_loaded_t2']]);
 });
+Deno.test('a reply that goes on after an answered gate keeps counting its steps', async () => {
+  const listed: string[][] = [];
+  const loads: TurnModel = {
+    complete: (req) =>
+      (async function* () {
+        listed.push((req.wireTools ?? []).map((tool) => tool.name));
+        if (listed.length === 1) {
+          yield {
+            type: 'tool' as const,
+            tool: { name: 'handler_gated_loader', arguments: {}, callId: 'call-1' },
+          };
+          yield { type: 'done' as const, stop: { kind: 'tool' } };
+          return;
+        }
+        yield { type: 'text' as const, text: 'done' };
+        yield { type: 'done' as const, stop: { kind: 'completed' } };
+      })(),
+  };
+  const handler = handlerFor({
+    profile: {
+      type: 'text',
+      id: 'handler-steps-after-gate',
+      identity: { handle: 'helper', system: SYSTEM },
+      models: { stub: { protocol: 'scripted', provider: 'scripted', apiId: 'stub-model' } },
+      maxSteps: 2,
+      turnBehaviour: { atStepLimit: 'answer' },
+      tools: { allow: ['handler_gated_loader'], t2Loader: 'handler_gated_loader' },
+      inputs: { text: true },
+      guardrails: { detect: 'ignore' },
+    },
+    provider: () => fixtureHostOptions(loads),
+  });
+  const transport = transportFor(handler);
+  const gate = pausedGate(
+    await collect((onEvent) => transport.turn({ input: { text: 'x' } }, onEvent)),
+  );
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(listed, [['handler_gated_loader'], []]);
+});
 Deno.test("another session can't approve this session's paused call", async () => {
   ran.length = 0;
   const handler = handlerFor({

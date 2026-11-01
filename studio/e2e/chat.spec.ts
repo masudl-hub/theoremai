@@ -36,6 +36,24 @@ test('an approved write runs and the reply goes on', async ({ page }) => {
   expect(JSON.stringify(asked.filter((message) => message.role === 'tool'))).toContain('wiped');
 });
 
+test('an answer given while the reply still settles waits for it and runs', async ({ page }) => {
+  // why: a frame between the stream's lines draws the gate before the run ends.
+  await page.addInitScript(() => {
+    globalThis.requestAnimationFrame = (run) =>
+      setTimeout(() => run(performance.now()), 0) as unknown as number;
+    globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
+  });
+  await open(page);
+  await page.route('**/conversation', async (route) => {
+    await new Promise((done) => setTimeout(done, 500));
+    await route.continue();
+  });
+  await send(page, ASKS);
+  await page.getByRole('button', { name: 'Approve' }).click();
+  await expect(page.getByText('Tool answered on full')).toBeVisible();
+  await expect(page.getByText('no longer waiting')).toHaveCount(0);
+});
+
 test('a rejected write does not run and the reply goes on', async ({ page }) => {
   await open(page);
   await send(page, ASKS);

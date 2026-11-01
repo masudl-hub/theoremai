@@ -1,4 +1,4 @@
-import { TheoremError, type TurnEvent } from '@theoremjs/agents';
+import { type GateReference, TheoremError, type TurnEvent } from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
   branchInterfaceTurnSession,
@@ -899,9 +899,34 @@ class Chat implements ChatController {
     );
   }
 
+  /** The gate on the reply still running that no answer is on its way to. */
+  #drawnGate(): GateReference | undefined {
+    const { streamBlocks, answering } = this.#state;
+    for (const block of streamBlocks) {
+      if (block.kind !== 'tool' || block.tool.state?.phase !== 'gate') continue;
+      const { callId, operationId } = block.tool;
+      if (operationId && callId !== answering?.callId) return { callId, operationId };
+    }
+    return undefined;
+  }
+
   async #answerGate(resolution: ToolGateResolution): Promise<void> {
-    // why: Set once the run starts (not while another runs), and cleared once it has ended.
+    // why: Set once this answer shows on its gate (not while another's does), and cleared once it has ended.
     let started = false;
+    // why: A gate draws while its reply streams, but what waits is only settled when that run ends.
+    const running = this.#state.phase === 'gated' ? null : this.#run;
+    if (running) {
+      const gate = this.#drawnGate();
+      if (!gate || resolution.action === 'page') return;
+      started = true;
+      this.#set({ answering: { ...gate, action: resolution.action } });
+      await running;
+      // invariant: An answer goes only to the gate it was given on.
+      if (this.#state.session.gatedTool?.operationId !== gate.operationId) {
+        this.#set({ answering: null });
+        return;
+      }
+    }
     try {
       await this.#runTurn(({ iface, view, transport, scope }) => {
         started = true;

@@ -533,6 +533,96 @@ Deno.test('a message sent now while the reply waits on a gate walks away from it
   assertEquals(chat.getState().phase, 'idle');
 });
 
+/** A gated reply whose stream and conversation read stay open until the test lets them go. */
+function gateHost(paused: boolean) {
+  const host = heldHost();
+  const invokes: TheoremInvokeRequest[] = [];
+  let read = () => {};
+  const transport: TheoremTransport = {
+    ...host.transport,
+    invoke: (request, onLine) => {
+      invokes.push(request);
+      onLine({ type: 'done', stop: { kind: 'completed' } });
+      return Promise.resolve();
+    },
+    conversation: async () => {
+      await new Promise<void>((resolve) => {
+        read = resolve;
+      });
+      return {
+        transcript: [{ id: 'u1', kind: 'user-text', text: 'Look it up' }],
+        ...(paused && !invokes.length
+          ? { paused: { events: gated('call-1', 'permission'), blocks: [] } }
+          : {}),
+      };
+    },
+  };
+  const chat = createChatController({ transport, iface: hostedInterface() });
+  /** Sends a message and streams its gate, drawn, up to the stream's last line. */
+  const drawn = async () => {
+    const asked = chat.sendText('Look it up');
+    await settle();
+    host.turns[0].line({ type: 'conversation', ref: 'ref-2', posted: true });
+    for (const line of gated('call-1', 'permission').slice(0, 2)) host.turns[0].line(line);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return {
+      end: () => {
+        host.turns[0].line(gated('call-1', 'permission')[2]);
+        host.turns[0].end();
+      },
+      turn: host.turns[0],
+      asked,
+    };
+  };
+  return { chat, invokes, drawn, read: () => read() };
+}
+
+Deno.test('an answer given while the gate still streams waits for the run, once, and shows', async () => {
+  const { chat, invokes, drawn, read } = gateHost(true);
+  const { end, asked } = await drawn();
+  const answer = chat.decide('allow');
+  const twice = chat.decide('allow');
+  assertEquals(chat.getState().answering?.callId, 'call-1');
+  end();
+  await settle();
+  assertEquals(invokes.length, 0);
+  read();
+  await settle();
+  assertEquals(invokes.length, 1);
+  assertEquals(invokes[0].gateId, 'call-1');
+  read();
+  await Promise.all([asked, answer, twice]);
+  assertEquals(chat.getState().failure, null);
+  assertEquals(chat.getState().answering, null);
+});
+
+Deno.test('an answer given between the stream and the read of what waits is not refused', async () => {
+  const { chat, invokes, drawn, read } = gateHost(true);
+  const { end, asked } = await drawn();
+  end();
+  await settle();
+  const answer = chat.decide('allow');
+  read();
+  await settle();
+  assertEquals(invokes.length, 1);
+  read();
+  await Promise.all([asked, answer]);
+  assertEquals(chat.getState().failure, null);
+});
+
+Deno.test('an answer waiting on a run goes nowhere when the run left that gate behind', async () => {
+  const { chat, invokes, drawn, read } = gateHost(false);
+  const { turn, asked } = await drawn();
+  const answer = chat.decide('allow');
+  turn.line({ type: 'done', stop: { kind: 'cancelled' } });
+  turn.end();
+  await settle();
+  read();
+  await Promise.all([asked, answer]);
+  assertEquals(invokes.length, 0);
+  assertEquals(chat.getState().answering, null);
+});
+
 Deno.test('a restored page gate is answered unanswered once someone follows the chat, and only once', async () => {
   const host = heldHost();
   const invokes: TheoremInvokeRequest[] = [];

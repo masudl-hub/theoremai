@@ -38,7 +38,7 @@ export interface ToolCallHooks {
   bodyEnded?: () => void;
 }
 
-type ToolRun = (
+export type ToolRun = (
   beginBody: ((preparedInput: unknown) => Promise<ToolOperationClaim | undefined>) | undefined,
   hooks: ToolCallHooks,
 ) => AsyncGenerator<TurnEvent, ToolExecuteSettlement>;

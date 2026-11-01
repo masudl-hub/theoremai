@@ -182,6 +182,7 @@ async function invokeSnapshot(
   registry: KernelRegistry,
   request: InvokeToolRequest | InvokeToolStepRequest,
 ): Promise<{ profile: Profile; snapshot: TurnToolSnapshot }> {
+  assertBackgroundCoordinator(request.background, request.execution);
   const profile = registry.profiles.get(request.profile);
   const snapshot = request.snapshot
     ? cloneTurnToolSnapshot(request.snapshot)
@@ -327,7 +328,6 @@ async function* invokeStepTraced(
   canaries: string[],
   background: ToolBackgroundSupport | undefined,
 ): AsyncGenerator<TurnEvent> {
-  assertBackgroundCoordinator(request.background, request.execution);
   const { profile, snapshot } = await invokeSnapshot(registry, request);
   const stepId = crypto.randomUUID();
   for (const { callId, invoke, announce } of calls) {
@@ -395,7 +395,6 @@ async function* invokeTraced(
   canaries: string[],
   background: ToolBackgroundSupport | undefined,
 ): AsyncGenerator<TurnEvent> {
-  assertBackgroundCoordinator(request.background, request.execution);
   const { profile, snapshot } = await invokeSnapshot(registry, request);
 
   // why: A model's call was already announced by its turn.

@@ -46,12 +46,6 @@ function applyToolEvent(call: ToolCall | undefined, tool: ToolCallEvent): ToolCa
       };
     }
     case 'complete':
-      return {
-        ...settled(call),
-        state: tool,
-        endedAt: tool.at,
-        ...(tool.activityPast ? { activityPast: tool.activityPast } : {}),
-      };
     case 'error':
       return {
         ...settled(call),

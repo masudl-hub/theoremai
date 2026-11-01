@@ -1004,7 +1004,7 @@ function buildLiveSession(args: {
       tools: args.tools,
       agents: args.agents,
       execution: args.execution,
-      ...(background ? { background } : {}),
+      background,
       profile,
       name: held.name,
       input,

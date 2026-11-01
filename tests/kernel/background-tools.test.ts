@@ -395,6 +395,51 @@ Deno.test('graceMs cuts a body that ignores its signal and drops what comes late
   assertEquals(await failureCode(run.execution, run.handle), 'stopped');
 });
 
+Deno.test('a shutdown with graceMs cuts the body, marks the claim and drops what comes later', async () => {
+  const run = await detached('always');
+  await run.started.promise;
+  run.handle.stop(undefined, { graceMs: 1 });
+  await run.handle.done;
+  assertEquals((await run.execution.lookup(identity(run.handle)))?.kind, 'uncertain');
+  const seen = run.sink.length;
+  run.release.resolve({ done: 'late' });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assertEquals(run.sink.length, seen);
+  assertEquals((await run.execution.lookup(identity(run.handle)))?.kind, 'uncertain');
+});
+
+Deno.test('a service that throws on detached stops the body, and the model reads no reply', async () => {
+  const body = heldBody();
+  const scope = scopeWith({ background: 'always', handler: body.handler });
+  const memory = createMemoryToolExecution();
+  const marks: string[] = [];
+  const execution: ToolExecutionCoordinator = {
+    ...memory,
+    markUncertain: (claim, reason) => {
+      marks.push(reason);
+      return memory.markUncertain(claim, reason);
+    },
+  };
+  const service: ToolBackgroundService = {
+    detached: () => {
+      throw new Error('host broke');
+    },
+    event: () => {},
+  };
+  const events: TurnEvent[] = [];
+  const running = turn(scope, caller(callJob()), { execution, background: service }).then(
+    (seen) => events.push(...seen),
+    () => {},
+  );
+  const signal = await body.started.promise;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(signal?.aborted, true);
+  body.release.resolve({ done: 'never read' });
+  await running;
+  assertEquals(marks, ['settlement_write_failed']);
+  assert(!phases(events).includes('background'));
+});
+
 Deno.test('a stop after settlement does nothing', async () => {
   const run = await detached('always');
   run.release.resolve({ done: 'late' });

@@ -375,28 +375,26 @@ class CoordinatedExecution {
 
   replay(error: ReplayedOperation): ToolOperationOutcome {
     const saved = toolOperationOutcomeSchema.parse(operationWireValue(error.outcome));
-    const { operationId, callId, toolId } = this.operation;
-    if (
-      saved.event.tool.operationId !== operationId ||
-      saved.event.tool.callId !== callId ||
-      saved.event.tool.name !== toolId
-    )
-      throw operationBroken("The tool coordinator's saved outcome is another operation's"); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    this.assertOwn(saved, 'outcome');
     this.committed = true;
     return saved;
   }
 
   replayReply(reply: ToolOperationReply): ToolOperationReply {
     const saved = toolOperationReplySchema.parse(operationWireValue(reply));
-    const { operationId, callId, toolId } = this.operation;
-    if (
-      saved.event.tool.operationId !== operationId ||
-      saved.event.tool.callId !== callId ||
-      saved.event.tool.name !== toolId
-    )
-      throw operationBroken("The tool coordinator's saved reply is another operation's"); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+    this.assertOwn(saved, 'reply');
     this.committed = true;
     return saved;
+  }
+
+  private assertOwn(
+    saved: { event: ToolOperationReply['event'] | TerminalToolEvent },
+    what: string,
+  ) {
+    const { operationId, callId, toolId } = this.operation;
+    const { tool } = saved.event;
+    if (tool.operationId !== operationId || tool.callId !== callId || tool.name !== toolId)
+      throw operationBroken(`The tool coordinator's saved ${what} is another operation's`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   }
 
   failure(error: unknown): unknown {
@@ -418,15 +416,27 @@ class CoordinatedExecution {
   }
 }
 
-async function replayedReply(
+/** What a saved operation gives the turn, once the replay check has passed. */
+async function replayed(
   execution: CoordinatedExecution,
-  reply: ToolOperationReply,
+  saved: ReplayedOperation | ReplayedReply,
   authorizeReplay: ((outcome?: ToolOperationOutcome) => void | Promise<void>) | undefined,
-): Promise<ToolOperationReply> {
+): Promise<ToolOperationOutcome | ToolOperationReply> {
   if (!authorizeReplay) throw operationBroken('A settled tool operation has no replay check'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  const saved = execution.replayReply(reply);
-  await authorizeReplay();
-  return saved;
+  if (saved instanceof ReplayedReply) {
+    const reply = execution.replayReply(saved.reply);
+    await authorizeReplay();
+    return reply;
+  }
+  const outcome = execution.replay(saved);
+  await authorizeReplay(outcome);
+  return outcome;
+}
+
+function savedResult(known: Awaited<ReturnType<ToolExecutionCoordinator['lookup']>>) {
+  if (known?.kind === 'background') return new ReplayedReply(known.reply);
+  if (known?.kind === 'settled') return new ReplayedOperation(known.outcome);
+  return undefined;
 }
 
 export async function* coordinateTool(
@@ -449,16 +459,9 @@ export async function* coordinateTool(
   throwIfAborted(signal);
   if (existing?.kind === 'running' || existing?.kind === 'uncertain')
     throw heldOperation(existing.kind);
-  if (existing?.kind === 'background') {
-    const saved = await replayedReply(execution, existing.reply, authorizeReplay);
-    throwIfAborted(signal);
-    yield saved.event;
-    return saved.replay;
-  }
-  if (existing?.kind === 'settled') {
-    if (!authorizeReplay) throw operationBroken('A settled tool operation has no replay check'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    const saved = execution.replay(new ReplayedOperation(existing.outcome));
-    await authorizeReplay(saved);
+  const known = savedResult(existing);
+  if (known) {
+    const saved = await replayed(execution, known, authorizeReplay);
     throwIfAborted(signal);
     yield saved.event;
     return saved.replay;
@@ -488,15 +491,8 @@ export async function* coordinateTool(
       pending = iterator.next();
     }
   } catch (error) {
-    if (error instanceof ReplayedOperation) {
-      if (!authorizeReplay) throw operationBroken('A settled tool operation has no replay check'); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      const saved = execution.replay(error);
-      await authorizeReplay(saved);
-      yield saved.event;
-      return saved.replay;
-    }
-    if (error instanceof ReplayedReply) {
-      const saved = await replayedReply(execution, error.reply, authorizeReplay);
+    if (error instanceof ReplayedOperation || error instanceof ReplayedReply) {
+      const saved = await replayed(execution, error, authorizeReplay);
       yield saved.event;
       return saved.replay;
     }

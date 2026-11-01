@@ -199,6 +199,17 @@ Deno.test('openAi: an error row keeps the provider’s own detail', async () => 
   assertEquals(error.message, 'Bad input. {"metadata":{"raw":"no images here"}}');
 });
 
+Deno.test('openAi: a reply that breaks after it began can be sent again; one refused at once cannot', async () => {
+  const broken = { error: { code: 400, message: 'Generation stopped mid tool call.' } };
+  const begun = { id: 'gen-1', model: 'glm', choices: [{ delta: { content: 'One' } }] };
+  const late = setup(() => sse([begun, broken]));
+  const lateFailure = failureOf(await collect(callProtocol(late.call).complete(request)));
+  assertEquals(lateFailure.kind, 'unavailable');
+  const early = setup(() => sse([broken]));
+  const earlyFailure = failureOf(await collect(callProtocol(early.call).complete(request)));
+  assertEquals(earlyFailure.kind, 'unsupported');
+});
+
 Deno.test('a key slot on a provider that takes no key is refused', () => {
   const keyless = defineProvider({
     ...compatible,

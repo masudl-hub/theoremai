@@ -64,12 +64,19 @@ function requestBody(context: ProtocolContext, request: ProtocolRequest): JsonOb
   return JSON.parse(JSON.stringify(body)) as JsonObject;
 }
 
-/** An error row inside a 200 reply: thrown, so a quota refusal before any output can still fall back. */
-function errorRow(row: JsonObject): void {
+/**
+ * An error row inside a 200 reply: thrown, so a quota refusal before any output can still fall back.
+ * why: a reply the provider already began was accepted, so a 4xx in it is the stream breaking, not a refusal.
+ */
+function errorRow(row: JsonObject, reply: Reply): void {
   const error = asRecord(row.error);
   if (!error) return;
   const status = typeof error.code === 'number' ? error.code : 502;
-  throw new TheoremError(kindOfHttpStatus(status), statedError(row) ?? JSON.stringify(error));
+  const kind = kindOfHttpStatus(status);
+  throw new TheoremError(
+    reply.response && kind === 'unsupported' ? 'unavailable' : kind,
+    statedError(row) ?? JSON.stringify(error),
+  );
 }
 
 function citations(part: Record<string, unknown>, reply: Reply): ProtocolEvent[] {
@@ -119,7 +126,7 @@ function partEvents(
 }
 
 function rowEvents(row: JsonObject, reply: Reply, request: ProtocolRequest, stream: boolean) {
-  errorRow(row);
+  errorRow(row, reply);
   const events: ProtocolEvent[] = [];
   const identity = foldResponse(reply.response, openAiResponse(row));
   reply.response = identity.known;

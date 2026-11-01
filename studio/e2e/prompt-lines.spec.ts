@@ -37,7 +37,7 @@ test('each condition is one row, and its values stay in sight', async ({ page })
   await page.getByRole('textbox', { name: 'Condition 2 name' }).fill('group');
   await page.getByRole('textbox', { name: 'Condition 1 name' }).click();
   await expect(page.getByRole('group', { name: 'Condition 1 values' })).toContainText('paid');
-  await expect(page.getByText('Required')).toHaveCount(3);
+  await expect(page.getByRole('combobox', { name: 'plan', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Remove condition 2' }).click();
   await expect(page.getByRole('textbox', { name: 'Condition 2 name' })).toBeHidden();
 });
@@ -97,8 +97,7 @@ test('a private section in the box stays private, across a blank line', async ({
   const prompt = page.getByRole('textbox', { name: 'Prompt' }).first();
   const loaded = page.waitForResponse(
     (response) =>
-      response.url().endsWith('/edited') &&
-      response.request().postData()?.includes('Say hello'),
+      response.url().endsWith('/edited') && response.request().postData()?.includes('Say hello'),
   );
   await prompt.fill('Say hello. {private: Code 7731.\n\nKeep it.}\n\nThen help.');
   await loaded;

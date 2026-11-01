@@ -1,5 +1,5 @@
-import type { InputStatus } from '@astryxdesign/core/Field';
 import { Button } from '@astryxdesign/core/Button';
+import type { InputStatus } from '@astryxdesign/core/Field';
 import { FieldStatus } from '@astryxdesign/core/FieldStatus';
 import { HoverCard } from '@astryxdesign/core/HoverCard';
 import { HStack } from '@astryxdesign/core/HStack';
@@ -26,10 +26,23 @@ import { Token } from '@astryxdesign/core/Token';
 import { Tokenizer } from '@astryxdesign/core/Tokenizer';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconArrowBackUp, IconCheck, IconCode, IconCopy, IconPlus, IconX } from '@tabler/icons-react';
+import {
+  IconArrowBackUp,
+  IconCheck,
+  IconCode,
+  IconCopy,
+  IconPlus,
+  IconX,
+} from '@tabler/icons-react';
 import { fieldMeta } from '@theoremjs/agents';
 import { type ReactNode, useContext, useState } from 'react';
-import { draftKey, originLabel, originPlace, originShortLabel, STUDIO_PROFILE_TYPES } from '../mod.ts';
+import {
+  draftKey,
+  originLabel,
+  originPlace,
+  originShortLabel,
+  STUDIO_PROFILE_TYPES,
+} from '../mod.ts';
 import type { SettingOrigin } from '../server/save-wire.ts';
 import {
   ISSUE_ROW_ATTRIBUTE,
@@ -963,7 +976,7 @@ export function ChoiceRow<T extends string>({
         {required || !hasClear ? (
           <Selector
             {...shared}
-            isRequired
+            isRequired={required}
             value={value}
             placeholder={placeholder}
             onChange={choose}
@@ -1138,4 +1151,3 @@ export function NamesRow({
     </InspectorRow>
   );
 }
-

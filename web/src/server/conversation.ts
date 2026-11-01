@@ -23,7 +23,6 @@ import {
   type Profile,
   type ProviderCheckpoint,
   TheoremError,
-  type ToolId,
   type TurnEvent,
   type TurnHistoryMessage,
   type TurnInput,

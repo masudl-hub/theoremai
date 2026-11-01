@@ -150,7 +150,8 @@ Deno.test('canary stream gate withholds a token split across chunks and what fol
 
   async function* splitLeak(): AsyncGenerator<TurnEvent> {
     await Promise.resolve();
-    yield { type: 'text', text: `prefix ${partA}` };
+    // why: A lead-in with letters can read as the opening of a random canary, and be held.
+    yield { type: 'text', text: `... ${partA}` };
     yield { type: 'text', text: partB };
     yield { type: 'text', text: ' suffix' };
   }
@@ -181,7 +182,7 @@ Deno.test('canary stream gate withholds a token split across chunks and what fol
     control.promptLeaks?.map((hit) => hit.rule),
     [DETECT_RULES.canary_leak],
   );
-  assertEquals(events[0], { type: 'text', text: 'prefix ' });
+  assertEquals(events[0], { type: 'text', text: '... ' });
 });
 
 Deno.test('canary stream gate omits the canary from a thought and reports it', async () => {

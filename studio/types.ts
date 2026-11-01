@@ -1,3 +1,4 @@
+import type { ToolBackground } from '@theoremjs/agents/kernel';
 import {
   type AuthUnauthenticatedPolicy,
   type CustomToolType,
@@ -43,6 +44,8 @@ export type StudioToolSpecSeed = {
   answeredBy?: 'page';
   /** The model can name tools of its step that finish before this one starts. */
   after?: boolean;
+  /** When the model gets its reply while the body goes on. */
+  background?: ToolBackground;
   endpoint?: string;
   method?: HttpMethod;
   headersJson?: string;

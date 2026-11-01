@@ -17,7 +17,7 @@ import type { ToolCredentialSource } from '@theoremjs/agents/kernel';
 /** The fields a handler sets on every turn, which `prepare` cannot replace. */
 export type HandlerOwned = Pick<
   TurnRequest,
-  'profile' | 'execution' | 'pageExecution' | 'providerState' | 'signal'
+  'profile' | 'execution' | 'pageExecution' | 'background' | 'providerState' | 'signal'
 >;
 
 /** What the handler adds to a turn of its own: the session's credentials and its steering. */
@@ -40,6 +40,7 @@ export async function preparedTurn(
     profile: turn.profile,
     ...(turn.execution ? { execution: turn.execution } : {}),
     ...(turn.pageExecution ? { pageExecution: turn.pageExecution } : {}),
+    ...(turn.background ? { background: turn.background } : {}),
     ...(turn.providerState ? { providerState: turn.providerState } : {}),
     ...(turn.signal ? { signal: turn.signal } : {}),
   };

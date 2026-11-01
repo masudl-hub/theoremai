@@ -19,6 +19,7 @@ import {
   TOOL_GATE_KINDS,
   TOOL_PERMISSION,
   toolOperationOutcomeSchema,
+  toolOperationReplySchema,
   turnHistoryMessageSchema,
   turnToolSnapshotSchema,
   z,
@@ -30,6 +31,7 @@ import type {
   ToolId,
   ToolOperationIdentity,
   ToolOperationOutcome,
+  ToolOperationReply,
   ToolOperationUncertainty,
   TurnInput,
   TurnToolSnapshot,
@@ -72,19 +74,38 @@ export type SessionToolOperation =
       pageGrant?: SessionPageGrant;
     })
   | (ToolOperationIdentity & {
+      status: 'background';
+      claimToken: string;
+      reply: ToolOperationReply;
+      startedAt: number;
+      detachedAt: number;
+      pageGrant?: SessionPageGrant;
+    })
+  | (ToolOperationIdentity & {
       status: 'settled';
       pageGrant?: SessionPageGrant;
       outcome: ToolOperationOutcome;
+      reply?: ToolOperationReply;
       settledAt: number;
       retainUntil?: number;
     })
   | (ToolOperationIdentity & {
       status: 'uncertain';
       pageGrant?: SessionPageGrant;
+      reply?: ToolOperationReply;
       claimToken: string;
       reason: ToolOperationUncertainty;
       detectedAt: number;
     });
+
+/** The reply the model read for a call that detached, whatever has happened to the call since. */
+export function detachedReply(operation: SessionToolOperation): ToolOperationReply | undefined {
+  return operation.status === 'background' ||
+    operation.status === 'settled' ||
+    operation.status === 'uncertain'
+    ? operation.reply
+    : undefined;
+}
 
 export const DEFAULT_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 
@@ -210,9 +231,19 @@ const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('s
   }),
   z.strictObject({
     ...identityFields,
+    status: z.literal('background'),
+    pageGrant: pageGrant.optional(),
+    claimToken: z.string().min(1),
+    reply: toolOperationReplySchema,
+    startedAt: z.number().finite().nonnegative(),
+    detachedAt: z.number().finite().nonnegative(),
+  }),
+  z.strictObject({
+    ...identityFields,
     status: z.literal('settled'),
     pageGrant: pageGrant.optional(),
     outcome: toolOperationOutcomeSchema,
+    reply: toolOperationReplySchema.optional(),
     settledAt: z.number().finite().nonnegative(),
     retainUntil: z.number().finite().nonnegative().optional(),
   }),
@@ -220,6 +251,7 @@ const operationSchema: z.ZodType<SessionToolOperation> = z.discriminatedUnion('s
     ...identityFields,
     status: z.literal('uncertain'),
     pageGrant: pageGrant.optional(),
+    reply: toolOperationReplySchema.optional(),
     claimToken: z.string().min(1),
     reason: z.enum(['execution_interrupted', 'settlement_write_failed', 'worker_lost']),
     detectedAt: z.number().finite().nonnegative(),

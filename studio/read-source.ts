@@ -20,7 +20,7 @@ import {
   recordOf,
   resolveDetect,
 } from '@theoremjs/agents/guardrails';
-import { type JsonObject, PROFILE_GRAPH } from '@theoremjs/agents/kernel';
+import { type JsonObject, PROFILE_GRAPH, type ToolBackground } from '@theoremjs/agents/kernel';
 import {
   CONTEXT_SENDERS,
   type ContextSender,
@@ -610,6 +610,12 @@ function text(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
 
+function backgroundOf(value: unknown): ToolBackground | undefined {
+  if (value === 'always' || value === 'ask') return value;
+  if (typeof value !== 'object' || value === null || !('afterMs' in value)) return undefined;
+  return typeof value.afterMs === 'number' ? { afterMs: value.afterMs } : undefined;
+}
+
 function whole(value: unknown): number | null {
   return typeof value === 'number' ? value : null;
 }
@@ -988,6 +994,7 @@ function toolOf(
     stubOutputJson: page ? current?.stubOutputJson : stubOf(type, spec),
     answeredBy: page ? 'page' : undefined,
     after: spec.after === true ? true : undefined,
+    background: backgroundOf(spec.background),
     ...toolRoute(spec),
     agentKey: agentId ? agentKeyOf?.(agentId) : undefined,
     maxCallsPerTurn: whole(spec.maxCallsPerTurn),

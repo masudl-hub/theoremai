@@ -1,5 +1,10 @@
 import type { DecisionQuestion } from '@theoremjs/agents';
-import type { StructuredSpec, ToolAuthConfig, ToolLabels } from '@theoremjs/agents/kernel';
+import type {
+  StructuredSpec,
+  ToolAuthConfig,
+  ToolBackground,
+  ToolLabels,
+} from '@theoremjs/agents/kernel';
 import type {
   HttpMethod,
   ToolAccess,
@@ -36,6 +41,8 @@ export type FunctionToolRegistration = {
   labels?: StudioToolLabels;
   /** The model can name tools of its step that finish before this one starts. */
   after?: boolean;
+  /** When the model gets its reply while the body goes on. */
+  background?: ToolBackground;
   /**Overrides the generic stub. */
   stubResponse?: Record<string, unknown>;
   /** The page answers the call: the kernel supplies the handler, and the page sends the output. */
@@ -70,6 +77,8 @@ export type HttpToolRegistration = {
   labels?: StudioToolLabels;
   /** The model can name tools of its step that finish before this one starts. */
   after?: boolean;
+  /** When the model gets its reply while the body goes on. */
+  background?: ToolBackground;
   /** The decision profile that reads this tool's output at `post_tool`. */
   stageAgent?: string;
   /** What `stageAgent` asks of each passage, by id. A run fills it from that agent. */
@@ -96,6 +105,8 @@ export type McpToolRegistration = {
   labels?: StudioToolLabels;
   /** The model can name tools of its step that finish before this one starts. */
   after?: boolean;
+  /** When the model gets its reply while the body goes on. */
+  background?: ToolBackground;
   /** The decision profile that reads this tool's output at `post_tool`. */
   stageAgent?: string;
   /** What `stageAgent` asks of each passage, by id. A run fills it from that agent. */
@@ -120,6 +131,8 @@ export type AgentToolRegistration = {
   labels?: StudioToolLabels;
   /** The model can name tools of its step that finish before this one starts. */
   after?: boolean;
+  /** When the model gets its reply while the body goes on. */
+  background?: ToolBackground;
 };
 
 export type ToolRegistration =

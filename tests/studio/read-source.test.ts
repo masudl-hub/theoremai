@@ -106,7 +106,10 @@ Deno.test('a when line with a blank line in it is refused, since one box would s
   assert(source.includes(line));
   const read = readStudioSource(source.replace(line, `${line}\\n\\nAnd more.`), draft);
   assert(!read.ok);
-  assertEquals(read.errors[0]?.message, 'A "when" line in the system prompt can\'t hold a blank line.');
+  assertEquals(
+    read.errors[0]?.message,
+    'A "when" line in the system prompt can\'t hold a blank line.',
+  );
 });
 
 Deno.test('both taint settings in the file come back into the draft', () => {
@@ -188,6 +191,21 @@ function withoutFirstCall(source: string, name: string): string {
   const start = source.lastIndexOf('registerTool(', at);
   const end = source.indexOf(');\n', at);
   return source.slice(0, start) + source.slice(end + 3);
+}
+
+for (const background of ['always', 'ask', { afterMs: 10000 }] as const) {
+  Deno.test(`a tool's background ${JSON.stringify(background)} reads back from the file`, () => {
+    const draft = createExampleDraft();
+    const [first, ...rest] = draft.toolSpecs;
+    assert(first);
+    const set = { ...draft, toolSpecs: [{ ...first, background }, ...rest] };
+    roundTrip(set);
+    const compiled = compileStudio(set, ON_OWN_KEYS);
+    assert(compiled.ok);
+    const read = readStudioSource(studioSource(compiled), set);
+    if (!read.ok) throw new Error(read.errors.map((error) => error.message).join('\n'));
+    assertEquals(read.draft.toolSpecs[0]?.background, background);
+  });
 }
 
 Deno.test('leaving a tool out of tools.allow takes it off this agent', () => {

@@ -156,7 +156,8 @@ A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and
 - **A Worker host cannot run a long job.** A Container can.
 - **`maxOutcomeBytes` covers the final outcome only.** A larger result settles as `result_too_large`, and the result is lost. Set it high for a long agent tool, or leave it unset.
 - **A stopped agent tool reports no tokens.** `nested.ts` throws before it reads the child's usage.
-- **`@theoremjs/web` does not pass the service in the first build.** Its tools run inline. A checkpoint hashes each operation's status, and `requireOwnedCheckpoint` compares each settled read-back with the history, so a job that settles late would invalidate it. Web support is a later contract change.
+- **`@theoremjs/web` keeps the reply with the operation.** A session records a detached call as `background` and keeps its reply after settlement. The checkpoint row stays the same when the call settles or is marked, and `requireOwnedCheckpoint` compares the reply with the history, so a late settlement does not invalidate a checkpoint. The host passes the service through the handler's `background` option.
+- **The reply text is what stops a repeat call.** A live run with weaker text called the tool five times, and invented a result. The kernel does not refuse a second call to the same tool, because a repeat can be correct. A host that must refuse one uses a `pre_tool` stage.
 
 ## 6. Settled by existing rules
 

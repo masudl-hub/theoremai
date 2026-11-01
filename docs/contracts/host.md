@@ -115,7 +115,7 @@ The live client starts with an open message validated by `parseLiveOpenMessage`.
 It contains slots, client context, portable history, optional `providerState`, and absence duration.
 The relay uses `createTheoremSessionBoundary` to authenticate the conversation before upstream transport.
 Its `prepareLiveOpen` rejects unowned checkpoints and removes system-role history.
-Pass its `toolExecution` and `pageExecution` to `runSession`.
+Pass its `toolExecution` and `pageExecution` to `runSession`. To run [background tool calls](./kernel.md#background-tool-calls), also pass your `background` service.
 Persist checkpoints with `recordCheckpoint` before browser delivery. Forward page results to `answerPageResult`.
 The opening frame is not a `LiveClientMessage`. Sending it later produces a request error.
 

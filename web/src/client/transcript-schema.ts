@@ -27,6 +27,7 @@ type ToolCallState = NonNullable<ToolCall['state']>;
 const TOOL_CALL_STATE_PHASES = [
   'running',
   'gate',
+  'background',
   'complete',
   'error',
   'cancel',

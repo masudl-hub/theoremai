@@ -472,12 +472,14 @@ export type {
   ToolOperationClaim,
   ToolOperationIdentity,
   ToolOperationOutcome,
+  ToolOperationReply,
   ToolOperationUncertainty,
 } from './src/kernel/tools/operation.ts';
 export {
   savedToolInvocationSchema,
   toolInvocationHash,
   toolOperationOutcomeSchema,
+  toolOperationReplySchema,
 } from './src/kernel/tools/operation.ts';
 export type {
   SettledToolCall,

@@ -76,13 +76,13 @@ import { isCredentialName, MASK } from '@theoremjs/agents/surface';
 import { STUDIO_KEY_SLOT_CAP } from './browser-connection.ts';
 import { GOOGLE_SPEECH_FORMATS, GOOGLE_THINKING_LEVELS } from './cookbooks/providers.ts';
 import type {
+  ConditionDraft,
   DecisionDraft,
   GuardrailsDraft,
   ImageDraft,
   ImageReferenceDraft,
   InputsDraft,
   LiveDraft,
-  ConditionDraft,
   ModelBindingDraft,
   ObservabilityDraft,
   OutputsDraft,
@@ -710,6 +710,7 @@ function toolCommon(tool: ToolSpecDraft, fail: Fail, agentInputOf: AgentToolInpu
     loadTier: tool.loadTier,
     paths: paths.length ? paths : ['*'],
     ...(tool.after ? { after: true } : {}),
+    ...(tool.background ? { background: tool.background } : {}),
     ...schemas,
   };
 }

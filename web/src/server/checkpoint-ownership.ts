@@ -6,7 +6,10 @@ import {
   type TurnHistoryMessage,
   toolInvocationHash,
 } from '@theoremjs/agents';
-import type { TheoremSessionState } from './session-store.ts';
+import { detachedReply, type TheoremSessionState } from './session-store.ts';
+
+type Operation = TheoremSessionState['operations'][string];
+
 export function checkpointIdentity(checkpoint: ProviderCheckpoint): Promise<string> {
   return toolInvocationHash(providerCheckpointSchema.parse(checkpoint));
 }
@@ -20,10 +23,26 @@ export async function checkpointOwnershipKey(
     .map(([id, operation]) =>
       operation.status === 'ready'
         ? [id, operation.status, operation.profileId, operation.readyAt]
-        : [id, operation.status, operation.profileId, operation.toolId, operation.invocationHash],
+        : [
+            id,
+            // invariant: A late settlement of a detached call leaves this row, and its checkpoint, as it was.
+            detachedReply(operation) ? 'background' : operation.status,
+            operation.profileId,
+            operation.toolId,
+            operation.invocationHash,
+          ],
     );
   const epoch = await toolInvocationHash(rows);
   return `${identity}:${epoch}`;
+}
+
+/** What the model read for this call: a detached call's reply, or a settled call's result. */
+function readBackOf(operation: Operation): string | undefined {
+  const reply = detachedReply(operation);
+  if (reply) return reply.event.tool.readBack;
+  return operation.status === 'settled' && operation.outcome.effects !== 'unknown'
+    ? operation.outcome.event.tool.readBack
+    : undefined;
 }
 
 export async function requireOwnedCheckpoint(
@@ -41,19 +60,20 @@ export async function requireOwnedCheckpoint(
     portableHistory !== undefined &&
     records.length > 0 &&
     identities.some((saved) => saved.startsWith(`${identity}:`)) &&
-    records.every(
-      (operation) =>
-        operation.status === 'settled' &&
-        operation.outcome.effects !== 'unknown' &&
-        operation.outcome.event.tool.readBack !== undefined &&
+    records.every((operation) => {
+      const readBack = readBackOf(operation);
+      return (
+        operation.status !== 'ready' &&
+        readBack !== undefined &&
         portableHistory.some(
           (message) =>
             message.role === 'tool' &&
             message.tool_call_id === operation.callId &&
             message.name === operation.toolId &&
-            message.content === operation.outcome.event.tool.readBack,
-        ),
-    );
+            message.content === readBack,
+        )
+      );
+    });
   if (
     !identities.includes(key) &&
     !portableSettlements &&

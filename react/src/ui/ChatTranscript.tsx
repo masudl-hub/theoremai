@@ -794,6 +794,7 @@ function toolCallItem(
         ),
       };
     case 'running':
+    case 'background':
       return { ...base, status: 'running', resultDetail: toolDetail(t, tool) };
     default:
       return { ...base, status: 'pending', resultDetail: toolDetail(t, tool) };

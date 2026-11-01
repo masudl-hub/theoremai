@@ -24,7 +24,11 @@ import {
 import { checkRequest } from './request-check.ts';
 import { sessionStateStore } from './session-authority.ts';
 import { theoremSession } from './session-identity.ts';
-import { DEFAULT_OPERATION_RETENTION_MS, type TheoremSessionStore } from './session-store.ts';
+import {
+  DEFAULT_OPERATION_RETENTION_MS,
+  detachedReply,
+  type TheoremSessionStore,
+} from './session-store.ts';
 import { sessionToolCoordinator } from './tool-operations.ts';
 import { liveSessionOpen } from './turn-input.ts';
 
@@ -105,7 +109,9 @@ export async function createTheoremSessionBoundary(
       );
       if (
         providerState &&
-        Object.values(state.operations).some((operation) => operation.status !== 'settled')
+        Object.values(state.operations).some(
+          (operation) => operation.status !== 'settled' && !detachedReply(operation),
+        )
       ) {
         throw new TheoremError(
           'conflict',

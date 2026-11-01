@@ -1692,8 +1692,19 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       "'always' | { afterMs: number } | 'ask' | 'never'",
       "When the model gets its reply while the body goes on. 'always': at the hand-off. { afterMs }: once the body has run past this time. 'ask': at the hand-off if the model sets the background argument. A turn with no background service runs the tool inline.",
     ),
+    options: ['never', 'ask', 'always', 'afterMs'],
+    optionDescriptions: {
+      never: 'The model gets its reply when the body ends.',
+      ask: 'The model chooses, call by call, whether to go on without the result.',
+      always: 'The model gets its reply at once, and the body goes on after the turn.',
+      afterMs: 'The model gets its reply once the body has run past this time.',
+    },
     unset: "'never': the model gets its reply when the body ends",
   },
+  'registerTool.background.afterMs': field(
+    'number',
+    'Milliseconds the body runs before the model gets its reply. A body that ends sooner answers in the turn.',
+  ),
   'registerTool.category': field('string', 'A label for grouping tools; nothing reads it yet.'),
   'registerTool.labels': field(
     'ToolLabels',

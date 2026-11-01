@@ -361,12 +361,14 @@ export type {
   ToolOperationClaim,
   ToolOperationIdentity,
   ToolOperationOutcome,
+  ToolOperationReply,
   ToolOperationUncertainty,
 } from './tools/operation.ts';
 export {
   savedToolInvocationSchema,
   toolInvocationHash,
   toolOperationOutcomeSchema,
+  toolOperationReplySchema,
 } from './tools/operation.ts';
 export { jsonSchemaFromZod } from './tools/schema.ts';
 export { CredentialRefusedError } from './tools/signed-in-fetch.ts';

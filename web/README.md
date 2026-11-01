@@ -418,7 +418,7 @@ Saved outcomes include guarded model read-back, media, provenance, and suspiciou
 The handler retains settled operations for 24 hours from settlement by default. Set `operationRetentionMs` to change this window.
 Each saved outcome records its absolute retention deadline. Changing a handler's policy does not shorten that deadline.
 Each issued gate records its absolute expiry. Changing `gateTtlMs` does not extend an issued gate.
-Ready, running, and uncertain operations do not expire.
+Ready, running, background, and uncertain operations do not expire.
 
 A session store with a real limit declares its `capacity`: what it holds for one session, in bytes of UTF-8 JSON.
 
@@ -450,6 +450,8 @@ A live session does not restore a dispatched call after an unexpected failure. I
 To retain execution claims across connections, supply a durable coordinator through `RunSessionOptions.execution`.
 Browser dispatch uses a host-owned `PageToolExecution` service beside the execution coordinator.
 `createTheoremHandler` supplies both services. Live relays pass the session boundary's `pageExecution` and `toolExecution` to `runSession`.
+
+A tool with a `background` setting runs inline until you pass the `background` option to `createTheoremHandler`. The option takes `{ request, sessionId }` and returns a `ToolBackgroundService`, which receives each detached call and its late events. The session keeps the call as `background` until it settles, and a late settlement does not invalidate a checkpoint. Keep the service's values valid after the request ends. A live relay passes its service to `runSession`.
 Forward live page results to `answerPageResult`. Preserve checkpoint ownership through `beforeEvent` when using the Studio bridge.
 The default `PageToolBroker` keeps active result waiters in process memory. Several workers need a shared broker or request affinity.
 Use `pageToolBroker` to supply that broker. It carries results; the atomic session store retains execution authority.

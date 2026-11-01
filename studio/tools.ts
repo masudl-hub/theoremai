@@ -39,6 +39,7 @@ export function registerCustomTool(
     permission: tool.permission,
     ...(tool.labels ? { labels: tool.labels } : {}),
     ...(tool.after ? { after: true } : {}),
+    ...(tool.background ? { background: tool.background } : {}),
   };
   if (tool.type === 'agent') {
     tools.register({

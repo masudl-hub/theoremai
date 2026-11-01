@@ -11,7 +11,7 @@ import { type JsonSchema, json, sampleFromSchema } from '@theoremjs/web/client';
 
 export type ToolCall = Extract<TranscriptBlock, { kind: 'tool' }>['tool'];
 
-export type HostCallStatus = 'running' | 'gate' | 'complete' | 'error' | 'cancel';
+export type HostCallStatus = 'running' | 'gate' | 'background' | 'complete' | 'error' | 'cancel';
 
 /** What a call's standing reads from. */
 export type HostCallState = {
@@ -22,6 +22,7 @@ export type HostCallState = {
 
 const SETTLED: ReadonlySet<string> = new Set<HostCallStatus>([
   'gate',
+  'background',
   'complete',
   'error',
   'cancel',

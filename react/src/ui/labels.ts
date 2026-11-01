@@ -890,6 +890,10 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: 'running',
     description: 'A tool call in progress.',
   },
+  '@theorem.host.status.background': {
+    defaultMessage: 'in background',
+    description: 'A tool call that replied and goes on after the turn.',
+  },
   '@theorem.host.status.gate': {
     defaultMessage: 'waiting',
     description: 'A tool call paused on approval or sign-in.',

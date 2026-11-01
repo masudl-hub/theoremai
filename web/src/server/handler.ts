@@ -86,6 +86,7 @@ import {
   answerGatedCall,
   type GateAnswerRequest,
   resolveGateTtlMs,
+  type ToolBackgroundService,
   type ToolCredentialSource,
 } from '@theoremjs/agents/kernel';
 import {
@@ -237,6 +238,12 @@ export type TheoremHandlerOptions = {
    * answered by then settles as timed out. Unset, it waits until the page answers or the turn stops.
    */
   pageToolTimeoutMs?: number;
+  /**
+   * The service for tools with a `background` setting, by session. It receives each detached call
+   * and its late events. The session keeps each call's state and result. Unset, every tool runs
+   * inline. The value must stay valid after the request ends, until each call settles.
+   */
+  background?: (ctx: { request: Request; sessionId: string }) => ToolBackgroundService;
   /** Check current resource access before disclosing a saved tool result. This callback must be read-only. */
   authorizeToolReplay?: (context: {
     request: Request;
@@ -730,6 +737,7 @@ async function* invokeAnswered(
   yield* invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, sessionId),
+    ...backgroundWiring(ctx, request, sessionId),
     pageExecution: sessionPageDispatch(
       ctx.sessions,
       sessionId,
@@ -755,6 +763,17 @@ async function* invokeAnswered(
     signal: request.signal,
     host: prepared.host,
   });
+}
+
+/** The host's service for a call in this session, for a request that runs a tool. */
+function backgroundWiring(
+  ctx: HandlerContext,
+  request: Request,
+  sessionId: string,
+): { background?: ToolBackgroundService } {
+  return ctx.options.background
+    ? { background: ctx.options.background({ request, sessionId }) }
+    : {};
 }
 
 /** A settled call's answer, streamed again. */
@@ -788,6 +807,7 @@ async function* chatTurn(
       {
         profile: ctx.profile.id,
         execution: sessionToolCoordinator(ctx.sessions, session.id),
+        ...backgroundWiring(ctx, request, session.id),
         pageExecution: sessionPageDispatch(
           ctx.sessions,
           session.id,
@@ -802,7 +822,6 @@ async function* chatTurn(
         host,
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.effort ? { effort: turn.effort } : {}),
-        ...(turn.promoted ? { promoted: turn.promoted } : {}),
         ...turn.stated,
       },
       {
@@ -1025,6 +1044,7 @@ async function* callEvents(
   const events = invokeTool({
     profile: ctx.profile.id,
     execution: sessionToolCoordinator(ctx.sessions, session.id),
+    ...backgroundWiring(ctx, request, session.id),
     pageExecution: sessionPageDispatch(
       ctx.sessions,
       session.id,
@@ -1072,7 +1092,7 @@ function refused(ctx: HandlerContext): Response {
 async function* replayOperation(
   ctx: HandlerContext,
   request: Request,
-  operation: Extract<SessionToolOperation, { status: 'settled' }>,
+  operation: Extract<SessionToolOperation, { status: 'settled' | 'background' }>,
 ): AsyncGenerator<TurnEvent> {
   const tool = defaultKernelScope.tools.get(operation.toolId);
   if (
@@ -1081,7 +1101,8 @@ async function* replayOperation(
     tool.type === 'builtin' ||
     !('tools' in ctx.profile) ||
     !ctx.profile.tools?.allow.includes(operation.toolId) ||
-    (ctx.options.authorizeToolReplay &&
+    (operation.status === 'settled' &&
+      ctx.options.authorizeToolReplay &&
       !(await ctx.options.authorizeToolReplay({ request, operation })))
   )
     throw new TheoremError('blocked', labelText('error.blocked'));
@@ -1090,9 +1111,12 @@ async function* replayOperation(
     profile: ctx.profile,
     name: operation.toolId,
     resume: undefined,
-    outcome: operation.outcome,
+    ...(operation.status === 'settled' ? { outcome: operation.outcome } : {}),
   });
-  yield* once(operation.outcome.event, ctx.profile.labels);
+  yield* once(
+    operation.status === 'settled' ? operation.outcome.event : operation.reply.event,
+    ctx.profile.labels,
+  );
 }
 
 /**
@@ -1143,7 +1167,7 @@ async function settlingOf(
     );
   }
   if (
-    operation?.status === 'settled' &&
+    (operation?.status === 'settled' || operation?.status === 'background') &&
     operation.profileId === ctx.profile.id &&
     operation.callId === body.gateId
   ) {

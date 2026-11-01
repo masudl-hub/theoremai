@@ -12,6 +12,7 @@ import {
   type ToolOperationIdentity,
 } from '../../mod.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { appendAssistantEventsToHistory } from '../../src/interface/history.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import type { KernelScope } from '../../src/kernel/scope.ts';
 import type { StageHandler } from '../../src/kernel/stages.ts';
@@ -178,6 +179,19 @@ Deno.test('an always tool answers at the hand-off and settles after the turn', a
   assert(known?.kind === 'settled');
   assertEquals(known.outcome.effects, 'completed');
   assertEquals(phases(run.sink).at(-1), 'complete');
+});
+
+Deno.test('a backgrounded call joins the history as its reply, so the next turn can run', async () => {
+  const run = await detached('always');
+  const history = appendAssistantEventsToHistory([{ role: 'user', content: 'Go' }], run.events);
+  const tool = history.find((message) => message.role === 'tool');
+  assert(String(tool?.content).includes('still running'));
+  const events = await turn(run.scope, caller([]), {
+    input: { text: 'Any news?', history },
+  });
+  assert(events.some((event) => event.type === 'done'));
+  run.release.resolve({ done: 'late' });
+  await run.handle.done;
 });
 
 Deno.test('afterMs moves a running body past its reply', async () => {

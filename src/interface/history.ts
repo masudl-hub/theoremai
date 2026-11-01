@@ -11,12 +11,15 @@ import { applyToolEvent, toolCallRanWith } from './tool-calls.ts';
 import type { ToolCall, TranscriptBlock, UserTurnDraft } from './types.ts';
 
 /**
- * The kernel sets `readBack` on every `complete` and `error` event, so a call without it did not
- * come from a run and has no text the model read.
+ * The kernel sets `readBack` on every `complete`, `error` and `background` event, so a call without
+ * it did not come from a run and has no text the model read.
  */
 function toolReadBack(call: ToolCall): string {
   const state = call.state;
-  if ((state?.phase !== 'complete' && state?.phase !== 'error') || state.readBack === undefined) {
+  if (
+    (state?.phase !== 'complete' && state?.phase !== 'error' && state?.phase !== 'background') ||
+    state.readBack === undefined
+  ) {
     throw new TheoremError(
       'request',
       `Tool call '${call.name}' has no readBack: only a settled call from a run carries one.`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)

@@ -589,7 +589,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
   'tool.background_field':
     'Set to true to get a reply now and let this call finish after the turn. Leave out to wait for its result.',
   'tool.background_started':
-    '{tool} is still running. Its result is not ready, so do not state one.',
+    '{tool} has started and is still running. You do not have its result, so do not state or guess one, and do not call {tool} again. Tell the person it is under way and that the result comes later.',
   'tool.after_field':
     'Tools you are calling in this same step that must finish before this call starts. Leave out to set no order.',
   'tool.not_visible': "Tool '{tool}' is not visible this turn",

@@ -64,7 +64,7 @@ export const line = defineProfile({
   identity: { handle: 'Line' },
   models: { main: { protocol: 'geminiLive', provider: 'google', apiId: 'fake-live' } },
   defaultModel: 'main',
-  tools: { allow: ['file_note', 'wipe_desk'] },
+  tools: { allow: ['file_note', 'wipe_desk', 'slow_report'] },
   live: { voice: 'Aoede', ingress: { text: true, audio: true, video: false } },
 });
 

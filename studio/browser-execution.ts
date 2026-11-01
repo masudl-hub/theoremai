@@ -7,6 +7,7 @@ import {
   sessionStateStore,
   sessionToolCoordinator,
 } from '@theoremjs/web/server';
+import { STUDIO_BACKGROUND } from './runtime-scope.ts';
 
 export function browserExecution() {
   const id = crypto.randomUUID();
@@ -23,6 +24,7 @@ export function browserExecution() {
     boundary,
     execution: sessionToolCoordinator(store, id),
     pageExecution: page.execution,
+    background: STUDIO_BACKGROUND,
     pageResult: page.answer,
   };
 }

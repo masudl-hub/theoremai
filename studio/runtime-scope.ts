@@ -14,6 +14,7 @@ import {
   type RegisteredProvider,
   type ResolveHost,
   TheoremError,
+  type ToolBackgroundService,
   type ToolExecutionCoordinator,
 } from '@theoremjs/agents';
 import {
@@ -44,12 +45,22 @@ import { localProviderAddress, registerStudioProvider, STUDIO_PROVIDERS } from '
 import type { StructuredRegistration, ToolRegistration } from './registrations.ts';
 import { registerDefined, type StudioToolHandlers } from './tools.ts';
 
+/**
+ * A detached call's service for a run whose session lives as long as the work does: the studio's
+ * own server, or the page's tab.
+ * why: the session keeps each call's state and end, and a conversation read shows them, so a late
+ * event has nowhere else to go.
+ */
+export const STUDIO_BACKGROUND: ToolBackgroundService = { detached() {}, event() {} };
+
 /** What a run holds besides what it runs on. */
 export interface StudioRuntimeBase {
   /** A project's own provider definitions, registered after the studio's. */
   providerDefinitions?: readonly Provider[];
   execution?: ToolExecutionCoordinator;
   pageExecution?: import('@theoremjs/agents').PageToolExecution;
+  /** Without it every tool runs inline, whatever its `background` setting. */
+  background?: ToolBackgroundService;
   providers?: StudioProviderOptions;
   hostOptions?: (profile: Profile, model?: string) => ProviderHostOptions;
   /** Answers every model call with a scripted model, in place of the profile's provider. */

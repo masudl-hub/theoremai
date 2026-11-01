@@ -47,6 +47,7 @@ import {
   IconCheck,
   IconChevronRight,
   IconCircleDashed,
+  IconClock,
   IconDatabase,
   IconDeviceDesktop,
   IconEraser,
@@ -74,6 +75,7 @@ import {
   IconLockOpen,
   IconLogin,
   IconMessage,
+  IconMessageQuestion,
   IconMicrophone,
   IconPackage,
   IconPaperclip,
@@ -126,6 +128,7 @@ import {
   THINKING_LEVELS,
   type ThinkingLevel,
   type ToolAccess,
+  type ToolBackground,
   type ToolLoadTier,
   type ToolPermission,
   VOICE_ACCEPT_MIMES,
@@ -5382,6 +5385,28 @@ const PERMISSION_SEGMENTS: Segment<ToolPermission>[] = [
   { value: 'always_confirm', label: 'Every call', icon: IconHandStop },
 ];
 
+type BackgroundSegment = 'never' | 'ask' | 'always' | 'afterMs';
+
+const BACKGROUND_SEGMENTS: Segment<BackgroundSegment>[] = [
+  { value: 'never', label: 'Never', icon: IconPlayerPause },
+  { value: 'ask', label: 'Model asks', icon: IconMessageQuestion },
+  { value: 'always', label: 'Always', icon: IconPlayerTrackNext },
+  { value: 'afterMs', label: 'After a time', icon: IconClock },
+];
+
+/** A newly picked wait, until the builder sets their own. */
+const BACKGROUND_AFTER_MS = 10_000;
+
+function backgroundSegment(background: ToolBackground | undefined): BackgroundSegment {
+  if (typeof background === 'object') return 'afterMs';
+  return background ?? 'never';
+}
+
+function backgroundOf(segment: BackgroundSegment, afterMs: number | null) {
+  if (segment === 'afterMs') return { afterMs: afterMs ?? BACKGROUND_AFTER_MS };
+  return segment === 'never' ? undefined : segment;
+}
+
 const METHOD_SEGMENTS: Segment<HttpMethod>[] = [
   { value: 'GET', label: 'GET', icon: IconHttpGet },
   { value: 'POST', label: 'POST', icon: IconHttpPost },
@@ -6480,6 +6505,40 @@ function AuthSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   );
 }
 
+/** When the model gets its reply: the setting, and the time for one that waits. */
+function BackgroundRows({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
+  const { background } = tool;
+  const afterMs = typeof background === 'object' ? background.afterMs : null;
+  return (
+    <>
+      <SegmentedRow
+        label="Background"
+        path="registerTool.background"
+        field="background"
+        value={backgroundSegment(background)}
+        segments={BACKGROUND_SEGMENTS}
+        onChange={(segment) => {
+          set({ background: backgroundOf(segment, afterMs) });
+        }}
+      />
+      {afterMs === null ? null : (
+        <NumberRow
+          label="After"
+          path="registerTool.background.afterMs"
+          field="background"
+          value={afterMs}
+          min={0}
+          isIntegerOnly
+          units="ms"
+          onChange={(next) => {
+            if (next !== null) set({ background: { afterMs: next } });
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 /** Who may call the tool, whether it asks first, when it loads and on which paths. */
 function PolicySection({
   draft,
@@ -6490,6 +6549,7 @@ function PolicySection({
   tool: ToolSpecDraft;
   set: SetTool;
 }) {
+  const isLoader = draft.tools.t2Loader.trim() === tool.toolName.trim();
   return (
     <InspectorSection title="Policy">
       <SegmentedRow
@@ -6512,6 +6572,7 @@ function PolicySection({
           set({ permission });
         }}
       />
+      {tool.answeredBy === 'page' || isLoader ? null : <BackgroundRows tool={tool} set={set} />}
       <SegmentedRow
         label="Load tier"
         path="registerTool.loadTier"

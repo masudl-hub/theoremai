@@ -90,6 +90,7 @@ class BrowserLiveSocket implements LiveSocket {
           signal: runtime.signal,
           execution: runtime.execution ?? page?.execution,
           pageExecution: runtime.pageExecution ?? page?.pageExecution,
+          background: runtime.background ?? page?.background,
         },
         {
           vault: runtime.providers.vault,

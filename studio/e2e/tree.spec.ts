@@ -57,7 +57,7 @@ test('a duplicate runs, Save writes its file, and Save takes it back out', async
 
 test('a new tool goes on the agent and Save writes both', async ({ page }) => {
   await open(page);
-  await page.getByRole('radio', { name: /Tools, 4/ }).click();
+  await page.getByRole('radio', { name: /Tools, 5/ }).click();
   await page.getByRole('button', { name: 'Add tool' }).click();
   await expect(page.getByRole('textbox', { name: 'Name' })).toHaveValue('my_tool');
   await page.getByRole('textbox', { name: 'Name' }).fill('stamp_note');
@@ -65,7 +65,7 @@ test('a new tool goes on the agent and Save writes both', async ({ page }) => {
   await expect(saved(page)).toBeVisible();
   await expect(saveToken(page)).toBeHidden();
   expect(written().join()).toContain('stamp_note');
-  expect(allText()).toContain("'wipe_desk', 'stamp_note'");
+  expect(allText()).toContain("'slow_report', 'stamp_note'");
 });
 
 test('headers and resource attributes are rows, and Save writes them as objects', async ({
@@ -79,7 +79,7 @@ test('headers and resource attributes are rows, and Save writes them as objects'
   await page.getByRole('button', { name: 'Add attribute' }).click();
   await page.getByRole('textbox', { name: 'Attribute 2 name' }).fill('port');
   await page.getByRole('textbox', { name: 'Attribute 2 value' }).fill('8080');
-  await page.getByRole('radio', { name: /Tools, 4/ }).click();
+  await page.getByRole('radio', { name: /Tools, 5/ }).click();
   await page.getByRole('button', { name: 'Add tool' }).click();
   await page.getByRole('radio', { name: 'HTTP' }).click();
   await page.getByRole('textbox', { name: 'Endpoint' }).fill(`${FAKE}/requests`);
@@ -156,7 +156,7 @@ test("an http tool is tested against its endpoint, within the agent's network gu
   page,
 }) => {
   await open(page);
-  await page.getByRole('radio', { name: /Tools, 4/ }).click();
+  await page.getByRole('radio', { name: /Tools, 5/ }).click();
   await page.getByRole('button', { name: 'Add tool' }).click();
   await page.getByRole('radio', { name: 'HTTP' }).click();
   await page.getByRole('textbox', { name: 'Endpoint' }).fill(`${FAKE}/requests`);

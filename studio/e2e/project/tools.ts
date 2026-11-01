@@ -59,4 +59,19 @@ export function registerTools(): void {
     output: z.object({ wiped: z.number(), by: z.string() }),
     handler: (_input, ctx) => ({ wiped: 3, by: (ctx.host as { person: string }).person }),
   });
+  registerTool({
+    ...IN_ANY_TURN,
+    access: 'read-only',
+    permission: 'auto',
+    background: 'always',
+    name: 'slow_report',
+    description: 'Writes a report that takes a moment.',
+    category: 'desk',
+    input: z.object({}),
+    output: z.object({ pages: z.number() }),
+    handler: async () => {
+      await new Promise((done) => setTimeout(done, 1500));
+      return { pages: 12 };
+    },
+  });
 }

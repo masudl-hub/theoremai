@@ -118,6 +118,7 @@ function withBrowserExecution(runtime: StudioBrowserRuntime, run: Engine) {
       onAgentCall: original.onAgentCall?.bind(original),
       execution: local.execution,
       pageExecution: local.pageExecution,
+      background: local.background,
     };
   }
   return { runtime, local };

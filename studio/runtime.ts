@@ -173,6 +173,7 @@ function studioRunner(args: {
           profile: profile.id,
           execution: runtime.execution,
           pageExecution: runtime.pageExecution,
+          background: runtime.background,
           metadata,
           input: turn.input,
           ...turn.stated,
@@ -398,6 +399,7 @@ function answerReplayed(
     resolveHost: runtime.resolveHost,
     execution: runtime.execution,
     pageExecution: runtime.pageExecution,
+    background: runtime.background,
     onAgentCall: agentCallHook(scope, runtime),
   };
 }
@@ -557,6 +559,7 @@ export async function* streamStudioCall(args: {
       profile: profile.id,
       execution: args.runtime.execution,
       pageExecution: args.runtime.pageExecution,
+      background: args.runtime.background,
       name: args.call.name,
       input: args.call.input,
       sessionPermissions: args.sessionPermissions,

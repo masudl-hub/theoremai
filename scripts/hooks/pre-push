@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# CI's lint job on each commit being pushed, then a fallow gate on the push range for introduced
+# CI's lint job and type checks on each commit being pushed, then a fallow gate on the push range for introduced
 # complexity/dupes/dead. Installed by prepare / hooks:install. CI still runs the tests.
 set -e
 cd "$(git rev-parse --show-toplevel)" || exit 1
@@ -8,7 +8,9 @@ while read -r _ local_sha _; do
   # invariant: a deleted branch arrives as all zeros and has nothing to lint.
   case "$local_sha" in *[!0]*) ;; *) continue ;; esac
   ./scripts/hooks/lint-tree.sh "$local_sha" \
-    'npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep'
+    'npm run lint:docs && deno lint && npm run lint:biome && npm run lint:ast-grep &&
+      deno check mod.ts tests/fixtures/probes/ scripts/*.ts &&
+      deno check $(node scripts/test-shard.mjs 0 1)'
 done
 
 if ! command -v fallow >/dev/null 2>&1 && [ ! -x ./node_modules/.bin/fallow ]; then

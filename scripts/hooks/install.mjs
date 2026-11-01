@@ -14,7 +14,7 @@ const hooks = [
   {
     name: 'pre-push',
     label:
-      'pre-push → CI lint job on the pushed commit, then fallow audit (coverage-aware when present)',
+      'pre-push → CI lint job and type checks on the pushed commit, then fallow audit (coverage-aware when present)',
   },
 ];
 

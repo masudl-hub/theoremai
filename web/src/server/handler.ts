@@ -822,6 +822,7 @@ async function* chatTurn(
         host,
         ...(turn.model ? { model: turn.model } : {}),
         ...(turn.effort ? { effort: turn.effort } : {}),
+        ...(turn.promoted ? { promoted: turn.promoted } : {}),
         ...turn.stated,
       },
       {

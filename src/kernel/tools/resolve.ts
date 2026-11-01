@@ -285,7 +285,7 @@ export async function expandT1Policy(
 export function promoteTurnTools(
   tools: ToolRegistry,
   state: TurnToolSnapshot,
-  ids: readonly ToolId[],
+  ids: readonly ToolId[] = [],
 ): void {
   for (const id of ids) {
     if (!state.gated.includes(id)) {

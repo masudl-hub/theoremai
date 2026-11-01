@@ -717,7 +717,7 @@ async function* runTurnBody(ctx: TraceCtx, provider: TurnModel): AsyncGenerator<
   if (sanitized.refusal) throw sanitized.refusal;
   const { profile, generation: gen } = resolveTurnInRegistry(ctx.registry, ctx.safe);
   await expandT1Policy(ctx.registry.tools, gen.tools, profile, ctx.safe);
-  promoteTurnTools(ctx.registry.tools, gen.tools, ctx.safe.promoted ?? []);
+  promoteTurnTools(ctx.registry.tools, gen.tools, ctx.safe.promoted);
   if (ctx.compacting === 'self') gen.tools = noTools();
   gen.builtins = gen.tools.builtins;
   if (gen.canary) gen.canary = await profileCanary(profile.id, gen.resolvedSystem);

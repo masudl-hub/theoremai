@@ -457,7 +457,7 @@ async function* runReply(
       model: runner.model,
       effort: runner.effort,
       ...(runner.stated ? { stated: runner.stated } : {}),
-      ...(runner.promoted?.length ? { promoted: runner.promoted } : {}),
+      ...(runner.promoted ? { promoted: runner.promoted } : {}),
     });
     for await (const event of events) {
       reply.events.push(event);

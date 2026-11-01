@@ -1334,9 +1334,9 @@ function keyAndToolMembers(
       return { slot, checks };
     },
     toolCredential,
-    testTool: async (key, input) => {
+    testTool: (key, input) => {
       const tool = store.getDraft().toolSpecs.find((candidate) => candidate.key === key);
-      if (!tool) return { ok: false, error: 'No such tool.' };
+      if (!tool) return Promise.resolve({ ok: false, error: 'No such tool.' });
       const sample = JSON.stringify(input ?? sampleToolInput(tool.toolName, tool.inputJson) ?? {});
       return runToolProbe(tool, sample, toolCredential(key), store.getDraft().guardrails);
     },

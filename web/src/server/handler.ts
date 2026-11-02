@@ -234,8 +234,8 @@ export type TheoremHandlerOptions = {
   conversationStore?: TheoremConversationStore;
   /**
    * How long a gate (permission, confirmation, sign-in) waits for its answer, in
-   * milliseconds. An answer after that is refused with `session.gate_expired`.
-   * Unset, a gate waits until it is answered.
+   * milliseconds. An answer after that is refused with `session.gate_expired`,
+   * and the next message cancels the call. Unset, a gate waits until it is answered.
    */
   gateTtlMs?: number;
   /** Retain settled tool results in milliseconds. Default: 24 hours. */
@@ -698,10 +698,18 @@ function walkedCallOf(
   state: TheoremSessionState,
   reference: GateReference,
   profileId: string,
+  paused: TurnEvent[],
 ): WalkedCall {
   const settled = Object.hasOwn(state.operations, reference.operationId)
     ? state.operations[reference.operationId]
     : undefined;
+  // why: A gate that lapsed is gone from the session while the reply still waits on its call. The call is only ever cancelled here, so the next message is never refused for it.
+  if (!settled && !Object.hasOwn(state.gates, reference.operationId)) {
+    const lapsed = pendingGatesFrom(paused, { profileId, turnInput: {} }).find(
+      ({ callId }) => callId === reference.callId,
+    );
+    if (lapsed) state.gates[reference.operationId] = lapsed.gate;
+  }
   return settled?.status === 'settled' &&
     settled.callId === reference.callId &&
     settled.profileId === profileId
@@ -719,12 +727,14 @@ async function takeWalkedAway(
   request: Request,
   session: Session,
   abandon: readonly GateReference[],
+  conversation: StoredConversation,
 ): Promise<IssuedWalkAway[]> {
+  const paused = conversation.paused?.events ?? [];
   // why: A throw leaves the session unsaved, so no call is taken unless all are.
   const calls = await ctx.sessions.mutate(session.id, (state) =>
     abandon.map((reference) => ({
       reference,
-      call: walkedCallOf(state, reference, ctx.profile.id),
+      call: walkedCallOf(state, reference, ctx.profile.id, paused),
     })),
   );
   return calls.map(({ reference, call }) => ({
@@ -973,7 +983,7 @@ async function turn(
   });
   // why: Take the walked-away calls before streaming, so a stale one is a reply status, not a stream error.
   const walkAway = body.abandon
-    ? await takeWalkedAway(ctx, request, session, body.abandon)
+    ? await takeWalkedAway(ctx, request, session, body.abandon, opened.conversation)
     : undefined;
   return eventStream(ctx, request, () =>
     messageReply({ host, opened, message, ...(walkAway ? { walkAway } : {}), runner }),
@@ -1140,7 +1150,7 @@ async function rewind(ctx: HandlerContext, request: Request, session: Session): 
   const opened = await openConversation(host, body.conversation, { kind: 'rewind', at: body.at });
   const waiting = waitingCalls(opened.conversation);
   const walkAway = waiting.length
-    ? await takeWalkedAway(ctx, request, session, waiting)
+    ? await takeWalkedAway(ctx, request, session, waiting, opened.conversation)
     : undefined;
   const next = await rewindConversation({
     host,

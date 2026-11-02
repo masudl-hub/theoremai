@@ -28,19 +28,3 @@ export function subscribeToFiles(
     source.close();
   };
 }
-
-/**
- * Holds the project's load until the answer is called: the studio does not replace it, so what
- * waits in it can still be answered. `onChange` when a change waits for that, `saved` when the
- * builder saved it here and not in their editor.
- */
-export function holdLoad(endpoint: string, onChange: (saved: boolean) => void): () => void {
-  if (typeof EventSource === 'undefined') return () => undefined;
-  const source = new EventSource(`${endpoint}/hold`);
-  source.onmessage = (event: MessageEvent<string>) => {
-    onChange((JSON.parse(event.data) as { saved: boolean }).saved);
-  };
-  return () => {
-    source.close();
-  };
-}

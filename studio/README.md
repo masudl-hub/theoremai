@@ -85,7 +85,7 @@ theorem-studio errors [setup] [--follow]
 | Command | What it prints |
 | --- | --- |
 | `status` | Where the studio is open, what it loaded, what each key check said, and what to look at now. |
-| `errors` | The last 200 events the studio printed about the project (what to look at, each key that does not work, each run that fails, each error the page meets), each with its time. A run that ends well is not kept. |
+| `errors` | Every event the studio printed about the project (what to look at, each key that does not work, each run that fails, each error the page meets), each with its time. A run that ends well is not kept. |
 | `errors --follow` | The same, then each new event as it comes, until the studio stops. |
 
 With several setups open, name the one to read. The `agents` command runs the same commands through the studio you installed: `npx agents studio status`.

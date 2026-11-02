@@ -67,16 +67,13 @@ import { runsAsConversation } from './lib/conversation-types.ts';
 import { tracedTransport } from './lib/project-traces.ts';
 import { noting } from './lib/studio-activity.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
-import { getPref } from './lib/studio-prefs.ts';
 import {
   editedProfileEndpoint,
   openEdited,
   type ProjectSession,
   projectProfileEndpoint,
 } from './lib/studio-project.ts';
-import { holdLoad } from './lib/studio-watch.ts';
 import { RefusalDetail } from './refusal-detail.tsx';
-import { useProjectSave } from './studio-save.tsx';
 
 type Side = 'saved' | 'edited';
 const SIDES: readonly Side[] = ['saved', 'edited'];
@@ -195,26 +192,6 @@ function usePair() {
     for (const side of SIDES) handles.current[side]?.stop();
   }, []);
   return { busy, send, stop, refs, handles, chats, states };
-}
-
-/**
- * Holds the project's load until a reply is done, so the answer to a gate reaches the load that
- * asked. Answers whether a change waits for that.
- */
-function useLoadHold(endpoint: string, isBusy: boolean): boolean {
-  const [changeWaits, setChangeWaits] = useState(false);
-  useEffect(() => {
-    if (!isBusy) return undefined;
-    const release = holdLoad(endpoint, (saved) => {
-      // why: with the watch off the page does not read an editor's change, answered or not.
-      if (saved || getPref('watch') === 'on') setChangeWaits(true);
-    });
-    return () => {
-      release();
-      setChangeWaits(false);
-    };
-  }, [endpoint, isBusy]);
-  return changeWaits;
 }
 
 /** Whether the files' side is put away, for every comparison in this tab. */
@@ -989,18 +966,6 @@ export function ProjectChat(props: ProjectChatProps) {
   const { showsSaved, isShared, only } = useShownSides(view);
   const sharedInput = useRef<ChatComposerInputHandle | null>(null);
   useChatHandle(chatRef, pair, only, !isBusy && isReady, sharedInput);
-  const gated = pair.busy.filter((side) => pair.states[side]?.phase === 'gated');
-  // why: a gate its answer failed on may be gone; held, the change would wait for no answer.
-  const isHeld = pair.busy.some(
-    (side) => !gated.includes(side) || pair.states[side]?.failure === null,
-  );
-  const changeWaits = useLoadHold(props.project.endpoint, isHeld);
-  const setGateWaits = useProjectSave()?.setGateWaits;
-  const isGated = gated.length > 0;
-  useEffect(() => {
-    setGateWaits?.(isGated);
-    return () => setGateWaits?.(false);
-  }, [setGateWaits, isGated]);
   const shared = openSides(pair);
   const common = {
     detectCodeLanguage: true,
@@ -1065,13 +1030,6 @@ export function ProjectChat(props: ProjectChatProps) {
           )}
         </HStack>
       </StackItem>
-      {changeWaits && isGated && (
-        <HStack hAlign="center" paddingBlock={1}>
-          <Text type="supporting" color="secondary">
-            Your change loads after you answer.
-          </Text>
-        </HStack>
-      )}
       {isShared && (
         <SharedSlot
           sides={shared}

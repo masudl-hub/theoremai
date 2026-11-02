@@ -442,12 +442,7 @@ export interface ProjectSaveActions {
    * studio holds no edits.
    */
   discard: (() => void) | undefined;
-  /** Says whether a chat stands on a gate: Save waits for its answer. */
-  setGateWaits: (waits: boolean) => void;
 }
-
-/** Why Save waits while a chat stands on a gate. */
-const GATE_WAITS = 'A chat is waiting for your answer. Answer it, then save.';
 
 const ProjectSaveContext = createContext<ProjectSaveActions | null>(null);
 
@@ -512,7 +507,6 @@ export function ProjectSave({
   const [step, setStep] = useState<SaveStep>({ at: 'closed' });
   const [view, setView] = useState<ReviewView>('all');
   const [asking, setAsking] = useState(false);
-  const [gateWaits, setGateWaits] = useState(false);
   // An agent or provider added here is at its own start, and still one the files do not hold.
   // One removed here has no start left, and is still one the files hold.
   const clean = useMemo(
@@ -605,7 +599,6 @@ export function ProjectSave({
       review: blocked ? undefined : open,
       clear,
       discard: clean ? undefined : ask,
-      setGateWaits,
     }),
     [unsaved, blocked, open, clear, clean, ask],
   );
@@ -631,9 +624,7 @@ export function ProjectSave({
               subtitle={
                 writing
                   ? 'Checking that the project still loads with these lines.'
-                  : gateWaits
-                    ? GATE_WAITS
-                    : 'Save writes all of these lines or none. It then type-checks and loads the project, and puts your files back unless it runs as what you tested.'
+                  : 'Save writes all of these lines or none. It then type-checks and loads the project, and puts your files back unless it runs as what you tested.'
               }
               endContent={
                 step.at === 'review' &&
@@ -684,8 +675,7 @@ export function ProjectSave({
                     <Button
                       label="Save"
                       variant="primary"
-                      // why: a save waits for the load's gate, and this dialog covers the gate.
-                      isDisabled={!step.review.writable || gateWaits}
+                      isDisabled={!step.review.writable}
                       isLoading={writing}
                       onClick={() => {
                         write(step.review);

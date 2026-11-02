@@ -904,11 +904,12 @@ function walkAwayProvider(seen: (TurnHistoryMessage[] | undefined)[]): TurnModel
   };
 }
 /** A handler paused on `handler_delete`, and the chat that waits on it. */
-async function pausedForWalkAway(id: string, cut: Cut = {}) {
+async function pausedForWalkAway(id: string, cut: Cut = {}, gateTtlMs?: number) {
   const seen: (TurnHistoryMessage[] | undefined)[] = [];
   const handler = handlerFor({
     profile: profile(id, ['handler_delete']),
     provider: () => fixtureHostOptions(walkAwayProvider(seen)),
+    ...(gateTtlMs === undefined ? {} : { gateTtlMs }),
   });
   const transport = transportFor(handler, cut);
   const turn = await collect((onEvent) => transport.turn({ input: { text: 'delete' } }, onEvent));
@@ -1332,6 +1333,17 @@ Deno.test("an answer after the host's gateTtlMs is refused and the call never ru
   );
   assertEquals(ran, []);
 });
+Deno.test('a gate that expired does not block the next message, and its call never runs', async () => {
+  ran.length = 0;
+  const { seen, turn, walkAway } = await pausedForWalkAway('handler-walk-away-expired', {}, 1);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const walked = await walkAway();
+  assertEquals(failureOf(lastTool([...turn, ...walked], 'handler_delete'))?.kind, 'cancelled');
+  assertEquals(walked.filter((event) => event.type === 'done').length, 1);
+  assertEquals(ran, []);
+  assertEquals(seen.at(-1)?.at(-1)?.role, 'user');
+});
+
 Deno.test('a gateTtlMs that is not a positive number is refused at construction', () => {
   for (const gateTtlMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     assertThrows(() =>

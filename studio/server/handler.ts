@@ -42,6 +42,7 @@ import {
   readBody,
   startConversation,
   type TheoremConversationStore,
+  type TheoremSessionStore,
   theoremStartRequestSchema,
 } from '@theoremjs/web/server';
 import { differingSettings } from '../agreement.ts';
@@ -160,6 +161,8 @@ export type StudioHandlerOptions = {
    * studio run and hands it to every load, so a chat outlives a Save or an edit.
    */
   conversationKey: string;
+  /** Where a profile's sessions live, when they must outlive this handler. Unset, in its memory. */
+  sessionStore?: (profileId: string) => TheoremSessionStore;
 };
 
 /**
@@ -713,7 +716,13 @@ function profileHandlers(
       if (profile.type === 'host') {
         served.set(
           profile.id,
-          withRunTraces(createTheoremHostHandler({ profile: tracedToPage(profile), ...shared })),
+          withRunTraces(
+            createTheoremHostHandler({
+              profile: tracedToPage(profile),
+              ...(options.sessionStore ? { sessionStore: options.sessionStore(profile.id) } : {}),
+              ...shared,
+            }),
+          ),
         );
         continue;
       }
@@ -724,6 +733,7 @@ function profileHandlers(
         provider: options.provider ?? {},
         ...(options.prepare ? { prepare: options.prepare } : {}),
         ...(isStateless ? {} : { conversationStore: chatStore() }),
+        ...(options.sessionStore ? { sessionStore: options.sessionStore(profile.id) } : {}),
         // The studio's page is the builder's own: its picks choose the prompt lines.
         pageStatesTurn: true,
         background: () => STUDIO_BACKGROUND,

@@ -19,6 +19,7 @@ import { loadSetup } from '@theoremjs/agents/cli';
 import type { StudioActingAs, StudioPeople } from '../people.ts';
 import { editedImages, editedQuestions, type ProjectEdits, registerEdits } from './edits.ts';
 import { createStudioHandler, type ProjectImages, type ProjectQuestions } from './handler.ts';
+import { type KeptSessionLink, keptSessionStore } from './kept-sessions.ts';
 
 type SetupModule = {
   /** The application's entry point, relative to the setup file. It exports `theorem`, a `TurnWiring`. */
@@ -33,8 +34,12 @@ type SetupModule = {
   images?: ProjectImages;
 };
 
-/** What `serve.ts` hands each load on its input. The key never touches disk. */
-export type ProjectLoad = { conversationKey: string; edits?: ProjectEdits };
+/** What `serve.ts` hands each load on its input. The key and the token never touch disk. */
+export type ProjectLoad = {
+  conversationKey: string;
+  sessions: KeptSessionLink;
+  edits?: ProjectEdits;
+};
 
 /** The line this prints once it listens. `serve.ts` waits for it. */
 export const PROJECT_READY = 'theorem-studio-project-ready';
@@ -67,6 +72,7 @@ if (import.meta.main) {
     ...(images ? { images } : {}),
     upgrade: (request) => Deno.upgradeWebSocket(request),
     conversationKey: load.conversationKey,
+    sessionStore: (profileId) => keptSessionStore(load.sessions, profileId),
   });
   Deno.serve({ hostname: '127.0.0.1', port, onListen: () => console.log(PROJECT_READY) }, handler);
 }

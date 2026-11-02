@@ -273,7 +273,7 @@ const transport = withPageToolDispatch(
 | `notifier`, `notifyRetryMs` | Tell an open page that a background call ended, and how long the page waits to reopen a cut stream. Unset, the page reads the end on its next turn or reload. See [the background section](#share-session-authority). |
 | `credentialStore` | Where tool credentials are kept, by session. Default: process memory. |
 | `authorizationUrl` | Returns the sign-in URL for an OAuth gate. Without it, an OAuth gate has no URL. |
-| `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`. Unset, a gate waits until it is answered. |
+| `gateTtlMs` | How long a gate waits for an answer. A later answer fails with `session.gate_expired`, and the next message cancels the call. Unset, a gate waits until it is answered. |
 | `maxRequestBytes` | The largest browser request body, in bytes. Unset, a body of any size is read. |
 | `pageToolTimeoutMs` | How long the page has to answer a tool call it runs. A call it has not answered by then settles as timed out. Unset, the call waits until the page answers or the turn stops. The browser clients answer every call they get, so only a page function that never returns holds a turn. |
 | `operationRetentionMs` | How long a settled tool result is kept. Default: 24 hours. |

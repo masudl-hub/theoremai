@@ -1,8 +1,8 @@
 /**
  * What happened in a studio run that the builder, or an agent beside them, should know of: what
  * the project has to look at, what each provider said of its key, a run that failed, and an error
- * in the page. The last 200 are kept, so `theorem-studio errors` can read them, and a follower is
- * told each new one. A run that ends well is not one.
+ * in the page. All of them are kept for the run, so `theorem-studio errors` can read them, and a
+ * follower is told each new one. A run that ends well is not one.
  *
  * @module
  */
@@ -20,12 +20,6 @@ export interface StudioEvent {
   repeated?: number;
 }
 
-/** How many events the log keeps. */
-export const EVENTS_KEPT = 200;
-
-/** The longest text an event keeps, so a page cannot fill the log with one. */
-const TEXT_CAP = 2000;
-
 export interface StudioEventLog {
   /** Keeps the event and tells followers. False when it repeats the last one, which is only counted. */
   add(kind: StudioEvent['kind'], text: string): boolean;
@@ -38,8 +32,7 @@ export function createEventLog(now: () => Date = () => new Date()): StudioEventL
   const events: StudioEvent[] = [];
   const feed = createEventFeed<StudioEvent>();
   return {
-    add: (kind, said) => {
-      const text = said.slice(0, TEXT_CAP);
+    add: (kind, text) => {
       const last = events.at(-1);
       if (last?.kind === kind && last.text === text) {
         last.repeated = (last.repeated ?? 1) + 1;
@@ -47,7 +40,6 @@ export function createEventLog(now: () => Date = () => new Date()): StudioEventL
       }
       const event: StudioEvent = { at: now().toISOString(), kind, text };
       events.push(event);
-      if (events.length > EVENTS_KEPT) events.shift();
       feed.tell(event);
       return true;
     },
@@ -84,7 +76,7 @@ export function watchRun(response: Response, failed: (said: string) => void): Re
       .clone()
       .text()
       .then(
-        (body) => failed(`answered ${response.status}${body ? `: ${body.slice(0, 300)}` : ''}`),
+        (body) => failed(`answered ${response.status}${body ? `: ${body}` : ''}`),
         () => failed(`answered ${response.status}`),
       );
     return response;

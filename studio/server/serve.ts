@@ -39,12 +39,13 @@ import {
   STUDIO_BASE,
   type StudioDescription,
 } from './handler.ts';
+import { createKeptSessions } from './kept-sessions.ts';
 import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY, type ProjectLoad } from './project.ts';
 import { entryOf, isInside } from './project-source.ts';
 import { createRuns, untilRead } from './runs.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
-import { createEventFeed, createWatchFeed, watchFiles } from './watch.ts';
+import { createWatchFeed, watchFiles } from './watch.ts';
 
 function flag(name: string, fallback: string): string {
   const at = Deno.args.indexOf(`--${name}`);
@@ -74,6 +75,7 @@ const configArgs = denoConfig ? ['--config', denoConfig] : [];
 
 /** The project, loaded: its process, where it listens, and what it opened as. */
 interface Loaded {
+  id: string;
   process: Deno.ChildProcess;
   origin: string;
   description: StudioDescription;
@@ -98,6 +100,11 @@ async function drain(
 
 /** Seals this run's chats. Every load gets it, so a chat outlives a Save; quitting ends it. */
 const conversationKey = newConversationKey();
+const SESSIONS = `${STUDIO_BASE}/sessions`;
+/** What the chats wait on and run, across loads; quitting ends it. */
+const keptSessions = createKeptSessions();
+/** Replaced loads that still run calls that detached. */
+const leaving = new Set<Loaded>();
 
 /**
  * Loads the project from disk in a new process, with the builder's unsaved `edits` laid over it
@@ -123,7 +130,15 @@ async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
     stdout: 'piped',
     stderr: 'piped',
   }).spawn();
-  const load: ProjectLoad = { conversationKey, ...(edits ? { edits } : {}) };
+  const id = crypto.randomUUID();
+  const sessions = {
+    url: `http://127.0.0.1:${port}${SESSIONS}`,
+    token: keptSessions.token,
+    load: id,
+    scope: edits ? 'edited' : 'files',
+  };
+  process.status.then(() => keptSessions.loadEnded(id));
+  const load: ProjectLoad = { conversationKey, sessions, ...(edits ? { edits } : {}) };
   const input = process.stdin.getWriter();
   await input.write(new TextEncoder().encode(JSON.stringify(load)));
   await input.close();
@@ -148,16 +163,27 @@ async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
   }
   const origin = `http://127.0.0.1:${childPort}`;
   const description: StudioDescription = await (await fetch(origin + STUDIO_BASE)).json();
-  return { process, origin, description };
+  return { id, process, origin, description };
 }
 
-async function stop(loaded: Loaded): Promise<void> {
+async function end(loaded: Loaded): Promise<void> {
   try {
     loaded.process.kill();
   } catch {
     // It had already ended.
   }
   await loaded.process.status;
+}
+
+/** Ends a load the studio no longer needs, once the calls it holds have ended. */
+async function stop(loaded: Loaded): Promise<void> {
+  const ended = keptSessions.callsEnd(loaded.id);
+  if (!ended) return end(loaded);
+  leaving.add(loaded);
+  void ended.then(() => {
+    leaving.delete(loaded);
+    return end(loaded);
+  });
 }
 
 /** Whether the project type-checks as it is on disk, from the setup and the entry it names, and what the checker printed. */
@@ -215,8 +241,6 @@ try {
 }
 /** What the loads are running. When it ends the page hears of the files it was not told of. */
 const runs = createRuns(() => void tellChanged());
-/** The chats that hold the load: each is told when a change waits for them. */
-const holds = createEventFeed<{ saved: boolean }>();
 /** The load that runs the builder's unsaved edits, while the page compares it with the files. */
 const edited = createEditedSession<Loaded>({
   load: loadProject,
@@ -240,7 +264,6 @@ const session = createSaveSession<Loaded>(
     running: runs.busy,
     // The files changed: the edited load lies over files that are gone, once its runs are done.
     whenQuiet: async (swap) => {
-      if (runs.busy()) holds.tell({ saved: true });
       await new Promise<void>((quiet) => runs.whenIdle(quiet));
       await edited.close();
       await new Promise<void>((swapped) =>
@@ -352,7 +375,6 @@ const EVENTS = `${STUDIO_BASE}/events`;
 const STATUS = `${STUDIO_BASE}/status`;
 const SAVE = `${STUDIO_BASE}/save`;
 const WATCH = `${STUDIO_BASE}/watch`;
-const HOLD = `${STUDIO_BASE}/hold`;
 const OPEN = `${STUDIO_BASE}/open`;
 const EDITED = `${STUDIO_BASE}/edited`;
 
@@ -514,8 +536,7 @@ if (feed) {
     changed: () => session.changed(),
     // why: the page would read files the running load was not read from; the end of the run tells it.
     tell: (files) => {
-      if (runs.busy()) holds.tell({ saved: false });
-      else feed.tell(files);
+      if (!runs.busy()) feed.tell(files);
     },
     watch: (folders) => Deno.watchFs(folders, { recursive: false }),
   });
@@ -528,15 +549,10 @@ function watching(request: Request): Response | undefined {
   return feed ? feed.subscribe(cors) : new Response(null, { status: 204, headers: cors });
 }
 
-/**
- * `GET <base>/hold`: a chat whose reply is not done holds the load for as long as it reads this,
- * gates included.
- * why: a gate lives in the load and its turn's stream has ended, so no run counts it. The page
- * holds it, not the server: a tab closed on a gate has no answer to wait for.
- */
-function holding(request: Request): Response | undefined {
-  if (request.method !== 'GET' || new URL(request.url).pathname !== HOLD) return undefined;
-  return untilRead(holds.subscribe(corsHeaders(request, pageOrigins)), runs.begin());
+/** `POST <base>/sessions`: a load reads or writes a kept session. The token says it is one. */
+function keptSession(request: Request): Promise<Response> | undefined {
+  const isOne = request.method === 'POST' && new URL(request.url).pathname === SESSIONS;
+  return isOne ? keptSessions.answer(request) : undefined;
 }
 
 /**
@@ -553,9 +569,6 @@ async function answerStatus(request: Request): Promise<Response | undefined> {
     headers: { 'content-type': 'text/plain; charset=utf-8', ...corsHeaders(request, pageOrigins) },
   });
 }
-
-/** The longest error the page may send. */
-const PAGE_ERROR_BYTES = 8000;
 
 /**
  * The event log: `GET` lists it, `GET ?follow` streams it, and the page `POST`s `{ text }` for an
@@ -574,9 +587,7 @@ async function answerEvents(request: Request): Promise<Response | undefined> {
 
 /** Keeps the error a page `POST`s as `{ text }`. */
 async function keepPageError(request: Request, cors: Record<string, string>): Promise<Response> {
-  const sent = await request.text();
-  if (sent.length > PAGE_ERROR_BYTES) return json(413, {}, cors);
-  const text = pageError(sent);
+  const text = pageError(await request.text());
   if (!text) return json(400, {}, cors);
   tell('page', `the page: ${text}`);
   return json(200, {}, cors);
@@ -611,9 +622,9 @@ async function answered(request: Request): Promise<Response | undefined> {
 
 /** The studio's own routes, in the order they are asked; a request none answers goes to the project. */
 const ROUTES: ((request: Request) => Response | undefined | Promise<Response | undefined>)[] = [
+  keptSession,
   running,
   watching,
-  holding,
   openedSaying,
   answerStatus,
   answerEvents,
@@ -632,7 +643,7 @@ Deno.serve({ hostname: '127.0.0.1', port, onListen: () => {} }, async (request) 
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   Deno.addSignalListener(signal, () => {
-    for (const loaded of [session.project(), edited.running()]) {
+    for (const loaded of [session.project(), edited.running(), ...leaving]) {
       try {
         loaded?.process.kill();
       } catch {

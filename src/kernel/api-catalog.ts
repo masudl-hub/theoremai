@@ -40,6 +40,11 @@ export const REQUEST_FIELDS: Record<
     doc: "What the page (client) or the host (server) wants the model to know, as any JSON or text; a sender the profile's inputs.context does not list, or a package over its maxChars, is refused.",
     unset: 'No context',
   },
+  'runTurn.input.lateResults': {
+    type: 'ToolOperationOutcome[]',
+    doc: 'Background tool calls that settled after their turn, as the host stored them. The model reads each as a tool result, and this reply counts it as a remote read when the call was remote. Pass them on each run of the reply.',
+    unset: 'No late results',
+  },
   'runTurn.input.attachments': {
     type: 'Array<TurnBlob | TurnMediaRef>',
     doc: "Files sent with the turn, as bytes or as a provider file reference; each must pass the profile's inputs.attachments.",

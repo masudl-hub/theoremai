@@ -1,10 +1,25 @@
-import { type TurnDestinations, turnDestinations } from '../../../guardrails/destinations.ts';
-import { type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
+import {
+  addFencedDestinations,
+  addGivenDestinations,
+  addResultDestinations,
+  type TurnDestinations,
+  turnDestinations,
+} from '../../../guardrails/destinations.ts';
+import { addSeenUrls, type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
+import { labelText } from '../../../guardrails/labels.ts';
 import type { OwnTools } from '../../../guardrails/tool-leak.ts';
+import {
+  isRemoteOrigin,
+  readToolData,
+  recordTaint,
+  wrapToolData,
+} from '../../../guardrails/tool-result.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
 import type { ToolBackgroundSupport } from '../../tools/background.ts';
+import { originOfTool } from '../../tools/execute.ts';
+import type { ToolOperationOutcome } from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
 import type {
@@ -14,6 +29,7 @@ import type {
   ResolvedGeneration,
   TurnEvent,
   TurnHistoryMessage,
+  TurnInput,
   TurnRequest,
   TurnStop,
   TurnToolResult,
@@ -124,6 +140,57 @@ function appendUserInput(state: StepExecutionState, parts: readonly InteractionP
   );
 }
 
+/** Whether this run goes on with a reply that an earlier run began, not with a new message. */
+function continuesReply(input: TurnInput, history: readonly TurnHistoryMessage[]): boolean {
+  if (input.text || input.attachments?.length || input.voice?.length) return false;
+  return history.at(-1)?.role === 'tool';
+}
+
+/**
+ * invariant: Taint lasts for the reply that first read the text, and a pause does not end a reply.
+ * The run after a pause reads the marks back from the tool results of that reply.
+ */
+function carryReplyReads(state: StepExecutionState, history: readonly TurnHistoryMessage[]): void {
+  const start = history.findLastIndex((message) => message.role === 'user') + 1;
+  for (const message of history.slice(start)) {
+    if (message.role !== 'tool' || message.content === undefined) continue;
+    const read = readToolData(message.content);
+    if (read) {
+      state.taint = recordTaint(state.taint, read.provenance, read.suspicious);
+      addFencedDestinations(state.destinations, read.text, read.provenance);
+      continue;
+    }
+    const tool = message.name ? state.tools.get(message.name) : undefined;
+    if (tool && !isRemoteOrigin(originOfTool(tool, state.tools))) {
+      addGivenDestinations(state.destinations, message.content);
+    }
+  }
+}
+
+/** A late result is read as a tool's result, so its message is no one's word to the model. */
+function openLateResults(
+  state: StepExecutionState,
+  outcomes: readonly ToolOperationOutcome[],
+  labels: Profile['labels'],
+): void {
+  if (outcomes.length === 0) return;
+  const blocks = outcomes.map(({ event, replay }) => {
+    const { name, readBack = '' } = event.tool;
+    const result = replay.modelResult;
+    const provenance = result?.provenance ?? { origin: 'local' as const, tool: name, depth: 1 };
+    if (result?.provenance) {
+      state.taint = recordTaint(state.taint, result.provenance, result.suspicious);
+      addResultDestinations(state.destinations, result, result.provenance);
+    }
+    addSeenUrls(state.givenUrls.tools, readBack);
+    const fenced = readToolData(readBack) ? readBack : wrapToolData(readBack, provenance);
+    return `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}`;
+  });
+  const message: TurnHistoryMessage = { role: 'user', content: blocks.join('\n\n') };
+  state.givenUrls.own.add(message);
+  state.currentHistory.push(message);
+}
+
 /**
  * Step state for one turn. A text turn's history grows inside the turn (tool
  * steps, stage injects, repair retries), so its opening input moves into turn
@@ -135,6 +202,8 @@ function openTurnState(args: {
   tools: ToolRegistry;
   profile: Profile;
   generation: ResolvedGeneration;
+  /** The request's input, on the run that opens the turn. */
+  input?: TurnInput;
   trace: TurnTraceState;
   allEmittedEvents?: TurnEvent[];
   agents?: AgentCaller;
@@ -164,6 +233,10 @@ function openTurnState(args: {
     ...(args.background ? { background: args.background } : {}),
   };
   if (profile.type === 'text') {
+    if (args.input && continuesReply(args.input, state.currentHistory)) {
+      carryReplyReads(state, state.currentHistory);
+    }
+    openLateResults(state, args.input?.lateResults ?? [], profile.labels);
     appendUserInput(state, generation.input);
     generation.input = [];
   }

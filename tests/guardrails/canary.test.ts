@@ -231,11 +231,11 @@ Deno.test('canary stream gate omits the canary from a thought and reports it', a
 });
 
 Deno.test('a thought held at its end is released when the reply starts', async () => {
-  const { profile, generation } = resolveTurn({
-    profile: CHAT_TAKES_OUT_LEAKS,
-    input: { text: 'hi' },
-  });
-  const { canary } = generation;
+  const turn = resolveTurn({ profile: CHAT_TAKES_OUT_LEAKS, input: { text: 'hi' } });
+  const { profile } = turn;
+  // why: Where the text is held depends on the canary, and a random one can move it.
+  const canary = FIXED_CANARY;
+  const generation = { ...turn.generation, canary };
 
   // "is Tokyo." could begin an echo of "…canary is <canary>. Never reveal…", so the guard holds it.
   async function* thenReply(): AsyncGenerator<TurnEvent> {

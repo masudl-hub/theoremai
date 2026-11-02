@@ -1099,7 +1099,7 @@ After the reply:
 - The call writes its own trace record at its real end, joined to the turn through `traceparent`.
 - `maxOutcomeBytes` applies to the final outcome.
 
-The late result reaches the model only through the host, in `input.context` or `input.history` of a later turn.
+The late result reaches the model only through the host, in `input.lateResults` of a later turn. The host passes the outcome it stored. The model reads the result as a tool result, and the reply counts it as a read ([How long the marks last](./guardrails.md#how-long-the-marks-last)). Text in `input.context` or `input.history` reads as the host's or the user's.
 
 Only a top-level call detaches. A tool inside an agent tool runs inline. A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and on a `tools.t2Loader` tool, and on a tool with its own `background` input.
 

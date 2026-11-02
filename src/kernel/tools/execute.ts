@@ -118,7 +118,7 @@ export {
 
 import { UncheckedOutput } from './unchecked-output.ts';
 
-function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
+export function originOfTool(tool: RegisteredTool, tools: ToolRegistry): ToolOrigin {
   if (tool.type === 'agent') return agentToolOrigin(tools.findProfile(tool.profile));
   if (tool.type === 'http') return 'http';
   if (tool.type === 'mcp') return 'mcp';

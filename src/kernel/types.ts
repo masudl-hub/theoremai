@@ -27,7 +27,11 @@ import type {
 import type { StageHandler } from './stages.ts';
 import type { ToolBackgroundService } from './tools/background.ts';
 import type { GateDecision } from './tools/gate-answer.ts';
-import type { PageToolExecution, ToolExecutionCoordinator } from './tools/operation.ts';
+import type {
+  PageToolExecution,
+  ToolExecutionCoordinator,
+  ToolOperationOutcome,
+} from './tools/operation.ts';
 import type {
   AgentCall,
   AgentCallHook,
@@ -990,6 +994,8 @@ export interface TurnInput {
   attachments?: Array<TurnBlob | TurnMediaRef>;
   voice?: TurnBlob[];
   history?: TurnHistoryMessage[];
+  /** Tool calls that settled after their turn, as the host stored them. Each counts as read in this reply. */
+  lateResults?: ToolOperationOutcome[];
   repair?: TurnRepairRequest;
   /**
    * Optional host-supplied history token count for `meter: 'history'`.

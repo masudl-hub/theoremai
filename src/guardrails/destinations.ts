@@ -226,6 +226,20 @@ function addResultDestinations(
   }
 }
 
+/**
+ * Notes a remote result read back from its fence. `composeToolText` put any `data` on the last
+ * line, and without it a field reads as running text, which is the stricter way.
+ */
+function addFencedDestinations(turn: TurnDestinations, text: string, provenance: Provenance): void {
+  const cut = text.lastIndexOf('\n');
+  const data = cut < 0 ? undefined : parsedJson(text.slice(cut + 1));
+  addResultDestinations(
+    turn,
+    data === undefined ? { finding: text } : { finding: text.slice(0, cut), data },
+    provenance,
+  );
+}
+
 /** A call's verdict, and what an approval card says when the profile asks the user first. */
 interface DestinationVerdict {
   verdict: Verdict;
@@ -278,6 +292,7 @@ function checkDestinationGate(
 
 export type { DestinationVerdict, TurnDestinations };
 export {
+  addFencedDestinations,
   addGivenDestinations,
   addHistoryDestinations,
   addRequestDestinations,

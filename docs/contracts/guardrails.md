@@ -1507,6 +1507,16 @@ provider request and from local results, and `remote` from remote results. A
 Live session keeps `given` for the session and empties `remote` when a cycle
 opens. An earlier turn's tool results are in neither set.
 
+### How long the marks last
+
+Taint and destinations last for the reply that first read the text.
+
+- **A pause does not end a reply.** The run after an approval has no new message, and its history ends on a tool result. That run reads the marks again from the fences on the reply's tool results, after the person's last message. A host does nothing for this. A local tool's result in that part of the history is `given`, if the tool is registered.
+- **A new message starts clean.** One old read does not hold the conversation. A remote read of an earlier reply can still steer the model while it stays in history. The gates do not cover this case. This is a choice: a mark that lasts would refuse every write for the rest of the chat.
+- **A late result is a read.** Text from a background call in `input.context` or `input.history` reads as the host's or the user's. Pass the stored outcome in `input.lateResults`. The model reads it as a tool result, and it marks the reply that receives it. Pass it on each run of the reply, because a run after a pause does not get it again.
+
+A role `user` message that a stage or a steer adds in the middle of a reply ends the part of the history that the run reads. A read before that message is not carried across a pause.
+
 The rule does not find a call that needs no new destination: a deletion, or a
 message to a contact the user already has. `afterRemoteRead` covers those calls.
 
@@ -1548,6 +1558,8 @@ Emission sites of host events (non-`allow` only):
 | `live_outbound` | Live progressive-yield / finalize |
 
 `attachment` and `trace` are stages in the schema that nothing emits.
+
+A run that reads a reply's marks again emits no event. The event went out when the reply first read the text.
 
 The trace records each decision as a `theorem.guardrail` event on the span
 where it happened when `observability.include.guardrailDecisions` is true

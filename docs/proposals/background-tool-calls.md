@@ -165,7 +165,7 @@ A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and
 
 | Question | Answer | Rule |
 | --- | --- | --- |
-| How does the late result reach the model? | The host reads the outcome and passes it in `input.context` or `input.history`. The kernel adds no input. A job that ends during a turn joins through the host's inject | "Host decides, Theorem runs". Detectors already read those boundaries |
+| How does the late result reach the model? | The host passes the stored outcome in `input.lateResults`. The host decides when. A job that ends during a turn joins through the host's inject | "Host decides, Theorem runs". The host passes the outcome, so it asserts nothing about where the text came from |
 | Does the setting sit on the tool or the profile? | The tool, beside `registerTool.permission` | The tool catalog holds per-tool behaviour |
 | Can the model background any tool? | Only one set to `"ask"` | Opt-in features stay off when unset |
 | Does a stop in the chat stop the job? | Only if the host calls `stop`. The turn's signal stops at the reply | "Host decides, Theorem runs" |
@@ -173,6 +173,6 @@ A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and
 | What if a planned `guardrails.taint.write: 'ask'` fires in a job? | It refuses in any nested turn, inline or detached. No one can answer there | Agent tools already refuse any tool that can stop on a gate |
 | Can a host limit jobs or refuse a repeat, such as a validation retry that calls the tool again? | Yes, with a `pre_tool` stage that answers `deny` | No invented limits. The hook exists |
 
-## 7. Open
+## 7. Taint across turns
 
-**Taint across turns.** This does not block the design. A settled outcome already keeps `provenance` and `suspicious`, so a host has them for the late result. Taint itself still ends with the turn, for a late result and for any earlier remote read. That decision is separate.
+Decided on 2026-11-02: taint and destinations last for the reply that first read the text. A probe with both gates on showed why `input.context` was the wrong path. The attacker's address counted as given, and `send_email` ran. The same probe showed that an approval wiped the marks in the middle of a reply. The rule is in [How long the marks last](../contracts/guardrails.md#how-long-the-marks-last).

@@ -97,6 +97,33 @@ function wrapToolData(
   return `<${'tool_data'} ${attrs}>\n${notice}${stripToolFences(text)}\n${TOOL_CLOSE}`;
 }
 
+/** What a fence from `wrapToolData` says of the text inside it. */
+interface ToolDataRead {
+  provenance: Provenance;
+  suspicious: GuardrailHit[];
+  /** The result as `composeToolText` joined it. */
+  text: string;
+}
+
+/**
+ * Reads the fence at the start of a tool message. `stripToolFences` has taken any forged tag out of
+ * the body, so what the tag says is the kernel's. `undefined` when `content` is not one whole fence.
+ */
+function readToolData(content: string): ToolDataRead | undefined {
+  const open = /^<tool_data tool="([^"]*)" origin="([^"]*)"(?: advisory="[^"]*")?>\n/.exec(content);
+  if (!(open && content.endsWith(`\n${TOOL_CLOSE}`))) return undefined;
+  const [opening, tool = '', origin = ''] = open;
+  const body = content.slice(opening.length, -TOOL_CLOSE.length - 1);
+  const advised = opening.includes(' advisory=');
+  return {
+    provenance: { origin: origin as ToolOrigin, tool, depth: origin === 'delegated' ? 2 : 1 },
+    suspicious: advised
+      ? [{ rule: DETECT_RULES.tool_instructions, severity: 'high' as const }]
+      : [],
+    text: advised ? body.slice(body.indexOf('\n') + 1) : body,
+  };
+}
+
 /**
  * Deliberately an observation, not an instruction: what the agent should do about
  * it is product behaviour, supplied by the host as labels `advisory.guidance`. Emitted
@@ -399,6 +426,7 @@ export {
   isRemoteOrigin,
   isSuspicious,
   isTainted,
+  readToolData,
   recordTaint,
   TOOL_CLOSE,
   toolCallEvent,

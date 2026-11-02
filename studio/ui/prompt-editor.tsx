@@ -253,7 +253,7 @@ function HeldCaret() {
   return null;
 }
 
-type EditorStatus = ComponentProps<typeof RichTextEditor>['status'];
+export type EditorStatus = ComponentProps<typeof RichTextEditor>['status'];
 
 export type PromptEditorProps = {
   /** The prompt as markup text, the only form the draft holds. */

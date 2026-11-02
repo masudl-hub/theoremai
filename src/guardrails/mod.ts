@@ -189,6 +189,7 @@ export type { ScanText } from './serialize.ts';
 export { scanTextOf, textForScan } from './serialize.ts';
 export type { Directive, DirectiveSignal } from './tool-directives.ts';
 export { advisoryLevel, DIRECTIVE_SIGNALS, directives } from './tool-directives.ts';
+export { TOOL_CLOSE } from './tool-fence.ts';
 export type { GuardedToolText, InspectedToolArguments } from './tool-result.ts';
 export {
   checkTaintGate,
@@ -200,7 +201,6 @@ export {
   isSuspicious,
   isTainted,
   recordTaint,
-  TOOL_CLOSE,
   toolCallEvent,
   wrapToolData,
 } from './tool-result.ts';

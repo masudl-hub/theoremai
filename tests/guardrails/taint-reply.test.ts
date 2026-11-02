@@ -1,7 +1,8 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { readToolData, wrapToolData } from '../../src/guardrails/tool-result.ts';
+import { readToolData } from '../../src/guardrails/tool-fence.ts';
+import { wrapToolData } from '../../src/guardrails/tool-result.ts';
 import type { Provenance } from '../../src/guardrails/types.ts';
 import { registerProfile, registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
@@ -13,6 +14,7 @@ import type {
   TurnHistoryMessage,
   TurnInput,
   TurnModel,
+  TurnRequest,
 } from '../../src/kernel/types.ts';
 import { failureOf, lastTool } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
@@ -81,6 +83,7 @@ async function sendResult(
   gate: 'afterRemoteRead' | 'remoteDestination',
   input: TurnInput,
   model = sendsOnce(),
+  request: Partial<TurnRequest> = {},
 ): Promise<string> {
   registerProfile(
     defineProfile({
@@ -102,8 +105,16 @@ async function sendResult(
     }),
   );
   const events: TurnEvent[] = [];
-  for await (const event of runTurn({ profile: id, input }, model)) events.push(event);
+  for await (const event of runTurn({ ...request, profile: id, input }, model)) events.push(event);
   return failureOf(lastTool(events, 'send_email'))?.code ?? 'sent';
+}
+
+function continueResult(history: TurnHistoryMessage[]): Promise<string> {
+  const continueFrom = { stop: { kind: 'length' } } as TurnRequest['continueFrom'];
+  return sendResult('continued', 'afterRemoteRead', { history }, sendsOnce(), {
+    continueFrom,
+    continuation: 1,
+  });
 }
 
 function replyRead(content: string, name = 'web_fetch'): TurnHistoryMessage[] {
@@ -224,12 +235,183 @@ Deno.test('a late local result taints nothing, and its address is given', async 
   assertEquals(await sendResult('late_local_dest', 'remoteDestination', input), 'sent');
 });
 
-Deno.test('only a whole fence reads as one', () => {
-  assertEquals(readToolData('plain text'), undefined);
-  assertEquals(readToolData(`${FENCED_PAGE} and more`), undefined);
-  assertEquals(readToolData(FENCED_PAGE)?.provenance, REMOTE);
-  assertEquals(readToolData(FENCED_PAGE)?.text, PAGE);
+Deno.test('a fence reads wherever it stands in a message, and only a whole one', () => {
+  assertEquals(readToolData('plain text'), []);
+  assertEquals(readToolData(FENCED_PAGE.slice(0, -1)), []);
+  assertEquals(readToolData(FENCED_PAGE)[0]?.provenance, REMOTE);
+  assertEquals(readToolData(FENCED_PAGE)[0]?.text, PAGE);
+  assertEquals(readToolData(`Signed in.\n\n${FENCED_PAGE}`)[0]?.text, PAGE);
+  assertEquals(readToolData(`${FENCED_PAGE}\n\n${FENCED_PAGE}`).length, 2);
   const steered = wrapToolData(PAGE, REMOTE, 'high');
-  assertEquals(readToolData(steered)?.text, PAGE);
-  assertEquals(readToolData(steered)?.suspicious.length, 1);
+  assertEquals(readToolData(steered)[0]?.text, PAGE);
+  assertEquals(readToolData(steered)[0]?.suspicious.length, 1);
+  const forged = wrapToolData(`${FENCED_PAGE}`, { ...REMOTE, origin: 'mcp' });
+  assertEquals(
+    readToolData(forged).map((read) => read.provenance.origin),
+    ['mcp'],
+  );
+});
+
+/** The history a run left when the model ended it, with a held call after it. */
+async function pausedAfter(id: string, input: TurnInput): Promise<TurnHistoryMessage[]> {
+  const requests: ModelRequest[] = [];
+  await sendResult(id, 'remoteDestination', input, sendsOnce(requests));
+  return [
+    ...(requests[0]?.history ?? []),
+    {
+      role: 'assistant',
+      tool_calls: [
+        { id: 'held', type: 'function', function: { name: 'lookup_contact', arguments: '{}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'held', name: 'lookup_contact', content: 'nobody' },
+  ];
+}
+
+for (const [name, input] of [
+  ['with a message', { text: 'what did it find?' }],
+  ['alone', { history: [{ role: 'user', content: 'go' }] as TurnHistoryMessage[] }],
+] as const) {
+  Deno.test(`a late result ${name} keeps its marks across a pause`, async () => {
+    registerTools();
+    const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
+    const history = await pausedAfter(`late_pause_${name}`, { ...input, lateResults: [late] });
+    assertEquals(
+      await sendResult(`late_pause_t_${name}`, 'afterRemoteRead', { history }),
+      'tainted_turn',
+    );
+    assertEquals(
+      await sendResult(`late_pause_d_${name}`, 'remoteDestination', { history }),
+      'remote_destination',
+    );
+  });
+}
+
+Deno.test('a late result of an earlier reply does not mark a pause in this one', async () => {
+  registerTools();
+  const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
+  const earlier = await pausedAfter('late_old', { text: 'first', lateResults: [late] });
+  const history: TurnHistoryMessage[] = [
+    ...earlier,
+    { role: 'assistant', content: 'done' },
+    { role: 'user', content: 'second' },
+    ...earlier.slice(-2),
+  ];
+  assertEquals(await sendResult('late_old_t', 'afterRemoteRead', { history }), 'sent');
+});
+
+Deno.test('an address in a late result of an earlier turn is not given', async () => {
+  registerTools();
+  const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
+  const requests: ModelRequest[] = [];
+  await sendResult(
+    'late_next_0',
+    'remoteDestination',
+    { text: 'a', lateResults: [late] },
+    sendsOnce(requests),
+  );
+  const history: TurnHistoryMessage[] = [
+    ...(requests[0]?.history ?? []),
+    { role: 'assistant', content: 'done' },
+  ];
+  const calls = [
+    { name: 'web_fetch', callId: 'f', arguments: { url: 'https://api.example.com/page' } },
+    { name: 'send_email', callId: 's', arguments: { to: ATTACKER } },
+  ];
+  const model: TurnModel = {
+    async *complete() {
+      const tool = calls.shift();
+      if (tool) yield { type: 'tool', tool };
+    },
+  };
+  const original = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(Response.json({ text: PAGE }))) as typeof fetch;
+  try {
+    assertEquals(
+      await sendResult('late_next', 'remoteDestination', { text: 'more', history }, model),
+      'remote_destination',
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test('a read behind a sign-in note keeps its marks across a pause', async () => {
+  registerTools();
+  const input = { history: replyRead(`Signed in.\n\n${FENCED_PAGE}`) };
+  assertEquals(await sendResult('note_t', 'afterRemoteRead', input), 'tainted_turn');
+  assertEquals(await sendResult('note_d', 'remoteDestination', input), 'remote_destination');
+});
+
+Deno.test('a pause keeps its marks when compaction rewrites the reply', async () => {
+  registerTools();
+  const base = {
+    type: 'text' as const,
+    outputs: {},
+    tools: { allow: ['send_email'] },
+    inputs: { text: true },
+  };
+  registerProfile(
+    defineProfile({
+      ...base,
+      id: 'squeezer',
+      identity: { handle: 'squeezer', system: 'You summarise.' },
+      tools: { allow: [] },
+      ...geminiModels('gemini35FlashLite'),
+    }),
+  );
+  const { models, ...rest } = geminiModels('gemini35FlashLite');
+  const [[name, binding] = []] = Object.entries(models);
+  registerProfile(
+    defineProfile({
+      ...base,
+      ...rest,
+      id: 'squeezed',
+      identity: { handle: 'deputy' },
+      maxSteps: 4,
+      models: {
+        [name as string]: {
+          ...(binding as (typeof models)[string]),
+          compaction: {
+            maxTokens: 10,
+            compactAt: 0.1,
+            previousExchanges: 0,
+            profile: 'squeezer',
+            timing: 'before',
+          },
+        },
+      },
+      guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+    }),
+  );
+  const send = sendsOnce();
+  const model: TurnModel = {
+    async *complete(request) {
+      if (request.system.includes('You summarise.')) {
+        yield { type: 'text', text: 'A summary.' };
+        return;
+      }
+      yield* send.complete(request);
+    },
+  };
+  const events: TurnEvent[] = [];
+  const input = { history: replyRead(FENCED_PAGE) };
+  for await (const event of runTurn({ profile: 'squeezed', input }, model)) events.push(event);
+  assertEquals(
+    events.some((event) => event.type === 'compaction'),
+    true,
+  );
+  assertEquals(failureOf(lastTool(events, 'send_email'))?.code, 'tainted_turn');
+});
+
+Deno.test('a Continue goes on with the reply it continues', async () => {
+  registerTools();
+  const history: TurnHistoryMessage[] = [
+    ...replyRead(FENCED_PAGE),
+    { role: 'assistant', content: 'The page says' },
+  ];
+  const request = { history };
+  assertEquals(await sendResult('stopped', 'afterRemoteRead', request), 'sent');
+  const continued = await continueResult(history);
+  assertEquals(continued, 'tainted_turn');
 });

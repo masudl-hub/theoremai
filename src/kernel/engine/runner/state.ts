@@ -7,13 +7,9 @@ import {
 } from '../../../guardrails/destinations.ts';
 import { addSeenUrls, type GivenUrlSets, givenUrlSets } from '../../../guardrails/egress-urls.ts';
 import { labelText } from '../../../guardrails/labels.ts';
+import { isLateResult, readToolData } from '../../../guardrails/tool-fence.ts';
 import type { OwnTools } from '../../../guardrails/tool-leak.ts';
-import {
-  isRemoteOrigin,
-  readToolData,
-  recordTaint,
-  wrapToolData,
-} from '../../../guardrails/tool-result.ts';
+import { isRemoteOrigin, recordTaint, wrapToolData } from '../../../guardrails/tool-result.ts';
 import type { GuardrailHit, TurnTaint } from '../../../guardrails/types.ts';
 import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
@@ -29,7 +25,6 @@ import type {
   ResolvedGeneration,
   TurnEvent,
   TurnHistoryMessage,
-  TurnInput,
   TurnRequest,
   TurnStop,
   TurnToolResult,
@@ -141,25 +136,34 @@ function appendUserInput(state: StepExecutionState, parts: readonly InteractionP
 }
 
 /** Whether this run goes on with a reply that an earlier run began, not with a new message. */
-function continuesReply(input: TurnInput, history: readonly TurnHistoryMessage[]): boolean {
-  if (input.text || input.attachments?.length || input.voice?.length) return false;
-  return history.at(-1)?.role === 'tool';
+function continuesReply({ continueFrom, input }: TurnRequest): boolean {
+  if (continueFrom) return true;
+  if (input?.text || input?.attachments?.length || input?.voice?.length) return false;
+  return input?.history?.at(-1)?.role === 'tool';
+}
+
+/** The reply's part of the history. Late results that opened it stand before its first message. */
+function replyTail(history: readonly TurnHistoryMessage[]): readonly TurnHistoryMessage[] {
+  let start = history.findLastIndex((message) => message.role === 'user');
+  while (start > 0 && isLateResult(history[start - 1] as TurnHistoryMessage)) start -= 1;
+  return history.slice(Math.max(start, 0));
 }
 
 /**
  * invariant: Taint lasts for the reply that first read the text, and a pause does not end a reply.
- * The run after a pause reads the marks back from the tool results of that reply.
+ * The run after a pause reads the marks back from the tool results of that reply, in the history the
+ * request sent, because compaction can rewrite those results.
  */
 function carryReplyReads(state: StepExecutionState, history: readonly TurnHistoryMessage[]): void {
-  const start = history.findLastIndex((message) => message.role === 'user') + 1;
-  for (const message of history.slice(start)) {
-    if (message.role !== 'tool' || message.content === undefined) continue;
-    const read = readToolData(message.content);
-    if (read) {
+  for (const message of replyTail(history)) {
+    if (message.content === undefined) continue;
+    if (message.role !== 'tool' && !isLateResult(message)) continue;
+    const reads = readToolData(message.content);
+    for (const read of reads) {
       state.taint = recordTaint(state.taint, read.provenance, read.suspicious);
       addFencedDestinations(state.destinations, read.text, read.provenance);
-      continue;
     }
+    if (reads.length > 0) continue;
     const tool = message.name ? state.tools.get(message.name) : undefined;
     if (tool && !isRemoteOrigin(originOfTool(tool, state.tools))) {
       addGivenDestinations(state.destinations, message.content);
@@ -183,7 +187,8 @@ function openLateResults(
       addResultDestinations(state.destinations, result, result.provenance);
     }
     addSeenUrls(state.givenUrls.tools, readBack);
-    const fenced = readToolData(readBack) ? readBack : wrapToolData(readBack, provenance);
+    const fenced =
+      readToolData(readBack).length > 0 ? readBack : wrapToolData(readBack, provenance);
     return `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}`;
   });
   const message: TurnHistoryMessage = { role: 'user', content: blocks.join('\n\n') };
@@ -202,8 +207,8 @@ function openTurnState(args: {
   tools: ToolRegistry;
   profile: Profile;
   generation: ResolvedGeneration;
-  /** The request's input, on the run that opens the turn. */
-  input?: TurnInput;
+  /** The request, on the run that opens the turn. */
+  request?: TurnRequest;
   trace: TurnTraceState;
   allEmittedEvents?: TurnEvent[];
   agents?: AgentCaller;
@@ -233,10 +238,10 @@ function openTurnState(args: {
     ...(args.background ? { background: args.background } : {}),
   };
   if (profile.type === 'text') {
-    if (args.input && continuesReply(args.input, state.currentHistory)) {
-      carryReplyReads(state, state.currentHistory);
+    if (args.request && continuesReply(args.request)) {
+      carryReplyReads(state, args.request.input?.history ?? []);
     }
-    openLateResults(state, args.input?.lateResults ?? [], profile.labels);
+    openLateResults(state, args.request?.input?.lateResults ?? [], profile.labels);
     appendUserInput(state, generation.input);
     generation.input = [];
   }

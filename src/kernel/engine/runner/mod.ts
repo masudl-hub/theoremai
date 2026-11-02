@@ -399,7 +399,7 @@ async function* emitTurn(args: {
     tools: args.registry.tools,
     profile,
     generation,
-    input: safe.input ?? {},
+    request: safe,
     trace: args.trace,
     ...(args.agents ? { agents: args.agents } : {}),
     ...(args.background ? { background: args.background } : {}),

@@ -10,6 +10,7 @@ import type { ModelRequest } from '../kernel/types.ts';
 import { type LabelOverrides, labelText } from './labels.ts';
 import { TOOL_RULES } from './rules.ts';
 import { textForScan } from './serialize.ts';
+import { isLateResult } from './tool-fence.ts';
 import { isRemoteOrigin } from './tool-result.ts';
 import type { Provenance, ResolvedGuardrailPolicy, Verdict } from './types.ts';
 
@@ -185,7 +186,14 @@ function addHistoryDestinations(
 ): void {
   for (const message of messages) {
     // why: An earlier turn's tool result is neither the user's word nor this turn's read.
-    if (message.role === 'assistant' || message.role === 'tool' || own.has(message)) continue;
+    if (
+      message.role === 'assistant' ||
+      message.role === 'tool' ||
+      own.has(message) ||
+      isLateResult(message)
+    ) {
+      continue;
+    }
     addGivenDestinations(turn, textForScan(message).text);
   }
 }

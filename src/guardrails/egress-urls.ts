@@ -18,6 +18,7 @@
 import type { TurnHistoryMessage } from '../kernel/turn-events.ts';
 import type { ModelRequest } from '../kernel/types.ts';
 import { textForScan } from './serialize.ts';
+import { isLateResult } from './tool-fence.ts';
 
 /** The URLs a request already contains, split by who controls them: those from the system prompt, user, and host history, and those from tool results. */
 interface GivenUrls {
@@ -200,7 +201,8 @@ function addSeenUrls(seen: Set<string>, text: string): void {
 function addHistoryUrls(given: GivenUrlSets, messages: readonly TurnHistoryMessage[]): void {
   for (const message of messages) {
     if (message.role === 'assistant' || given.own.has(message)) continue;
-    addSeenUrls(message.role === 'tool' ? given.tools : given.request, textForScan(message).text);
+    const read = message.role === 'tool' || isLateResult(message);
+    addSeenUrls(read ? given.tools : given.request, textForScan(message).text);
   }
 }
 

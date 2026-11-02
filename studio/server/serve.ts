@@ -42,6 +42,7 @@ import {
 import { answerOpen, chosenEditor, defaultEditor, type EditorHost } from './open-editor.ts';
 import { PROJECT_READY, type ProjectLoad } from './project.ts';
 import { entryOf, isInside } from './project-source.ts';
+import { createRuns, untilRead } from './runs.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
 import { createWatchFeed, watchFiles } from './watch.ts';
 
@@ -212,6 +213,8 @@ try {
   console.error(error instanceof Error ? error.message : error);
   Deno.exit(1);
 }
+/** What the loads are running. When it ends the page hears of the files it was not told of. */
+const runs = createRuns(() => void tellChanged());
 /** The load that runs the builder's unsaved edits, while the page compares it with the files. */
 const edited = createEditedSession<Loaded>({
   load: loadProject,
@@ -230,12 +233,20 @@ const session = createSaveSession<Loaded>(
     },
     remove: (path) => Deno.removeSync(path),
     typeChecks,
-    // The files changed: the edited load lies over files that are gone.
-    load: async () => {
-      await edited.close();
-      return loadProject();
-    },
+    load: loadProject,
     stop,
+    running: runs.busy,
+    // The files changed: the edited load lies over files that are gone, once its runs are done.
+    whenQuiet: async (swap) => {
+      await new Promise<void>((quiet) => runs.whenIdle(quiet));
+      await edited.close();
+      await new Promise<void>((swapped) =>
+        runs.whenIdle(() => {
+          swap();
+          swapped();
+        }),
+      );
+    },
     opened: (loaded) => loaded.description.workspace,
     unopened: (loaded) => loaded.description.problems.map((problem) => problem.profile),
   },
@@ -251,8 +262,10 @@ async function forward(
   const url = new URL(request.url);
   const to = path ?? url.pathname;
   if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
-    return forwardSocket(request, `${loaded.origin}${to}${url.search}`);
+    return forwardSocket(request, `${loaded.origin}${to}${url.search}`, runs.begin());
   }
+  // invariant: counted before anything is awaited, in the tick that picked `loaded`.
+  const ended = request.method === 'POST' && to.startsWith(PROFILES) ? runs.begin() : undefined;
   const headers = new Headers(request.headers);
   headers.delete('host');
   let response: Response;
@@ -263,9 +276,12 @@ async function forward(
       body: await bodyOf(request),
     });
   } catch {
+    ended?.();
     return json(502, {}, corsHeaders(request, pageOrigins));
   }
-  return request.method === 'OPTIONS' ? response : watchedRun(request.method, to, response);
+  if (request.method === 'OPTIONS') return response;
+  const answer = watchedRun(request.method, to, response);
+  return ended ? untilRead(answer, ended) : answer;
 }
 
 /** What a request carries on: nothing for a read. */
@@ -292,13 +308,14 @@ function watchedRun(method: string, to: string, response: Response): Response {
  * Joins the page's socket to the same path of the project: a voice call. What the page sends
  * before the project's side opens is held, because a call opens with the page's first message.
  */
-function forwardSocket(request: Request, to: string): Response {
+function forwardSocket(request: Request, to: string, ended: () => void): Response {
   const { socket: page, response } = Deno.upgradeWebSocket(request);
   const project = new WebSocket(to.replace(/^http/, 'ws'));
   page.binaryType = 'arraybuffer';
   project.binaryType = 'arraybuffer';
   const held: (string | ArrayBuffer)[] = [];
   const shut = (other: WebSocket) => () => {
+    ended();
     if (other.readyState === WebSocket.OPEN || other.readyState === WebSocket.CONNECTING)
       other.close();
   };
@@ -464,11 +481,21 @@ function openedSaying(request: Request): Response | undefined {
 
 /** Tells the page when the builder's editor writes a file the setup reads, unless `--no-watch` says not to. */
 const feed = Deno.args.includes('--no-watch') ? undefined : createWatchFeed();
+
+/** Tells the page which files hold something the load that answers was not read from. */
+async function tellChanged(): Promise<void> {
+  const files = await session.changed().catch(() => []);
+  if (files.length && !runs.busy()) feed?.tell(files);
+}
+
 if (feed) {
   watchFiles({
     files: () => session.watched(),
     changed: () => session.changed(),
-    tell: feed.tell,
+    // why: the page would read files the running load was not read from; the end of the run tells it.
+    tell: (files) => {
+      if (!runs.busy()) feed.tell(files);
+    },
     watch: (folders) => Deno.watchFs(folders, { recursive: false }),
   });
 }

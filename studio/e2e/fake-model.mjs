@@ -96,7 +96,7 @@ async function holdIfMarked(body, request, response) {
   if (!hold) return;
   send(response, chunk(body.model, { role: 'assistant', content: 'Working ' }));
   await new Promise((release) => {
-    held.set(hold[1], { release });
+    held.set(hold[1], [...(held.get(hold[1]) ?? []), release]);
     request.on('close', release);
   });
 }
@@ -246,11 +246,11 @@ function control(request, response) {
     response.end(JSON.stringify(requests));
     return true;
   }
-  const release = /^\/release\/(\w+)$/.exec(request.url ?? '');
-  if (!release) return false;
-  const waiting = held.get(release[1]);
-  held.delete(release[1]);
-  waiting?.release();
+  const marked = /^\/release\/(\w+)$/.exec(request.url ?? '');
+  if (!marked) return false;
+  const waiting = held.get(marked[1]);
+  held.delete(marked[1]);
+  for (const release of waiting ?? []) release();
   response.writeHead(waiting ? 200 : 404);
   response.end();
   return true;

@@ -1,7 +1,17 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { composer, expect, open, PROJECT, putProjectBack, seen, send, test } from './drive.ts';
+import {
+  composer,
+  expect,
+  open,
+  PROJECT,
+  putProjectBack,
+  release,
+  seen,
+  send,
+  test,
+} from './drive.ts';
 
 const desk = path.join(PROJECT, 'agents/desk.ts');
 const tools = path.join(PROJECT, 'tools.ts');
@@ -87,6 +97,61 @@ test('a change to the file reaches the studio', async ({ page }) => {
   writeFileSync(desk, edited("handle: 'Desk'", "handle: 'Disk'"));
   await expect(handle(page)).toHaveValue('Disk');
   await expect(saveToken(page)).toBeHidden();
+});
+
+test('a file written during a reply loads when the reply ends, and the reply lives', async ({
+  page,
+}) => {
+  await open(page);
+  await send(page, 'first [hold reload]');
+  await expect(page.getByText('Working', { exact: true })).toBeVisible();
+  writeFileSync(desk, edited("handle: 'Desk'", "handle: 'Disk'"));
+  await page.waitForTimeout(2500);
+  await expect(handle(page)).toHaveValue('Desk');
+  await release(page, 'reload');
+  await expect(page.getByText('Fake reply on full to "first [hold reload]"')).toBeVisible();
+  await expect(handle(page)).toHaveValue('Disk');
+  await send(page, 'second');
+  await expect(page.getByText('Fake reply on full to "second"')).toBeVisible();
+});
+
+test('stop ends a reply a written file waits for, and the file loads', async ({ page }) => {
+  await open(page);
+  await send(page, 'first [hold stopping]');
+  await expect(page.getByText('Working', { exact: true })).toBeVisible();
+  writeFileSync(desk, edited("handle: 'Desk'", "handle: 'Disk'"));
+  await page.waitForTimeout(1000);
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await expect(page.getByText('interrupted')).toBeVisible();
+  await expect(handle(page)).toHaveValue('Disk');
+});
+
+test('both replies of a comparison outlive a written file', async ({ page }) => {
+  await open(page);
+  await prompt(page).fill('Answer in French.');
+  await expect(page.getByText('Saved (your files)')).toBeVisible();
+  await composer(page).fill('both [hold compare]');
+  await composer(page).press('Enter');
+  await expect(page.getByText('Working', { exact: true })).toHaveCount(2);
+  writeFileSync(desk, edited("handle: 'Desk'", "handle: 'Disk'"));
+  await page.waitForTimeout(2500);
+  await release(page, 'compare');
+  await expect(page.getByText('Fake reply on full to "both [hold compare]"')).toHaveCount(2);
+});
+
+test('a save made during a reply lands when the reply ends', async ({ page }) => {
+  await open(page);
+  await send(page, 'first [hold saving]');
+  await expect(page.getByText('Working', { exact: true })).toBeVisible();
+  await handle(page).fill('Deskx');
+  await saveToken(page).click();
+  const dialog = page.getByRole('dialog', { name: /Save to/ });
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.waitForTimeout(1500);
+  await release(page, 'saving');
+  await expect(page.getByText('Fake reply on full to "first [hold saving]"')).toBeVisible();
+  await expect(saveToken(page)).toBeHidden();
+  await expect.poll(() => readFileSync(desk, 'utf8')).toContain("handle: 'Deskx'");
 });
 
 test('a setting changed on both sides asks which stands: source', async ({ page }) => {

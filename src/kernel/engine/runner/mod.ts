@@ -595,7 +595,7 @@ async function* runTracedTurn(ctx: TraceCtx, provider: TurnModel): AsyncGenerato
  * The trace record is written however the turn ends, including when the host stops reading early;
  * spans still open then close as `ERROR` / `unclosed`.
  */
-async function* runTurnInRegistry(
+async function* tracedTurnInRegistry(
   registry: KernelRegistry,
   req: TurnRequest,
   provider: TurnModel,
@@ -684,6 +684,19 @@ async function* emitCancelledDoneAfterAbort(ctx: TraceCtx): AsyncGenerator<TurnE
     host: gen.host,
   })) {
     yield* emitObservedStage(ctx, stageEv, profile);
+  }
+}
+
+/** A turn's events, each read by `req.onEvent` before the caller gets it. */
+async function* runTurnInRegistry(
+  registry: KernelRegistry,
+  req: TurnRequest,
+  provider: TurnModel,
+  sinkOverride?: TraceSink,
+): AsyncGenerator<TurnEvent> {
+  for await (const event of tracedTurnInRegistry(registry, req, provider, sinkOverride)) {
+    await req.onEvent?.(event);
+    yield event;
   }
 }
 

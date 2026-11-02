@@ -1094,6 +1094,17 @@ export interface TurnRequest extends AgentRunRequest {
    * so an answered call does not give the reply its steps back. Read `done.steps`.
    */
   stepsTaken?: number;
+  /**
+   * Reads each of this turn's events as it leaves `runTurn`, before the caller gets it. The app
+   * sets it in `TurnWiring.prepare` to act on a turn someone else runs, such as saving the reply
+   * when `done` arrives. A throw ends the turn with that error. `invokeTool` does not call it.
+   */
+  onEvent?: (event: TurnEvent) => void | Promise<void>;
+  /**
+   * Set on the turn `TurnWiring.prepare` is given for a held call that goes on once answered. No
+   * model runs and `input` is the paused turn's, so it is not a new message.
+   */
+  answersHeldCall?: true;
   input?: TurnInput;
 }
 
@@ -1110,8 +1121,8 @@ export interface TurnWiring {
   /**
    * The turn the application runs, from the one it is given: the profile, the input with the
    * conversation's history, and the application's context as `host`. Set what the application
-   * sets per turn, such as `system`, `credentials`, `onStage`, `onAgentCall`, `path` and
-   * `metadata`. Text, image and speech turns run through it.
+   * sets per turn, such as `system`, `credentials`, `onStage`, `onEvent`, `onAgentCall`, `path`
+   * and `metadata`. Text, image and speech turns run through it.
    */
   prepare?: (turn: NormalizedTurnRequest) => TurnRequest | Promise<TurnRequest>;
 }

@@ -460,6 +460,8 @@ finalize (inject may re-enter the step loop under `maxSteps`); terminal `done`;
 then `post_turn`. Inject requires `profileAllowsInject` (`allowSteering` on
 text). Invalid affordances yield a follow-up `stage` event with `stageWarnings`.
 AbortSignal / stage `abort` end with cancelled `done` then `post_turn`.
+`TurnRequest.onEvent` reads each event as it leaves `runTurn`, before the caller
+gets it, so an app can act on a turn someone else runs. A throw ends the turn with that error.
 Live sessions emit the same stage names around utterance cycles and
 `LiveSession.executeTool` (`docs/contracts/stages.md`).
 

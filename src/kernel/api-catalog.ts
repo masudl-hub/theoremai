@@ -170,6 +170,14 @@ export const REQUEST_FIELDS: Record<
     doc: 'Runs before each agent tool call, to shape the request to the called agent or to refuse the call.',
     unset: 'The agent runs on what the model sent',
   },
+  'runTurn.onEvent': {
+    type: '(event: TurnEvent) => void | Promise<void>',
+    doc: "Reads each of the turn's events as it leaves runTurn, before the caller gets it. A throw ends the turn with that error.",
+  },
+  'runTurn.answersHeldCall': {
+    type: 'true',
+    doc: "Set on the turn TurnWiring.prepare is given for a held call that goes on once answered: no model runs, and input is the paused turn's.",
+  },
 };
 
 /** What the catalog records about one export: what it is and what it does. */

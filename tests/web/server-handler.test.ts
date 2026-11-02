@@ -2187,6 +2187,33 @@ Deno.test("a held call runs on, once answered, with the context the application'
   assertEquals(hostsSeen, [{ keeper: 'k1', loading: 'from prepare' }]);
 });
 
+Deno.test("a turn's prepare sees a held call going on, and only a run's events reach onEvent", async () => {
+  const prepared: (true | undefined)[] = [];
+  const seen: string[] = [];
+  const handler = handlerFor({
+    profile: profile('handler-held-prepare', ['handler_reads_host']),
+    provider: () => fixtureHostOptions(toolCallingProvider('handler_reads_host', 'a')),
+    host: () => ({ keeper: 'k1' }),
+    prepare: (turn) => {
+      prepared.push(turn.answersHeldCall);
+      return { ...turn, onEvent: (event) => void seen.push(event.type) };
+    },
+  });
+  const transport = transportFor(handler);
+  const turn = await collect((onEvent) => transport.turn({ input: { text: 'read' } }, onEvent));
+  const gate = pausedGate(turn);
+  assertEquals(seen.includes('done'), true);
+  seen.length = 0;
+  await collect((onEvent) =>
+    transport.invoke(
+      { gateId: gate.callId, operationId: gate.operationId, decision: 'approve' },
+      onEvent,
+    ),
+  );
+  assertEquals(prepared.slice(0, 2), [undefined, true]);
+  assertEquals(prepared.slice(2).includes(true), false);
+});
+
 /** A profile whose prompt turns on the page's picks. */
 function linedProfile(id: string, allow: string[] = []): ProfileDefinition {
   return profile(id, allow, {

@@ -734,7 +734,13 @@ async function* invokeAnswered(
   // why: The held call goes on with what the application set for its turn: its context, stage handler and credentials.
   const prepared = await preparedTurn(
     ctx.options.prepare,
-    { profile: ctx.profile.id, input: pending.turnInput ?? {}, host, signal: request.signal },
+    {
+      profile: ctx.profile.id,
+      input: pending.turnInput ?? {},
+      host,
+      signal: request.signal,
+      answersHeldCall: true,
+    },
     {
       credentials: sessionCredentials(ctx, sessionId),
       ...(ctx.options.onStage ? { onStage: ctx.options.onStage } : {}),

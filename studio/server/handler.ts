@@ -648,6 +648,8 @@ function profileHandlers(
     return read.ok ? read.actingAs : undefined;
   };
   const host = options.host;
+  const sessionStore = options.sessionStore;
+  const sessionsOf = (id: string) => (sessionStore ? { sessionStore: sessionStore(id) } : {});
   const shared = {
     // Each person is a session of their own: their chats and held calls are theirs alone.
     session: (request: Request) => actingAsSession(actingAs(request)),
@@ -719,7 +721,7 @@ function profileHandlers(
           withRunTraces(
             createTheoremHostHandler({
               profile: tracedToPage(profile),
-              ...(options.sessionStore ? { sessionStore: options.sessionStore(profile.id) } : {}),
+              ...sessionsOf(profile.id),
               ...shared,
             }),
           ),
@@ -733,7 +735,7 @@ function profileHandlers(
         provider: options.provider ?? {},
         ...(options.prepare ? { prepare: options.prepare } : {}),
         ...(isStateless ? {} : { conversationStore: chatStore() }),
-        ...(options.sessionStore ? { sessionStore: options.sessionStore(profile.id) } : {}),
+        ...sessionsOf(profile.id),
         // The studio's page is the builder's own: its picks choose the prompt lines.
         pageStatesTurn: true,
         background: () => STUDIO_BACKGROUND,

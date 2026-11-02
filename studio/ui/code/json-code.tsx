@@ -78,7 +78,7 @@ const FIELD_OPTIONS: Monaco.editor.IStandaloneEditorConstructionOptions = {
   wrappingIndent: 'indent',
 };
 
-interface JsonCodeProps {
+export interface JsonCodeProps {
   label: string;
   value: string;
   placeholder: string | undefined;

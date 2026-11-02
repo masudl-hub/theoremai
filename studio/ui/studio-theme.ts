@@ -30,6 +30,33 @@ export const studioTheme = defineTheme({
     '--font-size-5xl': '2.75rem',
   },
   components: {
+    // why: a dialog is short and sits at Astryx's padding, so the studio's larger type crowds it.
+    // It keeps Astryx's own ladder; the `--text-*` tokens resolve at the root, so they are restated
+    // here to read it. Its shadow drops the neutral theme's ring, and the page goes further back.
+    dialog: {
+      base: {
+        '--font-size-xs': '0.625rem',
+        '--font-size-sm': '0.75rem',
+        '--font-size-base': '0.875rem',
+        '--font-size-lg': '1.0625rem',
+        '--font-size-xl': '1.25rem',
+        '--font-size-2xl': '1.5rem',
+        '--text-body-size': 'var(--font-size-base)',
+        '--text-code-size': 'var(--font-size-base)',
+        '--text-label-size': 'var(--font-size-base)',
+        '--text-large-size': 'var(--font-size-lg)',
+        '--text-supporting-size': 'var(--font-size-sm)',
+        '--text-heading-1-size': 'var(--font-size-2xl)',
+        '--text-heading-2-size': 'var(--font-size-xl)',
+        '--text-heading-3-size': 'var(--font-size-lg)',
+        '--text-heading-4-size': 'var(--font-size-base)',
+        '--text-heading-5-size': 'var(--font-size-sm)',
+        '--text-heading-6-size': 'var(--font-size-xs)',
+        boxShadow:
+          '0 4px 6px light-dark(oklch(0 0 0 / 10%), oklch(0 0 0 / 50%)), 0 12px 24px light-dark(oklch(0 0 0 / 15%), oklch(0 0 0 / 70%))',
+        '::backdrop': { backgroundColor: 'light-dark(#00000080, #000000BF)' },
+      },
+    },
     // why: Astryx fixes every toast at 400px, so a short message sits in a wide empty box. Let it
     // size to its text; the viewport lines toasts up on the end edge, so the toast stays there.
     toast: {

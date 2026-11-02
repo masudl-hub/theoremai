@@ -2,9 +2,9 @@
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
   "testRunner": "command",
   "commandRunner": {
-    "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/studio"
+    "command": "deno test --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --ignore=tests/studio/compile-workspace.test.ts,tests/studio/server-e2e.test.ts tests/studio"
   },
-  "mutate": ["studio/**/*.ts"],
+  "mutate": ["studio/**/*.ts", "!studio/server/example.ts", "!studio/e2e/**"],
   "ignorePatterns": [
     "coverage",
     "npm",

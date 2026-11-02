@@ -46,9 +46,6 @@ jobs:
             exclude: '^$'
           - config: engine
             files: '^src/kernel/engine/.*\.ts$'
-            exclude: '^src/kernel/engine/media-probe/'
-          - config: media-probe
-            files: '^src/kernel/engine/media-probe/.*\.ts$'
             exclude: '^$'
           - config: registry
             files: '^src/kernel/registry/.*\.ts$'
@@ -127,6 +124,7 @@ jobs:
           npm ci
           npm --prefix web ci
           npm --prefix react ci
+          npm --prefix studio ci
 
       - name: Stryker (changed files)
         if: steps.scope.outputs.mutate != ''
@@ -172,9 +170,6 @@ jobs:
             mutate: ''
           - shard: engine
             config: engine
-            mutate: ''
-          - shard: media-probe
-            config: media-probe
             mutate: ''
           - shard: registry
             config: registry
@@ -235,6 +230,7 @@ jobs:
           npm ci
           npm --prefix web ci
           npm --prefix react ci
+          npm --prefix studio ci
 
       - name: Stryker (${{ matrix.shard }})
         env:

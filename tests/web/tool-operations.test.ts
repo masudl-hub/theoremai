@@ -1,10 +1,13 @@
-import { assert, assertEquals, assertRejects } from '@std/assert';
+import { assert, assertEquals, assertRejects, assertThrows } from '@std/assert';
 import { withPublicLabels } from '@theoremjs/agents/guardrails';
 import {
+  authorizeToolReplay,
   defaultKernelScope,
+  defineProfile,
   invokeTool,
   registerProfile,
   registerTool,
+  TheoremError,
   type ToolOperationIdentity,
   type TurnEvent,
   z,
@@ -768,53 +771,102 @@ Deno.test('unserializable prepared input refuses dispatch before effects', async
   assert(operations.every((operation) => operation.status !== 'running'));
 });
 
-Deno.test('stricter current disclosure refuses a cached result without reopening its effect', async () => {
-  const name = 'stricter_cached_disclosure';
-  let effects = 0;
+for (const stricter of ['block', 'redact'] as const) {
+  Deno.test(`stricter current disclosure (${stricter}) refuses a cached result without reopening its effect`, async () => {
+    const name = `stricter_cached_disclosure_${stricter}`;
+    let effects = 0;
+    registerTool({
+      type: 'function',
+      name,
+      description: 'Read an identifier',
+      category: 'test',
+      access: 'read-only',
+      permission: 'always_confirm',
+      loadTier: 'T0',
+      paths: ['*'],
+      input: z.object({}),
+      output: z.object({ ssn: z.string() }),
+      handler: () => {
+        effects++;
+        return { ssn: '123-45-6789' };
+      },
+    });
+    const store = createMemorySessionStore();
+    const make = (action: 'ignore' | typeof stricter) =>
+      createTheoremHostHandler({
+        profile: {
+          id: name,
+          type: 'host',
+          tools: { allow: [name] },
+          guardrails: { detect: { ids: action } },
+        },
+        session: () => name,
+        sessionStore: store,
+      });
+    const initial = make('ignore');
+    const issued = (await post(initial, 'call', { name, input: {} })).events.findLast(
+      (event) => event.type === 'tool' && event.tool.phase === 'gate',
+    );
+    assert(issued?.type === 'tool' && issued.tool.operationId);
+    const answer = {
+      gateId: issued.tool.callId,
+      operationId: issued.tool.operationId,
+      decision: 'approve',
+    };
+    const completed = await post(initial, 'invoke', answer);
+    assert(JSON.stringify(completed.events).includes('123-45-6789'));
+    const saved = (await store.load(name))?.state;
+    const replay = await post(make(stricter), 'invoke', answer);
+    assert(!JSON.stringify(replay.events).includes('123-45-6789'));
+    assert(replay.events.some((event) => event.type === 'error' && event.errorKind === 'blocked'));
+    assertEquals((await store.load(name))?.state, saved);
+    assertEquals(effects, 1);
+  });
+}
+
+Deno.test('a hidden tool replays only the words that say it finished', async () => {
+  const name = 'hidden_cached_disclosure';
   registerTool({
     type: 'function',
     name,
-    description: 'Read an identifier',
+    description: 'Read a secret the model never sees',
     category: 'test',
     access: 'read-only',
     permission: 'always_confirm',
     loadTier: 'T0',
     paths: ['*'],
+    exposeToModel: false,
     input: z.object({}),
-    output: z.object({ ssn: z.string() }),
-    handler: () => {
-      effects++;
-      return { ssn: '123-45-6789' };
-    },
+    output: z.object({ text: z.string() }),
+    handler: () => ({ text: 'kept from the model' }),
   });
   const store = createMemorySessionStore();
-  const make = (action: 'ignore' | 'block') =>
-    createTheoremHostHandler({
-      profile: {
-        id: name,
-        type: 'host',
-        tools: { allow: [name] },
-        guardrails: { detect: { ids: action } },
-      },
-      session: () => name,
-      sessionStore: store,
-    });
-  const initial = make('ignore');
-  const issued = (await post(initial, 'call', { name, input: {} })).events.findLast(
+  const profile = defineProfile({ id: name, type: 'host', tools: { allow: [name] } });
+  const handler = createTheoremHostHandler({ profile, session: () => name, sessionStore: store });
+  const issued = (await post(handler, 'call', { name, input: {} })).events.findLast(
     (event) => event.type === 'tool' && event.tool.phase === 'gate',
   );
   assert(issued?.type === 'tool' && issued.tool.operationId);
-  const answer = {
+  await post(handler, 'invoke', {
     gateId: issued.tool.callId,
     operationId: issued.tool.operationId,
     decision: 'approve',
-  };
-  const completed = await post(initial, 'invoke', answer);
-  assert(JSON.stringify(completed.events).includes('123-45-6789'));
-  const saved = (await store.load(name))?.state;
-  const replay = await post(make('block'), 'invoke', answer);
-  assert(!JSON.stringify(replay.events).includes('123-45-6789'));
-  assert(replay.events.some((event) => event.type === 'error' && event.errorKind === 'blocked'));
-  assertEquals((await store.load(name))?.state, saved);
-  assertEquals(effects, 1);
+  });
+  const operation = Object.values((await store.load(name))?.state.operations ?? {})[0];
+  assert(operation?.status === 'settled');
+  const { outcome } = operation;
+  const replay = (saved: typeof outcome) =>
+    authorizeToolReplay({
+      tools: defaultKernelScope.tools,
+      profile,
+      name,
+      resume: undefined,
+      outcome: saved,
+    });
+  replay(outcome);
+  const shown = { ...outcome.replay.modelResult, finding: 'kept from the model' };
+  assertThrows(
+    () => replay({ ...outcome, replay: { ...outcome.replay, modelResult: shown } }),
+    TheoremError,
+  );
 });

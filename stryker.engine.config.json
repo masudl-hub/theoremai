@@ -4,7 +4,7 @@
   "commandRunner": {
     "command": "deno test --ignore=tests/kernel/zero-permission-import.test.ts --no-check --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run tests/kernel tests/observability"
   },
-  "mutate": ["src/kernel/engine/**/*.ts", "!src/kernel/engine/media-probe/**"],
+  "mutate": ["src/kernel/engine/**/*.ts"],
   "ignorePatterns": [
     "coverage",
     "npm",

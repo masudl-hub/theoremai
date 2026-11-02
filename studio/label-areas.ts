@@ -151,6 +151,12 @@ export const LABEL_AREAS = [
     note: 'Asking for the summary that replaces earlier turns.',
     audience: 'model',
   },
+  {
+    prefix: 'turn',
+    title: 'Refused files',
+    note: "In place of a file the provider won't read.",
+    audience: 'model',
+  },
 ] as const satisfies readonly LabelArea[];
 
 /** One of {@linkcode LABEL_AREAS}' prefixes. */

@@ -139,6 +139,21 @@ test('with watch off a saved file waits, and turning it on takes it in', async (
   await expect(handle).toHaveValue('Desky');
 });
 
+test('a row fades its label under the buttons on hover, and the buttons stay whole', async ({
+  page,
+}) => {
+  await open(page);
+  const row = page.locator('.studio-tree-row:has(.studio-tree-action)').first();
+  const masked = (locator: typeof row) =>
+    locator.evaluate((element) => getComputedStyle(element).maskImage);
+  const label = row.getByRole('button', { name: 'desk', exact: true });
+  await page.mouse.move(800, 500);
+  await expect.poll(() => masked(label)).toBe('none');
+  await row.hover();
+  await expect.poll(() => masked(label)).toContain('linear-gradient');
+  expect(await masked(row.getByRole('button', { name: 'Duplicate desk' }))).toBe('none');
+});
+
 test('a line from the files opens in the editor at that line', async ({ page }) => {
   await open(page);
   await page

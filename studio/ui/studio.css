@@ -59,16 +59,16 @@
   --studio-tree-fade: 0px;
 }
 
-.studio-tree-row:has(.studio-tree-action > :nth-child(2)) {
+.studio-tree-row:has(.studio-tree-action > button:nth-of-type(2)) {
   --studio-tree-fade: var(--spacing-8);
 }
 
-.studio-tree-row:has(.studio-tree-action > :nth-child(3)) {
+.studio-tree-row:has(.studio-tree-action > button:nth-of-type(3)) {
   --studio-tree-fade: calc(var(--spacing-8) * 2);
 }
 
 @media (hover: none) {
-  .studio-tree-row > button:not([data-tree-toggle]) {
+  .studio-tree-row button:not([data-tree-toggle], .studio-tree-action button) {
     mask-image: linear-gradient(
       to left,
       transparent calc(var(--spacing-6) + var(--studio-tree-fade)),
@@ -77,7 +77,8 @@
   }
 }
 
-.studio-tree-row:is(:hover, :has(:focus-visible)) > button:not([data-tree-toggle]) {
+.studio-tree-row:is(:hover, :has(:focus-visible))
+  button:not([data-tree-toggle], .studio-tree-action button) {
   mask-image: linear-gradient(
     to left,
     transparent calc(var(--spacing-6) + var(--studio-tree-fade)),

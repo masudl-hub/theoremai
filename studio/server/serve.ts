@@ -44,7 +44,7 @@ import { PROJECT_READY, type ProjectLoad } from './project.ts';
 import { entryOf, isInside } from './project-source.ts';
 import { createRuns, untilRead } from './runs.ts';
 import { answerSave, createSaveSession, isSaveRequest } from './save-session.ts';
-import { createWatchFeed, watchFiles } from './watch.ts';
+import { createEventFeed, createWatchFeed, watchFiles } from './watch.ts';
 
 function flag(name: string, fallback: string): string {
   const at = Deno.args.indexOf(`--${name}`);
@@ -215,6 +215,8 @@ try {
 }
 /** What the loads are running. When it ends the page hears of the files it was not told of. */
 const runs = createRuns(() => void tellChanged());
+/** The chats that hold the load: each is told when a change waits for them. */
+const holds = createEventFeed<{ saved: boolean }>();
 /** The load that runs the builder's unsaved edits, while the page compares it with the files. */
 const edited = createEditedSession<Loaded>({
   load: loadProject,
@@ -238,6 +240,7 @@ const session = createSaveSession<Loaded>(
     running: runs.busy,
     // The files changed: the edited load lies over files that are gone, once its runs are done.
     whenQuiet: async (swap) => {
+      if (runs.busy()) holds.tell({ saved: true });
       await new Promise<void>((quiet) => runs.whenIdle(quiet));
       await edited.close();
       await new Promise<void>((swapped) =>
@@ -349,6 +352,7 @@ const EVENTS = `${STUDIO_BASE}/events`;
 const STATUS = `${STUDIO_BASE}/status`;
 const SAVE = `${STUDIO_BASE}/save`;
 const WATCH = `${STUDIO_BASE}/watch`;
+const HOLD = `${STUDIO_BASE}/hold`;
 const OPEN = `${STUDIO_BASE}/open`;
 const EDITED = `${STUDIO_BASE}/edited`;
 
@@ -465,17 +469,25 @@ async function opened(request: Request): Promise<StudioDescription | undefined> 
 function openedSaying(request: Request): Response | undefined {
   if (!opens(request)?.steps) return undefined;
   const encoder = new TextEncoder();
+  // why: the walk outlives a page that leaves, and a closed stream throws at each line.
+  let left = false;
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      const line = (said: unknown) =>
-        controller.enqueue(encoder.encode(`${JSON.stringify(said)}\n`));
+      const line = (said: unknown) => {
+        if (!left) controller.enqueue(encoder.encode(`${JSON.stringify(said)}\n`));
+      };
       described(line).then(
         (project) => {
           line({ opened: project });
-          controller.close();
+          if (!left) controller.close();
         },
-        (error) => controller.error(error),
+        (error) => {
+          if (!left) controller.error(error);
+        },
       );
+    },
+    cancel() {
+      left = true;
     },
   });
   return new Response(body, {
@@ -502,7 +514,8 @@ if (feed) {
     changed: () => session.changed(),
     // why: the page would read files the running load was not read from; the end of the run tells it.
     tell: (files) => {
-      if (!runs.busy()) feed.tell(files);
+      if (runs.busy()) holds.tell({ saved: false });
+      else feed.tell(files);
     },
     watch: (folders) => Deno.watchFs(folders, { recursive: false }),
   });
@@ -513,6 +526,17 @@ function watching(request: Request): Response | undefined {
   if (request.method !== 'GET' || new URL(request.url).pathname !== WATCH) return undefined;
   const cors = corsHeaders(request, pageOrigins);
   return feed ? feed.subscribe(cors) : new Response(null, { status: 204, headers: cors });
+}
+
+/**
+ * `GET <base>/hold`: a chat whose reply is not done holds the load for as long as it reads this,
+ * gates included.
+ * why: a gate lives in the load and its turn's stream has ended, so no run counts it. The page
+ * holds it, not the server: a tab closed on a gate has no answer to wait for.
+ */
+function holding(request: Request): Response | undefined {
+  if (request.method !== 'GET' || new URL(request.url).pathname !== HOLD) return undefined;
+  return untilRead(holds.subscribe(corsHeaders(request, pageOrigins)), runs.begin());
 }
 
 /**
@@ -589,6 +613,7 @@ async function answered(request: Request): Promise<Response | undefined> {
 const ROUTES: ((request: Request) => Response | undefined | Promise<Response | undefined>)[] = [
   running,
   watching,
+  holding,
   openedSaying,
   answerStatus,
   answerEvents,

@@ -660,8 +660,7 @@ function answerPendingGate(
     ? state.gates[request.operationId]
     : undefined;
   if (!pending || pending.profileId !== profileId || pending.callId !== request.callId) {
-    // labels-exempt: internal diagnostic; the user reads the error kind's (or copy key's) wording
-    throw new TheoremError('request', `gate ${request.callId} is not pending`, {
+    throw new TheoremError('request', labelText('session.gate_expired'), {
       copy: { key: 'session.gate_expired' },
     });
   }

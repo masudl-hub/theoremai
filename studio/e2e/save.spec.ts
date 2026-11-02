@@ -22,6 +22,9 @@ const handle = (page: Page) => page.getByRole('textbox', { name: 'Handle' }).fir
 const prompt = (page: Page) => page.getByRole('textbox', { name: 'Prompt' }).first();
 const saveToken = (page: Page) => page.getByRole('button', { name: 'Save', exact: true }).first();
 const edited = (from: string, to: string) => original.replace(from, to);
+const approve = (page: Page) => page.getByRole('button', { name: 'Approve' });
+const changeWaits = (page: Page) => page.getByText('Your change loads after you answer.');
+const ASKS = '[call wipe_desk {"confirm":true}]';
 
 test.afterEach(async ({ browser }) => {
   await putProjectBack(await browser.newPage());
@@ -152,6 +155,63 @@ test('a save made during a reply lands when the reply ends', async ({ page }) =>
   await expect(page.getByText('Fake reply on full to "first [hold saving]"')).toBeVisible();
   await expect(saveToken(page)).toBeHidden();
   await expect.poll(() => readFileSync(desk, 'utf8')).toContain("handle: 'Deskx'");
+});
+
+test('a file written while a gate waits loads once it is answered', async ({ page }) => {
+  await open(page);
+  await send(page, ASKS);
+  await expect(approve(page)).toBeVisible();
+  writeFileSync(desk, edited("handle: 'Desk'", "handle: 'Disk'"));
+  await expect(changeWaits(page)).toBeVisible();
+  await expect(handle(page)).toHaveValue('Desk');
+  await approve(page).click();
+  await expect(page.getByText('Tool answered on full')).toBeVisible();
+  await expect(handle(page)).toHaveValue('Disk');
+  await expect(changeWaits(page)).toHaveCount(0);
+});
+
+test('save waits for a gate to be answered, and the dialog says so', async ({ page }) => {
+  await open(page);
+  await send(page, ASKS);
+  await expect(approve(page)).toBeVisible();
+  await handle(page).fill('Deskx');
+  await saveToken(page).click();
+  const dialog = page.getByRole('dialog', { name: /Save to/ });
+  const save = dialog.getByRole('button', { name: 'Save', exact: true });
+  await expect(dialog.getByText('A chat is waiting for your answer.')).toBeVisible();
+  await expect(save).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await approve(page).click();
+  await expect(page.getByText('Tool answered on full')).toBeVisible();
+  await saveToken(page).click();
+  await save.click();
+  await expect(saveToken(page)).toBeHidden();
+  await expect.poll(() => readFileSync(desk, 'utf8')).toContain("handle: 'Deskx'");
+});
+
+test('leaving a gate unanswered lets the file that waits on it load', async ({ page }) => {
+  await open(page);
+  await send(page, ASKS);
+  await expect(approve(page)).toBeVisible();
+  writeFileSync(desk, edited("handle: 'Desk'", "handle: 'Disk'"));
+  await expect(changeWaits(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Clear history' }).click();
+  await expect(handle(page)).toHaveValue('Disk');
+});
+
+test('a gate the load lost says so, and a clear chat runs', async ({ page }) => {
+  await page.route('**/hold', (route) => route.abort());
+  await open(page);
+  await send(page, ASKS);
+  await expect(approve(page)).toBeVisible();
+  writeFileSync(desk, edited("handle: 'Desk'", "handle: 'Disk'"));
+  await expect(handle(page)).toHaveValue('Disk');
+  await approve(page).click();
+  await expect(page.getByText('that step is no longer waiting for approval').first()).toBeVisible();
+  await expect(page.getByText('is not pending')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Clear history' }).click();
+  await send(page, 'next');
+  await expect(page.getByText('Fake reply on full to "next"')).toBeVisible();
 });
 
 test('a setting changed on both sides asks which stands: source', async ({ page }) => {

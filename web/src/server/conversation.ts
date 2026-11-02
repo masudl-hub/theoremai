@@ -614,8 +614,7 @@ function requireWalkAway(
 /** Refuses an answer to a call the paused reply is not waiting on, by call id and operation. */
 function requireWaitingOn(conversation: StoredConversation, reference: GateReference): void {
   if (waitingOn(conversation, reference)) return;
-  // labels-exempt: internal diagnostic; the user reads the copy key's wording
-  throw new TheoremError('request', `the reply is not waiting on ${reference.callId}`, {
+  throw new TheoremError('request', labelText('session.gate_expired'), {
     copy: { key: 'session.gate_expired' },
   });
 }

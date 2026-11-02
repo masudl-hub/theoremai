@@ -634,7 +634,7 @@ function OptionRow({
               tooltip={option.isShownInChat ? 'Shown in chat' : 'Not shown in chat'}
               variant="ghost"
               size="sm"
-              icon={<Icon icon={IconMessage} size="sm" />}
+              icon={<Icon icon={IconPencil} size="sm" />}
             />
           </Popover>
         )}

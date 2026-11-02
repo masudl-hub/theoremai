@@ -32,7 +32,7 @@ export const studioTheme = defineTheme({
   components: {
     // why: a dialog is short and sits at Astryx's padding, so the studio's larger type crowds it.
     // It keeps Astryx's own ladder; the `--text-*` tokens resolve at the root, so they are restated
-    // here to read it. Its shadow drops the neutral theme's ring, and the page goes further back.
+    // here to read it. The page behind goes further back than neutral's scrim.
     dialog: {
       base: {
         '--font-size-xs': '0.625rem',
@@ -52,8 +52,6 @@ export const studioTheme = defineTheme({
         '--text-heading-4-size': 'var(--font-size-base)',
         '--text-heading-5-size': 'var(--font-size-sm)',
         '--text-heading-6-size': 'var(--font-size-xs)',
-        boxShadow:
-          '0 4px 6px light-dark(oklch(0 0 0 / 10%), oklch(0 0 0 / 50%)), 0 12px 24px light-dark(oklch(0 0 0 / 15%), oklch(0 0 0 / 70%))',
         '::backdrop': { backgroundColor: 'light-dark(#00000080, #000000BF)' },
       },
     },

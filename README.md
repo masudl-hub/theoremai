@@ -79,7 +79,7 @@ deno add jsr:@theoremjs/agents
 npm install @theoremjs/agents zod
 ```
 
-The npm package runs on Node 20 and later and in browsers. Its type declarations need TypeScript 5.7 or later.
+The npm package runs on Node 22 and later and in browsers. Its type declarations need TypeScript 5.7 or later.
 
 ### Register a tool
 

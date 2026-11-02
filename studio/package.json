@@ -49,7 +49,7 @@
     "@lexical/table": "^0.52.0",
     "@lexical/utils": "^0.52.0",
     "@tabler/icons-react": "^3.46.0",
-    "@types/node": "^20.19.43",
+    "@types/node": "^22.20.5",
     "fflate": "^0.8.2",
     "lexical": "^0.52.0",
     "monaco-editor": "^0.57.0"

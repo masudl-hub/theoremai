@@ -10,7 +10,7 @@
   "type": "module",
   "sideEffects": false,
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "bin": {
     "agents": "./src/cli/bin.ts"
@@ -85,7 +85,7 @@
     "@ast-grep/cli": "^0.41.0",
     "@biomejs/biome": "2.5.14",
     "@stryker-mutator/core": "^10.0.0",
-    "@types/node": "^20.19.43",
+    "@types/node": "^22.20.5",
     "fallow": "3.17.0",
     "intl-messageformat": "^11.2.9",
     "typescript": "^6.0.3"

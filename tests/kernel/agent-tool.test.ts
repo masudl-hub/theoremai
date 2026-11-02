@@ -1127,3 +1127,51 @@ Deno.test('a stopped agent tool settles with the tokens its agent had spent', as
     RESEARCHER_TOKENS.total,
   );
 });
+
+Deno.test('an agent tool whose result is too large keeps the tokens its agent spent', async () => {
+  const scope = scopeWith({ background: 'always' });
+  const handles: ToolBackgroundHandle[] = [];
+  const late: TurnEvent[] = [];
+  const model: TurnModel = {
+    async *complete(req) {
+      await Promise.resolve();
+      if (isResearcher(req)) {
+        yield { type: 'tokens', tokens: RESEARCHER_TOKENS };
+        yield { type: 'text', text: 'x'.repeat(2000) };
+        return;
+      }
+      if (JSON.stringify(req.history).includes('still running')) {
+        yield { type: 'text', text: 'Looking into it.' };
+        return;
+      }
+      yield {
+        type: 'tool',
+        tool: { name: 'ask_researcher', arguments: { text: 'q' }, callId: 'call_0' },
+      };
+    },
+  };
+  for await (const _ of runScopedTurn(
+    scope,
+    {
+      profile: CALLER,
+      input: { text: 'Go' },
+      execution: { ...createMemoryToolExecution(), maxOutcomeBytes: 1200 },
+      background: {
+        detached: (handle) => handles.push(handle),
+        event: (event) => {
+          late.push(event);
+        },
+      },
+    },
+    model,
+  )) {
+    // why: The turn ends at the reply; the agent keeps running.
+  }
+  await handles[0]?.done;
+  const [failed] = toolPhases(late, 'error').filter((t) => t.name === 'ask_researcher');
+  assertEquals(failed?.phase === 'error' ? failed.failure.code : undefined, 'result_too_large');
+  assertEquals(
+    failed?.phase === 'error' ? failed.tokens?.total : undefined,
+    RESEARCHER_TOKENS.total,
+  );
+});

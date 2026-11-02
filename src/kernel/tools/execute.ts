@@ -1620,8 +1620,8 @@ async function* executeAgentTool(args: {
         return;
       }
       const event = next.value;
-      seen.push(event);
       if (event.type === 'tokens' || event.type === 'tool') {
+        seen.push(event);
         const spent = sumTurnTokens(seen);
         // why: A stopped agent throws before it returns its usage.
         if (spent) args.stages?.spent?.(spent);

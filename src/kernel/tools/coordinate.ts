@@ -289,7 +289,9 @@ class CoordinatedExecution {
     } finally {
       clearTimeout(this.graceTimer);
       await this.close().catch(() => {});
-      await Promise.resolve(detach.trace.end()).catch(() => {});
+      await Promise.resolve()
+        .then(() => detach.trace.end())
+        .catch(() => {});
     }
   }
 
@@ -378,7 +380,7 @@ class CoordinatedExecution {
       message: `The result of ${name} is ${bytes} bytes, more than the ${limit} bytes kept for one tool result`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       details: { bytes, maxOutcomeBytes: limit },
     };
-    return failedOutcome(outcome.event.tool, outcome.effects, failure);
+    return failedOutcome(outcome.event.tool, outcome.effects, failure, outcome.event.tool.tokens);
   }
 
   replay(error: ReplayedOperation): ToolOperationOutcome {

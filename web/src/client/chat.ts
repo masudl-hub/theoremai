@@ -170,6 +170,12 @@ export type ChatController = {
    * `conversationView` is read then, and a restored page gate answered then.
    */
   subscribe(listener: () => void): () => void;
+  /**
+   * Reads the conversation from the host and draws it. For a page told by its own channel that
+   * something ended, such as a service worker that receives a Web Push. A run in flight reads it
+   * anyway when it ends, and a failed read leaves the chat as it stands.
+   */
+  refresh(): Promise<void>;
   /** The latest options. `conversation`, `conversationView` and `initialText` are read only at creation. */
   update(options: ChatOptions): void;
   setDraftText(value: ChatUpdate<string>): void;
@@ -370,6 +376,11 @@ class Chat implements ChatController {
   #pageToolsWarned: string | undefined;
   #frame: (() => void) | null = null;
   #frameBlocks: TranscriptBlock[] | null = null;
+  /** What the last view said about the host's push; unset, nothing is listened for. */
+  #notify: ConversationView['notify'];
+  #listening: AbortController | null = null;
+  #reading: Promise<void> | null = null;
+  #readAgain = false;
 
   constructor(options: ChatOptions) {
     this.#options = options;
@@ -405,8 +416,93 @@ class Chat implements ChatController {
       this.#live = true;
       this.#settle();
     }
-    return () => this.#listeners.delete(listener);
+    this.#followPush();
+    return () => {
+      this.#listeners.delete(listener);
+      this.#followPush();
+    };
   };
+
+  refresh = (): Promise<void> => {
+    if (this.#reading) {
+      this.#readAgain = true;
+      return this.#reading;
+    }
+    this.#reading = this.#readHost().finally(() => {
+      this.#reading = null;
+    });
+    return this.#reading;
+  };
+
+  /** invariant: Reads never overlap, so an older view never draws over a newer one. */
+  async #readHost(): Promise<void> {
+    do {
+      this.#readAgain = false;
+      await this.#readOnce();
+    } while (this.#readAgain);
+  }
+
+  async #readOnce(): Promise<void> {
+    const { iface, transport } = this.#options;
+    const ref = this.#conversation;
+    if (!iface || ref === undefined || !keepsConversation(iface) || this.#busy) return;
+    const before = this.#state.blocks;
+    let view: ConversationView;
+    try {
+      view = await transport.conversation({ conversation: ref });
+    } catch (err) {
+      // why: Nobody asked for this read, and the next one heals a passing failure.
+      if (isUnknownConversation(err)) this.#setPush(undefined);
+      return;
+    }
+    // why: A run reads the conversation once it ends, later than this.
+    if (this.#busy) return;
+    // why: Another read drew first. It may have started before the call ended, so read again.
+    if (this.#state.blocks !== before || this.#conversation !== ref) {
+      this.#readAgain = true;
+      return;
+    }
+    this.#draw(view, this.#state.session, []);
+  }
+
+  #setPush(notify: ConversationView['notify']): void {
+    this.#notify = notify;
+    this.#followPush();
+  }
+
+  /** Holds the host's push open while the last view asks for it and someone is here to see it. */
+  #followPush(): void {
+    if (!this.#notify || this.#listeners.size === 0 || !this.#options.transport.notify) {
+      this.#listening?.abort();
+      this.#listening = null;
+      return;
+    }
+    if (this.#listening) return;
+    const listening = new AbortController();
+    this.#listening = listening;
+    void this.#listen(listening);
+  }
+
+  async #listen(listening: AbortController): Promise<void> {
+    const { signal } = listening;
+    while (!signal.aborted) {
+      try {
+        await this.#options.transport.notify?.(() => void this.refresh(), signal);
+      } catch {
+        // why: The push is a convenience; the page still reads on its next turn or reload.
+      }
+      const retryMs = this.#notify?.retryMs;
+      if (signal.aborted || retryMs === undefined) break;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, retryMs);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+    if (this.#listening === listening) this.#listening = null;
+  }
 
   update = (options: ChatOptions): void => {
     this.#options = options;
@@ -707,6 +803,7 @@ class Chat implements ChatController {
       session: this.#sessionAfter(session, view.paused?.events ?? events),
       chatStarted: view.transcript.length > 0 || view.paused !== undefined,
     });
+    this.#setPush(view.notify);
   }
 
   /**

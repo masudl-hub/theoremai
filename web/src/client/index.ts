@@ -215,6 +215,7 @@ export {
   hostError,
   isTheoremStreamError,
   type MalformedEvent,
+  type NotifyLine,
   postJson,
   postNdjson,
   readNdjsonStream,

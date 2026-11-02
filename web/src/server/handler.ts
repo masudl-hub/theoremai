@@ -21,6 +21,8 @@ import {
  * - `POST <base>/stop`    → stop a running turn where it stands
  * - `POST <base>/page-result` → the page's result for a tool the turn ran in the page
  * - `POST <base>/conversation` → the transcript and the paused reply, to draw
+ * - `POST <base>/notify`  → NDJSON that stays open: one line now, and one each time a background
+ *                            call in this session ends. Set `notifier` to serve it
  * - `POST <base>/rewind`  → `{ conversation, view }` the conversation cut after one block, and its new ref
  *
  * `createTheoremHostHandler` serves a host profile the same way, with no model:
@@ -102,6 +104,7 @@ import {
   type TheoremRewound,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
+  theoremNotifyRequestSchema,
   theoremRewindRequestSchema,
   theoremSteerRequestSchema,
   theoremStopRequestSchema,
@@ -134,6 +137,7 @@ import {
   type TheoremCredentialStore,
   type TheoremCredentials,
 } from './credential-store.ts';
+import type { TheoremNotifier } from './notifier.ts';
 import {
   type MutableStore,
   type SessionStateStore,
@@ -250,6 +254,17 @@ export type TheoremHandlerOptions = {
    * inline. The value must stay valid after the request ends, until each call settles.
    */
   background?: (ctx: { request: Request; sessionId: string }) => ToolBackgroundService;
+  /**
+   * Tells an open page that a background call ended, so it redraws with no turn or reload. Unset,
+   * the page reads the end on its next turn or reload. A sweep that marks a call itself calls
+   * `publish` too. `createMemoryNotifier` for one instance.
+   */
+  notifier?: TheoremNotifier;
+  /**
+   * How long an open page waits to reopen `notifier`'s stream after it ends, in milliseconds.
+   * Hosting platforms cut long responses. Unset, the page does not reopen it.
+   */
+  notifyRetryMs?: number;
   /** Check current resource access before disclosing a saved tool result. This callback must be read-only. */
   authorizeToolReplay?: (context: {
     request: Request;
@@ -287,7 +302,13 @@ export type TheoremHandlerOptions = {
 /** A host profile runs no model, and takes no turns to steer. */
 export type TheoremHostHandlerOptions = Omit<
   TheoremHandlerOptions,
-  'profile' | 'provider' | 'steerInbox' | 'conversationStore' | 'prepare'
+  | 'profile'
+  | 'provider'
+  | 'steerInbox'
+  | 'conversationStore'
+  | 'prepare'
+  | 'notifier'
+  | 'notifyRetryMs'
 > & {
   /** Host profile to serve. Registered with the kernel when the handler is created. */
   profile: Extract<Profile, { type: 'host' }> | Extract<ProfileDefinition, { type: 'host' }>;
@@ -337,6 +358,7 @@ function routeOf(request: Request): string {
     last === 'steer' ||
     last === 'stop' ||
     last === 'conversation' ||
+    last === 'notify' ||
     last === 'rewind' ||
     last === 'call' ||
     last === 'page-result'
@@ -783,9 +805,21 @@ function backgroundWiring(
   request: Request,
   sessionId: string,
 ): { background?: ToolBackgroundService } {
-  return ctx.options.background
-    ? { background: ctx.options.background({ request, sessionId }) }
-    : {};
+  const service = ctx.options.background?.({ request, sessionId });
+  if (!service) return {};
+  const { notifier } = ctx.options;
+  if (!notifier) return { background: service };
+  return {
+    background: {
+      detached(call) {
+        service.detached(call);
+        void call.done
+          .then(() => notifier.publish(sessionId))
+          .catch((err: unknown) => ctx.options.onError?.(err, { request }));
+      },
+      event: (event, call) => service.event(event, call),
+    },
+  };
 }
 
 /** A settled call's answer, streamed again. */
@@ -961,7 +995,49 @@ async function conversation(
   const host = conversationHost(ctx, session);
   if (!host) throw statelessRefusal('read');
   const opened = await openConversation(host, body.conversation, { kind: 'read' });
-  return jsonResponse(200, await currentView(ctx, session, host, opened.conversation));
+  return jsonResponse(200, await currentView(ctx, request, session, host, opened.conversation));
+}
+
+const CHANGED_LINE = new TextEncoder().encode('{"type":"changed"}\n');
+
+/**
+ * One line now, then one for each background call that ends. The stream names no conversation,
+ * because a store's ref can change with each write; the page reads under the ref it holds.
+ * invariant: The first line follows the subscribe, so a call that ends before the page's first
+ * read is never missed.
+ */
+async function notify(
+  ctx: HandlerContext,
+  request: Request,
+  session: Session,
+  notifier: TheoremNotifier,
+): Promise<Response> {
+  await readBody(request, theoremNotifyRequestSchema, ctx.options.maxRequestBytes);
+  let send = () => {};
+  const unsubscribe = await notifier.subscribe(session.id, () => send());
+  let open = true;
+  const end = () => {
+    if (!open) return;
+    open = false;
+    unsubscribe();
+  };
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      send = () => {
+        if (open) controller.enqueue(CHANGED_LINE);
+      };
+      send();
+      const leave = () => {
+        if (!open) return;
+        end();
+        controller.close();
+      };
+      if (request.signal.aborted) leave();
+      else request.signal.addEventListener('abort', leave, { once: true });
+    },
+    cancel: end,
+  });
+  return new Response(stream, { headers: NDJSON_HEADERS });
 }
 
 /**
@@ -970,6 +1046,7 @@ async function conversation(
  */
 async function currentView(
   ctx: HandlerContext,
+  request: Request,
   session: Session,
   host: ConversationHost,
   conversation: StoredConversation,
@@ -977,11 +1054,18 @@ async function currentView(
   const view = conversationView(host, conversation);
   if (!view.transcript.some(isDetachedBlock)) return view;
   const { operations } = await ctx.sessions.read(session.id);
+  const transcript = await Promise.all(
+    view.transcript.map((block) =>
+      isDetachedBlock(block) ? lateBlock(ctx, request, block, operations, host) : block,
+    ),
+  );
+  const { notifier, notifyRetryMs } = ctx.options;
   return {
     ...view,
-    transcript: view.transcript.map((block) =>
-      isDetachedBlock(block) ? lateBlock(block, operations, host, ctx.profile) : block,
-    ),
+    transcript,
+    ...(notifier && transcript.some(isDetachedBlock)
+      ? { notify: notifyRetryMs === undefined ? {} : { retryMs: notifyRetryMs } }
+      : {}),
   };
 }
 
@@ -992,16 +1076,36 @@ function isDetachedBlock(block: TranscriptBlock): block is ToolBlock {
 }
 
 /** A detached call's block as its operation stands. One the session no longer holds has no known end. */
-function lateBlock(
+async function lateBlock(
+  ctx: HandlerContext,
+  request: Request,
   block: ToolBlock,
   operations: TheoremSessionState['operations'],
   host: ConversationHost,
-  profile: Profile,
-): ToolBlock {
+): Promise<ToolBlock> {
   const { tool } = block;
   const id = tool.operationId;
   const operation = id && Object.hasOwn(operations, id) ? operations[id] : undefined;
   if (operation?.status === 'running' || operation?.status === 'background') return block;
+  const { labels } = ctx.profile;
+  if (
+    operation?.status === 'settled' &&
+    ctx.options.authorizeToolReplay &&
+    !(await ctx.options.authorizeToolReplay({ request, operation }))
+  ) {
+    const message = labelText('error.blocked', {}, labels);
+    const failure = { code: 'outcome_withheld', kind: 'blocked', message } as const;
+    const { name, callId } = tool;
+    const at = operation.settledAt;
+    return {
+      ...block,
+      tool: {
+        ...tool,
+        state: { name, callId, at, phase: 'error', failure, readBack: message },
+        endedAt: at,
+      },
+    };
+  }
   if (operation?.status === 'settled') {
     const settled = host.forReader(operation.outcome.event);
     if (settled.type !== 'tool') return block;
@@ -1010,7 +1114,7 @@ function lateBlock(
       return block;
     return { ...block, tool: { ...tool, state, endedAt: operation.settledAt } };
   }
-  const message = labelText('tool.execution_uncertain', {}, profile.labels);
+  const message = labelText('tool.execution_uncertain', {}, labels);
   const failure = {
     code: operation?.status === 'uncertain' ? operation.reason : 'outcome_not_retained',
     kind: 'internal',
@@ -1048,7 +1152,7 @@ async function rewind(ctx: HandlerContext, request: Request, session: Session): 
   if (next.ref === null) throw new TheoremError('internal', labelText('error.internal'));
   const rewound: TheoremRewound = {
     conversation: next.ref,
-    view: await currentView(ctx, session, host, next.conversation),
+    view: await currentView(ctx, request, session, host, next.conversation),
   };
   return jsonResponse(200, rewound);
 }
@@ -1307,6 +1411,11 @@ async function route(ctx: HandlerContext, request: Request, session: Session): P
   if (target === 'turn') return turn(ctx, chat, request, session);
   if (target === 'invoke') return invoke(ctx, request, session);
   if (target === 'conversation') return conversation(ctx, request, session);
+  if (target === 'notify') {
+    const { notifier } = ctx.options;
+    if (!notifier || !chat.conversations) return refused(ctx);
+    return notify(ctx, request, session, notifier);
+  }
   if (target === 'rewind') return rewind(ctx, request, session);
   if (target === 'stop') return stop(ctx, request, session);
   return steer(ctx, request, session);
@@ -1383,6 +1492,13 @@ export function hostTool(name: string) {
   return registered?.type === 'builtin' ? undefined : registered;
 }
 
+function checkNotifyRetry(ms: number | undefined): void {
+  if (ms === undefined || (Number.isFinite(ms) && ms >= 0)) return;
+  throw new TheoremError('config', labelText('error.config'), {
+    cause: { code: 'notify_retry' },
+  });
+}
+
 function serve(
   name: string,
   profile: Profile,
@@ -1398,6 +1514,7 @@ function serve(
   }
   requestByteLimit(options.maxRequestBytes);
   checkPageToolTimeout(options.pageToolTimeoutMs);
+  checkNotifyRetry(options.notifyRetryMs);
   registerProfile(profile);
   const ctx: HandlerContext = {
     options,

@@ -48,6 +48,7 @@ A single mounted endpoint handles six sub-routes:
 | **`POST <base>/invoke`** | NDJSON Stream | Processes the user's decision or credentials for a paused tool gate (`approve`, `deny`, or `modify`). |
 | **`POST <base>/steer`** | JSON Status | Injects mid-turn instructions into an active running tool loop without terminating execution. |
 | **`POST <base>/conversation`** | Returns `{ transcript, reply }` | Retrieves the rendered transcript and any paused reply state for a conversation reference. |
+| **`POST <base>/notify`** | Streams NDJSON `changed` lines | Stays open while a background call runs, when the host sets `notifier`. The page reads the conversation on each line. |
 | **`POST <base>/rewind`** | Returns `{ conversation, view }` | Truncates a conversation after a designated block, returning a new conversation ref for branching. |
 
 ---

@@ -12,6 +12,7 @@ export {
   type StatedTurn,
   theoremConversationRequestSchema,
   theoremInvokeRequestSchema,
+  theoremNotifyRequestSchema,
   theoremReplaySchema,
   theoremRewindRequestSchema,
   theoremStartRequestSchema,
@@ -81,6 +82,7 @@ export {
   theoremSessionId,
 } from './handler.ts';
 export { createTheoremMcpHandler, type TheoremMcpHandlerOptions } from './mcp-handler.ts';
+export { createMemoryNotifier, type TheoremNotifier } from './notifier.ts';
 export {
   createMemoryPageToolBroker,
   type PageToolBroker,

@@ -272,12 +272,15 @@ export type ConversationView = {
   transcript: TranscriptBlock[];
   /** The reply that waits on gates: its events, and its blocks as the transcript will keep them. */
   paused?: { events: TurnEvent[]; blocks: TranscriptBlock[] };
+  /** The host pushes the end of a call that still runs. `retryMs` is its wait to reopen the push. */
+  notify?: { retryMs?: number };
 };
 const conversationView = z.object({
   transcript: z.array(transcriptBlockSchema),
   paused: z
     .object({ events: z.array(turnEventSchema), blocks: z.array(transcriptBlockSchema) })
     .optional(),
+  notify: z.object({ retryMs: z.number().optional() }).optional(),
 });
 true satisfies Equals<z.infer<typeof conversationView>, ConversationView>;
 
@@ -288,6 +291,16 @@ true satisfies Equals<z.infer<typeof theoremConversationRequest>, TheoremConvers
 /** A `/conversation` body as `createTheoremHandler` reads it. */
 export const theoremConversationRequestSchema: z.ZodType<TheoremConversationRequest> =
   theoremConversationRequest;
+
+/** Listen for the ends of this session's background calls: a `/notify` body. */
+export type TheoremNotifyRequest = Record<string, never>;
+const theoremNotifyRequest = z.strictObject({});
+/** A `/notify` body as `createTheoremHandler` reads it. */
+export const theoremNotifyRequestSchema: z.ZodType<TheoremNotifyRequest> = theoremNotifyRequest;
+
+/** A line of `/notify`: something in the session changed, so read the conversation again. */
+export type NotifyLine = { type: 'changed' };
+const NOTIFY_LINES: WireLines<NotifyLine> = { changed: z.object({ type: z.literal('changed') }) };
 
 /**
  * Cut the conversation after transcript block `at` (-1 empties it): a
@@ -337,6 +350,8 @@ export interface TheoremTransport {
     request: TheoremConversationRequest,
     signal?: AbortSignal,
   ): Promise<ConversationView>;
+  /** Calls `changed` for each line of the host's push, and settles when the push ends. */
+  notify?(changed: () => void, signal: AbortSignal): Promise<void>;
   /** The conversation cut after a transcript block, under the ref the host issued for it. */
   rewind(request: TheoremRewindRequest, signal?: AbortSignal): Promise<TheoremRewound>;
   pageResult?(result: PageDispatchResult, signal?: AbortSignal): Promise<void>;
@@ -676,6 +691,16 @@ export function createHttpTransport(options: HttpTransportOptions = {}): Theorem
       postNdjson(`${base}/invoke`, body, CHAT_LINES, onEvent, { ...options, signal }),
     conversation: (body, signal) =>
       fetchConversation(`${base}/conversation`, body, { ...options, signal }),
+    notify: (changed, signal) =>
+      postNdjson(
+        `${base}/notify`,
+        {},
+        NOTIFY_LINES,
+        (line) => {
+          if (line.type === 'changed') changed();
+        },
+        { ...options, signal },
+      ),
     rewind: (body, signal) => fetchRewound(`${base}/rewind`, body, { ...options, signal }),
     pageResult: (body, signal) => postJson(`${base}/page-result`, body, { ...options, signal }),
     steer: (body) => postJson(`${base}/steer`, body, options),

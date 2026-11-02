@@ -345,26 +345,30 @@ function ProjectProblems({ project, unloaded }: { project: ProjectSession; unloa
           width={ALERTS_WIDTH}
           style={{ maxHeight: ALERTS_MAX_HEIGHT }}
         >
-          <VStack gap={3}>
-            <HStack hAlign="end">
-              <IconButton
-                label={isCopied ? 'Copied' : 'Copy alerts'}
-                variant="ghost"
-                size="sm"
-                icon={<Icon icon={isCopied ? IconCheck : IconCopy} size="sm" />}
-                tooltip="Copy these alerts to send"
-                onClick={() => {
-                  copy(alertsReport(project, unloaded));
-                }}
-              />
-            </HStack>
+          <VStack gap={3} className="studio-alerts">
+            <IconButton
+              label={isCopied ? 'Copied' : 'Copy alerts'}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={isCopied ? IconCheck : IconCopy} size="sm" />}
+              tooltip="Copy these alerts to send"
+              onClick={() => {
+                copy(alertsReport(project, unloaded));
+              }}
+            />
             {unloaded !== undefined && (
               <VStack gap={1}>
                 <Text weight="semibold">The studio cannot load your files.</Text>
                 <Text type="supporting" color="secondary">
                   It runs them as they last loaded, until they load again.
                 </Text>
-                <CodeBlock code={unloaded.trim()} size="sm" isWrapped maxHeight={240} />
+                <CodeBlock
+                  code={unloaded.trim()}
+                  size="sm"
+                  isWrapped
+                  maxHeight={240}
+                  hasCopyButton={false}
+                />
               </VStack>
             )}
             {problems.map((problem) => (

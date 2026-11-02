@@ -292,6 +292,7 @@ export function SavedSlot({
       data-moved={hasMoved ? '' : undefined}
       data-closed={isShown ? undefined : ''}
       aria-hidden={isShown ? undefined : true}
+      inert={!isShown}
     >
       <div className="studio-saved-slot-side">{children}</div>
       {hasDivider && <Divider orientation="vertical" />}
@@ -985,6 +986,8 @@ export function ProjectChat(props: ProjectChatProps) {
               <SavedSide isCompared={view.isEditing}>
                 <TheoremChat
                   {...common}
+                  // why: a side on its way out takes no message, or one sent now runs the files.
+                  composer={showsSaved && !isShared}
                   stated={savedStated}
                   transport={transports.saved}
                   // A side that comes back starts from what it had said.

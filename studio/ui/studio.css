@@ -9,6 +9,36 @@
   width: 100%;
 }
 
+/* The alerts' copy button sits on the first title's line, which stops short of it. */
+.studio-alerts {
+  position: relative;
+}
+
+.studio-alerts > button:first-child {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+}
+
+.studio-alerts > button:first-child + * > :first-child {
+  padding-inline-end: var(--spacing-8);
+}
+
+/* A condition reads as a line: its name and values wear no box until pointed at or typed in. */
+.condition-row div:has(> input):not(:hover, :has(> input:focus, > input[aria-invalid])) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.condition-row [role='group'] button[aria-label^='Remove'] {
+  opacity: 0.5;
+}
+
+.condition-row [role='group'] button[aria-label^='Remove']:hover {
+  opacity: 1;
+}
+
 /* The guardrail examples scroll sideways with no bar under them. */
 .scrollbar-none {
   scrollbar-width: none;

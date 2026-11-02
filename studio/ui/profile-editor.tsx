@@ -513,22 +513,30 @@ function SystemPromptSection({
   );
 }
 
-/** One condition on one row: its name, the values it takes as tokens, and its remove button. */
+/** The value a condition states: the page's pick while the condition still takes it, or its first. */
+const statedValue = (allowed: readonly string[] | undefined, picked: string | undefined) =>
+  allowed?.find((value) => value === picked) ?? allowed?.[0];
+
+/** One condition on one row: its name, the values it takes with the one the chat states marked, and its remove button. */
 function ConditionRow({
   condition,
   at,
+  stated,
+  onState,
   onChange,
   onRemove,
 }: {
   condition: ConditionDraft;
   at: number;
+  stated: string | undefined;
+  onState: (value: string) => void;
   onChange: (change: Partial<ConditionDraft>) => void;
   onRemove: () => void;
 }) {
   const status = useFieldStatus()('conditions', at);
   const row = `Condition ${String(at + 1)}`;
   return (
-    <HStack gap={1} vAlign="start">
+    <HStack gap={1} vAlign="start" className="condition-row">
       <StackItem size="static">
         <HStack width={LABEL_COLUMN}>
           <StackItem size="fill">
@@ -552,6 +560,8 @@ function ConditionRow({
           value={condition.values}
           placeholder="free"
           overflow="none"
+          marked={stated}
+          onMark={onState}
           onChange={(values) => {
             onChange({ values });
           }}
@@ -568,7 +578,7 @@ function ConditionRow({
   );
 }
 
-/** Every condition, one to a row, and the page's pick for each below them. */
+/** Every condition, one to a row. The value marked on each is the one the page states, kept in this tab. */
 function ConditionSection({
   identity,
   set,
@@ -577,6 +587,8 @@ function ConditionSection({
   set: SetSection<'identity'>;
 }) {
   const { conditions } = identity;
+  const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
+  const named = draftConditions(conditions);
   return (
     <InspectorSection title="Conditions" path="identity.conditions">
       {conditions.map((condition, at) => (
@@ -584,6 +596,13 @@ function ConditionSection({
           key={condition.key}
           condition={condition}
           at={at}
+          stated={statedValue(named[condition.name], values.conditions[condition.name])}
+          onState={(value) => {
+            setValues({
+              ...values,
+              conditions: { ...values.conditions, [condition.name]: value },
+            });
+          }}
           onChange={(change) => {
             set({
               conditions: conditions.map((each) =>
@@ -607,7 +626,11 @@ function ConditionSection({
           }}
         />
       </HStack>
-      <ConditionPreviewRows conditions={conditions} />
+      {Object.keys(named).length > 0 && (
+        <Text type="supporting" color="secondary">
+          The chat runs with the marked value of each.
+        </Text>
+      )}
     </InspectorSection>
   );
 }
@@ -2231,26 +2254,6 @@ function SlotPreviewRows({ slots }: { slots: readonly SlotDraft[] }) {
       options={allowed}
       onChange={(next) => {
         if (next) setValues({ ...values, slots: { ...values.slots, [name]: next } });
-      }}
-    />
-  ));
-}
-
-/** The value the studio's page states for each condition declared so far. Kept in this tab. */
-function ConditionPreviewRows({ conditions }: { conditions: readonly ConditionDraft[] }) {
-  const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
-  return Object.entries(draftConditions(conditions)).map(([name, allowed]) => (
-    <ChoiceRow
-      key={name}
-      label={name}
-      path="identity.conditions"
-      hasClear={false}
-      value={allowed.find((value) => value === values.conditions[name]) ?? allowed[0]}
-      options={allowed}
-      onChange={(next) => {
-        if (next) {
-          setValues({ ...values, conditions: { ...values.conditions, [name]: next } });
-        }
       }}
     />
   ));

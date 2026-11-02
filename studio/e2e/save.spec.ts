@@ -62,7 +62,7 @@ test('undo after a save puts the file and the edit back', async ({ page }) => {
   await saveToken(page).click();
   const dialog = page.getByRole('dialog', { name: /Save to/ });
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
   await expect(handle(page)).toHaveValue('Deskx');
   await expect(saveToken(page)).toBeVisible();
   expect(readFileSync(desk, 'utf8')).toBe(original);
@@ -202,6 +202,26 @@ test('a file that stops loading shows the last load and the studio stays up', as
   await expect(page.getByText('Your files stopped loading')).toBeVisible();
   await send(page, 'still here');
   await expect(page.getByText('Fake reply on full to "still here"')).toBeVisible();
+  writeFileSync(desk, original);
+  await expect(page.getByText('1 alert')).toBeHidden();
+});
+
+test('the alerts copy button sits on the first line, clear of its text', async ({ page }) => {
+  await open(page);
+  writeFileSync(desk, 'export const desk = (;\n');
+  await page.getByText('1 alert').hover();
+  const title = page.getByText('The studio cannot load your files.');
+  const copy = page.getByRole('button', { name: 'Copy alerts' });
+  await expect(copy).toBeVisible();
+  await page.waitForTimeout(300);
+  const [line, button] = await Promise.all([title.boundingBox(), copy.boundingBox()]);
+  expect(Math.abs((button?.y ?? 0) - (line?.y ?? 0))).toBeLessThan(8);
+  const width = await title.evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    return range.getBoundingClientRect().right;
+  });
+  expect(width).toBeLessThanOrEqual(button?.x ?? 0);
   writeFileSync(desk, original);
   await expect(page.getByText('1 alert')).toBeHidden();
 });

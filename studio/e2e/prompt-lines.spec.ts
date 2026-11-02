@@ -17,6 +17,12 @@ const declarePlan = async (page: Page) => {
   await values.press('Enter');
 };
 
+const pickPaid = (page: Page) =>
+  page
+    .getByRole('group', { name: 'Condition 1 values' })
+    .getByRole('button', { name: 'paid', exact: true })
+    .click();
+
 const addPaidLine = async (page: Page) => {
   const prompt = page.getByRole('textbox', { name: 'Prompt' }).first();
   await prompt.fill(`${await prompt.inputValue()}\n\nwhen plan is paid: Mention the garden.`);
@@ -37,7 +43,6 @@ test('each condition is one row, and its values stay in sight', async ({ page })
   await page.getByRole('textbox', { name: 'Condition 2 name' }).fill('group');
   await page.getByRole('textbox', { name: 'Condition 1 name' }).click();
   await expect(page.getByRole('group', { name: 'Condition 1 values' })).toContainText('paid');
-  await expect(page.getByRole('combobox', { name: 'plan', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Remove condition 2' }).click();
   await expect(page.getByRole('textbox', { name: 'Condition 2 name' })).toBeHidden();
 });
@@ -45,14 +50,19 @@ test('each condition is one row, and its values stay in sight', async ({ page })
 test('the first value is stated until the builder picks another', async ({ page }) => {
   await withLines(page);
   await send(page, 'first');
+  const values = page.getByRole('group', { name: 'Condition 1 values' });
+  const marked = values.locator('[data-color="blue"]');
+  await expect(marked).toHaveText('free');
   await expect(page.getByText('Fake reply on full to "first"')).toBeVisible();
   expect(await systemOf(page)).not.toContain('Mention the garden.');
 });
 
 test('a picked condition sends the line it chooses', async ({ page }) => {
   await withLines(page);
-  await page.getByRole('combobox', { name: 'plan' }).click();
-  await page.getByRole('option', { name: 'paid' }).click();
+  await pickPaid(page);
+  await expect(
+    page.getByRole('group', { name: 'Condition 1 values' }).locator('[data-color="blue"]'),
+  ).toHaveText('paid');
   await send(page, 'second');
   await expect(page.getByText('Fake reply on full to "second"')).toBeVisible();
   expect(await systemOf(page)).toContain('Mention the garden.');
@@ -68,8 +78,7 @@ test('both sides run when only the edit declares conditions', async ({ page }) =
 
 test('the trace names the prompt lines the turn sent', async ({ page }) => {
   await withLines(page);
-  await page.getByRole('combobox', { name: 'plan' }).click();
-  await page.getByRole('option', { name: 'paid' }).click();
+  await pickPaid(page);
   await send(page, 'fourth');
   await expect(page.getByText('Fake reply on full to "fourth"')).toBeVisible();
   await page.getByRole('button', { name: 'View trace' }).click();
@@ -84,8 +93,7 @@ test('an image agent runs with the conditions the edit declares', async ({ page 
   await open(page, 'picture');
   await declarePlan(page);
   await addPaidLine(page);
-  await page.getByRole('combobox', { name: 'plan' }).click();
-  await page.getByRole('option', { name: 'paid' }).click();
+  await pickPaid(page);
   await expect(page.getByText('Edited (studio)')).toBeVisible();
   await page.getByRole('button', { name: 'Hide saved' }).click();
   await send(page, 'a red pixel');

@@ -1070,6 +1070,8 @@ export function NamesInput({
   isDisabled,
   disabledMessage,
   overflow = 'unfocusedInline',
+  marked,
+  onMark,
   onChange,
 }: {
   label: string;
@@ -1080,6 +1082,10 @@ export function NamesInput({
   disabledMessage?: string;
   /** `none` keeps every token in sight, at the same height, focused or not. */
   overflow?: 'none' | 'unfocusedInline';
+  /** The token shown as chosen. */
+  marked?: string;
+  /** Pressing a token chooses it. */
+  onMark?: (name: string) => void;
   onChange: (next: string[]) => void;
 }) {
   return (
@@ -1096,6 +1102,20 @@ export function NamesInput({
       isDisabled={isDisabled}
       disabledMessage={disabledMessage}
       tokenOverflowBehavior={overflow}
+      renderToken={
+        onMark &&
+        ((item, onRemove) => (
+          <Token
+            label={item.label}
+            size="sm"
+            color={item.label === marked ? 'blue' : 'default'}
+            onClick={() => {
+              onMark(item.label);
+            }}
+            onRemove={onRemove}
+          />
+        ))
+      }
       onChange={(items) => {
         const names = items.map((item) => item.label.trim()).filter(Boolean);
         onChange([...new Set(names)]);

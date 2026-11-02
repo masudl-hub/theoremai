@@ -52,7 +52,7 @@ test('a duplicate runs, Save writes its file, and Save takes it back out', async
   await saveAll(page);
   await expect(saved(page)).toBeVisible();
   await expect.poll(written).not.toContain('agents/concierge_copy.ts');
-  expect(allText()).not.toContain('conciergeCopy');
+  await expect.poll(allText).not.toContain('conciergeCopy');
 });
 
 test('a new tool goes on the agent and Save writes both', async ({ page }) => {

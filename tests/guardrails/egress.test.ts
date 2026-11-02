@@ -1,5 +1,6 @@
 import '../fixtures/test-host.ts';
 import { mintCanary, USER_CLOSE, USER_OPEN } from '../../src/guardrails/canary.ts';
+import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
 import { INJ_IGNORE } from '../../src/guardrails/corpus/strings.ts';
 import { scopeOf } from '../../src/guardrails/detect-at.ts';
@@ -90,9 +91,8 @@ Deno.test('a reply that takes out leaks: allows benign assistant text', () => {
 });
 
 Deno.test('a reply that takes out leaks: takes out a literal canary and keeps the rest', () => {
-  const canary = mintCanary();
-  const crossing = enforce(`The token is ${canary}`, canary);
-  takenOut(crossing, DETECT_RULES.canary_leak, canary);
+  const crossing = enforce(`The token is ${FIXED_CANARY}`, FIXED_CANARY);
+  takenOut(crossing, DETECT_RULES.canary_leak, FIXED_CANARY);
   assertStringIncludes(crossing.text, 'The token is ');
 });
 

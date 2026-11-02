@@ -1,6 +1,6 @@
 /**
- * What the studio's page is served with, the same whether Vite serves it from the repo
- * (`app/vite.config.ts`) or the installed package serves its built copy (`serve-page.mjs`).
+ * What the studio's page is served with, by Vite from the repo (`app/vite.config.ts`) or by the
+ * installed package from its built copy (`serve-page.mjs`).
  */
 
 /**
@@ -19,28 +19,38 @@ export const PROJECT_PLACEHOLDER = '__THEOREM_STUDIO_PROJECT__';
 const LOCAL = ['127.0.0.1', 'localhost'].flatMap((host) =>
   ['http', 'https', 'ws'].map((scheme) => `${scheme}://${host}:*`),
 );
-const CONTENT_POLICY = [
-  "default-src 'none'",
-  "script-src 'self'",
-  "worker-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self'",
-  "img-src 'self' data: blob: https: http:",
-  "media-src 'self' data: blob: https: http:",
-  `connect-src 'self' ${LOCAL.join(' ')} https://generativelanguage.googleapis.com https://openrouter.ai`,
-  "frame-src 'none'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-].join('; ');
+const contentPolicy = (workers) =>
+  [
+    "default-src 'none'",
+    "script-src 'self'",
+    `worker-src ${workers}`,
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
+    "img-src 'self' data: blob: https: http:",
+    "media-src 'self' data: blob: https: http:",
+    `connect-src 'self' ${LOCAL.join(' ')} https://generativelanguage.googleapis.com https://openrouter.ai`,
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join('; ');
 
-/** The headers on everything the page's server hands out. */
-export const PAGE_HEADERS = {
-  'Content-Security-Policy': CONTENT_POLICY,
+const pageHeaders = (workers) => ({
+  'Content-Security-Policy': contentPolicy(workers),
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
-};
+});
+
+/** The headers on everything the page's server hands out. */
+export const PAGE_HEADERS = pageHeaders("'self'");
+
+/**
+ * The same, for Vite serving the repo's sources.
+ * why: Vite's client waits for its server in a `blob:` worker, and without one an open tab never
+ * reloads after a restart.
+ */
+export const DEV_PAGE_HEADERS = pageHeaders("'self' blob:");
 
 /** Where the page is served: a run tab's address is the one the screen opens. */
 export const PAGE_BASE = '/studio/';

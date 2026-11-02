@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
-import { PAGE_BASE, PAGE_HEADERS } from '../page.mjs';
+import { DEV_PAGE_HEADERS, PAGE_BASE } from '../page.mjs';
 import { BOOT_PAINT, BOOT_PAINT_NOSCRIPT } from '../ui/boot-paint.ts';
 import { PROJECT_META } from '../ui/lib/project-address.ts';
 import { studioVite } from '../vite.mjs';
@@ -69,7 +69,7 @@ export default defineConfig({
     // Only this machine, and only this page: no other page may read what this serves.
     host: '127.0.0.1',
     cors: false,
-    headers: PAGE_HEADERS,
+    headers: DEV_PAGE_HEADERS,
     // The command that starts this names the port; it is never moved to another.
     port: 4984,
     strictPort: true,

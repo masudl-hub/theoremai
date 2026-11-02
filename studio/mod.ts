@@ -146,6 +146,7 @@ export {
   includeFacet,
   type LabelsDraft,
   type LiveDraft,
+  loadTierWarning,
   MODEL_LIMITS,
   type ModelBindingDraft,
   type ModelsDraft,

@@ -208,6 +208,7 @@ import {
   LOCAL_PROVIDER_ID,
   labelAreaOf,
   lentCompression,
+  loadTierWarning,
   MODEL_LIMITS,
   type ModelBindingDraft,
   modelRoute,
@@ -5291,17 +5292,6 @@ const AUTH_HEADER_PREFIX: Record<Exclude<StudioAuthType, 'none'>, string> = {
   oauth2: 'Bearer ',
 };
 
-/**
- * Why a tool on `tier` never loads on this draft: the studio can't write a T1 policy, so a
- * T2 tool loads only through the T2 loader.
- */
-function loadTierWarning(draft: StudioDraft, tier: ToolLoadTier): string | undefined {
-  if (tier === 'T2' && draftAllows(draft, 'tools.t2Loader') && !draft.tools.t2Loader.trim()) {
-    return 'No T2 loader is set under Tools, so this tool never loads.';
-  }
-  return undefined;
-}
-
 function placeholderHint(schemas: string[]): string | undefined {
   const names = new Set<string>();
   for (const json of schemas) {
@@ -6400,6 +6390,7 @@ function PolicySection({
   tool: ToolSpecDraft;
   set: SetTool;
 }) {
+  const workspace = useContext(WorkspaceContext);
   const isLoader = draft.tools.t2Loader.trim() === tool.toolName.trim();
   return (
     <InspectorSection title="Policy" hint={SECTION_HINTS.toolPolicy}>
@@ -6430,7 +6421,7 @@ function PolicySection({
         field="loadTier"
         value={tool.loadTier}
         segments={LOAD_TIER_SEGMENTS}
-        warning={loadTierWarning(draft, tool.loadTier)}
+        warning={loadTierWarning(draft, tool, workspace?.allowed)}
         onChange={(loadTier) => {
           set({ loadTier });
         }}

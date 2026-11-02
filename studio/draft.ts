@@ -888,6 +888,27 @@ export function draftAllows(draft: StudioDraft, path: string): boolean {
   return type !== '' && profileTypesForField(path).includes(type);
 }
 
+/**
+ * Why `tool` never loads on this draft: the studio can't write a T1 policy, so a T2 tool loads
+ * only through the T2 loader. In a workspace every agent shows the whole library, so `allowed`
+ * says which tools this agent runs: the rest are not its to load.
+ */
+export function loadTierWarning(
+  draft: StudioDraft,
+  tool: Pick<ToolSpecDraft, 'key' | 'loadTier'>,
+  allowed?: readonly string[],
+): string | undefined {
+  if (allowed && !allowed.includes(tool.key)) return undefined;
+  if (
+    tool.loadTier === 'T2' &&
+    draftAllows(draft, 'tools.t2Loader') &&
+    !draft.tools.t2Loader.trim()
+  ) {
+    return 'No T2 loader is set under Tools, so this tool never loads.';
+  }
+  return undefined;
+}
+
 /** A canary is bound into a system prompt while `canary_leak` reads somewhere. */
 export function plantsCanary(draft: StudioDraft): boolean {
   return draftAllows(draft, 'identity.system') && detects(draft.guardrails.detect, 'canary_leak');

@@ -1,9 +1,17 @@
 name: Studio browser
 
-# Every studio flow, driven in a browser against the fake model. It takes about 16 minutes
-# one test at a time, so it runs nightly and on demand, and no push or preview waits on it.
+# Every studio flow, driven in a browser against the fake model. It runs when the code the studio
+# is built from changes, nightly, and on demand. No preview waits on it. Each shard has its own
+# server, project copy and fake model, so the shards share nothing.
 
 on:
+  push:
+    branches: [main, '[0-9]+.[0-9]+.[0-9]+']
+    paths:
+      - 'studio/**'
+      - 'web/**'
+      - 'react/**'
+      - '.github/workflows/studio-browser.yml'
   schedule:
     - cron: '23 4 * * *'
   workflow_dispatch:
@@ -11,9 +19,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: studio-browser-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   studio-browser:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -40,11 +56,11 @@ jobs:
         run: npx --prefix studio playwright install --with-deps chromium
 
       - name: Drive the studio
-        run: npm --prefix studio run test:browser
+        run: npm --prefix studio run test:browser -- --shard=${{ matrix.shard }}/4
 
       - name: Keep what the failed tests saw
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: studio-browser-failures
+          name: studio-browser-failures-${{ matrix.shard }}
           path: studio/test-results/

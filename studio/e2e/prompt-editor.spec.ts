@@ -39,6 +39,20 @@ test('the prompt opens formatted, and opening it changes nothing', async ({ page
   await expect(edited(page)).toBeHidden();
 });
 
+test('private text reads as the rest does, marked on the words or on the whole block', async ({
+  page,
+}) => {
+  await open(page);
+  await write(page, 'Shared {private: held} words.\n\n{private: All of it.}');
+  const held = page.locator('.prompt-editor [style*="--private"]').first();
+  await expect(held).toHaveText('held');
+  const shared = page.locator('.prompt-editor p').first();
+  const colour = (at: typeof held) => at.evaluate((node) => getComputedStyle(node).color);
+  expect(await colour(held)).toBe(await colour(shared));
+  await expect(page.locator('[data-private]')).toHaveCount(1);
+  await expect(page.locator('[data-private]')).toHaveText('All of it.');
+});
+
 test('text marked private stays private when it reaches the code', async ({ page }) => {
   await open(page);
   await write(page, 'Say hello.');

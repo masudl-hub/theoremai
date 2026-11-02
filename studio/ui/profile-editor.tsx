@@ -502,7 +502,7 @@ function SystemPromptSection({
   set: SetSection<'identity'>;
 }) {
   return (
-    <InspectorSection title="System prompt" note={sectionNote('system')}>
+    <InspectorSection title="System prompt">
       <Suspense fallback={null}>
         <PromptRow
           value={identity.system}
@@ -631,11 +631,6 @@ function ConditionSection({
           }}
         />
       </HStack>
-      {Object.keys(named).length > 0 && (
-        <Text type="supporting" color="secondary">
-          The chat runs with the marked value of each.
-        </Text>
-      )}
     </InspectorSection>
   );
 }
@@ -689,8 +684,8 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
         identity.profileType !== 'decision' &&
         identity.profileType !== 'host' && (
           <>
-            <ConditionSection identity={identity} set={set} />
             <SystemPromptSection identity={identity} set={set} />
+            <ConditionSection identity={identity} set={set} />
           </>
         )}
     </>

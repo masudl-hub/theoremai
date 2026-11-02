@@ -924,7 +924,7 @@ export interface RefusedMedia {
  */
 export interface MediaRefused {
   dropped: RefusedMedia[];
-  /** The provider's own reason, for the builder only: `forClient` strips it. */
+  /** The provider's own reason, for the builder only: `forClient` strips the whole report. */
   said: string;
 }
 

@@ -15,6 +15,10 @@ node scripts/docs-claims.mjs affected               # docs that mention what you
 
 `npm run lint:docs` enforces ownership and freshness for contracts and the root `README.md`. Treat its failures like any lint error.
 
+## Replying to people
+
+Before you post on an issue or a pull request, read the tone section in [`docs/writing/writing.md`](docs/writing/writing.md). Say thank you, validate the finding, and state the outcome.
+
 ## Changing code
 
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first. It lists the checks, the documents that a change must update, and the rules for comments. Never add a lint or type suppression. Fix the cause.

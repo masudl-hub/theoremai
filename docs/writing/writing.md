@@ -72,6 +72,20 @@ Theorem's own words to users are polite. Read `src/guardrails/labels.ts`: "Sorry
 - No sarcasm, no jokes, no exclamation marks.
 - Quote user-facing wording from the labels. Do not rewrite it.
 
+### Replies on issues and pull requests
+
+A reply to a person uses the same voice. That person gave their time to find something for us, so the reply does three things, in this order:
+
+1. Say thank you.
+2. Validate the finding. Say what the person got right and what you confirmed.
+3. State the outcome: what changed, with the commit, or what was decided and why.
+
+| Do | Do not |
+| --- | --- |
+| "Thank you for this. You were right: the README promises Node 20, and CI runs only Node 22. We moved to Node 22 in 388b8260, because Node 20 no longer gets fixes." | "Moved to Node 22. Thanks for the check." |
+
+Use the same three steps when we do not act on a finding. Thank the person, say which part you confirmed, and show the evidence for the decision.
+
 ## Terms: keep a glossary as you write
 
 Before you write, list the 5 to 10 nouns the doc rests on. Give each one name and one definition. Check the finished doc for a second name for any of them. Search the repo's own labels or contract first: the code's word is the doc's word.

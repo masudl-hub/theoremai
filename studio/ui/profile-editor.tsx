@@ -12,6 +12,7 @@ import { Icon, type IconType } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { NumberInput } from '@astryxdesign/core/NumberInput';
+import { Popover } from '@astryxdesign/core/Popover';
 import { Section } from '@astryxdesign/core/Section';
 import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { StackItem } from '@astryxdesign/core/Stack';
@@ -269,7 +270,6 @@ import {
   InspectorGroupTitle,
   InspectorRow,
   InspectorSection,
-  LABEL_COLUMN,
   ListRow,
   NamesInput,
   NamesRow,
@@ -527,42 +527,61 @@ const VALUE_HINT = {
   other: 'Press to state this value.',
 };
 
-/** What a person reads of a shown option: its label and a line on each value. */
-function OptionShownRows({
+const OPTION_CHAT_WIDTH = 320;
+
+/** Whether a person picks the option in chat and, when they do, what they read of it. */
+function OptionChatFields({
   option,
+  canShow,
   onChange,
 }: {
   option: OptionDraft;
+  canShow: boolean;
   onChange: (change: Partial<OptionDraft>) => void;
 }) {
   return (
-    <>
-      <TextRow
-        label="Label"
-        path="inputs.options.*.label"
-        value={option.label}
-        placeholder={option.name.trim() || undefined}
-        onChange={(label) => {
-          onChange({ label });
-        }}
-      />
-      {option.choices.map((choice) => (
-        <TextRow
-          key={choice.key}
-          label={choice.value}
-          path="inputs.options.*.choices.*.description"
-          value={choice.description}
-          placeholder="What the page says of it"
-          onChange={(description) => {
-            onChange({
-              choices: option.choices.map((each) =>
-                each.key === choice.key ? { ...each, description } : each,
-              ),
-            });
+    <VStack gap={1}>
+      {canShow && (
+        <SwitchRow
+          label="Shown in chat"
+          path="inputs.options"
+          field="options"
+          value={option.isShownInChat}
+          onChange={(isShownInChat) => {
+            onChange({ isShownInChat });
           }}
         />
-      ))}
-    </>
+      )}
+      {option.isShownInChat && (
+        <>
+          <TextRow
+            label="Label"
+            path="inputs.options.*.label"
+            value={option.label}
+            placeholder={option.name.trim() || undefined}
+            onChange={(label) => {
+              onChange({ label });
+            }}
+          />
+          {option.choices.map((choice) => (
+            <TextRow
+              key={choice.key}
+              label={choice.value}
+              path="inputs.options.*.choices.*.description"
+              value={choice.description}
+              placeholder="Optional"
+              onChange={(description) => {
+                onChange({
+                  choices: option.choices.map((each) =>
+                    each.key === choice.key ? { ...each, description } : each,
+                  ),
+                });
+              }}
+            />
+          ))}
+        </>
+      )}
+    </VStack>
   );
 }
 
@@ -587,39 +606,38 @@ function OptionRow({
   const status = useFieldStatus()('options', at);
   const row = `Option ${String(at + 1)}`;
   return (
-    <VStack gap={1}>
-      <HStack gap={1} vAlign="start" className="option-row">
-        <StackItem size="static">
-          <HStack width={LABEL_COLUMN}>
-            <StackItem size="fill">
-              <TextInput
-                label={`${row} name`}
-                isLabelHidden
-                size="sm"
-                status={status}
-                value={option.name}
-                placeholder="plan"
-                onChange={(name) => {
-                  onChange({ name });
-                }}
-              />
-            </StackItem>
-          </HStack>
-        </StackItem>
+    <VStack gap={0} paddingBlockEnd={2} className="option-row">
+      <HStack gap={1} vAlign="center">
         <StackItem size="fill">
-          <NamesInput
-            label={`${row} values`}
-            value={option.choices.map(({ value }) => value)}
-            placeholder="free"
-            overflow="none"
-            marked={stated}
-            onMark={onState}
-            markHint={VALUE_HINT}
-            onChange={(values) => {
-              onChange({ choices: optionChoices(values, option.choices) });
+          <TextInput
+            label={`${row} name`}
+            isLabelHidden
+            size="sm"
+            status={status}
+            value={option.name}
+            placeholder="plan"
+            onChange={(name) => {
+              onChange({ name });
             }}
           />
         </StackItem>
+        {(canShow || option.isShownInChat) && (
+          <Popover
+            placement="below"
+            alignment="end"
+            width={OPTION_CHAT_WIDTH}
+            label={`${row} in chat`}
+            content={<OptionChatFields option={option} canShow={canShow} onChange={onChange} />}
+          >
+            <IconButton
+              label={`${row} ${option.isShownInChat ? 'shown' : 'not shown'} in chat`}
+              tooltip={option.isShownInChat ? 'Shown in chat' : 'Not shown in chat'}
+              variant="ghost"
+              size="sm"
+              icon={<Icon icon={IconMessage} size="sm" />}
+            />
+          </Popover>
+        )}
         <IconButton
           label={`Remove ${row.toLowerCase()}`}
           variant="ghost"
@@ -628,23 +646,22 @@ function OptionRow({
           onClick={onRemove}
         />
       </HStack>
-      {canShow && (
-        <SwitchRow
-          label="Shown in chat"
-          path="inputs.options"
-          field="options"
-          value={option.isShownInChat}
-          onChange={(isShownInChat) => {
-            onChange({ isShownInChat });
-          }}
-        />
-      )}
-      {option.isShownInChat && <OptionShownRows option={option} onChange={onChange} />}
+      <NamesInput
+        label={`${row} values`}
+        value={option.choices.map(({ value }) => value)}
+        placeholder="free"
+        overflow="none"
+        marked={stated}
+        onMark={onState}
+        markHint={VALUE_HINT}
+        onChange={(values) => {
+          onChange({ choices: optionChoices(values, option.choices) });
+        }}
+      />
     </VStack>
   );
 }
 
-/** Every option, one to a row. The value marked on each is the one the page states, kept in this tab. */
 function OptionRows({
   identity,
   canShow,

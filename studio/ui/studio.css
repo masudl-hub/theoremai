@@ -24,19 +24,44 @@
   padding-inline-end: var(--spacing-8);
 }
 
-/* A condition reads as a line: its name and values wear no box until pointed at or typed in. */
+/* An option wears no box until pointed at or typed in. */
 .option-row div:has(> input):not(:hover, :has(> input:focus, > input[aria-invalid])) {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
 }
 
-.option-row [role="group"] button[aria-label^="Remove"] {
-  opacity: 0.5;
+/* What acts on a row stays out of sight until the row is pointed at; an option in chat keeps its mark. */
+.option-row button[aria-label^="Remove"],
+.option-row button[aria-label$="not shown in chat"] {
+  opacity: 0;
 }
 
-.option-row [role="group"] button[aria-label^="Remove"]:hover {
+.option-row:hover button[aria-label^="Remove"],
+.option-row:hover button[aria-label$="not shown in chat"],
+.option-row:focus-within button[aria-label^="Remove"],
+.option-row:focus-within button[aria-label$="not shown in chat"],
+.option-row button[aria-expanded="true"] {
   opacity: 1;
+}
+
+/* A long value wraps inside its token, so no value is cut off at the panel's edge. */
+.option-row .astryx-tokenizer > span,
+.option-row .astryx-tokenizer > span > div {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.option-row .astryx-token {
+  height: auto;
+}
+
+.option-row .astryx-token,
+.option-row .astryx-token * {
+  overflow-wrap: anywhere;
+  text-align: start;
+  white-space: normal;
 }
 
 /* The guardrail examples scroll sideways with no bar under them. */

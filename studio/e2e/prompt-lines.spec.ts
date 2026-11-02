@@ -36,7 +36,7 @@ const withLines = async (page: Page) => {
   await page.getByRole('button', { name: 'Hide saved' }).click();
 };
 
-test('each option is one row, and its values stay in sight', async ({ page }) => {
+test('each option keeps its values in sight', async ({ page }) => {
   await open(page);
   await declarePlan(page);
   await page.getByRole('button', { name: 'Add option' }).first().click();
@@ -72,7 +72,9 @@ test('an option shown in chat is picked in the composer, and that pick sends its
   page,
 }) => {
   await withLines(page);
+  await page.getByRole('button', { name: 'Option 1 not shown in chat' }).click();
   await page.getByRole('switch', { name: 'Shown in chat' }).click();
+  await page.keyboard.press('Escape');
   const picker = page.getByRole('combobox', { name: 'plan' }).last();
   await expect(picker).toHaveText(/free/);
   await picker.click();

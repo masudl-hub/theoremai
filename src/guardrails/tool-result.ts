@@ -98,7 +98,7 @@ function wrapToolData(
 }
 
 /** What a fence from `wrapToolData` says of the text inside it. */
-interface ToolDataRead {
+export interface ToolDataRead {
   provenance: Provenance;
   suspicious: GuardrailHit[];
   /** The result as `composeToolText` joined it. */

@@ -277,6 +277,7 @@ import {
   NamesRow,
   NumberRow,
   OriginLine,
+  OwnField,
   type Segment,
   SegmentedRow,
   SetInCode,
@@ -284,6 +285,7 @@ import {
   SwitchRow,
   TextAreaRow,
   TextRow,
+  WideRow,
 } from './inspector.tsx';
 import {
   GuardrailTest,
@@ -503,6 +505,7 @@ function SystemPromptSection({
 }) {
   return (
     <InspectorSection title="System prompt">
+      <ConditionRows identity={identity} set={set} />
       <Suspense fallback={null}>
         <PromptRow
           value={identity.system}
@@ -584,7 +587,7 @@ function ConditionRow({
 }
 
 /** Every condition, one to a row. The value marked on each is the one the page states, kept in this tab. */
-function ConditionSection({
+function ConditionRows({
   identity,
   set,
 }: {
@@ -595,43 +598,45 @@ function ConditionSection({
   const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
   const named = draftConditions(conditions);
   return (
-    <InspectorSection title="Conditions" path="identity.conditions">
-      {conditions.map((condition, at) => (
-        <ConditionRow
-          key={condition.key}
-          condition={condition}
-          at={at}
-          stated={statedValue(named[condition.name], values.conditions[condition.name])}
-          onState={(value) => {
-            setValues({
-              ...values,
-              conditions: { ...values.conditions, [condition.name]: value },
-            });
-          }}
-          onChange={(change) => {
-            set({
-              conditions: conditions.map((each) =>
-                each.key === condition.key ? { ...each, ...change } : each,
-              ),
-            });
-          }}
-          onRemove={() => {
-            set({ conditions: conditions.filter((each) => each.key !== condition.key) });
-          }}
-        />
-      ))}
-      <HStack>
-        <Button
-          label="Add condition"
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={IconPlus} size="sm" />}
-          onClick={() => {
-            set({ conditions: [...conditions, newCondition()] });
-          }}
-        />
-      </HStack>
-    </InspectorSection>
+    <WideRow label="Conditions" path="identity.conditions" isRequired={false} hasIssue={false}>
+      <OwnField path="identity.conditions">
+        {conditions.map((condition, at) => (
+          <ConditionRow
+            key={condition.key}
+            condition={condition}
+            at={at}
+            stated={statedValue(named[condition.name], values.conditions[condition.name])}
+            onState={(value) => {
+              setValues({
+                ...values,
+                conditions: { ...values.conditions, [condition.name]: value },
+              });
+            }}
+            onChange={(change) => {
+              set({
+                conditions: conditions.map((each) =>
+                  each.key === condition.key ? { ...each, ...change } : each,
+                ),
+              });
+            }}
+            onRemove={() => {
+              set({ conditions: conditions.filter((each) => each.key !== condition.key) });
+            }}
+          />
+        ))}
+        <HStack>
+          <Button
+            label="Add condition"
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconPlus} size="sm" />}
+            onClick={() => {
+              set({ conditions: [...conditions, newCondition()] });
+            }}
+          />
+        </HStack>
+      </OwnField>
+    </WideRow>
   );
 }
 
@@ -682,12 +687,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
       {identity.profileType !== 'speech' &&
         identity.profileType !== 'transcription' &&
         identity.profileType !== 'decision' &&
-        identity.profileType !== 'host' && (
-          <>
-            <SystemPromptSection identity={identity} set={set} />
-            <ConditionSection identity={identity} set={set} />
-          </>
-        )}
+        identity.profileType !== 'host' && <SystemPromptSection identity={identity} set={set} />}
     </>
   );
 }

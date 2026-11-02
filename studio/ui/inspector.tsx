@@ -147,6 +147,20 @@ export function OriginLine({ origin, onOpen }: { origin: SettingOrigin; onOpen: 
  * field the section edits (`path`) on hover, as a row's label does. Under it, `note`: only what
  * the catalog does not say, such as how the editor or the studio treats the field.
  */
+/** Rows of `path`. A field the files set in code says so once, and its rows take no edit. */
+export function OwnField({ path, children }: { path?: string; children: ReactNode }) {
+  const found = useRowOrigin(path);
+  if (!found || found.said) return children;
+  return (
+    <SaidOrigin value={found.origin}>
+      <OriginLine origin={found.origin} onOpen={found.open} />
+      <SetInCode>
+        <VStack gap={3}>{children}</VStack>
+      </SetInCode>
+    </SaidOrigin>
+  );
+}
+
 export function InspectorSection({
   title,
   path,
@@ -163,9 +177,6 @@ export function InspectorSection({
       {title}
     </Text>
   );
-  // A section whose own field the files set in code says so once, and its rows take no edit.
-  const found = useRowOrigin(path);
-  const says = found && !found.said ? found : undefined;
   return (
     <Section variant="transparent" padding={3}>
       <VStack gap={3}>
@@ -179,16 +190,7 @@ export function InspectorSection({
           )}
           {note && <Text type="supporting">{note}</Text>}
         </VStack>
-        {says ? (
-          <SaidOrigin value={says.origin}>
-            <OriginLine origin={says.origin} onOpen={says.open} />
-            <SetInCode>
-              <VStack gap={3}>{children}</VStack>
-            </SetInCode>
-          </SaidOrigin>
-        ) : (
-          children
-        )}
+        <OwnField path={path}>{children}</OwnField>
       </VStack>
     </Section>
   );

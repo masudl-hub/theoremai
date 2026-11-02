@@ -273,9 +273,18 @@ export async function checkKey(
   };
 }
 
+// why: A `/\/+$/` scan is quadratic on a long run of slashes.
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (url[end - 1] === '/') end--;
+  return url.slice(0, end);
+}
+
 function urlFor(serve: Serve, path: string, apiId: string, stream: boolean): URL {
   if (serve.url) return new URL(serve.url({ path, apiId, stream }));
-  return new URL(serve.baseUrl.replace(/\/+$/, '') + (path.startsWith('/') ? path : `/${path}`));
+  return new URL(
+    withoutTrailingSlashes(serve.baseUrl) + (path.startsWith('/') ? path : `/${path}`),
+  );
 }
 
 async function* defaultFraming(response: Response, stream: boolean): AsyncIterable<JsonObject> {

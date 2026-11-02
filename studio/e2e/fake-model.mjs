@@ -96,7 +96,7 @@ async function holdIfMarked(body, request, response) {
   if (!hold) return;
   send(response, chunk(body.model, { role: 'assistant', content: 'Working ' }));
   await new Promise((release) => {
-    held.set(hold[1], release);
+    held.set(hold[1], { release });
     request.on('close', release);
   });
 }
@@ -250,7 +250,7 @@ function control(request, response) {
   if (!release) return false;
   const waiting = held.get(release[1]);
   held.delete(release[1]);
-  waiting?.();
+  waiting?.release();
   response.writeHead(waiting ? 200 : 404);
   response.end();
   return true;

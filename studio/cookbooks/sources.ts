@@ -82,10 +82,14 @@ function githubSearch(output: unknown): Source[] {
 }
 
 function stripXml(text: string): string {
-  return text
-    .replace(/<[^>]+>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let stripped = text;
+  let before: string;
+  // invariant: Removing a tag can join the text around it into a new tag, so it runs until none is left.
+  do {
+    before = stripped;
+    stripped = stripped.replace(/<[^>]+>/g, '');
+  } while (stripped !== before);
+  return stripped.replace(/\s+/g, ' ').trim();
 }
 
 function arxivFeed(output: unknown): Source[] {

@@ -177,7 +177,6 @@ function PromptTools() {
       />
       {options.length > 0 && (
         <DropdownMenu
-          label="Option"
           renderTrigger={(props) => (
             <ToggleButton
               {...props}

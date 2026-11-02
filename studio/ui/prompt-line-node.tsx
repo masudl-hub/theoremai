@@ -65,7 +65,6 @@ function CheckToken({ check, when, set }: { check: string; when: string | null; 
   const [isOpen, setIsOpen] = useState(false);
   return (
     <DropdownMenu
-      label={check}
       isMenuOpen={isOpen}
       onOpenChange={setIsOpen}
       items={optionItems(options, when, set)}

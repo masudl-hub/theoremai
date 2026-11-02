@@ -444,6 +444,7 @@ export type {
 } from './src/kernel/tools/mod.ts';
 export {
   askUserTool,
+  assertToolSettings,
   buildHttpToolTarget,
   createToolRegistry,
   credentialPlacement,

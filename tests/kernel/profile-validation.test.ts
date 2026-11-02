@@ -607,7 +607,11 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
   check(run(compaction({ meter: 'history' })), 'registered', 'meter history');
   check(run(compaction({ meter: 'input' })), 'registered', 'meter input');
   check(run(compaction({ meter: null })), 'registered', 'meter null');
-  check(run(compaction({ meter: 'tokens' })), `${at}: meter must be 'history' or 'input'`, 'meter');
+  check(
+    run(compaction({ meter: 'tokens' })),
+    `Profile p: models.m.compaction.meter "tokens" is not one of 'history', 'input'.`,
+    'meter',
+  );
   check(run(compaction({ maxTokens: 0 })), `${at}: maxTokens must be > 0`, 'maxTokens 0');
   check(run(compaction({ maxTokens: 1 })), 'registered', 'maxTokens 1');
   for (const bad of [0, 1, -0.5, 1.5]) {

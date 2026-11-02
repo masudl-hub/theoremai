@@ -14,6 +14,14 @@ and the run-tab handoff.
 The logic lives here, not in the frontend, so it is type-checked and tested
 against the kernel it compiles for.
 
+## The kernel is the truth
+
+The studio is a projection of what the kernel holds. It never holds a rule of its own about a value.
+
+`readStudioSource` calls the kernel's `profileFieldProblems` and `assertToolSettings` before it builds a draft. What the kernel refuses, the studio refuses at the line it is written, with the kernel's reason. It never drops a value and carries on. Those two checks need no complete profile, so a half-written agent still opens; `compileStudio` runs `defineProfile` on what it compiles, for the rest.
+
+`tests/studio/kernel-agreement.test.ts` puts each bad value through both.
+
 ## Runs and sessions
 
 A project run takes its wiring from the app: the setup names the entry in `entry`, and the entry exports `theorem`, a `TurnWiring`. The studio loads both with `loadSetup` from `@theoremjs/agents/cli`, the loader `agents test --setup` and `agents run --setup` use. The studio calls `register` once at load, runs every model call on `provider`, and passes `prepare` to the web handler, so a studio turn is the turn the app runs. The handler keeps its own profile, execution, page execution, provider state and signal; the app's `onStage` answers first; credentials are read from the app before the session.

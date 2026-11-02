@@ -35,6 +35,7 @@ import {
   PROFILE_ID_MAX_CHARS,
   PROFILE_TYPES,
   type ProfileType,
+  profileFieldProblems,
   THINKING_LEVELS,
 } from '../schema.ts';
 import { isContinueStopKind, type ProfileTurnResumptionSpec } from '../stop.ts';
@@ -691,6 +692,15 @@ function defineProfile(
 function defineProfile(input: ProfileDefinition): Profile;
 /** Validate any definition and return the profile. */
 function defineProfile(input: ProfileDefinition): Profile {
+  const profile = validatedProfile(input);
+  const [problem] = profileFieldProblems(input);
+  if (problem) {
+    throw new TheoremError('config', `Profile ${input.id}: ${problem.path} ${problem.message}`); // labels-exempt: developer contract / internal diagnostic
+  }
+  return profile;
+}
+
+function validatedProfile(input: ProfileDefinition): Profile {
   assertProfileShape(input);
   for (const field of ['key', 'fallbackKey', 'protocol', 'provider'])
     if (field in input)
@@ -960,9 +970,6 @@ function assertCompactionSpec(
   const tag = `Profile ${owner.id} model ${modelId} compaction`; // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   assertCompactionBudget(tag, spec);
   assertCompactionRetain(tag, spec);
-  if (spec.meter != null && spec.meter !== 'history' && spec.meter !== 'input') {
-    throw new TheoremError('config', `${tag}: meter must be 'history' or 'input'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-  }
   if (spec.profile === undefined) {
     if (owner.type !== 'text' || owner.inputs.text === false) {
       throw new TheoremError(

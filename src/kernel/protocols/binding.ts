@@ -111,7 +111,7 @@ const modelBinding = z.strictObject({
   fallbackKeySlot: keySlotSchema
     .optional()
     // labels-exempt: builder field description, read by the studio and docs
-    .describe('The slot tried once when the first key is out of quota.'),
+    .describe('The slot tried once when the first key is out of quota, rate limited or busy.'),
   options: jsonObjectSchema
     .optional()
     // labels-exempt: builder field description, read by the studio and docs

@@ -497,7 +497,10 @@ Deno.test('a setting the kernel lists, set to another value, fails where it is w
   const written = source.replace('turnBehaviour: {', "turnBehaviour: {\n    atStepLimit: 'answr',");
   const read = readStudioSource(written, draft);
   assert(!read.ok);
-  assertEquals(read.errors[0]?.message, `"answr" is not one of 'stop', 'answer'.`);
+  assertEquals(
+    read.errors[0]?.message,
+    `turnBehaviour.atStepLimit "answr" is not one of 'stop', 'answer'.`,
+  );
   assertEquals(read.errors[0]?.line, lineOf(written, "atStepLimit: 'answr'"));
 });
 

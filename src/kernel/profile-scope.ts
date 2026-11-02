@@ -275,7 +275,7 @@ export interface OutOfScopeField {
   scope: ProfileFieldScope;
 }
 /** Every set value under `segments`, keyed by concrete path; `*` walks each key of a map. */
-function valuesAt(root: unknown, segments: readonly string[], at = ''): [string, unknown][] {
+export function valuesAt(root: unknown, segments: readonly string[], at = ''): [string, unknown][] {
   if (!segments.length) return root === undefined ? [] : [[at, root]];
   if (root === null || typeof root !== 'object') return [];
   const [head, ...rest] = segments;

@@ -16,6 +16,11 @@ import type { ModelToolResult } from './types.ts';
 /** When the model gets its reply: at the hand-off, past a time, if it asks, or when the body ends. */
 export type ToolBackground = 'always' | { afterMs: number } | 'ask' | 'never';
 
+const toolBackgroundSchema: z.ZodType<ToolBackground> = z.union([
+  z.enum(['always', 'ask', 'never']),
+  z.strictObject({ afterMs: z.number().finite().nonnegative() }),
+]);
+
 /** The call a detached event belongs to. */
 export interface ToolBackgroundCall {
   operationId: string;
@@ -145,13 +150,11 @@ export function assertBackgroundSetting(tool: {
       `Tool '${name}' sets background, which a tool answered by the page cannot`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  if (
-    typeof background === 'object' &&
-    !(Number.isFinite(background.afterMs) && background.afterMs >= 0)
-  ) {
-    throw new TheoremError(
-      'config',
-      `Tool '${name}' sets background.afterMs, which must be a time in milliseconds`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-    );
-  }
+  if (toolBackgroundSchema.safeParse(background).success) return;
+  throw new TheoremError(
+    'config',
+    typeof background === 'object'
+      ? `Tool '${name}' sets background.afterMs, which must be a time in milliseconds` // labels-exempt: developer contract / internal diagnostic
+      : `Tool '${name}' sets background to ${JSON.stringify(background)}; it takes 'always', 'ask', 'never' or { afterMs }`, // labels-exempt: developer contract / internal diagnostic
+  );
 }

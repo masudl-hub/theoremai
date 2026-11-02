@@ -8,7 +8,7 @@ export {
 export { askUserTool, registerHarnessTools } from './harness.ts';
 export { formatToolResult } from './model-text.ts';
 export type { ToolRegistry } from './registry.ts';
-export { createToolRegistry } from './registry.ts';
+export { assertToolSettings, createToolRegistry } from './registry.ts';
 export type { CredentialQuery, McpProtocolVersion, McpRpcResponse } from './remote.ts';
 export {
   buildHttpToolTarget,

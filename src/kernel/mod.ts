@@ -331,6 +331,7 @@ export type {
 } from './tools/mod.ts';
 export {
   askUserTool,
+  assertToolSettings,
   authorizeToolReplay,
   coerceToolResultParts,
   createToolRegistry,

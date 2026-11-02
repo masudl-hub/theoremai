@@ -22,7 +22,7 @@ import {
   TAINT_GATES,
 } from '../guardrails/types.ts';
 import { PROFILE_FIELD_PRESENCE } from './profile-presence.ts';
-import { isProfileRootField, profileFieldScope } from './profile-scope.ts';
+import { isProfileRootField, profileFieldScope, profileKeysOf, valuesAt } from './profile-scope.ts';
 
 export { BLOCKED_REPLY_ON_BLOCK, type BlockedReplyOnBlock };
 /** The kinds of profile: each fixes which fields and models a profile may use. */
@@ -1680,6 +1680,43 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
       always_confirm: 'Asks every time.',
     },
   ),
+  'registerTool.preTool': field(
+    '(input, ctx) => StageResult | undefined',
+    "Runs before the host's pre_tool onStage.",
+  ),
+  'registerTool.exposeToModel': {
+    ...field('boolean', 'Whether the model can see and call the tool.'),
+    unset: 'The model can',
+  },
+  'registerTool.sources': field(
+    '(output) => Source[]',
+    'The sources a result cites. One that fails sourceSchema, or a throw, is a sources_invalid warning and is not cited.',
+  ),
+  'registerTool.images': field(
+    '(output) => string[]',
+    'The https addresses of pictures in the output the model should see. The kernel fetches each one through the profile network policy, without the tool credentials.',
+  ),
+  'registerTool.imageLimits': {
+    ...field(
+      'ToolImageLimits',
+      'How many of those pictures the kernel fetches, how large, and how slowly.',
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.limit': {
+    ...field(
+      'HttpToolLimit',
+      "The service's own limit for one key; the kernel keeps this tool's requests within it.",
+    ),
+    unset: 'No limit',
+  },
+  'registerTool.timeoutMs': {
+    ...field(
+      'number',
+      'How long the service may take to answer, its body read included. Past it the call fails timeout and frees its place in the limit.',
+    ),
+    unset: "As long as the caller's signal lets it",
+  },
   'registerTool.after': {
     ...field(
       'boolean',
@@ -1755,6 +1792,101 @@ export function fieldMeta(path: string): FieldMeta | undefined {
   if (!wildcard || !Object.hasOwn(LABEL_NOTES, key)) return undefined;
   return { ...wildcard, doc: LABEL_NOTES[key as LabelKey] };
 }
+/** A setting the catalog cannot hold: where it is written, and why. */
+export interface FieldProblem {
+  path: string;
+  message: string;
+}
+
+const isText = (value: unknown) => typeof value === 'string';
+const isTextList = (value: unknown) => Array.isArray(value) && value.every(isText);
+
+const PLAIN_KINDS: Readonly<Record<string, (value: unknown) => boolean>> = {
+  string: isText,
+  ModelId: isText,
+  ProfileId: isText,
+  ToolId: isText,
+  KeySlot: isText,
+  number: (value) => typeof value === 'number',
+  boolean: (value) => typeof value === 'boolean',
+  'string[]': isTextList,
+  'ToolId[]': isTextList,
+  'BuiltinToolId[]': isTextList,
+};
+
+/** Why `value` cannot be `meta`'s field. A range or a shape stays with the check that owns it. */
+function valueProblem(meta: FieldMeta, value: unknown): string | undefined {
+  const { options, type } = meta;
+  if (value === null) return undefined;
+  if (options && (typeof value === 'string' || /^'[^{]*$/.test(type))) {
+    if (options.includes(value as string)) return undefined;
+    return `${JSON.stringify(value)} is not one of ${options.map((option) => `'${option}'`).join(', ')}.`;
+  }
+  const isKind = PLAIN_KINDS[type];
+  return !isKind || isKind(value) ? undefined : `has to be a ${type}.`;
+}
+
+/** The problems of `root` against `fields`, each keyed by the path of keys it names. */
+function fieldProblems(root: unknown, fields: Record<string, FieldMeta>): FieldProblem[] {
+  const problems: FieldProblem[] = [];
+  const children = new Map<string, Set<string>>([['', new Set()]]);
+  for (const path of Object.keys(fields)) {
+    const parent = path.includes('.') ? path.slice(0, path.lastIndexOf('.')) : '';
+    children.set(
+      parent,
+      (children.get(parent) ?? new Set()).add(path.slice(parent.length && parent.length + 1)),
+    );
+  }
+  for (const [parent, keys] of children) {
+    // why: A detector's own settings are `detectProblem`'s: which it takes depends on the detector.
+    if (keys.has('*') || parent.startsWith('guardrails.detect')) continue;
+    for (const [at, value] of parent ? valuesAt(root, parent.split('.')) : [['', root] as const]) {
+      if (value === null) continue;
+      if (typeof value !== 'object' || Array.isArray(value)) {
+        const type = fields[parent]?.type ?? '';
+        if (parent && !/\||\[\]/.test(type)) {
+          problems.push({ path: at, message: `has to be an object of ${[...keys].join(', ')}.` });
+        }
+        continue;
+      }
+      for (const key of Object.keys(value)) {
+        if (keys.has(key)) continue;
+        problems.push({
+          path: at ? `${at}.${key}` : key,
+          message: `is not a setting; ${at || 'this'} takes ${[...keys].join(', ')}.`,
+        });
+      }
+    }
+  }
+  for (const [path, meta] of Object.entries(fields)) {
+    for (const [at, value] of valuesAt(root, path.split('.'))) {
+      const message = valueProblem(meta, value);
+      if (message) problems.push({ path: at, message });
+    }
+  }
+  return problems;
+}
+
+const PROFILE_CATALOG = Object.fromEntries(
+  Object.entries(PROFILE_FIELDS).map(([path, meta]) => [profileKeysOf(path).join('.'), meta]),
+);
+
+/** Every setting in a profile definition that the catalog cannot hold. Nothing here needs a complete profile. */
+export function profileFieldProblems(profile: unknown): FieldProblem[] {
+  return fieldProblems(profile, PROFILE_CATALOG);
+}
+
+const TOOL_CATALOG = Object.fromEntries(
+  Object.entries(EXTRA_FIELDS)
+    .filter(([path]) => path.startsWith('registerTool.'))
+    .map(([path, meta]) => [path.slice('registerTool.'.length), meta]),
+);
+
+/** Every setting in a tool definition that the catalog cannot hold. Nothing here needs a complete tool. */
+export function toolFieldProblems(tool: unknown): FieldProblem[] {
+  return fieldProblems(tool, TOOL_CATALOG);
+}
+
 export { API_EXPORTS, type ApiExportMeta, REQUEST_FIELDS } from './api-catalog.ts';
 export type {
   ProfileGraphEditor,

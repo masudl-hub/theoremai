@@ -1,10 +1,11 @@
 import type { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import { profileInputs } from '../registry/catalog.ts';
+import { toolFieldProblems } from '../schema.ts';
 import type { Profile, ProfileId } from '../types.ts';
 import { activityLabelProblem } from './activity-label.ts';
 import { agentToolInputFor, agentToolOutput, agentToolProfile, normalizeAgent } from './agent.ts';
-import { assertBackgroundSetting, backgroundField } from './background.ts';
+import { assertBackgroundSetting, backgroundField, type ToolBackground } from './background.ts';
 import { withCallOrder, withModelField } from './call-order.ts';
 import { createMcpSessionCache, type McpSessionCache } from './mcp-sessions.ts';
 import { pageAnswerHandler } from './page-answer.ts';
@@ -156,6 +157,44 @@ function assertReadLimits(
   assertTimeout(def.name, images.timeoutMs);
 }
 
+/** The settings of a tool's definition that are plain values: every check `register` makes without running or converting anything. */
+function assertToolSettings(
+  def: Pick<HttpToolDef, 'name'> &
+    Partial<
+      Pick<HttpToolDef, 'endpoint' | 'auth' | 'mapping' | 'limit' | 'timeoutMs'> &
+        Pick<HttpToolDef, 'maxResponseBytes' | 'imageLimits'> &
+        Pick<McpToolDef, 'session'> &
+        Pick<FunctionToolDef, 'answeredBy'>
+    > & { type?: string; background?: ToolBackground },
+): void {
+  if (def.type !== 'builtin') {
+    assertBackgroundSetting({
+      name: def.name,
+      ...(def.background !== undefined ? { background: def.background } : {}),
+      ...(def.answeredBy ? { answeredBy: def.answeredBy } : {}),
+    });
+  }
+  if (def.type === 'builtin' || def.type === 'agent') return;
+  assertAuthService(def.name, def.auth);
+  if (def.type === 'http') {
+    if (def.endpoint?.trim()) assertFixedEndpointOrigin(def.endpoint);
+    assertQueryParam(def.name, def.auth, def.mapping?.queryParams);
+    assertLimit(def.name, def.limit);
+    assertTimeout(def.name, def.timeoutMs);
+  } else {
+    assertQueryParam(def.name, def.auth);
+  }
+  if (def.type === 'http' || def.type === 'mcp') assertReadLimits(def);
+  if (def.type === 'mcp') {
+    assertWhole(def.name, 'session.idleMs', def.session?.idleMs);
+    assertWhole(def.name, 'session.max', def.session?.max);
+  }
+  const [problem] = toolFieldProblems(def);
+  if (problem) {
+    throw new TheoremError('config', `Tool "${def.name}" ${problem.path} ${problem.message}`); // labels-exempt: developer contract / internal diagnostic
+  }
+}
+
 function normalizeHttp<TIn = unknown, TOut = unknown>(
   def: Omit<HttpToolDef<TIn, TOut>, 'inputSchema' | 'outputSchema'> & {
     input: z.ZodType<TIn>;
@@ -163,11 +202,6 @@ function normalizeHttp<TIn = unknown, TOut = unknown>(
   },
 ): HttpToolDef<TIn, TOut> {
   assertFixedEndpointOrigin(def.endpoint);
-  assertAuthService(def.name, def.auth);
-  assertQueryParam(def.name, def.auth, def.mapping?.queryParams);
-  assertLimit(def.name, def.limit);
-  assertTimeout(def.name, def.timeoutMs);
-  assertReadLimits(def);
   return { ...def, type: 'http', ...schemasFromZod(def) };
 }
 
@@ -177,19 +211,12 @@ function normalizeMcp<TIn = unknown, TOut = unknown>(
     output: z.ZodType<TOut>;
   },
 ): McpToolDef<TIn, TOut> {
-  assertAuthService(def.name, def.auth);
-  assertQueryParam(def.name, def.auth);
-  assertReadLimits(def);
-  assertWhole(def.name, 'session.idleMs', def.session?.idleMs);
-  assertWhole(def.name, 'session.max', def.session?.max);
   return { ...def, type: 'mcp', ...schemasFromZod(def) };
 }
 
 function normalizeFunction<TIn = unknown, TOut = unknown>(
   def: FunctionToolInput<TIn, TOut>,
 ): FunctionToolDef<TIn, TOut> {
-  assertAuthService(def.name, def.auth);
-  assertQueryParam(def.name, def.auth);
   const handler =
     def.answeredBy === 'page'
       ? (pageAnswerHandler(def.name) as ToolHandler<TIn, NoInfer<TOut>>)
@@ -203,15 +230,9 @@ function normalizeFunction<TIn = unknown, TOut = unknown>(
   return { ...def, handler, type: 'function', ...schemasFromZod(def) };
 }
 
-/** Checks the tool's `background`, and gives an `ask` tool the schema a turn with the service sends. */
+/** Gives an `ask` tool the schema a turn with the service sends. */
 function withBackground<TIn, TOut>(tool: RegisteredTool<TIn, TOut>): RegisteredTool<TIn, TOut> {
-  if (tool.type === 'builtin') return tool;
-  assertBackgroundSetting({
-    name: tool.name,
-    ...(tool.background !== undefined ? { background: tool.background } : {}),
-    ...(tool.type === 'function' && tool.answeredBy ? { answeredBy: tool.answeredBy } : {}),
-  });
-  if (tool.background !== 'ask') return tool;
+  if (tool.type === 'builtin' || tool.background !== 'ask') return tool;
   const input: z.ZodType = tool.input;
   const asked = withModelField(tool.name, input, 'background', backgroundField);
   return { ...tool, askInputSchema: checkedSchemas(asked, tool.output).inputSchema };
@@ -222,6 +243,7 @@ function normalizeToolDefinition<TIn = unknown, TOut = unknown>(
   findProfile: (id: ProfileId) => Profile | undefined,
   findTool: (name: string) => RegisteredTool | undefined,
 ): RegisteredTool<TIn, TOut> {
+  assertToolSettings(def as Parameters<typeof assertToolSettings>[0]);
   return withBackground(normalizeDefinition(def, findProfile, findTool));
 }
 
@@ -307,4 +329,4 @@ function createToolRegistry(
 }
 
 export type { ToolRegistry };
-export { createToolRegistry };
+export { assertToolSettings, createToolRegistry };

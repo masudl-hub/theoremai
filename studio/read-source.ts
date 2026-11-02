@@ -7,10 +7,12 @@
  */
 
 import {
+  assertToolSettings,
   DEFAULT_ALLOW_CONTINUE,
   DEFAULT_AUTO_CONTINUE,
   type LabelKey,
   liveIngressChannelDefault,
+  TheoremError,
 } from '@theoremjs/agents';
 import {
   BOUNDARIES,
@@ -24,8 +26,8 @@ import { type JsonObject, PROFILE_GRAPH, type ToolBackground } from '@theoremjs/
 import {
   CONTEXT_SENDERS,
   type ContextSender,
-  fieldMeta,
   type ProfileType,
+  profileFieldProblems,
 } from '@theoremjs/agents/schema';
 import { canonical } from './canonical.ts';
 import {
@@ -385,6 +387,20 @@ function objectArg(args: unknown[], src: Src, message: string): Record<string, u
   return value;
 }
 
+/** Refuses, where it is written, a tool the kernel would not register. */
+function refuseBadTool(tool: Record<string, unknown>, spans: readonly StudioSourceSpan[]): void {
+  try {
+    assertToolSettings({ ...tool, name: text(tool.name) });
+  } catch (error) {
+    if (!(error instanceof TheoremError)) throw error;
+    const named = spans
+      .filter((span) => new RegExp(`\\b${span.path}\\b`).test(error.message))
+      .sort((a, b) => b.path.length - a.path.length);
+    const at = named[0] ?? spans[0] ?? { line: 1, column: 1 };
+    throw new ReadFail(error.message, at.line, at.column);
+  }
+}
+
 function registerToolCall(args: unknown[], src: Src, spans: readonly StudioSourceSpan[]): unknown {
   const tool = objectArg(args, src, 'registerTool() needs the tool object.');
   const type = tool.type;
@@ -393,6 +409,7 @@ function registerToolCall(args: unknown[], src: Src, spans: readonly StudioSourc
     const at = spans.findLast((span) => span.path === 'type') ?? src.pos();
     throw new ReadFail(STUDIO_TOOL_TYPE_MESSAGE, at.line, at.column);
   }
+  refuseBadTool(tool, spans);
   return { kind: 'registerTool', tool };
 }
 
@@ -608,12 +625,6 @@ function parseModule(text: string, of: Src['of'] = 'profile'): ParsedModule {
 
 function text(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
-}
-
-function backgroundOf(value: unknown): ToolBackground | undefined {
-  if (value === 'always' || value === 'ask') return value;
-  if (typeof value !== 'object' || value === null || !('afterMs' in value)) return undefined;
-  return typeof value.afterMs === 'number' ? { afterMs: value.afterMs } : undefined;
 }
 
 function whole(value: unknown): number | null {
@@ -992,7 +1003,7 @@ function toolOf(
     stubOutputJson: page ? current?.stubOutputJson : stubOf(type, spec),
     answeredBy: page ? 'page' : undefined,
     after: spec.after === true ? true : undefined,
-    background: backgroundOf(spec.background),
+    background: spec.background as ToolBackground | undefined,
     ...toolRoute(spec),
     agentKey: agentId ? agentKeyOf?.(agentId) : undefined,
     maxCallsPerTurn: whole(spec.maxCallsPerTurn),
@@ -1398,39 +1409,10 @@ function profileTypeOf(profile: Record<string, unknown>): StudioProfileType | ''
   return type as StudioProfileType | '';
 }
 
-/** The settings a reader below would otherwise take as their default when set to anything else. */
-const LISTED_SETTINGS = ['turnBehaviour.atStepLimit', 'outputs.validation.items.*.onFail'] as const;
-
-/** Refuses, where it is written, a listed setting set to a value the kernel's table does not list. */
-function refuseUnlisted(
-  profile: Record<string, unknown>,
-  spans: readonly StudioSourceSpan[],
-): void {
-  for (const setting of LISTED_SETTINGS) {
-    const options = fieldMeta(setting)?.options ?? [];
-    for (const [path, value] of valuesAt(profile, setting.split('.'), [])) {
-      if (value !== undefined && !options.includes(value as string)) {
-        failAt(
-          spans,
-          path,
-          `${JSON.stringify(value)} is not one of ${options.map((option) => `'${option}'`).join(', ')}.`,
-        );
-      }
-    }
-  }
-}
-
-/** Each value at `keys` in `value`, `*` standing for every key, with its path as written. */
-function valuesAt(
-  value: unknown,
-  keys: readonly string[],
-  at: readonly string[],
-): [string, unknown][] {
-  const [key, ...rest] = keys;
-  if (key === undefined) return [[at.join('.'), value]];
-  if (!isRecord(value)) return [];
-  const next = key === '*' ? Object.keys(value) : [key];
-  return next.flatMap((each) => valuesAt(value[each], rest, [...at, each]));
+/** Refuses, where it is written, a setting the kernel's catalog cannot hold. */
+function refuseUnheld(profile: Record<string, unknown>, spans: readonly StudioSourceSpan[]): void {
+  const [problem] = profileFieldProblems(profile);
+  if (problem) failAt(spans, problem.path, `${problem.path} ${problem.message}`);
 }
 
 function draftFrom(
@@ -1443,7 +1425,7 @@ function draftFrom(
 } {
   const profile = parsed.profile ?? {};
   const type = profileTypeOf(profile);
-  refuseUnlisted(profile, parsed.spans);
+  refuseUnheld(profile, parsed.spans);
   const byModelId = new Map(current.modelBindings.map((binding) => [binding.modelId, binding]));
   const byToolName = new Map(current.toolSpecs.map((tool) => [tool.toolName, tool]));
   const tools = record(profile.tools) ?? {};

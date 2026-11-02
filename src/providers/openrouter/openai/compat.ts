@@ -113,10 +113,17 @@ export function wireMessageContent(parts: InteractionPart[]): unknown {
     if (part.type === 'audio') {
       return wireAudioPart(part);
     }
+    if (part.type === 'video') {
+      // why: a video sent as a `file` part is refused; OpenRouter reads it only as `video_url`.
+      return {
+        type: 'video_url',
+        video_url: { url: `data:${part.mimeType};base64,${part.data}` },
+      };
+    }
     return {
       type: 'file',
       file: {
-        filename: part.type === 'video' ? 'clip.bin' : 'document.bin',
+        filename: 'document.bin',
         file_data: `data:${part.mimeType};base64,${part.data}`,
       },
     };

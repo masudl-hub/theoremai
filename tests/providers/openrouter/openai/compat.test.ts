@@ -85,6 +85,7 @@ Deno.test('buildChatMessages wires multimodal user input with image, audio, and 
         { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' },
         { type: 'audio', mimeType: 'audio/wav', data: 'UklGRi===' },
         { type: 'audio', mimeType: 'audio/mp3', data: 'SUQzBA===' },
+        { type: 'video', mimeType: 'video/mp4', data: 'AAAAGGZ0' },
         { type: 'document', mimeType: 'application/pdf', data: 'JVBERi0=' },
       ],
     }),
@@ -94,6 +95,7 @@ Deno.test('buildChatMessages wires multimodal user input with image, audio, and 
     { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
     { type: 'input_audio', input_audio: { data: 'UklGRi===', format: 'wav' } },
     { type: 'input_audio', input_audio: { data: 'SUQzBA===', format: 'mp3' } },
+    { type: 'video_url', video_url: { url: 'data:video/mp4;base64,AAAAGGZ0' } },
     {
       type: 'file',
       file: { filename: 'document.bin', file_data: 'data:application/pdf;base64,JVBERi0=' },

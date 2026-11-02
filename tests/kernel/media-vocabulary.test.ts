@@ -105,7 +105,7 @@ Deno.test('openAi compat wires every media kind and refuses only reference parts
   const wired = wireMessageContent(parts) as Array<Record<string, string>>;
   assertEquals(
     wired.map((p) => p.type),
-    ['text', 'image_url', 'input_audio', 'file', 'file'],
+    ['text', 'image_url', 'input_audio', 'video_url', 'file'],
   );
 
   assertThrows(

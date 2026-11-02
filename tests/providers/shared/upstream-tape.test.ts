@@ -87,7 +87,9 @@ function assertFullTape(record: TraceRecord): void {
     rows.map((row) => row.sseEvent),
     ['interaction.created', 'step.delta', 'step.delta', 'interaction.completed'],
   );
-  assertEquals(JSON.stringify(rows).includes('sig-blob'), true);
+  // A signature is bytes for Google alone: the row stays, the bytes become their hash.
+  assertEquals(JSON.stringify(rows).includes('thought_signature'), true);
+  assertEquals(JSON.stringify(rows).includes('sig-blob'), false);
   assertEquals(call.attributes['theorem.model.id'], 'gemini35FlashLite');
   assertEquals(call.attributes['gen_ai.usage.input_tokens'], INPUT_TOKENS);
   assertEquals(call.attributes['gen_ai.usage.output_tokens'], OUTPUT_TOKENS);
@@ -240,7 +242,13 @@ Deno.test('inlineBytesKey finds the bytes of each observed wire shape', () => {
   assertEquals(inlineBytesKey({ b64_json: 'x', media_type: 'image/jpeg' }), 'b64_json');
   assertEquals(inlineBytesKey({ mimeType: 'image/png', data: 'x' }), 'data');
   assertEquals(inlineBytesKey({ mime_type: 'image/png' }), undefined);
-  assertEquals(inlineBytesKey({ type: 'image', data: 'x' }), undefined);
+  assertEquals(inlineBytesKey({ type: 'image', data: 'x' }), 'data');
+  assertEquals(inlineBytesKey({ type: 'thought_signature', signature: 'x' }), 'signature');
+  assertEquals(inlineBytesKey({ type: 'thought', signature: 'x' }), 'signature');
+  assertEquals(inlineBytesKey({ type: 'function_call', signature: 'x' }), 'signature');
+  assertEquals(inlineBytesKey({ type: 'reasoning.encrypted', data: 'x' }), 'data');
+  assertEquals(inlineBytesKey({ type: 'function_call', signature: '' }), undefined);
+  assertEquals(inlineBytesKey({ type: 'text', data: 'x' }), undefined);
   assertEquals(inlineBytesKey({ b64_json: 'x' }), undefined);
   assertEquals(inlineBytesKey({}), undefined);
 });
@@ -284,9 +292,15 @@ Deno.test('inline data that is not base64 is hashed as text and labelled', async
   });
 });
 
+Deno.test('scrubRecord hashes a part that names its bytes by type', async () => {
+  const out = await scrubRecord({ type: 'thought_signature', signature: 'cmF3LWJ5dGVz' });
+  assertEquals(out.signature, await sha256('raw-bytes'));
+  assertEquals(out.dataKind, 'sha256');
+});
+
 Deno.test('scrubRecord keeps data without a mime_type and adds no marker', async () => {
-  const out = await scrubRecord({ type: 'reasoning.encrypted', data: 'opaque' });
-  assertEquals(out, { type: 'reasoning.encrypted', data: 'opaque' });
+  const out = await scrubRecord({ type: 'text', data: 'opaque' });
+  assertEquals(out, { type: 'text', data: 'opaque' });
 });
 
 Deno.test('scrubUpstream recurses through arrays', async () => {

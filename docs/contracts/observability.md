@@ -241,7 +241,7 @@ carry text inline: `buildRecord` resolves every content marker once, under
 | --- | --- |
 | `$content` (messages, instructions, tool arguments and results, reasoning, exception text) | Scrubbed text in `content`, referenced as `{ content_sha256 }` |
 | `$bytes` (media) | `content_sha256` over the raw bytes and `bytes` length; bytes never stored. Text that is not base64 is hashed as text and marked `invalid_base64` |
-| `$json` (upstream rows, wire bodies) | Media hashed, canaries removed, text scrubbed, every string equal to a recorded text replaced by `{ content_sha256 }`; the result stored in `content`, referenced as `{ json_sha256 }` |
+| `$json` (upstream rows, wire bodies) | Media and thought signatures hashed, canaries removed, text scrubbed, every string equal to a recorded text replaced by `{ content_sha256 }`; the result stored in `content`, referenced as `{ json_sha256 }` |
 
 - Credential headers are recorded as `[redacted]`; every other header is kept.
 - With `scrub.canary` on for Theorem's side, every canary bound in the record

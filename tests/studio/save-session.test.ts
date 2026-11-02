@@ -227,6 +227,10 @@ Deno.test('files the editor changed are loaded again, and ones that do not load 
 Deno.test('a running turn keeps its load: a read waits for nothing, a Save swaps when it ends', async () => {
   let running = true;
   let turnEnded = () => {};
+  let waiting = () => {};
+  const saveWaits = new Promise<void>((resume) => {
+    waiting = resume;
+  });
   const { session, files, state, stopped } = project({
     running: () => running,
     whenQuiet: (swap) =>
@@ -236,6 +240,7 @@ Deno.test('a running turn keeps its load: a read waits for nothing, a Save swaps
           swap();
           done();
         };
+        waiting();
       }),
   });
   const workspace = edited();
@@ -248,7 +253,7 @@ Deno.test('a running turn keeps its load: a read waits for nothing, a Save swaps
   const { stamp } = await reviewed(session, workspace);
   state.loads = startedHere(workspace);
   const saving = session.save({ workspace, stamp });
-  await new Promise((resume) => setTimeout(resume, 0));
+  await saveWaits;
   assertEquals([session.project(), stopped], [opened.workspace, []]);
   turnEnded();
   assertEquals(await saving, { ok: true, written: ['example.ts'] });

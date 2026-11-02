@@ -176,7 +176,7 @@ async function end(loaded: Loaded): Promise<void> {
 }
 
 /** Ends a load the studio no longer needs, once the calls it holds have ended. */
-async function stop(loaded: Loaded): Promise<void> {
+function stop(loaded: Loaded): Promise<void> {
   const ended = keptSessions.callsEnd(loaded.id);
   if (!ended) return end(loaded);
   leaving.add(loaded);
@@ -184,6 +184,7 @@ async function stop(loaded: Loaded): Promise<void> {
     leaving.delete(loaded);
     return end(loaded);
   });
+  return Promise.resolve();
 }
 
 /** Whether the project type-checks as it is on disk, from the setup and the entry it names, and what the checker printed. */

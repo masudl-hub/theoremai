@@ -86,13 +86,10 @@ test('taking a condition off one line leaves the line beside it', async ({ page 
 test('a word taken out of a private stretch keeps the spaces beside it', async ({ page }) => {
   await open(page);
   await write(page, '{private: Say hello there.}');
-  await editor(page).click();
-  await page.keyboard.press('ControlOrMeta+ArrowLeft');
+  await selectAll(page);
   await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  for (const _ of 'hello') await page.keyboard.press('Shift+ArrowRight');
+  for (const _ of ' there.') await page.keyboard.press('ArrowLeft');
+  for (const _ of 'hello') await page.keyboard.press('Shift+ArrowLeft');
   await button(page, 'Private').click();
   expect(await written(page)).toBe('{private: Say} hello {private: there.}');
 });

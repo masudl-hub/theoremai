@@ -87,6 +87,11 @@
  */
 .studio-tree-row {
   --studio-tree-fade: 0px;
+  --studio-tree-mask: linear-gradient(
+    to left,
+    transparent calc(var(--spacing-6) + var(--studio-tree-fade)),
+    #000 calc(var(--spacing-10) + var(--studio-tree-fade))
+  );
 }
 
 .studio-tree-row:has(.studio-tree-action > button:nth-of-type(2)) {
@@ -99,21 +104,13 @@
 
 @media (hover: none) {
   .studio-tree-row button:not([data-tree-toggle], .studio-tree-action button) {
-    mask-image: linear-gradient(
-      to left,
-      transparent calc(var(--spacing-6) + var(--studio-tree-fade)),
-      #000 calc(var(--spacing-10) + var(--studio-tree-fade))
-    );
+    mask-image: var(--studio-tree-mask);
   }
 }
 
 .studio-tree-row:is(:hover, :has(:focus-visible))
   button:not([data-tree-toggle], .studio-tree-action button) {
-  mask-image: linear-gradient(
-    to left,
-    transparent calc(var(--spacing-6) + var(--studio-tree-fade)),
-    #000 calc(var(--spacing-10) + var(--studio-tree-fade))
-  );
+  mask-image: var(--studio-tree-mask);
 }
 
 /* A list row's badges stay on one line: past the field's width they end in an ellipsis beside the

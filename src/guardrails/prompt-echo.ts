@@ -111,118 +111,94 @@ function viewReadings(stretches: readonly string[], canary?: string): PromptRead
   return readings;
 }
 
-/** A run with a slot, keyed by where the slot is and the words around it. */
-function slotKey(run: readonly string[], slot: number): string {
-  // why: Bare numbers are never words here, so the slot's index leads unambiguously.
-  return [slot, ...run.filter((_, k) => k !== slot)].join(' ');
-}
+/** Between two readings in `PromptWords`: no run reaches across it. */
+const BREAK = '\u0001';
 
-interface RunSet {
-  plain: Set<string>;
-  slotted: Set<string>;
-  /** Where in a run the slot can stand. */
-  slots: Set<number>;
-  /** Every word a run can hold but the canary's stand-in. */
-  words: Set<string>;
-}
-
-/** A run may not start on the canary's place unless `leading`: a stand-in for it is not prompt text. */
-function addRuns(set: RunSet, readings: PromptReadings, lengths: number[], leading: boolean): void {
-  for (const words of readings.plain) {
-    for (const word of words) set.words.add(word);
-    for (const length of lengths) {
-      for (let from = 0; from + length <= words.length; from++) {
-        set.plain.add(words.slice(from, from + length).join(' '));
-      }
-    }
-  }
-  for (const slotted of readings.slotted) {
-    for (const length of lengths) {
-      for (let from = 0; from + length <= slotted.length; from++) {
-        const run = slotted.slice(from, from + length);
-        const slot = run.indexOf(SLOT);
-        if (slot === -1 || (slot === 0 && !leading)) continue;
-        set.slotted.add(slotKey(run, slot));
-        set.slots.add(slot);
-      }
-    }
-  }
-}
-
-/** Where in `run` the canary's place fell when `set` has it: -1 for nowhere, undefined when not a run. */
-function matchRun(set: RunSet, run: readonly string[]): number | undefined {
-  if (set.plain.has(run.join(' '))) return -1;
-  for (const slot of set.slots) {
-    if (slot < run.length && set.slotted.has(slotKey(run, slot))) return slot;
-  }
-  return undefined;
-}
-
-function sameStretches(a: readonly string[], b: readonly string[]): boolean {
-  return a === b || (a.length === b.length && a.every((stretch, k) => stretch === b[k]));
-}
-
-let gramsCache: { stretches: readonly string[]; canary?: string; grams: RunSet } | undefined;
-
-/** Every run of `PROMPT_ECHO_WORDS` words in a private stretch. */
-function promptGrams(stretches: readonly string[], canary?: string): RunSet {
-  if (
-    gramsCache &&
-    gramsCache.canary === canary &&
-    sameStretches(gramsCache.stretches, stretches)
-  ) {
-    return gramsCache.grams;
-  }
-  const grams: RunSet = {
-    plain: new Set(),
-    slotted: new Set(),
-    slots: new Set(),
-    words: new Set(),
-  };
-  addRuns(grams, promptReadings(stretches, canary), [PROMPT_ECHO_WORDS], true);
-  gramsCache = { stretches, canary, grams };
-  return grams;
-}
-
-interface PromptShape {
-  /** Every run of fewer than `PROMPT_ECHO_WORDS` words. */
-  runs: RunSet;
+/** The prompt's words as they stand: a run is looked for in them when a reply is read. */
+interface PromptWords {
+  /** Every reading, word by word, with a `BREAK` after each. */
+  plain: string[];
+  /** Where each word stands in `plain`. */
+  places: Map<string, number[]>;
+  /** Every reading with the canary's `SLOT`, likewise. */
+  slotted: string[];
+  /** Where each `SLOT` stands in `slotted`. */
+  slots: number[];
   /** Every all-ASCII prefix of a word. */
   prefixes: Set<string>;
   /** The longest word, in code units. */
   longest: number;
 }
 
-let shapeCache: { stretches: readonly string[]; canary?: string; shape: PromptShape } | undefined;
-
-function promptShape(stretches: readonly string[], canary?: string): PromptShape {
-  if (
-    shapeCache &&
-    shapeCache.canary === canary &&
-    sameStretches(shapeCache.stretches, stretches)
-  ) {
-    return shapeCache.shape;
-  }
+function readPrompt(stretches: readonly string[], canary?: string): PromptWords {
   const readings = promptReadings(stretches, canary);
-  const shape: PromptShape = {
-    runs: { plain: new Set(), slotted: new Set(), slots: new Set(), words: new Set() },
+  const read: PromptWords = {
+    plain: readings.plain.flatMap((words) => [...words, BREAK]),
+    places: new Map(),
+    slotted: readings.slotted.flatMap((words) => [...words, BREAK]),
+    slots: [],
     prefixes: new Set(),
     longest: 0,
   };
-  for (const word of readings.plain.flat()) {
-    shape.longest = Math.max(shape.longest, word.length);
+  for (const [at, word] of read.plain.entries()) {
+    if (word === BREAK) continue;
+    const places = read.places.get(word);
+    if (places) {
+      places.push(at);
+      continue;
+    }
+    read.places.set(word, [at]);
+    read.longest = Math.max(read.longest, word.length);
     for (let end = 1; end <= word.length && ASCII.test(word.charAt(end - 1)); end++) {
-      shape.prefixes.add(word.slice(0, end));
+      read.prefixes.add(word.slice(0, end));
     }
   }
-  addRuns(
-    shape.runs,
-    readings,
-    Array.from({ length: PROMPT_ECHO_WORDS - 1 }, (_, k) => k + 1),
-    false,
-  );
-  shapeCache = { stretches, canary, shape };
-  return shape;
+  for (const [at, word] of read.slotted.entries()) {
+    if (word === SLOT) read.slots.push(at);
+  }
+  return read;
+}
+
+/** Whether a reading has `run` word for word, looked for from its word the prompt has least. */
+function hasRun(read: PromptWords, run: readonly string[]): boolean {
+  let fewest: number[] | undefined;
+  let anchor = 0;
+  for (const [k, word] of run.entries()) {
+    const places = read.places.get(word);
+    if (!places) return false;
+    if (!fewest || places.length < fewest.length) {
+      fewest = places;
+      anchor = k;
+    }
+  }
+  return (fewest ?? []).some((at) => run.every((word, k) => read.plain[at - anchor + k] === word));
+}
+
+/**
+ * Where in `run` the canary's place fell when the prompt has it: -1 for
+ * nowhere, undefined when not a run. A run may not start on the canary's place
+ * unless `leading`: a stand-in for it is not prompt text.
+ */
+function matchRun(read: PromptWords, run: readonly string[], leading: boolean): number | undefined {
+  if (hasRun(read, run)) return -1;
+  for (const at of read.slots) {
+    for (let slot = run.length - 1; slot >= (leading ? 0 : 1); slot--) {
+      const from = at - slot;
+      if (run.every((word, k) => k === slot || read.slotted[from + k] === word)) return slot;
+    }
+  }
+  return undefined;
+}
+
+const readings = new WeakMap<readonly string[], Map<string | undefined, PromptWords>>();
+
+/** `stretches` read once for as long as they live: each turn holds its own, so overlapping turns never rebuild each other's. */
+function promptWords(stretches: readonly string[], canary?: string): PromptWords {
+  const byCanary = readings.get(stretches) ?? new Map<string | undefined, PromptWords>();
+  readings.set(stretches, byCanary);
+  const read = byCanary.get(canary) ?? readPrompt(stretches, canary);
+  byCanary.set(canary, read);
+  return read;
 }
 
 /**
@@ -231,11 +207,11 @@ function promptShape(stretches: readonly string[], canary?: string): PromptShape
  * scripts can fold several letters into one (Hangul jamo, up to three), so
  * only a word too long to fold down to any of them is ruled out.
  */
-function mayBecomePromptWord(partial: string, shape: PromptShape): boolean {
+function mayBecomePromptWord(partial: string, read: PromptWords): boolean {
   if (ASCII.test(partial)) {
-    return shape.prefixes.has(partial.toLowerCase());
+    return read.prefixes.has(partial.toLowerCase());
   }
-  return partial.length <= MAX_FOLD * shape.longest;
+  return partial.length <= MAX_FOLD * read.longest;
 }
 
 /**
@@ -271,15 +247,15 @@ function holdIn(text: string, tail: number, stretches: readonly string[], canary
   const complete = words.filter(
     (entry) => tail + entry.to < text.length || writing === text.length,
   );
-  const shape = promptShape(stretches, canary);
-  const hold = mayBecomePromptWord(text.slice(writing), shape) ? writing : text.length;
+  const read = promptWords(stretches, canary);
+  const hold = mayBecomePromptWord(text.slice(writing), read) ? writing : text.length;
   for (
     let from = Math.max(0, complete.length - (PROMPT_ECHO_WORDS - 1));
     from < complete.length;
     from++
   ) {
     const run = complete.slice(from).map((entry) => entry.word);
-    if (matchRun(shape.runs, run) !== undefined) {
+    if (matchRun(read, run, false) !== undefined) {
       return Math.min(hold, tail + (complete[from] as EchoWord).at);
     }
   }
@@ -332,22 +308,19 @@ function echoRanges(
   stretches: readonly string[],
   canary?: string,
 ): Array<[number, number]> {
-  const grams = promptGrams(stretches, canary);
-  if (!text || grams.plain.size === 0) {
-    return [];
-  }
+  const read = promptWords(stretches, canary);
   const words = echoWords(text);
   const ranges: Array<[number, number]> = [];
   // why: A run holds no word the prompt lacks but the canary's stand-in, so a window with more is skipped unread.
-  const strange = grams.slots.size > 0 ? 1 : 0;
-  const foreign = words.map((entry) => (grams.words.has(entry.word) ? 0 : 1));
+  const strange = read.slots.length > 0 ? 1 : 0;
+  const foreign = words.map((entry) => (read.places.has(entry.word) ? 0 : 1));
   let outside = foreign.slice(0, PROMPT_ECHO_WORDS - 1).reduce((sum: number, n) => sum + n, 0);
   for (let from = 0; from + PROMPT_ECHO_WORDS <= words.length; from++) {
     outside += foreign[from + PROMPT_ECHO_WORDS - 1] as number;
     if (from > 0) outside -= foreign[from - 1] as number;
     if (outside > strange) continue;
     const run = words.slice(from, from + PROMPT_ECHO_WORDS).map((entry) => entry.word);
-    const slot = matchRun(grams, run);
+    const slot = matchRun(read, run, true);
     if (slot === undefined) continue;
     // why: A stand-in for the canary at either end is the model's, not the prompt's.
     const first = slot === 0 ? from + 1 : from;

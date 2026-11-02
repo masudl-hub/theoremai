@@ -422,6 +422,31 @@ Deno.test('runTurn releases a reply repeating a shareable part of the prompt', a
     false,
   );
 });
+Deno.test('turns that overlap each read their own prompt', () => {
+  const words = (name: string) => Array.from({ length: 30 }, (_, k) => `${name}word${k}`).join(' ');
+  const first = [words('first')];
+  const second = [words('second')];
+  const echo = words('first').split(' ').slice(4, 20).join(' ');
+  for (let turn = 0; turn < 4; turn++) {
+    assertEquals(scanTextForPromptEcho(echo, first), true);
+    assertEquals(scanTextForPromptEcho(echo, second), false);
+  }
+});
+
+Deno.test('a run reaches across neither two stretches nor two readings of one', () => {
+  const words = Array.from({ length: 24 }, (_, k) => `word${String.fromCharCode(97 + k)}`);
+  const head = words.slice(0, 12).join(' ');
+  const tail = words.slice(12).join(' ');
+  const across = words.slice(6, 18).join(' ');
+  assertEquals(scanTextForPromptEcho(across, [head, tail]), false);
+  assertEquals(scanTextForPromptEcho(across, [`${head} ${tail}`]), true);
+  const lastThenReversed = [
+    ...head.split(' ').slice(6),
+    ...[...head].reverse().join('').split(' ').slice(0, 6),
+  ];
+  assertEquals(scanTextForPromptEcho(lastThenReversed.join(' '), [head]), false);
+});
+
 Deno.test('runTurn stops a reply repeating a private part of a marked prompt', async () => {
   const profile = registerMarkedProfile('echo_marked_rules');
   const events = await collect(

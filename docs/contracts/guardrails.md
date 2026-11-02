@@ -376,7 +376,10 @@ breaks it — the same verdict as a scan of the whole reply. The prompt echo
 check rereads its own short lookback (`promptEchoScanFrom`) and holds from the
 first word of the longest run of prompt words ending the text, or from a word
 still being written that could become a prompt word (`promptEchoHoldFrom`), so
-no word of an echo reaches the host. Both holds read on from where a leak
+no word of an echo reaches the host. The check keeps the prompt's words, not a
+list of every run, and looks for a run when it reads one. Its reading lives as
+long as the array of private stretches it read, so a turn keeps its own and
+turns that overlap never rebuild each other's. Both holds read on from where a leak
 could still start, not the whole held text: text further back than an opening
 can span (`RELEASED_LOOKBACK`) that opens no leak never will. Either way the
 cost grows with the reply or thought, not its square. What the

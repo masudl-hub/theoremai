@@ -160,6 +160,7 @@ import { flushSync } from 'react-dom';
 import { ActingAsButton } from './acting-as-button.tsx';
 import { AddProviderButton } from './add-provider.tsx';
 import {
+  ChangeHeld,
   GuardrailTest,
   ISSUE_ROW_ATTRIBUTE,
   LeavePage,
@@ -2799,6 +2800,8 @@ function EditorBody({
   const { workspace, draft, focus, setDraft, update } = state;
   const project = useProject();
   const workspaceContext = useWorkspaceContext(workspace.agents, focus, update, project !== null);
+  const heldNow = () => state.store.getPending() !== undefined;
+  const isChangeHeld = useSyncExternalStore(state.store.subscribe, heldNow, heldNow);
   const provider = shownProvider(workspace, editing, project !== null, connection);
   return (
     <ScrollableArea key={selected} label="Editor" height="100%" ref={editorRef}>
@@ -2806,39 +2809,41 @@ function EditorBody({
         <RunsOn.Provider value={connection.on}>
           <LocalConnection.Provider value={connection}>
             <WorkspaceContext.Provider value={workspaceContext}>
-              {provider ? (
-                <ProviderEditor
-                  workspace={workspace}
-                  provider={provider}
-                  issues={issues.filter((issue) => issue.nodeId === editing)}
-                  // The studio's own providers are the same for everyone, so they only show.
-                  onChange={
-                    project
-                      ? (next) => {
-                          update((current) => withProvider(current, next));
-                        }
-                      : undefined
-                  }
-                  // A provider the files do not hold yet is the studio's to name; code names the rest.
-                  onRename={
-                    project && !project.providers.includes(provider.id)
-                      ? (id) => {
-                          update((current) => renameProvider(current, provider.id, id));
-                        }
-                      : undefined
-                  }
-                />
-              ) : (
-                <ProfileEditor
-                  draft={draft}
-                  setDraft={setDraft}
-                  selectedId={editing}
-                  onSelect={(id) => {
-                    open(scopedNodeId(focus, id));
-                  }}
-                  issues={issues}
-                />
-              )}
+              <ChangeHeld.Provider value={isChangeHeld}>
+                {provider ? (
+                  <ProviderEditor
+                    workspace={workspace}
+                    provider={provider}
+                    issues={issues.filter((issue) => issue.nodeId === editing)}
+                    // The studio's own providers are the same for everyone, so they only show.
+                    onChange={
+                      project
+                        ? (next) => {
+                            update((current) => withProvider(current, next));
+                          }
+                        : undefined
+                    }
+                    // A provider the files do not hold yet is the studio's to name; code names the rest.
+                    onRename={
+                      project && !project.providers.includes(provider.id)
+                        ? (id) => {
+                            update((current) => renameProvider(current, provider.id, id));
+                          }
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <ProfileEditor
+                    draft={draft}
+                    setDraft={setDraft}
+                    selectedId={editing}
+                    onSelect={(id) => {
+                      open(scopedNodeId(focus, id));
+                    }}
+                    issues={issues}
+                  />
+                )}
+              </ChangeHeld.Provider>
             </WorkspaceContext.Provider>
           </LocalConnection.Provider>
         </RunsOn.Provider>

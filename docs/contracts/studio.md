@@ -73,6 +73,22 @@ When a project opens, the command asks each provider an agent's models name abou
 The command keeps the last 200 events of a studio run: what to look at (not a project that opens with nothing), each key that is not accepted, each run that fails (an `error` line in its stream, or a reply that is not 2xx), and each error the page meets (it `POST`s `{ text }` to `<base>/events`). A repeat of the last event is counted, not kept again. `GET <base>/events` lists them, and `GET <base>/events?follow` streams them as server-sent events: the kept ones, then each new one. A run that ends well is not an event. The run's reply reaches the page unchanged.
 `GET <base>/status` answers, as plain text, what the command printed when the project opened, as it is now: what loaded, what the key checks said, and what to look at. `theorem-studio status` and `theorem-studio errors [--follow]` read these two routes from the studio open on the project's setup, and change nothing. `agents studio …` finds the `@theoremjs/studio` the project installed and runs its command with the same arguments; it never installs it.
 
+## The prompt box
+
+The draft holds a system prompt as markup text, in `identity.system`. `parseSystemMarkup` in `studio/system-markup.ts` reads it. The studio shows that text in two views, and neither view keeps a second copy.
+
+| View | What it does |
+| --- | --- |
+| Formatted | `PromptEditor` opens the text in a rich text editor. `studio/prompt-doc.ts` converts the text to the editor's document and back. |
+| Code | `TextAreaRow` shows the text as written. |
+
+These rules must stay true:
+
+- Opening the formatted view does not change the draft. `samePrompt` compares what two texts say, so the place of a `{private: …}` mark around a block mark or a `when` does not count.
+- Text that the formatted view would change stays in the code view. `promptDocProblem` gives the reason, and the toggle shows it.
+- Private text is trimmed when it is read, so `promptMarkup` writes the spaces at its edges outside the mark.
+- A change that waits on the shared-change dialog stays on screen. `ChangeHeld` tells the editor. Change keeps the text and the caret, and Cancel opens the prompt again from the draft.
+
 ## Package boundary
 
 The kernel's boundary rule, "Host decides, Theorem runs", keeps assistants and

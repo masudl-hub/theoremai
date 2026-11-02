@@ -327,6 +327,11 @@ const DetectorTester = lazy(() =>
   import('./guardrail-tester.tsx').then((tester) => ({ default: tester.DetectorTester })),
 );
 
+// The formatted editor and Lexical load when a prompt first shows.
+const PromptRow = lazy(() =>
+  import('./prompt-row.tsx').then((row) => ({ default: row.PromptRow })),
+);
+
 export type SetDraft = Dispatch<SetStateAction<StudioDraft>>;
 
 /** The draft's sections that are one object of settings, rather than a list. */
@@ -498,17 +503,17 @@ function SystemPromptSection({
 }) {
   return (
     <InspectorSection title="System prompt" note={sectionNote('system')}>
-      <TextAreaRow
-        label="Prompt"
-        path="identity.system"
-        field="system"
-        rows={PROMPT_ROWS}
-        value={identity.system}
-        placeholder={fieldMeta('identity.system')?.unset}
-        onChange={(system) => {
-          set({ system });
-        }}
-      />
+      <Suspense fallback={null}>
+        <PromptRow
+          value={identity.system}
+          conditions={identity.conditions}
+          rows={PROMPT_ROWS}
+          placeholder={fieldMeta('identity.system')?.unset}
+          onChange={(system) => {
+            set({ system });
+          }}
+        />
+      </Suspense>
     </InspectorSection>
   );
 }

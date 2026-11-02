@@ -21,6 +21,42 @@ export const concierge = defineProfile({
   inputs: { text: true },
 });
 
+const COUNTER_PROMPT = 'Answer at the counter.';
+
+export const frontCounter = defineProfile({
+  id: 'front_counter',
+  type: 'text',
+  identity: { handle: 'Front', system: COUNTER_PROMPT },
+  models: {
+    full: {
+      protocol: 'openRouterOpenAi',
+      provider: 'router',
+      apiId: 'fake/full',
+      efforts: { normal: 'minimal' },
+    },
+  },
+  defaultModel: 'full',
+  tools: { allow: ['lookup_city'] },
+  inputs: { text: true },
+});
+
+export const backCounter = defineProfile({
+  id: 'back_counter',
+  type: 'text',
+  identity: { handle: 'Back', system: COUNTER_PROMPT },
+  models: {
+    full: {
+      protocol: 'openRouterOpenAi',
+      provider: 'router',
+      apiId: 'fake/full',
+      efforts: { normal: 'minimal' },
+    },
+  },
+  defaultModel: 'full',
+  tools: { allow: ['lookup_city'] },
+  inputs: { text: true },
+});
+
 export const triage = defineProfile({
   type: 'decision',
   id: 'triage',

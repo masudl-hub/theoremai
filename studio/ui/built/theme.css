@@ -180,7 +180,7 @@
     --color-accent-muted: light-dark(#f1f1f1, #262626);
     --color-neutral: light-dark(#0000000F, #ffffff1A);
     --color-overlay: light-dark(#00000080, #000000CC);
-    --color-overlay-hover: light-dark(#0000000D, #ffffff0D);
+    --color-overlay-hover: light-dark(#05365914, #FFFFFF14);
     --color-overlay-pressed: light-dark(#0000001A, #ffffff1A);
     --color-text-primary: light-dark(#000000, #ffffff);
     --color-text-secondary: light-dark(#474747, #9e9e9e);

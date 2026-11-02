@@ -23,6 +23,12 @@ export async function open(page: Page, agent = 'desk') {
   await page.getByRole('button', { name: agent, exact: true }).first().click();
 }
 
+/** The profile's prompt box, as code: the markup text itself. */
+export async function promptCode(page: Page) {
+  await page.getByRole('button', { name: 'Code', exact: true }).first().click();
+  return page.getByRole('textbox', { name: 'Prompt' }).first();
+}
+
 /** why: a chat stays mounted while it closes, so the last composer in the page may be out of sight. */
 export const composer = (page: Page) =>
   page.getByLabel('Message input').locator('visible=true').last();

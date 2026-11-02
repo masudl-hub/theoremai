@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, open, seen, send, test } from './drive.ts';
+import { expect, open, promptCode, seen, send, test } from './drive.ts';
 
 const systemOf = async (page: Page) => {
   const [request] = (await seen(page)).slice(-1);
@@ -24,7 +24,7 @@ const pickPaid = (page: Page) =>
     .click();
 
 const addPaidLine = async (page: Page) => {
-  const prompt = page.getByRole('textbox', { name: 'Prompt' }).first();
+  const prompt = await promptCode(page);
   await prompt.fill(`${await prompt.inputValue()}\n\nwhen plan is paid: Mention the garden.`);
 };
 
@@ -102,7 +102,7 @@ test('an image agent runs with the conditions the edit declares', async ({ page 
 
 test('a private section in the box stays private, across a blank line', async ({ page }) => {
   await open(page);
-  const prompt = page.getByRole('textbox', { name: 'Prompt' }).first();
+  const prompt = await promptCode(page);
   const loaded = page.waitForResponse(
     (response) =>
       response.url().endsWith('/edited') && response.request().postData()?.includes('Say hello'),

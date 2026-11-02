@@ -16,6 +16,8 @@ export const studioTheme = defineTheme({
   tokens: {
     // Behind the rail and the page panel, in both modes.
     '--color-background-body': '#000000',
+    // why: Astryx's 5% hover barely shows on these dark panels; this reads, and stays under pressed.
+    '--color-overlay-hover': 'light-dark(#05365914, #FFFFFF14)',
     // The type ladder, a step above Astryx's: body is 16px, not 14px. Text and heading types read these.
     '--font-size-xs': '0.6875rem',
     '--font-size-sm': '0.875rem',

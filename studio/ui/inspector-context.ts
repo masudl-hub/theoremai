@@ -115,6 +115,9 @@ export interface WorkspaceAgent {
   type: string;
 }
 
+/** Whether a change waits on the shared-change dialog, so a field showing it isn't reset yet. */
+export const ChangeHeld = createContext(false);
+
 /**
  * The workspace around the agent the editor shows: the agents it can name, which of the library's
  * tools it allows, and, on a project, a way to add or change a provider. `null` when the editor

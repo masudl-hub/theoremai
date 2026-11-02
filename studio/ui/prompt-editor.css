@@ -1,0 +1,88 @@
+.prompt-editor [contenteditable] {
+  /* why: a long prompt scrolls inside the editor, so its toolbar stays in reach. */
+  max-height: calc(100vh - 340px);
+  overflow-y: auto;
+}
+
+.prompt-editor [contenteditable] * {
+  max-width: none;
+}
+
+.prompt-editor h1,
+.prompt-editor h2,
+.prompt-editor h3 {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.4;
+  margin-block: var(--spacing-2) var(--spacing-1);
+}
+
+/* why: the panel can be narrower than the toolbar, and Private and Condition sit at its end. */
+.prompt-editor [role="toolbar"] [role="group"] {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+/* The toolbar's block menu shows its icon alone, so "Heading 2" reads as H2. */
+.prompt-editor [role="toolbar"] button[role="combobox"] > span {
+  display: none;
+}
+
+.prompt-editor [style*="--private"] {
+  color: var(--color-text-secondary);
+}
+
+.prompt-editor [contenteditable] [data-private] {
+  position: relative;
+  border-inline-start: 1px solid var(--color-border-emphasized);
+  margin-block: 0;
+  margin-inline-start: var(--spacing-2);
+  padding-block: var(--spacing-1);
+  padding-inline-start: var(--spacing-4);
+}
+
+.prompt-editor [contenteditable] ul[data-private],
+.prompt-editor [contenteditable] ol[data-private] {
+  padding-inline-start: var(--spacing-8);
+}
+
+/* The lock on the rail: a round token, with the lock masked onto it. */
+.prompt-editor [data-private-start]::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: -9px;
+  top: var(--spacing-1);
+  width: 17px;
+  height: 17px;
+  border-radius: 9px;
+  background: var(--color-background-muted);
+  box-shadow: 0 0 0 2px var(--color-background-card);
+}
+
+.prompt-editor [data-private-start]::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset-inline-start: -6px;
+  top: 7px;
+  width: 11px;
+  height: 11px;
+  background: var(--color-text-secondary);
+  mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z'/%3E%3Cpath d='M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0'/%3E%3Cpath d='M8 11v-4a4 4 0 1 1 8 0v4'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+.prompt-line-slot:not(:first-child) {
+  margin-top: var(--spacing-3);
+}
+
+.prompt-line-slot:has(.prompt-line-head) {
+  margin-bottom: var(--spacing-1);
+}
+
+.prompt-line-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-1);
+}

@@ -21,7 +21,16 @@ const NEEDED = [
   'zod',
   '@theoremjs/agents',
   '@theoremjs/web',
-  ...(builtPage ? [] : ['@theoremjs/react', 'react', 'react-dom', '@astryxdesign/core', 'vite']),
+  ...(builtPage
+    ? []
+    : [
+        '@theoremjs/react',
+        'react',
+        'react-dom',
+        '@astryxdesign/core',
+        '@astryxdesign/richtext',
+        'vite',
+      ]),
 ];
 
 /** Whether `name` is installed where Node would look for it from here; its exports need not list its manifest. */

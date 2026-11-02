@@ -29,6 +29,8 @@ export const theorem: TurnWiring = {
     registerProfile(desk);
     registerProfile(team.concierge);
     registerProfile(team.gatekeeper);
+    registerProfile(team.frontCounter);
+    registerProfile(team.backCounter);
     registerProfile(team.triage);
     registerProfile(team.index);
     registerProfile(team.picture);

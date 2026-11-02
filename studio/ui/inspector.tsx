@@ -367,7 +367,7 @@ export type FieldRowProps = {
  * A field row's issue status and presence, and the props its one control shares: labelled but with
  * the label hidden, since the row shows it.
  */
-function useFieldRow({ label, path, field, isRequired }: FieldRowProps) {
+export function useFieldRow({ label, path, field, isRequired }: FieldRowProps) {
   const status = useFieldStatus()(field);
   const { required, unset } = presence(path, isRequired);
   const control = { label, status, isLabelHidden: true, isRequired: required, size: 'sm' as const };
@@ -557,6 +557,33 @@ export function TextRow(
   );
 }
 
+/** A field whose control sits under its label, with room for an `action` across from the label. */
+export function WideRow({
+  label,
+  path,
+  isRequired,
+  hasIssue,
+  action,
+  children,
+}: {
+  label: string;
+  path: string;
+  isRequired: boolean;
+  hasIssue: boolean;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <VStack gap={1} {...{ [ISSUE_ROW_ATTRIBUTE]: hasIssue || undefined }}>
+      <HStack hAlign="between" vAlign="center">
+        <RowLabel label={label} path={path} isRequired={isRequired} />
+        {action}
+      </HStack>
+      {children}
+    </VStack>
+  );
+}
+
 /**
  * Longer text, under its label rather than beside it: wording and JSON. Left blank, it shows
  * `placeholder` (for wording, the kernel's own default line) for Tab to take up, else `hint`.
@@ -570,6 +597,7 @@ export function TextAreaRow(
     hasSpellCheck?: boolean;
     /** A status of the row's own, such as text that is not JSON; the field's issues win. */
     status?: InputStatus;
+    action?: ReactNode;
     onChange: (next: string) => void;
   },
 ) {
@@ -577,8 +605,13 @@ export function TextAreaRow(
   const { status: fieldStatus, required, unset, control } = useFieldRow(props);
   const status = fieldStatus ?? props.status;
   return (
-    <VStack gap={1} {...{ [ISSUE_ROW_ATTRIBUTE]: fieldStatus !== undefined || undefined }}>
-      <RowLabel label={label} path={path} isRequired={required} />
+    <WideRow
+      label={label}
+      path={path}
+      isRequired={required}
+      hasIssue={fieldStatus !== undefined}
+      action={props.action}
+    >
       <TextArea
         {...control}
         status={status}
@@ -589,7 +622,7 @@ export function TextAreaRow(
         onKeyDown={tabFills(value, placeholder, onChange)}
         onChange={onChange}
       />
-    </VStack>
+    </WideRow>
   );
 }
 

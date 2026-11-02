@@ -51,7 +51,7 @@ test('a duplicate runs, Save writes its file, and Save takes it back out', async
   await page.getByRole('button', { name: 'Remove concierge_copy' }).click({ force: true });
   await saveAll(page);
   await expect(saved(page)).toBeVisible();
-  expect(written()).not.toContain('agents/concierge_copy.ts');
+  await expect.poll(written).not.toContain('agents/concierge_copy.ts');
   expect(allText()).not.toContain('conciergeCopy');
 });
 

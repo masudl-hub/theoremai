@@ -1,0 +1,50 @@
+name: Studio browser
+
+# Every studio flow, driven in a browser against the fake model. It takes about 16 minutes
+# one test at a time, so it runs nightly and on demand, and no push or preview waits on it.
+
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  studio-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: |
+          deno install
+          npm ci
+          npm --prefix web ci
+          npm --prefix react ci
+          npm --prefix studio ci
+
+      - name: Install the browser
+        run: npx --prefix studio playwright install --with-deps chromium
+
+      - name: Drive the studio
+        run: npm --prefix studio run test:browser
+
+      - name: Keep what the failed tests saw
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: studio-browser-failures
+          path: studio/test-results/

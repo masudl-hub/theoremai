@@ -67,7 +67,6 @@ export interface ToolLabels {
   activityPast?: LabelTemplate;
   activityFailed?: LabelTemplate;
   request?: LabelTemplate;
-  hiddenFromSettings?: boolean;
 }
 
 export interface ToolBase {

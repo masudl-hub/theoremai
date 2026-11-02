@@ -1606,6 +1606,10 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'gate',
   },
+  'registerTool.auth.preResolved': field(
+    'Partial<OAuthEndpoints & { resource: string }>',
+    "Named on the auth gate for the host's OAuth flow, so it need not find them.",
+  ),
   'registerTool.auth.scopes': field(
     'string[]',
     'The OAuth scopes the tool needs, shown when a turn stops to ask for a credential. A service asking for any other scope fails the call, with no new sign-in.',
@@ -1703,6 +1707,14 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
     ),
     unset: 'No limit',
   },
+  'registerTool.askInputSchema': field(
+    'Record<string, unknown>',
+    '`inputSchema` with the `background` argument. The registry sets it on an `ask` tool.',
+  ),
+  'registerTool.conflictsWith': field(
+    'string[]',
+    'The built-in tools a builtin tool cannot run beside.',
+  ),
   'registerTool.limit': {
     ...field(
       'HttpToolLimit',

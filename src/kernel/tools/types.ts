@@ -33,11 +33,11 @@ import type {
   ModelId,
   Profile,
   ProfileId,
+  RunControls,
   ToolId,
   TurnInput,
   TurnRequest,
   TurnSpeech,
-  TurnTraceLink,
 } from '../types.ts';
 import type { LabelTemplate } from './activity-label.ts';
 import type { ToolBackground, ToolBackgroundService } from './background.ts';
@@ -511,7 +511,7 @@ export interface ToolLoadContext {
 export type ToolPolicy = (ctx: ToolLoadContext) => ToolId[] | Promise<ToolId[]>;
 
 /** A request to run a held tool call outside a turn. */
-export interface InvokeToolRequest {
+export interface InvokeToolRequest extends RunControls {
   execution?: ToolExecutionCoordinator;
   background?: ToolBackgroundService;
   /** invariant: Only the trusted host restores the kernel-issued identity from saved authority. */
@@ -537,19 +537,11 @@ export interface InvokeToolRequest {
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
   path?: string;
-  signal?: AbortSignal;
   /** Handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;
   /** The page's answer, when this invoke answers a `page` gate. */
   page?: PageAnswer;
   pageExecution?: PageToolExecution;
-  /** W3C `traceparent` of the host span this invoke runs under. */
-  traceparent?: string;
-  /** Recorded as `gen_ai.conversation.id`. */
-  conversationId?: string;
-  /** Preserved on the trace record; the kernel does not interpret it. */
-  metadata?: Record<string, unknown>;
-  links?: TurnTraceLink[];
   /** Receives `pre_tool` / `post_tool` only. */
   onStage?: import('../stages.ts').StageHandler;
   /** Runs an agent tool's turn; an agent tool needs it, or `onAgentCall` returning one. */

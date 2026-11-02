@@ -18,7 +18,7 @@ import { detachedTrace } from '../engine/background.ts';
 import { invokeAgentCaller } from '../engine/runner/mod.ts';
 import { inStep, runSideBySide, stepOrder } from '../engine/runner/step-order.ts';
 import { startToolTrace, type ToolCallEnd, toolSpanName } from '../engine/tool-trace.ts';
-import { endThrownSpan, optional, traceLinks } from '../engine/turn-trace.ts';
+import { endThrownSpan, runIdentity, traceLinks } from '../engine/turn-trace.ts';
 import type { KernelRegistry } from '../registry/kernel-registry.ts';
 import { pickModel } from '../registry/resolve.ts';
 import { turnDoneOf } from '../turn-events.ts';
@@ -107,7 +107,7 @@ async function* invokeInTrace(
   const tree = startTrace(spanName, {
     attributes: {
       'gen_ai.agent.name': request.profile,
-      ...optional('gen_ai.conversation.id', request.conversationId),
+      ...runIdentity(request),
     },
     links: traceLinks(request.links),
     ...(request.traceparent ? { traceparent: request.traceparent } : {}),

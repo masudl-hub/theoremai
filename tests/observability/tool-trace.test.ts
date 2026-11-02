@@ -572,6 +572,7 @@ Deno.test('a host invoke writes its own record, rooted under the host span', asy
         resume: { granted: true },
         traceparent: formatTraceparent(HOST_TRACE, HOST_SPAN),
         conversationId: 'conv_1',
+        projectId: 'proj_1',
         metadata: { user: 'u_1' },
       },
       catalogedSink(into),
@@ -585,6 +586,7 @@ Deno.test('a host invoke writes its own record, rooted under the host span', asy
   assertEquals([root?.traceId, root?.parentSpanId], [HOST_TRACE, HOST_SPAN]);
   assertEquals(root?.attributes['gen_ai.agent.name'], PROFILE);
   assertEquals(root?.attributes['gen_ai.conversation.id'], 'conv_1');
+  assertEquals(root?.attributes['theorem.project.id'], 'proj_1');
   assertEquals(root?.attributes['theorem.tool.approved'], true);
   assertEquals(root?.attributes['theorem.tool.outcome'], 'ok');
   assertEquals(

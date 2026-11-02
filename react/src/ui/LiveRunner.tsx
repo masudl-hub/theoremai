@@ -101,13 +101,10 @@ function LiveRunnerBody({
   iface,
   connection,
   trace,
-  slots,
-  stated,
-  context,
-  pageTools,
+  ...options
 }: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels'>) {
   const t = useLabels();
-  const model = useLiveRunnerModel(iface, connection, { slots, stated, context, pageTools });
+  const model = useLiveRunnerModel(iface, connection, options);
   // why: Both panels size against the whole live layout, so a third means the same for each.
   const layoutRef = useRef<HTMLDivElement | null>(null);
   const inspector = useTraceInspector(iface, model.traces, trace);

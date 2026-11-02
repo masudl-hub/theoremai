@@ -1,18 +1,20 @@
 import { assertEquals } from '@std/assert';
-import { createEventLog, EVENTS_KEPT, failureIn, watchRun } from '../../studio/server/events.ts';
+import { createEventLog, failureIn, watchRun } from '../../studio/server/events.ts';
 
 const AT = new Date('2026-10-27T10:00:00Z');
 
-Deno.test('the log keeps the last events, and counts one that repeats the last', () => {
+Deno.test('the log keeps every event whole, and counts one that repeats the last', () => {
   const log = createEventLog(() => AT);
   assertEquals(log.add('run', 'run a failed: boom'), true);
   assertEquals(log.add('run', 'run a failed: boom'), false);
   assertEquals(log.list(), [
     { at: AT.toISOString(), kind: 'run', text: 'run a failed: boom', repeated: 2 },
   ]);
-  for (let at = 0; at <= EVENTS_KEPT; at += 1) log.add('page', `error ${at}`);
-  assertEquals(log.list().length, EVENTS_KEPT);
-  assertEquals(log.list()[0]?.text, 'error 1');
+  for (let at = 0; at < 500; at += 1) log.add('page', `error ${at}`);
+  assertEquals(log.list().length, 501);
+  const long = 'x'.repeat(5000);
+  log.add('page', long);
+  assertEquals(log.list().at(-1)?.text, long);
 });
 
 Deno.test('a follower reads the kept events, then each new one', async () => {

@@ -943,6 +943,15 @@ function openSides(pair: ReturnType<typeof useComparison>['pair']) {
   });
 }
 
+/** Which sides show now, whether one message goes to both, and the one it goes to otherwise. */
+function useShownSides({ inFiles, isEditing, isShared }: ReturnType<typeof useComparison>) {
+  const isSavedHidden = useSavedHidden();
+  const showsSaved = inFiles && !(isEditing && isSavedHidden);
+  const both = isShared && showsSaved;
+  const only: Side | undefined = both ? undefined : showsSaved ? 'saved' : 'edited';
+  return { showsSaved, isShared: both, only };
+}
+
 /**
  * A project's text or image profile, run by the studio's local server. While the builder has
  * edits the files do not hold, one message is answered twice, side by side: by the files, and by
@@ -954,10 +963,7 @@ export function ProjectChat(props: ProjectChatProps) {
   const view = useComparison(props);
   const { pair, isBusy, transports, refused, isReady } = view;
   const loadedStated = useLoadedStated(stated, isReady);
-  const isSavedHidden = useSavedHidden();
-  const showsSaved = view.inFiles && !(view.isEditing && isSavedHidden);
-  const isShared = view.isShared && showsSaved;
-  const only = isShared ? undefined : showsSaved ? 'saved' : 'edited';
+  const { showsSaved, isShared, only } = useShownSides(view);
   const sharedInput = useRef<ChatComposerInputHandle | null>(null);
   useChatHandle(chatRef, pair, only, !isBusy && isReady, sharedInput);
   const shared = openSides(pair);

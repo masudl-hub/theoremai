@@ -18,6 +18,7 @@ import { originOfTool } from '../../tools/execute.ts';
 import type { ToolOperationOutcome } from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
+import type { MediaRefused } from '../../turn-events.ts';
 import type {
   InteractionPart,
   ModelBinding,
@@ -57,6 +58,9 @@ interface StepExecutionState {
   stepCount: number;
   /** Model calls sent again this turn under the profile's resumption (`executeResumedStep`). */
   resumes: number;
+  /** A refused call was sent without its files this turn; a turn tries that once. */
+  triedWithoutMedia?: boolean;
+  mediaRefused?: MediaRefused;
   allEmittedEvents: TurnEvent[];
   attemptEvents: TurnEvent[];
   /**

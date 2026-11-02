@@ -51,7 +51,9 @@ export interface ProfileTurnResumptionSpec {
    * `stream_incomplete`) again itself when this list is set and names that stop, and the
    * call gave no reply and no tool call: the turn keeps its history, its step count and
    * what it has read. A failure the same call would meet again (the provider refused the
-   * request) is not sent again. Omitted, a turn sends nothing again.
+   * request) is not sent again, except once without its files when it carried any: accepted
+   * that way, the turn goes on and `done.mediaRefused` names them. Omitted, a turn sends
+   * nothing again.
    */
   autoContinue?: ContinueStopKind[];
   /**

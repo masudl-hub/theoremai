@@ -445,6 +445,7 @@ async function* emitTurn(args: {
     {
       stop: state.lastStop ?? { kind: 'completed' },
       steps: state.stepCount,
+      ...(state.mediaRefused ? { mediaRefused: state.mediaRefused } : {}),
       ...(state.providerState &&
       !cutConversation(state) &&
       !(

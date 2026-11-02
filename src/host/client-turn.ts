@@ -82,6 +82,14 @@ function stripGuardrailInternal(event: TurnEvent): TurnEvent {
   return { ...event, guardrail };
 }
 
+function stripMediaRefused(event: TurnEvent): TurnEvent {
+  if (event.type !== 'done' || event.mediaRefused === undefined) {
+    return event;
+  }
+  const { mediaRefused: _refused, ...rest } = event;
+  return rest;
+}
+
 function stripEvidenceRaw(event: TurnEvent): TurnEvent {
   if (event.type !== 'evidence' || !event.evidence?.raw) {
     return event;
@@ -98,7 +106,9 @@ function forClient(event: TurnEvent, options?: ClientTurnOptions): TurnEvent {
   let out =
     options?.reader === 'builder'
       ? builderWording(event)
-      : stripCompactionInternal(stripGuardrailInternal(stripErrorInternal(event)));
+      : stripMediaRefused(
+          stripCompactionInternal(stripGuardrailInternal(stripErrorInternal(event))),
+        );
   if (!options?.includeEvidenceRaw) {
     out = stripEvidenceRaw(out);
   }

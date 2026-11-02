@@ -52,6 +52,13 @@ import type {
 import { findLast } from '../../util/find-last.ts';
 import { startToolTrace } from '../tool-trace.ts';
 import { startCallTrace } from '../turn-trace.ts';
+import {
+  canDropMedia,
+  dropMedia,
+  type RefusedMediaTry,
+  refusedReport,
+  restoreMedia,
+} from './refused-media.ts';
 import { applyStageInjects, recordReply } from './stages.ts';
 import { modelHistory, recordStepEvent, type StepExecutionState } from './state.ts';
 import { inStep, runSideBySide, stepOrder } from './step-order.ts';
@@ -163,7 +170,7 @@ interface StepOutcome {
   /** Where that text begins in the attempt's reply, past the break that sets it apart. */
   replyAt?: number;
   latestStructured?: unknown;
-  resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined };
+  resume?: { stop: TurnStop; failure: TurnEventOf<'error'> | undefined; dropMedia?: true };
 }
 
 /**
@@ -339,6 +346,27 @@ function resumeOf(mayResume: boolean, profile: Profile, tally: CallTally): StepO
   return { stop, failure };
 }
 
+/**
+ * The re-send a refused call is due when it carried files.
+ *
+ * why: One file the provider cannot read refuses every call that replays it. Sent without
+ * the files, the call shows whether they were at fault; what it cost was one refused call.
+ */
+function mediaResumeOf(
+  state: StepExecutionState,
+  profile: Profile,
+  tally: CallTally,
+): StepOutcome['resume'] {
+  const { stop } = tally;
+  if (profile.type !== 'text' || state.triedWithoutMedia) return undefined;
+  if (tally.replied || tally.calls.length > 0 || !stop || !isFailedStopKind(stop.kind)) {
+    return undefined;
+  }
+  const failure = tally.failures[0];
+  if (failure?.errorKind !== 'unsupported' || !resendsFailedCall(profile, stop)) return undefined;
+  return canDropMedia(state) ? { stop, failure, dropMedia: true } : undefined;
+}
+
 /** Carries what the call's stream guards still hold into the turn's next call. */
 function keepStreamCarry(state: StepExecutionState, control: OutboundStreamControl): void {
   state.canaryCarry = control.canaryCarry;
@@ -432,7 +460,7 @@ async function* executeAutonomousStep(
   yield* shown.end();
   yield* showAnswer(shown, tally, { generation, state, control, buffer, call });
   keepStreamCarry(state, control);
-  const resume = resumeOf(args.mayResume, profile, tally);
+  const resume = resumeOf(args.mayResume, profile, tally) ?? mediaResumeOf(state, profile, tally);
   if (!resume) {
     for (const failure of tally.failures) {
       recordStepEvent(failure, state);
@@ -462,6 +490,8 @@ async function* executeAutonomousStep(
  * lists, having given no reply and no tool call, is sent again in the same turn
  * after a pause, up to `maxContinues` times a turn (once when the profile sets
  * none). The turn's history, its step count, and what it has read stay as they were.
+ * A call the provider refused while it carried files goes once more without them, and
+ * those files are reported as refused only if that call is accepted.
  */
 async function* executeResumedStep(
   args: Omit<Parameters<typeof executeAutonomousStep>[0], 'mayResume'>,
@@ -469,10 +499,30 @@ async function* executeResumedStep(
   buffer: { holdLate: boolean; holdVisible: boolean },
 ): AsyncGenerator<TurnEvent, StepOutcome> {
   const limit = profileTurnResumption(args.profile)?.maxContinues ?? 1;
+  let tried: RefusedMediaTry | undefined;
   for (;;) {
     const mayResume = args.profile.type === 'text' && state.resumes < limit;
     const outcome = yield* executeAutonomousStep({ ...args, mayResume }, state, buffer);
-    if (!outcome.resume) return outcome;
+    if (!outcome.resume) {
+      if (tried && state.lastStop && isFailedStopKind(state.lastStop.kind)) {
+        restoreMedia(state, tried);
+      } else if (tried) {
+        state.mediaRefused = refusedReport(tried);
+      }
+      return outcome;
+    }
+    if (outcome.resume.dropMedia) {
+      const said = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error ?? '';
+      state.triedWithoutMedia = true;
+      tried = dropMedia(state, said, args.profile.labels);
+      state.trace.root.event('theorem.step.media_refused', {
+        step: state.stepCount,
+        files: tried.dropped.length,
+        error: said,
+      });
+      state.lastStop = undefined;
+      continue;
+    }
     state.resumes += 1;
     const detail = outcome.resume.failure?.errorInternal ?? outcome.resume.failure?.error;
     state.trace.root.event('theorem.step.resume', {

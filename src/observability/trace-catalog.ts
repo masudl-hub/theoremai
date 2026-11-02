@@ -1450,6 +1450,15 @@ const TRACE_EVENTS: Readonly<Record<string, TraceEventMeta>> = {
       error: attr('error', 'Detail', 'content', "The provider's internal reason."),
     },
   },
+  'theorem.step.media_refused': {
+    label: 'Sent without files',
+    doc: 'The provider refused a model call that carried files, and the turn sent it without them.',
+    attributes: {
+      step: attr('agent', 'Step', 'number', 'The step whose model call was refused.'),
+      files: attr('agent', 'Files', 'number', 'How many files the call went without.'),
+      error: attr('error', 'Detail', 'content', "The provider's internal reason."),
+    },
+  },
   'theorem.compaction': {
     label: 'Compaction',
     doc: 'theorem decided whether to summarize earlier messages.',

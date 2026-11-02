@@ -912,6 +912,22 @@ const TOOL_SNAPSHOT_STOP_KINDS = [
   'gate',
 ] as const satisfies readonly ToolSnapshotStopKind[];
 
+/** One file a provider refused: what it was, and where the turn was carrying it. */
+export interface RefusedMedia {
+  mimeType: string;
+  from: 'input' | 'history' | 'tool';
+}
+
+/**
+ * The turn went on without files the provider refused. Set only when the same call, sent
+ * without them, was accepted: that is the proof the files were at fault.
+ */
+export interface MediaRefused {
+  dropped: RefusedMedia[];
+  /** The provider's own reason, for the builder only: `forClient` strips it. */
+  said: string;
+}
+
 export interface DoneBase {
   providerState?: ProviderCheckpoint;
   /** The turn's summed usage (`sumTokens` over its `tokens` events). */
@@ -924,6 +940,7 @@ export interface DoneBase {
   /** A user utterance interrupted an in-flight live response (barge-in). */
   interrupted?: boolean;
   interactionId?: string;
+  mediaRefused?: MediaRefused;
 }
 
 /**
@@ -1119,6 +1136,14 @@ const doneBase = {
   compaction: compactionSignal.optional(),
   interrupted: z.boolean().optional(),
   interactionId: z.string().optional(),
+  mediaRefused: z
+    .object({
+      dropped: z.array(
+        z.object({ mimeType: z.string(), from: z.enum(['input', 'history', 'tool']) }),
+      ),
+      said: z.string(),
+    })
+    .optional(),
 };
 const doneEvent = z.union([
   z.object({

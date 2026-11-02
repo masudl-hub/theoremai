@@ -2,15 +2,17 @@ import { Button } from '@astryxdesign/core/Button';
 import { Card } from '@astryxdesign/core/Card';
 import { Center } from '@astryxdesign/core/Center';
 import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { Layout, LayoutContent } from '@astryxdesign/core/Layout';
 import { useResizable } from '@astryxdesign/core/Resizable';
 import { percent, pixel } from '@astryxdesign/core/Resizable/utils';
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Text } from '@astryxdesign/core/Text';
 import { TextArea } from '@astryxdesign/core/TextArea';
+import { ToggleButton } from '@astryxdesign/core/ToggleButton';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
+import { IconCode, IconEye } from '@tabler/icons-react';
 import type { HttpOptions } from '@theoremjs/web/client';
 import {
   Children,
@@ -391,21 +393,19 @@ export function RequestCard({ title, onRun, children, ...heading }: RequestCardP
           {title}
         </Text>
         {heading.onView ? (
-          <SegmentedControl
-            label={t('@theorem.decision.view')}
+          <ToggleButton
+            label={t('@theorem.data.json')}
+            tooltip={t(heading.view === 'json' ? '@theorem.decision.fields' : '@theorem.data.json')}
             size="sm"
-            value={heading.view}
-            onChange={(next) => {
-              heading.onView(next === 'json' ? 'json' : 'fields');
+            isIconOnly
+            isDisabled={!heading.hasFields}
+            icon={<Icon icon={IconEye} size="sm" />}
+            pressedIcon={<Icon icon={IconCode} size="sm" />}
+            isPressed={heading.view === 'json'}
+            onPressedChange={(isJson) => {
+              heading.onView(isJson ? 'json' : 'fields');
             }}
-          >
-            <SegmentedControlItem
-              value="fields"
-              label={t('@theorem.decision.fields')}
-              isDisabled={!heading.hasFields}
-            />
-            <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
-          </SegmentedControl>
+          />
         ) : (
           heading.actions
         )}

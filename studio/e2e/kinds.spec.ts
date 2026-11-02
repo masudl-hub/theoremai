@@ -8,6 +8,28 @@ test('a decision agent decides', async ({ page }) => {
   expect((await seen(page)).some((call) => call.url?.endsWith('/decisions'))).toBe(true);
 });
 
+test('the fields and their JSON are one toggle', async ({ page }) => {
+  await open(page, 'triage');
+  const json = page.getByRole('button', { name: 'JSON', exact: true }).first();
+  await expect(json).toHaveAttribute('aria-pressed', 'false');
+  await json.click();
+  await expect(json).toHaveAttribute('aria-pressed', 'true');
+  await json.click();
+  await expect(json).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('a tool result and its JSON are one toggle', async ({ page }) => {
+  await open(page, 'gatekeeper');
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.getByText('PT', { exact: true })).toBeVisible();
+  const json = page.getByRole('button', { name: 'JSON', exact: true }).last();
+  await json.click();
+  await expect(json).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('PT', { exact: true })).toBeHidden();
+  await json.click();
+  await expect(page.getByText('PT', { exact: true })).toBeVisible();
+});
+
 test('an embedding agent indexes', async ({ page }) => {
   await open(page, 'index');
   await page.getByRole('button', { name: 'Index', exact: true }).click();

@@ -245,10 +245,6 @@ export const THEOREM_UI_CATALOG = {
       "Tokens a reply used, under it, or an agent tool's called agent used, on its call row.",
     params: ['count'],
   },
-  '@theorem.data.view': {
-    defaultMessage: 'View as',
-    description: 'Switch between tool data drawn by its shape and its JSON.',
-  },
   '@theorem.data.shaped': {
     defaultMessage: 'Data',
     description: 'Tool data drawn as fields, sections, and tables.',
@@ -447,10 +443,6 @@ export const THEOREM_UI_CATALOG = {
     defaultMessage: '{size} of {limit}',
     description: "The state's size against the profile's limit, under the field.",
     params: ['size', 'limit'],
-  },
-  '@theorem.decision.view': {
-    defaultMessage: 'Edit as',
-    description: 'Switch between the state as fields and as JSON.',
   },
   '@theorem.decision.fields': {
     defaultMessage: 'Fields',

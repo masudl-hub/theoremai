@@ -12,12 +12,18 @@ import { FileInput } from '@astryxdesign/core/FileInput';
 import { HStack } from '@astryxdesign/core/HStack';
 import { Icon } from '@astryxdesign/core/Icon';
 import { IconButton } from '@astryxdesign/core/IconButton';
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Switch } from '@astryxdesign/core/Switch';
 import { Text } from '@astryxdesign/core/Text';
+import { ToggleButton } from '@astryxdesign/core/ToggleButton';
 import { VStack } from '@astryxdesign/core/VStack';
-import { IconChevronLeft, IconChevronRight, IconX } from '@tabler/icons-react';
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconHistory,
+  IconPlayerPlay,
+  IconX,
+} from '@tabler/icons-react';
 import type {
   ComposerProfileInterface,
   ProfileInterface,
@@ -245,17 +251,18 @@ const recordedAt = (script: ReplayScript) =>
 /** Recorded / Replayed: which run the conversation and the inspector show. */
 function ShownControl({ shown, onShown }: { shown: Shown; onShown: (next: Shown) => void }) {
   return (
-    <SegmentedControl
-      label="Show"
+    <ToggleButton
+      label="Replayed"
+      tooltip={shown === 'replayed' ? 'Recorded' : 'Replayed'}
       size="sm"
-      value={shown}
-      onChange={(next) => {
-        onShown(next === 'replayed' ? 'replayed' : 'recorded');
+      isIconOnly
+      icon={<Icon icon={IconHistory} size="sm" />}
+      pressedIcon={<Icon icon={IconPlayerPlay} size="sm" />}
+      isPressed={shown === 'replayed'}
+      onPressedChange={(isReplayed) => {
+        onShown(isReplayed ? 'replayed' : 'recorded');
       }}
-    >
-      <SegmentedControlItem value="recorded" label="Recorded" />
-      <SegmentedControlItem value="replayed" label="Replayed" />
-    </SegmentedControl>
+    />
   );
 }
 

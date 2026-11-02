@@ -127,6 +127,12 @@ test('a downloaded trace replays, and the conversation goes on live', async ({ p
   });
   await page.getByRole('button', { name: 'Replay', exact: true }).click();
   await expect(page.getByText('Replayed 1 turn')).toBeVisible();
+  const shown = page.getByRole('button', { name: 'Replayed', exact: true });
+  await expect(shown).toHaveAttribute('aria-pressed', 'true');
+  await shown.click();
+  await expect(shown).toHaveAttribute('aria-pressed', 'false');
+  await shown.click();
+  await expect(shown).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'Replay again' })).toBeVisible();
   const calls = (await seen(page)).length;
   await page.getByRole('button', { name: 'Replay again' }).click();

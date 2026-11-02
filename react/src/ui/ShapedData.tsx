@@ -1,18 +1,20 @@
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { Collapsible, CollapsibleGroup } from '@astryxdesign/core/Collapsible';
 import { HStack } from '@astryxdesign/core/HStack';
+import { Icon } from '@astryxdesign/core/Icon';
 import { useLocale } from '@astryxdesign/core/i18n';
 import { type LightboxMedia, useLightbox } from '@astryxdesign/core/Lightbox';
 import { Link } from '@astryxdesign/core/Link';
 import { List, ListItem } from '@astryxdesign/core/List';
 import { Markdown } from '@astryxdesign/core/Markdown';
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList';
-import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { Table, type TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
+import { ToggleButton } from '@astryxdesign/core/ToggleButton';
 import { Token } from '@astryxdesign/core/Token';
 import { VStack } from '@astryxdesign/core/VStack';
+import { IconCode, IconEye } from '@tabler/icons-react';
 import type { InteractionPart } from '@theoremjs/agents';
 import {
   fieldLabel,
@@ -575,17 +577,18 @@ export function ShapedData({ value: raw, title, lead, ledKeys = [] }: ShapedData
           {title}
         </Text>
         {structured && (
-          <SegmentedControl
-            label={t('@theorem.data.view')}
+          <ToggleButton
+            label={t('@theorem.data.json')}
+            tooltip={t(view === 'json' ? '@theorem.data.shaped' : '@theorem.data.json')}
             size="sm"
-            value={view}
-            onChange={(next) => {
-              setView(next === 'json' ? 'json' : 'data');
+            isIconOnly
+            icon={<Icon icon={IconEye} size="sm" />}
+            pressedIcon={<Icon icon={IconCode} size="sm" />}
+            isPressed={view === 'json'}
+            onPressedChange={(isJson) => {
+              setView(isJson ? 'json' : 'data');
             }}
-          >
-            <SegmentedControlItem value="data" label={t('@theorem.data.shaped')} />
-            <SegmentedControlItem value="json" label={t('@theorem.data.json')} />
-          </SegmentedControl>
+          />
         )}
       </HStack>
       {view === 'json' && structured ? (

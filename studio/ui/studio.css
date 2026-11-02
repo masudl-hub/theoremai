@@ -31,11 +31,11 @@
   box-shadow: none;
 }
 
-.condition-row [role='group'] button[aria-label^='Remove'] {
+.condition-row [role="group"] button[aria-label^="Remove"] {
   opacity: 0.5;
 }
 
-.condition-row [role='group'] button[aria-label^='Remove']:hover {
+.condition-row [role="group"] button[aria-label^="Remove"]:hover {
   opacity: 1;
 }
 

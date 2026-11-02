@@ -135,3 +135,18 @@ Deno.test('a prompt differs in its words, not in the white space at the end of a
   );
   assertEquals(differingSettings(profile('Be brief.'), profile('Be long.')), ['identity.system']);
 });
+
+Deno.test('a prompt written as one text agrees with the lines the studio opens it to', () => {
+  const profile = (system: unknown) => ({ type: 'text', identity: { handle: 'a', system } });
+  assertEquals(differingSettings(profile('Greet.\n\nHelp.'), profile(['Greet.', 'Help.'])), []);
+  assertEquals(differingSettings(profile('Greet.\n\nHelp.'), profile(['Greet.', 'Stop.'])), [
+    'identity.system',
+  ]);
+  assertEquals(
+    differingSettings(
+      profile('Greet.\n\nwhen path is web: Help.'),
+      profile(['Greet.', 'when path is web: Help.']),
+    ),
+    ['identity.system'],
+  );
+});

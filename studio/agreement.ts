@@ -17,7 +17,7 @@ import {
 } from '@theoremjs/agents/guardrails';
 import { unsetValue } from '@theoremjs/agents/kernel';
 import { STUDIO_POLICY_UNSET } from './policy.ts';
-import { promptLine } from './system-markup.ts';
+import { plainLines, promptLine } from './system-markup.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -76,22 +76,25 @@ function detectAsRead(detect: unknown, boundaries: readonly Boundary[]): unknown
 }
 
 /**
- * A prompt as the studio holds it: no white space at the ends of a line or a private section.
- * why: this is studio policy, so a prompt written with a closing newline opens as the same prompt.
+ * A prompt as the studio holds it: its lines, split at each blank line, with no white space at the
+ * ends of a line or a private section.
+ * why: this is studio policy, so a prompt written as one text opens as the same prompt.
  */
 function promptAsHeld(system: unknown): unknown {
-  if (typeof system === 'string') return system.trim();
-  if (!Array.isArray(system)) return system;
-  return system.map((line: unknown) => {
-    if (typeof line === 'string') return line.trim();
-    if (!Array.isArray(line)) return line;
-    return promptLine(
-      line.map((part) =>
-        isRecord(part) && typeof part.private === 'string'
-          ? { private: part.private.trim() }
-          : part,
+  if (typeof system !== 'string' && !Array.isArray(system)) return system;
+  const lines: unknown[] = typeof system === 'string' ? [system] : system;
+  return lines.flatMap((line) => {
+    if (typeof line === 'string') return plainLines(line);
+    if (!Array.isArray(line)) return [line];
+    return [
+      promptLine(
+        line.map((part) =>
+          isRecord(part) && typeof part.private === 'string'
+            ? { private: part.private.trim() }
+            : part,
+        ),
       ),
-    );
+    ];
   });
 }
 

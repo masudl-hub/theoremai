@@ -8,6 +8,7 @@ type SystemMarkup = { ok: true; lines: SystemPrompt[] } | { ok: false; message: 
 
 const OPEN = /\{\s*private\s*:/g;
 const BLANK_LINE = /\n(?:[ \t]*\n)+/;
+const WHEN_LINE = /^\s*when\s/;
 
 /** A line as the profile holds it, without the white space at its ends. */
 function promptLine(parts: readonly SystemPart[]): SystemPrompt | undefined {
@@ -71,5 +72,15 @@ function parseSystemMarkup(text: string): SystemMarkup {
   };
 }
 
+/**
+ * A plain line as the kernel sends it once the studio opens it: each stretch between blank lines
+ * is a line of its own, with a blank line between them either way.
+ * invariant: A text with a `when` stretch stays whole, since opening it would make that stretch a condition.
+ */
+function plainLines(line: string): string[] {
+  const lines = line.trim().split(BLANK_LINE);
+  return lines.some((each) => WHEN_LINE.test(each)) ? [line.trim()] : lines;
+}
+
 export type { SystemMarkup };
-export { parseSystemMarkup, promptLine };
+export { parseSystemMarkup, plainLines, promptLine, WHEN_LINE };

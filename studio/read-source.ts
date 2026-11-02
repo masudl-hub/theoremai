@@ -55,7 +55,7 @@ import {
   type StudioProvider,
 } from './providers.ts';
 import { stubOutputFromSchema } from './stub.ts';
-import { parseSystemMarkup } from './system-markup.ts';
+import { parseSystemMarkup, WHEN_LINE } from './system-markup.ts';
 import { STUDIO_TOOL_TYPE_MESSAGE, STUDIO_TOOL_TYPES } from './types.ts';
 
 /** Where a read stopped, one-based, on the file the visitor is editing. */
@@ -633,8 +633,6 @@ function markup(value: unknown, srcMessage: string): string {
     })
     .join('');
 }
-
-const WHEN_LINE = /^\s*when\s/;
 
 /**
  * A prompt as the draft holds it: its lines as one text, a blank line between them. A bare

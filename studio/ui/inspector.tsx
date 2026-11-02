@@ -35,7 +35,7 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import { fieldMeta } from '@theoremjs/agents';
-import { type ReactNode, useContext, useState } from 'react';
+import { lazy, type ReactNode, Suspense, useContext, useState } from 'react';
 import {
   draftKey,
   originLabel,
@@ -610,14 +610,13 @@ export function TextAreaRow(
     placeholder?: string;
     hint?: string;
     rows?: number;
-    hasSpellCheck?: boolean;
-    /** A status of the row's own, such as text that is not JSON; the field's issues win. */
+    /** A status of the row's own; the field's issues win. */
     status?: InputStatus;
     action?: ReactNode;
     onChange: (next: string) => void;
   },
 ) {
-  const { label, path, value, placeholder, hint, rows = 3, hasSpellCheck = true, onChange } = props;
+  const { label, path, value, placeholder, hint, rows = 3, onChange } = props;
   const { status: fieldStatus, required, unset, control } = useFieldRow(props);
   const status = fieldStatus ?? props.status;
   return (
@@ -632,12 +631,58 @@ export function TextAreaRow(
         {...control}
         status={status}
         rows={rows}
-        hasSpellCheck={hasSpellCheck}
         value={value}
         placeholder={placeholder ?? hint ?? unset}
         onKeyDown={tabFills(value, placeholder, onChange)}
         onChange={onChange}
       />
+    </WideRow>
+  );
+}
+
+const JsonCode = lazy(() =>
+  import('./code/json-code.tsx').then((code) => ({ default: code.JsonCode })),
+);
+
+/** JSON under its label, as code. Plain text holds its place until the editor has loaded. */
+export function JsonRow(
+  props: FieldRowProps & {
+    value: string;
+    placeholder?: string;
+    hint?: string;
+    /** A status of the row's own, such as text that is not JSON; the field's issues win. */
+    status?: InputStatus;
+    onChange: (next: string) => void;
+  },
+) {
+  const { label, path, value, placeholder, hint, onChange } = props;
+  const { status: fieldStatus, required, unset, control } = useFieldRow(props);
+  const status = fieldStatus ?? props.status;
+  const blank = placeholder ?? hint ?? unset;
+  return (
+    <WideRow label={label} path={path} isRequired={required} hasIssue={fieldStatus !== undefined}>
+      <Suspense
+        fallback={
+          <TextArea
+            {...control}
+            status={status}
+            rows={(value || blank || '').split('\n').length}
+            hasSpellCheck={false}
+            value={value}
+            placeholder={blank}
+            onChange={onChange}
+          />
+        }
+      >
+        <JsonCode
+          label={label}
+          value={value}
+          placeholder={blank}
+          fills={placeholder}
+          status={status}
+          onChange={onChange}
+        />
+      </Suspense>
     </WideRow>
   );
 }

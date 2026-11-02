@@ -31,16 +31,16 @@
   box-shadow: none;
 }
 
-/* What acts on a row stays out of sight until the row is pointed at; an option in chat keeps its mark. */
+/* What acts on a row stays out of sight until the row is pointed at; an option in the interface keeps its mark. */
 .option-row button[aria-label^="Remove"],
-.option-row button[aria-label$="not shown in chat"] {
+.option-row button[aria-label$="not shown in interface"] {
   opacity: 0;
 }
 
 .option-row:hover button[aria-label^="Remove"],
-.option-row:hover button[aria-label$="not shown in chat"],
+.option-row:hover button[aria-label$="not shown in interface"],
 .option-row:focus-within button[aria-label^="Remove"],
-.option-row:focus-within button[aria-label$="not shown in chat"],
+.option-row:focus-within button[aria-label$="not shown in interface"],
 .option-row button[aria-expanded="true"] {
   opacity: 1;
 }
@@ -62,6 +62,22 @@
   overflow-wrap: anywhere;
   text-align: start;
   white-space: normal;
+}
+
+/* JSON in a field sits on the field's own surface. */
+.json-code {
+  overflow: hidden;
+}
+
+.json-code-host {
+  flex: 1;
+  min-width: 0;
+}
+
+.json-code .monaco-editor,
+.json-code .monaco-editor-background,
+.json-code .monaco-editor .margin {
+  background-color: transparent;
 }
 
 /* The guardrail examples scroll sideways with no bar under them. */

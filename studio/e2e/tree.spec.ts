@@ -68,6 +68,38 @@ test('a new tool goes on the agent and Save writes both', async ({ page }) => {
   expect(allText()).toContain("'slow_report', 'stamp_note'");
 });
 
+test("a tool's schema is code: it says where the JSON breaks, and Save writes the fix", async ({
+  page,
+}) => {
+  await open(page);
+  await page.getByRole('radio', { name: /Tools, 5/ }).click();
+  await page.getByRole('button', { name: 'Add tool' }).click();
+  const input = page.locator('.json-code').first();
+  await input.getByText('required').click();
+  await expect(input.locator('.monaco-editor.focused')).toBeVisible();
+  await page.keyboard.press('End');
+  await page.keyboard.insertText(',');
+  await expect(input.locator('.squiggly-error').first()).toBeVisible();
+  await page.keyboard.press('Backspace');
+  await expect(input.locator('.squiggly-error')).toHaveCount(0);
+  await page.keyboard.press('Home');
+  await page.keyboard.insertText('"title": "stamped", ');
+  await saveAll(page);
+  await expect(saved(page)).toBeVisible();
+  expect(allText()).toContain('stamped');
+});
+
+test('Tab takes an empty schema field from its example', async ({ page }) => {
+  await open(page);
+  await page.getByRole('button', { name: 'Outputs', exact: true }).first().click();
+  await page.getByRole('radio', { name: 'Structured' }).click();
+  const schema = page.locator('.json-code').first();
+  await expect(schema).toContainText('answer');
+  await schema.click();
+  await page.keyboard.press('Tab');
+  await expect(schema.locator('.view-lines')).toContainText('answer');
+});
+
 test('headers and resource attributes are rows, and Save writes them as objects', async ({
   page,
 }) => {

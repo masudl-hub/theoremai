@@ -55,6 +55,7 @@ import {
   IconEye,
   IconEyeOff,
   IconFeather,
+  IconFileOff,
   IconFlag,
   IconFlame,
   IconFlask,
@@ -270,6 +271,7 @@ import {
   InspectorGroupTitle,
   InspectorRow,
   InspectorSection,
+  JsonRow,
   ListRow,
   NamesInput,
   NamesRow,
@@ -529,7 +531,7 @@ const VALUE_HINT = {
 
 const OPTION_CHAT_WIDTH = 320;
 
-/** Whether a person picks the option in chat and, when they do, what they read of it. */
+/** Whether a person picks the option in the interface and, when they do, what they read of it. */
 function OptionChatFields({
   option,
   canShow,
@@ -543,7 +545,7 @@ function OptionChatFields({
     <VStack gap={1}>
       {canShow && (
         <SwitchRow
-          label="Shown in chat"
+          label="Shown in interface"
           path="inputs.options"
           field="options"
           value={option.isShownInChat}
@@ -626,12 +628,12 @@ function OptionRow({
             placement="below"
             alignment="end"
             width={OPTION_CHAT_WIDTH}
-            label={`${row} in chat`}
+            label={`${row} in interface`}
             content={<OptionChatFields option={option} canShow={canShow} onChange={onChange} />}
           >
             <IconButton
-              label={`${row} ${option.isShownInChat ? 'shown' : 'not shown'} in chat`}
-              tooltip={option.isShownInChat ? 'Shown in chat' : 'Not shown in chat'}
+              label={`${row} ${option.isShownInChat ? 'shown' : 'not shown'} in interface`}
+              tooltip={option.isShownInChat ? 'Shown in interface' : 'Not shown in interface'}
               variant="ghost"
               size="sm"
               icon={<Icon icon={IconPencil} size="sm" />}
@@ -2310,13 +2312,11 @@ function ContextPreviewRow() {
   const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
   const error = contextErrorOf(values.contextJson);
   return (
-    <TextAreaRow
+    <JsonRow
       label="Preview"
       path="inputs.context"
       isRequired={false}
       value={values.contextJson}
-      rows={3}
-      hasSpellCheck={false}
       placeholder={CONTEXT_PLACEHOLDER}
       status={error ? { type: 'error', message: error } : undefined}
       onChange={(contextJson) => {
@@ -3284,13 +3284,11 @@ function OutputShapeSection({
               set({ schemaId });
             }}
           />
-          <TextAreaRow
+          <JsonRow
             label="JSON Schema"
             path="outputs.structured"
             field="schemaJson"
             isRequired
-            rows={8}
-            hasSpellCheck={false}
             value={outputs.schemaJson}
             placeholder={SCHEMA_PLACEHOLDER}
             onChange={(schemaJson) => {
@@ -5673,12 +5671,10 @@ function TestCredentialRow({
 /** The input an HTTP tool's test sends. */
 function SampleInputRow({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <TextAreaRow
+    <JsonRow
       label="Sample input"
       path="studio.sampleInput"
       value={value}
-      rows={4}
-      hasSpellCheck={false}
       placeholder="{}"
       onChange={onChange}
     />
@@ -5880,24 +5876,20 @@ function ToolSection({
 function ContractSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   return (
     <InspectorSection title="Contract" hint={SECTION_HINTS.contract}>
-      <TextAreaRow
+      <JsonRow
         label="Input"
         path="registerTool.inputSchema"
         field="inputJson"
         value={tool.inputJson}
-        rows={8}
-        hasSpellCheck={false}
         onChange={(inputJson) => {
           set({ inputJson });
         }}
       />
-      <TextAreaRow
+      <JsonRow
         label="Output"
         path="registerTool.outputSchema"
         field="outputJson"
         value={tool.outputJson}
-        rows={8}
-        hasSpellCheck={false}
         onChange={(outputJson) => {
           set({ outputJson });
         }}
@@ -5990,13 +5982,11 @@ function StubSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
           set({ answeredBy: page ? 'page' : undefined });
         }}
       />
-      <TextAreaRow
+      <JsonRow
         label="Returns"
         path="studio.stubOutput"
         field="stubOutputJson"
         value={tool.stubOutputJson ?? ''}
-        rows={6}
-        hasSpellCheck={false}
         hint="Left blank, a stand-in built from the output schema."
         onChange={(stubOutputJson) => {
           set({ stubOutputJson });
@@ -6537,6 +6527,7 @@ const LABEL_AREA_ICONS: Record<LabelAreaPrefix, IconType> = {
   context: IconLayersUnion,
   structured: IconBraces,
   compaction: IconFold,
+  turn: IconFileOff,
 };
 
 const LABEL_AUDIENCES: readonly {

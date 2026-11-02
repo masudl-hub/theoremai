@@ -68,12 +68,12 @@ test('a picked option sends the line it chooses', async ({ page }) => {
   expect(await systemOf(page)).toContain('Mention the garden.');
 });
 
-test('an option shown in chat is picked in the composer, and that pick sends its line', async ({
+test('an option shown in the interface is picked in the composer, and that pick sends its line', async ({
   page,
 }) => {
   await withLines(page);
-  await page.getByRole('button', { name: 'Option 1 not shown in chat' }).click();
-  await page.getByRole('switch', { name: 'Shown in chat' }).click();
+  await page.getByRole('button', { name: 'Option 1 not shown in interface' }).click();
+  await page.getByRole('switch', { name: 'Shown in interface' }).click();
   await page.keyboard.press('Escape');
   const picker = page.getByRole('combobox', { name: 'plan' }).last();
   await expect(picker).toHaveText(/free/);

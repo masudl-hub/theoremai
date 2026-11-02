@@ -244,6 +244,12 @@ function foldAssistantEvents(
       textBuf += event.text;
       continue;
     }
+    if (event.type === 'late_results') {
+      flushStep();
+      flushText();
+      next = [...next, { role: 'user', content: event.text }];
+      continue;
+    }
     if (event.type === 'stage' && event.injected) {
       // why: A steer is a message in the conversation, after what the reply said and did before it.
       flushStep();
@@ -303,6 +309,10 @@ function historyFromTranscriptBlocks(blocks: readonly TranscriptBlock[]): TurnHi
     }
     if (block.kind === 'text') {
       history = [...history, { role: 'assistant', content: block.text }];
+      continue;
+    }
+    if (block.kind === 'late-results') {
+      history = [...history, { role: 'user', content: block.text }];
       continue;
     }
     if (block.kind === 'structured') {

@@ -190,6 +190,7 @@ export type TranscriptBlockKind =
   | 'citation'
   | 'evidence'
   | 'guardrail'
+  | 'late-results'
   | 'error'
   | 'turn-done';
 
@@ -320,6 +321,15 @@ export interface GuardrailBlock extends TranscriptBlockBase {
   guardrail: GuardrailEvent;
 }
 
+/**
+ * The message `input.lateResults` put in the conversation, as the model read it. Theorem's own
+ * transcript shows nothing for it: the block keeps it in a history rebuilt from blocks.
+ */
+export interface LateResultsBlock extends TranscriptBlockBase {
+  kind: 'late-results';
+  text: string;
+}
+
 export interface ErrorBlock extends TranscriptBlockBase {
   kind: 'error';
   message: string;
@@ -353,6 +363,7 @@ export type TranscriptBlock =
   | CitationBlock
   | EvidenceBlock
   | GuardrailBlock
+  | LateResultsBlock
   | ErrorBlock
   | TurnDoneBlock;
 

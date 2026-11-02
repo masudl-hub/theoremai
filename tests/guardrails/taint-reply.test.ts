@@ -1,9 +1,14 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
-import { readToolData } from '../../src/guardrails/tool-fence.ts';
+import { isLateResult, readToolData } from '../../src/guardrails/tool-fence.ts';
 import { wrapToolData } from '../../src/guardrails/tool-result.ts';
 import type { Provenance } from '../../src/guardrails/types.ts';
+import { foldConversationTurn } from '../../src/interface/blocks.ts';
+import {
+  appendAssistantEventsToHistory,
+  historyFromTranscriptBlocks,
+} from '../../src/interface/history.ts';
 import { registerProfile, registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -78,13 +83,13 @@ function sendsOnce(requests: ModelRequest[] = []): TurnModel {
   };
 }
 
-async function sendResult(
+async function runEvents(
   id: string,
   gate: 'afterRemoteRead' | 'remoteDestination',
   input: TurnInput,
   model = sendsOnce(),
   request: Partial<TurnRequest> = {},
-): Promise<string> {
+): Promise<TurnEvent[]> {
   registerProfile(
     defineProfile({
       type: 'text',
@@ -106,6 +111,11 @@ async function sendResult(
   );
   const events: TurnEvent[] = [];
   for await (const event of runTurn({ ...request, profile: id, input }, model)) events.push(event);
+  return events;
+}
+
+async function sendResult(...args: Parameters<typeof runEvents>): Promise<string> {
+  const events = await runEvents(...args);
   return failureOf(lastTool(events, 'send_email'))?.code ?? 'sent';
 }
 
@@ -209,7 +219,7 @@ Deno.test('a late remote result is a read, not the host or the user speaking', a
   );
 });
 
-Deno.test('the model reads a late result in its fence, before the message', async () => {
+Deno.test('the model reads a late result in its fence, after the message', async () => {
   registerTools();
   const requests: ModelRequest[] = [];
   const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
@@ -220,8 +230,78 @@ Deno.test('the model reads a late result in its fence, before the message', asyn
     sendsOnce(requests),
   );
   const opening = (requests[0]?.history ?? []).map((message) => message.content ?? '');
-  assertEquals(opening[0]?.includes(FENCED_PAGE), true);
-  assertEquals(opening[0]?.includes('The research call you started earlier'), true);
+  assertEquals(opening[0]?.includes('go on'), true);
+  assertEquals(opening[1]?.includes(FENCED_PAGE), true);
+  assertEquals(opening[1]?.includes('The research call you started earlier'), true);
+});
+
+/** The reply's events, and the history a host builds from them. */
+async function builtFromEvents(id: string, input: TurnInput) {
+  const events = await runEvents(id, 'remoteDestination', input);
+  const base: TurnHistoryMessage[] = input.text ? [{ role: 'user', content: input.text }] : [];
+  return {
+    events,
+    history: appendAssistantEventsToHistory([...base, ...(input.history ?? [])], events),
+  };
+}
+
+Deno.test('a history built from events holds a late result as the run read it', async () => {
+  registerTools();
+  const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
+  const input = { text: 'a', lateResults: [late] };
+  const { events, history } = await builtFromEvents('late_event', input);
+  const requests: ModelRequest[] = [];
+  await sendResult('late_event_r', 'remoteDestination', input, sendsOnce(requests));
+  const read = requests[0]?.history?.[1];
+  assertEquals(history[1], read);
+  const rebuilt = historyFromTranscriptBlocks(foldConversationTurn({ text: 'a' }, events));
+  assertEquals(rebuilt[1], read);
+});
+
+Deno.test('a refusal gives nothing, so a pause does not free the address it names', async () => {
+  registerTools();
+  const history = replyRead(FENCED_PAGE);
+  const events = await runEvents('refused', 'remoteDestination', { history });
+  assertEquals(failureOf(lastTool(events, 'send_email'))?.code, 'remote_destination');
+  const paused = appendAssistantEventsToHistory(history, events);
+  assertEquals(
+    await sendResult('refused_again', 'remoteDestination', { history: paused }),
+    'remote_destination',
+  );
+});
+
+Deno.test('a late result passed on each run stays one message', async () => {
+  registerTools();
+  const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
+  const input = { text: 'a', lateResults: [late] };
+  const first = await builtFromEvents('late_twice', input);
+  const again = await builtFromEvents('late_twice_2', {
+    history: first.history,
+    lateResults: [late],
+  });
+  assertEquals(
+    again.events.some((event) => event.type === 'late_results'),
+    false,
+  );
+  assertEquals(again.history.filter(isLateResult).length, 1);
+  const history = again.history;
+  assertEquals(
+    await sendResult('late_twice_d', 'remoteDestination', { history, lateResults: [late] }),
+    'remote_destination',
+  );
+});
+
+Deno.test('a second late result joins the history beside the first', async () => {
+  registerTools();
+  const late = lateResult({ finding: PAGE, modelText: FENCED_PAGE, provenance: REMOTE });
+  const other = lateResult({
+    finding: 'other',
+    modelText: wrapToolData('other', REMOTE),
+    provenance: REMOTE,
+  });
+  const { history } = await builtFromEvents('late_pair', { text: 'a', lateResults: [late] });
+  const next = await builtFromEvents('late_pair_2', { history, lateResults: [late, other] });
+  assertEquals(next.history.filter(isLateResult).length, 2);
 });
 
 Deno.test('a late local result taints nothing, and its address is given', async () => {

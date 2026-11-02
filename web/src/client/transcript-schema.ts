@@ -121,6 +121,7 @@ const transcriptBlock = z.discriminatedUnion('kind', [
     })),
   }),
   z.object({ ...blockId, kind: z.literal('guardrail'), guardrail: guardrailEventSchema }),
+  z.object({ ...blockId, kind: z.literal('late-results'), text: z.string() }),
   z.object({ ...blockId, kind: z.literal('error'), message: z.string() }),
   z.object({
     ...blockId,

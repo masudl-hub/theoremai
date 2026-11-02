@@ -1048,6 +1048,7 @@ function hostContentOf(event: ModelEvent): unknown[] {
       return [event.tool];
     case 'tool_draft':
     case 'structured_draft':
+    case 'late_results':
       return [event.text];
     case 'error':
       return [event.error, event.errorCopy];

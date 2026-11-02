@@ -1,9 +1,12 @@
 import { assert, assertEquals } from '@std/assert';
 import { z } from 'zod';
 import '../fixtures/test-host.ts';
+import { isLateResult } from '../../src/guardrails/tool-fence.ts';
+import { wrapToolData } from '../../src/guardrails/tool-result.ts';
 import { registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
-import type { TurnEvent, TurnModel } from '../../src/kernel/types.ts';
+import type { ToolOperationOutcome } from '../../src/kernel/tools/operation.ts';
+import type { ModelRequest, TurnEvent, TurnModel } from '../../src/kernel/types.ts';
 import { createHttpTransport } from '../../web/src/client/transport.ts';
 import { issuedOperationId } from '../../web/src/client/turn-client.ts';
 import {
@@ -136,4 +139,95 @@ Deno.test('an approval in the middle of a reply keeps what the reply read', asyn
   } finally {
     globalThis.fetch = original;
   }
+});
+
+Deno.test('a late result passed once stays through an approval and on later turns', async () => {
+  registerAll();
+  const readBack = wrapToolData(PAGE, { origin: 'http', tool: 'research', depth: 1 });
+  const late = {
+    event: {
+      type: 'tool',
+      tool: { phase: 'complete', name: 'research', callId: 'late', output: {}, readBack },
+    },
+    effects: 'completed',
+    replay: {
+      modelResult: {
+        finding: PAGE,
+        modelText: readBack,
+        provenance: { origin: 'http', tool: 'research', depth: 1 },
+      },
+    },
+  } as ToolOperationOutcome;
+  const calls = [
+    { name: 'confirm_booking', callId: 'c1', arguments: { to: 'hotel' } },
+    { name: 'send_email', callId: 'c2', arguments: { to: ATTACKER } },
+  ];
+  const read: ModelRequest[] = [];
+  const model: TurnModel = {
+    async *complete(request) {
+      read.push(request);
+      const tool = calls.shift();
+      if (tool) yield { type: 'tool', tool };
+      else yield { type: 'text', text: 'done' };
+    },
+  };
+  let pending: ToolOperationOutcome[] = [late];
+  const handler = createTheoremHandler({
+    profile: defineProfile({
+      type: 'text',
+      id: 'late_once',
+      identity: { handle: 'deputy' },
+      models: { fast: HOST_BINDINGS.gemini35FlashLite },
+      maxSteps: 4,
+      tools: { allow: ['confirm_booking', 'send_email'] },
+      inputs: { text: true },
+      guardrails: { quota: { perDay: 50 }, taint: { afterRemoteRead: 'destructive' } },
+    }),
+    sessionStore: createMemorySessionStore(),
+    conversationStore: createMemoryConversationStore(),
+    provider: () => fixtureHostOptions(model),
+    prepare: (turn) => {
+      const lateResults = pending;
+      pending = [];
+      return lateResults.length > 0 ? { ...turn, input: { ...turn.input, lateResults } } : turn;
+    },
+  });
+  let cookie = '';
+  let ref: string | undefined;
+  const transport = createHttpTransport({
+    endpoint: 'http://host.test/api/theorem',
+    fetch: async (url, init) => {
+      const headers = new Headers(init?.headers);
+      if (cookie) headers.set('cookie', cookie);
+      const response = await handler(new Request(url, { ...init, headers }));
+      cookie = response.headers.get('set-cookie')?.split(';')[0] ?? cookie;
+      return response;
+    },
+  });
+  const events: TurnEvent[] = [];
+  const sink = (line: Parameters<Parameters<typeof transport.turn>[1]>[0]) => {
+    if (line.type === 'conversation') ref = line.ref;
+    else if (line.type !== 'unsupported' && line.type !== 'malformed') events.push(line);
+  };
+  await transport.turn({ input: { text: 'book it' } }, sink);
+  const gate = toolEventsOf(events, 'gate').at(-1);
+  assert(gate, 'expected the reply to pause on a gate');
+  await transport.invoke(
+    {
+      ...(ref ? { conversation: ref } : {}),
+      gateId: gate.callId,
+      operationId: issuedOperationId(gate),
+      decision: 'approve',
+    },
+    sink,
+  );
+  const send = toolEventsOf(events, 'error').find((tool) => tool.name === 'send_email');
+  assertEquals(send?.failure?.code, 'tainted_turn');
+  await transport.turn({ conversation: ref, input: { text: 'what did it say?' } }, sink);
+  const holdsLate = (request: ModelRequest) =>
+    (request.history ?? []).filter(isLateResult).length === 1;
+  assertEquals(
+    read.map(holdsLate),
+    read.map(() => true),
+  );
 });

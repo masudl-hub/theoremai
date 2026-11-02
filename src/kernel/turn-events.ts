@@ -1005,6 +1005,11 @@ export type TurnEvent =
    * `attempt` counts the retries: 1 for the first, as the trace's `theorem.attempt.retry` does.
    */
   | { type: 'attempt'; attempt: number; reason: AttemptReason }
+  /**
+   * The message `input.lateResults` put in the conversation, role `user`. It enters a history built
+   * from events like any other message.
+   */
+  | { type: 'late_results'; text: string }
   | { type: 'media'; media: { mimeType: string; data: string } }
   | { type: 'grounding'; grounding: GroundingEvent }
   /** Sources a provider or a tool cited; `callId` names the tool call when a tool did. */
@@ -1193,6 +1198,7 @@ const TURN_EVENTS = {
     attempt: z.number().int().positive(),
     reason: z.enum(['validation', 'egress']),
   }),
+  late_results: z.object({ type: z.literal('late_results'), text: z.string() }),
   media: z.object({
     type: z.literal('media'),
     media: z.object({ mimeType: z.string(), data: z.string() }),
@@ -1287,6 +1293,7 @@ const turnEvent = z.union([
     TURN_EVENTS.citation,
     TURN_EVENTS.compaction,
     TURN_EVENTS.evidence,
+    TURN_EVENTS.late_results,
     TURN_EVENTS.tokens,
     TURN_EVENTS.session,
     TURN_EVENTS.guardrail,

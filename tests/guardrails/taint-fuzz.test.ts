@@ -1,9 +1,14 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { z } from 'zod';
+import { isLateResult } from '../../src/guardrails/tool-fence.ts';
+import { wrapToolData } from '../../src/guardrails/tool-result.ts';
+import { appendAssistantEventsToHistory } from '../../src/interface/history.ts';
+import { toolCallsOf } from '../../src/interface/tool-calls.ts';
 import { registerProfile, registerTool, resetTools } from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import type { ToolOperationOutcome } from '../../src/kernel/tools/operation.ts';
 import type {
   ModelRequest,
   TurnEvent,
@@ -11,7 +16,7 @@ import type {
   TurnInput,
   TurnModel,
 } from '../../src/kernel/types.ts';
-import { failureOf, lastTool } from '../fixtures/events.ts';
+import { failureOf } from '../fixtures/events.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 const ATTACKER = 'attacker@example.com';
@@ -74,7 +79,21 @@ function callFor(step: Step, index: number, pages: Map<string, string>) {
   return { name, callId, arguments: { id } };
 }
 
-/** Runs the steps, then gives the history the last model call read and each send's verdict. */
+const REMOTE = { origin: 'http', tool: 'research', depth: 1 } as const;
+
+function lateResult(page: string): ToolOperationOutcome {
+  const readBack = wrapToolData(page, REMOTE);
+  return {
+    event: {
+      type: 'tool',
+      tool: { phase: 'complete', name: 'research', callId: 'late', output: {}, readBack },
+    },
+    effects: 'completed',
+    replay: { modelResult: { finding: page, modelText: readBack, provenance: REMOTE } },
+  } as ToolOperationOutcome;
+}
+
+/** Runs the steps, then gives the history a host builds from the events and each send's verdict. */
 async function run(
   profile: string,
   input: TurnInput,
@@ -83,18 +102,20 @@ async function run(
   pages: Map<string, string>,
 ) {
   const calls = steps.map((step, index) => callFor(step, first + index, pages));
-  let history: TurnHistoryMessage[] = [];
   const model: TurnModel = {
-    async *complete(request: ModelRequest) {
-      history = [...(request.history ?? [])];
+    async *complete(_request: ModelRequest) {
       const tool = calls.shift();
       if (tool) yield { type: 'tool', tool };
     },
   };
   const events: TurnEvent[] = [];
   for await (const event of runTurn({ profile, input }, model)) events.push(event);
-  const send = lastTool(events, 'send_email');
-  return { history, verdict: send ? (failureOf(send)?.code ?? 'sent') : undefined };
+  const verdicts = toolCallsOf(events)
+    .filter((call) => call.name === 'send_email')
+    .map((call) => failureOf(call.state)?.code ?? 'sent');
+  const base: TurnHistoryMessage[] = input.text ? [{ role: 'user', content: input.text }] : [];
+  const history = appendAssistantEventsToHistory([...base, ...(input.history ?? [])], events);
+  return { history, verdicts };
 }
 
 /** Every send's verdict, one run for each span between two pauses. */
@@ -103,17 +124,23 @@ async function verdicts(
   steps: readonly Step[],
   cuts: readonly number[],
   pages: Map<string, string>,
+  late: { page: string; onEachRun: boolean } | undefined,
 ) {
-  const seen: (string | undefined)[] = [];
-  let input: TurnInput = { text: `Please write to ${FRIEND}` };
+  const seen: string[] = [];
+  const lateResults = late ? [lateResult(late.page)] : undefined;
+  let input: TurnInput = {
+    text: `Please write to ${FRIEND}`,
+    ...(lateResults ? { lateResults } : {}),
+  };
   let at = 0;
   for (const cut of [...cuts, steps.length]) {
-    const { history, verdict } = await run(profile, input, steps.slice(at, cut), at, pages);
-    seen.push(verdict);
-    input = { history };
+    const { history, verdicts } = await run(profile, input, steps.slice(at, cut), at, pages);
+    assertEquals(history.filter(isLateResult).length, late ? 1 : 0);
+    seen.push(...verdicts);
+    input = { history, ...(lateResults && late?.onEachRun ? { lateResults } : {}) };
     at = cut;
   }
-  return seen.filter((verdict) => verdict !== undefined);
+  return seen;
 }
 
 function random(seed: number): () => number {
@@ -134,7 +161,8 @@ function scriptOf(next: () => number): Step[] {
         ? { kind: 'read', page: pick(PAGES) }
         : { kind: 'contact', finding: pick(PAGES) },
   );
-  return [...steps, { kind: 'send', to: pick([ATTACKER, FRIEND]) }];
+  const send: Step = { kind: 'send', to: pick([ATTACKER, FRIEND]) };
+  return next() < 0.5 ? [...steps, send, send] : [...steps, send];
 }
 
 Deno.test('a pause never changes what the gates decide', async () => {
@@ -145,7 +173,7 @@ Deno.test('a pause never changes what the gates decide', async () => {
     const { id } = JSON.parse(String(init?.body)) as { id: string };
     return Promise.resolve(Response.json({ text: pages.get(id) ?? '' }));
   }) as typeof fetch;
-  const seen = new Set<string | undefined>();
+  const seen = new Set<string>();
   try {
     for (const gate of GATES) {
       const profile = `fuzz_${gate}`;
@@ -171,14 +199,18 @@ Deno.test('a pause never changes what the gates decide', async () => {
       for (let seed = 1; seed <= 300; seed += 1) {
         const next = random(seed);
         const steps = scriptOf(next);
-        const whole = await verdicts(profile, steps, [], pages);
+        const late =
+          next() < 0.4
+            ? { page: PAGES[Math.floor(next() * PAGES.length)] as string, onEachRun: next() < 0.5 }
+            : undefined;
+        const whole = await verdicts(profile, steps, [], pages, late);
         const cuts = [...new Set(steps.map((_, i) => i).filter((i) => i > 0 && next() < 0.5))];
-        const paused = await verdicts(profile, steps, cuts, pages);
+        const paused = await verdicts(profile, steps, cuts, pages, late);
         assertEquals(
-          { seed, cuts, steps, verdicts: paused },
-          { seed, cuts, steps, verdicts: whole },
+          { seed, cuts, steps, late, verdicts: paused },
+          { seed, cuts, steps, late, verdicts: whole },
         );
-        seen.add(whole[0]);
+        for (const verdict of whole) seen.add(verdict);
       }
     }
     assertEquals([...seen].sort(), ['remote_destination', 'sent', 'tainted_turn']);

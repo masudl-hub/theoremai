@@ -15,6 +15,7 @@ import type { SpanHandle } from '../../../observability/trace-span.ts';
 import type { AgentCaller } from '../../tools/agent.ts';
 import type { ToolBackgroundSupport } from '../../tools/background.ts';
 import { originOfTool } from '../../tools/execute.ts';
+import { isFramedToolFailure } from '../../tools/model-text.ts';
 import type { ToolOperationOutcome } from '../../tools/operation.ts';
 import { ownToolsOf } from '../../tools/project.ts';
 import type { ToolRegistry } from '../../tools/registry.ts';
@@ -80,6 +81,8 @@ interface StepExecutionState {
    * text begins there: what an inject's drop cuts.
    */
   replyMessages: { message: TurnHistoryMessage; at: number }[];
+  /** The message `input.lateResults` opened, until the run can emit it. */
+  lateResults?: string;
   /** The canary opening the last provider call ended on, read in front of the next call's reply. */
   canaryCarry?: string;
   /** What the last provider call's thoughts ended on, read in front of the next call's thoughts. */
@@ -167,7 +170,8 @@ function carryReplyReads(state: StepExecutionState, history: readonly TurnHistor
       state.taint = recordTaint(state.taint, read.provenance, read.suspicious);
       addFencedDestinations(state.destinations, read.text, read.provenance);
     }
-    if (reads.length > 0) continue;
+    // why: A refusal names the address it refused, so its words give nothing.
+    if (reads.length > 0 || isFramedToolFailure(message.content)) continue;
     const tool = message.name ? state.tools.get(message.name) : undefined;
     if (tool && !isRemoteOrigin(originOfTool(tool, state.tools))) {
       addGivenDestinations(state.destinations, message.content);
@@ -175,7 +179,10 @@ function carryReplyReads(state: StepExecutionState, history: readonly TurnHistor
   }
 }
 
-/** A late result is read as a tool's result, so its message is no one's word to the model. */
+/**
+ * A late result is read as a tool's result, so its message is no one's word to the model.
+ * invariant: A history holds a late result once, however often the host passes it. Its marks count on each run.
+ */
 function openLateResults(
   state: StepExecutionState,
   outcomes: readonly ToolOperationOutcome[],
@@ -195,9 +202,18 @@ function openLateResults(
       readToolData(readBack).length > 0 ? readBack : wrapToolData(readBack, provenance);
     return `${labelText('tool.late_result', { tool: name }, labels)}\n${fenced}`;
   });
-  const message: TurnHistoryMessage = { role: 'user', content: blocks.join('\n\n') };
+  const unread = blocks.filter(
+    (block) =>
+      !state.currentHistory.some(
+        (message) => isLateResult(message) && message.content?.includes(block),
+      ),
+  );
+  if (unread.length === 0) return;
+  const text = unread.join('\n\n');
+  const message: TurnHistoryMessage = { role: 'user', content: text };
   state.givenUrls.own.add(message);
   state.currentHistory.push(message);
+  state.lateResults = text;
 }
 
 /**
@@ -245,9 +261,9 @@ function openTurnState(args: {
     if (args.request && continuesReply(args.request)) {
       carryReplyReads(state, args.request.input?.history ?? []);
     }
-    openLateResults(state, args.request?.input?.lateResults ?? [], profile.labels);
     appendUserInput(state, generation.input);
     generation.input = [];
+    openLateResults(state, args.request?.input?.lateResults ?? [], profile.labels);
   }
   return state;
 }

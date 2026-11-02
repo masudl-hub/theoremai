@@ -280,6 +280,8 @@ function standaloneBlock(event: TurnEvent, idPrefix: string): TranscriptBlock | 
       return { id: nextBlockId(idPrefix), kind: 'grounding', grounding: event.grounding };
     case 'evidence':
       return { id: nextBlockId(idPrefix), kind: 'evidence', evidence: event.evidence };
+    case 'late_results':
+      return { id: nextBlockId(idPrefix), kind: 'late-results', text: event.text };
     case 'error':
       return event.error
         ? { id: nextBlockId(idPrefix), kind: 'error', message: event.error }

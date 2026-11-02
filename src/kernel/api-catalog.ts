@@ -42,7 +42,7 @@ export const REQUEST_FIELDS: Record<
   },
   'runTurn.input.lateResults': {
     type: 'ToolOperationOutcome[]',
-    doc: 'Background tool calls that settled after their turn, as the host stored them. The model reads each as a tool result, and this reply counts it as a remote read when the call was remote. Pass them on each run of the reply.',
+    doc: 'Background tool calls that settled after their turn, as the host stored them. The model reads each as a tool result, and this reply counts it as a remote read when the call was remote. Pass each one once: the turn emits it as a late_results event, so a history built from events holds it.',
     unset: 'No late results',
   },
   'runTurn.input.attachments': {

@@ -405,6 +405,11 @@ async function* emitTurn(args: {
     ...(args.background ? { background: args.background } : {}),
   });
   args.outState.state = state;
+  if (state.lateResults !== undefined) {
+    const late: TurnEvent = { type: 'late_results', text: state.lateResults };
+    state.allEmittedEvents.push(late);
+    yield late;
+  }
 
   const pre = yield* applyTurnStage({
     profile,

@@ -165,7 +165,7 @@ A `background` setting reads as `config` on a tool with `answeredBy: 'page'` and
 
 | Question | Answer | Rule |
 | --- | --- | --- |
-| How does the late result reach the model? | The host passes the stored outcome in `input.lateResults`. The host decides when. A job that ends during a turn joins through the host's inject | "Host decides, Theorem runs". The host passes the outcome, so it asserts nothing about where the text came from |
+| How does the late result reach the model? | The host passes the stored outcome once in `input.lateResults`. The host decides when. The run emits `late_results`, so a history built from events keeps it. A job that ends during a turn joins through the host's inject | "Host decides, Theorem runs". The host passes the outcome, so it asserts nothing about where the text came from |
 | Does the setting sit on the tool or the profile? | The tool, beside `registerTool.permission` | The tool catalog holds per-tool behaviour |
 | Can the model background any tool? | Only one set to `"ask"` | Opt-in features stay off when unset |
 | Does a stop in the chat stop the job? | Only if the host calls `stop`. The turn's signal stops at the reply | "Host decides, Theorem runs" |

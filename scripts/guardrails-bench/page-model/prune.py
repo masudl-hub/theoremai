@@ -11,6 +11,7 @@
 # each kept layer through Horizon's own head. FRAC=<f> trains on that share of training pages (a cut that needs a ruling, R4). HID, LENS and MERGE need SRC unset or TMAP.
 # SETS=<sets.json> (teach_set.py sets) and WEIGHT=<set>=<w>,... scale the loss and the rank pairs on every window of those sets.
 # MIL=1 trains on row labels alone (a row is an attack if its top teach label is over 0.5): each batch is B rows, and only the window the current model ranks top in each row takes the loss. LOSS=bce. MIX=<w> also copies the teach logit on one random window of each row, at weight w.
+# DEV=xla runs on a TPU: every batch is padded to a fixed length and row count, since each new shape compiles again. AMP stays off.
 # EMBK=<k> scores with the word table cut to rank k, as a table of k columns and a k x 384 projection would hold it. FACT=<k> trains with that table and projection, from the rank-k cut, and saves their product.
 # A stop signal (SIGTERM, as the swap guard sends) or every CKPT=<n> batches saves prune/<name>/ckpt.pt; the same command resumes from it.
 # Usage: prune.py <name> <layers> <epochs>
@@ -52,7 +53,13 @@ if __name__ == '__main__':
     LOSS = os.environ.get('LOSS', 'bce'); HID = float(os.environ.get('HID', '0')); SELECT = os.environ.get('SELECT', 'agree')
     TAIL = float(os.environ.get('TAIL', '0')); PAGE = float(os.environ.get('PAGE', '0')); LENS = float(os.environ.get('LENS', '0'))
     tmap = [int(x) for x in os.environ['TMAP'].split(',')] if os.environ.get('TMAP') else layers
-    dev = os.environ.get('DEV', 'mps'); m.to(dev).train(); random.seed(7); torch.manual_seed(7)
+    dev = os.environ.get('DEV', 'mps'); XLA = dev == 'xla'
+    if XLA: import torch_xla, torch_xla.core.xla_model as xm; dev = torch_xla.device(); m.config.reference_compile = False
+    m.to(dev).train(); random.seed(7); torch.manual_seed(7)
+    def shape(seqs, fill):
+        L = max(len(q) for q in seqs)
+        if XLA: L = min(b for b in (32, 64, 128, 256, 512) if b >= L); seqs = seqs + seqs[:1] * (fill - len(seqs))
+        return seqs, L
     teacher = AutoModelForSequenceClassification.from_pretrained(D).eval().to(dev) if HID or LENS else None
     if teacher is not None:
         for q in teacher.parameters(): q.requires_grad_(False)
@@ -77,8 +84,8 @@ if __name__ == '__main__':
     for k, w in enumerate(W): peak[w['owner']] = max(peak.get(w['owner'], 0.0), p[k])
     goal = [float(peak[w['owner']] > .5) for w in W] if MIL else p
     cls, sep = lut[tok.cls_token_id], lut[tok.sep_token_id]
-    def batch(ks, src_ids=None, c=cls, e=sep):
-        seqs = [[c] + list((src_ids or ids)[k]) + [e] for k in ks]; L = max(len(q) for q in seqs)
+    def batch(ks, src_ids=None, c=cls, e=sep, fill=0):
+        seqs, L = shape([[c] + list((src_ids or ids)[k]) + [e] for k in ks], fill)
         x = torch.tensor([q + [0] * (L - len(q)) for q in seqs], device=dev); return x, (x != 0).long()
     def forward(x, am, hidden=False):
         with torch.autocast('cuda', dtype=torch.float16, enabled=amp): o = m(input_ids=x, attention_mask=am, output_hidden_states=hidden)
@@ -103,13 +110,13 @@ if __name__ == '__main__':
         got = {}; c = sorted(ks, key=lambda k: len(ids[k])); m.eval()
         with torch.no_grad():
             for s in range(0, len(c), 64):
-                for k, v in zip(c[s:s + 64], logit(*batch(c[s:s + 64])).tolist()):
+                for k, v in zip(c[s:s + 64], logit(*batch(c[s:s + 64], fill=64)).tolist()):
                     if W[k]['owner'] not in got or v > got[W[k]['owner']][1]: got[W[k]['owner']] = (k, v)
         m.train(); return [k for k, _ in got.values()]
     def evalv():
         m.eval(); out = []
         with torch.no_grad():
-            for s in range(0, len(va), 32): out += logit(*batch(va[s:s + 32])).tolist()
+            for s in range(0, len(va), 32): out += logit(*batch(va[s:s + 32], fill=32)).tolist()[:len(va[s:s + 32])]
         m.train(); y = [p[k] > .5 for k in va]; n = max(len(va) // 50, 1); evalv.n = n
         top_t = set(sorted(range(len(va)), key=lambda i: -p[va[i]])[:n]); top_s = set(sorted(range(len(va)), key=lambda i: -out[i])[:n])
         return {'agree': round(sum((o > 0) == v for o, v in zip(out, y)) / max(len(va), 1), 4), 'auc': round(auc(out, y), 4), 'top': len(top_t & top_s)}
@@ -126,7 +133,7 @@ if __name__ == '__main__':
         if r.get('crng') is not None and dev == 'mps': torch.mps.set_rng_state(r['crng']); print('resumed', r['ep'], r['nb'], flush=True)
     def save(ep, nb, bs, tot):
         os.makedirs(out_dir, exist_ok=True)
-        torch.save({'model': m.state_dict(), 'opt': opt.state_dict(), 'sched': sched.state_dict(), 'scaler': scaler.state_dict(), 'rng': random.getstate(),
+        (xm.save if XLA else torch.save)({'model': m.state_dict(), 'opt': opt.state_dict(), 'sched': sched.state_dict(), 'scaler': scaler.state_dict(), 'rng': random.getstate(),
                     'trng': torch.get_rng_state(), 'crng': torch.cuda.get_rng_state_all() if dev == 'cuda' else torch.mps.get_rng_state() if dev == 'mps' else None, 'best': best, 'ep': ep, 'nb': nb, 'bs': bs, 'tot': tot, 'tr': tr}, ck + '.tmp'); os.replace(ck + '.tmp', ck)
     for ep in range(r['ep'] if r else 0, EP):
         if r and ep == r['ep'] and r['bs']: bs, tot, first = r['bs'], r['tot'], r['nb'] + 1
@@ -155,7 +162,9 @@ if __name__ == '__main__':
                         loss = loss + LENS * F.mse_loss(sl, tlens[i]) / 16 / (len(tmap) - 1)
             opt.zero_grad(); scaler.scale(loss).backward()
             if MIL and MIX: scaler.scale(MIX * ((logit(*batch(alt)) - torch.tensor([tl[k] for k in alt], device=dev)) ** 2).mean() / 16).backward()
-            scaler.step(opt); scaler.update(); sched.step(); tot += loss.item() * len(ks)
+            scaler.step(opt); scaler.update(); sched.step()
+            if XLA: torch_xla.sync()
+            tot += loss.item() * len(ks)
             if dev == 'mps' and nb % 100 == 99: torch.mps.empty_cache()
             if stop: save(ep, nb, bs, tot); print('stopped at', ep, nb, flush=True); sys.exit(3)
             if CK and nb % CK == CK - 1: save(ep, nb, bs, tot)
@@ -163,7 +172,7 @@ if __name__ == '__main__':
         if v[SELECT] > best:
             best = v[SELECT]; f = E.tok_embeddings
             if FACT: E.tok_embeddings = torch.nn.Embedding.from_pretrained((f.t @ f.p).detach())
-            m.save_pretrained(out_dir); E.tok_embeddings = f; json.dump(remap, open(f'{out_dir}/remap.json', 'w')); print('saved', ep, flush=True)
+            m.save_pretrained(out_dir, **({'state_dict': {k: v.detach().cpu() for k, v in m.state_dict().items()}} if XLA else {})); E.tok_embeddings = f; json.dump(remap, open(f'{out_dir}/remap.json', 'w')); print('saved', ep, flush=True)
         if ep + 1 < EP: save(ep + 1, -1, None, 0)
     if os.path.exists(ck): os.remove(ck)
     if not EP: os.makedirs(out_dir, exist_ok=True)
@@ -185,7 +194,7 @@ if __name__ == '__main__':
     order = sorted(range(len(allw)), key=lambda k: len(allw[k])); prob = [0.0] * len(allw); t1 = time.time()
     with torch.no_grad():
         for s in range(0, len(order), 32):
-            ks = order[s:s + 32]; L = max(len(allw[k]) for k in ks); x = torch.tensor([allw[k] + [0] * (L - len(allw[k])) for k in ks], device=dev)
+            ks = order[s:s + 32]; seqs, L = shape([allw[k] for k in ks], 32); x = torch.tensor([q + [0] * (L - len(q)) for q in seqs], device=dev)
             for k, v in zip(ks, torch.sigmoid(logit(x, (x != 0).long())).tolist()): prob[k] = v
     score = [0.0] * len(rows)
     for k, i in enumerate(owner): score[i] = max(score[i], prob[k])

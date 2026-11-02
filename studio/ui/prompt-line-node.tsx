@@ -2,7 +2,7 @@ import { DropdownMenu, type DropdownMenuOption } from '@astryxdesign/core/Dropdo
 import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { IconCheck } from '@tabler/icons-react';
+import { IconCheck, IconFilter } from '@tabler/icons-react';
 import {
   $getNodeByKey,
   DecoratorNode,
@@ -18,7 +18,7 @@ import { checksOf, PROMPT_LINE, withCheck, withoutCheck } from '../prompt-doc.ts
 /** The conditions this profile declares, which the tokens' menus and the toolbar's offer. */
 export const PromptConditions = createContext<readonly ConditionDraft[]>([]);
 
-type SetWhen = (when: string | null) => void;
+export type SetWhen = (when: string | null) => void;
 
 /** The menu of a line's `when`: one section per condition, with what it holds ticked. */
 export function conditionItems(
@@ -74,6 +74,7 @@ function CheckToken({ check, when, set }: { check: string; when: string | null; 
           id={id}
           size="sm"
           label={check}
+          icon={<Icon icon={IconFilter} size="xsm" />}
           aria-haspopup="menu"
           aria-expanded={isOpen}
           onClick={() => {
@@ -107,7 +108,7 @@ function LineHead({ nodeKey, when }: { nodeKey: NodeKey; when: string | null }) 
   );
 }
 
-type SerializedPromptLine = Spread<{ when?: string | null }, SerializedLexicalNode>;
+export type SerializedPromptLine = Spread<{ when?: string | null }, SerializedLexicalNode>;
 
 /** Where a prompt line opens: the blocks after it, up to the next one, are that line's body. */
 export class PromptLineNode extends DecoratorNode<ReactNode> {

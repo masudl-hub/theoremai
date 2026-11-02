@@ -6,7 +6,7 @@ import '@astryxdesign/richtext/richtext.css';
 import { $isListItemNode, $isListNode } from '@lexical/list';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $getSelectionStyleValueForProperty, $patchStyleText } from '@lexical/selection';
-import { IconFilter, IconLock } from '@tabler/icons-react';
+import { IconFilter, IconShareOff } from '@tabler/icons-react';
 import {
   $getRoot,
   $getSelection,
@@ -17,6 +17,7 @@ import {
   $splitNode,
   type BaseSelection,
   type LexicalNode,
+  type RangeSelection,
 } from 'lexical';
 import {
   type ComponentProps,
@@ -74,29 +75,29 @@ function $splitListAt(item: LexicalNode, offset: number) {
   if ($isListNode(list)) $splitNode(list, offset);
 }
 
-/**
- * Sets the condition on what is selected, or on the block the caret is in. What is left of the
- * line keeps its own, and neighbours under one condition join back up.
- */
-function $setCondition(next: string | null) {
-  const selection = $getSelection();
-  if (!$isRangeSelection(selection)) return;
+/** The first and last block a selection touches, in reading order. */
+function $selectedEnds(selection: RangeSelection) {
   const [from, to] = selection.isBackward()
     ? [selection.focus, selection.anchor]
     : [selection.anchor, selection.focus];
-  const first = $topOf(from.getNode());
-  const last = $topOf(to.getNode());
-  const when = $headOf($blockOf(first))?.getWhen() ?? null;
-  const tail = $headOf($blockOf(last))?.getWhen() ?? null;
-  if (next === when && when === tail) return;
+  return { first: $topOf(from.getNode()), last: $topOf(to.getNode()) };
+}
+
+/** The condition of the line a block belongs to. */
+const $whenOf = (top: LexicalNode): string | null => $headOf($blockOf(top))?.getWhen() ?? null;
+
+/** Lets the blocks from `first` to `last` stand apart from the rest of their lists. */
+function $standApart(first: LexicalNode, last: LexicalNode) {
   if ($isListItemNode(last) && last.getNextSibling()) {
     $splitListAt(last, last.getIndexWithinParent() + 1);
   }
   if ($isListItemNode(first) && first.getPreviousSibling()) {
     $splitListAt(first, first.getIndexWithinParent());
   }
-  const start = $blockOf(first);
-  const end = $blockOf(last);
+}
+
+/** Joins `start` to `end` into one line, and what follows keeps the condition it had. */
+function $closeLine(start: LexicalNode, end: LexicalNode, tail: string | null) {
   for (let at: LexicalNode | null = start; at && !at.is(end); ) {
     const after: LexicalNode | null = at.getNextSibling();
     if ($isPromptLine(at)) at.remove();
@@ -104,6 +105,10 @@ function $setCondition(next: string | null) {
   }
   const after = end.getNextSibling();
   if (after && !$isPromptLine(after)) end.insertAfter(new PromptLineNode(tail));
+}
+
+/** Starts the line at `start` under `next`, and neighbours under one condition join back up. */
+function $openLine(start: LexicalNode, end: LexicalNode, next: string | null) {
   const before = start.getPreviousSibling();
   const head = $isPromptLine(before) ? before.setWhen(next) : new PromptLineNode(next);
   if (!$isPromptLine(before)) start.insertBefore(head);
@@ -112,6 +117,21 @@ function $setCondition(next: string | null) {
   if ($isPromptLine(following) && following.getWhen() === next) following.remove();
   const above = head.getPreviousSibling();
   if (above && $headOf(above)?.getWhen() === next) head.remove();
+}
+
+/** Sets the condition on what is selected, or on the block the caret is in. */
+function $setCondition(next: string | null) {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return;
+  const { first, last } = $selectedEnds(selection);
+  const when = $whenOf(first);
+  const tail = $whenOf(last);
+  if (next === when && when === tail) return;
+  $standApart(first, last);
+  const start = $blockOf(first);
+  const end = $blockOf(last);
+  $closeLine(start, end, tail);
+  $openLine(start, end, next);
 }
 
 /** The Private and Condition buttons, on the toolbar's end. */
@@ -142,7 +162,7 @@ function PromptTools() {
         label="Private"
         size="sm"
         isIconOnly
-        icon={<Icon icon={IconLock} size="sm" />}
+        icon={<Icon icon={IconShareOff} size="sm" />}
         isPressed={isPrivate}
         onMouseDown={keepSelection}
         onPressedChange={() => {
@@ -178,26 +198,32 @@ function PromptTools() {
   );
 }
 
-/** Each run of blocks holding private text carries a rail, and a lock at its top. */
-function PrivateRail() {
+/** Whether every word of a block is private. A block with some private words marks only those. */
+function $isWhollyPrivate(block: LexicalNode | null): boolean {
+  if (!block || $isPromptLine(block) || !$isElementNode(block)) return false;
+  const words = block.getAllTextNodes().filter((text) => text.getTextContent().trim() !== '');
+  return words.length > 0 && words.every((text) => text.getStyle().includes(PRIVATE_NAME));
+}
+
+/** Blocks that are wholly private run together, marked at the top of the run. */
+function PrivateRuns() {
   const [editor] = useLexicalComposerContext();
   useEffect(
     () =>
       editor.registerUpdateListener(({ editorState }) => {
         editorState.read(() => {
-          let running = false;
           for (const block of $getRoot().getChildren()) {
-            if ($isPromptLine(block) || !$isElementNode(block)) {
-              running = false;
-              continue;
-            }
-            const holds = block
-              .getAllTextNodes()
-              .some((text) => text.getStyle().includes(PRIVATE_NAME));
+            const whole = $isWhollyPrivate(block);
             const element = editor.getElementByKey(block.getKey());
-            element?.toggleAttribute('data-private', holds);
-            element?.toggleAttribute('data-private-start', holds && !running);
-            running = holds;
+            element?.toggleAttribute('data-private', whole);
+            element?.toggleAttribute(
+              'data-private-start',
+              whole && !$isWhollyPrivate(block.getPreviousSibling()),
+            );
+            element?.toggleAttribute(
+              'data-private-end',
+              whole && !$isWhollyPrivate(block.getNextSibling()),
+            );
           }
         });
       }),
@@ -229,7 +255,7 @@ function HeldCaret() {
 
 type EditorStatus = ComponentProps<typeof RichTextEditor>['status'];
 
-type PromptEditorProps = {
+export type PromptEditorProps = {
   /** The prompt as markup text, the only form the draft holds. */
   value: string;
   placeholder?: string;
@@ -264,7 +290,7 @@ function OpenedEditor({
         toolbar={<RichTextEditorToolbar size="sm" hasLink={false} endContent={<PromptTools />} />}
         plugins={
           <>
-            <PrivateRail />
+            <PrivateRuns />
             <HeldCaret />
           </>
         }

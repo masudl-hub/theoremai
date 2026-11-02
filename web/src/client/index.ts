@@ -6,9 +6,8 @@ export {
 } from './audio-level.ts';
 export {
   type ChatController,
+  type ChatOptionPicks,
   type ChatOptions,
-  type ChatSlotDecl,
-  type ChatSlots,
   type ChatState,
   type ChatUpdate,
   createChatController,

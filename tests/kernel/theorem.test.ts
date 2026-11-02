@@ -392,39 +392,39 @@ Deno.test('allow puts T0 custom tools on the wire; builtins follow the model', (
   assertEquals(search.generation.builtins, ['googleSearch']);
   assertEquals(search.generation.tools.visible.includes('ask_user'), true);
 });
-Deno.test('language slot picks structured schema', () => {
+Deno.test('language option picks structured schema', () => {
   const html = resolveTurn({
     profile: 'formatter',
-    input: { text: 'x', slots: { language: 'html' } },
+    input: { text: 'x', options: { language: 'html' } },
   });
   assertEquals(html.generation.structured?.id, 'htmlTurn');
   const tsx = resolveTurn({
     profile: 'formatter',
-    input: { text: 'x', slots: { language: 'tsx' } },
+    input: { text: 'x', options: { language: 'tsx' } },
   });
   assertEquals(tsx.generation.structured?.id, 'tsxTurn');
 });
-Deno.test('a turn passes only declared slots, set to a declared choice', () => {
+Deno.test('a turn passes only declared options, set to a declared choice', () => {
   assertThrows(
-    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { language: 'py' } } }),
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', options: { language: 'py' } } }),
     TheoremError,
-    "Profile formatter: slot 'language' takes html, tsx, not 'py'",
+    "Profile formatter: option 'language' takes html, tsx, not 'py'",
   );
   assertThrows(
-    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { tone: 'dry' } } }),
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', options: { tone: 'dry' } } }),
     TheoremError,
-    "Profile formatter has no slot 'tone'",
+    "Profile formatter has no option 'tone' on inputs.options",
   );
   assertThrows(
-    () => resolveTurn({ profile: 'formatter', input: { text: 'x', slots: { toString: 'x' } } }),
+    () => resolveTurn({ profile: 'formatter', input: { text: 'x', options: { toString: 'x' } } }),
     TheoremError,
-    "Profile formatter has no slot 'toString'",
+    "Profile formatter has no option 'toString' on inputs.options",
   );
   // A profile that declares no slots takes none.
   assertThrows(
-    () => resolveTurn({ profile: 'chat', input: { text: 'x', slots: { language: 'html' } } }),
+    () => resolveTurn({ profile: 'chat', input: { text: 'x', options: { language: 'html' } } }),
     TheoremError,
-    "Profile chat has no slot 'language'",
+    "Profile chat has no option 'language' on inputs.options",
   );
 });
 Deno.test('disallowed tool cannot run', async () => {

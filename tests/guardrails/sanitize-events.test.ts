@@ -82,7 +82,7 @@ type Field = [
 const base = { profile: CHAT_TAKES_OUT_INBOUND };
 const FIELDS: Field[] = [
   ['text', (bad) => ({ ...base, input: { text: bad } }), 'input', 'untrusted', 'user'],
-  ['slot', (bad) => ({ ...base, input: { slots: { a: bad } } }), 'input', 'untrusted', 'slots'],
+  ['slot', (bad) => ({ ...base, input: { options: { a: bad } } }), 'input', 'untrusted', 'options'],
   [
     'repair previousOutput',
     (bad) => ({ ...base, input: { repair: { previousOutput: bad, rejection: 'no' } } }),
@@ -158,7 +158,7 @@ Deno.test('a clean turn request reports nothing, and an empty guidance adds noth
       system: 'be brief',
       input: {
         text: 'hello',
-        slots: { a: 'x' },
+        options: { a: 'x' },
         repair: { previousOutput: 'draft', rejection: 'too long', guidance: '' },
         history: [{ role: 'user', content: 'hi' }],
       },

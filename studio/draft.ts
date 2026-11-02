@@ -74,11 +74,24 @@ export type StudioTurnProfileType = Exclude<StudioProfileType, 'decision' | 'hos
 
 export const STUDIO_PROFILE_TYPES: readonly StudioProfileType[] = PROFILE_TYPES;
 
-/** A fact each turn states: its name and the values it can take. */
-export interface ConditionDraft {
+/** One value an option can take, and what the page says about it. */
+export interface OptionChoiceDraft {
+  key: string;
+  value: string;
+  description: string;
+}
+
+/**
+ * One named option: what lines of the prompt read and print, the page's label for it, and its
+ * values. Shown in chat, a person picks it and it compiles to `inputs.options`; otherwise the
+ * host's code states it and it compiles to `identity.options`.
+ */
+export interface OptionDraft {
   key: string;
   name: string;
-  values: string[];
+  label: string;
+  isShownInChat: boolean;
+  choices: OptionChoiceDraft[];
 }
 
 export interface IdentityDraft {
@@ -90,7 +103,7 @@ export interface IdentityDraft {
    * `{private: …}`. Unused on speech, which has no system channel.
    */
   system: string;
-  conditions: ConditionDraft[];
+  options: OptionDraft[];
 }
 
 export interface ModelsDraft {
@@ -192,21 +205,6 @@ export interface ToolSpecDraft extends StudioToolSpecSeed {
   key: string;
 }
 
-/** One value a slot can take, and what the page says about it. */
-export interface SlotChoiceDraft {
-  key: string;
-  value: string;
-  description: string;
-}
-
-/** One named choice a turn can make: its `{name}`, the page's label for it, and its values. */
-export interface SlotDraft {
-  key: string;
-  name: string;
-  label: string;
-  choices: SlotChoiceDraft[];
-}
-
 export interface InputsDraft {
   text: boolean;
   attachmentsAccept: string[];
@@ -216,17 +214,15 @@ export interface InputsDraft {
   maxTurnBytes: number | null;
   /** The largest file of each type (or `type/*` family), in bytes, in place of `maxBytes`. */
   limitsByMime: Record<string, number>;
-  /** Named choices a turn can make; none omits `inputs.slots`. */
-  slots: SlotDraft[];
   /** Who may send the agent context; none omits `inputs.context`. */
   contextFrom: ContextSender[];
   /** The longest context package from each sender, in characters of JSON. */
   contextMaxChars: number | null;
 }
 
-/** The reply shapes a slot's value picks; any other value takes the outputs' own schema. */
-export interface SlotShapesDraft {
-  slot: string;
+/** The reply shapes an option's value picks; any other value takes the outputs' own schema. */
+export interface OptionShapesDraft {
+  option: string;
   shapes: { choice: string; schemaId: string; schemaJson: string }[];
 }
 
@@ -234,7 +230,7 @@ export interface OutputsDraft {
   mode: 'text' | 'structured';
   schemaId: string;
   schemaJson: string;
-  bySlot?: SlotShapesDraft;
+  byOption?: OptionShapesDraft;
   /** `''` omits it (kernel default: SSE). */
   streamMode: '' | StreamMode;
   streamThoughts: boolean;
@@ -483,7 +479,6 @@ export interface StudioDraft {
 export function draftKey(
   prefix:
     | 'agent'
-    | 'condition'
     | 'entry'
     | 'model'
     | 'tool'
@@ -491,7 +486,7 @@ export function draftKey(
     | 'criterion'
     | 'reference'
     | 'image'
-    | 'slot'
+    | 'option'
     | 'choice',
 ): string {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
@@ -730,22 +725,23 @@ export function newDecisionImage(
   return { key: draftKey('image'), name, ...image };
 }
 
-/** A new slot, with a name the draft doesn't use yet and two blank choices. */
-export function newSlot(slots: readonly SlotDraft[]): SlotDraft {
-  const name = freeName(
-    'slot',
-    slots.map((slot) => slot.name),
-    (n) => `slot_${String(n)}`,
+export function newOption(): OptionDraft {
+  return { key: draftKey('option'), name: '', label: '', isShownInChat: false, choices: [] };
+}
+
+/** One row per value, each keeping the row its value already had. */
+export function optionChoices(
+  values: readonly string[],
+  current: readonly OptionChoiceDraft[],
+): OptionChoiceDraft[] {
+  return values.map(
+    (value) =>
+      current.find((choice) => choice.value === value) ?? {
+        key: draftKey('choice'),
+        value,
+        description: '',
+      },
   );
-  return { key: draftKey('slot'), name, label: '', choices: [newSlotChoice(), newSlotChoice()] };
-}
-
-export function newCondition(): ConditionDraft {
-  return { key: draftKey('condition'), name: '', values: [] };
-}
-
-export function newSlotChoice(): SlotChoiceDraft {
-  return { key: draftKey('choice'), value: '', description: '' };
 }
 
 /** One blank row: an option, a level, or a criterion. */
@@ -781,7 +777,7 @@ export function createBlankDraft(): StudioDraft {
       profileType: '',
       handle: '',
       system: '',
-      conditions: [],
+      options: [],
     },
     included: ['observability', 'labels'],
     models: { defaultModel: '', allowModelSelect: false, maxSteps: null, key: '' },
@@ -797,7 +793,6 @@ export function createBlankDraft(): StudioDraft {
       maxBytes: null,
       maxTurnBytes: null,
       limitsByMime: {},
-      slots: [],
       contextFrom: [],
       contextMaxChars: null,
     },

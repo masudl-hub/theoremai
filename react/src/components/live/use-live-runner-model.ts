@@ -78,7 +78,7 @@ function useLiveCallLifecycle(
  * Owns LiveRunner state, session client, and stage callbacks.
  * `connection` resolves what the call opens: a host with a fixed profile returns
  * its id; the studio returns its draft as the relay's open message. `options`
- * are the host's part in the call: its slots, its stated turn, the page's context, and its page tools.
+ * are the host's part in the call: its options, its stated turn, the page's context, and its page tools.
  */
 export function useLiveRunnerModel(
   iface: LiveProfileInterface,
@@ -113,7 +113,7 @@ export function useLiveRunnerModel(
   // why: One feed per runner: every session it opens adds its records.
   const traces = useMemo(createTraceFeed, []);
   const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
-    slots: options.slots,
+    options: options.options,
     stated: options.stated,
     model: options.model,
     effort: options.effort,
@@ -187,13 +187,13 @@ export function useLiveRunnerModel(
     clientRef.current?.setContext(contextJson === undefined ? undefined : JSON.parse(contextJson));
   }, [clientRef, contextJson]);
 
-  // why: Slots are compared by value too; a changed value takes an open call up again with it.
-  const slotsJson = JSON.stringify(options.slots);
+  // why: Options are compared by value too; a changed value takes an open call up again with it.
+  const optionsJson = JSON.stringify(options.options);
   useEffect(() => {
-    clientRef.current?.setSlots(slotsJson === undefined ? undefined : JSON.parse(slotsJson));
-  }, [clientRef, slotsJson]);
+    clientRef.current?.setOptions(optionsJson === undefined ? undefined : JSON.parse(optionsJson));
+  }, [clientRef, optionsJson]);
 
-  // why: As slots: a changed pick takes an open call up again with the lines it chooses.
+  // why: As options: a changed pick takes an open call up again with the lines it chooses.
   const statedJson = JSON.stringify(options.stated);
   useEffect(() => {
     clientRef.current?.setStated(statedJson === undefined ? undefined : JSON.parse(statedJson));

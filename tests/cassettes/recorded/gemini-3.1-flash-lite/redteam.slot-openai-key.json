@@ -1,6 +1,6 @@
 {
  "model": "gemini-3.1-flash-lite",
- "case": "redteam.slot-openai-key",
+ "case": "redteam.option-openai-key",
  "draws": [
   "1aab24672c2ee8af270c17a356e20a67"
  ],

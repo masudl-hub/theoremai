@@ -40,7 +40,7 @@ Use Theorem when your application runs an AI agent and you need the agent to do 
 You describe an agent once, as a **profile**. A profile says:
 
 - which models the agent may use;
-- what the agent accepts: text, images, PDFs, audio, voice, or typed slots;
+- what the agent accepts: text, images, PDFs, audio, voice, or options;
 - what the agent must return: free text, JSON that a schema checks, images, speech, or a live audio session;
 - which tools the agent may call;
 - how every input and output is guarded.
@@ -185,7 +185,7 @@ Use the `type` field to choose what the agent does. The type sets the shape of t
 
 | Type | Runner | Takes | Returns | First-party protocols |
 | :--- | :--- | :--- | :--- | :--- |
-| `text` | `runTurn` | text, attachments, voice notes, slots, history | text, thoughts, validated JSON, tool calls | `geminiInteractions`, `openRouterOpenAi`, `openAi` |
+| `text` | `runTurn` | text, attachments, voice notes, options, history | text, thoughts, validated JSON, tool calls | `geminiInteractions`, `openRouterOpenAi`, `openAi` |
 | `image` | `runTurn` | prompt + reference images | images, optionally with interleaved text | `geminiInteractions`, `openRouterImages` |
 | `speech` | `runTurn` | text | audio (WAV, or MP3 on OpenRouter) | `geminiInteractions`, `openRouterOpenAi`, `openAi` |
 | `transcription` | `runTurn` | one voice clip | the words in the clip, as text | `openRouterTranscriptions` |
@@ -290,7 +290,7 @@ Theorem scans each piece of text according to where it came from.
 | :--- | :--- | :--- |
 | `trusted` | `identity.system`, written by you at startup | Passed through |
 | `assembled` | `TurnRequest.system`, built by your code per turn | Full scan |
-| `untrusted` | User text, history, slots, attachments, steering, stage injections | Full injection and sensitive-data scan |
+| `untrusted` | User text, history, options, attachments, steering, stage injections | Full injection and sensitive-data scan |
 
 - **Coming in.** `guardrails.detect` finds prompt-injection phrasing, secrets, and personal data before the model sees them. By default it flags each one and the text goes in as written. Set a detector to `redact` to replace it with a placeholder, or to `block` to stop the turn.
 - **Going out.** A **canary** is a secret token that Theorem hides in the system prompt. If the token appears in a reply, the prompt leaked, and the `canary_leak` detector reports it. The `prompt_leak` detector also reports a reply that repeats 12 or more words of the prompt. By default, both flag the leak and the reply goes out as written. Set them to `redact` or `block` in `guardrails.detect` to keep the leak from the user. When a check blocks a reply, `guardrails.blockedReply` decides what happens: the model rewrites it (`retry`) or the user gets a refusal (`refuse`).

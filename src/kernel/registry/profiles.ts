@@ -75,8 +75,8 @@ import type {
 } from '../types.ts';
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeAllowed, profileInputs } from './catalog.ts';
+import { optionValues, profileOption } from './options.ts';
 import type { SchemaRegistry } from './schemas.ts';
-import { normalizeProfileInputsSlots, slotValues } from './slots.ts';
 import { soleModelId } from './sole-model.ts';
 
 /** Not shared by host profiles, which invoke tools without a model turn. */
@@ -525,7 +525,7 @@ function assertRequiredFields(input: ProfileDefinition): void {
   }
 }
 
-/** `inputs` is optional on a live profile only, where it holds slots and context and nothing else. */
+/** `inputs` is optional on a live profile only, where it holds options and context and nothing else. */
 function assertInputsSet(input: ProfileDefinition): void {
   const { id, type } = input;
   if (type === 'live' || !profileTypesForField('inputs').includes(type)) return;
@@ -655,16 +655,10 @@ function assertIdentitySystem(input: ProfileDefinition): void {
     input.type === 'embedding'
   )
     return;
-  const { conditions, system } = input.identity;
-  const slots: Record<string, readonly string[]> = {};
-  for (const [name, decl] of Object.entries(
-    normalizeProfileInputsSlots(input.inputs)?.slots ?? {},
-  )) {
-    slots[name] = slotValues(decl);
-  }
+  const { options, system } = input.identity;
   const prompt = system ?? '';
   assertSystemLines(prompt, `Profile ${input.id} identity.system`);
-  const problem = systemLinesProblem(prompt, conditions, slots);
+  const problem = systemLinesProblem(prompt, options, input.inputs?.options);
   if (problem) throw new TheoremError('config', `Profile ${input.id} identity.system: ${problem}`); // labels-exempt: developer contract error
 }
 
@@ -749,7 +743,7 @@ function validatedProfile(input: ProfileDefinition): Profile {
       ? { handle: input.identity.handle }
       : {
           handle: input.identity.handle,
-          conditions: input.identity.conditions,
+          options: input.identity.options,
           system: input.identity.system,
         };
   const guardrails = input.guardrails;
@@ -766,7 +760,7 @@ function validatedProfile(input: ProfileDefinition): Profile {
         identity,
         ...modelFields,
         tools: input.tools,
-        inputs: normalizeProfileInputsSlots(input.inputs),
+        inputs: input.inputs,
         outputs: input.outputs,
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -782,7 +776,7 @@ function validatedProfile(input: ProfileDefinition): Profile {
         ...modelFields,
         image: input.image,
         tools: input.tools,
-        inputs: normalizeProfileInputsSlots(input.inputs),
+        inputs: input.inputs,
         outputs: input.outputs,
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -813,7 +807,7 @@ function validatedProfile(input: ProfileDefinition): Profile {
         identity,
         ...modelFields,
         live: input.live,
-        inputs: input.inputs ? normalizeProfileInputsSlots(input.inputs) : input.inputs,
+        inputs: input.inputs,
         tools: { allow: input.tools.allow, ...optionalParallel(input.tools.parallel) },
         turnBehaviour: input.turnBehaviour,
         guardrails,
@@ -830,7 +824,7 @@ function validatedProfile(input: ProfileDefinition): Profile {
       throw new TheoremError('config', `Unknown profile type '${String(_exhaustive)}'`); // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     }
   }
-  assertStructuredSlot(profile);
+  assertStructuredOption(profile);
   assertMaxSteps(profile);
   assertAnswerStep(profile);
   return profile;
@@ -856,24 +850,24 @@ function assertAnswerStep(profile: ModelProfile): void {
   );
 }
 
-/** A turn can pass no value outside the slot's choices, so any other mapped key is dead. */
-function assertStructuredSlot(profile: ModelProfile): void {
+/** A turn can pass no value outside the option's choices, so any other mapped key is dead. */
+function assertStructuredOption(profile: ModelProfile): void {
   if (profile.type === 'live') return;
   const structured = profile.outputs?.structured;
   if (!structured || typeof structured === 'string') return;
-  const decl = profileInputs(profile)?.slots?.[structured.by];
+  const decl = profileOption(profile, structured.by);
   if (!decl) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id}: outputs.structured.by '${structured.by}' is not a slot in inputs.slots`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: outputs.structured.by '${structured.by}' is not one of the profile's options`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
-  const choices = slotValues(decl);
+  const choices = optionValues(decl);
   const unknown = Object.keys(structured.map).filter((value) => !choices.includes(value));
   if (unknown.length) {
     throw new TheoremError(
       'config',
-      `Profile ${profile.id}: outputs.structured.map maps ${unknown.join(', ')}, not a choice of slot '${structured.by}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `Profile ${profile.id}: outputs.structured.map maps ${unknown.join(', ')}, not a choice of option '${structured.by}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
 }
@@ -1072,7 +1066,7 @@ function assertModelBuiltInTools(tools: ToolRegistry, profile: ModelProfile): vo
   }
 }
 
-/** The schema ids `outputs.structured` can pick, by slot and fallback. */
+/** The schema ids `outputs.structured` can pick, by option and fallback. */
 function structuredIds(profile: ModelProfile): string[] {
   const structured = profile.type === 'text' ? profile.outputs?.structured : undefined;
   if (!structured) return [];

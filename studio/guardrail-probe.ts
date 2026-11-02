@@ -42,7 +42,6 @@ import {
   type StudioDependency,
   writtenScope,
 } from './runtime-scope.ts';
-import { choiceValues } from './slot-values.ts';
 import { type JsonSchema, sampleFromJsonSchema } from './tool-schema.ts';
 
 /** Where a probe's text enters the turn. */
@@ -800,32 +799,6 @@ function assertProbeable(
   }
 }
 
-/**
- * What a turn of `definition` states, each on its first value, as the studio's page opens them.
- * why: The kernel refuses a turn that leaves a prompt line's condition or slot unset, and a probe
- * has no page to pick them.
- */
-function statedByFirstValues(definition: ProfileDefinition) {
-  const inputs = 'inputs' in definition ? definition.inputs : undefined;
-  const declaredSlots = inputs && 'slots' in inputs ? inputs.slots : undefined;
-  const slots = Object.entries(declaredSlots ?? {}).flatMap(([name, decl]) => {
-    const value = choiceValues(decl)?.[0];
-    return value === undefined ? [] : [[name, value] as const];
-  });
-  const identity = 'identity' in definition ? definition.identity : undefined;
-  const declared = identity && 'conditions' in identity ? identity.conditions : undefined;
-  const { path, ...conditions } = Object.fromEntries(
-    Object.entries(declared ?? {}).map(([name, values]) => [name, values[0] ?? '']),
-  );
-  return {
-    slots: Object.fromEntries(slots),
-    turn: {
-      ...(path === undefined ? {} : { path }),
-      ...(declared ? { conditions } : {}),
-    },
-  };
-}
-
 /** Where a probe runs: a host or a live agent calls the tool, any other takes a turn. */
 function probeStream(run: {
   scope: Awaited<ReturnType<typeof writtenScope>>['scope'];
@@ -841,15 +814,10 @@ function probeStream(run: {
   if (run.definition.type === 'host' || run.definition.type === 'live') {
     return scope.invokeTool({ profile: profile.id, ...hostCall(probe), signal, onAgentCall }, sink);
   }
-  const stated = statedByFirstValues(run.definition);
   return scope.runTurn(
     {
       profile: profile.id,
-      input: {
-        ...turnInput(probe),
-        ...(Object.keys(stated.slots).length ? { slots: stated.slots } : {}),
-      },
-      ...stated.turn,
+      input: turnInput(probe),
       ...(probe.boundary === 'system' ? { system: probe.text } : {}),
       signal,
       onAgentCall,

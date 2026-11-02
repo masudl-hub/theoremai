@@ -171,6 +171,7 @@ export {
 } from './registry/catalog.ts';
 export type { KernelRegistry } from './registry/kernel-registry.ts';
 export { createKernelRegistry } from './registry/kernel-registry.ts';
+export { optionsProblem, optionValues } from './registry/options.ts';
 export type {
   DecisionProfileDefinition,
   EmbeddingProfileDefinition,
@@ -188,12 +189,6 @@ export { createProfileRegistry, defineProfile } from './registry/profiles.ts';
 export { projectProfileObject, requireModelProfile } from './registry/resolve.ts';
 export type { SchemaRegistry } from './registry/schemas.ts';
 export { createSchemaRegistry } from './registry/schemas.ts';
-export {
-  normalizeProfileInputsSlots,
-  normalizeSlotDecl,
-  normalizeSlots,
-  slotValues,
-} from './registry/slots.ts';
 export { resolveTurnSystemPrompt } from './registry/system-prompt.ts';
 export type { CredentialContext, CredentialResolver, KeyCredential } from './registry/vault.ts';
 export type {

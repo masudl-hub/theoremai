@@ -3069,7 +3069,7 @@ function PreviewBody({
   /** Why the project's server does not run this profile: its files say, not the editor. */
   const unserved = useProject()?.problems.find((problem) => problem.profile === profileId);
   const pageInputs = useMemo(() => (payload ? pageInputsOf(payload) : null), [payload]);
-  const [pageValues] = usePageValues(chatWith);
+  const [pageValues, setPageValues] = usePageValues(chatWith);
   const sent = useMemo(() => sentPageValues(pageInputs, pageValues), [pageInputs, pageValues]);
   const statedOf = useCallback(
     (of: StudioRunPayload) => sentPageValues(pageInputsOf(of), pageValues).stated,
@@ -3090,7 +3090,10 @@ function PreviewBody({
               if (ref) saveConversation(run.chatKey, run.sealer, ref);
               else clearConversation(run.chatKey);
             },
-            slots: sent.slots,
+            options: sent.options,
+            onOptionsChange: (options: Record<string, string>) => {
+              setPageValues({ ...pageValues, options: { ...pageValues.options, ...options } });
+            },
             statedOf,
             context: sent.context,
             tested,
@@ -3160,7 +3163,8 @@ type KeptRun = {
     | 'conversationView'
     | 'initialText'
     | 'onConversationChange'
-    | 'slots'
+    | 'options'
+    | 'onOptionsChange'
     | 'statedOf'
     | 'context'
     | 'tested'

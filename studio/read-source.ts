@@ -31,7 +31,6 @@ import {
 } from '@theoremjs/agents/schema';
 import { canonical } from './canonical.ts';
 import {
-  type ConditionDraft,
   createBlankDraft,
   type DecisionImageDraft,
   type DecisionQuestionDraft,
@@ -43,8 +42,8 @@ import {
   INLINE_LABELS,
   MODEL_LIMITS,
   type ModelBindingDraft,
+  type OptionDraft,
   type PatternDraft,
-  type SlotDraft,
   STUDIO_PROFILE_TYPES,
   type StudioDraft,
   type StudioProfileType,
@@ -667,17 +666,31 @@ function promptText(value: unknown): string {
   return texts.join('\n\n');
 }
 
-/** Conditions as the draft holds them: a row each, keeping the row of a name it already has. */
-function conditionRows(value: unknown, current: readonly ConditionDraft[]): ConditionDraft[] {
-  if (value === undefined) return [];
-  const srcMessage = 'Conditions have to be lists of values.';
-  if (!isRecord(value)) throw new ReadFail(srcMessage, 1, 1);
-  return Object.entries(value).map(([name, values]) => {
-    if (!Array.isArray(values)) throw new ReadFail(srcMessage, 1, 1);
+/** A file's options as rows, each keeping the key the row of its name had. */
+function optionRows(
+  value: unknown,
+  isShownInChat: boolean,
+  current: readonly OptionDraft[],
+): OptionDraft[] {
+  const byName = new Map(current.map((option) => [option.name, option]));
+  return Object.entries(record(value) ?? {}).map(([name, decl]) => {
+    const previous = byName.get(name);
+    const option = record(decl);
+    const entries: unknown[] = Array.isArray(option?.choices) ? option.choices : [];
+    const choices = entries.map((entry, index) => {
+      const choice = record(entry);
+      return {
+        key: previous?.choices[index]?.key ?? draftKey('choice'),
+        value: text(choice?.value),
+        description: text(choice?.description),
+      };
+    });
     return {
-      key: current.find((row) => row.name === name)?.key ?? draftKey('condition'),
+      key: previous?.key ?? draftKey('option'),
       name,
-      values: values.map((each) => text(each)),
+      label: text(option?.label),
+      isShownInChat,
+      choices,
     };
   });
 }
@@ -1155,7 +1168,10 @@ function identityOf(
     profileType: type,
     handle: text(identity.handle),
     system: promptText(identity.system),
-    conditions: conditionRows(identity.conditions, current.conditions),
+    options: [
+      ...optionRows(identity.options, false, current.options),
+      ...optionRows(record(profile.inputs)?.options, true, current.options),
+    ],
   };
 }
 
@@ -1187,33 +1203,7 @@ function limitsByMimeOf(value: unknown): Record<string, number> {
   );
 }
 
-/** A file's slots as rows, each keeping the key the slot of its name had. */
-function slotsOf(value: unknown, current: readonly SlotDraft[]): SlotDraft[] {
-  const byName = new Map(current.map((slot) => [slot.name, slot]));
-  return Object.entries(record(value) ?? {}).map(([name, decl]) => {
-    const previous = byName.get(name);
-    const rich = record(decl);
-    const entries: unknown[] = Array.isArray(decl)
-      ? decl
-      : Array.isArray(rich?.choices)
-        ? rich.choices
-        : [];
-    const choices = entries.map((entry, index) => {
-      const choice = record(entry);
-      return {
-        key: previous?.choices[index]?.key ?? draftKey('choice'),
-        value: choice ? text(choice.value) : text(entry),
-        description: text(choice?.description),
-      };
-    });
-    return { key: previous?.key ?? draftKey('slot'), name, label: text(rich?.label), choices };
-  });
-}
-
-function inputsOf(
-  inputs: Record<string, unknown>,
-  current: StudioDraft['inputs'],
-): StudioDraft['inputs'] {
+function inputsOf(inputs: Record<string, unknown>): StudioDraft['inputs'] {
   const context = record(inputs.context);
   return {
     text: inputs.text !== false,
@@ -1223,7 +1213,6 @@ function inputsOf(
     maxBytes: whole(inputs.maxBytes),
     maxTurnBytes: whole(inputs.maxTurnBytes),
     limitsByMime: limitsByMimeOf(inputs.limitsByMime),
-    slots: slotsOf(inputs.slots, current.slots),
     contextFrom: strings(context?.from).filter(isContextSender),
     contextMaxChars: whole(context?.maxChars),
   };
@@ -1260,7 +1249,7 @@ function outputsOf(
     mode: schemaId ? 'structured' : 'text',
     schemaId,
     schemaJson: jsonText(structured?.spec.jsonSchema),
-    ...(picks ? { bySlot: { slot: text(picks.by), shapes } } : {}),
+    ...(picks ? { byOption: { option: text(picks.by), shapes } } : {}),
     streamMode: text(streaming?.mode) as StudioDraft['outputs']['streamMode'],
     streamThoughts: streaming?.streamThoughts !== false,
     validationEnabled: validation !== undefined,
@@ -1441,7 +1430,7 @@ function draftFrom(
     ),
     tools: { t2Loader: text(tools.t2Loader), parallel: tools.parallel === true },
     toolSpecs: [],
-    inputs: inputs && type !== 'decision' ? inputsOf(inputs, current.inputs) : current.inputs,
+    inputs: inputs && type !== 'decision' ? inputsOf(inputs) : current.inputs,
     outputs:
       outputs || parsed.structures.length ? outputsOf(outputs, parsed.structures) : current.outputs,
     turnBehaviour: section(profile.turnBehaviour, turnOf, current.turnBehaviour),

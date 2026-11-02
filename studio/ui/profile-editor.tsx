@@ -173,7 +173,6 @@ import {
   agentToolTarget,
   bindingSlots,
   COMPACTION_DRAFT_DEFAULTS,
-  type ConditionDraft,
   canSize,
   type DecisionDraft,
   type DecisionImageDraft,
@@ -183,7 +182,6 @@ import {
   defaultModelRequired,
   definitionOf,
   draftAllows,
-  draftConditions,
   draftKey,
   expandAccept,
   GOOGLE_BUILTIN_TOOLS,
@@ -214,23 +212,23 @@ import {
   type ModelBindingDraft,
   modelRoute,
   modelSlots,
-  newCondition,
   newCriteria,
   newCriterion,
   newDecisionImage,
   newDecisionQuestion,
   newModelBinding,
+  newOption,
   newOwnDetector,
   newPattern,
-  newSlot,
-  newSlotChoice,
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
+  type OptionDraft,
   type OutputsDraft,
   type OwnDetectorDraft,
   onStudioLocal,
   optionAt,
+  optionChoices,
   type PatternDraft,
   type PatternSourceDraft,
   PROFILE_LABEL_KEYS,
@@ -238,8 +236,6 @@ import {
   plantsCanary,
   protocolOptionFields,
   removeModelBinding,
-  type SlotChoiceDraft,
-  type SlotDraft,
   STUDIO_TRACE_DESTINATION,
   type StudioDraft,
   type StudioIssue,
@@ -303,12 +299,7 @@ import {
   type WorkspaceAgent,
   WorkspaceContext,
 } from './inspector-context.ts';
-import {
-  CONTEXT_PLACEHOLDER,
-  contextErrorOf,
-  draftSlots,
-  usePageValues,
-} from './lib/studio-page.ts';
+import { CONTEXT_PLACEHOLDER, contextErrorOf, usePageValues } from './lib/studio-page.ts';
 import { useProject } from './lib/studio-project.ts';
 import {
   setToolCredential,
@@ -499,18 +490,20 @@ function withNewSections(before: StudioDraft, after: StudioDraft): StudioDraft {
 
 function SystemPromptSection({
   identity,
+  canShowOptions,
   set,
 }: {
   identity: StudioDraft['identity'];
+  canShowOptions: boolean;
   set: SetSection<'identity'>;
 }) {
   return (
     <InspectorSection title="System prompt" hint={SECTION_HINTS.system}>
-      <ConditionRows identity={identity} set={set} />
+      <OptionRows identity={identity} canShow={canShowOptions} set={set} />
       <Suspense fallback={null}>
         <PromptRow
           value={identity.system}
-          conditions={identity.conditions}
+          options={identity.options}
           rows={PROMPT_ROWS}
           placeholder={fieldMeta('identity.system')?.unset}
           onChange={(system) => {
@@ -522,124 +515,184 @@ function SystemPromptSection({
   );
 }
 
-/** The value a condition states: the page's pick while the condition still takes it, or its first. */
-const statedValue = (allowed: readonly string[] | undefined, picked: string | undefined) =>
-  allowed?.find((value) => value === picked) ?? allowed?.[0];
+/** The value an option states: the page's pick while the option still takes it, or its first. */
+const statedValue = (option: OptionDraft, picked: string | undefined) => {
+  const values = option.choices.map(({ value }) => value);
+  return values.find((value) => value === picked) ?? values[0];
+};
 
 const VALUE_HINT = {
   marked: 'The studio states this value.',
   other: 'Press to state this value.',
 };
 
-/** One condition on one row: its name, the values it takes with the one the chat states marked, and its remove button. */
-function ConditionRow({
-  condition,
+/** What a person reads of a shown option: its label and a line on each value. */
+function OptionShownRows({
+  option,
+  onChange,
+}: {
+  option: OptionDraft;
+  onChange: (change: Partial<OptionDraft>) => void;
+}) {
+  return (
+    <>
+      <TextRow
+        label="Label"
+        path="inputs.options.*.label"
+        value={option.label}
+        placeholder={option.name.trim() || undefined}
+        onChange={(label) => {
+          onChange({ label });
+        }}
+      />
+      {option.choices.map((choice) => (
+        <TextRow
+          key={choice.key}
+          label={choice.value}
+          path="inputs.options.*.choices.*.description"
+          value={choice.description}
+          placeholder="What the page says of it"
+          onChange={(description) => {
+            onChange({
+              choices: option.choices.map((each) =>
+                each.key === choice.key ? { ...each, description } : each,
+              ),
+            });
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
+/** One option on one row: its name, its values with the one the chat states marked, whether a person picks it, and its remove button. */
+function OptionRow({
+  option,
   at,
+  canShow,
   stated,
   onState,
   onChange,
   onRemove,
 }: {
-  condition: ConditionDraft;
+  option: OptionDraft;
   at: number;
+  canShow: boolean;
   stated: string | undefined;
   onState: (value: string) => void;
-  onChange: (change: Partial<ConditionDraft>) => void;
+  onChange: (change: Partial<OptionDraft>) => void;
   onRemove: () => void;
 }) {
-  const status = useFieldStatus()('conditions', at);
-  const row = `Condition ${String(at + 1)}`;
+  const status = useFieldStatus()('options', at);
+  const row = `Option ${String(at + 1)}`;
   return (
-    <HStack gap={1} vAlign="start" className="condition-row">
-      <StackItem size="static">
-        <HStack width={LABEL_COLUMN}>
-          <StackItem size="fill">
-            <TextInput
-              label={`${row} name`}
-              isLabelHidden
-              size="sm"
-              status={status}
-              value={condition.name}
-              placeholder="plan"
-              onChange={(name) => {
-                onChange({ name });
-              }}
-            />
-          </StackItem>
-        </HStack>
-      </StackItem>
-      <StackItem size="fill">
-        <NamesInput
-          label={`${row} values`}
-          value={condition.values}
-          placeholder="free"
-          overflow="none"
-          marked={stated}
-          onMark={onState}
-          markHint={VALUE_HINT}
-          onChange={(values) => {
-            onChange({ values });
+    <VStack gap={1}>
+      <HStack gap={1} vAlign="start" className="option-row">
+        <StackItem size="static">
+          <HStack width={LABEL_COLUMN}>
+            <StackItem size="fill">
+              <TextInput
+                label={`${row} name`}
+                isLabelHidden
+                size="sm"
+                status={status}
+                value={option.name}
+                placeholder="plan"
+                onChange={(name) => {
+                  onChange({ name });
+                }}
+              />
+            </StackItem>
+          </HStack>
+        </StackItem>
+        <StackItem size="fill">
+          <NamesInput
+            label={`${row} values`}
+            value={option.choices.map(({ value }) => value)}
+            placeholder="free"
+            overflow="none"
+            marked={stated}
+            onMark={onState}
+            markHint={VALUE_HINT}
+            onChange={(values) => {
+              onChange({ choices: optionChoices(values, option.choices) });
+            }}
+          />
+        </StackItem>
+        <IconButton
+          label={`Remove ${row.toLowerCase()}`}
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon={IconX} size="sm" />}
+          onClick={onRemove}
+        />
+      </HStack>
+      {canShow && (
+        <SwitchRow
+          label="Shown in chat"
+          path="inputs.options"
+          field="options"
+          value={option.isShownInChat}
+          onChange={(isShownInChat) => {
+            onChange({ isShownInChat });
           }}
         />
-      </StackItem>
-      <IconButton
-        label={`Remove ${row.toLowerCase()}`}
-        variant="ghost"
-        size="sm"
-        icon={<Icon icon={IconX} size="sm" />}
-        onClick={onRemove}
-      />
-    </HStack>
+      )}
+      {option.isShownInChat && <OptionShownRows option={option} onChange={onChange} />}
+    </VStack>
   );
 }
 
-/** Every condition, one to a row. The value marked on each is the one the page states, kept in this tab. */
-function ConditionRows({
+/** Every option, one to a row. The value marked on each is the one the page states, kept in this tab. */
+function OptionRows({
   identity,
+  canShow,
   set,
 }: {
   identity: StudioDraft['identity'];
+  canShow: boolean;
   set: SetSection<'identity'>;
 }) {
-  const { conditions } = identity;
+  const { options } = identity;
   const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
-  const named = draftConditions(conditions);
   return (
-    <WideRow label="Conditions" path="identity.conditions" isRequired={false} hasIssue={false}>
-      <OwnField path="identity.conditions">
-        {conditions.map((condition, at) => (
-          <ConditionRow
-            key={condition.key}
-            condition={condition}
-            at={at}
-            stated={statedValue(named[condition.name], values.conditions[condition.name])}
-            onState={(value) => {
-              setValues({
-                ...values,
-                conditions: { ...values.conditions, [condition.name]: value },
-              });
-            }}
-            onChange={(change) => {
-              set({
-                conditions: conditions.map((each) =>
-                  each.key === condition.key ? { ...each, ...change } : each,
-                ),
-              });
-            }}
-            onRemove={() => {
-              set({ conditions: conditions.filter((each) => each.key !== condition.key) });
-            }}
-          />
+    <WideRow label="Options" path="identity.options" isRequired={false} hasIssue={false}>
+      <OwnField path="identity.options">
+        {options.map((option, at) => (
+          <OwnField
+            key={option.key}
+            path={option.isShownInChat ? 'inputs.options' : 'identity.options'}
+          >
+            <OptionRow
+              option={option}
+              at={at}
+              canShow={canShow}
+              stated={statedValue(option, values.options[option.name])}
+              onState={(value) => {
+                setValues({ ...values, options: { ...values.options, [option.name]: value } });
+              }}
+              onChange={(change) => {
+                set({
+                  options: options.map((each) =>
+                    each.key === option.key ? { ...each, ...change } : each,
+                  ),
+                });
+              }}
+              onRemove={() => {
+                set({ options: options.filter((each) => each.key !== option.key) });
+              }}
+            />
+          </OwnField>
         ))}
         <HStack>
           <Button
-            label="Add condition"
-            tooltip="A fact each turn states, which lines of the prompt can depend on"
+            label="Add option"
+            tooltip="A named value that lines of the prompt can read and print"
             variant="ghost"
             size="sm"
             icon={<Icon icon={IconPlus} size="sm" />}
             onClick={() => {
-              set({ conditions: [...conditions, newCondition()] });
+              set({ options: [...options, newOption()] });
             }}
           />
         </HStack>
@@ -695,7 +748,13 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
       {identity.profileType !== 'speech' &&
         identity.profileType !== 'transcription' &&
         identity.profileType !== 'decision' &&
-        identity.profileType !== 'host' && <SystemPromptSection identity={identity} set={set} />}
+        identity.profileType !== 'host' && (
+          <SystemPromptSection
+            identity={identity}
+            canShowOptions={draftAllows(draft, 'inputs.options')}
+            set={set}
+          />
+        )}
     </>
   );
 }
@@ -2249,224 +2308,6 @@ function ContextPreviewRow() {
   );
 }
 
-/** The value the studio's page sends for each slot declared so far. Kept in this tab. */
-function SlotPreviewRows({ slots }: { slots: readonly SlotDraft[] }) {
-  const [values, setValues] = usePageValues(useContext(WorkspaceContext)?.self ?? '');
-  return draftSlots(slots).map(({ name, label, values: allowed }) => (
-    <ChoiceRow
-      key={name}
-      label={label}
-      path="inputs.slots"
-      isRequired
-      value={allowed.find((value) => value === values.slots[name]) ?? allowed[0]}
-      options={allowed}
-      onChange={(next) => {
-        if (next) setValues({ ...values, slots: { ...values.slots, [name]: next } });
-      }}
-    />
-  ));
-}
-
-/** One of a slot's choices: the value a turn sends, what the page says of it, and a remove button. */
-function SlotChoiceRow({
-  choice,
-  at,
-  onChange,
-  onRemove,
-}: {
-  choice: SlotChoiceDraft;
-  at: number;
-  onChange: (change: Partial<SlotChoiceDraft>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <HStack gap={1} vAlign="center">
-      <div className="criterion-label">
-        <TextInput
-          label={`Choice ${String(at + 1)} value`}
-          isLabelHidden
-          size="sm"
-          value={choice.value}
-          placeholder="value"
-          onChange={(value) => {
-            onChange({ value });
-          }}
-        />
-      </div>
-      <StackItem size="fill">
-        <TextInput
-          label={`Choice ${String(at + 1)} description`}
-          isLabelHidden
-          size="sm"
-          value={choice.description}
-          placeholder="What the page says of it"
-          onChange={(description) => {
-            onChange({ description });
-          }}
-        />
-      </StackItem>
-      <IconButton
-        label={`Remove choice ${String(at + 1)}`}
-        variant="ghost"
-        size="sm"
-        icon={<Icon icon={IconX} size="sm" />}
-        onClick={onRemove}
-      />
-    </HStack>
-  );
-}
-
-/** A head over a slot's choices, with its field's description on hover. */
-function SlotChoiceHead({ title, doc }: { title: string; doc: string | undefined }) {
-  return (
-    <Tooltip content={doc} hasHoverIndication={false}>
-      <Text type="supporting" color="secondary">
-        {title}
-      </Text>
-    </Tooltip>
-  );
-}
-
-function SlotChoiceHeads() {
-  return (
-    <HStack gap={1}>
-      <div className="criterion-label">
-        <SlotChoiceHead title="Value" doc={fieldMeta('inputs.slots.*.choices.*.value')?.doc} />
-      </div>
-      <StackItem size="fill">
-        <SlotChoiceHead
-          title="Description"
-          doc={fieldMeta('inputs.slots.*.choices.*.description')?.doc}
-        />
-      </StackItem>
-    </HStack>
-  );
-}
-
-/** One slot: its name, its label, its choices, and the buttons that add a choice and remove it. */
-function SlotSection({
-  slot,
-  at,
-  onChange,
-  onRemove,
-}: {
-  slot: SlotDraft;
-  at: number;
-  onChange: (change: Partial<SlotDraft>) => void;
-  onRemove: () => void;
-}) {
-  const status = useFieldStatus()('slots', at);
-  const name = slot.name.trim() || `Slot ${String(at + 1)}`;
-  const setChoice = (key: string, change: Partial<SlotChoiceDraft>) => {
-    onChange({
-      choices: slot.choices.map((choice) =>
-        choice.key === key ? { ...choice, ...change } : choice,
-      ),
-    });
-  };
-  return (
-    <InspectorSection title={slot.label.trim() || name} path="inputs.slots.*">
-      <TextRow
-        label="Name"
-        path="inputs.slots.*"
-        status={status}
-        value={slot.name}
-        placeholder="language"
-        onChange={(next) => {
-          onChange({ name: next });
-        }}
-      />
-      <TextRow
-        label="Label"
-        path="inputs.slots.*.label"
-        value={slot.label}
-        placeholder={slot.name.trim() || undefined}
-        onChange={(label) => {
-          onChange({ label });
-        }}
-      />
-      <VStack gap={1}>
-        <Tooltip content={fieldMeta('inputs.slots.*.choices')?.doc} hasHoverIndication={false}>
-          <Text type="label" weight="semibold">
-            Choices
-          </Text>
-        </Tooltip>
-        <SlotChoiceHeads />
-        {slot.choices.map((choice, index) => (
-          <SlotChoiceRow
-            key={choice.key}
-            choice={choice}
-            at={index}
-            onChange={(change) => {
-              setChoice(choice.key, change);
-            }}
-            onRemove={() => {
-              onChange({ choices: slot.choices.filter((each) => each.key !== choice.key) });
-            }}
-          />
-        ))}
-      </VStack>
-      <HStack gap={1}>
-        <Button
-          label="Add choice"
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={IconPlus} size="sm" />}
-          onClick={() => {
-            onChange({ choices: [...slot.choices, newSlotChoice()] });
-          }}
-        />
-        <Button
-          label={`Remove ${name}`}
-          variant="ghost"
-          size="sm"
-          icon={<Icon icon={IconTrash} size="sm" />}
-          onClick={onRemove}
-        />
-      </HStack>
-    </InspectorSection>
-  );
-}
-
-/** Every slot, each in its own section, and the page's pick for each above them. */
-function InputSlotsSections({ inputs, set }: InputsSectionProps) {
-  const { slots } = inputs;
-  const setSlot = (key: string, change: Partial<SlotDraft>) => {
-    set({ slots: slots.map((slot) => (slot.key === key ? { ...slot, ...change } : slot)) });
-  };
-  return (
-    <>
-      <InspectorSection path="inputs.slots" note={sectionNote('slots')}>
-        <SlotPreviewRows slots={slots} />
-        <HStack>
-          <Button
-            label="Add slot"
-            variant="ghost"
-            size="sm"
-            icon={<Icon icon={IconPlus} size="sm" />}
-            onClick={() => {
-              set({ slots: [...slots, newSlot(slots)] });
-            }}
-          />
-        </HStack>
-      </InspectorSection>
-      {slots.map((slot, at) => (
-        <SlotSection
-          key={slot.key}
-          slot={slot}
-          at={at}
-          onChange={(change) => {
-            setSlot(slot.key, change);
-          }}
-          onRemove={() => {
-            set({ slots: slots.filter((each) => each.key !== slot.key) });
-          }}
-        />
-      ))}
-    </>
-  );
-}
-
 function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDraft }) {
   const { inputs } = draft;
   const set = patch(setDraft, 'inputs');
@@ -2486,7 +2327,6 @@ function InputsEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: SetDr
       )}
       {draftAllows(draft, 'inputs.maxFiles') && <InputLimitsSection inputs={inputs} set={set} />}
       {draftAllows(draft, 'inputs.context') && <InputContextSection inputs={inputs} set={set} />}
-      {draftAllows(draft, 'inputs.slots') && <InputSlotsSections inputs={inputs} set={set} />}
     </>
   );
 }

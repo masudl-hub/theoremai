@@ -44,31 +44,33 @@ const thinker = compileStudio(
 assert(thinker.ok && thinker.structured);
 registerStructured(thinker.structured.id, thinker.structured.spec);
 registerProfile(thinker.profile);
-// An agent whose reply takes the shape a slot picks.
+// An agent whose reply takes the shape an option picks.
 const SHORT = { type: 'object', properties: { line: { type: 'string' } }, required: ['line'] };
 const shaper = compileStudio(
   {
     ...example,
-    identity: { ...example.identity, agentId: 'open-shaper', handle: 'shaper' },
-    included: [...example.included, 'inputs', 'outputs'],
-    inputs: {
-      ...example.inputs,
-      slots: [
+    identity: {
+      ...example.identity,
+      agentId: 'open-shaper',
+      handle: 'shaper',
+      options: [
         {
-          key: 'slot-length',
+          key: 'option-length',
           name: 'length',
           label: '',
+          isShownInChat: true,
           choices: [{ key: 'choice-short', value: 'short', description: '' }],
         },
       ],
     },
+    included: [...example.included, 'inputs', 'outputs'],
     outputs: {
       ...example.outputs,
       mode: 'structured',
       schemaId: 'open.full',
       schemaJson: JSON.stringify(SCHEMA),
-      bySlot: {
-        slot: 'length',
+      byOption: {
+        option: 'length',
         shapes: [{ choice: 'short', schemaId: 'open.short', schemaJson: JSON.stringify(SHORT) }],
       },
     },
@@ -146,14 +148,14 @@ Deno.test('a project opens with the schema its replies take and the agent each a
   assertEquals(compiled.ok ? [] : compiled.issues.map((issue) => issue.message), []);
 });
 
-Deno.test('a project opens with each shape a slot picks, not only the fallback', async () => {
+Deno.test('a project opens with each shape an option picks, not only the fallback', async () => {
   const request = new Request(`http://${HOST}/api/studio`, { headers: { host: HOST } });
   const { workspace }: StudioDescription = await (await handler(request)).json();
   const agent = workspace.agents.find((held) => held.identity.agentId === 'open-shaper');
   assert(agent);
   assertEquals(JSON.parse(agent.outputs.schemaJson), SCHEMA);
-  const [shape] = agent.outputs.bySlot?.shapes ?? [];
-  assertEquals(agent.outputs.bySlot?.slot, 'length');
+  const [shape] = agent.outputs.byOption?.shapes ?? [];
+  assertEquals(agent.outputs.byOption?.option, 'length');
   assertEquals([shape?.choice, shape?.schemaId], ['short', 'open.short']);
   assertEquals(JSON.parse(shape?.schemaJson ?? 'null'), SHORT);
 });

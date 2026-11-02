@@ -14,8 +14,8 @@ import {
   includeFacet,
   newOwnDetector,
   newPattern,
+  type OptionDraft,
   type OwnDetectorDraft,
-  type SlotDraft,
   type StudioDraft,
   setProfileType,
   type ToolSpecDraft,
@@ -468,14 +468,15 @@ function defaultTextModelBindings(): StudioDraft['modelBindings'] {
 
 /** A text agent on the studio's models, with the example's inputs and guardrails. */
 function exampleTextDraft(
-  identity: Pick<StudioDraft['identity'], 'agentId' | 'handle' | 'system'>,
+  identity: Pick<StudioDraft['identity'], 'agentId' | 'handle' | 'system'> &
+    Partial<Pick<StudioDraft['identity'], 'options'>>,
   tools: Pick<StudioDraft, 'tools' | 'toolSpecs'>,
 ): StudioDraft {
   const blank = createBlankDraft();
   const inputs = demoInputsSpec();
   return {
     ...blank,
-    identity: { ...identity, profileType: 'text', conditions: [] },
+    identity: { options: [], ...identity, profileType: 'text' },
     included: ['outputs', 'turnBehaviour', 'guardrails', 'observability', 'labels'],
     models: { defaultModel: 'open', allowModelSelect: true, maxSteps: 12, key: 'gemini' },
     modelBindings: defaultTextModelBindings(),
@@ -488,7 +489,6 @@ function exampleTextDraft(
       maxBytes: inputs.maxBytes,
       maxTurnBytes: inputs.maxTurnBytes,
       limitsByMime: {},
-      slots: [],
       contextFrom: [],
       contextMaxChars: null,
     },
@@ -650,6 +650,10 @@ export function createResearchScoutDraft(): StudioDraft {
       agentId: 'research.scout',
       handle: 'scout',
       system: [DEMO_RESEARCH_SYSTEM, ...RESEARCH_READER_LINES].join('\n\n'),
+      options: [
+        researchOption('focus', 'Focus', [RESEARCH_MODELS_FOCUS, 'arXiv', 'GitHub', 'Anywhere']),
+        researchOption('reader', 'Reader', ['anyone', 'reviewer', 'student']),
+      ],
     },
     { tools: { t2Loader: '', parallel: true }, toolSpecs: exampleTools(DEMO_RESEARCH_TOOLS) },
   );
@@ -663,7 +667,6 @@ export function createResearchScoutDraft(): StudioDraft {
       maxFiles: null,
       maxBytes: null,
       maxTurnBytes: null,
-      slots: [researchFocusSlot(), researchReaderSlot()],
     },
     models: {
       defaultModel: 'open',
@@ -716,8 +719,8 @@ export function createResearchScoutDraft(): StudioDraft {
       mode: 'structured',
       schemaId: RESEARCH_REPLY_SCHEMA_ID,
       schemaJson: RESEARCH_REPLY_SCHEMA_JSON,
-      bySlot: {
-        slot: 'focus',
+      byOption: {
+        option: 'focus',
         shapes: [
           {
             choice: RESEARCH_MODELS_FOCUS,
@@ -752,31 +755,14 @@ const RESEARCH_READER_LINES = [
 /** The focus that answers in `research.models`. */
 const RESEARCH_MODELS_FOCUS = 'Hugging Face Open Research';
 
-/** Where a turn looks first. */
-function researchFocusSlot(): SlotDraft {
+/** A shown option with these values. */
+function researchOption(name: string, label: string, values: readonly string[]): OptionDraft {
   return {
-    key: draftKey('slot'),
-    name: 'focus',
-    label: 'Focus',
-    choices: [RESEARCH_MODELS_FOCUS, 'arXiv', 'GitHub', 'Anywhere'].map((value) => ({
-      key: draftKey('choice'),
-      value,
-      description: '',
-    })),
-  };
-}
-
-/** Who the scout writes for, which picks its lines in `RESEARCH_READER_LINES`. */
-function researchReaderSlot(): SlotDraft {
-  return {
-    key: draftKey('slot'),
-    name: 'reader',
-    label: 'Reader',
-    choices: ['anyone', 'reviewer', 'student'].map((value) => ({
-      key: draftKey('choice'),
-      value,
-      description: '',
-    })),
+    key: draftKey('option'),
+    name,
+    label,
+    isShownInChat: true,
+    choices: values.map((value) => ({ key: draftKey('choice'), value, description: '' })),
   };
 }
 

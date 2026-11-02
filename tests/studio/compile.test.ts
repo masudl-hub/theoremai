@@ -11,7 +11,6 @@ import { MASK } from '../../src/surface/mod.ts';
 import { ON_OWN_KEYS, type StudioRunsOn } from '../../studio/lent-keys.ts';
 import {
   COMPACTION_DRAFT_DEFAULTS,
-  type ConditionDraft,
   compileStudio,
   createBlankDraft,
   createExampleDraft,
@@ -27,8 +26,8 @@ import {
   newOwnDetector,
   newPattern,
   newToolSpec,
+  type OptionDraft,
   removeModelBinding,
-  type SlotDraft,
   type StudioCompileResult,
   type StudioDraft,
   setProfileType,
@@ -68,14 +67,27 @@ Deno.test('removing the default binding clears the default and leaves model sele
 });
 /** A turn draft's compile; decision and host drafts have their own tests. */
 /** A slot row with a choice per value, none described. */
-function slotRow(name: string, values: string[], label = ''): SlotDraft {
+function optionRow(
+  name: string,
+  values: string[],
+  { label = '', isShownInChat = true }: { label?: string; isShownInChat?: boolean } = {},
+): OptionDraft {
   return {
-    key: `slot-${name}`,
+    key: `option-${name}`,
     name,
     label,
+    isShownInChat,
     choices: values.map((value) => ({ key: `choice-${value}`, value, description: '' })),
   };
 }
+const withOptions = (
+  draft: StudioDraft,
+  options: OptionDraft[],
+  system = draft.identity.system,
+) => ({
+  ...draft,
+  identity: { ...draft.identity, options, system },
+});
 
 function compiled(draft: StudioDraft) {
   const result = compileStudio(draft, ON_OWN_KEYS);
@@ -1279,92 +1291,82 @@ Deno.test('an image draft pins references and output settings, and reports what 
     ],
   );
 });
-Deno.test('slots and limits by type compile from their fields', () => {
+Deno.test('limits by type compile from their fields', () => {
   const draft = createExampleDraft();
   const { profile } = compiled({
     ...draft,
-    inputs: {
-      ...draft.inputs,
-      limitsByMime: { 'application/pdf': 2000000 },
-      slots: [slotRow('language', ['en', 'fr'])],
-    },
+    inputs: { ...draft.inputs, limitsByMime: { 'application/pdf': 2000000 } },
   });
   assert(profile.type === 'text');
   assertEquals(profile.inputs?.limitsByMime, { 'application/pdf': 2000000 });
-  assertEquals(profile.inputs?.slots, { language: ['en', 'fr'] });
   const bad = compileStudio(
-    {
-      ...draft,
-      inputs: {
-        ...draft.inputs,
-        limitsByMime: { 'image/*': 0 },
-        slots: [slotRow('language', [])],
-      },
-    },
+    { ...draft, inputs: { ...draft.inputs, limitsByMime: { 'image/*': 0 } } },
     ON_OWN_KEYS,
   );
   assert(!bad.ok);
-  assertEquals(bad.issues.map((issue) => issue.field).sort(), ['limitsByMime', 'slots']);
+  assertEquals(
+    bad.issues.map((issue) => issue.field),
+    ['limitsByMime'],
+  );
 });
-Deno.test('a slot with a label or a described choice compiles to its labeled form', () => {
+Deno.test('an option goes on inputs when shown in chat, and on identity when not', () => {
   const draft = createExampleDraft();
-  const tone = slotRow('tone', ['plain', 'warm', ''], 'Tone');
-  const { profile } = compiled({
-    ...draft,
-    inputs: {
-      ...draft.inputs,
-      slots: [
-        tone,
-        {
-          ...slotRow('size', ['s', 'm']),
-          choices: [
-            { key: 'c1', value: ' s ', description: 'Small' },
-            { key: 'c2', value: 'm', description: '' },
-          ],
-        },
-      ],
-    },
-  });
+  const { profile } = compiled(
+    withOptions(draft, [
+      optionRow('plan', ['free', 'paid'], { isShownInChat: false }),
+      optionRow('language', ['en', 'fr']),
+    ]),
+  );
   assert(profile.type === 'text');
-  assertEquals(profile.inputs?.slots, {
-    tone: { label: 'Tone', choices: [{ value: 'plain' }, { value: 'warm' }] },
-    size: { choices: [{ value: 's', description: 'Small' }, { value: 'm' }] },
+  assertEquals(profile.identity.options, {
+    plan: { choices: [{ value: 'free' }, { value: 'paid' }] },
+  });
+  assertEquals(profile.inputs?.options, {
+    language: { choices: [{ value: 'en' }, { value: 'fr' }] },
   });
 });
-Deno.test('a slot without a name, a repeated name or value, or a value-less description fails on its row', () => {
+Deno.test("an option's label and its values' descriptions compile", () => {
   const draft = createExampleDraft();
-  const described = {
-    ...slotRow('size', ['s']),
-    choices: [
-      { key: 'c1', value: 's', description: '' },
-      { key: 'c2', value: '', description: 'Medium' },
-    ],
-  };
-  const result = compileStudio(
-    {
-      ...draft,
-      inputs: {
-        ...draft.inputs,
-        slots: [
-          slotRow(' ', ['a']),
-          slotRow('tone', ['plain', 'plain']),
-          slotRow('tone', ['warm']),
-          described,
+  const { profile } = compiled(
+    withOptions(draft, [
+      {
+        ...optionRow('size', [], { label: ' Size ' }),
+        choices: [
+          { key: 'c1', value: 's', description: 'Small' },
+          { key: 'c2', value: 'm', description: ' ' },
         ],
       },
-    },
+    ]),
+  );
+  assert(profile.type === 'text');
+  assertEquals(profile.inputs?.options, {
+    size: { label: 'Size', choices: [{ value: 's', description: 'Small' }, { value: 'm' }] },
+  });
+});
+Deno.test('an option without a name or a value, or with a repeated name or value, fails on its row', () => {
+  const draft = createExampleDraft();
+  const result = compileStudio(
+    withOptions(draft, [
+      optionRow(' ', ['a']),
+      optionRow('tone', ['plain', 'plain']),
+      optionRow('tone', ['warm']),
+      optionRow('size', []),
+      optionRow('', []),
+    ]),
     ON_OWN_KEYS,
   );
   assert(!result.ok);
-  const slotIssues = result.issues
-    .filter((issue) => issue.field === 'slots')
-    .map((issue) => [issue.index, issue.message]);
-  assertEquals(slotIssues, [
-    [0, 'Name this slot.'],
-    [1, 'plain is a choice twice.'],
-    [2, 'Another slot is called tone.'],
-    [3, 'Every choice with a description needs a value.'],
-  ]);
+  assertEquals(
+    result.issues
+      .filter((issue) => issue.field === 'options')
+      .map((issue) => [issue.index, issue.message]),
+    [
+      [0, 'This option needs a name.'],
+      [1, 'plain is listed twice.'],
+      [2, 'Two options are called "tone".'],
+      [3, 'This option needs a value.'],
+    ],
+  );
 });
 Deno.test('context compiles for a chat agent and a call, and needs its limit', () => {
   const draft = createExampleDraft();
@@ -1443,27 +1445,16 @@ Deno.test('the system prompt compiles its {private: sections to parts', () => {
     ],
   );
 });
-Deno.test('the prompt compiles line by line, with its conditions, and a bad line is reported', () => {
+Deno.test('the prompt compiles line by line, with its options, and a bad line is reported', () => {
   const draft = createExampleDraft();
-  const withPrompt = (conditions: ConditionDraft[], system: string) =>
-    compileStudio(
-      {
-        ...draft,
-        identity: {
-          ...draft.identity,
-          conditions,
-          system,
-        },
-      },
-      ON_OWN_KEYS,
-    );
-  const plan = (...values: string[]) => [{ key: 'plan', name: 'plan', values }];
+  const withPrompt = (options: OptionDraft[], system: string) =>
+    compileStudio(withOptions(draft, options, system), ON_OWN_KEYS);
+  const plan = (...values: string[]) => [optionRow('plan', values, { isShownInChat: false })];
   const good = withPrompt(
     plan('free', 'paid'),
     'Be brief.\n\n\nwhen plan is paid: Take your time. {private: Code 7731.\n\nKeep it.}',
   );
   assert(good.ok && good.profile.type === 'text');
-  assertEquals(good.profile.identity.conditions, { plan: ['free', 'paid'] });
   assertEquals(good.profile.identity.system, [
     'Be brief.',
     ['when plan is paid: Take your time. ', { private: 'Code 7731.\n\nKeep it.' }],
@@ -1474,26 +1465,11 @@ Deno.test('the prompt compiles line by line, with its conditions, and a bad line
     unknown.issues.map(({ nodeId, field }) => ({ nodeId, field })),
     [{ nodeId: 'identity', field: 'system' }],
   );
-  const wrongRows = (...rows: { name: string; values: string[] }[]) => {
-    const wrong = withPrompt(
-      rows.map((row, at) => ({ ...row, key: String(at) })),
-      'Be brief.',
-    );
-    assert(!wrong.ok);
-    return wrong.issues.map(({ field, index, message }) => ({ field, index, message }));
-  };
-  assertEquals(wrongRows({ name: 'plan', values: [] }), [
-    { field: 'conditions', index: 0, message: 'Condition "plan" lists no values.' },
-  ]);
-  assertEquals(wrongRows({ name: '', values: ['free'] }), [
-    { field: 'conditions', index: 0, message: 'This condition needs a name.' },
-  ]);
-  assertEquals(wrongRows({ name: 'plan', values: ['free'] }, { name: 'plan', values: ['paid'] }), [
-    { field: 'conditions', index: 1, message: 'Two conditions are called "plan".' },
-  ]);
-  const untouched = withPrompt([{ key: 'new', name: '', values: [] }], 'Be brief.');
+  const shown = withPrompt([optionRow('plan', ['free'])], 'when plan is free: Hello.');
+  assert(shown.ok);
+  const untouched = withPrompt([optionRow('', [])], 'Be brief.');
   assert(untouched.ok && untouched.profile.type === 'text');
-  assertEquals(untouched.profile.identity.conditions, undefined);
+  assertEquals(untouched.profile.identity.options, undefined);
 });
 Deno.test('prompt caching compiles on OpenRouter and is refused elsewhere', () => {
   const draft = createExampleDraft();

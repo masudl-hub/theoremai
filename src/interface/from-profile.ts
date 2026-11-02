@@ -193,7 +193,9 @@ function enrich(projected: ProjectedProfile, profile?: ModelProfile): ProfileInt
         ...shared,
         type: 'live',
         live: liveView(projected.live),
-        ...(projected.inputs ? { inputs: { slots: inputs.slots, context: inputs.context } } : {}),
+        ...(projected.inputs
+          ? { inputs: { options: inputs.options, context: inputs.context } }
+          : {}),
         tools: liveToolsView(toolsView(projected, profile)),
       });
     default: {

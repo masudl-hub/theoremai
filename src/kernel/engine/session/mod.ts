@@ -52,9 +52,9 @@ import { openRegisteredLiveSession } from '../../provider-live.ts';
 import { assertHistoryKept } from '../../provider-runtime.ts';
 import { assertTurnContext } from '../../registry/ingress.ts';
 import type { KernelRegistry } from '../../registry/kernel-registry.ts';
+import { fillOptions, turnFacts } from '../../registry/options.ts';
 import { providerCompleteRequest } from '../../registry/provider-request.ts';
 import { resolveTurnInRegistry } from '../../registry/resolve.ts';
-import { fillSlots } from '../../registry/slot-fill.ts';
 import { DEFAULT_RESUMED_AFTER_MS, type TurnStage } from '../../schema.ts';
 import {
   type InjectUnit,
@@ -269,7 +269,7 @@ function sessionSnapshotWithinAllow(
 }
 
 function toTurnRequest(req: SessionRequest): TurnRequest {
-  return { ...req, input: { text: '', history: req.history, slots: req.slots } };
+  return { ...req, input: { text: '', history: req.history, options: req.inputOptions } };
 }
 
 /**
@@ -279,16 +279,16 @@ function toTurnRequest(req: SessionRequest): TurnRequest {
 function openingPrompt(
   profile: LiveProfile,
   req: SessionRequest,
-  slots: Record<string, string> | undefined,
+  facts: Readonly<Record<string, string>>,
 ): string | undefined {
   const { greeting, resumed } = profile.live;
   if (!req.providerState && !req.history?.length) {
-    return greeting ? fillSlots(profile, greeting, slots, 'live.greeting') : undefined;
+    return greeting ? fillOptions(profile, greeting, facts) : undefined;
   }
   if (!resumed || (req.awayMs ?? 0) < (resumed.afterMs ?? DEFAULT_RESUMED_AFTER_MS)) {
     return undefined;
   }
-  return fillSlots(profile, resumed.prompt, slots, 'live.resumed.prompt');
+  return fillOptions(profile, resumed.prompt, facts);
 }
 
 /** Refuses context the profile's `inputs.context` does not take. */
@@ -1570,7 +1570,7 @@ async function openTracedSession(
     openInitialCycle: hasInitialInput,
     requestEvents,
     openingContext,
-    opening: hasInitialInput ? undefined : openingPrompt(profile, req, safe.input?.slots),
+    opening: hasInitialInput ? undefined : openingPrompt(profile, req, turnFacts(profile, safe)),
     trace,
     agents: sessionAgentCaller(registry, req, options, trace.agentCanaries),
     gateTtlMs,

@@ -18,7 +18,6 @@ import type {
 } from '../types.ts';
 import { isTurnMediaRef } from './attachments.ts';
 import { mediaKindForMime, mimeEssence, profileInputs } from './catalog.ts';
-import { slotValues } from './slots.ts';
 
 type PrimaryOutputMode = 'structured' | 'image' | 'speech';
 
@@ -206,28 +205,6 @@ function resolveInputParts(profile: Profile, req: TurnRequest): InteractionPart[
   return parts;
 }
 
-function assertTurnSlots(profile: Profile, req: TurnRequest): void {
-  const slots = req.input?.slots;
-  if (!slots) return;
-  const declared = profileInputs(profile)?.slots ?? {};
-  for (const [key, value] of Object.entries(slots)) {
-    const decl = Object.hasOwn(declared, key) ? declared[key] : undefined;
-    if (!decl) {
-      throw new TheoremError(
-        'request',
-        `Profile ${profile.id} has no slot '${key}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-    const choices = slotValues(decl);
-    if (!choices.includes(value)) {
-      throw new TheoremError(
-        'request',
-        `Profile ${profile.id}: slot '${key}' takes ${choices.join(', ')}, not '${value}'`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-      );
-    }
-  }
-}
-
 /** Refuses context from a sender the profile's `inputs.context` does not list, and a package over its `maxChars`. */
 function assertTurnContext(profile: Profile, req: TurnRequest): void {
   const context = req.input?.context;
@@ -256,7 +233,6 @@ export {
   assertSpeechRole,
   assertTranscriptionRole,
   assertTurnContext,
-  assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
   resolveSpeech,

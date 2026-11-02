@@ -26,13 +26,13 @@ const MODEL_PROFILE_TYPES: readonly ProfileType[] = [
   'embedding',
 ];
 const TURN_TYPES: readonly ProfileType[] = ['text', 'image', 'speech', 'live'];
-/** Types whose `inputs` are turn inputs (text, files, slots) rather than decision state. */
+/** Types whose `inputs` are turn inputs (text, files, options) rather than decision state. */
 const TURN_INPUT_TYPES: readonly ProfileType[] = ['text', 'image'];
 const TURN_INPUT_REASON =
   'a decision takes JSON state, live takes its input through live.ingress, and transcription takes only a clip';
-/** Types that take slots and context: the turn types, and a call. */
-const SLOT_TYPES: readonly ProfileType[] = ['text', 'image', 'live'];
-const SLOT_REASON =
+/** Types that take options and context: the turn types, and a call. */
+const OPTION_TYPES: readonly ProfileType[] = ['text', 'image', 'live'];
+const OPTION_REASON =
   'a decision takes JSON state, and transcription and embedding calls take their input alone';
 export interface ProfileFieldScope {
   profileTypes: readonly ProfileType[];
@@ -94,7 +94,7 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: MODEL_PROFILE_TYPES,
     reason: 'a host profile has no agent identity — it runs no model',
   },
-  'identity.conditions': {
+  'identity.options': {
     profileTypes: ['text', 'image', 'live'],
     reason:
       'speech has no system channel (the input text is the transcript), a decision is asked only through its questions, and an embedding call embeds its input alone',
@@ -181,21 +181,21 @@ export const PROFILE_FIELD_SCOPE: Readonly<Record<string, ProfileFieldScope>> = 
     profileTypes: [...TURN_INPUT_TYPES, 'transcription', 'embedding'],
     reason: TURN_INPUT_REASON,
   },
-  'inputs.slots': {
-    profileTypes: SLOT_TYPES,
-    reason: SLOT_REASON,
+  'inputs.options': {
+    profileTypes: OPTION_TYPES,
+    reason: OPTION_REASON,
   },
   'inputs.context': {
-    profileTypes: SLOT_TYPES,
-    reason: SLOT_REASON,
+    profileTypes: OPTION_TYPES,
+    reason: OPTION_REASON,
   },
   'inputs.state': {
     profileTypes: ['decision'],
-    reason: 'only a decision reads JSON state; a turn takes text, files, and slots',
+    reason: 'only a decision reads JSON state; a turn takes text, files, and options',
   },
   'inputs.maxStateBytes': {
     profileTypes: ['decision'],
-    reason: 'only a decision reads JSON state; a turn takes text, files, and slots',
+    reason: 'only a decision reads JSON state; a turn takes text, files, and options',
   },
   outputs: {
     profileTypes: ['text', 'image', 'speech'],

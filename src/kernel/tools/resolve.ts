@@ -175,7 +175,7 @@ export function initialBuiltins(tools: ToolRegistry, profile: Profile, gated: To
 function assertToolPathsDeclared(tools: ToolRegistry, profile: Profile): void {
   if (profile.type !== 'text' && profile.type !== 'image' && profile.type !== 'live') return;
   const allowed = profileToolAllow(profile).flatMap((id) => tools.get(id) ?? []);
-  const problem = toolPathProblem(profile.identity.conditions, allowed);
+  const problem = toolPathProblem(profile.identity.options, allowed);
   if (problem) throw new TheoremError('config', `Profile ${profile.id}: ${problem}`); // labels-exempt: developer contract error
 }
 

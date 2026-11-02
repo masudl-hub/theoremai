@@ -71,10 +71,10 @@ A `Profile` binds:
 | Block | Role |
 | --- | --- |
 | `type` | Wire archetype discriminator: `'text'`, `'image'`, `'speech'`, `'live'`, `'host'`, `'decision'`, or `'embedding'` (`PROFILE_TYPES`) |
-| `identity` | `handle`, optional `conditions` and `system` — absent on `host`; `handle` only on `speech` and `decision`. `system` is a string or a list of lines. See [Prompt lines](#prompt-lines). |
+| `identity` | `handle`, optional `options` and `system` — absent on `host`; `handle` only on `speech` and `decision`. `system` is a string or a list of lines. See [Prompt lines](#prompt-lines). |
 | `models` | Host-named `ModelBinding`s (each carries a `protocol`, a registered `provider` ID, and `apiId`), `defaultModel` (registration always sets it: the declared one, else the only key), optional `allowModelSelect`, and `maxSteps` except on `live` — absent on `host`; `decision` binds exactly one model and never selects |
 | `tools` | Allowlist ceiling (`allow: ToolId[]`) — present on `text`, `image`, `live`, `host`; absent on `speech` and `decision`. Tier loading (`t1Policy`, `t2Loader`) is declared only on `text` and `image`; `parallel` on every type that takes `tools` |
-| `inputs` | Text / attachments / voice / slots / context / per-mime limits — present on `text`, `image`; `live` takes `slots` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. Each `inputs.slots` entry is a value list or `{ label?, choices: { value, description? }[] }` (normalized at define); optional `label` / `description` are UI-only. `{name}` in `identity.system` becomes the chosen **value** for slot `name`; a prompt that uses a slot the request left unfilled is a `request` error; a `{name}` that is no slot stays as written |
+| `inputs` | Text / attachments / voice / options / context / per-mime limits — present on `text`, `image`; `live` takes `options` and `context` only, and may leave `inputs` out (its channels are `live.ingress`); absent on `speech`; `decision` carries its own `DecisionInputsSpec`, not turn inputs. Each `inputs.options` entry is `{ label?, choices: { value, description? }[] }`; optional `label` / `description` are UI-only. See [Prompt lines](#prompt-lines) |
 | `image` / `speech` / `live` | Modality-specific pins (top-level, not nested under `outputs`) |
 | `outputs` | Structured, streaming, validation — present on `text`, `image`, `speech`; absent on `live` |
 | `turnBehaviour` | `resumption` (`allowContinue`, `autoContinue`, `maxContinues`) on `text` / `image` / `speech`; `atStepLimit` on **text**; `allowSteering` on **text and live** (inject gate via `profileAllowsInject`; an inject's `released` drops the draft the user never got, and a bad one warns `inject_released_invalid`; see [`stages.md`](stages.md)). Live must omit `turnBehaviour.resumption` (use `live.sessionResumption`) |
@@ -414,31 +414,54 @@ into a `ProjectedProfile` / `ResolvedGeneration` the runner and providers consum
 
 ## Prompt lines
 
-Use prompt lines when one agent speaks differently by channel, plan, or any other fact the host knows. `identity.conditions` names the facts and their values. Each entry of `identity.system` is a **line**. A line that opens with `when` goes only on turns where it fits.
+Use prompt lines when one agent speaks differently by channel, plan, or any other value a turn can state. Each entry of `identity.system` is a **line**. A line that opens with `when` goes only on turns where it fits.
+
+An **option** is a named value with a list of choices. There is one shape, on two objects. The object says who sets the value.
+
+| Object | Who sets the value | How a turn states it | Shown in a chat UI |
+| --- | --- | --- | --- |
+| `identity.options` | Your code | `TurnRequest.options` | No |
+| `inputs.options` | The person | `TurnRequest.input.options` | Yes, as a picker |
 
 ```ts
 identity: {
   handle: 'desk',
-  conditions: { path: ['web', 'imessage'], plan: ['free', 'paid'] },
+  options: { plan: { choices: [{ value: 'free' }, { value: 'paid' }] } },
   system: [
     'You are the Harbor desk.',
     'when plan is free: Keep replies to one paragraph.',
-    'when path is imessage: Write plain text.',
+    'when reader is student: Explain each term. Write for a {reader}.',
   ],
-}
-runTurn({ profile: 'desk', path: 'web', conditions: { plan: 'free' }, input });
+},
+inputs: {
+  text: true,
+  options: {
+    reader: { label: 'Reader', choices: [{ value: 'anyone' }, { value: 'student' }] },
+  },
+},
+
+runTurn({
+  profile: 'desk',
+  path: 'web',
+  options: { plan: 'free' },
+  input: { text: 'Hello', options: { reader: 'student' } },
+});
 ```
 
 | Rule | Owner |
 | --- | --- |
 | Every line that fits is sent, in order, a blank line apart. `req.system` follows the lines. | `pickSystemLines`, `resolveTurnSystemPrompt` |
-| A turn states every condition with a listed value. `path` reads the turn's own `path`. | `turnFacts` |
-| A `when` reads conditions and slots. It uses the activity-label grammar. `+`, `is null`, and dotted names are refused. | `systemLinesProblem` |
-| A turn can leave a slot unset. Then `when tone is warm` does not fit and `when tone is not warm` fits, as in an activity label. To make a turn state a fact, use a condition. | `pickSystemLines` |
-| A condition chooses lines and never fills text. Only a slot fills `{name}`. | `fillSlots` |
+| No option is required. If an option is unset, `when tone is warm` does not fit and `when tone is not warm` fits. | `pickSystemLines` |
+| If no line fits, the prompt is empty. | `pickSystemLines` |
+| Any option fills `{name}` with its value. A line that prints an unset option is not sent, and this includes its private parts. | `fillOptions` |
+| A `{name}` that is no option stays as written. | `fillOptions` |
+| A value the option does not list is refused. An option name on the wrong object is refused. | `assertTurnOptions` |
+| `path` is a code option. Its value is the turn's own `path`, so `options.path` is refused. | `turnFacts`, `assertTurnOptions` |
+| A `when` reads options on either object. It uses the activity-label grammar. `+`, `is null`, and dotted names are refused. | `systemLinesProblem` |
+| One name on both objects is refused at start. A `when` that names no option is refused at start. | `systemLinesProblem` |
 | A line is a string or a list of parts. A bare `{ private }` in the list of lines is refused. | `assertSystemLines` |
 | Marks are settled on the prompt as written, so a dropped line never changes the marks of a kept line. | `pickSystemLines` |
-| A tool in `tools.allow` may list only paths that `identity.conditions.path` lists. A turn checks this, because a tool can register after its profile. | `toolPathProblem` |
+| A tool in `tools.allow` may list only paths that `identity.options.path` lists. A turn checks this, because a tool can register after its profile. | `toolPathProblem` |
 
 ## Turn lifecycle
 
@@ -843,10 +866,10 @@ model can send it anything the profile's `inputs` declares:
 | `text` | always | The message to the agent |
 | `attachments` | `inputs.attachments` is set | Files, as `{ mimeType, data }` or `{ mimeType, uri }` |
 | `voice` | `inputs.voice` is set | Recorded speech, as `{ mimeType, data }` |
-| `slots` | `inputs.slots` is set | One of the declared choices for each slot sent |
+| `options` | `inputs.options` is set | One of the declared choices for each option sent |
 | `speech` | the profile is a `speech` profile | `{ voice?, style?, speed? }` for this call |
 
-A field the profile does not take, or a slot choice it does not declare, fails
+A field the profile does not take, or an option choice it does not declare, fails
 the call `invalid_input` (`bad_response`); nothing is dropped. The called
 turn checks MIME types, counts, and sizes as it does for any turn, and a file it
 refuses fails the call `agent_failed` (`input`). The model then reads why, in
@@ -1250,7 +1273,7 @@ Profile `outputs` pins behavior the kernel enforces before the protocol runs:
 
 | Pin | Effect |
 | --- | --- |
-| `structured` | Schema id or slot-mapped ids. Sent as the response format, or as the answer tool's input when the turn has function tools ([Structured output](#structured-output)) |
+| `structured` | Schema id or option-mapped ids. Sent as the response format, or as the answer tool's input when the turn has function tools ([Structured output](#structured-output)) |
 | `streaming` | `mode`, `streamThoughts`. Under `sse`, the reply, tool calls, and tool output stream as they are written, each piece checked first; thinking streams unless `streamThoughts` is `false`. Under `buffered`, each arrives whole |
 | `validation` | Field validators, `maxRetries` (repair guidance is the labels' `repair.default_guidance`) |
 
@@ -1296,7 +1319,7 @@ Live is a **session** contract (`runSession`), not a turn contract (`runTurn`). 
 
 | Block | On live? | Notes |
 | --- | --- | --- |
-| `identity` | yes | `handle`, `conditions`, `system` |
+| `identity` | yes | `handle`, `options`, `system` |
 | `model` | yes | A binding whose protocol has a `live` endpoint, such as `geminiLive` |
 | `live` | yes | Voice, VAD, transcription, resumption, compression, **`ingress`** (realtime mic / camera / text toggles; text off unless `ingress.text: true`) |
 | `tools` | yes | `{ allow: ToolId[]; parallel? }` — `parallel` orders a step a host runs through `invokeToolStep`. Every allowlisted id and every model `builtInTools` id is wired once at Gemini Live setup regardless of `loadTier` (declarations cannot be added mid-session, so on live every allowed tool is effectively T0) |
@@ -1782,8 +1805,8 @@ Beyond compaction rules (above), `registerProfile` / `defineProfile` assert:
 - Each `efforts` level is one of `THINKING_LEVELS`. Which of those a model
   takes is not the kernel's to say: the Gemini protocols refuse a level
   outside `minimal`, `low`, `medium`, or `high` (`unsupported`).
-- A slot-mapped `outputs.structured` names a slot in `inputs.slots`, and its
-  `map` keys are that slot's choice **values**. At turn time `resolveTurn` rejects a slot
+- An option-mapped `outputs.structured` names an option on `identity.options` or `inputs.options`, and its
+  `map` keys are that option's choice **values**. At turn time `resolveTurn` rejects an option
   the profile does not declare, or a value outside its choices (`request`).
 - Model bindings require a protocol, a registered provider ID, and an upstream model ID.
   The provider must serve the protocol, and the protocol parses the binding's `options`.
@@ -1923,7 +1946,7 @@ Live barrel: `src/kernel/mod.ts`. Type surface: `export type *` from
 | Utilities | `base64ToBytes`, `bytesToBase64`, `isRecord`, `Equals` (compile-time type equality, for exact-shape checks) |
 | Scope | `KernelScope`, `createKernelScope`, `defaultKernelScope`, `KernelRegistry`, `createKernelRegistry` |
 | Profile editing | `unsetValue` (what leaving a field out stands for), `outOfScopeFields`, `profileTypesForField`, `systemPromptProblem`, `activityLabelProblem`, `CONTINUE_INSTRUCTION_TYPES`, `jsonSchemaFromZod`, `agentToolInputFor`, `agentToolOutput`, `ToolAuthConfig`, `ToolLabels` |
-| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `TranscriptionProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `normalizeProfileInputsSlots`, `normalizeSlotDecl`, `normalizeSlots`, `slotValues`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn`, `resolveTurnSystemPrompt`, `systemLinesProblem` |
+| Profiles | `ProfileDefinition`, `ProfileDefinitionBase`, `TextProfileDefinition`, `ImageProfileDefinition`, `SpeechProfileDefinition`, `TranscriptionProfileDefinition`, `LiveProfileDefinition`, `HostProfileDefinition`, `DecisionProfileDefinition`, `EmbeddingProfileDefinition`, `ProfileRegistry`, `createProfileRegistry`, `clearProfiles`, `defineProfile`, `getProfile`, `hasProfile`, `listProfiles`, `registerProfile`, `registerProfiles`, `projectProfile`, `projectProfileObject`, `requireModelProfile`, `resolveTurn`, `resolveTurnSystemPrompt`, `systemLinesProblem`, `optionsProblem`, `optionValues` |
 | Tools | `ANSWER_TOOL`, `ToolRegistry`, `assertToolSettings`, `createToolRegistry`, `registerTool`, `registerTools`, `invokeTool`, `invokeToolStep`, `runTool`, `runToolStep`, `SettledToolCall`, `ToolCallResult`, `ToolStepCallResult`, `GATE_DECISIONS`, `GateDecision`, `answerGatedCall`, `GateAnswerRequest`, `HeldGatedCall`, `AnsweredGate`, `ToolGateAuth`, `gateExpired`, `resolveGateTtlMs`, `sessionPermissionsAfterApproval`, `askUserTool`, `registerHarnessTools`, `getTool`, `hasTool`, `requireTool`, `listTools`, `resetTools`, `formatToolResult`, `projectForModel`, `coerceToolResultParts`, `leanToolResultData`, `wireInteractionPart`, `isMediaRefPart`, `prepareTurnToolSnapshot`, `buildHttpToolTarget`, `executeHttpTool`, `executeMcpTool`, `parseMcpRpcResponse`, `isUnsupportedMcpProtocolError`, `MCP_PROTOCOL_VERSIONS`, `mcpRequestMeta`, `McpProtocolVersion`, `resolveToolAuth`, `credentialPlacement`, `withCredentialQuery`, `CredentialQuery`, `ToolContext`, `GateReference`, `gateReferenceSchema`, `executeRegisteredTool`, `McpRpcResponse`, `ModelToolResult`, `PageAnswer`, `CredentialRefusedError` |
 | Tool execution | `ToolBackground`, `ToolBackgroundCall`, `ToolBackgroundHandle`, `ToolBackgroundService`, `ToolOperationReply`, `toolOperationReplySchema`, `BackgroundToolEvent`, `ToolExecutionCoordinator`, `createMemoryToolExecution`, `MemoryToolExecutionOptions`, `authorizeToolReplay`, `BeginToolOperationResult`, `ToolOperationClaim`, `ToolOperationIdentity`, `ToolOperationOutcome`, `ToolOperationUncertainty`, `toolOperationOutcomeSchema`, `SavedToolInvocation`, `savedToolInvocationSchema`, `toolInvocationHash`, `TerminalToolEvent`, `PageToolDispatch`, `PageToolExecution` |
 | Auth (stateless OAuth/PKCE) | `createOAuthPkceFlow`, `exchangeOAuthPkce`, `refreshOAuthToken`, `discoverResourceMetadata`, `discoverAuthServerMetadata`, `validateIssuer`, `tokenAudienceCovers`, `generateCodeVerifier`, `computeCodeChallenge`, `sealStatePayload`, `unsealStatePayload`, `sealSecret`, `openSecret`, `SealSecretInput`, `OpenSecretInput`, `ToolCredentialSource`, `memoryCredentialSource`, `ProtectedResourceMetadata`, `AuthorizationServerMetadata`, `OAuthTokens`, `OAuth2Credential`, `ToolCredential`, `OAuthTransportOptions`, `OAuthEndpoints`, `CreatePkceFlowOptions`, `PkceFlowResult`, `ExchangePkceCodeOptions`, `ExchangePkceCodeResult`, `RefreshOAuthTokenOptions`, `SealedStatePayload`, `toBase64Url`, `fromBase64Url`, `credentialFromTypedSecret`, `credentialForSignInGate` |

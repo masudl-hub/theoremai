@@ -31,12 +31,7 @@ import {
 } from 'react';
 import { openedDoc, PRIVATE_NAME, PRIVATE_ON, promptMarkup, samePrompt } from '../prompt-doc.ts';
 import { ChangeHeld } from './inspector-context.ts';
-import {
-  $isPromptLine,
-  conditionItems,
-  PromptConditions,
-  PromptLineNode,
-} from './prompt-line-node.tsx';
+import { $isPromptLine, optionItems, PromptLineNode, PromptOptions } from './prompt-line-node.tsx';
 import './prompt-editor.css';
 
 const NODES = [PromptLineNode];
@@ -89,7 +84,7 @@ function $selectedEnds(selection: RangeSelection) {
   return { first: $topOf(from.getNode()), last: $topOf(to.getNode()) };
 }
 
-/** The condition of the line a block belongs to. */
+/** The `when` of the line a block belongs to. */
 const $whenOf = (top: LexicalNode): string | null => $headOf($blockOf(top))?.getWhen() ?? null;
 
 /** Lets the blocks from `first` to `last` stand apart from the rest of their lists. */
@@ -102,7 +97,7 @@ function $standApart(first: LexicalNode, last: LexicalNode) {
   }
 }
 
-/** Joins `start` to `end` into one line, and what follows keeps the condition it had. */
+/** Joins `start` to `end` into one line, and what follows keeps the `when` it had. */
 function $closeLine(start: LexicalNode, end: LexicalNode, tail: string | null) {
   for (let at: LexicalNode | null = start; at && !at.is(end); ) {
     const after: LexicalNode | null = at.getNextSibling();
@@ -113,7 +108,7 @@ function $closeLine(start: LexicalNode, end: LexicalNode, tail: string | null) {
   if (after && !$isPromptLine(after)) end.insertAfter(new PromptLineNode(tail));
 }
 
-/** Starts the line at `start` under `next`, and neighbours under one condition join back up. */
+/** Starts the line at `start` under `next`, and neighbours under one `when` join back up. */
 function $openLine(start: LexicalNode, end: LexicalNode, next: string | null) {
   const before = start.getPreviousSibling();
   const head = $isPromptLine(before) ? before.setWhen(next) : new PromptLineNode(next);
@@ -125,8 +120,8 @@ function $openLine(start: LexicalNode, end: LexicalNode, next: string | null) {
   if (above && $headOf(above)?.getWhen() === next) head.remove();
 }
 
-/** Sets the condition on what is selected, or on the block the caret is in. */
-function $setCondition(next: string | null) {
+/** Sets the `when` on what is selected, or on the block the caret is in. */
+function $setWhen(next: string | null) {
   const selection = $getSelection();
   if (!$isRangeSelection(selection)) return;
   const { first, last } = $selectedEnds(selection);
@@ -140,10 +135,10 @@ function $setCondition(next: string | null) {
   $openLine(start, end, next);
 }
 
-/** The Private and Condition buttons, on the toolbar's end. */
+/** The Private and Option buttons, on the toolbar's end. */
 function PromptTools() {
   const [editor] = useLexicalComposerContext();
-  const conditions = useContext(PromptConditions);
+  const options = useContext(PromptOptions);
   const [isPrivate, setIsPrivate] = useState(false);
   const [when, setWhen] = useState<string | null>(null);
   useEffect(
@@ -180,14 +175,14 @@ function PromptTools() {
           });
         }}
       />
-      {conditions.length > 0 && (
+      {options.length > 0 && (
         <DropdownMenu
-          label="Condition"
+          label="Option"
           renderTrigger={(props) => (
             <ToggleButton
               {...props}
-              label="Condition"
-              tooltip="Send this part only on turns where a condition fits"
+              label="Option"
+              tooltip="Send this part only on turns where an option fits"
               size="sm"
               isIconOnly
               icon={<Icon icon={IconFilter} size="sm" />}
@@ -195,9 +190,9 @@ function PromptTools() {
               onMouseDown={keepSelection}
             />
           )}
-          items={conditionItems(conditions, when, (next) => {
+          items={optionItems(options, when, (next) => {
             editor.update(() => {
-              $setCondition(next);
+              $setWhen(next);
             });
           })}
         />
@@ -431,7 +426,7 @@ function OpenedEditor({
 }
 
 /**
- * The prompt with its private stretches and conditions in view. It is a view of the markup text:
+ * The prompt with its private stretches and options in view. It is a view of the markup text:
  * it writes back only when the prompt changes, so opening it never dirties the draft, and text
  * changed from outside (another profile, a reload, a kept source) opens afresh.
  */

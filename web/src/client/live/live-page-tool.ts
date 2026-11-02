@@ -17,8 +17,8 @@ export type PageTools = Record<string, PageTool>;
 
 /** What a host gives a live call. */
 export type LiveCallOptions = {
-  /** The value chosen for each of the profile's `inputs.slots`, read as the call starts. */
-  slots?: Record<string, string>;
+  /** The value chosen for each of the profile's `inputs.options`, read as the call starts. */
+  options?: Record<string, string>;
   /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
   stated?: StatedTurn;
   /** The model picked for the call, read as the call starts, when the profile allows it. */

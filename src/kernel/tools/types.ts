@@ -349,7 +349,7 @@ export interface McpSessionLimits {
  * What an agent tool call carries: the text, and whatever else the called
  * profile's `inputs` declares. `speech` is for a speech profile.
  */
-export interface AgentToolInput extends Pick<TurnInput, 'slots' | 'attachments' | 'voice'> {
+export interface AgentToolInput extends Pick<TurnInput, 'options' | 'attachments' | 'voice'> {
   text: string;
   speech?: TurnSpeech;
 }
@@ -367,7 +367,7 @@ export interface AgentToolOutput {
 }
 
 /** A channel of an agent tool's input that the called profile's `inputs` declares. */
-export type AgentToolChannel = 'attachments' | 'voice' | 'slots';
+export type AgentToolChannel = 'attachments' | 'voice' | 'options';
 
 /**
  * A tool whose call runs one turn of another registered agent. That agent is a

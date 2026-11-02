@@ -178,7 +178,7 @@ Deno.test('the research scout carries the cookbook list', () => {
   assertEquals(device.answeredBy, 'page');
   assertEquals(profile.models.gemini?.builtInTools, ['googleSearch']);
   assertEquals(profile.models.open?.compaction?.profile, 'research.compactor');
-  assertEquals(profile.inputs?.slots?.reader, {
+  assertEquals(profile.inputs?.options?.reader, {
     label: 'Reader',
     choices: [{ value: 'anyone' }, { value: 'reviewer' }, { value: 'student' }],
   });

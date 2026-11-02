@@ -7,9 +7,9 @@ const button = (page: Page, name: string) =>
 const edited = (page: Page) => page.getByText('Edited (studio)');
 
 const declarePlan = async (page: Page) => {
-  await page.getByRole('button', { name: 'Add condition' }).first().click();
-  await page.getByRole('textbox', { name: 'Condition 1 name' }).fill('plan');
-  const values = page.getByRole('combobox', { name: 'Condition 1 values' });
+  await page.getByRole('button', { name: 'Add option' }).first().click();
+  await page.getByRole('textbox', { name: 'Option 1 name' }).fill('plan');
+  const values = page.getByRole('combobox', { name: 'Option 1 values' });
   await values.fill('free');
   await values.press('Enter');
   await values.fill('paid');
@@ -62,12 +62,12 @@ test('text marked private stays private when it reaches the code', async ({ page
   expect(await written(page)).toBe('{private: Say hello.}');
 });
 
-test('a condition comes in from the toolbar, and its token changes it', async ({ page }) => {
+test('an option comes in from the toolbar, and its token changes it', async ({ page }) => {
   await open(page);
   await declarePlan(page);
   await write(page, 'One.\n\nTwo.');
   await page.getByText('Two.').click();
-  await button(page, 'Condition').click();
+  await button(page, 'Option').click();
   await page.getByRole('menuitem', { name: 'plan is free' }).click();
   await button(page, 'plan is free').click();
   await editor(page).getByRole('menuitem', { name: 'plan is paid' }).click();
@@ -75,7 +75,7 @@ test('a condition comes in from the toolbar, and its token changes it', async ({
   expect(await written(page)).toBe('One.\n\nwhen plan is paid: Two.');
 });
 
-test('taking a condition off one line leaves the line beside it', async ({ page }) => {
+test('taking an option off one line leaves the line beside it', async ({ page }) => {
   await open(page);
   await declarePlan(page);
   await write(page, 'when plan is free: One.\n\nTwo.');
@@ -94,7 +94,7 @@ test('a word taken out of a private stretch keeps the spaces beside it', async (
   expect(await written(page)).toBe('{private: Say} hello {private: there.}');
 });
 
-test('backspace at the top of a line takes off its condition, and the line above covers it', async ({
+test('backspace at the top of a line takes off its option, and the line above covers it', async ({
   page,
 }) => {
   await open(page);
@@ -158,9 +158,9 @@ test('text typed in the formatted view reaches the model', async ({ page }) => {
 
 test('the editor says what its marks do on hover', async ({ page }) => {
   await open(page);
-  await page.getByRole('button', { name: 'Add condition' }).first().click();
-  await page.getByRole('textbox', { name: 'Condition 1 name' }).fill('plan');
-  const values = page.getByRole('combobox', { name: 'Condition 1 values' });
+  await page.getByRole('button', { name: 'Add option' }).first().click();
+  await page.getByRole('textbox', { name: 'Option 1 name' }).fill('plan');
+  const values = page.getByRole('combobox', { name: 'Option 1 values' });
   await values.fill('free');
   await values.press('Enter');
   await values.fill('paid');
@@ -180,13 +180,13 @@ test('the editor says what its marks do on hover', async ({ page }) => {
   await says(button(page, 'Bold'), 'Bold');
   await says(page.locator('.prompt-editor .astryx-selector'), 'Text style');
   await says(page.getByRole('button', { name: 'Private' }), 'a reply that repeats it is stopped');
-  await says(page.getByRole('button', { name: 'Condition', exact: true }), 'a condition fits');
+  await says(page.getByRole('button', { name: 'Option', exact: true }), 'an option fits');
   await says(box.getByText('plan is paid').first(), 'Sent only on turns where plan is paid');
-  const free = page.getByRole('group', { name: 'Condition 1 values' });
+  const free = page.getByRole('group', { name: 'Option 1 values' });
   await says(free.getByText('free'), 'The studio states this value');
   await says(free.getByText('paid'), 'Press to state this value');
   await box.getByText('Keep this.').hover();
   await expect(tip.filter({ hasText: 'a reply that repeats' })).toBeVisible();
   await page.getByText('System prompt').hover();
-  await expect(page.getByText('the conditions that decide which lines go out')).toBeVisible();
+  await expect(page.getByText('the options that decide which lines go out')).toBeVisible();
 });

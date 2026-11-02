@@ -68,13 +68,24 @@ Deno.test('the decision example file reads back into the same file', async () =>
   roundTrip(await createDecisionExampleDraft());
 });
 
-Deno.test('a prompt and its conditions read back as one box and a row each', () => {
+Deno.test('a prompt and its options read back as one box and a row each', () => {
   const draft = createExampleDraft();
   const edited = {
     ...draft,
     identity: {
       ...draft.identity,
-      conditions: [{ key: 'plan', name: 'plan', values: ['free', 'paid'] }],
+      options: [
+        {
+          key: 'option-plan',
+          name: 'plan',
+          label: '',
+          isShownInChat: false,
+          choices: [
+            { key: 'choice-free', value: 'free', description: '' },
+            { key: 'choice-paid', value: 'paid', description: '' },
+          ],
+        },
+      ],
       system: 'Be brief.\n\nwhen plan is paid: Take your time. {private: One.\n\nTwo.}',
     },
   };
@@ -84,7 +95,7 @@ Deno.test('a prompt and its conditions read back as one box and a row each', () 
   const read = readStudioSource(studioSource(compiled), edited);
   assert(read.ok);
   assertEquals(read.draft.identity.system, edited.identity.system);
-  assertEquals(read.draft.identity.conditions, edited.identity.conditions);
+  assertEquals(read.draft.identity.options, edited.identity.options);
 });
 
 Deno.test('a when line with a blank line in it is refused, since one box would split it', () => {
@@ -95,7 +106,18 @@ Deno.test('a when line with a blank line in it is refused, since one box would s
       ...draft,
       identity: {
         ...draft.identity,
-        conditions: [{ key: 'plan', name: 'plan', values: ['free', 'paid'] }],
+        options: [
+          {
+            key: 'option-plan',
+            name: 'plan',
+            label: '',
+            isShownInChat: false,
+            choices: [
+              { key: 'choice-free', value: 'free', description: '' },
+              { key: 'choice-paid', value: 'paid', description: '' },
+            ],
+          },
+        ],
         system: `Be brief.\n\n${line}`,
       },
     },
@@ -351,26 +373,31 @@ Deno.test('context and a tool the page answers read back', () => {
   });
 });
 
-Deno.test('slots and sizes by type read back, each slot and choice keeping its key', () => {
+Deno.test('options and sizes by type read back, each option and choice keeping its key', () => {
   const draft = createExampleDraft();
   draft.inputs = {
     ...draft.inputs,
     limitsByMime: { 'application/pdf': 2000000, 'image/*': 500000 },
-    slots: [
+  };
+  draft.identity = {
+    ...draft.identity,
+    options: [
       {
-        key: 'slot-tone',
+        key: 'option-tier',
+        name: 'tier',
+        label: '',
+        isShownInChat: false,
+        choices: [{ key: 'choice-gold', value: 'gold', description: '' }],
+      },
+      {
+        key: 'option-tone',
         name: 'tone',
         label: 'Tone',
+        isShownInChat: true,
         choices: [
           { key: 'choice-plain', value: 'plain', description: 'Short words.' },
           { key: 'choice-warm', value: 'warm', description: '' },
         ],
-      },
-      {
-        key: 'slot-role',
-        name: 'role',
-        label: '',
-        choices: [{ key: 'choice-admin', value: 'admin', description: '' }],
       },
     ],
   };
@@ -380,7 +407,7 @@ Deno.test('slots and sizes by type read back, each slot and choice keeping its k
   const read = readStudioSource(studioSource(compiled), draft);
   assert(read.ok);
   assertEquals(read.draft.inputs.limitsByMime, draft.inputs.limitsByMime);
-  assertEquals(read.draft.inputs.slots, draft.inputs.slots);
+  assertEquals(read.draft.identity.options, draft.identity.options);
 });
 
 Deno.test('who holds the conversation survives a Studio source round trip', () => {

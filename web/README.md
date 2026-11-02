@@ -147,7 +147,7 @@ for await (const event of session.events()) {
 }
 ```
 
-- `prepareLiveOpen` returns validated history, slots, context, native state, and absence duration. It removes system-role history.
+- `prepareLiveOpen` returns validated history, options, context, native state, and absence duration. It removes system-role history.
 - Its second argument supplies server context. Browser context stays under `client`.
 - Save checkpoint ownership before you send the event. If storage fails, close the session without advertising that checkpoint.
 - The boundary refuses native resumption while a saved operation is ready, running, or uncertain. It does not repeat the operation.
@@ -203,8 +203,8 @@ await chat.submit();
 
 - `getState()` returns a `ChatState`. It is a new object after each change, and the same object between changes. So you can compare it by reference, as React's `useSyncExternalStore` does.
 - `subscribe(listener)` calls the listener once for each group of changes, after the code that made them has run. It returns the function that unsubscribes. Until the first subscribe or send, the chat asks nothing of the host. Then it reads a resumed conversation that came without its `conversationView`, and answers a restored page gate as unanswered.
-- `update(options)` gives the controller your latest options, such as a new `context`, `slots`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, `initialText`, `initialFiles`, `initialVoice`, and `initialPending` are read only when the controller is created.
-- A live call takes `stated` in its options, and `setStated(stated)` changes it during the call. As with `setSlots`, the call is taken up again with the prompt lines the new value chooses.
+- `update(options)` gives the controller your latest options, such as a new `context`, `options`, or `pageTools`. Each turn reads the options as they are when it is sent. `conversation`, `conversationView`, `initialText`, `initialFiles`, `initialVoice`, and `initialPending` are read only when the controller is created.
+- A live call takes `stated` in its options, and `setStated(stated)` changes it during the call. As with `setOptions`, the call is taken up again with the prompt lines the new value chooses.
 - Each method is bound to the controller. Pass it as a callback as it is.
 
 `state.phase` is `'idle'`, `'streaming'`, or `'gated'`. The methods for the composer depend on it:

@@ -170,7 +170,7 @@ Deno.test('settlement invalidates older native ownership even when the effect co
 });
 
 Deno.test('a live call says which prompt lines it gets only on a page the host trusts', async () => {
-  const stated = { path: 'web', conditions: { plan: 'paid' } };
+  const stated = { path: 'web', options: { plan: 'paid' } };
   const refusing = await createTheoremSessionBoundary({
     request,
     session: () => 'untrusted',
@@ -188,5 +188,5 @@ Deno.test('a live call says which prompt lines it gets only on a page the host t
     pageStatesTurn: true,
   });
   const prepared = await trusting.prepareLiveOpen({ type: 'open', stated });
-  assertEquals({ path: prepared.path, conditions: prepared.conditions }, stated);
+  assertEquals({ path: prepared.path, options: prepared.options }, stated);
 });

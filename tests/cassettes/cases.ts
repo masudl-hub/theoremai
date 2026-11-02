@@ -524,7 +524,7 @@ function textCases(model: CassetteModel): CassetteCase[] {
 function liveCarries(attack: LiveAttack): boolean {
   const input = attack.request.input ?? {};
   return (
-    Boolean(input.text) && !input.history?.length && Object.keys(input.slots ?? {}).length === 0
+    Boolean(input.text) && !input.history?.length && Object.keys(input.options ?? {}).length === 0
   );
 }
 /** How long a Live case waits for the model to finish its reply. */

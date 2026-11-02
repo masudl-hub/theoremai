@@ -185,7 +185,7 @@ export interface GuardrailContext {
    */
   privateSystem?: readonly string[];
   role?: string;
-  slots?: Record<string, string>;
+  options?: Readonly<Record<string, string>>;
   /** Set on tool-shaped stages; absent for user and system text. */
   provenance?: Provenance;
   /**

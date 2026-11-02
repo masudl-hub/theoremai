@@ -595,12 +595,12 @@ function SharedComposer({
           void deliver(action);
         }}
         generationSelect={<PairGeneration sides={sides} />}
-        slotChoices={
-          edited.slots && {
-            ...edited.slots,
+        optionChoices={
+          edited.options && {
+            ...edited.options,
             onChange: (name, value) => {
               each((chat) => {
-                chat.pickSlot(name, value);
+                chat.pickOption(name, value);
               });
             },
           }
@@ -703,8 +703,10 @@ export interface ProjectChatProps extends ChatStart {
   trace?: boolean;
   className?: string;
   chatRef?: Ref<TheoremChatHandle>;
-  /** The value the page picked for each slot. */
-  slots?: Record<string, string>;
+  /** The value the page picked for each option. */
+  options?: Record<string, string>;
+  /** Says what a person picked in the composer. */
+  onOptionsChange?: (options: Record<string, string>) => void;
   /** What the edited side states, of the profile the edits make. */
   stated?: StatedTurn;
   /** What the files' side states, of the profile the files hold. */
@@ -958,7 +960,7 @@ function useShownSides({ inFiles, isEditing, isShared }: ReturnType<typeof useCo
  * the files with the edits laid over them.
  */
 export function ProjectChat(props: ProjectChatProps) {
-  const { profileId, trace, className, chatRef, slots, stated, savedStated, context } = props;
+  const { profileId, trace, className, chatRef, options, stated, savedStated, context } = props;
   const { conversationView, initialText, initialFiles, initialVoice, initialPending } = props;
   const view = useComparison(props);
   const { pair, isBusy, transports, refused, isReady } = view;
@@ -972,7 +974,8 @@ export function ProjectChat(props: ProjectChatProps) {
     labels: STUDIO_LABELS,
     trace,
     className,
-    slots,
+    options,
+    onOptionsChange: props.onOptionsChange,
     context,
     composer: !isShared,
     // A greeting says where to start; both sides start at the one composer under them.

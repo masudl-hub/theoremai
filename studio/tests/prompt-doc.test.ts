@@ -45,14 +45,14 @@ Deno.test('broken markup stays in the code view, with its own reason', () => {
   assertStringIncludes(promptDocProblem('{private: open') ?? '', 'no closing }');
 });
 
-Deno.test('a condition over two paragraphs writes itself on each', () => {
+Deno.test('a when over two paragraphs writes itself on each', () => {
   assertEquals(
     roundTrip('when plan is free: One.\n\nwhen plan is free: Two.\n\nThree.'),
     'when plan is free: One.\n\nwhen plan is free: Two.\n\nThree.',
   );
 });
 
-Deno.test('a private stretch across paragraphs keeps one condition', () => {
+Deno.test('a private stretch across paragraphs keeps one when', () => {
   const text = '{private: when plan is free: One.\n\nTwo.}';
   assertEquals(roundTrip(text), text);
 });
@@ -95,7 +95,7 @@ Deno.test('a word moving out of a private stretch is another prompt', () => {
   assertEquals(samePrompt('{private: one two}', 'one {private: two}'), false);
 });
 
-Deno.test('one condition holds one value, and picking it again takes it off', () => {
+Deno.test('one when holds one value, and picking it again takes it off', () => {
   assertEquals(withCheck(null, 'plan', 'free'), 'plan is free');
   assertEquals(withCheck('plan is free', 'plan', 'paid'), 'plan is paid');
   assertEquals(withCheck('plan is free', 'path', 'web'), 'plan is free and path is web');

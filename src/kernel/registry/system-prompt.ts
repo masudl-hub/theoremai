@@ -1,18 +1,14 @@
-import { type KeptSystemLine, pickSystemLines, turnFacts } from '../system-lines.ts';
+import { type KeptSystemLine, pickSystemLines } from '../system-lines.ts';
 import { joinSystemPieces, systemPieces } from '../system-parts.ts';
 import type { ModelProfile, SystemPiece, TurnRequest } from '../types.ts';
-import { fillSlots } from './slot-fill.ts';
+import { fillOptions, turnFacts } from './options.ts';
 
 /**
  * `identity.system` is trusted author-time copy and crosses no boundary: no detector reads it.
- * A `{slot}` in it becomes the value the request chose, which is one the profile lists.
+ * A `{name}` in it becomes the value the request set, which is one the profile lists.
  * `req.system` is `assembled` per turn and is read at the `system` boundary.
  */
-function systemFromProfile(
-  profile: ModelProfile,
-  slots: Record<string, string> | undefined,
-  req: TurnRequest,
-): KeptSystemLine[] {
+function systemFromProfile(profile: ModelProfile, req: TurnRequest): KeptSystemLine[] {
   if (profile.type === 'speech' || profile.type === 'transcription') {
     return [];
   }
@@ -20,10 +16,8 @@ function systemFromProfile(
   if (!prompt) {
     return [];
   }
-  const facts = turnFacts(profile.id, profile.identity.conditions, req, slots);
-  return pickSystemLines(prompt, facts, (text) =>
-    fillSlots(profile, text, slots, 'identity.system'),
-  );
+  const facts = turnFacts(profile, req);
+  return pickSystemLines(prompt, facts, (text) => fillOptions(profile, text, facts));
 }
 
 /**
@@ -35,7 +29,7 @@ function resolveTurnSystem(
   profile: ModelProfile,
   req: TurnRequest,
 ): { pieces: SystemPiece[]; lines: number[] } {
-  const kept = systemFromProfile(profile, req.input?.slots, req);
+  const kept = systemFromProfile(profile, req);
   return {
     pieces: joinSystemPieces([
       ...kept.map(({ pieces }) => pieces),

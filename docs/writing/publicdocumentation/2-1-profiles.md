@@ -16,13 +16,13 @@ graph TD
 
     subgraph CoreContract["Core Specification"]
         IdType["id & type"]
-        Identity["identity: { handle, conditions, system }"]
+        Identity["identity: { handle, options, system }"]
         Models["models: Record&lt;ModelId, ModelBinding&gt;"]
         Tools["tools: { allow, parallel }"]
     end
 
     subgraph DataBoundaries["Data Boundaries & Persistence"]
-        Inputs["inputs: { text, attachments, voice, slots, context }"]
+        Inputs["inputs: { text, attachments, voice, options, context }"]
         Outputs["outputs: { structured, validation, streaming }"]
         ProviderContinuation["providerContinuation: { history: 'host' | 'stateless' | 'provider' }"]
     end
@@ -78,13 +78,18 @@ identity: {
 }
 ```
 
-#### Prompt lines (`conditions`)
-Use prompt lines when one agent speaks differently by channel or by plan. Declare the facts in `conditions`, and write each instruction as one line. A line that opens with `when` goes only on turns where it fits.
+#### Prompt lines and options
+Use prompt lines when one agent speaks differently by channel or by plan. Write each instruction as one line. A line that opens with `when` goes only on turns where it fits.
+
+An **option** is a named value with a list of choices. Declare it on `identity.options` when your code sets the value. Declare it on `inputs.options` when the person sets the value. The chat shows a picker for `inputs.options` only.
 
 ```ts
 identity: {
   handle: 'desk',
-  conditions: { path: ['web', 'imessage'], plan: ['free', 'paid'] },
+  options: {
+    plan: { choices: [{ value: 'free' }, { value: 'paid' }] },
+    path: { choices: [{ value: 'web' }, { value: 'imessage' }] },
+  },
   system: [
     'You are the Harbor logistics desk.',
     'when plan is free: Keep replies to one paragraph.',
@@ -93,13 +98,13 @@ identity: {
 }
 ```
 
-Every line that fits is sent, a blank line apart. Each turn states every condition. `path` reads the turn's own `path`:
+Every line that fits is sent, a blank line apart. No option is required. If no line fits, the prompt is empty. `path` reads the turn's own `path`:
 
 ```ts
-runTurn({ profile: 'harbor.desk', path: 'web', conditions: { plan: 'free' }, input: { text: '...' } });
+runTurn({ profile: 'harbor.desk', path: 'web', options: { plan: 'free' }, input: { text: '...' } });
 ```
 
-A `when` uses the same words as an activity label: `is`, `is not`, and `and`. It can also read a slot. A condition chooses lines and never fills text; only a slot fills `{name}`.
+A `when` uses the same words as an activity label: `is`, `is not`, and `and`. If an option is unset, `is` does not fit and `is not` fits. Any option also prints with `{name}`. A line that prints an unset option is not sent.
 
 #### Private Prompt Parts
 To protect operational formulas, sensitive rules, or confidential policies from leaking in answers, wrap instructions in `{ private: string }`:
@@ -144,8 +149,11 @@ inputs: {
   limitsByMime: {
     'image/png': 5 * 1024 * 1024,
   },
-  slots: {
-    department: ['customs', 'freight', 'billing'],
+  options: {
+    department: {
+      label: 'Department',
+      choices: [{ value: 'customs' }, { value: 'freight' }, { value: 'billing' }],
+    },
   },
   context: {
     from: ['client', 'server'],
@@ -154,7 +162,7 @@ inputs: {
 }
 ```
 
-In addition to text and attachments, profiles can restrict audio input via `voice.accept`, constrain categorical metadata using `slots`, and permit host-injected background context via `context.from` and `context.maxChars`.
+In addition to text and attachments, profiles can restrict audio input via `voice.accept`, offer the person a choice using `options`, and permit host-injected background context via `context.from` and `context.maxChars`.
 
 ### 6. `outputs`
 

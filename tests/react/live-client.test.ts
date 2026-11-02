@@ -533,12 +533,12 @@ function liveHarness() {
   };
 }
 
-Deno.test('a call opens with its slots, context, and host message; a changed context follows once', async () => {
+Deno.test('a call opens with its options, context, and host message; a changed context follows once', async () => {
   const live = liveHarness();
   const client = new LiveSessionClient({
     createSocket: live.createSocket,
     openMessage: { type: 'draft' },
-    slots: { language: 'fr' },
+    options: { language: 'fr' },
     context: { page: '/docs' },
     voiceIngress: false,
   });
@@ -557,7 +557,7 @@ Deno.test('a call opens with its slots, context, and host message; a changed con
     assertEquals(socket.sent, [
       {
         type: 'open',
-        slots: { language: 'fr' },
+        options: { language: 'fr' },
         context: { page: '/pricing' },
         host: { type: 'draft' },
       },
@@ -677,18 +677,16 @@ Deno.test('a changed pick takes an open call up again with the lines it chooses'
   const client = new LiveSessionClient({
     createSocket: live.createSocket,
     voiceIngress: false,
-    stated: { conditions: { plan: 'free' } },
+    stated: { options: { plan: 'free' } },
     onStatusChange: (status) => void statuses.push(status),
   });
   try {
     await client.connect();
     await live.ready(live.sockets[0], [handleEvent('handle-1')]);
-    assertEquals(live.sockets[0].sent, [
-      { type: 'open', stated: { conditions: { plan: 'free' } } },
-    ]);
-    client.setStated({ conditions: { plan: 'free' } });
+    assertEquals(live.sockets[0].sent, [{ type: 'open', stated: { options: { plan: 'free' } } }]);
+    client.setStated({ options: { plan: 'free' } });
     assertEquals(statuses.at(-1), 'listening');
-    client.setStated({ conditions: { plan: 'paid' } });
+    client.setStated({ options: { plan: 'paid' } });
     assertEquals(statuses.at(-1), 'reconnecting');
     live.fire(500);
     await Promise.resolve();
@@ -696,7 +694,7 @@ Deno.test('a changed pick takes an open call up again with the lines it chooses'
     assertEquals(live.sockets[1].sent, [
       {
         type: 'open',
-        stated: { conditions: { plan: 'paid' } },
+        stated: { options: { plan: 'paid' } },
         resume: { providerState: checkpointFixture, awayMs: 0 },
       },
     ]);
@@ -706,27 +704,27 @@ Deno.test('a changed pick takes an open call up again with the lines it chooses'
   }
 });
 
-Deno.test('a changed slot takes an open call up again with it; with no handle the next call has it', async () => {
+Deno.test('a changed option takes an open call up again with it; with no handle the next call has it', async () => {
   const live = liveHarness();
   const statuses: string[] = [];
   const client = new LiveSessionClient({
     createSocket: live.createSocket,
     voiceIngress: false,
-    slots: { language: 'en' },
+    options: { language: 'en' },
     onStatusChange: (status) => void statuses.push(status),
   });
   try {
     await client.connect();
     await live.ready(live.sockets[0]);
-    client.setSlots({ language: 'fr' });
+    client.setOptions({ language: 'fr' });
     assertEquals(statuses, ['connecting', 'listening']);
 
     await client.connect();
     await live.ready(live.sockets[1], [handleEvent('handle-1')]);
-    assertEquals(live.sockets[1].sent, [{ type: 'open', slots: { language: 'fr' } }]);
-    client.setSlots({ language: 'fr' });
+    assertEquals(live.sockets[1].sent, [{ type: 'open', options: { language: 'fr' } }]);
+    client.setOptions({ language: 'fr' });
     assertEquals(statuses.at(-1), 'listening');
-    client.setSlots({ language: 'en' });
+    client.setOptions({ language: 'en' });
     assertEquals(statuses.at(-1), 'reconnecting');
     live.fire(500);
     await Promise.resolve();
@@ -734,7 +732,7 @@ Deno.test('a changed slot takes an open call up again with it; with no handle th
     assertEquals(live.sockets[2].sent, [
       {
         type: 'open',
-        slots: { language: 'en' },
+        options: { language: 'en' },
         resume: { providerState: checkpointFixture, awayMs: 0 },
       },
     ]);
@@ -833,7 +831,7 @@ Deno.test('a relay reads the open message into the session request, with the hos
   const open = parseLiveOpenMessage(
     JSON.stringify({
       type: 'open',
-      slots: { language: 'fr' },
+      options: { language: 'fr' },
       context: { page: '/docs' },
       model: 'free',
       effort: 'deep',
@@ -842,7 +840,7 @@ Deno.test('a relay reads the open message into the session request, with the hos
     }),
   );
   assertEquals(liveSessionOpen(open, { tier: 'pro' }), {
-    slots: { language: 'fr' },
+    inputOptions: { language: 'fr' },
     context: { client: { page: '/docs' }, server: { tier: 'pro' } },
     model: 'free',
     effort: 'deep',
@@ -855,7 +853,7 @@ Deno.test('a relay reads the open message into the session request, with the hos
     '{"type":"text","text":"hi"}',
     '{"type":"open","resume":{"handle":"","awayMs":0}}',
     '{"type":"open","resume":{"handle":"h","awayMs":-1}}',
-    '{"type":"open","slots":{"language":2}}',
+    '{"type":"open","options":{"language":2}}',
   ]) {
     assertEquals(assertThrows(() => parseLiveOpenMessage(bad), TheoremError).kind, 'request');
   }

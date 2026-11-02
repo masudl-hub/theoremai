@@ -1,16 +1,8 @@
 import { TheoremError } from '../guardrails/error.ts';
+import { optionsProblem, optionValues } from './registry/options.ts';
 import { assertSystemPrompt } from './system-parts.ts';
 import { checkHolds, checkProblem, type Line, splitWhen } from './tools/activity-label.ts';
-import type {
-  ProfileConditions,
-  ProfileSystem,
-  SystemPart,
-  SystemPiece,
-  TurnRequest,
-} from './types.ts';
-
-const CONDITION_NAME = /^[A-Za-z_][\w-]*$/;
-const CONDITION_VALUE = /^\S+$/;
+import type { ProfileOptions, ProfileSystem, SystemPart, SystemPiece } from './types.ts';
 
 function linesOf(prompt: ProfileSystem): (readonly SystemPart[])[] {
   if (typeof prompt === 'string') return [[prompt]];
@@ -25,30 +17,12 @@ function headOf(parts: readonly SystemPart[]): Line {
   return splitWhen(parts[0] === undefined ? '' : textOf(parts[0]));
 }
 
-function factsSchema(
-  conditions: ProfileConditions | undefined,
-  slots: Record<string, readonly string[]>,
-) {
+function factsSchema(options: ProfileOptions) {
   const properties: Record<string, unknown> = {};
-  for (const [name, values] of Object.entries({ ...conditions, ...slots })) {
-    properties[name] = { type: 'string', enum: [...values] };
+  for (const [name, decl] of Object.entries(options)) {
+    properties[name] = { type: 'string', enum: optionValues(decl) };
   }
   return { type: 'object', properties };
-}
-
-function conditionsProblem(
-  conditions: ProfileConditions | undefined,
-  slots: Record<string, readonly string[]>,
-): string | undefined {
-  for (const [name, values] of Object.entries(conditions ?? {})) {
-    if (!CONDITION_NAME.test(name)) return `Condition "${name}" needs a plain name.`; // labels-exempt: developer contract error
-    if (name === 'input' || name === 'output') return `Condition "${name}" is a reserved name.`; // labels-exempt: developer contract error
-    if (Object.hasOwn(slots, name)) return `"${name}" is both a condition and a slot.`; // labels-exempt: developer contract error
-    if (values.length === 0) return `Condition "${name}" lists no values.`; // labels-exempt: developer contract error
-    const bad = values.find((value) => !CONDITION_VALUE.test(value) || value === 'null');
-    if (bad !== undefined) return `Condition "${name}" can't take the value "${bad}".`; // labels-exempt: developer contract error
-  }
-  return undefined;
 }
 
 function lineProblem(parts: readonly SystemPart[], schema: unknown): string | undefined {
@@ -56,12 +30,12 @@ function lineProblem(parts: readonly SystemPart[], schema: unknown): string | un
   const line = headOf(parts);
   if (line.joined) return 'A prompt line can\'t start with "+"; every line that fits is sent.'; // labels-exempt: developer contract error
   if (line.when === 'unreadable') {
-    return 'A line that opens with "when" needs a condition and a colon, like "when path is web: …".'; // labels-exempt: developer contract error
+    return 'A line that opens with "when" needs an option and a colon, like "when path is web: …".'; // labels-exempt: developer contract error
   }
   for (const check of line.when) {
-    if (check.path.includes('.')) return `"${check.path}" isn't one condition or slot.`; // labels-exempt: developer contract error
-    if (check.expected === null) return 'A condition always has a value, so "is null" never fits.'; // labels-exempt: developer contract error
-    const problem = checkProblem(check, schema, 'this profile’s conditions or slots');
+    if (check.path.includes('.')) return `"${check.path}" isn't one option.`; // labels-exempt: developer contract error
+    if (check.expected === null) return 'An option has no null value, so "is null" never fits.'; // labels-exempt: developer contract error
+    const problem = checkProblem(check, schema, 'this profile’s options');
     if (problem) return problem;
   }
   if (line.when.length > 0 && !line.text && parts.length === 1) {
@@ -70,57 +44,20 @@ function lineProblem(parts: readonly SystemPart[], schema: unknown): string | un
   return undefined;
 }
 
-/** What is wrong with a prompt's conditions and lines, or undefined. */
+/** What is wrong with a prompt's options and lines, or undefined. */
 export function systemLinesProblem(
   prompt: ProfileSystem,
-  conditions: ProfileConditions | undefined,
-  slots: Record<string, readonly string[]>,
+  code: ProfileOptions | undefined,
+  person: ProfileOptions | undefined,
 ): string | undefined {
-  const declared = conditionsProblem(conditions, slots);
+  const declared = optionsProblem(code, person);
   if (declared) return declared;
-  const schema = factsSchema(conditions, slots);
+  const schema = factsSchema({ ...code, ...person });
   for (const [at, parts] of linesOf(prompt).entries()) {
     const problem = lineProblem(parts, schema);
     if (problem) return `Line ${at + 1}: ${problem}`;
   }
   return undefined;
-}
-
-/** The facts a turn's `when` reads, once the turn has stated every condition with a listed value. */
-export function turnFacts(
-  id: string,
-  conditions: ProfileConditions | undefined,
-  req: Pick<TurnRequest, 'path' | 'conditions'>,
-  slots: Record<string, string> | undefined,
-): Record<string, string> {
-  const stated = req.conditions ?? {};
-  if (conditions === undefined) {
-    if (req.conditions) throw new TheoremError('request', `Profile ${id} declares no conditions`); // labels-exempt: developer contract error
-    return { ...slots };
-  }
-  if (Object.hasOwn(stated, 'path')) {
-    throw new TheoremError('request', `Profile ${id}: the turn's own path states path`); // labels-exempt: developer contract error
-  }
-  for (const name of Object.keys(stated)) {
-    if (!Object.hasOwn(conditions, name)) {
-      throw new TheoremError('request', `Profile ${id} has no condition '${name}'`); // labels-exempt: developer contract error
-    }
-  }
-  const facts: Record<string, string> = { ...slots };
-  for (const [name, values] of Object.entries(conditions)) {
-    const value = name === 'path' ? req.path : stated[name];
-    if (value === undefined) {
-      throw new TheoremError('request', `Profile ${id}: the turn left condition '${name}' unset`); // labels-exempt: developer contract error
-    }
-    if (!values.includes(value)) {
-      throw new TheoremError(
-        'request',
-        `Profile ${id}: '${value}' is no value of condition '${name}'`, // labels-exempt: developer contract error
-      );
-    }
-    facts[name] = value;
-  }
-  return facts;
 }
 
 function lineFits(line: Line, facts: Record<string, string>): boolean {
@@ -138,7 +75,7 @@ export type KeptSystemLine = { line: number; pieces: SystemPiece[] };
 export function pickSystemLines(
   prompt: ProfileSystem,
   facts: Record<string, string>,
-  fill: (text: string) => string,
+  fill: (text: string) => string | undefined,
 ): KeptSystemLine[] {
   const lines = linesOf(prompt);
   const marked = lines.flat().some((part) => typeof part !== 'string');
@@ -146,11 +83,13 @@ export function pickSystemLines(
   for (const [at, parts] of lines.entries()) {
     const line = headOf(parts);
     if (!lineFits(line, facts)) continue;
-    const pieces: SystemPiece[] = [];
-    for (const [partAt, part] of parts.entries()) {
-      const text = fill(partAt === 0 ? line.text : textOf(part));
-      if (text) pieces.push({ text, private: typeof part === 'string' ? !marked : true });
-    }
+    const texts = parts.map((part, partAt) => fill(partAt === 0 ? line.text : textOf(part)));
+    // why: a part that prints an unset option has a hole, and half a line says something else.
+    if (texts.includes(undefined)) continue;
+    const pieces = parts.flatMap((part, partAt): SystemPiece[] => {
+      const text = texts[partAt];
+      return text ? [{ text, private: typeof part === 'string' ? !marked : true }] : [];
+    });
     kept.push({ line: at + 1, pieces });
   }
   return kept;
@@ -175,13 +114,14 @@ export function assertSystemLines(prompt: unknown, where: string): asserts promp
   }
 }
 
-/** The first tool in `tools` with a path `conditions.path` does not list, as a sentence. */
+/** The first tool in `tools` with a path `options.path` does not list, as a sentence. */
 export function toolPathProblem(
-  conditions: ProfileConditions | undefined,
+  options: ProfileOptions | undefined,
   tools: readonly { name: string; paths?: readonly string[] }[],
 ): string | undefined {
-  const known = conditions?.path;
-  if (!known) return undefined;
+  const path = options?.path;
+  if (!path) return undefined;
+  const known = optionValues(path);
   for (const tool of tools) {
     const bad = tool.paths?.find((path) => path !== '*' && !known.includes(path));
     if (bad !== undefined) {

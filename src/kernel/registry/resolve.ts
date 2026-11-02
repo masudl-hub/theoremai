@@ -32,12 +32,12 @@ import {
   assertSpeechRole,
   assertTranscriptionRole,
   assertTurnContext,
-  assertTurnSlots,
   resolveImageFormat,
   resolveInputParts,
   resolveSpeech,
 } from './ingress.ts';
 import type { KernelRegistry } from './kernel-registry.ts';
+import { assertTurnOptions, turnFacts } from './options.ts';
 import { resolveTurnSystem } from './system-prompt.ts';
 
 function isModelProfile(profile: Profile): profile is ModelProfile {
@@ -128,7 +128,7 @@ function resolveSummaries(binding: ModelBinding): SummaryMode | undefined {
 
 function resolveStructured(
   profile: ModelProfile,
-  slots?: Record<string, string>,
+  facts: Readonly<Record<string, string>>,
 ): StructuredSchemaId | null {
   if (profile.type === 'live') {
     return null;
@@ -140,7 +140,7 @@ function resolveStructured(
   if (typeof structured === 'string') {
     return structured;
   }
-  const value = slots?.[structured.by];
+  const value = facts[structured.by];
   if (value) {
     const mapped = structured.map[value];
     if (mapped) {
@@ -254,7 +254,7 @@ function resolveTurnInRegistry(
   generation: ResolvedGeneration;
 } {
   const profile = requireModelProfile(registry.profiles.get(req.profile), 'resolveTurn');
-  assertTurnSlots(profile, req);
+  assertTurnOptions(profile, req);
   assertTurnContext(profile, req);
   const safe = sanitizeTurnRequest(req, profile);
   const input = safe.input ?? {};
@@ -263,7 +263,7 @@ function resolveTurnInRegistry(
   const binding = requireModelBinding(profile, picked);
   const toolSnapshot = resolveTurnTools(registry.tools, profile, safe, picked);
   const builtins = toolSnapshot.builtins;
-  const structuredId = resolveStructured(profile, input.slots);
+  const structuredId = resolveStructured(profile, turnFacts(profile, safe));
   assertOutputMode(profile, structuredId);
   if (structuredId && toolSnapshot.wire.some((tool) => tool.name === ANSWER_TOOL)) {
     throw new TheoremError(

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { TheoremError } from '../../guardrails/error.ts';
 import type { ToolOrigin } from '../../guardrails/types.ts';
 import type { SpanHandle } from '../../observability/trace-span.ts';
-import { slotValues } from '../registry/slots.ts';
+import { optionValues } from '../registry/options.ts';
 import { interactionPartSchema, keptReply, sourceSchema } from '../turn-events.ts';
 import type {
   Profile,
@@ -72,13 +72,13 @@ const speechInput = z.strictObject({
   speed: z.number().positive().optional(),
 });
 
-/** One choice per declared slot; a slot or a value the profile does not declare is refused. */
-function slotsInput(slots: NonNullable<ProfileInputsSpec['slots']>) {
+/** One value per declared option; an option or a value the profile does not declare is refused. */
+function optionsInput(options: NonNullable<ProfileInputsSpec['options']>) {
   return z.strictObject(
     Object.fromEntries(
-      Object.entries(slots).map(([slot, decl]) => {
-        const choices = slotValues(decl);
-        return [slot, z.enum(choices as [string, ...string[]]).optional()];
+      Object.entries(options).map(([name, decl]) => {
+        const choices = optionValues(decl);
+        return [name, z.enum(choices as [string, ...string[]]).optional()];
       }),
     ),
   );
@@ -89,7 +89,7 @@ const AGENT_INPUT_FIELDS: ReadonlySet<string> = new Set([
   'text',
   'attachments',
   'voice',
-  'slots',
+  'options',
   'speech',
 ]);
 
@@ -108,13 +108,13 @@ function splitHostInput(
   for (const field of Object.keys(tool.hostFields)) {
     if (all[field] !== undefined) hostInput[field] = all[field];
   }
-  const { text, attachments, voice, slots, speech } = input;
+  const { text, attachments, voice, options, speech } = input;
   return {
     sent: {
       text,
       ...(attachments ? { attachments } : {}),
       ...(voice ? { voice } : {}),
-      ...(slots ? { slots } : {}),
+      ...(options ? { options } : {}),
       ...(speech ? { speech } : {}),
     },
     hostInput,
@@ -128,7 +128,7 @@ function splitHostInput(
  */
 function agentToolInputFor(
   agent: Pick<Profile, 'type'> & {
-    inputs?: Pick<ProfileInputsSpec, 'attachments' | 'voice' | 'slots'>;
+    inputs?: Pick<ProfileInputsSpec, 'attachments' | 'voice' | 'options'>;
   },
   tool?: Pick<AgentToolDef, 'name' | 'fieldText' | 'hostFields' | 'hostOnly'>,
 ): z.ZodType<AgentToolInput> {
@@ -138,7 +138,7 @@ function agentToolInputFor(
     shape.attachments = z.array(z.union([blobInput, mediaRefInput])).optional();
   }
   if (inputs?.voice) shape.voice = z.array(blobInput).optional();
-  if (inputs?.slots) shape.slots = slotsInput(inputs.slots).optional();
+  if (inputs?.options) shape.options = optionsInput(inputs.options).optional();
   if (agent.type === 'speech') shape.speech = speechInput.optional();
   for (const channel of tool?.hostOnly ?? []) {
     if (!shape[channel]) {

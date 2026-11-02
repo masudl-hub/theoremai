@@ -730,7 +730,7 @@ explicit allow-or-block host boundary, documented in [Decision disclosure](#deci
 | `trusted` | `identity.system` — author-time profile copy | Never |
 | `assembled` | `req.system` — host-built per turn | `system` |
 | `assembled` | `input.context.server` — context the host's own code sends | `context` |
-| `untrusted` | User text, slots, `input.context.client`, history, attachments, tool results | The boundary it crosses |
+| `untrusted` | User text, options, `input.context.client`, history, attachments, tool results | The boundary it crosses |
 
 Trusted on the way in is not public on the way out. The private text of the
 system prompt as sent is guarded against echo by the `prompt_leak` detector
@@ -808,7 +808,7 @@ looks, and what it does: a detector, a boundary, an action.
 | `user` | The message the person typed |
 | `attachment` | The text of a file the person attached |
 | `voice` | The transcript of what the person said |
-| `slots` | The values the host fills into the prompt |
+| `options` | The values a turn states for its options |
 | `context` | What the page or the host tells the model to know |
 | `history` | Earlier messages the host replays |
 | `injected` | Messages a host stage adds during the turn |
@@ -1029,7 +1029,7 @@ detectors match one text, the strongest action is the one taken: `block`, then
 
 | Boundary | What `block` does |
 | --- | --- |
-| `user`, `attachment`, `voice`, `slots`, `context`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by labels `detect.blocked` |
+| `user`, `attachment`, `voice`, `options`, `context`, `history`, `system`, `repair` | The turn is refused before the model is called: an `input` error worded by labels `detect.blocked` |
 | `injected` | The same, at the stage that added the message |
 | `live_user` | The message is not sent into the session |
 | `tool_arguments_<kind>` | The tool is not called; the model is told so (`arguments_blocked`, labels `detect.call_blocked`) |
@@ -1078,7 +1078,7 @@ switch cannot mean different things on different paths.
 
 | API | Role |
 | --- | --- |
-| `sanitizeTurnRequest(req, profile)` | Full turn: text, slots, context, repair, history, system, and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
+| `sanitizeTurnRequest(req, profile)` | Full turn: text, options, context, repair, history, system, and blobs, each read at its boundary under `profile`'s guardrails; throws when a match blocks |
 | `sanitizeTurnRequestWithEvents(req, profile)` | A `SanitizedTurnRequest`: the request, one `{ type: 'guardrail' }` event for each boundary where something matched, and the `refusal` to end the turn on when a match blocks |
 | `sanitizeProjectId` | Trim a project id; drop it unless it is only letters, digits, `.`, `_`, `-` |
 

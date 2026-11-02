@@ -1,6 +1,6 @@
 {
  "model": "openrouter/free",
- "case": "redteam.slot-openai-key",
+ "case": "redteam.option-openai-key",
  "draws": [
   "20600a18f7055eaf7660a7d6fb1eb4b2"
  ],

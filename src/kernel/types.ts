@@ -364,8 +364,8 @@ export interface AttachmentValidationIssue {
   fileName?: string;
 }
 
-/** Picks the structured-output schema by the value of a turn slot, with a fallback. */
-export interface StructuredBySlot {
+/** Picks the structured-output schema by the value of a turn's option, with a fallback. */
+export interface StructuredByOption {
   by: string;
   map: Record<string, string>;
   fallback: string;
@@ -382,7 +382,7 @@ export interface ValidationResult {
 /** A host function that checks one structured-output field. */
 export type ProfileValidator = (
   candidate: unknown,
-  slots?: Record<string, string>,
+  options?: Readonly<Record<string, string>>,
 ) => ValidationResult | Promise<ValidationResult>;
 
 /** A tool call the turn completed, as an item check reads it. */
@@ -394,7 +394,8 @@ export interface TurnToolResult {
 
 /** What an item check reads of the turn whose reply it is checking. */
 export interface ItemCheckTurn {
-  slots?: Record<string, string>;
+  /** The value of each option the turn set. */
+  options?: Readonly<Record<string, string>>;
   /** Every tool call the turn completed, in order, across its attempts. */
   toolResults: readonly TurnToolResult[];
 }
@@ -557,26 +558,20 @@ export interface ProfileModelFields {
   maxSteps?: number;
 }
 
-/**
- * One allowed value for an `inputs.slots` entry. `value` is what the turn sends and what
- * `{name}` fills; optional `description` is visitor-facing UI copy only.
- */
-export interface SlotChoice {
+/** One value an option can take. `description` is what a picker shows beside it. */
+export interface OptionChoice {
   value: string;
   description?: string;
 }
 
-/**
- * One named slot: optional group `label` for the UI, and its choices. A bare `string[]` is
- * still accepted on define and normalized to `{ choices: [{ value }] }`.
- */
-export interface SlotDecl {
+/** One named option: its `label` for a picker, and the values it can take. */
+export interface OptionDecl {
   label?: string;
-  choices: SlotChoice[];
+  choices: OptionChoice[];
 }
 
-/** Authoring form for one slot: legacy value list, or a labeled declaration. */
-export type SlotDeclInput = string[] | SlotDecl;
+/** A profile's options by name. Which object holds them says who drives them. */
+export type ProfileOptions = Readonly<Record<string, OptionDecl>>;
 
 /** What a profile accepts as input. */
 export interface ProfileInputsSpec {
@@ -587,12 +582,13 @@ export interface ProfileInputsSpec {
   maxBytes?: number;
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
-  slots?: Record<string, SlotDeclInput>;
+  /** The options a person picks: a host shows each one as a picker. */
+  options?: ProfileOptions;
   context?: ProfileContextSpec;
 }
 
 /** What a live profile declares beside its ingress channels. */
-export type LiveInputsSpec = Pick<ProfileInputsSpec, 'slots' | 'context'>;
+export type LiveInputsSpec = Pick<ProfileInputsSpec, 'options' | 'context'>;
 
 /** Who may send a turn its context, and how much. */
 export interface ProfileContextSpec {
@@ -605,7 +601,7 @@ export type TurnContext = Partial<Record<ContextSender, unknown>>;
 
 /** What a profile returns: its structured schema, validation, and streaming. */
 export interface ProfileOutputsSpec {
-  structured?: StructuredSchemaId | StructuredBySlot | null;
+  structured?: StructuredSchemaId | StructuredByOption | null;
   validation?: ProfileValidationSpec;
   streaming?: ProfileStreamingSpec;
 }
@@ -631,9 +627,6 @@ export type SystemLine = string | readonly SystemPart[];
 /** A profile's prompt: a string, or lines. Every line that fits is sent, a blank line apart. */
 export type ProfileSystem = string | readonly SystemLine[];
 
-/** The facts a host states on each turn, by name, each with the values it can take. */
-export type ProfileConditions = Readonly<Record<string, readonly string[]>>;
-
 /** A stretch of the system prompt as sent, and whether a reply may repeat it. */
 export interface SystemPiece {
   text: string;
@@ -643,8 +636,8 @@ export interface SystemPiece {
 /** A profile's handle and system prompt. */
 export interface ProfileIdentity {
   handle: string;
-  /** The facts this agent's turns state, by name, with the values each can take. */
-  conditions?: ProfileConditions;
+  /** The options the host's code states. A person never sees them. */
+  options?: ProfileOptions;
   system?: ProfileSystem;
 }
 
@@ -985,10 +978,11 @@ export interface TurnRepairRequest {
   guidance?: string;
 }
 
-/** What the user sent for a turn: text, slots, attachments, voice, and history. */
+/** What the user sent for a turn: text, options, attachments, voice, and history. */
 export interface TurnInput {
   text?: string;
-  slots?: Record<string, string>;
+  /** The value picked for each of the profile's `inputs.options`. */
+  options?: Readonly<Record<string, string>>;
   /** What the page or the host wants the model to know, by sender; the profile's `inputs.context` allows it. */
   context?: TurnContext;
   attachments?: Array<TurnBlob | TurnMediaRef>;
@@ -1043,8 +1037,8 @@ export interface AgentRunRequest extends RunControls, ModelChoice {
   sessionPermissions?: string[];
   /** Host channel/path for catalog `paths` filtering. */
   path?: string;
-  /** This run's facts, one value for each of `profile.identity.conditions` but `path`. */
-  conditions?: Readonly<Record<string, string>>;
+  /** This run's value for each of `profile.identity.options` it sets; `path` is the run's own. */
+  options?: Readonly<Record<string, string>>;
   /**
    * Opaque application context handed to tool `handler` / `preTool` and
    * `tools.t1Policy` as `ctx.host`. The kernel never reads, logs, traces, or
@@ -1235,8 +1229,8 @@ export interface SessionRequest extends AgentRunRequest {
   /** Override `profile.live.voice` for this session. */
   voice?: string;
   history?: TurnHistoryMessage[];
-  /** The value chosen for each of the profile's `inputs.slots`. */
-  slots?: Record<string, string>;
+  /** The value picked for each of the profile's `inputs.options`. */
+  inputOptions?: Record<string, string>;
   /** What the page and the host tell the agent as the call opens; `sendContext` replaces it later. */
   context?: TurnContext;
   /** How long the caller was away before this resume, in milliseconds. The session keeps no clock across calls. */

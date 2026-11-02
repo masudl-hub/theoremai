@@ -25,17 +25,17 @@
 }
 
 /* A condition reads as a line: its name and values wear no box until pointed at or typed in. */
-.condition-row div:has(> input):not(:hover, :has(> input:focus, > input[aria-invalid])) {
+.option-row div:has(> input):not(:hover, :has(> input:focus, > input[aria-invalid])) {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
 }
 
-.condition-row [role="group"] button[aria-label^="Remove"] {
+.option-row [role="group"] button[aria-label^="Remove"] {
   opacity: 0.5;
 }
 
-.condition-row [role="group"] button[aria-label^="Remove"]:hover {
+.option-row [role="group"] button[aria-label^="Remove"]:hover {
   opacity: 1;
 }
 

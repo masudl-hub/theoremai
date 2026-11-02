@@ -1,6 +1,7 @@
 import '../fixtures/test-host.ts';
 import { assertEquals, assertThrows } from '@std/assert';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { assertTurnOptions } from '../../src/kernel/registry/options.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
 import {
   resolveTurnSystem,
@@ -14,31 +15,31 @@ import {
 import { boundSystem, systemText } from '../../src/kernel/system-parts.ts';
 import type {
   ModelProfile,
-  ProfileConditions,
   ProfileIdentity,
+  ProfileOptions,
   ProfileSystem,
   TurnRequest,
 } from '../../src/kernel/types.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
-const CONDITIONS: ProfileConditions = {
-  path: ['web', 'imessage', 'alexa', 'live-call'],
-  plan: ['free', 'paid'],
-  group: ['yes', 'no'],
+const choices = (...values: string[]) => ({ choices: values.map((value) => ({ value })) });
+const OPTIONS: ProfileOptions = {
+  path: choices('web', 'imessage', 'alexa', 'live-call'),
+  plan: choices('free', 'paid'),
+  group: choices('yes', 'no'),
 };
-const WEB_FREE = { path: 'web', conditions: { plan: 'free', group: 'no' } };
-const ALEXA_PAID = { path: 'alexa', conditions: { plan: 'paid', group: 'no' } };
-const TONE = { choices: [{ value: 'warm' }, { value: 'cold' }] };
-const OTHER = { choices: [{ value: 'o' }] };
+const WEB_FREE = { path: 'web', options: { plan: 'free', group: 'no' } };
+const ALEXA_PAID = { path: 'alexa', options: { plan: 'paid', group: 'no' } };
+const TONE = choices('warm', 'cold');
 
-function define(identity: ProfileIdentity, slots?: Record<string, typeof TONE>): ModelProfile {
+function define(identity: ProfileIdentity, person?: ProfileOptions): ModelProfile {
   const defined = defineProfile({
     type: 'text',
     id: 'lines',
     identity,
     ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] },
-    inputs: { text: true, slots },
+    inputs: { text: true, ...(person ? { options: person } : {}) },
   });
   if (defined.type !== 'text') throw new Error('expected a text profile');
   return defined;
@@ -46,9 +47,9 @@ function define(identity: ProfileIdentity, slots?: Record<string, typeof TONE>):
 
 function profile(
   system: ProfileSystem,
-  extra: { slots?: Record<string, typeof TONE>; conditions?: ProfileConditions } = {},
+  extra: { person?: ProfileOptions; code?: ProfileOptions } = {},
 ): ModelProfile {
-  return define({ handle: 'x', conditions: extra.conditions ?? CONDITIONS, system }, extra.slots);
+  return define({ handle: 'x', options: extra.code ?? OPTIONS, system }, extra.person);
 }
 
 function sent(prompt: ModelProfile, req: Partial<TurnRequest>): string {
@@ -56,7 +57,8 @@ function sent(prompt: ModelProfile, req: Partial<TurnRequest>): string {
 }
 
 function refused(prompt: ModelProfile, req: Partial<TurnRequest>, reason: RegExp): void {
-  const error = assertThrows(() => sent(prompt, req), TheoremError);
+  const turn = { profile: 'lines', input: {}, ...req };
+  const error = assertThrows(() => assertTurnOptions(prompt, turn), TheoremError);
   assertEquals(reason.test(error.message), true, error.message);
 }
 
@@ -86,51 +88,64 @@ Deno.test('capital When, and when in the middle of a line, are prose', () => {
   );
 });
 
-Deno.test('a turn must state every condition, with a listed value, and nothing else', () => {
-  const prompt = profile(['base']);
-  refused(prompt, { path: 'web', conditions: { plan: 'free' } }, /group/);
-  refused(prompt, { path: 'web' }, /plan/);
-  refused(prompt, { conditions: { plan: 'free', group: 'no' } }, /path/);
-  refused(prompt, { path: 'fax', conditions: { plan: 'free', group: 'no' } }, /fax/);
-  refused(prompt, { conditions: { path: 'web', plan: 'free', group: 'no' } }, /own path/);
-  refused(prompt, { path: 'web', conditions: { plan: 'free', group: 'no', x: '1' } }, /'x'/);
+Deno.test('a turn can leave any option unset, and refuses a value the profile does not list', () => {
+  const prompt = profile(['base', 'when plan is free: F', 'when plan is not free: N']);
+  assertEquals(sent(prompt, {}), 'base\n\nN');
+  assertEquals(sent(prompt, { path: 'web' }), 'base\n\nN');
+  assertEquals(sent(prompt, { options: { plan: 'free' } }), 'base\n\nF');
+  refused(prompt, { path: 'fax' }, /fax/);
+  refused(prompt, { options: { plan: 'gold' } }, /gold/);
+  refused(prompt, { options: { path: 'web' } }, /own path/);
+  refused(prompt, { options: { x: '1' } }, /'x'/);
 });
 
-Deno.test('a profile with no conditions takes none', () => {
-  const prompt = profile('plain', { conditions: {} });
-  assertEquals(sent(prompt, { conditions: {} }), 'plain');
+Deno.test('an option comes in only through the door of the object that holds it', () => {
+  const prompt = profile(['base'], { person: { tone: TONE } });
+  refused(prompt, { options: { tone: 'warm' } }, /identity\.options/);
+  refused(prompt, { input: { options: { plan: 'free' } } }, /inputs\.options/);
+});
+
+Deno.test('a profile with no options takes none', () => {
+  const prompt = profile('plain', { code: {} });
+  assertEquals(sent(prompt, { options: {} }), 'plain');
   const bare = define({ handle: 'x', system: 'plain' });
   assertEquals(sent(bare, {}), 'plain');
-  refused(bare, { conditions: { a: 'b' } }, /no conditions/);
+  refused(bare, { options: { a: 'b' } }, /no option 'a'/);
 });
 
 Deno.test('nothing fitting sends nothing', () => {
   assertEquals(sent(profile(['when path is web: W']), ALEXA_PAID), '');
 });
 
-Deno.test('a when can read a slot, and only a slot fills {name}', () => {
-  const prompt = profile(
-    [
-      'base',
-      'when tone is warm: W {tone}',
-      'when tone is not warm: C',
-      'when path is web: {other} {braces} {"a":1}',
-    ],
-    { slots: { tone: TONE, other: OTHER } },
-  );
-  const slots = (tone: string) => ({ input: { slots: { tone } } });
-  assertEquals(sent(prompt, { ...ALEXA_PAID, ...slots('warm') }), 'base\n\nW warm');
-  assertEquals(sent(prompt, { ...ALEXA_PAID, ...slots('cold') }), 'base\n\nC');
-  assertEquals(sent(prompt, ALEXA_PAID), 'base\n\nC');
-  refused(prompt, { ...WEB_FREE, ...slots('cold') }, /other/);
-  assertEquals(
-    sent(prompt, { ...WEB_FREE, input: { slots: { tone: 'cold', other: 'o' } } }),
-    'base\n\nC\n\no {braces} {"a":1}',
-  );
+Deno.test('a when reads a person-driven option as it reads a code-driven one', () => {
+  const prompt = profile(['base', 'when tone is warm: W', 'when tone is not warm: C'], {
+    person: { tone: TONE },
+  });
+  const picked = (tone: string) => ({ input: { options: { tone } } });
+  assertEquals(sent(prompt, picked('warm')), 'base\n\nW');
+  assertEquals(sent(prompt, picked('cold')), 'base\n\nC');
+  assertEquals(sent(prompt, {}), 'base\n\nC');
 });
 
-Deno.test('a condition fills no text', () => {
-  assertEquals(sent(profile(['Plan {plan}.']), WEB_FREE), 'Plan {plan}.');
+Deno.test('any option prints with {name}, and a name that is no option stays as written', () => {
+  const prompt = profile(['Plan {plan}, tone {tone}. {braces} {"a":1}'], {
+    person: { tone: TONE },
+  });
+  const turn = { ...WEB_FREE, input: { options: { tone: 'warm' } } };
+  assertEquals(sent(prompt, turn), 'Plan free, tone warm. {braces} {"a":1}');
+});
+
+Deno.test('a line that prints an unset option is not sent', () => {
+  const prompt = profile(['base', 'Reply in {tone}.', 'Plan {plan}.'], { person: { tone: TONE } });
+  assertEquals(sent(prompt, { options: { plan: 'paid' } }), 'base\n\nPlan paid.');
+  assertEquals(sent(prompt, {}), 'base');
+  assertEquals(sent(profile(['Plan {plan}.']), {}), '');
+});
+
+Deno.test('a private part that prints an unset option takes its whole line with it', () => {
+  const prompt = profile(['base', [{ private: 'Plan {plan}: ' }, 'shared']]);
+  assertEquals(sent(prompt, {}), 'base');
+  assertEquals(sent(prompt, WEB_FREE), 'base\n\nPlan free: shared');
 });
 
 Deno.test('dropping a private line leaves the plain lines shareable', () => {
@@ -155,44 +170,51 @@ Deno.test('a prompt line is refused at registration for each broken shape', () =
   const cases: [ProfileSystem, RegExp][] = [
     [['when path is fax: x'], /never "fax"/],
     [['when pth is web: x'], /not a field/],
-    [['when path is web x'], /needs a condition/],
-    [['when path is web:x'], /needs a condition/],
+    [['when path is web x'], /needs an option/],
+    [['when path is web:x'], /needs an option/],
     [['+ when path is web: x'], /start with "\+"/],
     [['+ hello'], /start with "\+"/],
     [['when path is null: x'], /is null/],
-    [['when you reply, be short.'], /needs a condition/],
+    [['when you reply, be short.'], /needs an option/],
     [['when path is web:'], /no wording/],
-    [['when output.path is web: x'], /one condition/],
-    [['when input.path is web: x'], /one condition/],
-    [['when path.length is 3: x'], /one condition/],
+    [['when output.path is web: x'], /one option/],
+    [['when input.path is web: x'], /one option/],
+    [['when path.length is 3: x'], /one option/],
   ];
   for (const [prompt, reason] of cases) {
-    const problem = systemLinesProblem(prompt, CONDITIONS, {}) ?? '';
+    const problem = systemLinesProblem(prompt, OPTIONS, undefined) ?? '';
     assertEquals(reason.test(problem), true, `${JSON.stringify(prompt)} -> ${problem}`);
     assertThrows(() => profile(prompt), TheoremError);
   }
 });
 
-Deno.test('a when reading a name with no conditions declared is refused', () => {
-  const problem = systemLinesProblem(['when path is web: x'], undefined, {}) ?? '';
+Deno.test('a when reading a name with no options declared is refused', () => {
+  const problem = systemLinesProblem(['when path is web: x'], undefined, undefined) ?? '';
   assertEquals(/not a field/.test(problem), true, problem);
 });
 
-Deno.test('a bad condition declaration is refused', () => {
-  const cases: [ProfileConditions, RegExp][] = [
-    [{ a: ['b c'] }, /can't take/],
-    [{ a: ['null'] }, /can't take/],
-    [{ a: [] }, /no values/],
-    [{ output: ['a'] }, /reserved/],
-    [{ input: ['a'] }, /reserved/],
-    [{ 'a b': ['c'] }, /plain name/],
+Deno.test('a bad option declaration is refused', () => {
+  const cases: [ProfileOptions, RegExp][] = [
+    [{ a: choices('null') }, /can't take/],
+    [{ a: choices('') }, /can't take/],
+    [{ a: choices() }, /no values/],
+    [{ output: choices('a') }, /reserved/],
+    [{ input: choices('a') }, /reserved/],
+    [{ 'a b': choices('c') }, /plain name/],
   ];
-  for (const [conditions, reason] of cases) {
-    const problem = systemLinesProblem(['x'], conditions, {}) ?? '';
+  for (const [options, reason] of cases) {
+    const problem = systemLinesProblem(['x'], options, undefined) ?? '';
     assertEquals(reason.test(problem), true, problem);
   }
-  const clash = systemLinesProblem(['x'], CONDITIONS, { plan: ['a'] }) ?? '';
-  assertEquals(/both a condition and a slot/.test(clash), true, clash);
+  const clash = systemLinesProblem(['x'], OPTIONS, { plan: choices('a') }) ?? '';
+  assertEquals(/on both/.test(clash), true, clash);
+});
+
+Deno.test('a when naming an option on either object starts, and one on neither is refused', () => {
+  const when = ['when tone is warm: x'];
+  assertEquals(systemLinesProblem(when, undefined, { tone: TONE }), undefined);
+  assertEquals(systemLinesProblem(when, { tone: TONE }, undefined), undefined);
+  assertEquals(/not a field/.test(systemLinesProblem(when, OPTIONS, undefined) ?? ''), true);
 });
 
 Deno.test('a bare { private } must sit in a line of its own', () => {
@@ -209,25 +231,22 @@ Deno.test('a bare { private } must sit in a line of its own', () => {
   assertThrows(() => assertSystemLines(7, 'system'), TheoremError);
 });
 
-Deno.test('a tool path outside the path condition is named, and star or unset pass', () => {
+Deno.test('a tool path outside the path option is named, and star or unset pass', () => {
   assertEquals(
-    toolPathProblem(CONDITIONS, [
+    toolPathProblem(OPTIONS, [
       { name: 'ok', paths: ['web', '*'] },
       { name: 'bad', paths: ['fax'] },
     ]),
     'Tool bad lists path "fax", which is not one of web, imessage, alexa, live-call.',
   );
-  assertEquals(
-    toolPathProblem(CONDITIONS, [{ name: 'ok', paths: ['*'] }, { name: 'n' }]),
-    undefined,
-  );
+  assertEquals(toolPathProblem(OPTIONS, [{ name: 'ok', paths: ['*'] }, { name: 'n' }]), undefined);
   assertEquals(toolPathProblem(undefined, [{ name: 'bad', paths: ['fax'] }]), undefined);
 });
 
 Deno.test('a turn records which lines of the prompt fit it, by number from 1', () => {
   const written = define({
     handle: 'h',
-    conditions: CONDITIONS,
+    options: OPTIONS,
     system: ['always', 'when path is alexa: spoken', 'when plan is free: free'],
   });
   const turn = { profile: 'lines', input: {}, ...WEB_FREE };

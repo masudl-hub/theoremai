@@ -13,17 +13,17 @@ import {
   type Spread,
 } from 'lexical';
 import { createContext, type ReactNode, useContext, useState } from 'react';
-import type { ConditionDraft } from '../draft.ts';
+import type { OptionDraft } from '../draft.ts';
 import { checksOf, PROMPT_LINE, withCheck, withoutCheck } from '../prompt-doc.ts';
 
-/** The conditions this profile declares, which the tokens' menus and the toolbar's offer. */
-export const PromptConditions = createContext<readonly ConditionDraft[]>([]);
+/** The options this profile declares, which the tokens' menus and the toolbar's offer. */
+export const PromptOptions = createContext<readonly OptionDraft[]>([]);
 
 export type SetWhen = (when: string | null) => void;
 
-/** The menu of a line's `when`: one section per condition, with what it holds ticked. */
-export function conditionItems(
-  conditions: readonly ConditionDraft[],
+/** The menu of a line's `when`: one section per option, with what it holds ticked. */
+export function optionItems(
+  options: readonly OptionDraft[],
   when: string | null,
   set: SetWhen,
 ): DropdownMenuOption[] {
@@ -32,17 +32,17 @@ export function conditionItems(
     ...(have.length > 0
       ? [
           {
-            label: 'Remove condition',
+            label: 'Remove',
             onClick: () => {
               set(null);
             },
           },
         ]
       : []),
-    ...conditions.map(({ name, values }) => ({
+    ...options.map(({ name, choices }) => ({
       type: 'section' as const,
       title: name,
-      items: values.map((value) => ({
+      items: choices.map(({ value }) => ({
         label: `${name} is ${value}`,
         onClick: () => {
           set(withCheck(when, name, value));
@@ -61,14 +61,14 @@ export function conditionItems(
  * is a span.
  */
 function CheckToken({ check, when, set }: { check: string; when: string | null; set: SetWhen }) {
-  const conditions = useContext(PromptConditions);
+  const options = useContext(PromptOptions);
   const [isOpen, setIsOpen] = useState(false);
   return (
     <DropdownMenu
       label={check}
       isMenuOpen={isOpen}
       onOpenChange={setIsOpen}
-      items={conditionItems(conditions, when, set)}
+      items={optionItems(options, when, set)}
       renderTrigger={({ ref, id }) => (
         <Tooltip content={`Sent only on turns where ${when ?? check}. Press to change it.`}>
           <Token

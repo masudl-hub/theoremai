@@ -4,18 +4,23 @@ import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
   compileStudio,
   createExampleDraft,
-  type SlotDraft,
+  type OptionDraft,
   type StudioRunPayload,
   setProfileType,
 } from '../mod.ts';
 import { pageInputsOf, sentPageValues } from '../ui/lib/studio-page.ts';
 
-/** A slot row: each choice a value, or a value and its description. */
-function slot(name: string, choices: (string | [string, string])[], label = ''): SlotDraft {
+/** An option row: each choice a value, or a value and its description. */
+function option(
+  name: string,
+  choices: (string | [string, string])[],
+  { label = '', isShownInChat = true }: { label?: string; isShownInChat?: boolean } = {},
+): OptionDraft {
   return {
-    key: `slot-${name}`,
+    key: `option-${name}`,
     name,
     label,
+    isShownInChat,
     choices: choices.map((choice) => {
       const [value, description] = typeof choice === 'string' ? [choice, ''] : choice;
       return { key: `choice-${value}`, value, description };
@@ -31,9 +36,9 @@ function payloadOf(draft: ReturnType<typeof createExampleDraft>): StudioRunPaylo
 
 function withPage(type: 'text' | 'live') {
   const draft = setProfileType(createExampleDraft(), type, TEST_KEYS);
+  draft.identity.options = [option('language', ['en', 'fr'])];
   draft.inputs = {
     ...draft.inputs,
-    slots: [slot('language', ['en', 'fr'])],
     contextFrom: ['client'],
     contextMaxChars: 2000,
   };
@@ -48,44 +53,40 @@ Deno.test('an agent that takes nothing from a page has no page inputs', () => {
   assertEquals(pageInputsOf(payloadOf(createExampleDraft())), null);
 });
 
-Deno.test('a slot sends its first value until one is picked, and a dropped value falls back', () => {
+Deno.test('a shown option sends its first value until one is picked, and a dropped value falls back', () => {
   const inputs = pageInputsOf(withPage('text').payload);
-  assertEquals(sentPageValues(inputs, { slots: {}, conditions: {}, contextJson: '' }), {
-    slots: { language: 'en' },
+  assertEquals(sentPageValues(inputs, { options: {}, contextJson: '' }), {
+    options: { language: 'en' },
   });
   const picked = {
-    slots: { language: 'fr' },
-    conditions: {},
+    options: { language: 'fr' },
     contextJson: '{"page":"Checkout"}',
   };
   assertEquals(sentPageValues(inputs, picked), {
-    slots: { language: 'fr' },
+    options: { language: 'fr' },
     context: { page: 'Checkout' },
   });
-  assertEquals(
-    sentPageValues(inputs, { slots: { language: 'de' }, conditions: {}, contextJson: '{' }),
-    {
-      slots: { language: 'en' },
-      contextError: 'Context must be JSON.',
-    },
-  );
+  assertEquals(sentPageValues(inputs, { options: { language: 'de' }, contextJson: '{' }), {
+    options: { language: 'en' },
+    contextError: 'Context must be JSON.',
+  });
 });
 
-Deno.test("conditions send their first value until picked, and path goes as the turn's own", () => {
+Deno.test("code options send their first value until picked, and path goes as the turn's own", () => {
   const draft = createExampleDraft();
-  draft.identity.conditions = [
-    { key: 'path', name: 'path', values: ['web', 'voice'] },
-    { key: 'plan', name: 'plan', values: ['free', 'paid'] },
+  draft.identity.options = [
+    option('path', ['web', 'voice'], { isShownInChat: false }),
+    option('plan', ['free', 'paid'], { isShownInChat: false }),
   ];
   const inputs = pageInputsOf(payloadOf(draft));
-  assertEquals(sentPageValues(inputs, { slots: {}, conditions: {}, contextJson: '' }).stated, {
+  assertEquals(sentPageValues(inputs, { options: {}, contextJson: '' }).stated, {
     path: 'web',
-    conditions: { plan: 'free' },
+    options: { plan: 'free' },
   });
-  const picked = { slots: {}, conditions: { path: 'voice', plan: 'gone' }, contextJson: '' };
+  const picked = { options: { path: 'voice', plan: 'gone' }, contextJson: '' };
   assertEquals(sentPageValues(inputs, picked).stated, {
     path: 'voice',
-    conditions: { plan: 'free' },
+    options: { plan: 'free' },
   });
   assertEquals(
     sentPageValues(pageInputsOf(payloadOf(createExampleDraft())), picked).stated,
@@ -93,25 +94,22 @@ Deno.test("conditions send their first value until picked, and path goes as the 
   );
 });
 
-Deno.test('a labeled slot decl compiles and still sends its choice values', () => {
+Deno.test('a labeled option compiles and still sends its choice values', () => {
   const draft = setProfileType(createExampleDraft(), 'text', TEST_KEYS);
-  draft.inputs = {
-    ...draft.inputs,
-    slots: [
-      slot(
-        'language',
-        [
-          ['en', 'English'],
-          ['fr', 'French'],
-        ],
-        'Language',
-      ),
-    ],
-  };
+  draft.identity.options = [
+    option(
+      'language',
+      [
+        ['en', 'English'],
+        ['fr', 'French'],
+      ],
+      { label: 'Language' },
+    ),
+  ];
   const payload = payloadOf(draft);
   const inputs = 'inputs' in payload.profile ? payload.profile.inputs : undefined;
-  const slots = inputs && 'slots' in inputs ? inputs.slots : undefined;
-  assertEquals(slots, {
+  const declared = inputs && 'options' in inputs ? inputs.options : undefined;
+  assertEquals(declared, {
     language: {
       label: 'Language',
       choices: [
@@ -120,13 +118,10 @@ Deno.test('a labeled slot decl compiles and still sends its choice values', () =
       ],
     },
   });
-  assertEquals(pageInputsOf(payload)?.slots, { language: ['en', 'fr'] });
-  assertEquals(
-    sentPageValues(pageInputsOf(payload), { slots: {}, conditions: {}, contextJson: '' }),
-    {
-      slots: { language: 'en' },
-    },
-  );
+  assertEquals(pageInputsOf(payload)?.person, { language: ['en', 'fr'] });
+  assertEquals(sentPageValues(pageInputsOf(payload), { options: {}, contextJson: '' }), {
+    options: { language: 'en' },
+  });
 });
 
 Deno.test('a call and a chat both ask the page to answer a tool', () => {

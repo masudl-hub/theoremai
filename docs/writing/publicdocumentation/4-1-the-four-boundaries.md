@@ -14,7 +14,7 @@ Every conversational turn or tool interaction moves text across four physical bo
 flowchart TD
     subgraph Inbound ["1. Inbound Boundaries"]
         User["user / voice / attachment"]
-        HostCtx["slots / context / history / system"]
+        HostCtx["options / context / history / system"]
     end
 
     subgraph ToolArg ["2. Tool Argument Boundaries"]
@@ -38,7 +38,7 @@ flowchart TD
     Model --> ToUser
 ```
 
-1. **Inbound Boundaries**: Text entering model context from the user or host application (`user`, `attachment`, `voice`, `slots`, `context`, `history`, `injected`, `system`, `repair`, `live_user`).
+1. **Inbound Boundaries**: Text entering model context from the user or host application (`user`, `attachment`, `voice`, `options`, `context`, `history`, `injected`, `system`, `repair`, `live_user`).
 2. **Tool Argument Boundaries**: Model-generated arguments dispatched to external capabilities (`tool_arguments_function`, `tool_arguments_http`, `tool_arguments_mcp`, `tool_arguments_agent`).
 3. **Tool Result Boundaries**: External bytes returned by tools into model context (`tool_output_*`, `tool_failure_*`).
 4. **Outbound Boundaries**: Content leaving the model toward the user or external clients (`reply`, `reply_structured`, `live_reply`, `thought`, and `tool_shown_*`).

@@ -23,6 +23,7 @@ import type {
 } from '../../../guardrails/types.ts';
 import { ANSWER_TOOL, answersByTool } from '../../answer-tool.ts';
 import { resolveInputParts } from '../../registry/ingress.ts';
+import { turnFacts } from '../../registry/options.ts';
 import { profileTurnOutputs } from '../../registry/profile-outputs.ts';
 import { injectWouldExceedMaxSteps } from '../../stages.ts';
 import type { BoundSystem } from '../../system-parts.ts';
@@ -214,13 +215,14 @@ type ValidationOutcome =
   | { action: 'retry'; nextRequest: TurnRequest };
 
 async function evaluateValidationOutcome(args: {
+  profile: Profile;
   validation: NonNullable<ProfileOutputsSpec['validation']>;
   generation: ResolvedGeneration;
   latestStructured: unknown;
   request: TurnRequest;
   canRetry: boolean;
 }): Promise<ValidationOutcome> {
-  const { validation, generation, latestStructured, request, canRetry } = args;
+  const { profile, validation, generation, latestStructured, request, canRetry } = args;
   if (latestStructured === undefined) {
     return { action: 'pass' };
   }
@@ -235,7 +237,7 @@ async function evaluateValidationOutcome(args: {
     structured.jsonSchema,
     latestStructured,
     validation.fields,
-    request.input?.slots,
+    turnFacts(profile, request),
   );
   if (failures.length === 0) return { action: 'pass' };
   if (!canRetry) return { action: 'pass', failed: failures };
@@ -589,6 +591,7 @@ async function handleValidationGate(
     return updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
   }
   const outcome = await evaluateValidationOutcome({
+    profile,
     validation,
     generation: flow.currentGen,
     latestStructured: reply,
@@ -601,9 +604,8 @@ async function handleValidationGate(
   }
   if (reply === undefined) return 'pass';
   if (outcome.failed) markFailed(state, outcome.failed);
-  const slots = flow.currentReq.input?.slots;
   const refused = await collectItemFailures(reply, validation.items, {
-    ...(slots ? { slots } : {}),
+    options: turnFacts(profile, flow.currentReq),
     toolResults: state.toolResults,
   });
   if (refused.length === 0) return 'pass';

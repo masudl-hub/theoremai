@@ -34,7 +34,7 @@ const INBOUND: readonly Boundary[] = [
   'user',
   'attachment',
   'voice',
-  'slots',
+  'options',
   'history',
   'injected',
   'system',

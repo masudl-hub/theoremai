@@ -245,7 +245,7 @@ async function openLive(
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede', ...live },
     inputs: {
-      slots: { language: ['en', 'fr'] },
+      options: { language: { choices: [{ value: 'en' }, { value: 'fr' }] } },
       context: { from: ['client', 'server'], maxChars: 200 },
     },
     tools: { allow: [] },
@@ -254,7 +254,7 @@ async function openLive(
   registerProfile(profile);
   let mock: MockLiveWebSocket | null = null;
   const session = await runSession(
-    { profile: profile.id, slots: { language: 'fr' }, ...request },
+    { profile: profile.id, inputOptions: { language: 'fr' }, ...request },
     {
       vault: { main: 'test-key' },
       openWebSocket: () => {
@@ -303,7 +303,7 @@ async function openLive(
   };
   return { session, frames, contexts, spoken, done };
 }
-Deno.test('a new call seeds its context before any input, then speaks its greeting with the slot filled', async () => {
+Deno.test('a new call seeds its context before any input, then speaks its greeting with the option filled', async () => {
   const live = await openLive(
     { greeting: 'Greet the visitor in {language}.' },
     { context: { client: { page: 'Checkout' }, server: 'tier: pro' } },
@@ -340,15 +340,13 @@ Deno.test('a rebuilt call with portable history does not repeat the initial gree
   assertEquals(live.spoken(), []);
   await live.done();
 });
-Deno.test('a call with no greeting waits, and a greeting that needs an unfilled slot is refused', async () => {
+Deno.test('a call with no greeting waits, and a greeting that prints an unset option is not sent', async () => {
   const quiet = await openLive({});
   assertEquals(quiet.spoken(), []);
   await quiet.done();
-  await assertRejects(
-    () => openLive({ greeting: 'Greet in {language}.' }, { slots: undefined }),
-    TheoremError,
-    "uses slot 'language'",
-  );
+  const held = await openLive({ greeting: 'Greet in {language}.' }, { inputOptions: undefined });
+  assertEquals(held.spoken(), []);
+  await held.done();
 });
 Deno.test('a resumed call speaks only after a gap the caller noticed', async () => {
   const resumable = {
@@ -405,7 +403,10 @@ Deno.test('sendContext refuses a sender the profile does not list, and reads the
     {},
     {},
     {
-      inputs: { context: { from: ['client'], maxChars: 200 }, slots: { language: ['fr'] } },
+      inputs: {
+        context: { from: ['client'], maxChars: 200 },
+        options: { language: { choices: [{ value: 'fr' }] } },
+      },
       identity: { handle: 'live', system: 'hi' },
       guardrails: { detect: TAKE_OUT_INBOUND },
     },

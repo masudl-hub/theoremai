@@ -570,7 +570,11 @@ Deno.test('decision profile rejects model-selection fields', () => {
   }
 });
 Deno.test('decision profile rejects turn inputs', () => {
-  for (const inputs of [{ text: true }, { slots: { tone: ['plain'] } }, { maxFiles: 1 }]) {
+  for (const inputs of [
+    { text: true },
+    { options: { tone: { choices: [{ value: 'plain' }] } } },
+    { maxFiles: 1 },
+  ]) {
     assertRejects(
       () =>
         Promise.resolve().then(() =>

@@ -12,7 +12,7 @@ import { liveSocketAddress } from './lib/project-traces.ts';
 import { STUDIO_LABELS } from './lib/studio-labels.ts';
 
 /** What a live call is run with, wherever it runs. */
-export type StudioLiveProps = Pick<LiveRunnerProps, 'trace' | 'slots' | 'stated' | 'context'> & {
+export type StudioLiveProps = Pick<LiveRunnerProps, 'trace' | 'options' | 'stated' | 'context'> & {
   payload: StudioRunPayload;
   /** Called as each call starts. */
   note: () => void;
@@ -52,7 +52,7 @@ function LiveView({
   note,
   connect,
   trace,
-  slots,
+  options,
   stated,
   context,
 }: StudioLiveProps & { connect: LiveRunnerProps['connection'] }) {
@@ -69,7 +69,7 @@ function LiveView({
         return connect();
       }}
       trace={trace}
-      slots={slots}
+      options={options}
       stated={stated}
       context={context}
       pageTools={pageTools}

@@ -649,7 +649,7 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
     'unregistered compactor',
   );
   check(
-    run(compaction({}), [textProfile({ id: 'summariser', inputs: { text: false, slots: {} } })]),
+    run(compaction({}), [textProfile({ id: 'summariser', inputs: { text: false, options: {} } })]),
     `${at}: compaction profile 'summariser' must be a text profile that takes text`,
     'compactor that takes no text',
   );
@@ -657,18 +657,21 @@ Deno.test('compaction names a registered text profile and keeps its numbers in r
 Deno.test('a structured output maps only the choices of an existing slot', () => {
   const structured = (by: string, map: Loose) =>
     textProfile({
-      inputs: { text: true, slots: { mood: ['happy', 'sad'] } },
+      inputs: {
+        text: true,
+        options: { mood: { choices: [{ value: 'happy' }, { value: 'sad' }] } },
+      },
       outputs: { structured: { by, map } },
     });
   check(said(structured('mood', { happy: {} })), 'defined', 'valid');
   check(
     said(structured('tone', { happy: {} })),
-    "Profile p: outputs.structured.by 'tone' is not a slot in inputs.slots",
+    "Profile p: outputs.structured.by 'tone' is not one of the profile's options",
     'unknown slot',
   );
   check(
     said(structured('mood', { happy: {}, angry: {}, bored: {} })),
-    "Profile p: outputs.structured.map maps angry, bored, not a choice of slot 'mood'",
+    "Profile p: outputs.structured.map maps angry, bored, not a choice of option 'mood'",
     'unknown choices',
   );
   check(
@@ -1062,7 +1065,10 @@ Deno.test('a structured profile registers only after its schemas, and its checks
     saidAtRegistration(definition, (_tools, schemas) => schemas.register('answer', answer));
   const pass = () => ({ isValid: true });
   const withOutputs = (outputs: Loose) =>
-    textProfile({ inputs: { text: true, slots: { mode: ['a', 'b'] } }, outputs });
+    textProfile({
+      inputs: { text: true, options: { mode: { choices: [{ value: 'a' }, { value: 'b' }] } } },
+      outputs,
+    });
   check(reg(withOutputs({ structured: 'answer' })), 'registered', 'registered schema');
   check(
     reg(withOutputs({ structured: 'missing' })),

@@ -210,6 +210,12 @@ const PROFILES = [
     id: 'every-text',
     identity: {
       handle: 'writer',
+      options: {
+        plan: {
+          label: 'Plan',
+          choices: [{ value: 'free', description: 'No cost.' }, { value: 'paid' }],
+        },
+      },
       system: [['You write.', { private: 'House rules.' }]],
     },
     models: {
@@ -268,8 +274,8 @@ const PROFILES = [
       maxBytes: 1_000_000,
       maxTurnBytes: 2_000_000,
       limitsByMime: { 'image/png': 500_000 },
-      slots: {
-        role: ['admin', 'guest'],
+      options: {
+        role: { choices: [{ value: 'admin' }, { value: 'guest' }] },
         tone: {
           label: 'Tone',
           choices: [{ value: 'plain', description: 'Short words.' }, { value: 'warm' }],

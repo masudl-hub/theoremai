@@ -75,7 +75,7 @@ function parseSystemMarkup(text: string): SystemMarkup {
 /**
  * A plain line as the kernel sends it once the studio opens it: each stretch between blank lines
  * is a line of its own, with a blank line between them either way.
- * invariant: A text with a `when` stretch stays whole, since opening it would make that stretch a condition.
+ * invariant: A text with a `when` stretch stays whole, since opening it would put that stretch under a `when`.
  */
 function plainLines(line: string): string[] {
   const lines = line.trim().split(BLANK_LINE);

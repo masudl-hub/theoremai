@@ -47,7 +47,7 @@ export interface SessionBoundaryOptions {
 
 export type PreparedLiveOpen = Pick<
   SessionRequest,
-  'history' | 'slots' | 'context' | 'providerState' | 'awayMs' | 'path' | 'conditions'
+  'history' | 'inputOptions' | 'context' | 'providerState' | 'awayMs' | 'path' | 'options'
 >;
 
 export interface TheoremSessionBoundary {

@@ -1,7 +1,7 @@
 /** What a section's title says on hover, where no one catalog field describes the section. */
 const SECTION_HINTS = {
   profile: 'What this profile is called, and what kind it is.',
-  system: 'What the model is told, and the conditions that decide which lines go out.',
+  system: 'What the model is told, and the options that decide which lines go out.',
   modelPolicy: 'Which model runs by default, and whether it can be switched.',
   generation: 'How this model writes its reply.',
   limits: 'What a message may carry.',
@@ -23,7 +23,6 @@ const SECTION_NOTES = {
   models: 'Add a model here, then select its binding in the tree to configure it.',
   'models.decision': 'A decision uses one model. Select its binding in the tree to configure it.',
   decisionModel: 'This binding answers the questions configured under Decision.',
-  slots: "Each slot's picker sets what the preview sends. It is not saved in the profile.",
   context: 'Preview is what the studio sends as the page. It is not saved in the profile.',
   compaction: "The studio's chat compacts only before a turn.",
   quota: 'Studio runs are not counted.',

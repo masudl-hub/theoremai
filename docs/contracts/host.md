@@ -112,7 +112,7 @@ against its own schema: a kind it does not know reaches `onTurnEvent` as
 goes on, and an `events` envelope's other events stand.
 
 The live client starts with an open message validated by `parseLiveOpenMessage`.
-It contains slots, client context, portable history, optional `providerState`, and absence duration.
+It contains options, client context, portable history, optional `providerState`, and absence duration.
 The relay uses `createTheoremSessionBoundary` to authenticate the conversation before upstream transport.
 Its `prepareLiveOpen` rejects unowned checkpoints and removes system-role history.
 Put its `toolExecution` and `pageExecution` on the `SessionRequest` as `execution` and `pageExecution`. To run [background tool calls](./kernel.md#background-tool-calls), also set your `background` service there.
@@ -167,7 +167,7 @@ late answer is then refused like any `executeTool` for a settled call.
 
 `reader` says who reads the copy, and `'visitor'` is the default. `'builder'` is for a
 development tool that runs on the builder's own machine with the builder's own keys, as the
-studio does. Never set it on a page that visitors reach: the raw reason can name slots, hosts
+studio does. Never set it on a page that visitors reach: the raw reason can name options, hosts
 and tools.
 
 `publicError(err, profile.labels)` is the visitor's wording alone. `clientError` gives the

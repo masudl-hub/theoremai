@@ -69,7 +69,7 @@ Deno.test('decision inputs are catalogued apart from turn inputs', () => {
     );
   }
   assertEquals(fieldMeta('inputs.voice.accept')?.profileTypes, ['text', 'transcription']);
-  for (const path of ['inputs.slots.*', 'inputs.context.from']) {
+  for (const path of ['inputs.options.*', 'inputs.context.from']) {
     assertEquals(fieldMeta(path)?.profileTypes, ['text', 'image', 'live'], path);
   }
 });

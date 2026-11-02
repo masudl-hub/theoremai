@@ -171,7 +171,7 @@ const formatter: ProfileDefinition = {
   inputs: {
     text: true,
     attachments: { accept: FORMATTER_ATTACH },
-    slots: { language: ['html', 'tsx'] },
+    options: { language: { choices: [{ value: 'html' }, { value: 'tsx' }] } },
     ...CHAT_MEDIA_LIMITS,
   },
   outputs: {

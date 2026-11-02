@@ -365,11 +365,11 @@ Three more props give the call values from the page. The profile declares each o
 
 | Prop | The profile declares | What the page gives |
 | --- | --- | --- |
-| `slots` | `inputs.slots` | The value chosen for each slot. It is read when the call starts. A value that changes during a call takes the call up again with it when the profile has resumption on; otherwise the next call has it. |
+| `options` | `inputs.options` | The value chosen for each option. It is read when the call starts. A value that changes during a call takes the call up again with it when the profile has resumption on; otherwise the next call has it. |
 | `context` | `inputs.context` with `from: ['client']` | Any JSON the agent should know, such as the page the person is on. |
 | `pageTools` | A function tool with `answeredBy: 'page'` | A function for each page tool, by name. It returns `{ output }`. |
 
-`stated` is a fourth prop, for a page you trust as yourself. It says the `path` and `conditions` that choose the call's prompt lines, and the server reads it only with `pageStatesTurn` set. A change during a call takes the call up again, as a slot does. `TheoremChat` takes the same prop, on each turn.
+`stated` is a fourth prop, for a page you trust as yourself. It says the `path` and the `options` from `identity.options` that choose the call's prompt lines, and the server reads it only with `pageStatesTurn` set. A change during a call takes the call up again, as an option does. `TheoremChat` takes the same prop, on each turn.
 
 `model` and `effort` pick the call's model when the profile sets `allowModelSelect`. They are read when the call starts.
 
@@ -377,7 +377,7 @@ Three more props give the call values from the page. The profile declares each o
 <LiveRunner
   iface={iface}
   connection={() => ({ profile: 'support.voice' })}
-  slots={{ language: 'fr' }}
+  options={{ language: 'fr' }}
   context={{ page: '/pricing', cart }}
   pageTools={{
     highlight: (args) => ({ output: { success: highlight(String(args.target)) } }),
@@ -417,7 +417,7 @@ A failed call does not reconnect. Without `live.sessionResumption`, a provider-e
 
 The relay is server code. To authenticate the conversation and resume a call in your relay, see [Your relay](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#your-relay).
 
-To build your own call view, use `useLiveRunnerModel(iface, connection, { slots, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions, and its controls. `LiveCaptionsPanel` draws the captions.
+To build your own call view, use `useLiveRunnerModel(iface, connection, { options, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions, and its controls. `LiveCaptionsPanel` draws the captions.
 
 ### A custom browser transport
 

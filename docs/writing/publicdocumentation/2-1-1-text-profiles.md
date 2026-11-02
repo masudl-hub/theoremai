@@ -129,9 +129,9 @@ The `validation` block provides deterministic enforcement in your application pr
   * `'drop'`: Theorem strips invalid items from the array and continues.
 * **`maxRetries`**: Limits the number of repair round-trips before the turn emits whatever valid elements settled.
 
-### Dynamic Schema Selection by Turn Slot
+### Dynamic Schema Selection by Option
 
-For profiles handling multiple document types, `structured` accepts a slot-mapped dictionary:
+For profiles handling multiple document types, `structured` accepts an option-mapped dictionary:
 
 ```ts
 outputs: {
@@ -146,7 +146,7 @@ outputs: {
 }
 ```
 
-When slot mapping is declared, Theorem reads `TurnRequest.input.slots[by]` to select the schema. If the slot matches a key in `map`, that schema is applied; otherwise, it defaults to `fallback`.
+Theorem reads the option named by `by` to select the schema. The option can be on `identity.options` or on `inputs.options`. If its value matches a key in `map`, Theorem applies that schema. Otherwise, it applies `fallback`.
 
 ---
 
@@ -178,7 +178,7 @@ const events = runTurn({
   profile: 'harbor.customs_auditor',
   input: {
     text: 'Audit declaration #TRK-88294100 against manifest rules.',
-    slots: { declarationType: 'freight' },
+    options: { declarationType: 'freight' },
   },
   system: 'Treat declaration flags with high scrutiny for port authority compliance.', // One-off instruction for this turn
   path: 'customs', // Offer only tools whose paths include 'customs' or '*'

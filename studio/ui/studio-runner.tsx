@@ -117,9 +117,10 @@ export interface StudioRunnerProps {
   initialPending?: ChatProps['initialPending'];
   onConversationChange?: ChatProps['onConversationChange'];
   chatRef?: ChatProps['chatRef'];
-  /** The value the page picked for each slot, for a chat's turns and a call's start. */
-  slots?: ChatProps['slots'];
-  /** What a run of a profile states: it declares its own conditions. */
+  /** The value the page picked for each option, for a chat's turns and a call's start. */
+  options?: ChatProps['options'];
+  onOptionsChange?: ChatProps['onOptionsChange'];
+  /** What a run of a profile states: it declares its own options. */
   statedOf?: (of: StudioRunPayload) => ChatProps['stated'];
   /** What the page tells the agent. */
   context?: ChatProps['context'];
@@ -170,7 +171,8 @@ function Run({
   initialPending,
   onConversationChange,
   chatRef,
-  slots,
+  options,
+  onOptionsChange,
   statedOf,
   context,
   tested,
@@ -197,7 +199,8 @@ function Run({
         initialPending={initialPending}
         onConversationChange={onConversationChange}
         chatRef={chatRef}
-        slots={slots}
+        options={options}
+        onOptionsChange={onOptionsChange}
         statedOf={statedOf}
         context={context}
         tested={tested}
@@ -258,7 +261,8 @@ function Run({
       initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
-      slots={slots}
+      options={options}
+      onOptionsChange={onOptionsChange}
       statedOf={statedOf}
       context={context}
     />
@@ -369,7 +373,8 @@ type SideProps = Pick<
   | 'flush'
   | 'columns'
   | 'chatRef'
-  | 'slots'
+  | 'options'
+  | 'onOptionsChange'
   | 'context'
 > & {
   stated?: ChatProps['stated'];
@@ -394,7 +399,8 @@ function SideRun({
   flush,
   columns,
   chatRef,
-  slots,
+  options,
+  onOptionsChange,
   stated,
   context,
 }: SideProps) {
@@ -442,7 +448,8 @@ function SideRun({
         trace={trace}
         className={className}
         chatRef={chatRef}
-        slots={slots}
+        options={options}
+        onOptionsChange={onOptionsChange}
         stated={stated}
         context={context}
       />
@@ -457,7 +464,7 @@ function SideRun({
       endpoint={endpoint}
       note={note}
       trace={trace}
-      slots={slots}
+      options={options}
       stated={stated}
       context={context}
     />
@@ -574,7 +581,8 @@ function ProjectRun({
         initialPending={run.initialPending}
         onConversationChange={run.onConversationChange}
         chatRef={run.chatRef}
-        slots={run.slots}
+        options={run.options}
+        onOptionsChange={run.onOptionsChange}
         stated={statedOf?.(payload)}
         savedStated={statedOf?.(saved ?? payload)}
         context={run.context}
@@ -605,7 +613,8 @@ function TurnRun({
   initialPending,
   onConversationChange,
   chatRef,
-  slots,
+  options,
+  onOptionsChange,
   statedOf,
   context,
 }: RunProps) {
@@ -632,7 +641,7 @@ function TurnRun({
       runtime={runtime}
       note={note}
       trace={trace}
-      slots={slots}
+      options={options}
       stated={stated}
       context={context}
     />
@@ -651,7 +660,8 @@ function TurnRun({
       initialPending={initialPending}
       onConversationChange={onConversationChange}
       chatRef={chatRef}
-      slots={slots}
+      options={options}
+      onOptionsChange={onOptionsChange}
       stated={stated}
       context={context}
       pageTools={pageTools}

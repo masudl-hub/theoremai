@@ -113,7 +113,7 @@ function promptDoc(lines: readonly SystemPrompt[]): string {
   if (roots.length === 0) return JSON.stringify({ root: { ...shell, children: [EMPTY_LINE] } });
   const children = roots.flatMap(({ when, root }, at) => {
     const blocks = root.children ?? [];
-    // why: lines side by side under one condition read as one stretch; `withWhen` writes it back.
+    // why: lines side by side under one `when` read as one stretch; `withWhen` writes it back.
     const continues = when !== null && roots[at - 1]?.when === when;
     return continues ? blocks : [{ type: PROMPT_LINE, version: 1, when }, ...blocks];
   });
@@ -244,7 +244,7 @@ function settledLine(line: SystemPrompt): Stretch[] {
 /** A `when`'s checks, each as `name is value`. */
 const checksOf = (when: string | null): string[] => (when ? when.split(' and ') : []);
 
-/** One condition holds one value; picking the value it already has takes it off. */
+/** One `when` holds one value; picking the value it already has takes it off. */
 function withCheck(when: string | null, name: string, value: string): string | null {
   const check = `${name} is ${value}`;
   const had = checksOf(when);

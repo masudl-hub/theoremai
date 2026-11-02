@@ -332,22 +332,22 @@ Deno.test('a stop keeps what the reply said, and a queued message stays queued',
   ]);
 });
 
-Deno.test('each turn carries the slots and context as they are when it is sent', async () => {
+Deno.test('each turn carries the options and context as they are when it is sent', async () => {
   const host = heldHost();
   const iface = {
     ...textInterface(),
     inputs: {
       ...textInterface().inputs,
-      slots: { tone: { choices: [{ value: 'warm' }, { value: 'dry' }] } },
+      options: { tone: { choices: [{ value: 'warm' }, { value: 'dry' }] } },
     },
   };
   const chat = createChatController({ transport: host.transport, iface, context: { page: 'a' } });
-  assertEquals(chat.getState().slots?.values, { tone: 'warm' });
-  chat.pickSlot('tone', 'dry');
+  assertEquals(chat.getState().options?.values, { tone: 'warm' });
+  chat.pickOption('tone', 'dry');
   chat.update({ transport: host.transport, iface, context: { page: 'b' } });
   const sent = chat.sendText('Hi');
   await settle();
-  assertEquals(host.turns[0].request.input.slots, { tone: 'dry' });
+  assertEquals(host.turns[0].request.input.options, { tone: 'dry' });
   assertEquals(host.turns[0].request.input.context, { page: 'b' });
   reply(host.turns[0], 'Hello');
   const turn = await sent;

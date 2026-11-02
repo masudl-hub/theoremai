@@ -1,4 +1,9 @@
-import { type GateReference, TheoremError, type TurnEvent } from '@theoremjs/agents';
+import {
+  type GateReference,
+  type ProfileOptions,
+  TheoremError,
+  type TurnEvent,
+} from '@theoremjs/agents';
 import {
   type AttachmentValidationIssue,
   branchInterfaceTurnSession,
@@ -85,15 +90,15 @@ export type ChatOptions = {
    */
   onConversationChange?: (ref: string | undefined) => void;
   /**
-   * The value chosen for each of the profile's `inputs.slots`. Sent with every turn. A slot you
+   * The value chosen for each of the profile's `inputs.options`. Sent with every turn. An option you
    * name here is fixed to that value; one you leave out is the visitor's to pick (the chat's
-   * `pickSlot`), starting at its first allowed value.
+   * `pickOption`), starting at its first allowed value.
    */
-  slots?: Record<string, string>;
+  options?: Record<string, string>;
   /** Which prompt lines each turn gets, for a host that lets its page choose (`pageStatesTurn`). */
   stated?: StatedTurn;
-  /** Told each time the visitor picks a slot, with every slot's value. */
-  onSlotsChange?: (slots: Record<string, string>) => void;
+  /** Told each time the visitor picks an option, with every option's value. */
+  onOptionsChange?: (options: Record<string, string>) => void;
   /** What the page wants the agent to know: any JSON. The latest value goes with every turn. */
   context?: unknown;
   /** The page's tools, by name: each answers a tool the profile declares with `answeredBy: 'page'`. */
@@ -111,15 +116,9 @@ export type ChatOptions = {
  */
 export type MessageDelivery = 'sending' | 'sent' | 'delivered' | 'read';
 
-/** One declared slot as the composer shows it (group label + choices with optional blurbs). */
-export type ChatSlotDecl = {
-  label?: string;
-  choices: readonly { value: string; description?: string }[];
-};
-
-/** The slots the profile declares, and the value of each: the page's, else the picked one, else the first allowed. */
-export type ChatSlots = {
-  declared: Record<string, ChatSlotDecl>;
+/** The options the profile declares, and the value of each: the page's, else the picked one, else the first allowed. */
+export type ChatOptionPicks = {
+  declared: ProfileOptions;
   values: Record<string, string>;
 };
 
@@ -146,8 +145,8 @@ export type ChatState = {
   /** The latest message's delivery; `null` before the first and once its turn failed. */
   delivery: MessageDelivery | null;
   streaming: boolean;
-  /** `undefined` when the profile declares no slots. */
-  slots: ChatSlots | undefined;
+  /** `undefined` when the profile declares no options. */
+  options: ChatOptionPicks | undefined;
 };
 
 /** What `sendText` hands back: the blocks the turn added, its user message, and the reply. */
@@ -217,7 +216,7 @@ export type ChatController = {
   branch(index: number): Promise<void>;
   /** The model, and its effort (its default when left out), for the next turn. */
   setGeneration(next: { modelId: string; effort?: string }): void;
-  pickSlot(name: string, value: string): void;
+  pickOption(name: string, value: string): void;
   /**
    * Sends `text`, and what `options` adds, as the composer would, and resolves once the reply is
    * done; `null` when it can't go now (a reply is streaming, or waits on a gate).
@@ -297,12 +296,12 @@ function withTurnError(blocks: TranscriptBlock[], error: string): TranscriptBloc
   return [...blocks, { id: crypto.randomUUID(), kind: 'error', message: error }];
 }
 
-function slotsOf(
+function picksOf(
   iface: ComposerProfileInterface | null,
   fixed: Record<string, string> | undefined,
   picked: Record<string, string>,
-): { values: Record<string, string> | undefined; slots: ChatSlots | undefined } {
-  const declared = iface?.inputs.slots ?? {};
+): { values: Record<string, string> | undefined; options: ChatOptionPicks | undefined } {
+  const declared = iface?.inputs.options ?? {};
   const values: Record<string, string> = { ...fixed };
   for (const [name, decl] of Object.entries(declared)) {
     const first = decl.choices[0]?.value;
@@ -312,11 +311,11 @@ function slotsOf(
   const chosen = Object.keys(declared).length > 0;
   return {
     values: chosen || fixed ? values : undefined,
-    slots: chosen ? { declared, values } : undefined,
+    options: chosen ? { declared, values } : undefined,
   };
 }
 
-function sameSlots(a: ChatSlots | undefined, b: ChatSlots | undefined): boolean {
+function samePicks(a: ChatOptionPicks | undefined, b: ChatOptionPicks | undefined): boolean {
   if (a === undefined || b === undefined) return a === b;
   const keys = Object.keys(a.values);
   return (
@@ -401,7 +400,7 @@ class Chat implements ChatController {
       session: emptyInterfaceTurnSession(),
       delivery: null,
       streaming: false,
-      slots: slotsOf(options.iface, options.slots, {}).slots,
+      options: picksOf(options.iface, options.options, {}).options,
     };
     this.#notified = this.#state;
     this.#warnPageTools();
@@ -507,10 +506,10 @@ class Chat implements ChatController {
   update = (options: ChatOptions): void => {
     this.#options = options;
     this.#warnPageTools();
-    const { slots } = slotsOf(options.iface, options.slots, this.#picked);
+    const { options: picks } = picksOf(options.iface, options.options, this.#picked);
     const patch: Partial<ChatState> = {};
     if (options.iface !== this.#state.iface) patch.iface = options.iface;
-    if (!sameSlots(slots, this.#state.slots)) patch.slots = slots;
+    if (!samePicks(picks, this.#state.options)) patch.options = picks;
     if (Object.keys(patch).length > 0) this.#set(patch);
   };
 
@@ -696,11 +695,13 @@ class Chat implements ChatController {
     });
   };
 
-  pickSlot = (name: string, value: string): void => {
-    const before = slotsOf(this.#options.iface, this.#options.slots, this.#picked).values;
+  pickOption = (name: string, value: string): void => {
+    const before = picksOf(this.#options.iface, this.#options.options, this.#picked).values;
     this.#picked = { ...this.#picked, [name]: value };
-    this.#set({ slots: slotsOf(this.#options.iface, this.#options.slots, this.#picked).slots });
-    this.#options.onSlotsChange?.({ ...before, [name]: value });
+    this.#set({
+      options: picksOf(this.#options.iface, this.#options.options, this.#picked).options,
+    });
+    this.#options.onOptionsChange?.({ ...before, [name]: value });
   };
 
   sendText = async (text: string, options: SendTextOptions = {}): Promise<SentTurn | null> => {
@@ -1047,7 +1048,7 @@ class Chat implements ChatController {
 
   /**
    * The transport each run uses: the page's tools answer their calls, each turn carries the
-   * page's slots and context as they are when it is sent, and each line lands the steers it
+   * page's options and context as they are when it is sent, and each line lands the steers it
    * reports, moves the message's delivery on, and hands the chat the conversation's new ref
    * (so a page that reloads mid-reply keeps the posted message).
    */
@@ -1068,15 +1069,15 @@ class Chat implements ChatController {
   }
 
   #withValues(request: TheoremTurnRequest): TheoremTurnRequest {
-    const { iface, slots: fixed, context, stated } = this.#options;
-    const slots = slotsOf(iface, fixed, this.#picked).values;
-    if (slots === undefined && context === undefined && stated === undefined) return request;
+    const { iface, options: fixed, context, stated } = this.#options;
+    const options = picksOf(iface, fixed, this.#picked).values;
+    if (options === undefined && context === undefined && stated === undefined) return request;
     return {
       ...request,
       ...(stated === undefined ? {} : { stated }),
       input: {
         ...request.input,
-        ...(slots === undefined ? {} : { slots }),
+        ...(options === undefined ? {} : { options }),
         ...(context === undefined ? {} : { context }),
       },
     };

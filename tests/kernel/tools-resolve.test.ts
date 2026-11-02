@@ -363,7 +363,7 @@ Deno.test('resolveTurnTools refuses a tool whose path the profile does not list'
   const declared = as<Profile>({
     id: 'p',
     type: 'text',
-    identity: { handle: 'p', conditions: { path: ['web'] } },
+    identity: { handle: 'p', options: { path: { choices: [{ value: 'web' }] } } },
     tools: { allow: ['f1'] },
     models: {},
   });

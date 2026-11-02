@@ -99,8 +99,8 @@ export interface LiveClientOptions {
   profile?: string;
   /** The host's own JSON for its relay, sent as the open message's `host`. */
   openMessage?: Record<string, unknown>;
-  /** The value chosen for each of the profile's `inputs.slots`, fixed for the call. */
-  slots?: Record<string, string>;
+  /** The value chosen for each of the profile's `inputs.options`, fixed for the call. */
+  options?: Record<string, string>;
   /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
   stated?: StatedTurn;
   /** The model picked for the call, when the profile allows it. */
@@ -353,11 +353,11 @@ export class LiveSessionClient {
 
   /** The first message: the call's values, and the handle and time away when it takes a dropped call up again. */
   private openMessage(): LiveOpenMessage {
-    const { slots, stated, model, effort, openMessage: host } = this.options;
+    const { options, stated, model, effort, openMessage: host } = this.options;
     return {
       type: 'open',
       ...(this.history.length ? { history: structuredClone(this.history) } : {}),
-      ...(slots ? { slots } : {}),
+      ...(options ? { options } : {}),
       ...(stated ? { stated } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
@@ -922,16 +922,16 @@ export class LiveSessionClient {
   }
 
   /**
-   * The call's slot values. An open call is taken up again with them when the provider gave a
+   * The call's option values. An open call is taken up again with them when the provider gave a
    * handle; with none, the next call has them.
    */
-  public setSlots(slots: Record<string, string> | undefined): void {
-    if (JSON.stringify(slots) === JSON.stringify(this.options.slots)) return;
-    this.options = { ...this.options, slots };
+  public setOptions(options: Record<string, string> | undefined): void {
+    if (JSON.stringify(options) === JSON.stringify(this.options.options)) return;
+    this.options = { ...this.options, options };
     this.takeUpAgain();
   }
 
-  /** The call's prompt lines, as `setSlots` takes its slots. */
+  /** The call's prompt lines, as `setOptions` takes its options. */
   public setStated(stated: StatedTurn | undefined): void {
     if (JSON.stringify(stated) === JSON.stringify(this.options.stated)) return;
     this.options = { ...this.options, stated };

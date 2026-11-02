@@ -256,15 +256,15 @@ const origin = (path: string, over: Partial<SettingOrigin> = {}): SettingOrigin 
 Deno.test('a row is set in code by the nearest origin at or above it, or by one inside its list', () => {
   const origins = [
     origin('inputs'),
-    origin('inputs.slots', { text: 'slots()' }),
+    origin('inputs.options', { text: 'options()' }),
     origin('guardrails', { kind: 'spread', written: ['quota'] }),
     origin('tools.allow.1'),
     origin('models.fast.apiId'),
   ];
   const at = (path: string) => originAt(origins, path.split('.'))?.path.join('.');
-  assertEquals(['inputs.text', 'inputs.slots.0', 'inputs', 'maxSteps'].map(at), [
+  assertEquals(['inputs.text', 'inputs.options.0', 'inputs', 'maxSteps'].map(at), [
     'inputs',
-    'inputs.slots',
+    'inputs.options',
     'inputs',
     undefined,
   ]);

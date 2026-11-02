@@ -652,11 +652,11 @@ Deno.test("isModelProfile and requireModelProfile refuse 'host' and 'decision' p
     "type 'decision' runs through runDecision",
   );
 });
-Deno.test('a slot-mapped structured output reads a declared slot and maps its choices', () => {
+Deno.test('an option-mapped structured output reads a declared option and maps its choices', () => {
   const base = {
     type: 'text' as const,
-    id: 'slot_mapped',
-    identity: { handle: 'Slot mapped' },
+    id: 'option_mapped',
+    identity: { handle: 'Option mapped' },
     ...geminiModels('gemini35FlashLite'),
     tools: { allow: [] as string[] },
   };
@@ -664,24 +664,43 @@ Deno.test('a slot-mapped structured output reads a declared slot and maps its ch
   assertThrows(
     () => defineProfile({ ...base, inputs: { text: true }, outputs: { structured } }),
     TheoremError,
-    "outputs.structured.by 'language' is not a slot in inputs.slots",
+    "outputs.structured.by 'language' is not one of the profile's options",
   );
   assertThrows(
     () =>
       defineProfile({
         ...base,
-        inputs: { text: true, slots: { language: ['tsx'] } },
+        inputs: { text: true, options: { language: { choices: [{ value: 'tsx' }] } } },
         outputs: { structured },
       }),
     TheoremError,
-    "outputs.structured.map maps html, not a choice of slot 'language'",
+    "outputs.structured.map maps html, not a choice of option 'language'",
   );
   const ok = defineProfile({
     ...base,
-    inputs: { text: true, slots: { language: ['html', 'tsx'] } },
+    inputs: {
+      text: true,
+      options: { language: { choices: [{ value: 'html' }, { value: 'tsx' }] } },
+    },
     outputs: { structured },
   });
   assertEquals(ok.type === 'text' && ok.outputs?.structured, structured);
+});
+Deno.test('a structured map reads an option your code sets as it reads one the person sets', () => {
+  const structured = { by: 'plan', map: { paid: 'htmlTurn' }, fallback: 'htmlTurn' };
+  const defined = defineProfile({
+    type: 'text',
+    id: 'code_option_mapped',
+    identity: {
+      handle: 'Code option mapped',
+      options: { plan: { choices: [{ value: 'free' }, { value: 'paid' }] } },
+    },
+    ...geminiModels('gemini35FlashLite'),
+    tools: { allow: [] },
+    inputs: { text: true },
+    outputs: { structured },
+  });
+  assertEquals(defined.type === 'text' && defined.outputs?.structured, structured);
 });
 Deno.test('getProfile throws for unknown profile', () => {
   assertThrows(

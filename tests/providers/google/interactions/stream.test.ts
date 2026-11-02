@@ -133,7 +133,7 @@ Deno.test('Interactions body formats multi-turn history with text and parts', ()
 Deno.test('JSON Schema property names stay camelCase inside response_format.schema', () => {
   const { generation } = resolveTurn({
     profile: 'formatter',
-    input: { text: 'x', slots: { language: 'html' } },
+    input: { text: 'x', options: { language: 'html' } },
   });
   const body = toInteractionsBody({
     model: generation.model,

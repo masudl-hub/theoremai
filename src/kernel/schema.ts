@@ -383,7 +383,8 @@ export const DYNAMIC_FIELD_PARENTS: ReadonlySet<string> = new Set([
   'models',
   'models.*.efforts',
   'labels',
-  'inputs.slots',
+  'inputs.options',
+  'identity.options',
   'inputs.limitsByMime',
   'outputs.validation.fields',
   'outputs.validation.items',
@@ -663,16 +664,33 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     },
   ),
   identity: field(
-    '{ handle, conditions?, system? }',
+    '{ handle, options?, system? }',
     "The agent's display name and the system instruction it is given.",
   ),
   'identity.handle': field(
     'string',
     'The name hosts and users see for this agent, at most 32 characters; the model never sees it.',
   ),
-  'identity.conditions': field(
-    'Record<string, string[]>',
-    'The facts every turn states, by name, with the values each can take. A line of identity.system reads them as "when plan is free: …". A condition named path reads the turn\'s path.',
+  'identity.options': field(
+    'Record<string, OptionDecl>',
+    'The options the host\'s code sets on runTurn, which a person never sees. A line of identity.system reads one as "when plan is free: …" and prints it as {plan}. One named path holds the turn\'s path.',
+  ),
+  'identity.options.*': field(
+    'OptionDecl',
+    '{ label?, choices: { value, description? }[] }, the same shape as inputs.options.*.',
+  ),
+  'identity.options.*.label': field(
+    'string',
+    "A person-readable title. Omit to show the option's name.",
+  ),
+  'identity.options.*.choices': field('OptionChoice[]', 'The values this option can take.'),
+  'identity.options.*.choices.*.value': field(
+    'string',
+    'The value the code sets, which `when` reads and {name} prints.',
+  ),
+  'identity.options.*.choices.*.description': field(
+    'string',
+    'What this value means. It is never sent to the model.',
   ),
   'identity.system': field(
     'string | Array<string | Array<string | { private: string }>>',
@@ -917,27 +935,27 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'number',
     'The largest file of this type (or type/* family), in bytes, a turn or embedding request may send inline.',
   ),
-  'inputs.slots': field(
-    'Record<string, string[] | SlotDecl>',
-    'Named choices a turn or a call can make. A bare string list is the allowed values; an object may add a UI label and per-choice descriptions. {name} in a prompt becomes the chosen value string.',
+  'inputs.options': field(
+    'Record<string, OptionDecl>',
+    'The options a person picks, each shown as a picker. A prompt reads one as "when reader is student: …" and prints it as {reader}.',
   ),
-  'inputs.slots.*': field(
-    'string[] | SlotDecl',
-    'Either the allowed value strings, or { label?, choices: { value, description? }[] }. Descriptions are UI-only; value is what the turn sends and what {name} fills.',
+  'inputs.options.*': field(
+    'OptionDecl',
+    '{ label?, choices: { value, description? }[] }. Value is what the turn sends and what {name} prints.',
   ),
-  'inputs.slots.*.label': field(
+  'inputs.options.*.label': field(
     'string',
-    'Visitor-facing group title for this slot in the composer (for example Source Bias). Omit to show the slot name.',
+    "Visitor-facing title for this option in the composer (for example Source Bias). Omit to show the option's name.",
   ),
-  'inputs.slots.*.choices': field(
-    'SlotChoice[]',
-    'The allowed values for this slot, each with an optional UI description.',
+  'inputs.options.*.choices': field(
+    'OptionChoice[]',
+    'The values this option can take, each with an optional UI description.',
   ),
-  'inputs.slots.*.choices.*.value': field(
+  'inputs.options.*.choices.*.value': field(
     'string',
-    'The string the turn sends for this choice and that {name} substitutes into prompts.',
+    'The value the turn sends for this choice, which `when` reads and {name} prints.',
   ),
-  'inputs.slots.*.choices.*.description': field(
+  'inputs.options.*.choices.*.description': field(
     'string',
     'Visitor-facing blurb for this choice in the composer. Never substituted into prompts.',
   ),
@@ -963,8 +981,8 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'The shape of the reply, how it is checked, and how it streams.',
   ),
   'outputs.structured': field(
-    'StructuredSchemaId | StructuredBySlot | null',
-    'The registered JSON schema the reply must follow, which can vary by slot; register it before the profile.',
+    'StructuredSchemaId | StructuredByOption | null',
+    'The registered JSON schema the reply must follow, which can vary by option; register it before the profile.',
   ),
   image: field(
     'ProfileImageSpec',
@@ -1083,7 +1101,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'live.greeting': field(
     'string',
-    'A prompt the call sends itself when it opens new, so the agent speaks first. The visitor does not see it. It may use {slot}.',
+    'A prompt the call sends itself when it opens new, so the agent speaks first. The visitor does not see it. It may use {name}, and is not sent when an option it prints is unset.',
   ),
   'live.resumed': field(
     '{ prompt: string; afterMs?: number }',
@@ -1091,7 +1109,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
   ),
   'live.resumed.prompt': field(
     'string',
-    'A prompt the call sends itself when it resumes, so the agent says it is back. The visitor does not see it. It may use {slot}.',
+    'A prompt the call sends itself when it resumes, so the agent says it is back. The visitor does not see it. It may use {name}, and is not sent when an option it prints is unset.',
   ),
   'live.resumed.afterMs': field(
     'number',
@@ -1128,7 +1146,7 @@ export const PROFILE_FIELDS: Record<string, FieldMeta> = withScopeAndPresence({
     'Your checks, each keyed by a dotted path into the structured reply, such as diagram.mermaid; a path no structured schema reaches is refused when the profile registers.',
   ),
   'outputs.validation.fields.*': field(
-    '(candidate: unknown, slots?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
+    '(candidate: unknown, options?: Record<string, string>) => ValidationResult | Promise<ValidationResult>',
     'Your check on this part of the reply, reached through object properties only; a failure sends its error back to the model to rewrite while retries remain.',
   ),
   'outputs.validation.items': field(
@@ -1549,7 +1567,7 @@ export const EXTRA_FIELDS: Record<string, FieldMeta> = {
   },
   'registerTool.hostOnly': {
     ...field(
-      "Array<'attachments' | 'voice' | 'slots'>",
+      "Array<'attachments' | 'voice' | 'options'>",
       'Channels the called profile takes that the calling model cannot fill on an agent tool; only onAgentCall sends them. A channel the profile does not take is refused when the tool registers.',
     ),
     unset: 'The model can fill every channel the profile takes',

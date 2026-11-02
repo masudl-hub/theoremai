@@ -110,7 +110,7 @@ export function useLiveSessionClient(bindings: LiveClientBindings) {
     const b = bindingsRef.current;
     const client = new LiveSessionClient({
       ...connection,
-      slots: b.slots,
+      options: b.options,
       stated: b.stated,
       model: b.model,
       effort: b.effort,

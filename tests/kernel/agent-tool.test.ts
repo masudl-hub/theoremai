@@ -487,7 +487,7 @@ function pictureScope(): KernelScope {
         maxFiles: 2,
         maxBytes: 1_000_000,
         maxTurnBytes: 2_000_000,
-        slots: { depth: ['quick', 'careful'] },
+        options: { depth: { choices: [{ value: 'quick' }, { value: 'careful' }] } },
       },
     }),
   );
@@ -521,14 +521,14 @@ Deno.test("an agent tool's input is what the called profile takes", () => {
     return Object.keys(schema.properties as object);
   };
   assertEquals(properties(scopeWith()), ['text']);
-  assertEquals(properties(pictureScope()), ['text', 'attachments', 'slots']);
+  assertEquals(properties(pictureScope()), ['text', 'attachments', 'options']);
   assertEquals(properties(speechScope()), ['text', 'speech']);
 });
 
-Deno.test('the calling model sends a picture and a slot, and the agent gets both', async () => {
+Deno.test('the calling model sends a picture and an option, and the agent gets both', async () => {
   const seen: ModelRequest[] = [];
   const calls: Parameters<AgentCallHook>[0][] = [];
-  const sent = { text: 'What is this?', attachments: [PICTURE], slots: { depth: 'careful' } };
+  const sent = { text: 'What is this?', attachments: [PICTURE], options: { depth: 'careful' } };
   const events = await collect(pictureScope(), sendingProvider(sent, seen), (call) => {
     calls.push(call);
     return undefined;

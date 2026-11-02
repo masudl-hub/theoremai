@@ -31,9 +31,10 @@ export const REQUEST_FIELDS: Record<
   },
   'runTurn.input': { type: 'TurnInput', doc: 'What the user sent for the turn.' },
   'runTurn.input.text': { type: 'string', doc: "The user's message." },
-  'runTurn.input.slots': {
+  'runTurn.input.options': {
     type: 'Record<string, string>',
-    doc: 'The choice the turn makes for each slot the profile declares in inputs.slots; a slot or a value the profile does not declare is refused.',
+    doc: "The value a person picked for each option in the profile's inputs.options; an option or a value the profile does not declare is refused.",
+    unset: 'The person picked none',
   },
   'runTurn.input.context': {
     type: "Partial<Record<'client' | 'server', unknown>>",
@@ -90,10 +91,10 @@ export const REQUEST_FIELDS: Record<
     type: 'SystemPrompt',
     doc: "An instruction for this request only, added to the profile's own.",
   },
-  'runTurn.conditions': {
+  'runTurn.options': {
     type: 'Record<string, string>',
-    doc: "This turn's facts, one value for each of identity.conditions but path.",
-    unset: 'The profile declares none',
+    doc: "The value the host's code sets for each option in the profile's identity.options but path; an option or a value the profile does not declare is refused.",
+    unset: 'The code set none',
   },
   'runTurn.path': {
     type: 'string',

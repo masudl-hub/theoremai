@@ -67,13 +67,13 @@ export type TheoremChatProps = {
    */
   detectCodeLanguage?: boolean;
   /**
-   * The value chosen for each of the profile's `inputs.slots`, sent with every turn. A slot you
+   * The value chosen for each of the profile's `inputs.options`, sent with every turn. An option you
    * name is fixed to that value; one you leave out gets a selector in the composer bar, beside
    * the model's, starting at its first allowed value.
    */
-  slots?: Record<string, string>;
-  /** Told each time the visitor chooses a slot in the composer, with every slot's value. */
-  onSlotsChange?: (slots: Record<string, string>) => void;
+  options?: Record<string, string>;
+  /** Told each time the visitor chooses an option in the composer, with every option's value. */
+  onOptionsChange?: (options: Record<string, string>) => void;
   /** Which prompt lines each turn gets, for a host that lets its page choose (`pageStatesTurn`). */
   stated?: StatedTurn;
   /**
@@ -247,7 +247,7 @@ function ChatComposerForChat({
       onStop={chat.handleStop}
       onMenuAction={chat.handleMenuAction}
       onGenerationChange={chat.handleGenerationChange}
-      slotChoices={chat.slotChoices}
+      optionChoices={chat.optionChoices}
       onPendingMove={chat.handlePendingMove}
       onPendingRemove={(id) => {
         chat.setPendingMessages((prev) => removeComposerPendingMessage(prev, id));
@@ -285,8 +285,8 @@ function ChatBody({
   onConversationChange,
   chatRef,
   composer: hasComposer = true,
-  slots,
-  onSlotsChange,
+  options,
+  onOptionsChange,
   stated,
   context,
   pageTools,
@@ -303,8 +303,8 @@ function ChatBody({
     initialVoice,
     initialPending,
     onConversationChange,
-    slots,
-    onSlotsChange,
+    options,
+    onOptionsChange,
     stated,
     context,
     pageTools,

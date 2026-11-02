@@ -14,9 +14,9 @@ import type {
   ModelBinding,
   ModelId,
   ProfileContextSpec,
+  ProfileOptions,
   ProfileOutputsSpec,
   ProviderEvidence,
-  SlotDecl,
   Source,
   SpeechProfile,
   TextProfile,
@@ -84,8 +84,8 @@ export interface ProfileInputsInterface {
   maxBytes?: number;
   maxTurnBytes?: number;
   limitsByMime?: Record<string, number>;
-  /** Normalized slot decls (`label?` + `choices`); legacy string lists are expanded upstream. */
-  slots?: Record<string, SlotDecl>;
+  /** The options a person picks. */
+  options?: ProfileOptions;
   context?: ProfileContextSpec;
 }
 

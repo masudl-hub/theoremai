@@ -530,7 +530,7 @@ export type PostedMessage = {
   /** The message's blocks (`prepareUserTurn`), with their media inline. */
   blocks: TranscriptBlock[];
   media: UserTurnHistoryMedia;
-  /** The kernel input without history: the message's text as the transcript shows it, its media, slots, and context. */
+  /** The kernel input without history: the message's text as the transcript shows it, its media, options, and context. */
   input: TurnInput;
 };
 

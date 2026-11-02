@@ -42,8 +42,8 @@ import {
 export type LiveOpenMessage = {
   type: 'open';
   history?: TurnHistoryMessage[];
-  /** The value chosen for each of the profile's `inputs.slots`. */
-  slots?: Record<string, string>;
+  /** The value chosen for each of the profile's `inputs.options`. */
+  options?: Record<string, string>;
   /** What the page tells the agent as the call opens: the client's context package. */
   context?: unknown;
   /** Which prompt lines the call gets, for a host that lets its page choose (`pageStatesTurn`). */
@@ -60,7 +60,7 @@ export type LiveOpenMessage = {
 const liveOpenMessage = z.object({
   type: z.literal('open'),
   history: z.array(turnHistoryMessageSchema).optional(),
-  slots: z.record(z.string(), z.string()).optional(),
+  options: z.record(z.string(), z.string()).optional(),
   context: z.unknown().optional(),
   stated: statedTurnSchema.optional(),
   model: z.string().optional(),

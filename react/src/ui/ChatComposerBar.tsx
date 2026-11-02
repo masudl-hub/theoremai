@@ -80,22 +80,22 @@ import { VoiceNote } from './VoiceNote.tsx';
 
 const NO_FOCUS_RING = { '--focus-outline-width': '0px' } as React.CSSProperties;
 
-/** A slot the profile declares: its allowed values, the one chosen, and how to choose another. */
+/** An option the profile declares: its allowed values, the one chosen, and how to choose another. */
 /** The effort selector's icon. The studio's Agents list shows the same one. */
 export const EFFORT_ICON = IconBrain;
 
-export type SlotChoiceOption = {
+export type OptionChoiceView = {
   value: string;
   description?: string;
 };
 
-export type SlotDeclView = {
+export type OptionDeclView = {
   label?: string;
-  choices: readonly SlotChoiceOption[];
+  choices: readonly OptionChoiceView[];
 };
 
-export type SlotChoices = {
-  declared: Readonly<Record<string, SlotDeclView>>;
+export type OptionChoices = {
+  declared: Readonly<Record<string, OptionDeclView>>;
   values: Readonly<Record<string, string>>;
   onChange: (name: string, value: string) => void;
 };
@@ -126,8 +126,8 @@ export type ChatComposerBarProps = {
   onGenerationChange?: (next: { modelId: string; effort?: string }) => void;
   /** Stands in for the model and effort selectors, for a bar whose choices are not one chat's. */
   generationSelect?: ReactNode;
-  /** The profile's `inputs.slots` with the value chosen for each; one selector per slot, beside the model's. */
-  slotChoices?: SlotChoices;
+  /** The profile's `inputs.options` with the value chosen for each; one selector per option, beside the model's. */
+  optionChoices?: OptionChoices;
   onPendingMove: (id: string, direction: 'up' | 'down') => void;
   onPendingRemove: (id: string) => void;
   onPendingQueue: (id: string) => void;
@@ -344,7 +344,7 @@ function EffortSelector(props: {
   );
 }
 
-function SlotSelectors(props: { choices?: SlotChoices; isDisabled: boolean }) {
+function OptionSelectors(props: { choices?: OptionChoices; isDisabled: boolean }) {
   if (!props.choices) return null;
   const { declared, values, onChange } = props.choices;
   return Object.entries(declared).map(([name, decl]) => {
@@ -377,7 +377,7 @@ function SlotSelectors(props: { choices?: SlotChoices; isDisabled: boolean }) {
 
 function GenerationSelect(props: {
   iface: ComposerProfileInterface;
-  slotChoices?: SlotChoices;
+  optionChoices?: OptionChoices;
   selectedModel?: string;
   selectedEffort?: string;
   isDisabled: boolean;
@@ -385,15 +385,15 @@ function GenerationSelect(props: {
   control?: ReactNode;
 }) {
   const { models, efforts } = generationOptions(props.iface, props.selectedModel);
-  const slotCount = Object.keys(props.slotChoices?.declared ?? {}).length;
+  const optionCount = Object.keys(props.optionChoices?.declared ?? {}).length;
   if (props.control)
     return (
       <HStack gap={1}>
         {props.control}
-        <SlotSelectors choices={props.slotChoices} isDisabled={props.isDisabled} />
+        <OptionSelectors choices={props.optionChoices} isDisabled={props.isDisabled} />
       </HStack>
     );
-  if (models.length + efforts.length + slotCount === 0) return null;
+  if (models.length + efforts.length + optionCount === 0) return null;
   return (
     <HStack gap={1}>
       <ModelSelector
@@ -412,7 +412,7 @@ function GenerationSelect(props: {
           if (props.selectedModel) props.onChange?.({ modelId: props.selectedModel, effort });
         }}
       />
-      <SlotSelectors choices={props.slotChoices} isDisabled={props.isDisabled} />
+      <OptionSelectors choices={props.optionChoices} isDisabled={props.isDisabled} />
     </HStack>
   );
 }
@@ -848,7 +848,7 @@ function ChatComposerBarBody(props: ChatComposerBarProps) {
       footerActions={
         <GenerationSelect
           iface={iface}
-          slotChoices={props.slotChoices}
+          optionChoices={props.optionChoices}
           selectedModel={props.selectedModel}
           selectedEffort={props.selectedEffort}
           isDisabled={phase === 'streaming'}

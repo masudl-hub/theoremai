@@ -128,7 +128,7 @@ const blobSchema = z.strictObject({
 const inputSchema: z.ZodType<TurnInput> = z.strictObject({
   text: z.string().optional(),
   role: z.string().optional(),
-  slots: z.record(z.string(), z.string()).optional(),
+  options: z.record(z.string(), z.string()).optional(),
   context: z
     .strictObject({ client: jsonValueSchema.optional(), server: jsonValueSchema.optional() })
     .optional(),

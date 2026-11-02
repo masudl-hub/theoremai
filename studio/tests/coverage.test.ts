@@ -8,7 +8,12 @@ import { PROFILE_FIELDS } from '../../mod.ts';
  */
 const COMPILED = 'Worked out from the patterns where the agent runs.';
 
+const ONE_OPTIONS_LIST = 'The one Options list shows these for every option.';
+
 const NOT_IN_STUDIO: Record<string, string> = {
+  'identity.options.*.label': ONE_OPTIONS_LIST,
+  'identity.options.*.choices': ONE_OPTIONS_LIST,
+  'inputs.options.*.choices.*.value': ONE_OPTIONS_LIST,
   'tools.t1Policy': 'A function that picks T1 tools each turn, written in code.',
   'inputs.state': 'Set by the Decision profile type.',
   'outputs.validation.fields': 'Check functions, written in code.',

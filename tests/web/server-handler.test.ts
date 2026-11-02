@@ -239,7 +239,7 @@ Deno.test('turn streams kernel events from the host profile, not the client', as
   );
   assertEquals(seen[0]?.system?.includes(SYSTEM), true);
 });
-Deno.test("a turn carries the page's slots and context, and the host's context as server", async () => {
+Deno.test("a turn carries the page's options and context, and the host's context as server", async () => {
   const seen: {
     system?: string;
     sent?: string;
@@ -262,7 +262,7 @@ Deno.test("a turn carries the page's slots and context, and the host's context a
       guardrails: { detect: 'ignore' },
       inputs: {
         text: true,
-        slots: { language: ['en', 'fr'] },
+        options: { language: { choices: [{ value: 'en' }, { value: 'fr' }] } },
         context: { from: ['client', 'server'], maxChars: 200 },
       },
     },
@@ -271,7 +271,7 @@ Deno.test("a turn carries the page's slots and context, and the host's context a
   });
   await collect((onEvent) =>
     transportFor(handler).turn(
-      { input: { text: 'hi', slots: { language: 'fr' }, context: { page: 'Pricing' } } },
+      { input: { text: 'hi', options: { language: 'fr' }, context: { page: 'Pricing' } } },
       onEvent,
     ),
   );
@@ -2230,11 +2230,14 @@ Deno.test("a turn's prepare sees a held call going on, and only a run's events r
 function linedProfile(id: string, allow: string[] = []): ProfileDefinition {
   return profile(id, allow, {
     handle: 'helper',
-    conditions: { path: ['web', 'voice'], plan: ['free', 'paid'] },
+    options: {
+      path: { choices: [{ value: 'web' }, { value: 'voice' }] },
+      plan: { choices: [{ value: 'free' }, { value: 'paid' }] },
+    },
     system: ['when path is web: Web line.', 'when plan is paid: Paid line.', 'Every line.'],
   });
 }
-const PICKED = { path: 'web', conditions: { plan: 'paid' } };
+const PICKED = { path: 'web', options: { plan: 'paid' } };
 
 Deno.test('a page the host trusts says which prompt lines its turn gets', async () => {
   const seen: { system?: string }[] = [];

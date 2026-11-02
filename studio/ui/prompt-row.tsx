@@ -2,24 +2,24 @@ import { Icon } from '@astryxdesign/core/Icon';
 import { ToggleButton } from '@astryxdesign/core/ToggleButton';
 import { IconCode, IconEye } from '@tabler/icons-react';
 import { useDeferredValue, useMemo, useState } from 'react';
-import type { ConditionDraft } from '../draft.ts';
+import type { OptionDraft } from '../draft.ts';
 import { promptDocProblem } from '../prompt-doc.ts';
 import { TextAreaRow, useFieldRow, WideRow } from './inspector.tsx';
 import { PromptEditor } from './prompt-editor.tsx';
-import { PromptConditions } from './prompt-line-node.tsx';
+import { PromptOptions } from './prompt-line-node.tsx';
 
 const PATH = 'identity.system';
 
 /** A profile's prompt: formatted, or as code, which is all a prompt the view can't hold can be. */
 export function PromptRow({
   value,
-  conditions,
+  options,
   rows,
   placeholder,
   onChange,
 }: {
   value: string;
-  conditions: readonly ConditionDraft[];
+  options: readonly OptionDraft[];
   rows: number;
   placeholder?: string;
   onChange: (next: string) => void;
@@ -65,9 +65,9 @@ export function PromptRow({
       hasIssue={status !== undefined}
       action={toggle}
     >
-      <PromptConditions.Provider value={conditions}>
+      <PromptOptions.Provider value={options}>
         <PromptEditor value={value} placeholder={placeholder} status={status} onChange={onChange} />
-      </PromptConditions.Provider>
+      </PromptOptions.Provider>
     </WideRow>
   );
 }

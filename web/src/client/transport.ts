@@ -67,13 +67,13 @@ export type TheoremTurnInput = {
   text?: string;
   attachments?: EncodedBlob[];
   voice?: EncodedBlob[];
-  /** The value chosen for each of the profile's `inputs.slots`. */
-  slots?: Record<string, string>;
+  /** The value chosen for each of the profile's `inputs.options`. */
+  options?: Record<string, string>;
   /** What the page wants the agent to know: any JSON. The host reads it as untrusted. */
   context?: unknown;
 };
 const theoremTurnInput = z.object({
-  slots: z.record(z.string(), z.string()).optional(),
+  options: z.record(z.string(), z.string()).optional(),
   context: z.unknown().optional(),
   text: z.string().optional(),
   attachments: z.array(encodedBlob).optional(),
@@ -113,14 +113,14 @@ export const theoremReplaySchema: z.ZodType<TheoremReplay> = theoremReplay;
 /** An id the client made: trimmed, never blank. */
 const clientId = z.string().trim().min(1);
 
-/** Which prompt lines a turn gets: the path it says it came by, and its `identity.conditions`. */
+/** Which prompt lines a turn gets: the path it says it came by, and its `identity.options`. */
 export type StatedTurn = {
   path?: string;
-  conditions?: Record<string, string>;
+  options?: Record<string, string>;
 };
 const statedTurn = z.object({
   path: z.string().optional(),
-  conditions: z.record(z.string(), z.string()).optional(),
+  options: z.record(z.string(), z.string()).optional(),
 });
 true satisfies Equals<z.infer<typeof statedTurn>, StatedTurn>;
 /** A stated turn off the wire. */

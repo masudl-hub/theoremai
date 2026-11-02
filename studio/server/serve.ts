@@ -264,24 +264,32 @@ async function forward(
   if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
     return forwardSocket(request, `${loaded.origin}${to}${url.search}`, runs.begin());
   }
+  const target = `${loaded.origin}${to}${url.search}`;
   // invariant: counted before anything is awaited, in the tick that picked `loaded`.
-  const ended = request.method === 'POST' && to.startsWith(PROFILES) ? runs.begin() : undefined;
+  if (request.method !== 'POST' || !to.startsWith(PROFILES)) return passOn(request, target, to);
+  const ended = runs.begin();
+  const answer = await passOn(request, target, to).catch((error) => {
+    ended();
+    throw error;
+  });
+  return untilRead(answer, ended);
+}
+
+/** The project's answer to a request, watched when it is a run. */
+async function passOn(request: Request, target: string, to: string): Promise<Response> {
   const headers = new Headers(request.headers);
   headers.delete('host');
   let response: Response;
   try {
-    response = await fetch(`${loaded.origin}${to}${url.search}`, {
+    response = await fetch(target, {
       method: request.method,
       headers,
       body: await bodyOf(request),
     });
   } catch {
-    ended?.();
     return json(502, {}, corsHeaders(request, pageOrigins));
   }
-  if (request.method === 'OPTIONS') return response;
-  const answer = watchedRun(request.method, to, response);
-  return ended ? untilRead(answer, ended) : answer;
+  return request.method === 'OPTIONS' ? response : watchedRun(request.method, to, response);
 }
 
 /** What a request carries on: nothing for a read. */

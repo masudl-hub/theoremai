@@ -246,12 +246,17 @@ function control(request, response) {
     response.end(JSON.stringify(requests));
     return true;
   }
+  return releaseHeld(request, response);
+}
+
+/** Answers `POST /release/name`: every reply held under that name goes on. */
+function releaseHeld(request, response) {
   const marked = /^\/release\/(\w+)$/.exec(request.url ?? '');
   if (!marked) return false;
-  const waiting = held.get(marked[1]);
+  const waiting = held.get(marked[1]) ?? [];
   held.delete(marked[1]);
-  for (const release of waiting ?? []) release();
-  response.writeHead(waiting ? 200 : 404);
+  for (const release of waiting) release();
+  response.writeHead(waiting.length ? 200 : 404);
   response.end();
   return true;
 }

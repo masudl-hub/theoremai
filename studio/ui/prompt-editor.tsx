@@ -1,6 +1,7 @@
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { Icon } from '@astryxdesign/core/Icon';
 import { ToggleButton } from '@astryxdesign/core/ToggleButton';
+import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { RichTextEditor, RichTextEditorToolbar } from '@astryxdesign/richtext';
 import '@astryxdesign/richtext/richtext.css';
 import { $isListItemNode, $isListNode } from '@lexical/list';
@@ -22,6 +23,7 @@ import {
 import {
   type ComponentProps,
   type MouseEvent,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -39,6 +41,10 @@ import './prompt-editor.css';
 
 const NODES = [PromptLineNode];
 const MIN_HEIGHT = '16rem';
+const PRIVATE_HINT = 'Private: the model reads this, and a reply that repeats it is stopped.';
+const HINT_DELAY_MS = 200;
+const BLOCK_HINT = 'Text style: paragraph, heading, list or quote';
+const FORMAT_LABELS = new Set(['Bold', 'Italic', 'Underline', 'Strikethrough', 'Inline code']);
 
 /** Keeps the selection when a toolbar button is pressed. */
 const keepSelection = (event: MouseEvent) => {
@@ -160,6 +166,7 @@ function PromptTools() {
     <>
       <ToggleButton
         label="Private"
+        tooltip={PRIVATE_HINT}
         size="sm"
         isIconOnly
         icon={<Icon icon={IconShareOff} size="sm" />}
@@ -180,6 +187,7 @@ function PromptTools() {
             <ToggleButton
               {...props}
               label="Condition"
+              tooltip="Send this part only on turns where a condition fits"
               size="sm"
               isIconOnly
               icon={<Icon icon={IconFilter} size="sm" />}
@@ -232,6 +240,115 @@ function PrivateRuns() {
   return null;
 }
 
+/** What the pointer rests on, if it is private: the whole block, or else the words. */
+const privateUnder = (target: EventTarget | null): Element | null =>
+  target instanceof Element
+    ? (target.closest('[data-private]') ?? target.closest('[style*="--private"]'))
+    : null;
+
+type HintBox = Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>;
+
+/**
+ * One tooltip for the editor's parts that can't hold their own.
+ * why: Lexical owns the blocks' elements and the toolbar package its buttons, so it anchors to a
+ * span of its own, moved over what it speaks of.
+ */
+function useEditorHint() {
+  const anchor = useRef<HTMLSpanElement>(null);
+  const waiting = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [shown, setShown] = useState<{ text: string; place: HintBox } | null>(null);
+  const hide = useCallback(() => {
+    clearTimeout(waiting.current);
+    setShown(null);
+  }, []);
+  const show = useCallback(
+    (text: string, { left, top, width, height }: HintBox) => {
+      hide();
+      const box = anchor.current?.offsetParent?.getBoundingClientRect();
+      if (!box) return;
+      waiting.current = setTimeout(() => {
+        const place = { left: left - box.left, top: top - box.top, width, height };
+        setShown({ text, place });
+      }, HINT_DELAY_MS);
+    },
+    [hide],
+  );
+  useEffect(() => hide, [hide]);
+  const hint = (
+    <>
+      <span ref={anchor} className="prompt-hint-anchor" style={shown?.place} />
+      <Tooltip anchorRef={anchor} content={shown?.text} isOpen={shown !== null} />
+    </>
+  );
+  return { hint, show, hide };
+}
+
+type EditorHint = ReturnType<typeof useEditorHint>;
+
+/** What the toolbar's control under the pointer says, for the controls that say nothing. */
+function toolbarHint(control: Element): string | undefined {
+  if (control.matches('.astryx-selector')) return BLOCK_HINT;
+  const label = control.getAttribute('aria-label');
+  return label && FORMAT_LABELS.has(label) ? label : undefined;
+}
+
+/** The hover of the toolbar's own buttons, which the package leaves without a tooltip. */
+function toolbarHovers({ show, hide }: EditorHint) {
+  let over: Element | null = null;
+  return {
+    onMouseOver: (event: MouseEvent) => {
+      const control =
+        event.target instanceof Element ? event.target.closest('.astryx-selector, button') : null;
+      if (control === over) return;
+      over = control;
+      hide();
+      const text = control && toolbarHint(control);
+      if (control && text) show(text, control.getBoundingClientRect());
+    },
+    onMouseLeave: () => {
+      over = null;
+      hide();
+    },
+  };
+}
+
+/** Says what private text is, at the pointer. */
+function PrivateHint({ show, hide }: EditorHint) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => {
+    let over: Element | null = null;
+    const move = (event: globalThis.MouseEvent) => {
+      const under = privateUnder(event.target);
+      if (under === over) return;
+      over = under;
+      hide();
+      if (!under) return;
+      show(PRIVATE_HINT, { left: event.clientX, top: event.clientY, width: 1, height: 1 });
+    };
+    let stop = () => {};
+    const unregister = editor.registerRootListener((root) => {
+      stop();
+      stop = () => {};
+      if (!root) return;
+      const page = root.ownerDocument;
+      // why: the root's mouseleave fires while the pointer rests on its text.
+      page.addEventListener('mousemove', move);
+      root.addEventListener('mousedown', hide);
+      root.addEventListener('keydown', hide);
+      stop = () => {
+        page.removeEventListener('mousemove', move);
+        root.removeEventListener('mousedown', hide);
+        root.removeEventListener('keydown', hide);
+      };
+    });
+    return () => {
+      unregister();
+      stop();
+    };
+  }, [editor, show, hide]);
+  return null;
+}
+
 /** The caret stays where it was through the dialog that holds a change. */
 function HeldCaret() {
   const [editor] = useLexicalComposerContext();
@@ -275,8 +392,11 @@ function OpenedEditor({
   onEdit: (next: string) => void;
 }) {
   const [doc] = useState(() => openedDoc(opened));
+  const hint = useEditorHint();
+  const [hovers] = useState(() => toolbarHovers(hint));
   return (
     <div className="prompt-editor">
+      {hint.hint}
       <RichTextEditor
         label="Prompt"
         isLabelHidden
@@ -287,10 +407,18 @@ function OpenedEditor({
         status={status}
         defaultValue={doc}
         nodes={NODES}
-        toolbar={<RichTextEditorToolbar size="sm" hasLink={false} endContent={<PromptTools />} />}
+        toolbar={
+          <RichTextEditorToolbar
+            size="sm"
+            hasLink={false}
+            endContent={<PromptTools />}
+            {...hovers}
+          />
+        }
         plugins={
           <>
             <PrivateRuns />
+            <PrivateHint {...hint} />
             <HeldCaret />
           </>
         }

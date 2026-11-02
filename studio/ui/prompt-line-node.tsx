@@ -1,6 +1,7 @@
 import { DropdownMenu, type DropdownMenuOption } from '@astryxdesign/core/DropdownMenu';
 import { Icon } from '@astryxdesign/core/Icon';
 import { Token } from '@astryxdesign/core/Token';
+import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { IconCheck, IconFilter } from '@tabler/icons-react';
 import {
@@ -69,21 +70,23 @@ function CheckToken({ check, when, set }: { check: string; when: string | null; 
       onOpenChange={setIsOpen}
       items={conditionItems(conditions, when, set)}
       renderTrigger={({ ref, id }) => (
-        <Token
-          ref={ref}
-          id={id}
-          size="sm"
-          label={check}
-          icon={<Icon icon={IconFilter} size="xsm" />}
-          aria-haspopup="menu"
-          aria-expanded={isOpen}
-          onClick={() => {
-            setIsOpen(!isOpen);
-          }}
-          onRemove={() => {
-            set(withoutCheck(when, check));
-          }}
-        />
+        <Tooltip content={`Sent only on turns where ${when ?? check}. Press to change it.`}>
+          <Token
+            ref={ref}
+            id={id}
+            size="sm"
+            label={check}
+            icon={<Icon icon={IconFilter} size="xsm" />}
+            aria-haspopup="menu"
+            aria-expanded={isOpen}
+            onClick={() => {
+              setIsOpen(!isOpen);
+            }}
+            onRemove={() => {
+              set(withoutCheck(when, check));
+            }}
+          />
+        </Tooltip>
       )}
     />
   );

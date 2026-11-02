@@ -164,11 +164,14 @@ export function OwnField({ path, children }: { path?: string; children: ReactNod
 export function InspectorSection({
   title,
   path,
+  hint,
   note,
   children,
 }: {
   title?: string;
   path?: string;
+  /** The title's hover, for a section no one catalog field describes. */
+  hint?: string;
   note?: string;
   children: ReactNode;
 }) {
@@ -181,13 +184,24 @@ export function InspectorSection({
     <Section variant="transparent" padding={3}>
       <VStack gap={3}>
         <VStack gap={1} hAlign="start">
-          {heading && title && path !== undefined ? (
+          {heading && title && path !== undefined && (
             <CatalogHover label={title} path={path}>
               {heading}
             </CatalogHover>
-          ) : (
-            heading
           )}
+          {heading && title && path === undefined && hint !== undefined && (
+            <HoverCard
+              label={title}
+              content={
+                <VStack maxWidth={280}>
+                  <Text>{hint}</Text>
+                </VStack>
+              }
+            >
+              {heading}
+            </HoverCard>
+          )}
+          {heading && path === undefined && hint === undefined && heading}
           {note && <Text type="supporting">{note}</Text>}
         </VStack>
         <OwnField path={path}>{children}</OwnField>
@@ -1107,6 +1121,7 @@ export function NamesInput({
   overflow = 'unfocusedInline',
   marked,
   onMark,
+  markHint,
   onChange,
 }: {
   label: string;
@@ -1121,6 +1136,8 @@ export function NamesInput({
   marked?: string;
   /** Pressing a token chooses it. */
   onMark?: (name: string) => void;
+  /** What a token's hover says: of the marked one, and of the rest. */
+  markHint?: { marked: string; other: string };
   onChange: (next: string[]) => void;
 }) {
   return (
@@ -1140,15 +1157,20 @@ export function NamesInput({
       renderToken={
         onMark &&
         ((item, onRemove) => (
-          <Token
-            label={item.label}
-            size="sm"
-            color={item.label === marked ? 'blue' : 'default'}
-            onClick={() => {
-              onMark(item.label);
-            }}
-            onRemove={onRemove}
-          />
+          <Tooltip
+            content={item.label === marked ? markHint?.marked : markHint?.other}
+            isEnabled={markHint !== undefined}
+          >
+            <Token
+              label={item.label}
+              size="sm"
+              color={item.label === marked ? 'blue' : 'default'}
+              onClick={() => {
+                onMark(item.label);
+              }}
+              onRemove={onRemove}
+            />
+          </Tooltip>
         ))
       }
       onChange={(items) => {

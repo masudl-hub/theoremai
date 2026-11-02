@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, open, promptCode, seen, send, test } from './drive.ts';
 
 const editor = (page: Page) => page.getByRole('textbox', { name: 'Prompt' }).first();
@@ -157,4 +157,39 @@ test('text typed in the formatted view reaches the model', async ({ page }) => {
   const [request] = (await seen(page)).slice(-1);
   const system = request?.body.messages?.find((message) => message.role === 'system');
   expect(JSON.stringify(system?.content ?? '')).toContain('Say the code 8842.');
+});
+
+test('the editor says what its marks do on hover', async ({ page }) => {
+  await open(page);
+  await page.getByRole('button', { name: 'Add condition' }).first().click();
+  await page.getByRole('textbox', { name: 'Condition 1 name' }).fill('plan');
+  const values = page.getByRole('combobox', { name: 'Condition 1 values' });
+  await values.fill('free');
+  await values.press('Enter');
+  await values.fill('paid');
+  await values.press('Enter');
+  const prompt = await promptCode(page);
+  await prompt.fill('{private: Keep this.}\n\nwhen plan is paid: Mention the garden.');
+  await button(page, 'Code').click();
+  const tip = page.getByRole('tooltip');
+  const says = async (hovered: Locator, text: string) => {
+    await hovered.hover();
+    await expect(tip.filter({ hasText: text })).toBeVisible();
+    await page.mouse.move(800, 500);
+    await expect(tip.filter({ hasText: text })).toBeHidden();
+  };
+  const box = editor(page);
+  await says(box.getByText('Keep this.'), 'a reply that repeats it is stopped');
+  await says(button(page, 'Bold'), 'Bold');
+  await says(page.locator('.prompt-editor .astryx-selector'), 'Text style');
+  await says(page.getByRole('button', { name: 'Private' }), 'a reply that repeats it is stopped');
+  await says(page.getByRole('button', { name: 'Condition', exact: true }), 'a condition fits');
+  await says(box.getByText('plan is paid').first(), 'Sent only on turns where plan is paid');
+  const free = page.getByRole('group', { name: 'Condition 1 values' });
+  await says(free.getByText('free'), 'The studio states this value');
+  await says(free.getByText('paid'), 'Press to state this value');
+  await box.getByText('Keep this.').hover();
+  await expect(tip.filter({ hasText: 'a reply that repeats' })).toBeVisible();
+  await page.getByText('System prompt').hover();
+  await expect(page.getByText('the conditions that decide which lines go out')).toBeVisible();
 });

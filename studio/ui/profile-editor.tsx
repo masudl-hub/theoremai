@@ -262,6 +262,7 @@ import {
   updateModelBinding,
   withOption,
 } from '../mod.ts';
+import { SECTION_HINTS } from '../section-notes.ts';
 import { AddProviderButton } from './add-provider.tsx';
 import { IconGoogle, IconOpenAi, IconOpenRouter, IconTypeSafe } from './brand-icons.tsx';
 import {
@@ -504,7 +505,7 @@ function SystemPromptSection({
   set: SetSection<'identity'>;
 }) {
   return (
-    <InspectorSection title="System prompt">
+    <InspectorSection title="System prompt" hint={SECTION_HINTS.system}>
       <ConditionRows identity={identity} set={set} />
       <Suspense fallback={null}>
         <PromptRow
@@ -524,6 +525,11 @@ function SystemPromptSection({
 /** The value a condition states: the page's pick while the condition still takes it, or its first. */
 const statedValue = (allowed: readonly string[] | undefined, picked: string | undefined) =>
   allowed?.find((value) => value === picked) ?? allowed?.[0];
+
+const VALUE_HINT = {
+  marked: 'The studio states this value.',
+  other: 'Press to state this value.',
+};
 
 /** One condition on one row: its name, the values it takes with the one the chat states marked, and its remove button. */
 function ConditionRow({
@@ -570,6 +576,7 @@ function ConditionRow({
           overflow="none"
           marked={stated}
           onMark={onState}
+          markHint={VALUE_HINT}
           onChange={(values) => {
             onChange({ values });
           }}
@@ -627,6 +634,7 @@ function ConditionRows({
         <HStack>
           <Button
             label="Add condition"
+            tooltip="A fact each turn states, which lines of the prompt can depend on"
             variant="ghost"
             size="sm"
             icon={<Icon icon={IconPlus} size="sm" />}
@@ -646,7 +654,7 @@ function IdentityEditor({ draft, setDraft }: { draft: StudioDraft; setDraft: Set
   const set = patch(setDraft, 'identity');
   return (
     <>
-      <InspectorSection title="Profile">
+      <InspectorSection title="Profile" hint={SECTION_HINTS.profile}>
         <TextRow
           label="Id"
           path="profile.id"
@@ -704,7 +712,7 @@ function ModelPolicySection({
 }) {
   const { models } = draft;
   return (
-    <InspectorSection title="Policy">
+    <InspectorSection title="Policy" hint={SECTION_HINTS.modelPolicy}>
       <ChoiceRow
         label="Default"
         path="profile.defaultModel"
@@ -1670,7 +1678,7 @@ function ModelSection({
 /** How the model generates: its output cap, temperature, and summaries. */
 function GenerationSection({ binding, set }: { binding: ModelBindingDraft; set: SetBinding }) {
   return (
-    <InspectorSection title="Generation">
+    <InspectorSection title="Generation" hint={SECTION_HINTS.generation}>
       <NumberRow
         label="Max output"
         path="models.*.maxOutputTokens"
@@ -2119,7 +2127,7 @@ function InputAcceptsSection({
 function InputLimitsSection({ inputs, set }: InputsSectionProps) {
   const limitsRequired = inputLimitsRequired(inputs);
   return (
-    <InspectorSection title="Limits">
+    <InspectorSection title="Limits" hint={SECTION_HINTS.limits}>
       <NumberRow
         label="Max files"
         path="inputs.maxFiles"
@@ -4490,7 +4498,7 @@ function PatternSourceSection({
   const mine = source.patterns.length > 0;
   const use: PatternUse = source.theorem ? (mine ? 'both' : 'theorem') : 'mine';
   return (
-    <InspectorSection title="Patterns">
+    <InspectorSection title="Patterns" hint={SECTION_HINTS.patterns}>
       <SegmentedRow
         label="Read with"
         path={`guardrails.detect.${detector}.theorem`}
@@ -4788,7 +4796,7 @@ function DetectorPage({
         />
       )}
       {isUrlDetector(detector) && (
-        <InspectorSection title="Allow">
+        <InspectorSection title="Allow" hint={SECTION_HINTS.allow}>
           <UrlAllowRows
             detector={detector}
             allow={allow[detector]}
@@ -4799,7 +4807,7 @@ function DetectorPage({
         </InspectorSection>
       )}
       {meta.allow === 'names' && (
-        <InspectorSection title="Allow">
+        <InspectorSection title="Allow" hint={SECTION_HINTS.allow}>
           <NamesRow
             label="Names"
             path={`guardrails.detect.${detector}.allow.names`}
@@ -4861,7 +4869,7 @@ function OwnDetectorPage({
       >
         <DetectIssue />
       </PageHeader>
-      <InspectorSection title="Detector">
+      <InspectorSection title="Detector" hint={SECTION_HINTS.detector}>
         <TextRow
           label="Name"
           path="guardrails.detect.*.label"
@@ -6024,7 +6032,7 @@ function ToolSection({
 /** The tool's input and output schemas. */
 function ContractSection({ tool, set }: { tool: ToolSpecDraft; set: SetTool }) {
   return (
-    <InspectorSection title="Contract">
+    <InspectorSection title="Contract" hint={SECTION_HINTS.contract}>
       <TextAreaRow
         label="Input"
         path="registerTool.inputSchema"
@@ -6274,7 +6282,7 @@ function AgentSection({
   workspace: Workspace;
 }) {
   return (
-    <InspectorSection title="Agent">
+    <InspectorSection title="Agent" hint={SECTION_HINTS.agent}>
       <ChoiceRow
         label="Runs"
         path="registerTool.profile"
@@ -6554,7 +6562,7 @@ function PolicySection({
 }) {
   const isLoader = draft.tools.t2Loader.trim() === tool.toolName.trim();
   return (
-    <InspectorSection title="Policy">
+    <InspectorSection title="Policy" hint={SECTION_HINTS.toolPolicy}>
       <SegmentedRow
         label="Access"
         path="registerTool.access"

@@ -13,6 +13,7 @@ import {
   type StudioWorkspace,
   takesKey,
 } from '../mod.ts';
+import { SECTION_HINTS } from '../section-notes.ts';
 import { ChoiceRow, InspectorRow, InspectorSection, SetInCode, TextRow } from './inspector.tsx';
 import { NodeIssues } from './inspector-context.ts';
 import { IssueBanners, SlotRow } from './profile-editor.tsx';
@@ -151,7 +152,7 @@ export function ProviderEditor({
         </InspectorSection>
       ) : (
         fields.length > 0 && (
-          <InspectorSection title="Connection">
+          <InspectorSection title="Connection" hint={SECTION_HINTS.connection}>
             {fields.map((field) => (
               <TextRow
                 key={field.name}

@@ -41,11 +41,8 @@ type KeptSessionAsk = {
 };
 
 export function createKeptSessions(): KeptSessions {
-  // why: a session here lasts as long as the studio does, so nothing here ages out or is evicted.
-  const store = createMemorySessionStore({
-    ttlMs: Number.MAX_SAFE_INTEGER,
-    maxSessions: Number.MAX_SAFE_INTEGER,
-  });
+  // why: a session here lasts as long as the studio does, so the store takes no limits.
+  const store = createMemorySessionStore();
   const token = crypto.randomUUID();
   /** Each session's detached calls, by operation, with the load each runs in. */
   const detached = new Map<string, Map<string, string>>();

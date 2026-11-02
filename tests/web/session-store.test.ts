@@ -139,6 +139,21 @@ Deno.test('memory session store issues a fresh revision after idle expiration', 
   assertNotEquals(first.revision, recreated.revision);
 });
 
+Deno.test('a memory store with no limits keeps every session, however old', async () => {
+  const store = createMemorySessionStore();
+  assert((await store.compareAndSwap('first', null, emptySessionState())).written);
+  for (let index = 0; index < 10_001; index += 1) {
+    assert((await store.compareAndSwap(`session-${index}`, null, emptySessionState())).written);
+  }
+  const now = Date.now;
+  Date.now = () => now() + 365 * 86_400_000;
+  try {
+    assert(await store.load('first'));
+  } finally {
+    Date.now = now;
+  }
+});
+
 Deno.test('session state rejects unsupported versions and overlapping authority records', () => {
   assertEquals(
     theoremSessionStateSchema.safeParse({ ...emptySessionState(), version: 2 }).success,

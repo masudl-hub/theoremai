@@ -143,8 +143,10 @@ async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
   await input.write(new TextEncoder().encode(JSON.stringify(load)));
   await input.close();
   let printed = '';
+  let started = false;
   const errors = drain(process.stderr, (text) => {
-    printed = (printed + text).slice(-4000);
+    // why: only a project that fails to start shows this, and a running project prints without end.
+    if (!started) printed += text;
     Deno.stderr.writeSync(new TextEncoder().encode(text));
   });
   let ready: () => void = () => {};
@@ -161,6 +163,8 @@ async function loadProject(edits?: ProjectEdits): Promise<Loaded> {
     // The page shows this, so the terminal's colours come out.
     throw new Error(stripVTControlCharacters(printed).trim() || 'The project did not start.');
   }
+  started = true;
+  printed = '';
   const origin = `http://127.0.0.1:${childPort}`;
   const description: StudioDescription = await (await fetch(origin + STUDIO_BASE)).json();
   return { id, process, origin, description };

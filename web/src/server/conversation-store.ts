@@ -133,7 +133,7 @@ export function unknownConversation(cause?: unknown): TheoremError {
   });
 }
 
-/** Conversations in process memory: forgotten when idle, oldest evicted first. For one instance. */
+/** Conversations in process memory, until the limits it is given. For one instance. */
 export function createMemoryConversationStore(
   options: Omit<MemorySessionStoreOptions, 'sessionLimits'> = {},
 ): TheoremConversationStore {

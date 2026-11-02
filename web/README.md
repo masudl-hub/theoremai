@@ -282,13 +282,11 @@ const transport = withPageToolDispatch(
 
 ### Defaults
 
-A limit that stops a turn or refuses a request is unset unless you set it: `gateTtlMs`, `maxRequestBytes`, `pageToolTimeoutMs`, and a session store's `capacity`. Only what keeps stored data from growing without end has a default:
+A limit that stops a turn or refuses a request is unset unless you set it: `gateTtlMs`, `maxRequestBytes`, `pageToolTimeoutMs`, and a session store's `capacity`. The memory stores expire and evict nothing unless you set `ttlMs` and `maxSessions`, so they grow until the process ends. Set both on a public server. These have a default:
 
 | What | Default | Set it with |
 | --- | --- | --- |
 | A settled tool result | Kept 24 hours | `operationRetentionMs` |
-| A session in `createMemorySessionStore` | Dropped after 24 idle hours; at most 10,000 kept | `ttlMs`, `maxSessions` |
-| A conversation in `createMemoryConversationStore` | Dropped after 24 hours unsaved; at most 10,000 kept | `ttlMs`, `maxSessions` |
 | The session cookie | Lasts 30 days | `session` |
 
 A model profile that leaves out `maxSteps` makes at most 20 model calls a turn.
@@ -326,7 +324,7 @@ The session store keeps gates, permissions, and operations. The two stores are s
 
 | Store | Where the conversation is kept |
 | --- | --- |
-| `createMemoryConversationStore()` | Process memory, for one server instance. A conversation that is not saved for 24 hours expires. At most 10,000 conversations are kept; the one saved longest ago goes first. Set `ttlMs` and `maxSessions` to change these limits. |
+| `createMemoryConversationStore()` | Process memory, for one server instance. It keeps every conversation until the process ends. Set `ttlMs` to expire a conversation that is not saved for that long, and `maxSessions` to cap the count; the one saved longest ago goes first. |
 | `createSealedConversationStore({ keys, keyVersion })` | Nowhere on the server. The ref is the conversation itself, encrypted and signed with your key, and bound to the session. The browser cannot read it or change it. |
 | Your own `TheoremConversationStore` | Your database. |
 

@@ -343,26 +343,26 @@ export function pruneGates<Gate extends { createdAt: number; expiresAt?: number 
 export type MemorySessionStoreOptions = {
   /** What it holds for one session. Unset, it holds any size. */
   capacity?: TheoremSessionCapacity;
-  /** invariant: Idle retention is in milliseconds. Protected authority remains. Default 24h. */
+  /** invariant: Idle retention is in milliseconds. Protected authority remains. Unset, nothing expires. */
   ttlMs?: number;
-  /** Oldest sessions are evicted past this count. Default 10 000. */
+  /** Oldest sessions are evicted past this count. Unset, nothing is evicted. */
   maxSessions?: number;
 };
 
 export function memoryStoreLimits(options: MemorySessionStoreOptions) {
-  const ttlMs = options.ttlMs ?? 24 * 60 * 60 * 1000;
-  const maxSessions = options.maxSessions ?? 10_000;
+  const { ttlMs, maxSessions } = options;
   if (
-    !Number.isFinite(ttlMs) ||
-    ttlMs <= 0 ||
-    !Number.isSafeInteger(maxSessions) ||
-    maxSessions <= 0
+    (ttlMs !== undefined && (!Number.isFinite(ttlMs) || ttlMs <= 0)) ||
+    (maxSessions !== undefined && (!Number.isSafeInteger(maxSessions) || maxSessions <= 0))
   ) {
     throw new TheoremError('config', labelText('error.config'), {
       cause: { code: 'session_store_options', ttlMs, maxSessions },
     });
   }
-  return { ttlMs, maxSessions };
+  return {
+    ttlMs: ttlMs ?? Number.POSITIVE_INFINITY,
+    maxSessions: maxSessions ?? Number.POSITIVE_INFINITY,
+  };
 }
 
 /** A value kept per session id for the separate credential store. */
@@ -371,7 +371,7 @@ export type PerSessionStore<T> = {
   save(sessionId: string, value: T): void | Promise<void>;
 };
 
-/** A per-session value kept in process memory: forgotten when idle, oldest evicted first. */
+/** A per-session value kept in process memory, until the limits it is given. */
 export function createMemorySessionMap<T>(options: MemorySessionStoreOptions = {}): {
   load(sessionId: string): T | undefined;
   save(sessionId: string, value: T): void;

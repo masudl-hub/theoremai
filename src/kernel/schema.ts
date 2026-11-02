@@ -1838,9 +1838,8 @@ function valueProblem(meta: FieldMeta, value: unknown): string | undefined {
   return !isKind || isKind(value) ? undefined : `has to be a ${type}.`;
 }
 
-/** The problems of `root` against `fields`, each keyed by the path of keys it names. */
-function fieldProblems(root: unknown, fields: Record<string, FieldMeta>): FieldProblem[] {
-  const problems: FieldProblem[] = [];
+/** Each object path of the catalog, with the keys it takes. */
+function keysByParent(fields: Record<string, FieldMeta>): Map<string, Set<string>> {
   const children = new Map<string, Set<string>>([['', new Set()]]);
   for (const path of Object.keys(fields)) {
     const parent = path.includes('.') ? path.slice(0, path.lastIndexOf('.')) : '';
@@ -1849,25 +1848,38 @@ function fieldProblems(root: unknown, fields: Record<string, FieldMeta>): FieldP
       (children.get(parent) ?? new Set()).add(path.slice(parent.length && parent.length + 1)),
     );
   }
-  for (const [parent, keys] of children) {
+  return children;
+}
+
+/** What is wrong with the value at `at`, as the object `parent` of the catalog: its form or its keys. */
+function shapeProblems(
+  at: string,
+  value: unknown,
+  parent: string,
+  keys: Set<string>,
+  meta: FieldMeta | undefined,
+): FieldProblem[] {
+  if (value === null) return [];
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    if (!parent || /\||\[\]/.test(meta?.type ?? '')) return [];
+    return [{ path: at, message: `has to be an object of ${[...keys].join(', ')}.` }];
+  }
+  return Object.keys(value)
+    .filter((key) => !keys.has(key))
+    .map((key) => ({
+      path: at ? `${at}.${key}` : key,
+      message: `is not a setting; ${at || 'this'} takes ${[...keys].join(', ')}.`,
+    }));
+}
+
+/** The problems of `root` against `fields`, each keyed by the path of keys it names. */
+function fieldProblems(root: unknown, fields: Record<string, FieldMeta>): FieldProblem[] {
+  const problems: FieldProblem[] = [];
+  for (const [parent, keys] of keysByParent(fields)) {
     // why: A detector's own settings are `detectProblem`'s: which it takes depends on the detector.
     if (keys.has('*') || parent.startsWith('guardrails.detect')) continue;
     for (const [at, value] of parent ? valuesAt(root, parent.split('.')) : [['', root] as const]) {
-      if (value === null) continue;
-      if (typeof value !== 'object' || Array.isArray(value)) {
-        const type = fields[parent]?.type ?? '';
-        if (parent && !/\||\[\]/.test(type)) {
-          problems.push({ path: at, message: `has to be an object of ${[...keys].join(', ')}.` });
-        }
-        continue;
-      }
-      for (const key of Object.keys(value)) {
-        if (keys.has(key)) continue;
-        problems.push({
-          path: at ? `${at}.${key}` : key,
-          message: `is not a setting; ${at || 'this'} takes ${[...keys].join(', ')}.`,
-        });
-      }
+      problems.push(...shapeProblems(at, value, parent, keys, fields[parent]));
     }
   }
   for (const [path, meta] of Object.entries(fields)) {

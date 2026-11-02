@@ -1022,12 +1022,46 @@ function isGuardedOutput(event: ModelEvent): boolean {
   return event.type !== 'thought';
 }
 
+type BareEvent = Extract<
+  ModelEvent,
+  {
+    type:
+      | 'attempt'
+      | 'media'
+      | 'tokens'
+      | 'guardrail'
+      | 'stage'
+      | 'done'
+      | 'response'
+      | 'provider_checkpoint'
+      | 'provider_warning';
+  }
+>;
+
+const BARE_EVENT_TYPES: ReadonlySet<string> = new Set<BareEvent['type']>([
+  'attempt',
+  'media',
+  'tokens',
+  'guardrail',
+  'stage',
+  'done',
+  'response',
+  'provider_checkpoint',
+  'provider_warning',
+]);
+
+/** An event that carries nothing to the host. */
+function isBareEvent(event: ModelEvent): event is BareEvent {
+  return BARE_EVENT_TYPES.has(event.type);
+}
+
 /**
  * What of an event reaches the host as content, field by field: the one list
  * every canary and prompt-leak scan reads. Builder-only fields
  * (`errorInternal`), counts, identities, and media bytes are not content.
  */
 function hostContentOf(event: ModelEvent): unknown[] {
+  if (isBareEvent(event)) return [];
   switch (event.type) {
     case 'text':
     case 'thought':
@@ -1056,16 +1090,6 @@ function hostContentOf(event: ModelEvent): unknown[] {
       return [event.data];
     case 'reasoning':
       return [event.text];
-    case 'attempt':
-    case 'media':
-    case 'tokens':
-    case 'guardrail':
-    case 'stage':
-    case 'done':
-    case 'response':
-    case 'provider_checkpoint':
-    case 'provider_warning':
-      return [];
     default: {
       const unhandled: never = event;
       return unhandled;

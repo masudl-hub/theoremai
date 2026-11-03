@@ -421,6 +421,8 @@ Deno.test('sensitiveSpans finds an undashed SSN, ITIN or EIN after the field nam
     'EIN 123456789',
     'tax_id="12-3456789"',
     'Social Security Number 123 45 6789',
+    'My EIN is 123456789',
+    'SSN on file: 123-45-6789',
   ]) {
     assertEquals({ text, found: found(text, 'ids').length > 0 }, { text, found: true });
   }
@@ -429,6 +431,7 @@ Deno.test('sensitiveSpans finds an undashed SSN, ITIN or EIN after the field nam
     'protein 123456789',
     'order 123456789',
     'EIN 1234567890',
+    'EIN for the old shop was 123456789',
   ]) {
     assertEquals({ text, found: found(text, 'ids') }, { text, found: [] });
   }

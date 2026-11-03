@@ -13,9 +13,9 @@ const SSN = /\b\d{3}-\d{2}-\d{4}\b/g;
 const SSN_CONTEXTUAL = /(?:SSN|social\s*security(?:\s*number)?)[:\s]+\d(?:[-\s]*\d){8}/gi;
 const ITIN = /\b9\d{2}-\d{2}-\d{4}\b/g;
 const EIN = /\b\d{2}-\d{7}\b/g;
-/** An SSN, ITIN, or EIN in any 9-digit form, right after a field name that says which. */
+/** An SSN, ITIN, or EIN in any 9-digit form, after a field name that says which and up to three words. */
 const ID_KEYED =
-  /(?<!\p{L})(?:ssn|social[\s_-]*security(?:[\s_-]*number)?|tax[\s_-]*(?:payer[\s_-]*)?id(?:entification)?(?:[\s_-]*(?:number|no))?|taxpayer[\s_-]*id(?:entification)?(?:[\s_-]*number)?|itin|tin|ein|employer[\s_-]*identification[\s_-]*number)[\s"'\x60*:=>#\\]{0,10}(?:\d{3}[- ]?\d{2}[- ]?\d{4}|\d{2}-?\d{7})(?!\d)/giu;
+  /(?<!\p{L})(?:ssn|social[\s_-]*security(?:[\s_-]*number)?|tax[\s_-]*(?:payer[\s_-]*)?id(?:entification)?(?:[\s_-]*(?:number|no))?|taxpayer[\s_-]*id(?:entification)?(?:[\s_-]*number)?|itin|tin|ein|employer[\s_-]*identification[\s_-]*number)[\s"'\x60*:=>#\\.]{0,10}(?:[a-z]{1,12}[\s"'\x60*:=>#\\.]{1,4}){0,3}(?:\d{3}[- ]?\d{2}[- ]?\d{4}|\d{2}-?\d{7})(?!\d)/giu;
 /** An IBAN written as one run, or in the printed groups of four. */
 const IBAN = /\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)\b/g;
 const IPV4 = /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g;

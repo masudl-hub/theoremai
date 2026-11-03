@@ -107,14 +107,15 @@ export const PROBE_BOUNDARY_NOTES: Record<ProbeBoundary, ProbeBoundaryNote> = {
     label: 'Local tool result',
     note: 'What one of the host’s own functions returns.',
     when: 'When the tool returns, before the model reads the result.',
-    checks: 'Injection phrasing and sensitive data are replaced in the result the model reads.',
+    checks:
+      'Injection phrasing, orders to the agent and sensitive data are replaced in the result the model reads.',
   },
   tool_result_remote: {
     label: 'Remote tool result',
     note: 'What a tool returns from outside the host: a web page, an MCP server, another agent. It runs here as another agent’s reply, and the model then makes a destructive call.',
     when: 'When the tool returns, and again at each call the model makes after it.',
     checks:
-      'Replaced as a local result is, fenced as tool data, and read for instructions to the agent (a claim of authority, an order, a callable tool’s name), which tool_instructions reports by default. Every later call is reported, and refused where taint.afterRemoteRead says.',
+      'Replaced as a local result is, fenced as tool data, and read for orders to the agent (a claim of authority, an order, a callable tool’s name), which injection reports by default and which raise taint. Every later call is reported, and refused where taint.afterRemoteRead says.',
   },
   tool_arguments: {
     label: 'Tool arguments',

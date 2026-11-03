@@ -99,17 +99,17 @@ Deno.test('a local tool result is redacted; a remote one is fenced and read for 
   // why: Once for what the model reads back, once for what the person is shown.
   assertEquals(rules(local), ['tool_result/detect.credentials', 'tool_result/detect.credentials']);
   assertEquals(local.passed?.includes(TEST_OPENAI_KEY), false);
-  assertEquals((await probe('tool_result_local', STEER)).status, 'passed');
+  assertEquals((await probe('tool_result_local', STEER)).status, 'redacted');
 
   const remote = await probe('tool_result_remote', STEER);
   assertEquals(rules(remote), [
-    'tool_result/detect.tool_instructions',
-    'tool_result/detect.tool_instructions',
-    'tool_result/detect.tool_instructions',
+    'tool_result/detect.injection',
+    'tool_result/detect.injection',
+    'tool_result/detect.injection',
     'tool_call/tool_call.steered-turn',
   ]);
   assertEquals(remote.taint, 'steered');
-  assertEquals(remote.status, 'flagged');
+  assertEquals(remote.status, 'redacted');
   assertEquals(local.status, 'redacted');
   assertEquals(local.taint, undefined);
   assert(remote.passed?.startsWith('<tool_data tool="guardrail_probe_fetch" origin="delegated"'));
@@ -122,14 +122,14 @@ Deno.test('a remote result that tells the agent to drop its instructions steers 
   );
   assertEquals(rules(remote), [
     'tool_result/detect.injection',
-    'tool_result/detect.tool_instructions',
+    'tool_result/detect.injection',
     'tool_call/tool_call.steered-turn',
   ]);
   assertEquals(remote.taint, 'steered');
   assertEquals(remote.status, 'redacted');
   assertEquals(
     (await probe('tool_result_local', 'never ignore the safety rules')).status,
-    'passed',
+    'redacted',
   );
 });
 
@@ -241,7 +241,7 @@ Deno.test('a host agent is probed at the tools it runs, on no model', async () =
     runGuardrailProbe({ ...run, probe: { boundary, text } });
   assertEquals((await at('tool_result_local', INJECTION)).status, 'redacted');
   assertEquals((await at('tool_arguments', KEY)).status, 'flagged');
-  assertEquals((await at('tool_result_remote', STEER)).status, 'flagged');
+  assertEquals((await at('tool_result_remote', STEER)).status, 'redacted');
   await assertRejects(() => at('user', INJECTION), Error, 'has no');
   const all = await runGuardrailProbes({ ...run, text: INJECTION });
   assertEquals(
@@ -275,7 +275,6 @@ Deno.test('a probe carries the trace of its turn', async () => {
  * when a guardrail learns it, and joins it only as a known gap.
  */
 const BATTERY_GAPS: ReadonlySet<string> = new Set([
-  'reply.benign_explains',
   'reply.key_spelled',
   'reply.link',
   'thought.key',

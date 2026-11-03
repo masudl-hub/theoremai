@@ -19,7 +19,6 @@ export const DETECT_RULES = {
   phone: 'detect.phone',
   bank_account: 'detect.bank_account',
   injection: 'detect.injection',
-  tool_instructions: 'detect.tool_instructions',
   canary_leak: 'detect.canary_leak',
   prompt_leak: 'detect.prompt_leak',
   marker_leak: 'detect.marker_leak',

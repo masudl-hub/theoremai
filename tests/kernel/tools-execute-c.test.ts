@@ -1428,7 +1428,8 @@ Deno.test('a failure message is redacted when the profile takes it out, and foll
       e.guardrail.hits.map((h) => h.rule),
       e.guardrail.provenance?.tool,
     ]),
-    [['tool_result', 'redact', ['detect.injection'], 'fails']],
+    // why: the phrasing and the order to set instructions aside both match.
+    [['tool_result', 'redact', ['detect.injection', 'detect.injection'], 'fails']],
     'injection event',
   );
   check(injected.settlement.failure?.message, `lookup failed: ${INJ_IGNORE}`, 'raw failure kept');

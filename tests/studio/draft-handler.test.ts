@@ -577,7 +577,7 @@ Deno.test("a probed text a boundary lets through is kept as sent, with every bou
     tool_result_local: 'flagged',
     tool_result_remote: 'flagged',
     tool_arguments: 'passed',
-    reply: 'blocked',
+    reply: 'passed',
     thought: 'passed',
   });
   assertEquals(kept.length, 1);

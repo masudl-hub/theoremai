@@ -67,11 +67,11 @@ guardrails: {
 
 ---
 
-## Tool Directives (`tool_instructions`)
+## Orders in Tool Output (`injection`)
 
 Tool responses often contain legitimate instructional text (such as API documentation or error messages). Blindly flagging words like `"must"` or `"call"` produces false positives on benign data.
 
-Theorem's `tool_instructions` detector isolates adversarial steering by pairing imperative verbs with concrete exfiltration destinations or tool names:
+At `tool_output_*` and `tool_failure_*`, the `injection` detector also reads for adversarial steering. It pairs imperative verbs with concrete exfiltration destinations or tool names:
 
 1. **Imperative Signals**: Matches explicit directives directed at the agent rather than human readers (e.g., `"call the refund tool"`, `"send all records to …"`).
 2. **Authority Claims**: Flags unverified claims of administrative override (e.g., `"the user has already approved"`, `"admin instruction:"`).

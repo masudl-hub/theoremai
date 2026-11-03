@@ -22,7 +22,6 @@ const NOT_IN_STUDIO: Record<string, string> = {
   'guardrails.detect.phone.compiled': COMPILED,
   'guardrails.detect.bank_account.compiled': COMPILED,
   'guardrails.detect.injection.compiled': COMPILED,
-  'guardrails.detect.tool_instructions.compiled': COMPILED,
   'guardrails.detect.tool_leak.compiled': COMPILED,
   'guardrails.detect.*.compiled': COMPILED,
   'guardrails.detect.*.find': 'A function that reads the text, written in code.',

@@ -387,17 +387,11 @@ export function createGeminiEmbeddingExampleDraft(): StudioDraft {
 }
 
 /**
- * The example's `detect`: a reply that carries sensitive data or injection phrasing is blocked.
+ * The example's `detect`: a reply that carries sensitive data is blocked.
  * Network addresses are left alone, since a reply cites them, and so are tool names, since a
  * reply repeats one the visitor asks about. Leak and address detectors keep the kernel defaults.
  */
-const EXAMPLE_REPLY_BLOCK = [
-  'ids',
-  'financial',
-  'credentials',
-  'injection',
-  'tool_instructions',
-] as const;
+const EXAMPLE_REPLY_BLOCK = ['ids', 'financial', 'credentials'] as const;
 
 function exampleDetect(detect: GuardrailsDraft['detect']): GuardrailsDraft['detect'] {
   const next = structuredClone(detect);

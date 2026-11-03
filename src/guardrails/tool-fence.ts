@@ -30,9 +30,7 @@ function readToolData(content: string): ToolDataRead[] {
     const body = content.slice(start, end);
     reads.push({
       provenance: { origin: origin as ToolOrigin, tool, depth: origin === 'delegated' ? 2 : 1 },
-      suspicious: advised
-        ? [{ rule: DETECT_RULES.tool_instructions, severity: 'high' as const }]
-        : [],
+      suspicious: advised ? [{ rule: DETECT_RULES.injection, severity: 'high' as const }] : [],
       text: advised ? body.slice(body.indexOf('\n') + 1) : body,
     });
   }

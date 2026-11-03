@@ -130,7 +130,7 @@ debug-off switch.
 | Switch | Cleans with |
 | --- | --- |
 | `sensitive` | `ids`, `financial`, `network`, `credentials`, and every detector of the host's own; not `email`, `phone`, or `bank_account`, which a turn flags by default and a trace keeps |
-| `injection` | `injection` and `tool_instructions` |
+| `injection` | `injection`, with the orders to the agent it reads in what a tool returns |
 | `canary` | The canaries bound in the record |
 
 Each switch is a `ScrubSwitch` and says whose patterns clean the trace, apart

@@ -113,16 +113,15 @@ Deno.test('a marker or an ungiven image is flagged in the reply by default, and 
   }
 });
 
-Deno.test('tool_instructions reads what a tool returns: flagged from a remote tool, not read from a function', () => {
+Deno.test('injection flags what any tool returns by default, from a function too', () => {
   const returned = TOOL_BOUNDARIES.filter(
     (boundary) => boundary.startsWith('tool_output_') || boundary.startsWith('tool_failure_'),
   );
-  assertEquals(DETECTOR_BOUNDARIES.tool_instructions, returned);
+  const flagged = where(undefined, 'injection', 'flag');
   assertEquals(
-    where(undefined, 'tool_instructions', 'flag'),
-    returned.filter((boundary) => !boundary.endsWith('_function')),
+    returned.filter((boundary) => !flagged.includes(boundary)),
+    [],
   );
-  assertEquals(where(undefined, 'tool_instructions', 'redact'), []);
 });
 
 Deno.test('no detector redacts or blocks anywhere by default', () => {
@@ -143,7 +142,7 @@ Deno.test('a credential is flagged in a reply by default, and not read in a thou
 });
 
 Deno.test('what comes in is flagged by default, and nothing the model writes is read for it', () => {
-  const others = [...LEAKS, ...SHOWN, 'tool_instructions', 'credentials'];
+  const others = [...LEAKS, ...SHOWN, 'credentials'];
   for (const detector of DETECTORS.filter((d) => !others.includes(d))) {
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     assertEquals(where(undefined, detector, 'ignore').includes('thought'), true);
@@ -237,6 +236,7 @@ Deno.test('detectProblem names a misspelt detector, boundary, or action', () => 
   const problems: [unknown, string][] = [
     ['mask', 'guardrails.detect must be one of'],
     [{ id: 'block' }, 'guardrails.detect.id is not a detector'],
+    [{ tool_instructions: 'flag' }, 'guardrails.detect.tool_instructions is not a detector'],
     [{ ids: 'mask' }, 'guardrails.detect.ids must be one of'],
     [{ ids: { at: { replies: 'block' } } }, 'guardrails.detect.ids.at.replies is not a boundary'],
     [{ ids: { at: { reply: true } } }, 'guardrails.detect.ids.at.reply must be one of'],

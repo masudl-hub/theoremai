@@ -32,7 +32,6 @@ import { SENSITIVE_GROUPS, WORKING_GROUPS } from './sensitive-groups.ts';
 const DETECTORS = [
   ...SENSITIVE_GROUPS,
   'injection',
-  'tool_instructions',
   'canary_leak',
   'prompt_leak',
   'marker_leak',
@@ -284,19 +283,6 @@ function leaving(toTool: DetectAction, said: DetectAction, thought: DetectAction
   };
 }
 
-/** What a tool returns, its output, and its error text: `remote` from a tool the host did not write, `local` from a function. */
-function returned(remote: DetectAction, local: DetectAction): BoundaryActions {
-  const crossings = ['tool_output', 'tool_failure'] as const;
-  return Object.fromEntries(
-    crossings.flatMap((crossing) =>
-      TOOL_KINDS.map((kind) => [
-        toolBoundary(crossing, kind),
-        kind === 'function' ? local : remote,
-      ]),
-    ),
-  );
-}
-
 /** What the model says or thinks: a reply of any kind takes `said`, a thought `thought`. */
 function shown(said: DetectAction, thought: DetectAction): BoundaryActions {
   return { reply: said, reply_structured: said, live_reply: said, thought };
@@ -362,17 +348,9 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
   },
   injection: {
     label: 'Injection',
-    doc: 'Prompt-injection phrasing, plain or disguised.',
+    doc: 'Prompt-injection phrasing, plain or disguised, and orders to the agent in what a tool returns. A match there raises taint.',
     group: 'manipulation',
     defaults: notToPerson('ignore'),
-    patterns: true,
-  },
-  tool_instructions: {
-    label: 'Tool instructions',
-    short: 'From tools',
-    doc: 'Tool output that instructs the agent. A match raises taint.',
-    group: 'manipulation',
-    defaults: returned('flag', 'ignore'),
     patterns: true,
   },
   canary_leak: {

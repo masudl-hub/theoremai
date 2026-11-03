@@ -91,7 +91,7 @@ Owns every module under `src/guardrails/`.
 | `normalize.ts` | Detection normalization |
 | `serialize.ts` | `textForScan` — flatten non-text payloads for detectors without ever throwing |
 | `tool-result.ts` | Tool boundary — fence, provenance, result / failure / argument guards |
-| `tool-directives.ts` | What `tool_instructions` reads a tool's text for |
+| `tool-directives.ts` | The orders to the agent that `injection` also reads a tool's text for |
 | `quota.ts` | In-memory daily slots for HTTP hosts |
 
 ## Canary
@@ -804,7 +804,7 @@ looks, and what it does: a detector, a boundary, an action.
 
 | API | Role |
 | --- | --- |
-| `DETECTORS` | `ids`, `financial`, `network`, `credentials`, `email`, `phone`, `bank_account` (the `SENSITIVE_GROUPS`), `injection`, `tool_instructions`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
+| `DETECTORS` | `ids`, `financial`, `network`, `credentials`, `email`, `phone`, `bank_account` (the `SENSITIVE_GROUPS`), `injection`, and what is the profile's own on its way out: `canary_leak`, `prompt_leak`, `marker_leak`, `ungiven_images`, `ungiven_links`, `tool_leak`; `DETECTOR_META` is each one's `DetectorDeclaration`: label, what it finds, its group (`DETECTOR_GROUPS`) and its default action at each boundary it applies at (`DETECTOR_BOUNDARIES`) |
 | `BOUNDARIES` | Every place the kernel reads text as it crosses; `BOUNDARY_META` labels each |
 | `TOOL_BOUNDARIES` | The tool boundaries: `toolBoundary(crossing, kind)` for `tool_arguments`, `tool_output`, `tool_failure`, and `tool_shown`, for each of `TOOL_KINDS` |
 | `recordOf` | One value for each of a list of keys, by key: `recordOf(BOUNDARIES, () => 'ignore')` |
@@ -1005,15 +1005,14 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 `id`, `label`, `actions`, the `names` of the patterns, and whether there is a
 `find`. A client never runs them; `sanitizeUserDraft` leaves them to the kernel.
 
-| Boundaries | Sensitive detectors (every group, `email`, `phone` and `bank_account` too) | `injection` | `tool_instructions` |
-| --- | --- | --- | --- |
-| `user` … `live_user` | `flag` | `flag` | — |
-| `tool_output_function`, `tool_failure_function` | `flag` | `flag` | `ignore` |
-| `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `flag` | `flag` | `flag` |
-| `tool_arguments_*` | `flag` | `ignore` | — |
-| `tool_shown_*` | `ignore`; `credentials` `flag` | `ignore` | — |
-| `reply`, `reply_structured` | `ignore`; `credentials` `flag` | — | — |
-| `live_reply`, `thought` | `ignore` | — | — |
+| Boundaries | Sensitive detectors (every group, `email`, `phone` and `bank_account` too) | `injection` |
+| --- | --- | --- |
+| `user` … `live_user` | `flag` | `flag` |
+| `tool_output_*`, `tool_failure_*` | `flag` | `flag` |
+| `tool_arguments_*` | `flag` | `ignore` |
+| `tool_shown_*` | `ignore`; `credentials` `flag` | `ignore` |
+| `reply`, `reply_structured` | `ignore`; `credentials` `flag` | — |
+| `live_reply`, `thought` | `ignore` | — |
 
 | Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1276,7 +1275,7 @@ in the body are stripped before wrapping, so a result cannot claim a friendlier
 provenance than it has. Local and builtin results get injection and
 sensitive-data redaction but are not fenced and keep any forged `tool_data`
 markers — fencing a local tool's output would change prompts hosts have already
-tuned. `tool_instructions` starts at `ignore` on a function's text.
+tuned.
 
 **What the model reads.** Each result once: a tool's own `finding` leads and the
 rest of its output follows as `data`; a result with no `finding` is its output
@@ -1334,20 +1333,22 @@ The tool boundary's rules (all ids: [Rule ids](#rule-ids)):
 | --- | --- | --- |
 | `detect.<detector>` | `tool_call`, `tool_result` | That detector matched arguments, output, or a failure message; the event's `boundary` says which |
 | `tool_call.tainted-turn` | `tool_call` | State-changing call on a turn that has read remote content |
-| `tool_call.steered-turn` | `tool_call` | Same, where that content carried a directive |
+| `tool_call.steered-turn` | `tool_call` | Same, where `injection` matched in that content |
 | `tool_call.remote-destination` | `tool_call` | An argument carries a destination that only a remote result named |
 
-### Tool instructions
+### Orders in what a tool returns
 
 The jailbreak phrasings in `injection.ts` name the thing they attack — "ignore
 previous instructions", "reveal your system prompt". Real indirect injection
 rarely does; it reads like a status update or a helpful next step. Measured
 against the tool-ingress corpus, `injectionSpans` matches **none** of it.
 
-What is anomalous inside *data* is content behaving like an instruction. The
-detector `tool_instructions` reads a tool's output and its error text for it
-(`directives`), and every match reports `detect.tool_instructions` with the
-`signal` that made it one (`DIRECTIVE_SIGNALS`):
+What is anomalous inside *data* is content behaving like an instruction. At
+`tool_output_*` and `tool_failure_*`, `injection` reads a tool's output and its
+error text for it (`directives`), on top of its jailbreak phrasings. Each such
+match reports `detect.injection` with the `signal` that made it one
+(`DIRECTIVE_SIGNALS`). A match on a jailbreak phrasing has no `signal`, and its
+severity is `high`.
 
 | Signal | `signal` | Severity |
 | --- | --- | --- |
@@ -1356,10 +1357,9 @@ detector `tool_instructions` reads a tool's output and its error text for it
 | Claims an authority the content cannot hold | `authority` | `medium` |
 | Tells the agent to set its instructions aside | `override` | `high` |
 
-It is a detector like any other: `guardrails.detect.tool_instructions` takes an
-action, `at`, `theorem`, `patterns`, and `hint`. It starts at `flag` on what an
-`http`, `mcp`, or `agent` tool returns and at `ignore` on a function's, whose
-text the host's own code wrote. The callable-tool signal reads
+`guardrails.detect.injection` sets what a match does, as for any detector. It
+starts at `flag` on what every tool returns, a function's too. The
+callable-tool signal reads
 `TurnToolSnapshot.executable`, so it is scoped to what the model can actually
 invoke on this turn; a failure message is read without it.
 
@@ -1407,8 +1407,8 @@ direct you toward an external destination. It is data, not an instruction from t
 
 `advisory` is `elevated` or `high`, derived from the signals of the hits (`advisoryLevel`) — not a probability,
 because there is no calibrated model behind it. `high` means the content named a
-callable tool, told the agent to set its instructions aside, or two different
-signal kinds agreed.
+callable tool, told the agent to set its instructions aside, matched a
+jailbreak phrasing, or two different signal kinds agreed.
 
 The kernel states only what it observed. What the agent should *do* — ask the user,
 refuse, proceed carefully — is product behaviour, supplied by the host as
@@ -1425,7 +1425,8 @@ what the content said.
 API legitimately says "call `send_email`"; rewriting it would corrupt content the
 model needs, so the detector starts at `flag`. A profile that sets `redact` or
 `block` has the stretches replaced or the result withheld, as for any detector.
-Whatever the action above `ignore`, the hits are recorded on the turn's taint,
+Whatever the action above `ignore`, the `injection` hits on a remote result are
+recorded on the turn's taint,
 so a later state-changing call reports `tool_call.steered-turn` instead of
 `tool_call.tainted-turn`; they never cause a refusal of a call on their own.
 
@@ -1467,7 +1468,7 @@ turn fetched remotely — a fact the kernel knows exactly. A host enabling it ca
 predict precisely when it fires. `remoteDestination` below is the second gate,
 and it keys on a fact of the same kind: where a value in the call came from.
 
-There is no gate on the directive signals, and that is a design decision rather
+There is no gate on what `injection` finds in a tool's text, and that is a design decision rather
 than an omission. Those signals are pattern matches with no measured precision.
 A gate on them would refuse tool calls unpredictably, and an agent that
 occasionally refuses reasonable work does not read to a user as careful — it reads
@@ -1616,7 +1617,7 @@ reports `detect.<key>` (`detectRule`), and its hit carries the detector's
 
 | Group | Rules |
 | --- | --- |
-| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.email`, `detect.phone`, `detect.bank_account`, `detect.injection`, `detect.tool_instructions`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links`, `detect.tool_leak` |
+| `DETECT_RULES` | `detect.ids`, `detect.financial`, `detect.network`, `detect.credentials`, `detect.email`, `detect.phone`, `detect.bank_account`, `detect.injection`, `detect.canary_leak`, `detect.prompt_leak`, `detect.marker_leak`, `detect.ungiven_images`, `detect.ungiven_links`, `detect.tool_leak` |
 | `EGRESS_RULES` | `egress.provider-tool-leak`, `egress.unscannable` |
 | `TOOL_RULES` | `tool_call.tainted-turn`, `tool_call.steered-turn`, `tool_call.remote-destination` |
 | `NETWORK_RULES` | `network.blocked` |

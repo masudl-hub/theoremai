@@ -436,11 +436,7 @@ const GUARDRAIL_RULE_OPTIONS: Readonly<Record<GuardrailRule, TraceOptionMeta>> =
   },
   'detect.injection': {
     label: 'Injection',
-    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". The decision names the boundary it was crossing and what was done with it.',
-  },
-  'detect.tool_instructions': {
-    label: 'Tool instructions',
-    doc: 'A tool\'s text instructed the agent: it told it to set its instructions aside, such as "ignore your instructions", or beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
+    doc: 'Text that tries to override the agent\'s instructions, such as "ignore previous instructions". In what a tool returns, also a tool\'s text that instructed the agent: beside an address it named a tool the model can call, gave an order such as "you must now…", or claimed to speak for the user, the system, or an admin. Each such match says which in its signal. The decision names the boundary it was crossing and what was done with it.',
   },
   'detect.canary_leak': {
     label: 'Canary leak',
@@ -1362,7 +1358,7 @@ const HITS = fields('error', 'Hits', 'Each rule that matched.', {
     'error',
     'Signal',
     'text',
-    "What made a `tool_instructions` match one, or how a host detector's `find` failed: `find_threw` or `find_result`.",
+    "What made an `injection` match in what a tool returns one, or how a host detector's `find` failed: `find_threw` or `find_result`.",
   ),
   start: attr('error', 'From', 'number', 'Where the match starts in the checked text.'),
   end: attr('error', 'To', 'number', 'Where the match ends in the checked text.'),

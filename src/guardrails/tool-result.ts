@@ -114,7 +114,7 @@ export interface GuardedToolText {
   /** Emitted when the guard did anything worth recording. */
   event?: GuardrailEvent;
   /**
-   * What `tool_instructions` found. Legitimate tool output is frequently
+   * What `injection` found in a remote tool's text. Legitimate tool output is frequently
    * instruction-shaped, so the detector starts at `flag`; whatever its action,
    * these raise the turn's taint.
    */
@@ -166,8 +166,10 @@ function guardToolResult(
 ): GuardedToolText {
   const composed = composeToolText(finding, data);
   const detected = readAt(composed, boundary, policy.detect, { callable: callableTools });
-  const suspicious = detected.hits.filter(({ rule }) => rule === DETECT_RULES.tool_instructions);
   const remote = isRemoteOrigin(provenance.origin);
+  const suspicious = remote
+    ? detected.hits.filter(({ rule }) => rule === DETECT_RULES.injection)
+    : [];
   const event: GuardrailEvent | undefined =
     detected.action === 'allow'
       ? undefined

@@ -226,6 +226,7 @@ import {
   newToolSpec,
   nextAccept,
   type ObservabilityDraft,
+  type OptionChoiceDraft,
   type OptionDraft,
   type OutputsDraft,
   type OwnDetectorDraft,
@@ -524,15 +525,19 @@ const statedValue = (option: OptionDraft, picked: string | undefined) => {
   return values.find((value) => value === picked) ?? values[0];
 };
 
-const VALUE_HINT = {
-  marked: 'The studio states this value.',
-  other: 'Press to state this value.',
-};
+/** A value's hover: what the catalog says of it, then what pressing it does here. */
+const valueHint = (meta: ReturnType<typeof fieldMeta>) => ({
+  marked: `${meta?.doc ?? ''} The studio states this value.`.trim(),
+  other: `${meta?.doc ?? ''} Press to state this value.`.trim(),
+});
 
-const OPTION_CHAT_WIDTH = 320;
+const OPTION_FIELDS_WIDTH = 320;
 
-/** Whether a person picks the option in the interface and, when they do, what they read of it. */
-function OptionChatFields({
+/**
+ * What a person or a page reads of an option, and, where the profile lets a person pick it, whether
+ * they do. Its label and its values' descriptions compile with the option, wherever it goes.
+ */
+function OptionFields({
   option,
   canShow,
   onChange,
@@ -541,6 +546,42 @@ function OptionChatFields({
   canShow: boolean;
   onChange: (change: Partial<OptionDraft>) => void;
 }) {
+  const isShown = option.isShownInChat;
+  const label = {
+    label: 'Label',
+    value: option.label,
+    placeholder: option.name.trim() || undefined,
+    onChange: (next: string) => {
+      onChange({ label: next });
+    },
+  };
+  const description = (choice: OptionChoiceDraft) => ({
+    label: choice.value,
+    value: choice.description,
+    placeholder: 'Optional',
+    onChange: (next: string) => {
+      onChange({
+        choices: option.choices.map((each) =>
+          each.key === choice.key ? { ...each, description: next } : each,
+        ),
+      });
+    },
+  });
+  const descriptions = option.choices.map((choice) =>
+    isShown ? (
+      <TextRow
+        key={choice.key}
+        {...description(choice)}
+        path="inputs.options.*.choices.*.description"
+      />
+    ) : (
+      <TextRow
+        key={choice.key}
+        {...description(choice)}
+        path="identity.options.*.choices.*.description"
+      />
+    ),
+  );
   return (
     <VStack gap={1}>
       {canShow && (
@@ -548,41 +589,37 @@ function OptionChatFields({
           label="Shown in interface"
           path="inputs.options"
           field="options"
-          value={option.isShownInChat}
+          value={isShown}
           onChange={(isShownInChat) => {
             onChange({ isShownInChat });
           }}
         />
       )}
-      {option.isShownInChat && (
-        <>
-          <TextRow
-            label="Label"
-            path="inputs.options.*.label"
-            value={option.label}
-            placeholder={option.name.trim() || undefined}
-            onChange={(label) => {
-              onChange({ label });
-            }}
-          />
-          {option.choices.map((choice) => (
-            <TextRow
-              key={choice.key}
-              label={choice.value}
-              path="inputs.options.*.choices.*.description"
-              value={choice.description}
-              placeholder="Optional"
-              onChange={(description) => {
-                onChange({
-                  choices: option.choices.map((each) =>
-                    each.key === choice.key ? { ...each, description } : each,
-                  ),
-                });
-              }}
-            />
-          ))}
-        </>
+      {isShown ? (
+        <TextRow {...label} path="inputs.options.*.label" />
+      ) : (
+        <TextRow {...label} path="identity.options.*.label" />
       )}
+      {descriptions.length > 0 &&
+        (isShown ? (
+          <WideRow
+            label="Values"
+            path="inputs.options.*.choices"
+            isRequired={false}
+            hasIssue={false}
+          >
+            {descriptions}
+          </WideRow>
+        ) : (
+          <WideRow
+            label="Values"
+            path="identity.options.*.choices"
+            isRequired={false}
+            hasIssue={false}
+          >
+            {descriptions}
+          </WideRow>
+        ))}
     </VStack>
   );
 }
@@ -623,23 +660,21 @@ function OptionRow({
             }}
           />
         </StackItem>
-        {(canShow || option.isShownInChat) && (
-          <Popover
-            placement="below"
-            alignment="end"
-            width={OPTION_CHAT_WIDTH}
-            label={`${row} in interface`}
-            content={<OptionChatFields option={option} canShow={canShow} onChange={onChange} />}
-          >
-            <IconButton
-              label={`${row} ${option.isShownInChat ? 'shown' : 'not shown'} in interface`}
-              tooltip={option.isShownInChat ? 'Shown in interface' : 'Not shown in interface'}
-              variant="ghost"
-              size="sm"
-              icon={<Icon icon={IconPencil} size="sm" />}
-            />
-          </Popover>
-        )}
+        <Popover
+          placement="below"
+          alignment="end"
+          width={OPTION_FIELDS_WIDTH}
+          label={`${row} in interface`}
+          content={<OptionFields option={option} canShow={canShow} onChange={onChange} />}
+        >
+          <IconButton
+            label={`${row} ${option.isShownInChat ? 'shown' : 'not shown'} in interface`}
+            tooltip={option.isShownInChat ? 'Shown in interface' : 'Not shown in interface'}
+            variant="ghost"
+            size="sm"
+            icon={<Icon icon={IconPencil} size="sm" />}
+          />
+        </Popover>
         <IconButton
           label={`Remove ${row.toLowerCase()}`}
           variant="ghost"
@@ -655,7 +690,11 @@ function OptionRow({
         overflow="none"
         marked={stated}
         onMark={onState}
-        markHint={VALUE_HINT}
+        markHint={valueHint(
+          option.isShownInChat
+            ? fieldMeta('inputs.options.*.choices.*.value')
+            : fieldMeta('identity.options.*.choices.*.value'),
+        )}
         onChange={(values) => {
           onChange({ choices: optionChoices(values, option.choices) });
         }}

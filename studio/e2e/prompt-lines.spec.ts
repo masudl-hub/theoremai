@@ -88,6 +88,20 @@ test('an option shown in the interface is picked in the composer, and that pick 
   expect(await systemOf(page)).toContain('Mention the garden.');
 });
 
+test('an option the code states keeps the label and descriptions typed for it', async ({
+  page,
+}) => {
+  await withLines(page);
+  const pencil = page.getByRole('button', { name: 'Option 1 not shown in interface' });
+  await pencil.click();
+  await page.getByRole('textbox', { name: 'Label' }).fill('Plan');
+  await page.getByRole('textbox', { name: 'free' }).fill('No cost');
+  await page.keyboard.press('Escape');
+  await pencil.click();
+  await expect(page.getByRole('textbox', { name: 'Label' })).toHaveValue('Plan');
+  await expect(page.getByRole('textbox', { name: 'free' })).toHaveValue('No cost');
+});
+
 test('both sides run when only the edit declares options', async ({ page }) => {
   await open(page);
   await declarePlan(page);

@@ -334,38 +334,7 @@ function LiveControls({
       />,
     );
   }
-  if (call.videoAvailable) {
-    controls.push(
-      <ToggleButton
-        key="video"
-        label={t('@theorem.live.camera')}
-        tooltip={t(call.isVideoOn ? '@theorem.live.camera_off' : '@theorem.live.camera_on')}
-        isIconOnly
-        isPressed={call.isVideoOn}
-        isDisabled={inactive}
-        icon={<Icon icon={IconVideo} />}
-        pressedIcon={<Icon icon={IconVideoOff} />}
-        onPressedChange={() => {
-          void call.handleToggleVideo();
-        }}
-      />,
-    );
-    if (call.isVideoOn) {
-      controls.push(
-        <IconButton
-          key="flip"
-          label={t('@theorem.live.flip_camera')}
-          tooltip={t('@theorem.live.flip_camera')}
-          variant="ghost"
-          isDisabled={inactive}
-          icon={<Icon icon={IconCameraRotate} />}
-          onClick={() => {
-            void call.handleFlipCamera();
-          }}
-        />,
-      );
-    }
-  }
+  if (call.videoAvailable) controls.push(<LiveVideoControls key="video" call={call} />);
   if (onMinimize) {
     controls.push(
       <IconButton
@@ -380,28 +349,7 @@ function LiveControls({
   }
   controls.push(
     <Fragment key="captions">{captionsToggle}</Fragment>,
-    call.canRestart ? (
-      <IconButton
-        key="call"
-        label={t('@theorem.live.start_call')}
-        tooltip={t('@theorem.live.start_call')}
-        variant="primary"
-        icon={<Icon icon={IconPhone} />}
-        onClick={() => {
-          void call.handleRestart();
-        }}
-      />
-    ) : (
-      <IconButton
-        key="call"
-        label={t('@theorem.live.end_call')}
-        tooltip={t('@theorem.live.end_call')}
-        variant="destructive"
-        isDisabled={inactive}
-        icon={<Icon icon={IconPhoneOff} />}
-        onClick={call.handleEnd}
-      />
-    ),
+    <LiveCallButton key="call" call={call} />,
   );
 
   return (
@@ -413,6 +361,65 @@ function LiveControls({
           {controls}
         </HStack>
       }
+    />
+  );
+}
+
+/** The camera toggle, and the flip control while the camera is on. */
+function LiveVideoControls({ call }: { call: LiveCall }) {
+  const t = useLabels();
+  const inactive = !call.sessionActive;
+  return (
+    <>
+      <ToggleButton
+        label={t('@theorem.live.camera')}
+        tooltip={t(call.isVideoOn ? '@theorem.live.camera_off' : '@theorem.live.camera_on')}
+        isIconOnly
+        isPressed={call.isVideoOn}
+        isDisabled={inactive}
+        icon={<Icon icon={IconVideo} />}
+        pressedIcon={<Icon icon={IconVideoOff} />}
+        onPressedChange={() => {
+          void call.handleToggleVideo();
+        }}
+      />
+      {call.isVideoOn ? (
+        <IconButton
+          label={t('@theorem.live.flip_camera')}
+          tooltip={t('@theorem.live.flip_camera')}
+          variant="ghost"
+          isDisabled={inactive}
+          icon={<Icon icon={IconCameraRotate} />}
+          onClick={() => {
+            void call.handleFlipCamera();
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** End call while one runs; Start call once it can start again. */
+function LiveCallButton({ call }: { call: LiveCall }) {
+  const t = useLabels();
+  return call.canRestart ? (
+    <IconButton
+      label={t('@theorem.live.start_call')}
+      tooltip={t('@theorem.live.start_call')}
+      variant="primary"
+      icon={<Icon icon={IconPhone} />}
+      onClick={() => {
+        void call.handleRestart();
+      }}
+    />
+  ) : (
+    <IconButton
+      label={t('@theorem.live.end_call')}
+      tooltip={t('@theorem.live.end_call')}
+      variant="destructive"
+      isDisabled={!call.sessionActive}
+      icon={<Icon icon={IconPhoneOff} />}
+      onClick={call.handleEnd}
     />
   );
 }

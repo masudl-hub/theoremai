@@ -365,6 +365,8 @@ This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your ow
 
 The call lasts as long as the component that calls `useLiveCall`. Call it above your routes, and the call goes on while the person moves to another page. `LiveRunner` can unmount and mount again on the same call. The call ends when the component that holds it unmounts.
 
+Give `LiveRunner` an `onMinimize` to show a minimize control in the call. Theorem calls it and does not navigate: your code decides where to go, and the call goes on.
+
 ### The page's part in a call
 
 Three more values for `useLiveCall` come from the page. The profile declares each one; the page only supplies the value.

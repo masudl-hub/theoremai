@@ -14,6 +14,7 @@ import { Toolbar } from '@astryxdesign/core/Toolbar';
 import type { DefinedTheme } from '@astryxdesign/core/theme';
 import { VStack } from '@astryxdesign/core/VStack';
 import {
+  IconArrowsDiagonalMinimize2,
   IconCameraRotate,
   IconMessage,
   IconMicrophone,
@@ -65,6 +66,12 @@ export type LiveRunnerProps = {
    * Needs a profile that records traces.
    */
   trace?: boolean;
+  /**
+   * Called when the person asks to minimize the call. The host decides what
+   * that means, such as going to another page; the call goes on. Omit to hide
+   * the control.
+   */
+  onMinimize?: () => void;
 };
 
 /** The waveform's box: it rests on the stage floor rather than filling the stage. */
@@ -88,7 +95,11 @@ export function LiveRunner({ theme, mode, labels, ...props }: LiveRunnerProps) {
   );
 }
 
-function LiveRunnerBody({ call, trace }: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels'>) {
+function LiveRunnerBody({
+  call,
+  trace,
+  onMinimize,
+}: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels'>) {
   const t = useLabels();
   // why: Both panels size against the whole live layout, so a third means the same for each.
   const layoutRef = useRef<HTMLDivElement | null>(null);
@@ -151,7 +162,11 @@ function LiveRunnerBody({ call, trace }: Omit<LiveRunnerProps, 'theme' | 'mode' 
                 content={
                   <LayoutContent padding={0}>
                     <VStack height="100%" padding={PANEL_EDGE}>
-                      <LiveStage call={call} captionsToggle={captionsToggle} />
+                      <LiveStage
+                        call={call}
+                        captionsToggle={captionsToggle}
+                        onMinimize={onMinimize}
+                      />
                     </VStack>
                   </LayoutContent>
                 }
@@ -215,7 +230,15 @@ function LiveLanding({ call }: { call: LiveCall }) {
  * The agent tag and state over the resting waveform, then the call controls,
  * all in one column the waveform's width.
  */
-function LiveStage({ call, captionsToggle }: { call: LiveCall; captionsToggle: ReactNode }) {
+function LiveStage({
+  call,
+  captionsToggle,
+  onMinimize,
+}: {
+  call: LiveCall;
+  captionsToggle: ReactNode;
+  onMinimize: (() => void) | undefined;
+}) {
   const t = useLabels();
   const ref = useEnterMotion<HTMLElement>();
   return (
@@ -251,7 +274,7 @@ function LiveStage({ call, captionsToggle }: { call: LiveCall; captionsToggle: R
             </VStack>
           </VStack>
         </StackItem>
-        <LiveControls call={call} captionsToggle={captionsToggle} />
+        <LiveControls call={call} captionsToggle={captionsToggle} onMinimize={onMinimize} />
       </VStack>
     </VStack>
   );
@@ -283,7 +306,15 @@ function useEnterMotion<T extends HTMLElement>() {
  * Mic, camera, captions, and call controls, centred under the stage. Icons show
  * what a click does, as End call does: a slash means "turn this off".
  */
-function LiveControls({ call, captionsToggle }: { call: LiveCall; captionsToggle: ReactNode }) {
+function LiveControls({
+  call,
+  captionsToggle,
+  onMinimize,
+}: {
+  call: LiveCall;
+  captionsToggle: ReactNode;
+  onMinimize: (() => void) | undefined;
+}) {
   const t = useLabels();
   const inactive = !call.sessionActive;
   const controls: ReactNode[] = [];
@@ -334,6 +365,18 @@ function LiveControls({ call, captionsToggle }: { call: LiveCall; captionsToggle
         />,
       );
     }
+  }
+  if (onMinimize) {
+    controls.push(
+      <IconButton
+        key="minimize"
+        label={t('@theorem.live.minimize')}
+        tooltip={t('@theorem.live.minimize')}
+        variant="ghost"
+        icon={<Icon icon={IconArrowsDiagonalMinimize2} />}
+        onClick={onMinimize}
+      />,
+    );
   }
   controls.push(
     <Fragment key="captions">{captionsToggle}</Fragment>,

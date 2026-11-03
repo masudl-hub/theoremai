@@ -1177,6 +1177,7 @@ Deno.test('an agent tool whose result is too large keeps the tokens its agent sp
     failed?.phase === 'error' ? failed.tokens?.total : undefined,
     RESEARCHER_TOKENS.total,
   );
+});
 
 /** A scope where the caller reads its agent tool under `detect`, and the researcher reads nothing. */
 function guardedScope(detect: DetectSpec): KernelScope {

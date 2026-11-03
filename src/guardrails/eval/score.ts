@@ -78,7 +78,7 @@ function scoreDetector(
         category,
         samples: entry.samples,
         fired: entry.fired,
-        rate: entry.samples === 0 ? 0 : entry.fired / entry.samples,
+        rate: entry.fired / entry.samples,
       }))
       .sort((a, b) => b.rate - a.rate),
   };

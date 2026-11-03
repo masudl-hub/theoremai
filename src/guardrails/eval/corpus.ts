@@ -260,10 +260,8 @@ function parseLabelledCsv(input: string): { text: string; label: number }[] {
       field += ch;
     }
   }
-  if (field || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
+  row.push(field);
+  rows.push(row);
 
   const out: { text: string; label: number }[] = [];
   for (const parsed of rows.slice(1)) {
@@ -306,7 +304,6 @@ const promptDataset: CorpusSource = {
 };
 
 function isYamlKeyChar(ch: string): boolean {
-  if (ch.length !== 1) return false;
   const code = ch.charCodeAt(0);
   return (code >= 97 && code <= 122) || ch === '_';
 }
@@ -376,33 +373,30 @@ function recordsFromYaml(yaml: string): string[] {
   const out: string[] = [];
   for (const block of blocks) {
     const fields: Record<string, string | string[]> = {};
-    let listKey = '';
+    let list: string[] | undefined;
     for (const line of block.split('\n')) {
       const parsed = parseYamlRecordLine(line);
       if (parsed?.kind === 'scalar') {
         fields[parsed.key] = parsed.value.replaceAll('\\n', '\n');
-        listKey = '';
+        list = undefined;
         continue;
       }
       // why: A bare `key:` opens a list. Without tracking it, the items below attach to
       // the previous field and overwrite it — which silently dropped sender
       // addresses from every email record.
       if (parsed?.kind === 'header') {
-        listKey = parsed.key;
-        fields[listKey] = [];
+        list = [];
+        fields[parsed.key] = list;
         continue;
       }
-      if (parsed?.kind === 'item' && listKey) {
-        const prior = fields[listKey];
-        fields[listKey] = Array.isArray(prior) ? [...prior, parsed.value] : [parsed.value];
-      }
+      if (parsed?.kind === 'item') list?.push(parsed.value);
     }
     const rendered = JSON.stringify(fields, null, 2);
     if (rendered.length > 80) {
       out.push(rendered);
     }
   }
-  return out.length > 0 ? out : [];
+  return out;
 }
 
 const agentDojo: CorpusSource = {
@@ -672,10 +666,8 @@ const repoHardNegatives: CorpusSource = {
     );
     const out: CorpusSample[] = [];
     for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
       try {
-        const row = JSON.parse(trimmed) as { text?: unknown; label?: unknown };
+        const row = JSON.parse(line) as { text?: unknown; label?: unknown };
         if (typeof row.text === 'string' && (row.label === 0 || row.label === 1)) {
           out.push({
             text: row.text,

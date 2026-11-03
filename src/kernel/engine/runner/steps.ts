@@ -207,7 +207,7 @@ interface CallTally {
   /** The answer tool's arguments as the call's drafts streamed them. */
   answerDraft: string;
   /** The provider reported the output limit, whatever stop outranks it after. */
-  cut?: true;
+  cut: boolean;
 }
 
 /** Takes what an event says about the call itself. True when the event goes no further. */
@@ -279,7 +279,8 @@ function keepCutOffAnswer(
 }
 
 /**
- * A tool call's preview. The answer tool's streams as the structured reply's draft.
+ * A tool call's preview. The answer tool's streams as the structured reply's draft, and the call
+ * keeps it, for the repair of an answer the output limit cuts off (`keepCutOffAnswer`).
  *
  * why: A preview of the call that follows, which owns the arguments: not the turn's record. It streams
  * as the reply's text does, through its own gate, and like that text is held only when delivery is buffered.
@@ -289,7 +290,9 @@ async function* showToolDraft(
   shown: StructuredDrafts,
   generation: ResolvedGeneration,
   buffer: { holdVisible: boolean },
+  tally: CallTally,
 ): AsyncGenerator<TurnEvent> {
+  if (event.name === ANSWER_TOOL) tally.answerDraft += event.text;
   if (buffer.holdVisible) return;
   if (event.name === ANSWER_TOOL && answersByTool(generation)) yield* shown.draft(event.text);
   else yield event;
@@ -432,6 +435,7 @@ async function* executeAutonomousStep(
     failures: [],
     replied: false,
     answerDraft: '',
+    cut: false,
   };
   const control: OutboundStreamControl = {
     withholdVisible: false,
@@ -468,14 +472,13 @@ async function* executeAutonomousStep(
       }
       if (event.type === 'done') {
         state.providerState = event.providerState;
-        if (event.stop.kind === 'length') tally.cut = true;
+        tally.cut ||= event.stop.kind === 'length';
         tally.stop = event.stop;
         state.lastStop = event.stop;
         continue;
       }
       if (event.type === 'tool_draft') {
-        if (event.name === ANSWER_TOOL) tally.answerDraft += event.text;
-        yield* showToolDraft(event, shown, generation, buffer);
+        yield* showToolDraft(event, shown, generation, buffer, tally);
         continue;
       }
       // why: The model's history keeps what it wrote; only the reply the host gets is set apart.

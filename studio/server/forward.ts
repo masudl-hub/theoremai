@@ -1,5 +1,6 @@
 import { fetchGuarded, type ResolveHost, z } from '@theoremjs/agents';
 import { caughtStatus, clientError } from '@theoremjs/agents/host';
+import { STUDIO_READER } from '../reader.ts';
 import { readBody } from '@theoremjs/web/server';
 import { FORWARD_HEADERS, FORWARD_STATUS, type ForwardedRequest } from '../forwarded-fetch.ts';
 
@@ -56,6 +57,10 @@ export async function forwardRequest(
       },
     });
   } catch (err) {
-    return Response.json(clientError(err), { status: caughtStatus(err) });
+    // why: the request is the page's own tool call, so its reader is the builder of that draft,
+    // who needs the raw reason (connection refused, a blocked address) to fix the tool.
+    return Response.json(clientError(err, undefined, STUDIO_READER), {
+      status: caughtStatus(err),
+    });
   }
 }

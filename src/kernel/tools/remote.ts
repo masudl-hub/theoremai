@@ -1154,7 +1154,7 @@ async function fetchMcpProtocolAttempt(
       failure: {
         code: `mcp_http_${response.status}`,
         kind: kindOfToolHttpStatus(response.status),
-        message: `MCP server error HTTP ${response.status}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+        message: `MCP server error HTTP ${response.status} from ${new URL(transport.url).hostname}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
       },
     };
   }
@@ -1273,7 +1273,7 @@ async function openMcpSession(transport: McpTransport): Promise<McpSession> {
   if (!response.ok) {
     throw sessionFailure(
       `mcp_session_http_${response.status}`,
-      `MCP server refused to open a session: HTTP ${response.status}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+      `MCP server ${new URL(transport.url).hostname} refused to open a session: HTTP ${response.status}: ${quotedBody(text)}`, // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
     );
   }
   const id = response.headers.get(SESSION_HEADER);

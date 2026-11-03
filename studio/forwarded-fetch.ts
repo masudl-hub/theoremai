@@ -1,4 +1,9 @@
-import { isLocalhostName, isPrivateOrLocalAddress, TheoremError } from '@theoremjs/agents';
+import {
+  type ErrorKind,
+  isLocalhostName,
+  isPrivateOrLocalAddress,
+  TheoremError,
+} from '@theoremjs/agents';
 import type { ClientError } from '@theoremjs/agents/host';
 
 /** The route under a studio server's base that sends a page's tool request on. */
@@ -31,27 +36,46 @@ export interface ForwardedRequest {
 export function forwardedFetch(endpoint: string): typeof fetch {
   return async (input, init = {}) => {
     const url = String(input instanceof Request ? input.url : input);
-    const { hostname } = new URL(url);
-    if (isLocalhostName(hostname) || isPrivateOrLocalAddress(hostname)) return fetch(input, init);
+    const target = new URL(url);
+    const method = init.method ?? 'GET';
+    // invariant: names the request without its query, which can hold a credential.
+    const failed = (reason: string, kind: ErrorKind = 'network', cause?: unknown) =>
+      new TheoremError(kind, `${method} ${target.origin}${target.pathname}: ${reason}`, {
+        cause,
+      }); // labels-exempt: internal diagnostic
+    // why: a page's fetch rejects a CORS refusal and an unreachable host alike, with no reason.
+    const sent = (request: Promise<Response>, unsent: string) =>
+      request.catch((err: unknown) => {
+        throw init.signal?.aborted ? err : failed(unsent, 'network', err);
+      });
+    if (isLocalhostName(target.hostname) || isPrivateOrLocalAddress(target.hostname)) {
+      return sent(
+        fetch(input, init),
+        'the browser could not send it. The host is not running, or it does not let this page call it (CORS). The browser does not say which.',
+      );
+    }
     const asked: ForwardedRequest = {
       url,
-      method: init.method ?? 'GET',
+      method,
       headers: [...new Headers(init.headers)],
       ...(typeof init.body === 'string' ? { body: init.body } : {}),
     };
-    const response = await fetch(`${endpoint}/${FORWARD_ROUTE}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(asked),
-      signal: init.signal ?? null,
-    });
+    const response = await sent(
+      fetch(`${endpoint}/${FORWARD_ROUTE}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(asked),
+        signal: init.signal ?? null,
+      }),
+      `the studio's server at ${endpoint} could not be reached to send it.`,
+    );
     const status = response.headers.get(FORWARD_STATUS);
     if (status === null) {
-      const failed = (await response.json().catch(() => ({}))) as Partial<ClientError>;
-      throw new TheoremError(
-        failed.errorKind ?? 'network',
-        failed.error || `the studio's server answered ${response.status}`,
-      ); // labels-exempt: internal diagnostic
+      const refused = (await response.json().catch(() => ({}))) as Partial<ClientError>;
+      throw failed(
+        refused.error || `the studio's server answered ${response.status}`,
+        refused.errorKind ?? 'network',
+      );
     }
     const headers = JSON.parse(response.headers.get(FORWARD_HEADERS) ?? '[]') as [string, string][];
     const code = Number(status);

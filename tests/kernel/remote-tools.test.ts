@@ -806,7 +806,7 @@ Deno.test('Remote MCP Tool surfaces RPC, tool, HTTP, and schema failures', async
     assertEquals(toolEventsOf(httpErr.events, 'error')[0]?.failure?.code, 'mcp_http_500');
     assertEquals(
       toolEventsOf(httpErr.events, 'error')[0]?.failure?.message,
-      `MCP server error HTTP 500: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
+      `MCP server error HTTP 500 from mcp.linear.app: ${errorPage.replace('lin_api_key_xyz', '[omitted - credential]')}`,
     );
     globalThis.fetch = (() =>
       Promise.resolve(

@@ -23,6 +23,7 @@ function loader(over: Partial<Boot> = {}) {
   const gates = { mark: gate(), page: gate(), pull: gate(), map: gate() };
   const stop = runBoot({
     reads: true,
+    reduced: false,
     fadeMs: 140,
     settled: gates.page.promise,
     mapDrawn: gates.map.promise,
@@ -77,16 +78,17 @@ Deno.test('a map drawn before the panel is in waits for the panel', async () => 
   assertEquals(log.slice(3), ['show leave', 'wait 140', 'reveal']);
 });
 
-Deno.test('a page with no project to read is shown once it is ready, however far the pen has got', async () => {
+Deno.test('a page with no project to read: the drawn mark is held, then the page', async () => {
   const { log, gates } = loader({ reads: false });
-  await settle();
-  assertEquals(log, []);
   gates.page.open();
   await settle();
-  assertEquals(log, ['reveal']);
+  assertEquals(log, []);
+  gates.mark.open();
+  await settle();
+  assertEquals(log, ['wait 90', 'reveal']);
 });
 
-Deno.test('a project read for a page ready before the pen starts is shown at once, with no map', async () => {
+Deno.test('a page ready before the pen starts is shown at once, with no mark and no map', async () => {
   const { log, gates } = loader({ penHasStarted: () => false });
   gates.page.open();
   await settle();
@@ -95,6 +97,14 @@ Deno.test('a project read for a page ready before the pen starts is shown at onc
   gates.mark.open();
   await settle();
   assertEquals(log, ['reveal', 'wait 90']);
+});
+
+Deno.test('with reduced motion nothing is mapped: the mark is held a little longer, then the page', async () => {
+  const { log, gates } = loader({ reads: false, reduced: true, penHasStarted: () => false });
+  gates.page.open();
+  gates.mark.open();
+  await settle();
+  assertEquals(log, ['wait 200', 'reveal']);
 });
 
 Deno.test('a loader that is stopped shows and reveals nothing more', async () => {

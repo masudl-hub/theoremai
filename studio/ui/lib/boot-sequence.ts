@@ -10,12 +10,14 @@
  */
 export type BootPhase = 'draw' | 'map' | 'leave' | 'done';
 
-/** How long the drawn mark is held before a project's map takes over. */
+/** How long the drawn mark is held before it gives way. */
 const HOLD_MS = 90;
+const REDUCED_HOLD_MS = 200;
 
 export interface Boot {
   /** Whether a project is read for the page, and so mapped. Never with reduced motion. */
   reads: boolean;
+  reduced: boolean;
   /** How long the map takes to fade. */
   fadeMs: number;
   /** Settles when the page under the loader is on screen with its fonts. */
@@ -45,8 +47,8 @@ export function runBoot(boot: Boot): () => void {
     boot.reveal();
   };
 
-  /* A project's read is drawn once the mark is, loaded or not, and the map starts on the panel as
-	   it pulls in. Settles once the panel is in. */
+  /* A project's read is drawn once the mark is, loaded or not. The mark gives way as it does for
+	   any page, and the map starts on the panel as it pulls in. Settles once the panel is in. */
   const mapped = boot.reads
     ? boot
         .markDrawn()
@@ -59,11 +61,13 @@ export function runBoot(boot: Boot): () => void {
         })
     : Promise.resolve(false);
 
-  /* The mark shows only while the page is not ready: the moment it is, the panel pulls in, wherever
-	   the pen has got to. A project's map always finishes. */
+  /* If the page is ready before the pen starts, no mark was ever on screen and the panel pulls in
+	   at once. Once the pen has started, it finishes, and so does a map. */
   void boot.settled
     .then(() => {
-      if (!boot.reads || (!pulling && !boot.penHasStarted())) return undefined;
+      if (!boot.reduced && !pulling && !boot.penHasStarted()) return undefined;
+      if (!boot.reads)
+        return boot.markDrawn().then(() => boot.sleep(boot.reduced ? REDUCED_HOLD_MS : HOLD_MS));
       return mapped.then((shown) => {
         if (!shown || cancelled) return undefined;
         return boot.mapDrawn.then(() => {

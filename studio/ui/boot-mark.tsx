@@ -120,8 +120,8 @@ export interface BootMarkProps {
 }
 
 /**
- * The mark draws in the shell only while the page is loading. The moment the page is ready, that
- * same panel pulls in over it, however far the pen has got.
+ * The mark draws in the shell only when the page is still loading. When the dot lands, or at once
+ * when the page was ready first, that same panel pulls in over the page.
  */
 function useBootPhase({ shape, reading }: BootMarkProps) {
   const [phase, setPhase] = useState<BootPhase>(() => (bootHasPlayed() ? 'done' : 'draw'));
@@ -137,6 +137,7 @@ function useBootPhase({ shape, reading }: BootMarkProps) {
     const reduced = prefersReducedMotion();
     return runBoot({
       reads: !reduced && Boolean(latest.current.reading),
+      reduced,
       fadeMs: FADE_MS,
       // The page is there with its fonts and everything its opening screen holds the mark for.
       settled: Promise.all([fontsSettled(), bootHolds.settled(pageCommitted())]),

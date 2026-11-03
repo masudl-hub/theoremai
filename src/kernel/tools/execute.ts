@@ -12,7 +12,12 @@ import {
   inspectToolArguments,
   toolCallEvent,
 } from '../../guardrails/tool-result.ts';
-import type { Provenance, ResolvedGuardrailPolicy, ToolOrigin } from '../../guardrails/types.ts';
+import type {
+  GuardrailHit,
+  Provenance,
+  ResolvedGuardrailPolicy,
+  ToolOrigin,
+} from '../../guardrails/types.ts';
 import type { SpanHandle, TraceAttributes } from '../../observability/trace-span.ts';
 import {
   recordToolCheck,
@@ -1771,16 +1776,23 @@ function* guardFailure(
     yield { type: 'guardrail', guardrail: checked.event };
   }
   const message = checked.text ?? labelText('detect.output_blocked', {}, guard.labels);
-  return { modelResult: yield* reportFailure({ ...failure, message }, guard) };
+  return {
+    modelResult: yield* reportFailure({ ...failure, message }, guard, checked.suspicious),
+  };
 }
 
-/** A failure framed for the model in the kernel's own words, fenced and labelled like any result. */
+/**
+ * A failure framed for the model in the kernel's own words, fenced and labelled like any result.
+ * `suspicious` is what `injection` found in a remote failure's message, which raises taint as a
+ * result's does.
+ */
 function* reportFailure(
   failure: ToolFailure,
   guard: GuardInputs,
+  suspicious?: GuardrailHit[],
 ): Generator<TurnEvent, ModelToolResult> {
   const framed = frameToolFailure(failure);
-  return (yield* readBack(framed, guard, undefined)) ?? framed;
+  return (yield* readBack(framed, guard, undefined, suspicious)) ?? framed;
 }
 
 /** A result read at `tool_output_<kind>`. A blocked one settles as a failed call the model is told about. */
@@ -1815,6 +1827,7 @@ function* readBack(
   result: ModelToolResult,
   guard: GuardInputs,
   boundary: ToolBoundary | undefined,
+  carried?: GuardrailHit[],
 ): Generator<TurnEvent, ModelToolResult | undefined> {
   const { provenance, span } = guard;
   const start = performance.now();
@@ -1826,6 +1839,7 @@ function* readBack(
     boundary,
     guard.callableTools,
     guard.labels,
+    carried,
   );
   recordToolCheck(span, 'tool_result', performance.now() - start, guarded.event);
   if (guarded.event) {

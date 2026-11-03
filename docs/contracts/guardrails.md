@@ -1425,8 +1425,8 @@ what the content said.
 API legitimately says "call `send_email`"; rewriting it would corrupt content the
 model needs, so the detector starts at `flag`. A profile that sets `redact` or
 `block` has the stretches replaced or the result withheld, as for any detector.
-Whatever the action above `ignore`, the `injection` hits on a remote result are
-recorded on the turn's taint,
+Whatever the action above `ignore`, the `injection` hits on a remote result, or
+on a remote failure's message, are recorded on the turn's taint,
 so a later state-changing call reports `tool_call.steered-turn` instead of
 `tool_call.tainted-turn`; they never cause a refusal of a call on their own.
 

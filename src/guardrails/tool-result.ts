@@ -114,9 +114,9 @@ export interface GuardedToolText {
   /** Emitted when the guard did anything worth recording. */
   event?: GuardrailEvent;
   /**
-   * What `injection` found in a remote tool's text. Legitimate tool output is frequently
-   * instruction-shaped, so the detector starts at `flag`; whatever its action,
-   * these raise the turn's taint.
+   * What `injection` found in a remote tool's text, a result or a failure's message. Legitimate
+   * tool output is frequently instruction-shaped, so the detector starts at `flag`; whatever its
+   * action, these raise the turn's taint.
    */
   suspicious?: GuardrailHit[];
 }
@@ -148,12 +148,18 @@ function readAt(
   return boundary ? detectAt(text, boundary, detect, scope) : { ...NOTHING_FOUND, text };
 }
 
+/** What `injection` found in `hits`, when a remote tool wrote the text; a local tool's raise nothing. */
+function suspiciousHits(hits: GuardrailHit[], provenance: Provenance): GuardrailHit[] {
+  if (!isRemoteOrigin(provenance.origin)) return [];
+  return hits.filter(({ rule }) => rule === DETECT_RULES.injection);
+}
+
 /**
  * Local host tools are still detected — a host tool reading a database returns
  * data the host did not write — but only remote origins are fenced, because
  * fencing a local tool's output would change prompts hosts have already tuned.
  * `boundary` is absent for text that crosses none: a provider builtin's, or a
- * failure already read at its own boundary.
+ * failure already read at its own boundary, whose findings come in as `carried`.
  */
 function guardToolResult(
   finding: string,
@@ -163,13 +169,12 @@ function guardToolResult(
   boundary: ToolBoundary | undefined,
   callableTools: readonly string[] = [],
   labels?: LabelOverrides,
+  carried: GuardrailHit[] = [],
 ): GuardedToolText {
   const composed = composeToolText(finding, data);
   const detected = readAt(composed, boundary, policy.detect, { callable: callableTools });
   const remote = isRemoteOrigin(provenance.origin);
-  const suspicious = remote
-    ? detected.hits.filter(({ rule }) => rule === DETECT_RULES.injection)
-    : [];
+  const suspicious = [...carried, ...suspiciousHits(detected.hits, provenance)];
   const event: GuardrailEvent | undefined =
     detected.action === 'allow'
       ? undefined
@@ -210,9 +215,11 @@ function guardToolFailureText(
 ): GuardedToolText {
   const detected = readAt(stripToolFences(message), boundary, policy.detect);
   const event = boundary ? detectEvent(boundary, detected, provenance) : undefined;
+  const suspicious = detected.text === undefined ? [] : suspiciousHits(detected.hits, provenance);
   return {
     ...(detected.text === undefined ? {} : { text: detected.text }),
     ...(event ? { event } : {}),
+    ...(suspicious.length > 0 ? { suspicious } : {}),
   };
 }
 

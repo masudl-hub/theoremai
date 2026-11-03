@@ -2,6 +2,7 @@ import '../fixtures/test-host.ts';
 import { mintCanary } from '../../src/guardrails/canary.ts';
 import { FIXED_CANARY } from '../../src/guardrails/corpus/canary-egress-attacks.ts';
 import { TEST_OPENAI_KEY } from '../../src/guardrails/corpus/secrets.ts';
+import { type DetectSpec, resolveDetect } from '../../src/guardrails/detectors.ts';
 import { createProgressiveYieldGate } from '../../src/guardrails/progressive-yield.ts';
 import { DETECT_RULES } from '../../src/guardrails/rules.ts';
 import type { GuardrailContext } from '../../src/guardrails/types.ts';
@@ -186,4 +187,93 @@ Deno.test('createProgressiveYieldGate carries a released short opening into the 
   // Three released characters and fifteen more make one sixteen-character run.
   const next = await createProgressiveYieldGate({ context: ctx(canary), carry: first.carryOut() });
   assertEquals(next.process(canary.slice(3, 18)).blocked, true);
+});
+
+const SYSTEM = [
+  'You are Sol, the support agent for Northwind Outfitters.',
+  'Only discuss orders, returns, and shipping; never mention internal tooling.',
+  'Escalate refunds above 200 dollars to a human and apologise once, briefly.',
+].join(' ');
+const ECHO = SYSTEM.split(' ').slice(3, 16).join(' ');
+
+/** A reply gate whose leak detectors stand as `leaks` sets them at `reply`. */
+async function leakGate(leaks: DetectSpec, context: GuardrailContext) {
+  return await createProgressiveYieldGate({
+    context: { ...context, privateSystem: [SYSTEM] },
+    detect: { matrix: resolveDetect(leaks), boundary: 'reply', rewrite: true },
+  });
+}
+
+/** What a gate releases of `text` once the stream ends, or that it stopped. */
+function released(gate: Awaited<ReturnType<typeof leakGate>>, text: string) {
+  const steps = [gate.process(text), gate.flush()];
+  if (steps.some((step) => step.blocked)) return 'blocked';
+  return steps.map((step) => (step.blocked ? '' : step.emit)).join('');
+}
+
+const leakRules = (result: ReturnType<Awaited<ReturnType<typeof leakGate>>['process']>) =>
+  result.blocked ? result.hits.map(({ rule }) => rule) : [];
+
+Deno.test('a gate stops on the canary and on the prompt echo as its matrix sets them at its boundary', async () => {
+  const canary = mintCanary();
+  const spec: DetectSpec = {
+    canary_leak: { at: { reply: 'block' } },
+    prompt_leak: { at: { reply: 'block' } },
+  };
+  const leaked = await leakGate(spec, ctx(canary));
+  assertEquals(leakRules(leaked.process(`it is ${canary}`)), [DETECT_RULES.canary_leak]);
+  const echoed = await leakGate(spec, ctx(canary));
+  assertEquals(leakRules(echoed.process(`Sure: ${ECHO} and more`)), [DETECT_RULES.prompt_leak]);
+});
+
+Deno.test('a gate reads a leak set to ignore at its boundary as no leak', async () => {
+  const canary = mintCanary();
+  const canaryOff = await leakGate(
+    { canary_leak: { at: { reply: 'ignore' } }, prompt_leak: { at: { reply: 'block' } } },
+    ctx(canary),
+  );
+  assertEquals(released(canaryOff, `it is ${canary}`), `it is ${canary}`);
+  const promptOff = await leakGate(
+    { canary_leak: { at: { reply: 'block' } }, prompt_leak: { at: { reply: 'ignore' } } },
+    ctx(canary),
+  );
+  const text = `Sure: ${ECHO} and more`;
+  assertEquals(released(promptOff, text), text);
+});
+
+Deno.test('a gate does not stop on a canary the turn was given', async () => {
+  const canary = mintCanary();
+  const gate = await leakGate(
+    { canary_leak: { at: { reply: 'block' } } },
+    { ...ctx(canary), canaryGiven: true },
+  );
+  assertEquals(released(gate, `it is ${canary}`), `it is ${canary}`);
+});
+
+Deno.test('a gate reports a leak set to flag once, and releases the text', async () => {
+  const canary = mintCanary();
+  const gate = await leakGate({ canary_leak: { at: { reply: 'flag' } } }, ctx(canary));
+  const first = gate.process(`one ${canary} two `);
+  assertEquals(first.blocked, false);
+  assertEquals(first.blocked ? [] : first.found?.hits.map(({ rule }) => rule), [
+    DETECT_RULES.canary_leak,
+  ]);
+  const again = gate.process(`${canary} three`);
+  const rest = gate.flush();
+  const reported = [again, rest].flatMap((step) =>
+    step.blocked ? [] : (step.found?.hits ?? []).map(({ rule }) => rule),
+  );
+  assertEquals(reported, []);
+});
+
+Deno.test('a gate with no matrix stops on both leaks', async () => {
+  const canary = mintCanary();
+  const gate = await createProgressiveYieldGate({
+    context: { ...ctx(canary), privateSystem: [SYSTEM] },
+  });
+  assertEquals(leakRules(gate.process(`it is ${canary}`)), [DETECT_RULES.canary_leak]);
+  const echoed = await createProgressiveYieldGate({
+    context: { ...ctx(canary), privateSystem: [SYSTEM] },
+  });
+  assertEquals(leakRules(echoed.process(`Sure: ${ECHO} and more`)), [DETECT_RULES.prompt_leak]);
 });

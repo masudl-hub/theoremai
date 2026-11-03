@@ -12,6 +12,7 @@ import {
   type TurnEvent,
   z,
 } from '../../mod.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import { createMemorySessionStore, createTheoremHostHandler } from '../../web/src/server/mod.ts';
 import { sessionToolCoordinator } from '../../web/src/server/tool-operations.ts';
 import { registerFixtureProviders } from '../fixtures/provider-scope.ts';
@@ -868,5 +869,37 @@ Deno.test('a hidden tool replays only the words that say it finished', async () 
   assertThrows(
     () => replay({ ...outcome, replay: { ...outcome.replay, modelResult: shown } }),
     TheoremError,
+  );
+});
+
+Deno.test('a replay is refused for a tool the registry lacks, and for one the profile does not allow', () => {
+  const name = 'replay_not_allowed';
+  registerTool({
+    type: 'function',
+    name,
+    description: 'A tool no profile here allows',
+    category: 'test',
+    access: 'read-only',
+    permission: 'auto',
+    loadTier: 'T0',
+    paths: ['*'],
+    input: z.object({}),
+    output: z.object({ text: z.string() }),
+    handler: () => ({ text: 'never run' }),
+  });
+  const profile = defineProfile({ id: name, type: 'host', tools: { allow: [] } });
+  const replay = (tool: string) =>
+    authorizeToolReplay({
+      tools: defaultKernelScope.tools,
+      profile,
+      name: tool,
+      resume: undefined,
+    });
+  const missing = assertThrows(() => replay('replay_no_such_tool'), TheoremError);
+  assertEquals([missing.kind, missing.message], ['blocked', labelText('error.blocked')]);
+  const refused = assertThrows(() => replay(name), TheoremError);
+  assertEquals(
+    [refused.kind, refused.message],
+    ['blocked', labelText('tool.not_allowed', { tool: name, profile: name })],
   );
 });

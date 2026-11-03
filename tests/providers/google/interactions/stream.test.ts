@@ -447,6 +447,47 @@ Deno.test('completed usage becomes tokens, and structured output resolves from t
   );
 });
 
+Deno.test('a new fold has seen nothing yet', () => {
+  assertEquals(newStreamFold(), {
+    text: '',
+    steps: new Map(),
+    sawMedia: false,
+    sawDone: false,
+    calls: 0,
+  });
+});
+
+Deno.test('a fold joins the streamed text, and marks done only at the end', () => {
+  const fold = newStreamFold();
+  const delta = (text: string) => row('step.delta', { index: 0, delta: { type: 'text', text } });
+  [delta('Hel'), delta(''), delta('lo')].flatMap((r) => foldPayload(r, fold));
+  assertEquals([fold.text, fold.sawDone, fold.sawMedia], ['Hello', false, false]);
+  const end = foldPayload(
+    row('interaction.completed', { interaction: { id: 'v1_t', status: 'completed' } }),
+    fold,
+  );
+  assertEquals([firstOf(end, 'done')?.type, fold.sawDone, fold.text], ['done', true, 'Hello']);
+});
+
+Deno.test('a stream row that is not a JSON object is one bad response', () => {
+  const fold = newStreamFold();
+  assertEquals(foldPayload({ eventType: 'sse_unparsed', data: 'not json' }, fold), [
+    {
+      type: 'error',
+      errorKind: 'bad_response',
+      errorInternal: 'Interactions stream row was not a JSON object',
+    },
+  ]);
+  assertEquals([fold.text, fold.sawDone], ['', false]);
+});
+
+Deno.test('structured output is skipped when the profile wants none, or nothing was said', () => {
+  const fold = newStreamFold();
+  fold.text = '{"message": "success"}';
+  assertEquals([...finalizeStructured({ ...fromChatProfile(), structured: null }, fold)], []);
+  assertEquals([...finalizeStructured(fromChatProfile(), newStreamFold())], []);
+});
+
 Deno.test('base64ToBytes decodes known base64 values', () => {
   assertEquals(base64ToBytes('aGVsbG8='), new TextEncoder().encode('hello'));
   assertEquals(base64ToBytes(''), new Uint8Array());

@@ -81,7 +81,7 @@ test('a model picked in the composer runs the next reply', async ({ page }) => {
 
 test('each side picks its own model', async ({ page }) => {
   await twoSides(page);
-  await page.getByRole('button', { name: 'Model', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Model', exact: true }).click();
   await page
     .getByRole('radiogroup', { name: /Edited/ })
     .getByRole('radio', { name: /free/ })

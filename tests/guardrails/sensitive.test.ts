@@ -376,6 +376,10 @@ Deno.test('sensitiveSpans finds an account number only after its label', () => {
     'Sort Code: 11-11-11',
     'my account number is 123456-ABC',
     'Kontonummer 1234567890',
+    '<tr><th>bank_account_number</th><td>UTUN74778455481443</td></tr>',
+    "the sender's bank account number (484132878).",
+    '**Account Numbers:** R29776850329, Y29879355007',
+    'Mr Sam Barker, ACCT-6226419299, ECOM-347',
   ]) {
     assertEquals({ text, found: found(text, 'bank_account').length }, { text, found: 1 });
   }
@@ -384,6 +388,9 @@ Deno.test('sensitiveSpans finds an account number only after its label', () => {
     'Account Number: DE89370400440532013000',
     'account no. 1234',
     ':50A/CDE\n:57A20220512',
+    'BAI2:205:1:1:ACCT-INFO:20230222:100000000',
+    '<international_bank_account_number type="str">GB13DLQO92229868212609</international_bank_account_number><Version type="str">2014-09-01</Version>',
+    '- Account Number:\n- SSN: 334-50-6496',
   ]) {
     assertEquals({ text, found: found(text, 'bank_account') }, { text, found: [] });
   }

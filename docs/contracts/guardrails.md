@@ -1171,7 +1171,7 @@ False-positive tuning: `tests/guardrails/false-positives.test.ts` and
 | `network` | IPv4 and IPv6 addresses |
 | `email` | Email addresses with an ASCII local part and domain, whose top-level domain starts with a letter (`typescript@4.4.4` is not one) |
 | `phone` | International numbers with `+`, North American numbers, national numbers with a leading 0, and any number after a phone label in English, French, German, Spanish, Italian, or Portuguese; each has 7 to 15 digits and is not shaped like an SSN or a date |
-| `bank_account` | Account, routing, and sort-code numbers of 5 or more digits, run together or in spaced groups, only after a label that names them (`Account Number`, `acct`, `a/c`, `routing number`, `sort code`, and their German, Italian, Portuguese, French, Spanish, and Dutch names); an IBAN is `financial` |
+| `bank_account` | Account, routing, and sort-code numbers of 5 or more digits, run together or in spaced groups, only after a label that names them (`Account Number`, `Account Numbers`, `acct`, `a/c`, `routing number`, `sort code`, and their German, Italian, Portuguese, French, Spanish, and Dutch names), with a table cell's tags between, in brackets, or straight after a hyphen (`ACCT-…`); an IBAN is `financial` |
 | `credentials` | Every credential the gitleaks rules find (vendor API keys and tokens, key and password assignments, JWTs, private keys), plus Theorem's own rules: short or spaced `sk-` keys, OpenRouter keys, short GitHub and Slack tokens, `Bearer` tokens, short PEM private keys, and Apify, FleetBase, Nightfall, Teamwork and Ubidots keys and Zapier webhook URLs |
 
 ### Credential rules

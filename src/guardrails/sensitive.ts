@@ -82,13 +82,13 @@ function phoneHit(number: string): boolean {
 
 /** A label naming a bank account, or any account number, in English, German, Italian, Portuguese, French, Spanish, or Dutch. */
 const ACCOUNT_LABEL = [
-  'bank[\\s_\\-]{0,3}account(?:[\\s_]{0,3}(?:number|no\\.?|#|nr\\.?))?',
-  'account[\\s_]{0,3}(?:number|no\\.?|#|nr\\.?)',
-  'acct\\.?(?:[\\s_]{0,3}(?:number|no\\.?|#))?',
+  'bank[\\s_\\-]{0,3}account(?:[\\s_]{0,3}(?:numbers?|no\\.?|#|nr\\.?))?',
+  'account[\\s_]{0,3}(?:numbers?|no\\.?|#|nr\\.?)',
+  'acct\\.?(?:[\\s_]{0,3}(?:numbers?|no\\.?|#))?',
   'a\\/c(?:[\\s_]{0,3}no\\.?)?(?!\\p{L})',
   'bban',
-  'routing[\\s_]{0,3}(?:number|no\\.?|#)?',
-  'aba(?:[\\s_]{0,3}(?:number|routing))?',
+  'routing[\\s_]{0,3}(?:numbers?|no\\.?|#)?',
+  'aba(?:[\\s_]{0,3}(?:numbers?|routing))?',
   'sort[\\s_]{0,3}code',
   'kontonummer',
   'bankverbindung(?:snummer)?',
@@ -103,9 +103,9 @@ const ACCOUNT_LABEL = [
   'cuenta[\\s_]{0,3}bancaria',
   'rekeningnummer',
 ].join('|');
-/** An account number after its label: a short aside, a parenthesis, or a field type may sit between. */
+/** An account number after its label: a short aside, a parenthesis, a field type, or a table cell's tags may sit between, or a hyphen straight before it; the number may sit in brackets. */
 const BANK_ACCOUNT = new RegExp(
-  `(?<![\\p{L}\\p{N}])(?:${ACCOUNT_LABEL})(?:\\s{1,4}type="\\w+")?(?:\\s{0,4}\\([^)\\n]{1,24}\\))?[\\s"'\x60:=>*#]{0,8}(?:[a-z\\s]{0,12}[:\\s])?\\s{0,4}([A-Z0-9](?:[A-Z0-9\\-]|(?<=\\d) (?=\\d)){3,32}[A-Z0-9])`,
+  `(?<![\\p{L}\\p{N}])(?:${ACCOUNT_LABEL})(?:\\s{1,4}type="\\w+")?(?:\\s{0,4}\\([^)\\n]{1,24}\\))?(?:(?:<\\/[a-z][a-z0-9]{0,8}>\\s{0,4}<[a-z][a-z0-9]{0,8}(?:\\s[^<>\\n]{0,40})?>)?[\\s"'\x60:=>*#(]{0,8}(?:[a-z\\s]{0,12}[:\\s])?\\s{0,4}|-)([A-Z0-9](?:[A-Z0-9\\-]|(?<=\\d) (?=\\d)){3,32}[A-Z0-9])`,
   'giu',
 );
 const IBAN_SHAPE = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;

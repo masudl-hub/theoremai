@@ -389,6 +389,51 @@ Deno.test('sensitiveSpans finds an account number only after its label', () => {
   }
 });
 
+Deno.test('sensitiveSpans finds a labelled account number written in spaced groups, whole', () => {
+  assertEquals(found('Account Number: 4401 2273 99', 'bank_account'), [
+    'Account Number: 4401 2273 99',
+  ]);
+  assertEquals(found('account number DE89 3704 0044 0532 0130 00', 'bank_account'), []);
+});
+
+Deno.test('sensitiveSpans finds an IBAN only when its check digits hold, run together or in groups of four', () => {
+  for (const iban of [
+    'DE89370400440532013000',
+    'DE89 3704 0044 0532 0130 00',
+    'GB82 WEST 1234 5698 7654 32',
+    'NO9386011117947',
+  ]) {
+    assertEquals(found(`IBAN ${iban} paid`, 'financial'), [iban]);
+  }
+  for (const text of [
+    'DE89370400440532013001',
+    'DE89 3704 0044 0532 0130 01',
+    'GB00WEST12345698765432',
+  ]) {
+    assertEquals({ text, found: found(text, 'financial') }, { text, found: [] });
+  }
+});
+
+Deno.test('sensitiveSpans finds an undashed SSN, ITIN or EIN after the field name that says which', () => {
+  for (const text of [
+    'ssn: 123456789',
+    'TIN 912-70-1234',
+    'EIN 123456789',
+    'tax_id="12-3456789"',
+    'Social Security Number 123 45 6789',
+  ]) {
+    assertEquals({ text, found: found(text, 'ids').length > 0 }, { text, found: true });
+  }
+  for (const text of [
+    'Martin 123456789',
+    'protein 123456789',
+    'order 123456789',
+    'EIN 1234567890',
+  ]) {
+    assertEquals({ text, found: found(text, 'ids') }, { text, found: [] });
+  }
+});
+
 Deno.test('sensitiveSpans leaves a package version for email', () => {
   assertEquals(found('"typescript@4.4.4": and "@types/jest@27.0.1"', 'email'), []);
 });

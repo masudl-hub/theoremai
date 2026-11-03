@@ -13,7 +13,11 @@ const SSN = /\b\d{3}-\d{2}-\d{4}\b/g;
 const SSN_CONTEXTUAL = /(?:SSN|social\s*security(?:\s*number)?)[:\s]+\d(?:[-\s]*\d){8}/gi;
 const ITIN = /\b9\d{2}-\d{2}-\d{4}\b/g;
 const EIN = /\b\d{2}-\d{7}\b/g;
-const IBAN = /\b[A-Z]{2}\d{2}[A-Z0-9]{13,30}\b/g;
+/** An SSN, ITIN, or EIN in any 9-digit form, right after a field name that says which. */
+const ID_KEYED =
+  /(?<!\p{L})(?:ssn|social[\s_-]*security(?:[\s_-]*number)?|tax[\s_-]*(?:payer[\s_-]*)?id(?:entification)?(?:[\s_-]*(?:number|no))?|taxpayer[\s_-]*id(?:entification)?(?:[\s_-]*number)?|itin|tin|ein|employer[\s_-]*identification[\s_-]*number)[\s"'\x60*:=>#\\]{0,10}(?:\d{3}[- ]?\d{2}[- ]?\d{4}|\d{2}-?\d{7})(?!\d)/giu;
+/** An IBAN written as one run, or in the printed groups of four. */
+const IBAN = /\b[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)\b/g;
 const IPV4 = /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g;
 const HEX_GROUP = '[0-9a-f]{1,4}';
 const DOTTED_QUAD =
@@ -101,10 +105,21 @@ const ACCOUNT_LABEL = [
 ].join('|');
 /** An account number after its label: a short aside, a parenthesis, or a field type may sit between. */
 const BANK_ACCOUNT = new RegExp(
-  `(?<![\\p{L}\\p{N}])(?:${ACCOUNT_LABEL})(?:\\s{1,4}type="\\w+")?(?:\\s{0,4}\\([^)\\n]{1,24}\\))?[\\s"'\x60:=>*#]{0,8}(?:[a-z\\s]{0,12}[:\\s])?\\s{0,4}([A-Z0-9][A-Z0-9\\-]{3,32}[A-Z0-9])`,
+  `(?<![\\p{L}\\p{N}])(?:${ACCOUNT_LABEL})(?:\\s{1,4}type="\\w+")?(?:\\s{0,4}\\([^)\\n]{1,24}\\))?[\\s"'\x60:=>*#]{0,8}(?:[a-z\\s]{0,12}[:\\s])?\\s{0,4}([A-Z0-9](?:[A-Z0-9\\-]|(?<=\\d) (?=\\d)){3,32}[A-Z0-9])`,
   'giu',
 );
 const IBAN_SHAPE = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;
+
+/** Whether an IBAN's ISO 13616 check digits hold: the number, its first four characters moved to the end, is 1 mod 97. */
+function ibanHit(match: string): boolean {
+  const compact = match.replaceAll(' ', '');
+  let rest = 0;
+  for (const char of compact.slice(4) + compact.slice(0, 4)) {
+    const value = Number.parseInt(char, 36);
+    rest = (rest * (value > 9 ? 100 : 10) + value) % 97;
+  }
+  return rest === 1;
+}
 const ACCOUNT_DIGITS_MIN = 5;
 
 /** The labelled value of a match of `pattern`. */
@@ -117,7 +132,7 @@ function accountHit(match: string): boolean {
   const value = labelled(BANK_ACCOUNT, match);
   return (
     value !== undefined &&
-    !IBAN_SHAPE.test(value) &&
+    !IBAN_SHAPE.test(value.replaceAll(' ', '')) &&
     (value.match(/\d/g) ?? []).length >= ACCOUNT_DIGITS_MIN
   );
 }
@@ -226,8 +241,8 @@ const PATTERN_GROUPS = SENSITIVE_GROUPS.filter(
 
 /** The patterns each group matches. Card numbers are financial too, found by `cardSpans`. */
 const GROUP_PATTERNS: Readonly<Record<PatternGroup, readonly Omit<SensitivePattern, 'group'>[]>> = {
-  ids: [SSN, SSN_CONTEXTUAL, ITIN, EIN].map((pattern) => ({ pattern })),
-  financial: [{ pattern: IBAN }],
+  ids: [SSN, SSN_CONTEXTUAL, ITIN, EIN, ID_KEYED].map((pattern) => ({ pattern })),
+  financial: [{ pattern: IBAN, hit: ibanHit }],
   network: [{ pattern: IPV4 }, { pattern: IPV6 }],
   email: [{ pattern: EMAIL, hit: (match: string) => EMAIL_TLD.test(match) }],
   phone: [

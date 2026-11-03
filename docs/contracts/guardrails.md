@@ -534,21 +534,29 @@ from the published package and is not part of `@theoremjs/agents/guardrails/test
 | `nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1` | CC-BY-4.0 | Agentic IPI, labelled `exfiltration` / `unauthorized_action` |
 | `glaiveai/glaive-function-calling-v2` | Apache-2.0 | Benign tool results at scale (`FUNCTION RESPONSE` bodies) |
 | `ethz-spylab/agentdojo` | MIT | Environment fixtures; benign output in tool shape |
-| `microsoft/llmail-inject-challenge` | MIT | 370k adaptive attacks from a live competition, email-shaped, labelled by whether they evaded defense |
+| `microsoft/llmail-inject-challenge` | MIT | Adaptive attacks from a live competition, email-shaped, labelled by whether they evaded defense |
 | `leolee99/NotInject` | none declared | Benign prompts built from injection trigger words — the over-refusal benchmark |
 | `yanismiraoui/prompt_injections` | Apache-2.0 | Multilingual injection prompts |
-| `prodnull/prompt-injection-repo-dataset` | Apache-2.0 | Hard negatives: security docs, CVEs, pentest guides. **Gated — needs `HF_TOKEN`** |
+| `prodnull/prompt-injection-repo-dataset` | Apache-2.0 | Hard negatives: security docs, CVEs, pentest guides. **Gated** |
+| nvidia/Aegis-AI-Content-Safety-Dataset-2.0 | CC-BY-4.0 | Hard negatives: the safe-labelled prompts of a content-safety benchmark |
+| `nvidia/Nemotron-RL-Jailbreak-Robustness-v1` | CC-BY-4.0 | Jailbreak attempts that use authority framing, not trigger words |
+| `allenai/wildguardmix` | ODC-BY | Hard negatives: unharmful prompts, with the adversarial ones in their own category. **Gated** |
+| `allenai/wildjailbreak` | ODC-BY | Adversarial prompts, split into harmful and harmless. **Gated** |
 
 \* Fetched for evaluation only, never redistributed.
+
+A gated source needs a Hugging Face token: `HF_TOKEN`, or the token that `hf auth login` stored.
 
 LLMail-Inject is loaded twice: once whole, and once filtered to the subset carrying
 `objectives.defense.undetected` — attacks that beat the competition's own defenses. A
 score on the second is worth more than a score on textbook payloads.
 
-Corpora are consumed whole, not sampled. Where a run does fetch a slice, the report
-prints `n of total` so a rate is never quoted as if it covered the corpus. A source
-that cannot be reached — the gated one without a token — is listed under
-**Not loaded** and narrows the report rather than breaking it.
+Each source declares a `sampleLimit`. The limit of every source with a known size is
+above that size, so the run reads the whole corpus. The exception is LLMail-Inject:
+each load stops at 20,000 of its 370,724 rows. The report prints `n of total` when a
+source yields fewer samples than `upstreamRows`, so a rate is never quoted as if it
+covered the corpus. A source that cannot be reached, such as a gated source without a
+token, is listed under **Not loaded** and narrows the report rather than breaking it.
 
 `REVIEWED_SOURCES` in `src/guardrails/eval/corpus.ts` records corpora that were evaluated and
 deliberately left out, with the objection: non-commercial licenses, undeclared

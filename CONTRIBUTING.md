@@ -101,7 +101,7 @@ Only a maintainer publishes. JSR and npm publish from separate commands, and the
 
 A release is a version bump merged to `main`. The `Publish npm` workflow then publishes all four packages under `latest` and creates the GitHub release `v<version>` from its notes. Write the notes in the release pull request, in `docs/releases/v<version>.md`, as [`docs/releases/README.md`](docs/releases/README.md) describes. `npm run lint:docs` fails until they are there.
 
-A preview needs no bump. Name a branch for the version it leads to (`0.3.4`). Each push to it that passes CI publishes all four packages under the `next` tag, as `<version>-next.<run>.g<commit>`. The version is the branch's own while it is unpublished, else the patch after it. An app takes the newest preview with:
+A preview needs no bump. Name a branch for the version it leads to (`0.3.4`). Each push to it that passes CI publishes all four packages under the `next` tag, as `<version>-next.<run>.g<commit>`. The version is the branch's own while it is unpublished, else the patch after it. A run publishes nothing when the branch has moved past its commit, and `next` moves only after all four packages are published. An app takes the newest preview with:
 
 ```bash
 npm install @theoremjs/agents@next @theoremjs/web@next @theoremjs/react@next @theoremjs/studio@next

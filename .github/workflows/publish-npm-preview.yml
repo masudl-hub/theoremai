@@ -17,7 +17,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # why: previews publish one at a time, so `next` ends on the latest push.
+    # why: previews publish one at a time; scripts/publish-preview.ts skips a run the branch has
+    # moved past, so `next` ends on the latest push.
     concurrency:
       group: publish-npm-preview
       cancel-in-progress: false
@@ -65,26 +66,7 @@ jobs:
           npm run build:npm:react
           npm run build:npm:studio
 
-      - name: Publish to npm
-        working-directory: npm
-        run: npm publish --access public --provenance --tag next
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish web package to npm
-        working-directory: web/npm
-        run: npm publish --access public --provenance --tag next
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish React package to npm
-        working-directory: react/npm
-        run: npm publish --access public --provenance --tag next
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish studio package to npm
-        working-directory: studio/npm
-        run: npm publish --access public --provenance --tag next
+      - name: Publish the four packages and move next
+        run: deno run --allow-read --allow-write --allow-env --allow-run=git,npm scripts/publish-preview.ts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

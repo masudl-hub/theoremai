@@ -1012,8 +1012,8 @@ profile lists them. `interfaceFromProfile` reports them as `guardrails.host`:
 | `tool_output_*`, `tool_failure_*` of `http`, `mcp`, `agent` | `flag` | `flag` | `flag` |
 | `tool_arguments_*` | `flag` | `ignore` | — |
 | `tool_shown_*` | `ignore`; `credentials` `flag` | `ignore` | — |
-| `reply`, `reply_structured` | `ignore`; `credentials` `flag` | `ignore` | — |
-| `live_reply`, `thought` | `ignore` | `ignore` | — |
+| `reply`, `reply_structured` | `ignore`; `credentials` `flag` | — | — |
+| `live_reply`, `thought` | `ignore` | — | — |
 
 | Boundaries | `canary_leak` | `prompt_leak` | `marker_leak` | `ungiven_images` | `ungiven_links` | `tool_leak` |
 | --- | --- | --- | --- | --- | --- | --- |

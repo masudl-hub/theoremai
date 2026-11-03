@@ -256,17 +256,21 @@ const TOOL_ARGUMENT_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_arg
 const TOOL_SHOWN_BOUNDARIES = TOOL_KINDS.map((kind) => toolBoundary('tool_shown', kind));
 
 /**
- * Text on its way to the model is flagged, a tool call takes `toTool`, and what the model writes
- * or a tool shows the person is not read.
+ * Text on its way to the model is flagged, a tool call takes `toTool`, and what a tool shows the
+ * person is not read. What the model says or thinks is left out: that text goes to the person.
  */
-function everywhere(toTool: DetectAction): BoundaryActions {
+function notToPerson(toTool: DetectAction): BoundaryActions {
   return {
     ...recordOf(INBOUND_BOUNDARIES, () => 'flag' as const),
     ...recordOf(TOOL_BOUNDARIES, () => 'flag' as const),
     ...recordOf(TOOL_ARGUMENT_BOUNDARIES, () => toTool),
     ...recordOf(TOOL_SHOWN_BOUNDARIES, () => 'ignore' as const),
-    ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const),
   };
+}
+
+/** As `notToPerson`, and what the model says or thinks is not read. */
+function everywhere(toTool: DetectAction): BoundaryActions {
+  return { ...notToPerson(toTool), ...recordOf(OUTBOUND_BOUNDARIES, () => 'ignore' as const) };
 }
 
 /** What the model writes: a tool call takes `toTool`, what it says takes `said`, a thought `thought`. */
@@ -360,7 +364,7 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
     label: 'Injection',
     doc: 'Prompt-injection phrasing, plain or disguised.',
     group: 'manipulation',
-    defaults: everywhere('ignore'),
+    defaults: notToPerson('ignore'),
     patterns: true,
   },
   tool_instructions: {

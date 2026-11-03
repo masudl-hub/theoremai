@@ -176,6 +176,31 @@ Deno.test('a tool call is flagged for data by default and not read for injection
   for (const boundary of calls) assertEquals(DETECT_DEFAULTS.injection[boundary], 'ignore');
 });
 
+Deno.test('injection is not read in what the model says or thinks, and a profile cannot turn it on there', () => {
+  const said: Boundary[] = ['reply', 'reply_structured', 'live_reply', 'thought'];
+  assertEquals(
+    DETECTOR_BOUNDARIES.injection,
+    BOUNDARIES.filter((boundary) => !said.includes(boundary)),
+  );
+  for (const boundary of said) {
+    assertEquals(
+      where({ detect: { injection: 'block' } }, 'injection', 'ignore').includes(boundary),
+      true,
+    );
+    ok(
+      detectProblem('guardrails.detect', { injection: { at: { [boundary]: 'flag' } } })?.startsWith(
+        `guardrails.detect.injection.at.${boundary} is not a boundary injection applies at`,
+      ),
+    );
+  }
+  for (const boundary of ['tool_arguments_agent', 'tool_arguments_function', 'tool_shown_mcp']) {
+    assertEquals(
+      detectProblem('guardrails.detect', { injection: { at: { [boundary]: 'flag' } } }),
+      undefined,
+    );
+  }
+});
+
 Deno.test('one action sets every detector at every boundary it applies at', () => {
   for (const action of DETECT_ACTIONS.filter((each) => each !== 'ignore')) {
     for (const detector of DETECTORS) {

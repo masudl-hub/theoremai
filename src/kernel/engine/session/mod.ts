@@ -122,6 +122,7 @@ import type {
 } from '../../types.ts';
 import { prepareLiveContext, prepareLiveInboundText } from '../live-inbound.ts';
 import { assertLiveIngress } from '../live-ingress.ts';
+import { EGRESS_FILTERED_STOP } from '../runner/gates.ts';
 import { sessionAgentCaller } from '../runner/mod.ts';
 import { type LiveCloser, type LiveTrace, startLiveTrace } from './session-trace.ts';
 
@@ -385,6 +386,20 @@ function isTurnComplete(event: TurnEvent): boolean {
   return event.type === 'session' && event.session.kind === 'turn_complete';
 }
 
+function isGenerationDone(event: TurnEvent): boolean {
+  return event.type === 'done' && event.stop.kind === 'generation_complete';
+}
+
+/** The close of a reply already reported interrupted: only its checkpoint goes on. */
+function checkpointOfClose(events: TurnEvent[]): TurnEvent[] {
+  return events.flatMap((event): TurnEvent[] => {
+    if (event.type !== 'done') return [event];
+    return event.providerState
+      ? [{ type: 'provider_checkpoint', providerState: event.providerState }]
+      : [];
+  });
+}
+
 /**
  * The output a settled Live call sends upstream, or `undefined` when nothing
  * is sent (a held gate, or no result). The model reads it as the `functionResponse`:
@@ -430,8 +445,10 @@ function boundaryDoneEvents(
   doneBatch: TurnEvent[],
   turnPhase: string | undefined,
   interrupted: boolean,
+  withheld: boolean,
 ): TurnEvent[] {
   if (doneBatch.length > 0) return doneBatch;
+  if (withheld) return [{ type: 'done', stop: EGRESS_FILTERED_STOP }];
   if (turnPhase === 'abort' || interrupted) {
     return [{ type: 'done', stop: { kind: 'interrupted' }, interrupted: true }];
   }
@@ -595,6 +612,8 @@ function buildLiveSession(args: {
   };
 
   let cycle: 'idle' | 'open' = 'idle';
+  /** How the reply stands: an interrupt before `generation_complete` cuts it off. */
+  let reply: 'open' | 'generated' | 'cut_off' = 'open';
   let cycleStep = 0;
   /** What this cycle's tool results read from outside the host; a cycle starts clean, as a turn does. */
   let cycleTaint: TurnTaint | undefined;
@@ -1190,13 +1209,22 @@ function buildLiveSession(args: {
     });
     // why: An abort only drops what the gate held; there is no check to time.
     if (item.turnPhase !== 'abort') trace.outboundTime(performance.now() - gateStart);
+    if (hostEvents.some(isGenerationDone)) reply = 'generated';
+    // why: A close after a cut-off reply is not a finish, and the next cycle may already be open.
+    const closesCutOff = item.turnPhase === 'complete' && reply === 'cut_off';
+    if (item.turnPhase === 'complete') reply = 'open';
+    if (item.turnPhase === 'abort') {
+      const cut =
+        reply !== 'generated' && hostEvents.some((ev) => ev.type === 'done' && ev.interrupted);
+      reply = cut ? 'cut_off' : 'open';
+    }
     for (const ev of gated) {
       if (ev.type === 'guardrail') trace.outbound(ev);
     }
 
     recordLiveHistory(gated, recordUserText, recordAssistantText);
     const sealed = await sealLiveCheckpoints(
-      gated,
+      closesCutOff ? checkpointOfClose(gated) : gated,
       history,
       calls,
       profile.providerContinuation?.history !== 'stateless',
@@ -1205,20 +1233,29 @@ function buildLiveSession(args: {
     const tokens = await trace.settle();
     if (tokens) yield tokens;
 
-    const interrupted = doneBatch.some((ev) => ev.type === 'done' && ev.interrupted);
+    // why: `generation_complete` is news, not the end: the verdict on the reply comes after it.
+    for (const ev of doneBatch.filter(isGenerationDone)) {
+      yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
+    }
+    const ending = doneBatch.filter((ev) => !isGenerationDone(ev));
+    const interrupted = ending.some((ev) => ev.type === 'done' && ev.interrupted);
     const completeBoundary =
-      item.turnPhase === 'complete' || item.turnPhase === 'abort' || doneBatch.length > 0;
+      !closesCutOff &&
+      (item.turnPhase === 'complete' ||
+        item.turnPhase === 'abort' ||
+        withholdClose ||
+        ending.length > 0);
 
     // why: Boundary batches (`interactionStatus: IDLE`, or bare `turnComplete` when the
     // provider sends no status) often have no folded `done` — still end the cycle.
     if (completeBoundary && cycle === 'open') {
-      const boundaryDone = boundaryDoneEvents(doneBatch, item.turnPhase, interrupted);
+      const boundaryDone = boundaryDoneEvents(ending, item.turnPhase, interrupted, withholdClose);
       for await (const ev of endCycleAroundDone(boundaryDone)) {
         yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
       }
       yield* drainPendingHostEvents(pendingHostEvents);
-    } else if (doneBatch.length > 0) {
-      for (const ev of doneBatch) {
+    } else {
+      for (const ev of ending) {
         yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
       }
     }

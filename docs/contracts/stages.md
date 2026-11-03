@@ -363,6 +363,7 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 | Tools done incl. awaiting; host UI may still be open | yes | yes (`completed` / …) | yes |
 | `stop.kind: 'gate'` | no | yes (`gate`) | yes — observe suspension |
 | Live interrupt ending cycle | yes | yes (`interrupted`) | yes |
+| Live reply withheld | yes | yes (`filtered`) | yes |
 | Deny mid-batch | no (not ending) | no | no — batch continues |
 | Cancelled (abort affordance) | if ending | yes (`cancelled`) | yes |
 
@@ -447,13 +448,18 @@ Same names. Cycle state `idle` | `open` on the session.
 | --- | --- | --- |
 | `pre_turn` | First ingress opening a cycle: first `sendText` / `sendVideo` / `sendAudio` / initial `input` after `idle`. Continuous audio: first chunk after idle only | Before socket write |
 | `pre_tool` / `post_tool` | Inside `executeTool` | Session execute API |
-| `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; before finalize / before yield `done` | `events()` outbound path |
+| `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; after the reply's final verdict; before yield `done` | `events()` outbound path |
 | `post_turn` | After that `done`; cycle → `idle` | Same |
+
+`generation_complete` is not a cycle boundary: the `done` goes to the host and the cycle stays open until the verdict on the reply. A reply the verdict withholds ends the cycle with `stop: { kind: 'filtered', native: 'egress' }`.
 
 `sendContext` is not an ingress for this table: it opens no cycle, runs no `pre_turn`, and adds nothing to `StageContext.history`.
 
 **Barge-in / empty audio:** interrupt ends the cycle with `before_end` /
-`interrupted` / `post_turn`. Empty or zero-length audio chunks do **not** open
+`interrupted` / `post_turn`. A `turnComplete` after an interrupt that came before
+`generation_complete` sends no `done`, only its `provider_checkpoint`, and ends
+no cycle: the reply was cut off. After `generation_complete` the reply was whole,
+so its `completed` follows `interrupted`. Empty or zero-length audio chunks do **not** open
 a cycle. After `post_turn`, the next non-empty ingress opens a new cycle.
 
 **StageContext.history (live):** seeded from `SessionRequest.history`, then

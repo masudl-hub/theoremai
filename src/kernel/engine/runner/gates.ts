@@ -62,7 +62,10 @@ import { executeAttempt } from './steps.ts';
 import { isWithheldOnBlock, shownToHost } from './stream.ts';
 
 /** A turn whose final output the egress check blocked (withheld or replaced by policy copy). */
-const EGRESS_FILTERED_STOP: TurnStop = { kind: 'filtered', native: 'egress' };
+export const EGRESS_FILTERED_STOP = {
+  kind: 'filtered',
+  native: 'egress',
+} as const satisfies TurnStop;
 
 /** Reply text only: thoughts are not guarded output (`isGuardedOutput`). */
 function collectAttemptText(events: TurnEvent[]): string {

@@ -91,7 +91,7 @@ Deno.test('a leak set to redact is omitted from the thought and reported', async
       const read = await think(only(detector, 'redact'), chunks(text, size));
       assertEquals([detector, size, read.rules], [detector, size, [DETECT_RULES[detector]]]);
       assertEquals([detector, read.shown === text], [detector, false]);
-      assertEquals([detector, read.shown.includes('attacker.io')], [detector, false]);
+      assertEquals([detector, /attacker\.io/.test(read.shown)], [detector, false]);
       assertEquals([detector, read.shown.includes(canary)], [detector, false]);
       assertEquals([detector, read.shown.includes(ECHO)], [detector, false]);
       assertEquals([detector, read.shown.includes('<user_data>')], [detector, false]);

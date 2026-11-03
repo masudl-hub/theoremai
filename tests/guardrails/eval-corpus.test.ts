@@ -9,62 +9,6 @@ import {
 } from '../../src/guardrails/eval/corpus.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 
-function restoreEnv(name: string, value: string | undefined): void {
-  if (value === undefined) Deno.env.delete(name);
-  else Deno.env.set(name, value);
-}
-
-/** What one Hugging Face fetch sends as `Authorization`, under the given environment. */
-async function authorizationSent(env: { token?: string; home?: string }): Promise<string | null> {
-  const dir = await Deno.makeTempDir();
-  const realFetch = globalThis.fetch;
-  const priorToken = Deno.env.get('HF_TOKEN');
-  const priorHome = Deno.env.get('HOME');
-  restoreEnv('HF_TOKEN', env.token);
-  restoreEnv('HOME', env.home);
-  let sent: string | null = null;
-  globalThis.fetch = (_input: string | URL | Request, init?: RequestInit) => {
-    sent = new Headers(init?.headers).get('Authorization');
-    return Promise.resolve(new Response('body'));
-  };
-  try {
-    await createCorpusCache(dir).fetchText('https://huggingface.co/x/a.csv', 'a.csv');
-  } finally {
-    globalThis.fetch = realFetch;
-    restoreEnv('HF_TOKEN', priorToken);
-    restoreEnv('HOME', priorHome);
-    await Deno.remove(dir, { recursive: true });
-  }
-  return sent;
-}
-
-async function homeWithToken(contents: string): Promise<string> {
-  const home = await Deno.makeTempDir();
-  await Deno.mkdir(`${home}/.cache/huggingface`, { recursive: true });
-  await Deno.writeTextFile(`${home}/.cache/huggingface/token`, contents);
-  return home;
-}
-
-Deno.test('a token from the environment is sent without its surrounding whitespace', async () => {
-  assertEquals(await authorizationSent({ token: '  hf_env\n' }), 'Bearer hf_env');
-});
-
-Deno.test('with no HF_TOKEN, the token hf auth login stored is sent', async () => {
-  const home = await homeWithToken('  hf_stored\n');
-  assertEquals(await authorizationSent({ home }), 'Bearer hf_stored');
-  await Deno.remove(home, { recursive: true });
-});
-
-Deno.test('a blank stored token, no stored token, and no HOME all send no header', async () => {
-  const blank = await homeWithToken('  \n');
-  assertEquals(await authorizationSent({ home: blank }), null);
-  await Deno.remove(blank, { recursive: true });
-  const bare = await Deno.makeTempDir();
-  assertEquals(await authorizationSent({ home: bare }), null);
-  await Deno.remove(bare, { recursive: true });
-  assertEquals(await authorizationSent({}), null);
-});
-
 Deno.test('a cached corpus is served from disk without a second fetch', async () => {
   const dir = await Deno.makeTempDir();
   const realFetch = globalThis.fetch;

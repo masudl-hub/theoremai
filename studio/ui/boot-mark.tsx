@@ -4,11 +4,10 @@
  * studio also reads a project: its panel pulls in beside the rail first and the read is drawn there
  * as it does.
  */
-import { type RefObject, useEffect, useRef, useState } from 'react';
+import { lazy, type RefObject, Suspense, useEffect, useRef, useState } from 'react';
 import { bootHolds, HOLD_CAP_MS } from './lib/boot-hold.ts';
 import { type BootPhase, runBoot } from './lib/boot-sequence.ts';
 import type { Reading } from './lib/read-progress.ts';
-import { ReadMap } from './read-map.tsx';
 import {
   bootHasPlayed,
   HOLD_MS as FADE_MS,
@@ -20,6 +19,9 @@ import {
 } from './shell-motion.ts';
 import { TheoremMark } from './theorem-mark.tsx';
 import './boot-mark.css';
+
+// why: Only a project's read draws the map. A site that mounts the loader has no read to show.
+const ReadMap = lazy(() => import('./read-map.tsx').then(({ ReadMap }) => ({ default: ReadMap })));
 
 const DRAW_CAP_MS = 2800;
 const FONT_CAP_MS = 500;
@@ -118,8 +120,8 @@ export interface BootMarkProps {
 }
 
 /**
- * The mark draws in the shell only when the page is still loading. When the dot lands, or at once
- * when the page was ready first, that same panel pulls in over the page.
+ * The mark draws in the shell only while the page is loading. The moment the page is ready, that
+ * same panel pulls in over it, however far the pen has got.
  */
 function useBootPhase({ shape, reading }: BootMarkProps) {
   const [phase, setPhase] = useState<BootPhase>(() => (bootHasPlayed() ? 'done' : 'draw'));
@@ -135,7 +137,6 @@ function useBootPhase({ shape, reading }: BootMarkProps) {
     const reduced = prefersReducedMotion();
     return runBoot({
       reads: !reduced && Boolean(latest.current.reading),
-      reduced,
       fadeMs: FADE_MS,
       // The page is there with its fonts and everything its opening screen holds the mark for.
       settled: Promise.all([fontsSettled(), bootHolds.settled(pageCommitted())]),
@@ -203,7 +204,11 @@ export function BootMark(props: BootMarkProps) {
       {phase === 'draw' && <TheoremMark />}
       {/* Said once when the map starts. The map itself is not read out: it changes with every file. */}
       {mapped && <span className="boot-said">Reading your project</span>}
-      {mapped && <ReadMap reading={mapped} onDrawn={() => mapDrawn.current()} />}
+      {mapped && (
+        <Suspense fallback={null}>
+          <ReadMap reading={mapped} onDrawn={() => mapDrawn.current()} />
+        </Suspense>
+      )}
     </div>
   );
 }

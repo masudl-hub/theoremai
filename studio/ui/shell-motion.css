@@ -42,6 +42,11 @@
     transition: clip-path 640ms cubic-bezier(0.45, 0.02, 0.15, 1);
   }
 
+  /* The first open is not a screen change: the page is ready and only this move holds it back. */
+  html[data-shell-first-open] .astryx-app-shell [role="main"] {
+    transition-duration: 240ms;
+  }
+
   html[data-shell-clip="open"] .astryx-app-shell [role="main"] {
     clip-path: inset(0 round 0);
   }

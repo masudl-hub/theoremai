@@ -176,6 +176,7 @@ export function settleShell(to: ShellShape): void {
   delete root.dataset.shellMove;
   delete root.dataset.shellClip;
   delete root.dataset.shellHold;
+  delete root.dataset.shellFirstOpen;
   root.style.removeProperty(FRAME_WIDTH);
   if (shown) showContent(root);
   rest = to;
@@ -213,6 +214,7 @@ export function revealShell(to: ShellShape) {
     root.dataset.shellClip = 'open';
     root.dataset.shellMove = '';
   }
+  if (moves) root.dataset.shellFirstOpen = '';
   delete root.dataset.bootPending;
   globalThis.dispatchEvent(new Event(SHELL_REVEAL));
   if (!moves) {

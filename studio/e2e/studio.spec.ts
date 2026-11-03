@@ -14,6 +14,17 @@ const twoSides = async (page: Page) => {
   await expect(page.getByText('Edited (studio)')).toBeVisible();
 };
 
+test("a slow project's read is drawn, and the studio opens after it", async ({ page }) => {
+  await page.route(/\/api\/studio(\?|$)/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.continue();
+  });
+  await page.goto(process.env.STUDIO_URL ?? '');
+  await expect(page.locator('.read-map')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'desk', exact: true }).first()).toBeVisible();
+  await expect(page.locator('[data-boot]')).toHaveCount(0);
+});
+
 test('hide saved leaves one chat, and show saved brings it back', async ({ page }) => {
   await twoSides(page);
   await page.getByRole('button', { name: 'Hide saved' }).click();

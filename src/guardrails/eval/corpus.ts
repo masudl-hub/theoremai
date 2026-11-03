@@ -193,6 +193,19 @@ function isHuggingFace(url: string): boolean {
   return host === 'huggingface.co' || host.endsWith('.huggingface.co');
 }
 
+async function request(url: string): Promise<Response> {
+  // why: A gated dataset needs a token the runner may or may not have; the caller
+  // decides whether a miss is fatal.
+  const token = isHuggingFace(url) ? huggingFaceToken() : undefined;
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    throw new Error(`corpus fetch failed (${response.status}): ${url}`);
+  }
+  return response;
+}
+
 function createCorpusCache(dir: string): CorpusCache {
   return {
     dir,
@@ -203,21 +216,37 @@ function createCorpusCache(dir: string): CorpusCache {
       } catch {
         // why: Not cached yet.
       }
-      // why: A gated dataset needs a token the runner may or may not have; the caller
-      // decides whether a miss is fatal.
-      const token = isHuggingFace(url) ? huggingFaceToken() : undefined;
-      const response = await fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) {
-        throw new Error(`corpus fetch failed (${response.status}): ${url}`);
-      }
-      const text = await response.text();
+      const text = await (await request(url)).text();
       await Deno.mkdir(dir, { recursive: true });
       await Deno.writeTextFile(path, text);
       return text;
     },
   };
+}
+
+/**
+ * Reads a file too large to hold as one string. It streams to the cache as it
+ * arrives, and is read back one line at a time.
+ */
+async function* cachedLines(cache: CorpusCache, url: string, key: string): AsyncGenerator<string> {
+  const path = `${cache.dir}/${key}`;
+  try {
+    await Deno.stat(path);
+  } catch {
+    const response = await request(url);
+    await Deno.mkdir(cache.dir, { recursive: true });
+    // invariant: only a complete download takes the cache name, so a cut-off one is fetched again.
+    await Deno.writeFile(`${path}.part`, response.body ?? new Uint8Array());
+    await Deno.rename(`${path}.part`, path);
+  }
+  const file = await Deno.open(path);
+  let rest = '';
+  for await (const chunk of file.readable.pipeThrough(new TextDecoderStream())) {
+    const lines = (rest + chunk).split('\n');
+    rest = lines.pop() ?? '';
+    yield* lines;
+  }
+  if (rest.length > 0) yield rest;
 }
 
 /**
@@ -765,19 +794,27 @@ export const REVIEWED_SOURCES: readonly {
  * Split into two sources: everything, and the subset that beat the competition's
  * own defenses. A detector's score on the second is the interesting number.
  */
+/**
+ * The file behind the dataset's Phase1 split, read whole. The rows API would take
+ * 3,708 pages and rate-limits long before the end.
+ */
+const LLMAIL_PHASE1_URL =
+  'https://huggingface.co/datasets/microsoft/llmail-inject-challenge/resolve/main/data/raw_submissions_phase1.jsonl';
+
 function llmailSource(id: string, evadedOnly: boolean): CorpusSource {
   return {
     id,
     license: 'MIT',
     attribution: 'microsoft/llmail-inject-challenge',
-    sampleLimit: 20000,
+    sampleLimit: 370800,
     upstreamRows: 370724,
     async load(cache, limit) {
-      const rows = await fetchRows(cache, 'microsoft/llmail-inject-challenge', limit, {
-        split: 'Phase1',
-      });
       const out: CorpusSample[] = [];
-      for (const row of rows) {
+      let read = 0;
+      for await (const line of cachedLines(cache, LLMAIL_PHASE1_URL, 'llmail-phase1.jsonl')) {
+        if (read >= limit) break;
+        read += 1;
+        const row = JSON.parse(line) as Record<string, unknown>;
         const body = row.body;
         if (typeof body !== 'string' || body.length < 20) {
           continue;

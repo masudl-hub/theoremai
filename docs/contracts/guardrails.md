@@ -552,8 +552,7 @@ LLMail-Inject is loaded twice: once whole, and once filtered to the subset carry
 score on the second is worth more than a score on textbook payloads.
 
 Each source declares a `sampleLimit`. The limit of every source with a known size is
-above that size, so the run reads the whole corpus. The exception is LLMail-Inject:
-each load stops at 20,000 of its 370,724 rows. The report prints `n of total` when a
+above that size, so the run reads the whole corpus. The report prints `n of total` when a
 source yields fewer samples than `upstreamRows`, so a rate is never quoted as if it
 covered the corpus. A source that cannot be reached, such as a gated source without a
 token, is listed under **Not loaded** and narrows the report rather than breaking it.

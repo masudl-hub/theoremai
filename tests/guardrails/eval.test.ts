@@ -151,6 +151,57 @@ Deno.test('the Hugging Face token goes to Hugging Face hosts only', async () => 
   });
 });
 
+Deno.test('LLMail streams its Phase1 file to the cache once, and reads it from there after', async () => {
+  const dir = await Deno.makeTempDir();
+  const fetched: string[] = [];
+  const realFetch = globalThis.fetch;
+  const body = `${JSON.stringify({ body: 'a body long enough to count', scenario: 'level1' })}\n`;
+  globalThis.fetch = (input: string | URL | Request) => {
+    fetched.push(input instanceof Request ? input.url : String(input));
+    return Promise.resolve(new Response(ReadableStream.from([new TextEncoder().encode(body)])));
+  };
+  const source = SOURCES.find((candidate) => candidate.id === 'llmail-adaptive');
+  try {
+    const cache = createCorpusCache(dir);
+    const first = await source?.load(cache, 10);
+    const second = await source?.load(cache, 10);
+    assertEquals(
+      first?.map((s) => s.category),
+      ['level1'],
+    );
+    assertEquals(second, first);
+    assertEquals(fetched, [
+      'https://huggingface.co/datasets/microsoft/llmail-inject-challenge/resolve/main/data/raw_submissions_phase1.jsonl',
+    ]);
+    assertEquals(
+      [...Deno.readDirSync(dir)].map((entry) => entry.name),
+      ['llmail-phase1.jsonl'],
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test('a failed LLMail download leaves nothing in the cache', async () => {
+  const dir = await Deno.makeTempDir();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.resolve(new Response('limited', { status: 429 }));
+  const source = SOURCES.find((candidate) => candidate.id === 'llmail-adaptive');
+  let error = '';
+  try {
+    await source?.load(createCorpusCache(dir), 10);
+  } catch (caught) {
+    error = String(caught);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const left = [...Deno.readDirSync(dir)].map((entry) => entry.name);
+  await Deno.remove(dir, { recursive: true });
+  assertEquals(error.includes('corpus fetch failed (429)'), true);
+  assertEquals(left, []);
+});
+
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) Deno.env.delete(name);
   else Deno.env.set(name, value);

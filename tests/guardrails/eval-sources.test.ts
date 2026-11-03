@@ -24,6 +24,16 @@ function rowsCache(rows: Row[], seen: URL[] = []): CorpusCache {
   };
 }
 
+/** A cache that already holds LLMail's Phase1 file, one JSON row per line. */
+async function llmailCache(rows: Row[]): Promise<CorpusCache> {
+  const dir = await Deno.makeTempDir();
+  await Deno.writeTextFile(
+    `${dir}/llmail-phase1.jsonl`,
+    `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`,
+  );
+  return { dir, fetchText: () => Promise.reject(new Error('no page fetch expected')) };
+}
+
 function load(id: string, cache: CorpusCache, limit = 1000): Promise<CorpusSample[]> {
   const source = SOURCES.find((candidate) => candidate.id === id);
   if (!source) throw new Error(`corpus source '${id}' is not registered`);
@@ -157,7 +167,7 @@ const BODY = 'a body long enough to count as an email attack';
 Deno.test('llmail-adaptive keeps every body of twenty characters or more, by scenario', async () => {
   const out = await load(
     'llmail-adaptive',
-    rowsCache([
+    await llmailCache([
       { body: BODY, objectives: '{"defense.undetected": true}', scenario: 'level1' },
       { body: BODY, objectives: '{"defense.undetected": false}' },
       { body: BODY, objectives: 'not json' },
@@ -184,22 +194,26 @@ Deno.test('llmail-adaptive keeps every body of twenty characters or more, by sce
 });
 
 Deno.test('llmail-evaded-defense keeps only bodies the defense did not detect', async () => {
-  const seen: URL[] = [];
   const out = await load(
     'llmail-evaded-defense',
-    rowsCache(
-      [
-        { body: BODY, objectives: '{"defense.undetected": true}', scenario: 'level2' },
-        { body: BODY, objectives: '{"defense.undetected": false}' },
-        { body: BODY, objectives: '{"defense.undetected": "true"}' },
-        { body: BODY, objectives: 'not json' },
-        { body: BODY },
-      ],
-      seen,
-    ),
+    await llmailCache([
+      { body: BODY, objectives: '{"defense.undetected": true}', scenario: 'level2' },
+      { body: BODY, objectives: '{"defense.undetected": false}' },
+      { body: BODY, objectives: '{"defense.undetected": "true"}' },
+      { body: BODY, objectives: 'not json' },
+      { body: BODY },
+    ]),
   );
   assertEquals(out, [sample('llmail-evaded-defense', BODY, true, 'level2')]);
-  assertEquals(seen[0]?.searchParams.get('split'), 'Phase1');
+});
+
+Deno.test('an LLMail load reads no more rows than its limit', async () => {
+  const rows = [1, 2, 3].map((n) => ({ body: `${BODY} ${n}`, scenario: `level${n}` }));
+  const out = await load('llmail-adaptive', await llmailCache(rows), 2);
+  assertEquals(
+    out.map((s) => s.category),
+    ['level1', 'level2'],
+  );
 });
 
 Deno.test('multilingual-prompts keeps every non-empty injection prompt as an attack', async () => {

@@ -15,9 +15,9 @@ the release cut.
 | `STAGE_AFFORDANCE_MATRIX` / `applyStageResult` / parsers | landed |
 | `TurnRequest` / `SessionRequest` / `InvokeToolRequest.onStage` types | landed |
 | Text `runTurn` `pre_turn` / `post_tool` / `before_end` / `post_turn` | landed |
-| Text barriers / `onSteer` / `barrier` events deleted from API | landed |
+| Text barriers, the steer handler and `barrier` events deleted from API | landed |
 | `pre_tool` deny/confirm/mutate execute cutover | landed |
-| Tool `preTool`; removed `canExecute` / `preflight` / `interactive` | landed |
+| Tool `preTool` replaced the old can-execute check, `preflight` and `interactive` | landed |
 | `ask_user` awaiting completion; gate vs deny wire | landed |
 | Interface gated/awaiting split (text) | landed |
 | Live profile `allowSteering`; cycle `idle`\|`open`; `LiveSession.executeTool` | landed |
@@ -25,8 +25,8 @@ the release cut.
 | React / interface `gated*` only (`paused*` removed; no aliases) | landed |
 | Cancelled `done` + `post_turn` for AbortSignal (not only stage abort) | landed |
 
-Slice 1 removed: `TURN_STEER_BARRIERS`, `TurnSteer*`, `onSteer`, `barrier` events.
-Slice 2 removed: `canExecute`, `preflight`, `interactive` tool config; pause fiction for
+Slice 1 removed: the turn steer barrier constants and types, the steer handler, `barrier` events.
+Slice 2 removed: the can-execute check, `preflight`, `interactive` tool config; pause fiction for
 confirm/permission/auth (`phase: 'gate'` + `stop.kind: 'gate'`). `ask_user` completes with
 `awaiting_user_input`. Slice 3: live stages + `executeTool` + studio `onStage`
 + full `paused*` → `gated*` cut (no aliases).
@@ -75,15 +75,10 @@ type TurnStage =
   | 'before_end'
   | 'post_turn';
 
-/** Confirm-to-run / permission gate — NOT ToolPause, NOT awaiting. */
-interface ToolGate {
-  kind: 'confirmation' | 'permission' | 'auth' | 'page';
-  tool: string;
-  permission?: ToolPermission;
-  summary?: string;
-  /** Auth challenge when kind === 'auth' (same fields as today’s authChallenge). */
-  authChallenge?: ToolPause['authChallenge'];
-}
+/** Confirm-to-run / permission / sign-in / page gate; not awaiting. */
+type ToolGate =
+  | (ToolGateBase & { kind: 'confirmation' | 'permission' | 'page' })
+  | (ToolGateBase & { kind: 'auth'; authChallenge: ToolAuthChallenge });
 
 interface StageContext {
   stage: TurnStage;
@@ -169,7 +164,7 @@ type StageHandler = (
 | `TurnRequest.onStage` | Required for inject; optional otherwise | All five on text; image/speech emit stages but inject never allowed |
 | `SessionRequest.onStage` | Set once at `runSession`; immutable for session life | All five on live cycles + tool executes |
 | `InvokeToolRequest.onStage` | Optional | `pre_tool` / `post_tool` only |
-| `LiveSession` | **No** `setOnStage` — avoids mid-session races | — |
+| `LiveSession` | **No** way to set a handler later — avoids mid-session races | — |
 
 If both `InvokeToolRequest.onStage` and an ambient turn/session handler exist,
 **both** run at tool stages: tool-local ambient first is N/A; order is
@@ -191,7 +186,8 @@ ran; `warnings` lists warning codes. See
 3. Run the same sanitize path as today’s steer injects (`sanitizeHistory` +
    untrusted-input policy from the profile).
 4. Text / Interactions: append to turn history, after the opening input; when
-   `interactionsContinuation` is active, also append `user_input` steps.
+   `persistViaInteractionId` continues a stored interaction, the next model call
+   sends them in its `continuation`: the history past `stateHistoryLength`.
 5. Live: apply as live ingress only — **text** via `sendText` (or equivalent
    realtime text). **No** `TurnMediaRef` / history `parts` inject on live
    (live already refuses media refs). Other modalities out of scope for inject.
@@ -316,16 +312,16 @@ provider-native builtin traffic is not kernel-executed.
 for auth), same `callId` / snapshot rules as today’s permission resume — but
 stop kind was `'gate'`, not `'tool'`. On live, `executeTool({ callId, decision:
 'approve' })` (see below). After settle, host continues the model turn the same
-way they do after today’s tool resume (`continueAfterTool` / new `runTurn` /
-live already open).
+way they do after today’s tool resume (a new `runTurn`; on live the session
+is already open).
 
 **Deny resume:** `resume: { granted: false }` (live: `decision: 'deny'` or
 `'abandon'`) settles **without** running the body: failure event, `post_tool`
 with `callNotStarted: true`, and (on live) one upstream tool response — same
 honesty as `pre.kind === 'deny'`.
 
-**Do not** reuse `ToolPause` or `tool.phase: 'pause'` or `stop.kind: 'tool'` for
-these. Those names are removed with the fiction.
+A gate stops with `stop.kind: 'gate'`, never `stop.kind: 'tool'`. The pause type
+and the pause tool phase were removed with the fiction.
 
 ### `awaiting_user_input` payload (frozen)
 
@@ -591,7 +587,7 @@ tool-request events.
 
 | Slice | Must fully cut over |
 | --- | --- |
-| **1 — Spine** | `TURN_STAGES`, `stage` events, `onStage` attach points, inject gate semantics, text maps, delete `onSteer`/barriers, cancelled `done`+`post_turn`, maxSteps inject reject, frozen types |
+| **1 — Spine** | `TURN_STAGES`, `stage` events, `onStage` attach points, inject gate semantics, text maps, delete the steer handler and barriers, cancelled `done`+`post_turn`, maxSteps inject reject, frozen types |
 | **2 — Tools** | Pipeline order, `preTool`, remove three old hooks, gate vs deny vs awaiting wire, `ask_user` awaiting payload, synthetic deny results, T2-before-post_tool, interface gated/awaiting split (text) |
 | **3 — Live + studio** | Live profile `allowSteering`, cycle machine, `executeTool`, live inject, studio/session inbox, react rename |
 
@@ -607,7 +603,7 @@ slice 1 alone is the product.
 | Pattern | Why |
 | --- | --- |
 | `done.stop.kind: 'tool'` meaning pause | Fake |
-| `tool.phase: 'pause'` / `ToolPause` for ask or confirm | Wrong layer / removed |
+| `tool.phase: 'pause'` or a pause type for ask or confirm | Wrong layer / removed |
 | Second provider result on same `call_id` | Invalid |
 | Silent ignore of invalid affordances | Use matrix + warning |
 | `executeTool` as a second event AsyncIterable | Mux spaghetti |

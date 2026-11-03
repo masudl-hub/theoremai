@@ -147,7 +147,7 @@ The profile, the keys, and the system prompt stay on the server. The browser rec
 | --- | --- |
 | `@theoremjs/react` | Hooks, transports, and client logic |
 | `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision`, `TheoremEmbedding`, and their parts |
-| `@theoremjs/react/live` | `LiveRunner`, the voice and video call UI |
+| `@theoremjs/react/live` | `useLiveCall` and `LiveRunner`, the voice and video call and its UI |
 | `@theoremjs/react/server` | `@theoremjs/web/server`: the handlers and the stores they use |
 | `@theoremjs/react/ui/theme` | `theoremTheme`, the base for your own Astryx theme |
 | `@theoremjs/react/ui/icons` | The icon set of the theme |
@@ -344,51 +344,57 @@ For your own UI, use `useTheoremEmbedding` for one request, and `embed(inputs, {
 
 A `live` profile runs a voice or video call. The call goes through a WebSocket relay that you host with `runSession` from `@theoremjs/agents`.
 
-`LiveRunner` needs two props:
+`useLiveCall` holds the call, and `LiveRunner` draws it. `useLiveCall` needs two values:
 
 - `iface`: the interface of the profile. `interfaceFromProfile` (from `@theoremjs/agents/interface`) builds it.
-- `connection`: a function that tells the runner what to connect to.
+- `connection`: a function that tells the call what to connect to.
 
 ```tsx
-import { LiveRunner } from '@theoremjs/react/live';
+import { LiveRunner, useLiveCall } from '@theoremjs/react/live';
 
-<LiveRunner iface={iface} connection={() => ({ profile: 'support.voice' })} />
+const call = useLiveCall({ iface, connection: () => ({ profile: 'support.voice' }) });
+
+<LiveRunner call={call} />
 ```
 
 This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your own message to the relay, add `openMessage`. To use your own socket, add `createSocket`.
 
 `LiveRunner` also accepts `theme`, `mode`, `labels`, and `trace`. Tool gates in a call appear in a dialog over the call.
 
+### A call across pages
+
+The call lasts as long as the component that calls `useLiveCall`. Call it above your routes, and the call goes on while the person moves to another page. `LiveRunner` can unmount and mount again on the same call. The call ends when the component that holds it unmounts.
+
 ### The page's part in a call
 
-Three more props give the call values from the page. The profile declares each one; the page only supplies the value.
+Three more values for `useLiveCall` come from the page. The profile declares each one; the page only supplies the value.
 
-| Prop | The profile declares | What the page gives |
+| Value | The profile declares | What the page gives |
 | --- | --- | --- |
 | `options` | `inputs.options` | The value chosen for each option. It is read when the call starts. A value that changes during a call takes the call up again with it when the profile has resumption on; otherwise the next call has it. |
 | `context` | `inputs.context` with `from: ['client']` | Any JSON the agent should know, such as the page the person is on. |
 | `pageTools` | A function tool with `answeredBy: 'page'` | A function for each page tool, by name. It returns `{ output }`. |
 
-`stated` is a fourth prop, for a page you trust as yourself. It says the `path` and the `options` from `identity.options` that choose the call's prompt lines, and the server reads it only with `pageStatesTurn` set. A change during a call takes the call up again, as an option does. `TheoremChat` takes the same prop, on each turn.
+`stated` is a fourth value, for a page you trust as yourself. It says the `path` and the `options` from `identity.options` that choose the call's prompt lines, and the server reads it only with `pageStatesTurn` set. A change during a call takes the call up again, as an option does. `TheoremChat` takes the same prop, on each turn.
 
 `model` and `effort` pick the call's model when the profile sets `allowModelSelect`. They are read when the call starts.
 
 ```tsx
-<LiveRunner
-  iface={iface}
-  connection={() => ({ profile: 'support.voice' })}
-  options={{ language: 'fr' }}
-  context={{ page: '/pricing', cart }}
-  pageTools={{
+const call = useLiveCall({
+  iface,
+  connection: () => ({ profile: 'support.voice' }),
+  options: { language: 'fr' },
+  context: { page: '/pricing', cart },
+  pageTools: {
     highlight: (args) => ({ output: { success: highlight(String(args.target)) } }),
-  }}
-/>
+  },
+});
 ```
 
-- `context` goes with the start of the call. When its value changes, the runner sends it again. The agent reads it as background and does not reply to it.
+- `context` goes with the start of the call. When its value changes, `useLiveCall` sends it again. The agent reads it as background and does not reply to it.
 - A page tool's output schema checks what the page returned. Every other tool runs on the relay, with its gates.
 - `TheoremChat` and `useTheoremChat` take the same `pageTools`. When a chat agent calls a page tool, the reply waits for the page's answer and then goes on. The person is shown no prompt.
-- The runner writes a console warning when the profile has a page tool with no function in `pageTools`, and when `pageTools` has a function for a tool that is not a page tool.
+- `useLiveCall` writes a console warning when the profile has a page tool with no function in `pageTools`, and when `pageTools` has a function for a tool that is not a page tool.
 
 The live client checks a tool call with its relay before it invokes a page callback.
 It waits for permission and sign-in decisions first. A claimed dispatch grant supplies the final checked arguments.
@@ -417,7 +423,7 @@ A failed call does not reconnect. Without `live.sessionResumption`, a provider-e
 
 The relay is server code. To authenticate the conversation and resume a call in your relay, see [Your relay](https://github.com/masudl-hub/theoremai/blob/main/web/README.md#your-relay).
 
-To build your own call view, use `useLiveRunnerModel(iface, connection, { options, context, pageTools })` from `@theoremjs/react/ui`. It returns the state of the call, its captions, and its controls. `LiveCaptionsPanel` draws the captions.
+To build your own call view, draw the call that `useLiveCall` returns. It holds the state of the call, its captions, and its controls. `LiveCaptionsPanel` from `@theoremjs/react/ui` draws the captions.
 
 ### A custom browser transport
 

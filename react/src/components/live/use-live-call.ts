@@ -74,17 +74,25 @@ function useLiveCallLifecycle(
   return { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart };
 }
 
+/** What `useLiveCall` takes: the profile, what the call opens, and the host's part in the call. */
+export type LiveCallInput = {
+  iface: LiveProfileInterface;
+  /**
+   * What the call opens: a host with a fixed profile returns its id; the studio
+   * returns its draft as the relay's open message.
+   */
+  connection: () => LiveConnection | Promise<LiveConnection>;
+} & LiveCallOptions;
+
+/** One live call: its state, captions, and controls. `LiveRunner` draws it. */
+export type LiveCall = ReturnType<typeof useLiveCall>;
+
 /**
- * Owns LiveRunner state, session client, and stage callbacks.
- * `connection` resolves what the call opens: a host with a fixed profile returns
- * its id; the studio returns its draft as the relay's open message. `options`
- * are the host's part in the call: its options, its stated turn, the page's context, and its page tools.
+ * Owns a live call: its session client, state, and controls. The call lasts as
+ * long as the component that calls this hook, so a host that calls it above its
+ * routes keeps the call while the person moves between pages.
  */
-export function useLiveRunnerModel(
-  iface: LiveProfileInterface,
-  connection: () => LiveConnection | Promise<LiveConnection>,
-  options: LiveCallOptions = {},
-) {
+export function useLiveCall({ iface, connection, ...options }: LiveCallInput) {
   const ui = useLiveRunnerUiState(iface.labels);
   const gate = useLiveRunnerGate({
     setCaptions: ui.setCaptions,
@@ -110,7 +118,7 @@ export function useLiveRunnerModel(
     [ui.activeTool, ui.connectPhase, ui.isMuted, ui.status, voiceAvailable],
   );
 
-  // why: One feed per runner: every session it opens adds its records.
+  // why: One feed per call: every session it opens adds its records.
   const traces = useMemo(createTraceFeed, []);
   const { clientRef, ensureClient, clearClient } = useLiveSessionClient({
     options: options.options,
@@ -202,6 +210,7 @@ export function useLiveRunnerModel(
   usePageToolWarnings(iface.tools.page, options.pageTools);
 
   return {
+    iface,
     handle: iface.identity.handle,
     traces,
     callStarted,

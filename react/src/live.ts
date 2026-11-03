@@ -16,5 +16,10 @@ export type {
   PageToolAnswer,
   PageTools,
 } from '@theoremjs/web/client';
+export {
+  type LiveCall,
+  type LiveCallInput,
+  useLiveCall,
+} from './components/live/use-live-call.ts';
 export type { LiveRunnerProps } from './ui/LiveRunner.tsx';
 export { LiveRunner } from './ui/LiveRunner.tsx';

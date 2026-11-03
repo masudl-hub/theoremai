@@ -23,13 +23,7 @@ import {
   IconVideo,
   IconVideoOff,
 } from '@tabler/icons-react';
-import type { LiveProfileInterface } from '@theoremjs/agents/interface';
-import type {
-  LiveCallOptions,
-  LiveConnection,
-  LiveToolGatePrompt,
-  ToolGateResolution,
-} from '@theoremjs/web/client';
+import type { LiveToolGatePrompt, ToolGateResolution } from '@theoremjs/web/client';
 import {
   type CSSProperties,
   Fragment,
@@ -40,7 +34,7 @@ import {
 } from 'react';
 import type { LiveFacingMode } from '../client/live/live-video.ts';
 import { InkWaveform } from '../components/InkWaveform.tsx';
-import { useLiveRunnerModel } from '../components/live/use-live-runner-model.ts';
+import type { LiveCall } from '../components/live/use-live-call.ts';
 import { LiveCaptionsPanel } from './LiveCaptionsPanel.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
@@ -57,9 +51,8 @@ import { useTraceInspector, WithTrace } from './TraceInspectorPanel.tsx';
 import { TheoremThemeProvider } from './theme.tsx';
 
 export type LiveRunnerProps = {
-  iface: LiveProfileInterface;
-  /** What the call opens: a profile the host registered, or an open message for the relay. */
-  connection: () => LiveConnection | Promise<LiveConnection>;
+  /** The call to draw, from `useLiveCall`. The call outlives the runner: it ends when its owner unmounts. */
+  call: LiveCall;
   /** Astryx theme, as on `TheoremChat`. Omit to inherit the host's `<Theme>` or use `theoremTheme`. */
   theme?: DefinedTheme;
   mode?: 'system' | 'light' | 'dark';
@@ -72,9 +65,7 @@ export type LiveRunnerProps = {
    * Needs a profile that records traces.
    */
   trace?: boolean;
-} & LiveCallOptions;
-
-type LiveModel = ReturnType<typeof useLiveRunnerModel>;
+};
 
 /** The waveform's box: it rests on the stage floor rather than filling the stage. */
 const WAVE_MAX_WIDTH = 720;
@@ -97,17 +88,11 @@ export function LiveRunner({ theme, mode, labels, ...props }: LiveRunnerProps) {
   );
 }
 
-function LiveRunnerBody({
-  iface,
-  connection,
-  trace,
-  ...options
-}: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels'>) {
+function LiveRunnerBody({ call, trace }: Omit<LiveRunnerProps, 'theme' | 'mode' | 'labels'>) {
   const t = useLabels();
-  const model = useLiveRunnerModel(iface, connection, options);
   // why: Both panels size against the whole live layout, so a third means the same for each.
   const layoutRef = useRef<HTMLDivElement | null>(null);
-  const inspector = useTraceInspector(iface, model.traces, trace);
+  const inspector = useTraceInspector(call.iface, call.traces, trace);
   const captions = useSidePanel(layoutRef, true);
   const captionLabels = {
     name: t('@theorem.panel.captions.name'),
@@ -125,7 +110,7 @@ function LiveRunnerBody({
     />
   );
 
-  if (!model.callStarted) {
+  if (!call.callStarted) {
     return (
       <WithTrace inspector={inspector}>
         <Layout
@@ -134,7 +119,7 @@ function LiveRunnerBody({
           header={<SidePanelHeader>{inspector.toggle}</SidePanelHeader>}
           content={
             <LayoutContent padding={0}>
-              <LiveLanding model={model} />
+              <LiveLanding call={call} />
             </LayoutContent>
           }
         />
@@ -160,13 +145,13 @@ function LiveRunnerBody({
                     resizable={captions.resizable}
                     open={captions.open}
                   >
-                    <LiveCaptions model={model} />
+                    <LiveCaptions call={call} />
                   </SidePanel>
                 }
                 content={
                   <LayoutContent padding={0}>
                     <VStack height="100%" padding={PANEL_EDGE}>
-                      <LiveStage model={model} captionsToggle={captionsToggle} />
+                      <LiveStage call={call} captionsToggle={captionsToggle} />
                     </VStack>
                   </LayoutContent>
                 }
@@ -176,9 +161,9 @@ function LiveRunnerBody({
         />
       </WithTrace>
       <LiveToolGateDialog
-        prompt={model.gatePrompt}
-        agent={t('@theorem.agent.handle', { handle: model.handle })}
-        onResolve={model.resolveGateDecision}
+        prompt={call.gatePrompt}
+        agent={t('@theorem.agent.handle', { handle: call.handle })}
+        onResolve={call.resolveGateDecision}
       />
     </>
   );
@@ -188,7 +173,7 @@ function LiveRunnerBody({
  * Before a call: the chat landing's greeting, with call buttons where the
  * composer would be. Video starts camera and mic together.
  */
-function LiveLanding({ model }: { model: LiveModel }) {
+function LiveLanding({ call }: { call: LiveCall }) {
   const t = useLabels();
   return (
     <VStack minHeight="100%" vAlign="center" gap={8} paddingInline={3}>
@@ -196,7 +181,7 @@ function LiveLanding({ model }: { model: LiveModel }) {
         <VStack width="100%" maxWidth={DEFAULT_CHAT_MAX_WIDTH} gap={8}>
           <VStack gap={1}>
             <Text type="large" as="h2">
-              {t('@theorem.agent.handle', { handle: model.handle })}
+              {t('@theorem.agent.handle', { handle: call.handle })}
             </Text>
             <Text type="display-2" as="h1">
               {t('@theorem.live.greeting')}
@@ -205,20 +190,18 @@ function LiveLanding({ model }: { model: LiveModel }) {
           <HStack gap={2} wrap="wrap">
             <Button
               label={t(
-                model.voiceAvailable
-                  ? '@theorem.live.start_voice_call'
-                  : '@theorem.live.start_call',
+                call.voiceAvailable ? '@theorem.live.start_voice_call' : '@theorem.live.start_call',
               )}
               variant="primary"
               icon={<Icon icon={IconPhone} />}
-              onClick={() => model.startCall({ video: false })}
+              onClick={() => call.startCall({ video: false })}
             />
-            {model.videoAvailable ? (
+            {call.videoAvailable ? (
               <Button
                 label={t('@theorem.live.start_video_call')}
                 variant="secondary"
                 icon={<Icon icon={IconVideo} />}
-                onClick={() => model.startCall({ video: true })}
+                onClick={() => call.startCall({ video: true })}
               />
             ) : null}
           </HStack>
@@ -232,7 +215,7 @@ function LiveLanding({ model }: { model: LiveModel }) {
  * The agent tag and state over the resting waveform, then the call controls,
  * all in one column the waveform's width.
  */
-function LiveStage({ model, captionsToggle }: { model: LiveModel; captionsToggle: ReactNode }) {
+function LiveStage({ call, captionsToggle }: { call: LiveCall; captionsToggle: ReactNode }) {
   const t = useLabels();
   const ref = useEnterMotion<HTMLElement>();
   return (
@@ -240,15 +223,15 @@ function LiveStage({ model, captionsToggle }: { model: LiveModel; captionsToggle
       <VStack width="100%" maxWidth={WAVE_MAX_WIDTH} height="100%" gap={3}>
         <VStack gap={0.5}>
           <Text type="label" color="secondary">
-            {t('@theorem.agent.handle', { handle: model.handle })}
+            {t('@theorem.agent.handle', { handle: call.handle })}
           </Text>
           <Text size="sm" color="secondary">
-            {liveStateLabel(t, model.liveState, model.activeTool)}
+            {liveStateLabel(t, call.liveState, call.activeTool)}
           </Text>
         </VStack>
-        {model.failure ? <Banner status="error" role="alert" title={model.failure.error} /> : null}
-        {model.sessionEnded ? (
-          <Banner status="info" role="status" title={model.sessionEnded} />
+        {call.failure ? <Banner status="error" role="alert" title={call.failure.error} /> : null}
+        {call.sessionEnded ? (
+          <Banner status="info" role="status" title={call.sessionEnded} />
         ) : null}
         <StackItem size="fill">
           <VStack height="100%" vAlign="end">
@@ -260,15 +243,15 @@ function LiveStage({ model, captionsToggle }: { model: LiveModel; captionsToggle
               aria-hidden="true"
             >
               <InkWaveform
-                status={model.status}
-                levelsRef={model.levelsRef}
-                toolActive={model.toolActive}
+                status={call.status}
+                levelsRef={call.levelsRef}
+                toolActive={call.toolActive}
                 variant="hero"
               />
             </VStack>
           </VStack>
         </StackItem>
-        <LiveControls model={model} captionsToggle={captionsToggle} />
+        <LiveControls call={call} captionsToggle={captionsToggle} />
       </VStack>
     </VStack>
   );
@@ -300,43 +283,43 @@ function useEnterMotion<T extends HTMLElement>() {
  * Mic, camera, captions, and call controls, centred under the stage. Icons show
  * what a click does, as End call does: a slash means "turn this off".
  */
-function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsToggle: ReactNode }) {
+function LiveControls({ call, captionsToggle }: { call: LiveCall; captionsToggle: ReactNode }) {
   const t = useLabels();
-  const inactive = !model.sessionActive;
+  const inactive = !call.sessionActive;
   const controls: ReactNode[] = [];
 
-  if (model.voiceAvailable) {
+  if (call.voiceAvailable) {
     controls.push(
       <ToggleButton
         key="mic"
         label={t('@theorem.live.microphone')}
-        tooltip={t(model.isMuted ? '@theorem.live.unmute' : '@theorem.live.mute')}
+        tooltip={t(call.isMuted ? '@theorem.live.unmute' : '@theorem.live.mute')}
         isIconOnly
-        isPressed={!model.isMuted}
+        isPressed={!call.isMuted}
         isDisabled={inactive}
         icon={<Icon icon={IconMicrophone} />}
         pressedIcon={<Icon icon={IconMicrophoneOff} />}
-        onPressedChange={model.handleToggleMic}
+        onPressedChange={call.handleToggleMic}
       />,
     );
   }
-  if (model.videoAvailable) {
+  if (call.videoAvailable) {
     controls.push(
       <ToggleButton
         key="video"
         label={t('@theorem.live.camera')}
-        tooltip={t(model.isVideoOn ? '@theorem.live.camera_off' : '@theorem.live.camera_on')}
+        tooltip={t(call.isVideoOn ? '@theorem.live.camera_off' : '@theorem.live.camera_on')}
         isIconOnly
-        isPressed={model.isVideoOn}
+        isPressed={call.isVideoOn}
         isDisabled={inactive}
         icon={<Icon icon={IconVideo} />}
         pressedIcon={<Icon icon={IconVideoOff} />}
         onPressedChange={() => {
-          void model.handleToggleVideo();
+          void call.handleToggleVideo();
         }}
       />,
     );
-    if (model.isVideoOn) {
+    if (call.isVideoOn) {
       controls.push(
         <IconButton
           key="flip"
@@ -346,7 +329,7 @@ function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsTog
           isDisabled={inactive}
           icon={<Icon icon={IconCameraRotate} />}
           onClick={() => {
-            void model.handleFlipCamera();
+            void call.handleFlipCamera();
           }}
         />,
       );
@@ -354,7 +337,7 @@ function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsTog
   }
   controls.push(
     <Fragment key="captions">{captionsToggle}</Fragment>,
-    model.canRestart ? (
+    call.canRestart ? (
       <IconButton
         key="call"
         label={t('@theorem.live.start_call')}
@@ -362,7 +345,7 @@ function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsTog
         variant="primary"
         icon={<Icon icon={IconPhone} />}
         onClick={() => {
-          void model.handleRestart();
+          void call.handleRestart();
         }}
       />
     ) : (
@@ -373,7 +356,7 @@ function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsTog
         variant="destructive"
         isDisabled={inactive}
         icon={<Icon icon={IconPhoneOff} />}
-        onClick={model.handleEnd}
+        onClick={call.handleEnd}
       />
     ),
   );
@@ -395,20 +378,20 @@ function LiveControls({ model, captionsToggle }: { model: LiveModel; captionsTog
  * Captions drawn by the chat's own transcript, with the text composer in its
  * dock when the profile takes text.
  */
-function LiveCaptions({ model }: { model: LiveModel }) {
+function LiveCaptions({ call }: { call: LiveCall }) {
   return (
     <LiveCaptionsPanel
-      handle={model.handle}
-      captions={model.captions}
-      pastCalls={model.pastCalls}
-      draftText={model.textDraft}
-      onDraftTextChange={model.setTextDraft}
-      onSubmit={model.handleSendText}
-      isDisabled={!model.sessionActive}
-      showComposer={model.textAvailable}
+      handle={call.handle}
+      captions={call.captions}
+      pastCalls={call.pastCalls}
+      draftText={call.textDraft}
+      onDraftTextChange={call.setTextDraft}
+      onSubmit={call.handleSendText}
+      isDisabled={!call.sessionActive}
+      showComposer={call.textAvailable}
       leading={
-        model.videoPreview ? (
-          <LiveVideoPreview video={model.videoPreview} facingMode={model.videoFacingMode} />
+        call.videoPreview ? (
+          <LiveVideoPreview video={call.videoPreview} facingMode={call.videoFacingMode} />
         ) : null
       }
     />

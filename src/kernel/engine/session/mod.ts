@@ -632,8 +632,10 @@ function buildLiveSession(args: {
   };
 
   let cycle: 'idle' | 'open' = 'idle';
-  /** How the reply stands: an interrupt before `generation_complete` cuts it off. */
-  let reply: 'open' | 'generated' | 'cut_off' = 'open';
+  /** An interrupt ended the reply; its `turnComplete` is still to come. */
+  let cutOff = false;
+  /** Input landed while this cycle was already open: if an interrupt ends it, that input opens the next. */
+  let ingressInCycle = false;
   let cycleStep = 0;
   /** What this cycle's tool results read from outside the host; a cycle starts clean, as a turn does. */
   let cycleTaint: TurnTaint | undefined;
@@ -950,8 +952,12 @@ function buildLiveSession(args: {
   };
 
   const openCycleIfNeeded = async (): Promise<{ aborted: boolean }> => {
-    if (cycle === 'open') return { aborted: false };
+    if (cycle === 'open') {
+      ingressInCycle = true;
+      return { aborted: false };
+    }
     cycle = 'open';
+    ingressInCycle = false;
     cycleStep += 1;
     cycleTaint = undefined;
     destinations.remote.clear();
@@ -1229,14 +1235,11 @@ function buildLiveSession(args: {
     });
     // why: An abort only drops what the gate held; there is no check to time.
     if (item.turnPhase !== 'abort') trace.outboundTime(performance.now() - gateStart);
-    if (hostEvents.some(isGenerationDone)) reply = 'generated';
     // why: A close after a cut-off reply is not a finish, and the next cycle may already be open.
-    const closesCutOff = item.turnPhase === 'complete' && reply === 'cut_off';
-    if (item.turnPhase === 'complete') reply = 'open';
+    const closesCutOff = item.turnPhase === 'complete' && cutOff;
+    if (item.turnPhase === 'complete') cutOff = false;
     if (item.turnPhase === 'abort') {
-      const cut =
-        reply !== 'generated' && hostEvents.some((ev) => ev.type === 'done' && ev.interrupted);
-      reply = cut ? 'cut_off' : 'open';
+      cutOff = hostEvents.some((ev) => ev.type === 'done' && ev.interrupted);
     }
     for (const ev of gated) {
       if (ev.type === 'guardrail') trace.outbound(ev);
@@ -1273,6 +1276,10 @@ function buildLiveSession(args: {
       for await (const ev of endCycleAroundDone(boundaryDone)) {
         yield projectGuardrailTurnEvent(stampDone(ev), includeMatch);
       }
+      // why: A barge-in reaches the model before its `interrupted` reaches us, so the reply
+      // to it comes with no ingress left to open the cycle it belongs to.
+      if (interrupted && ingressInCycle)
+        await withIngress(() => openCycleIfNeeded().then(() => {}));
       yield* drainPendingHostEvents(pendingHostEvents);
     } else {
       for (const ev of ending) {

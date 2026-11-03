@@ -885,14 +885,63 @@ Deno.test('a reply cut off before it finished stays interrupted and keeps its ch
   assertEquals(events.filter((event) => event.type === 'provider_checkpoint').length > 0, true);
 });
 
-Deno.test('unconfirmed on real traffic: a reply that finished generating before the interrupt still completes', async () => {
-  const { events } = await liveFrames([
+// why: The frame orders below came from real free-tier Live calls, gemini-3.1-flash-live-preview and
+// gemini-3.8-live alike: barge-in lands the same on both, with `turnComplete` in a frame of its own.
+Deno.test('a barge-in during speech ends the reply once, and the next reply ends on its own', async () => {
+  const { events, ends, order } = await liveFrames([
+    { serverContent: {} },
+    SPOKEN,
+    USER_SPEAKS,
+    { serverContent: { interrupted: true } },
+    { serverContent: { turnComplete: true } },
+    { serverContent: {} },
+    SPOKEN,
+    { serverContent: { generationComplete: true } },
+    { serverContent: { turnComplete: true } },
+  ]);
+  assertEquals(stopsOf(events), ['interrupted', 'generation_complete', 'completed']);
+  assertEquals(ends, ['interrupted', 'completed']);
+  assertEquals(order.filter((step) => step === 'pre_turn').length, 2);
+});
+
+Deno.test('a barge-in after generationComplete ends the reply once, as interrupted', async () => {
+  const { events, ends } = await liveFrames([
+    SPOKEN,
+    { serverContent: { generationComplete: true } },
+    USER_SPEAKS,
+    { serverContent: { interrupted: true } },
+    { serverContent: { turnComplete: true } },
+    { serverContent: {} },
+    SPOKEN,
+    { serverContent: { generationComplete: true } },
+    { serverContent: { turnComplete: true } },
+  ]);
+  assertEquals(stopsOf(events), [
+    'generation_complete',
+    'interrupted',
+    'generation_complete',
+    'completed',
+  ]);
+  assertEquals(ends, ['interrupted', 'completed']);
+});
+
+Deno.test('the close of a reply interrupted after generationComplete leaves the next cycle open', async () => {
+  const { events, ends } = await liveFrames([
     SPOKEN,
     { serverContent: { generationComplete: true } },
     { serverContent: { interrupted: true } },
+    USER_SPEAKS,
     { serverContent: { turnComplete: true } },
+    SPOKEN,
+    { serverContent: { generationComplete: true, turnComplete: true } },
   ]);
-  assertEquals(stopsOf(events), ['generation_complete', 'interrupted', 'completed']);
+  assertEquals(stopsOf(events), [
+    'generation_complete',
+    'interrupted',
+    'generation_complete',
+    'completed',
+  ]);
+  assertEquals(ends, ['interrupted', 'completed']);
 });
 
 Deno.test('a withheld live reply ends filtered, and post_turn says so', async () => {

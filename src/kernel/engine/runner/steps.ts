@@ -204,6 +204,10 @@ interface CallTally {
   replied: boolean;
   /** Where the call's text begins in the attempt's reply (`StepExecutionState.replyText`). */
   replyAt?: number;
+  /** The answer tool's arguments as the call's drafts streamed them. */
+  answerDraft: string;
+  /** The provider reported the output limit, whatever stop outranks it after. */
+  cut?: true;
 }
 
 /** Takes what an event says about the call itself. True when the event goes no further. */
@@ -251,6 +255,27 @@ async function* showAnswer(
   const event: TurnEventOf<'structured'> = { type: 'structured', structured: answer.arguments };
   if (tallyCallEvent(event, tally, step.call)) return;
   if (releasesNow(event, step.control, step.state, step.buffer)) yield* shown.show(event);
+}
+
+/**
+ * An answer the output limit cut off: its drafts, kept on the attempt for the repair. The call
+ * stops at `length`, and the failure its broken arguments gave is not the turn's.
+ *
+ * why: A protocol hands over a call whose arguments do not parse as a bare `bad_response`, and
+ * drops the call; the stream then stops it as a `provider_error`. Its drafts are what the model
+ * wrote, and the cut is why it broke.
+ */
+function keepCutOffAnswer(
+  tally: CallTally,
+  state: StepExecutionState,
+  generation: ResolvedGeneration,
+): void {
+  if (!tally.cut || !answersByTool(generation) || !tally.answerDraft.trim()) return;
+  if (tally.calls.some((call) => call.name === ANSWER_TOOL && !call.failure)) return;
+  state.cutOffAnswer = tally.answerDraft;
+  tally.failures = tally.failures.filter((failure) => failure.errorKind !== 'bad_response');
+  tally.stop = { kind: 'length' };
+  state.lastStop = tally.stop;
 }
 
 /**
@@ -400,7 +425,14 @@ async function* executeAutonomousStep(
     isAnswerOnlyStep(profile, generation, state.stepCount),
     profile.labels,
   );
-  const tally: CallTally = { calls: [], reasoning: [], text: '', failures: [], replied: false };
+  const tally: CallTally = {
+    calls: [],
+    reasoning: [],
+    text: '',
+    failures: [],
+    replied: false,
+    answerDraft: '',
+  };
   const control: OutboundStreamControl = {
     withholdVisible: false,
     ...(state.canaryCarry ? { canaryCarry: state.canaryCarry } : {}),
@@ -436,11 +468,13 @@ async function* executeAutonomousStep(
       }
       if (event.type === 'done') {
         state.providerState = event.providerState;
+        if (event.stop.kind === 'length') tally.cut = true;
         tally.stop = event.stop;
         state.lastStop = event.stop;
         continue;
       }
       if (event.type === 'tool_draft') {
+        if (event.name === ANSWER_TOOL) tally.answerDraft += event.text;
         yield* showToolDraft(event, shown, generation, buffer);
         continue;
       }
@@ -458,6 +492,7 @@ async function* executeAutonomousStep(
   }
 
   yield* shown.end();
+  keepCutOffAnswer(tally, state, generation);
   yield* showAnswer(shown, tally, { generation, state, control, buffer, call });
   keepStreamCarry(state, control);
   const resume = resumeOf(args.mayResume, profile, tally) ?? mediaResumeOf(state, profile, tally);

@@ -120,6 +120,48 @@ Deno.test('openAi streams text, thinking, drafts, and a call under Theorem’s i
   assertEquals(events.at(-1), { type: 'done', stop: { kind: 'tool', native: 'tool_calls' } });
 });
 
+Deno.test('openAi: a call cut off at the output limit streams its drafts, then fails, and stops at length', async () => {
+  const { call } = setup(() =>
+    sse([
+      {
+        id: 'r-1',
+        model: 'm-1',
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'wire-1', function: { name: 'weather', arguments: '{"ci' } },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            delta: { tool_calls: [{ index: 0, function: { arguments: 'ty":"Lis' } }] },
+            finish_reason: 'length',
+          },
+        ],
+      },
+    ]),
+  );
+  const events = await collect(callProtocol(call).complete(request));
+  // invariant: The runner repairs a cut-off answer from these drafts (runner/steps.ts keepCutOffAnswer).
+  assertEquals(
+    events
+      .filter((event) => event.type === 'tool_draft')
+      .map((event) => ('text' in event ? event.text : ''))
+      .join(''),
+    '{"city":"Lis',
+  );
+  assertEquals(
+    events.filter((event) => event.type !== 'tool_draft').map((event) => event.type),
+    ['response', 'tool_call', 'error', 'done'],
+  );
+  assertEquals(events.at(-1), { type: 'done', stop: { kind: 'length', native: 'length' } });
+});
+
 Deno.test('openAi reads a whole reply: citations and a structured answer', async () => {
   const { sent, call } = setup(
     () =>

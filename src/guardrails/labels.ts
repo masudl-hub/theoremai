@@ -97,6 +97,7 @@ export const LABEL_KEYS = [
   'error.internal',
   'repair.default_guidance',
   'repair.items_guidance',
+  'repair.cut_off_guidance',
   'repair.prompt_header',
   'repair.prompt_intro',
   'repair.prompt_instructions',
@@ -480,6 +481,8 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     'Revise the previous output so it satisfies the validator rejection. Preserve the intended user-facing substance unless the guidance says otherwise.',
   'repair.items_guidance':
     'The previous output holds only the items that were rejected; the rest of your reply is kept. Return only these items, corrected, in the same order.',
+  'repair.cut_off_guidance':
+    'Your answer was cut off before it ended. Give the whole answer again, written shorter so it fits. Keep what matters most.',
   'repair.prompt_header': '## OUTPUT REPAIR REQUEST',
   'repair.prompt_intro':
     'The previous assistant output was rejected by a host validator and must be revised.',
@@ -774,6 +777,8 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
     "Sent to the model when a validator rejects its output and the host gives no guidance of its own; also the Repair guidance setting's default.",
   'repair.items_guidance':
     'Sent to the model when an item rule rejects some items of a list in its structured reply and asks for those items alone to be rewritten.',
+  'repair.cut_off_guidance':
+    'Sent to the model when its answer was cut off at the output limit and it is asked to give it again, shorter.',
   'repair.prompt_header':
     'The heading that opens the repair request sent to the model after a validator or the egress check rejects its output.',
   'repair.prompt_intro':

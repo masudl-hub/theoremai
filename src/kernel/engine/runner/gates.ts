@@ -543,13 +543,19 @@ function unparsedReply(
   state: StepExecutionState,
   generation: ResolvedGeneration,
   profile: Profile,
-): { text: string; rejection: string } | undefined {
-  if (!generation.structured || answersByTool(generation)) return undefined;
-  const text = collectAttemptText(state.attemptEvents);
+): { text: string; rejection: string; guidance?: string } | undefined {
+  if (!generation.structured) return undefined;
+  const byTool = answersByTool(generation);
+  const text = byTool ? (state.cutOffAnswer ?? '') : collectAttemptText(state.attemptEvents);
   if (!text.trim()) return undefined;
   if (state.lastStop?.kind === 'length') {
-    return { text, rejection: labelText('structured.cut_off', {}, profile.labels) };
+    return {
+      text,
+      rejection: labelText('structured.cut_off', {}, profile.labels),
+      guidance: labelText('repair.cut_off_guidance', {}, profile.labels),
+    };
   }
+  if (byTool) return undefined;
   const error = findLast(state.attemptEvents, (event) => event.type === 'error');
   if (
     state.lastStop?.kind === 'provider_error' &&
@@ -658,6 +664,49 @@ function* handleMissingAnswer(
   return 'pass';
 }
 
+/**
+ * A structured reply the output limit cut off: a repair that asks for it again, shorter, while the
+ * budget lasts, else a `bad_response` failure. The budget is one repair, or `outputs.validation.maxRetries`.
+ *
+ * why: A cut-off reply holds no answer to check, with or without `outputs.validation`; without a
+ * repair the turn would end with none.
+ */
+function* handleCutOffReply(
+  flow: AttemptFlowState,
+  state: StepExecutionState,
+  profile: Profile,
+  latestStructured: unknown,
+  /** True when the attempt's events go out at its end (`yieldBufferedAttemptEvents`). */
+  held: boolean,
+): Generator<TurnEvent, 'continue' | 'pass'> {
+  if (latestStructured !== undefined || flow.pendingItemFix) return 'pass';
+  const unparsed = unparsedReply(state, flow.currentGen, profile);
+  if (!unparsed?.guidance) return 'pass';
+  if (flow.currentAttempt < cutOffBudget(profile)) {
+    const nextRequest = buildRepairRequest(
+      flow.currentReq,
+      unparsed.text,
+      unparsed.rejection,
+      unparsed.guidance,
+    );
+    yield updateFlowForRetry(flow, state, profile, nextRequest, 'validation');
+    return 'continue';
+  }
+  const failure = toErrorEvent(
+    new TheoremError('bad_response', 'the reply was cut off at the output limit'), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
+  );
+  recordStepEvent(failure, state);
+  state.lastStop = { kind: 'provider_error' };
+  if (!held) yield failure;
+  return 'pass';
+}
+
+/** How many times a structured reply cut off at the output limit is repaired. */
+function cutOffBudget(profile: Profile): number {
+  const outputs = profileTurnOutputs(profile);
+  return outputs?.structured ? Math.max(1, outputs.validation?.maxRetries ?? 0) : 0;
+}
+
 /** Puts on the attempt's structured output the fields that still failed. */
 function markFailed(state: StepExecutionState, failed: ValidationFailure[]): void {
   const held = findLast(state.attemptEvents, (event) => event.type === 'structured');
@@ -697,6 +746,7 @@ async function* executeSingleAttemptCycle(args: {
   // invariant: The attempt's reply spans its before_end re-entries; only a new attempt starts it again.
   state.replyText = '';
   state.replyMessages = [];
+  state.cutOffAnswer = undefined;
   // invariant: The leak check's carry is the end of this attempt's reply; a retry's is read on its own.
   state.canaryCarry = undefined;
 
@@ -783,15 +833,11 @@ async function* checkAttemptReply(
     latestStructured = projectOutbound(state.attemptEvents).structured ?? latestStructured;
   }
 
-  if (
-    (yield* handleMissingAnswer(
-      flow,
-      state,
-      profile,
-      latestStructured,
-      Boolean(validation) || judged,
-    )) === 'continue'
-  ) {
+  const held = Boolean(validation) || judged;
+  if ((yield* handleMissingAnswer(flow, state, profile, latestStructured, held)) === 'continue') {
+    return { status: 'continue' };
+  }
+  if ((yield* handleCutOffReply(flow, state, profile, latestStructured, held)) === 'continue') {
     return { status: 'continue' };
   }
 
@@ -827,6 +873,7 @@ async function* runAttemptsWithValidation(
   const maxRetries = Math.max(
     profileTurnOutputs(profile)?.validation?.maxRetries ?? 0,
     blockedReply.onBlock === 'retry' ? blockedReply.maxRetries : 0,
+    cutOffBudget(profile),
   );
   const flow: AttemptFlowState = {
     currentAttempt: 0,

@@ -1,6 +1,7 @@
 import { runTurn } from '../fixtures/registered-runner.ts';
 import '../fixtures/test-host.ts';
 import { TheoremError } from '../../src/guardrails/error.ts';
+import { labelText } from '../../src/guardrails/labels.ts';
 import {
   getProfile,
   projectProfile,
@@ -953,6 +954,7 @@ Deno.test('a structured reply cut at length is sent back with why, and the retry
   assertEquals(repairs.length, 2);
   assertStringIncludes(repairs[1] ?? '', '{"code": "go"');
   assertStringIncludes(repairs[1] ?? '', 'cut off at the output limit before its JSON ended');
+  assertStringIncludes(repairs[1] ?? '', labelText('repair.cut_off_guidance'));
   assertEquals(
     eventsOf(events, 'attempt').map((e) => e.reason),
     ['validation'],
@@ -991,7 +993,7 @@ Deno.test('a structured reply that is not JSON is sent back with why, and the re
   assertEquals(firstOf(events, 'structured')?.structured, { code: 'good' });
   assertEquals(lastOf(events, 'done')?.stop?.kind, 'completed');
 });
-Deno.test('a structured reply cut at length with no retry left ends at length', async () => {
+Deno.test('a structured reply cut at length is repaired once by default, and cut again it fails', async () => {
   unparsedReplyProfile('cutOffNoRetryProfile');
   let calls = 0;
   async function* mockComplete(): AsyncGenerator<TurnEvent> {
@@ -1006,10 +1008,17 @@ Deno.test('a structured reply cut at length with no retry left ends at length', 
       { complete: mockComplete },
     ),
   );
-  assertEquals(calls, 1);
-  assertEquals(eventsOf(events, 'attempt'), []);
+  assertEquals(calls, 2);
+  assertEquals(
+    eventsOf(events, 'attempt').map((e) => e.reason),
+    ['validation'],
+  );
   assertEquals(eventsOf(events, 'structured'), []);
-  assertEquals(lastOf(events, 'done')?.stop?.kind, 'length');
+  assertEquals(
+    eventsOf(events, 'error').map((e) => e.errorKind),
+    ['bad_response'],
+  );
+  assertEquals(lastOf(events, 'done')?.stop?.kind, 'provider_error');
 });
 Deno.test('runTurn validates nested required under present optional object', async () => {
   let mermaidCalls = 0;

@@ -1295,15 +1295,13 @@ On a turn that answers by tool:
 - The call ends the turn. Other calls in the same step do not run.
 - The step that `turnBehaviour.atStepLimit: 'answer'` leaves without tools still has the answer tool.
 - A turn that ends without the call is repaired while `outputs.validation.maxRetries` has a retry left. The repair's rejection is the label `structured.answer_missing`. With no retry left, the turn fails with a `bad_response` error and the stop `provider_error`.
+- A call the output limit cuts off is repaired as below. The repair carries the call's input as its drafts streamed it.
 - The tool's description is the label `structured.answer_tool`.
 - A profile with `outputs.structured` cannot offer a tool of its own named as `ANSWER_TOOL`. The turn throws a `config` error.
 
-On a turn that answers by response format, a reply that does not parse is repaired like any other reply that fails validation, while `outputs.validation.maxRetries` has a retry left. The repair carries the reply's text and says what went wrong:
+On every structured turn, a reply cut at `length` is repaired, with or without `outputs.validation`: once, or `outputs.validation.maxRetries` times when that is more. The repair carries what the model wrote, the rejection `structured.cut_off` and the guidance `repair.cut_off_guidance`. Cut off again with no repair left, the turn fails with a `bad_response` error and the stop `provider_error`.
 
-- A reply cut at `length` has the rejection `structured.cut_off`.
-- A reply that ended but is not valid JSON has the rejection `structured.not_json`.
-
-With no retry left, the turn ends as it would without validation: at `length` with no `structured` event, or with the `bad_response` error and the stop `provider_error`.
+On a turn that answers by response format, a reply that ended but is not valid JSON is repaired like any other reply that fails validation, while `outputs.validation.maxRetries` has a retry left. The repair carries the reply's text and the rejection `structured.not_json`. With no retry left, the turn ends with the `bad_response` error and the stop `provider_error`.
 
 Top-level modality pins (after `model`, not under `outputs`):
 

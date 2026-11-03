@@ -23,7 +23,7 @@ const IPV6_FORMS = [
   `:(?::${HEX_GROUP}){1,7}`,
 ];
 const IPV6 = new RegExp(`(?<![\\w:.])(?:${IPV6_FORMS.join('|')})(?![\\w:])`, 'gi');
-/** Credentials gitleaks' rules miss: keys cut short or spaced out, a short private key, and a bare bearer token. */
+/** Credentials gitleaks' rules miss: keys cut short or spaced out, a short private key, a bare bearer token, and vendor formats gitleaks has no rule for. */
 const OWN_CREDENTIAL_RULES: readonly CredentialRule[] = [
   {
     id: 'openai-api-key-any',
@@ -67,6 +67,42 @@ const OWN_CREDENTIAL_RULES: readonly CredentialRule[] = [
     pattern: /\bBearer[ \t]+([A-Za-z0-9._~+/-]{16,}=*)/i,
     entropy: 3,
     keywords: ['bearer'],
+    allowlists: [],
+  },
+  {
+    id: 'apify-api-token',
+    pattern: /\bapify_api_[A-Za-z0-9]{36}\b/,
+    keywords: ['apify_api_'],
+    allowlists: [],
+  },
+  {
+    id: 'fleetbase-api-key',
+    pattern: /\bflb_live_[A-Za-z0-9]{20}\b/,
+    keywords: ['flb_live_'],
+    allowlists: [],
+  },
+  {
+    id: 'nightfall-api-key',
+    pattern: /\bNF-[A-Za-z0-9]{32}\b/,
+    keywords: ['nf-'],
+    allowlists: [],
+  },
+  {
+    id: 'teamwork-api-token',
+    pattern: /\btkn\.v1_[A-Za-z0-9]{71}=/,
+    keywords: ['tkn.v1_'],
+    allowlists: [],
+  },
+  {
+    id: 'ubidots-api-token',
+    pattern: /\bBBFF-[A-Za-z0-9]{30}\b/,
+    keywords: ['bbff-'],
+    allowlists: [],
+  },
+  {
+    id: 'zapier-webhook-url',
+    pattern: /https:\/\/hooks\.zapier\.com\/hooks\/catch\/\d+\/[A-Za-z0-9]+\/?/,
+    keywords: ['hooks.zapier.com'],
     allowlists: [],
   },
 ];

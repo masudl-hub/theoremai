@@ -146,6 +146,98 @@ function allowed(
   return answer;
 }
 
+/** One state of the keyword automaton. */
+interface KeywordNode {
+  /** The trie's own edges, by code unit. */
+  goto: Map<number, KeywordNode>;
+  /** Every edge, the fail links' folded in: where each code unit leads. */
+  next: Map<number, KeywordNode>;
+  fail: KeywordNode | undefined;
+  /** The keywords that end here, the fail links' too. */
+  ends: string[];
+}
+
+function keywordNode(): KeywordNode {
+  return { goto: new Map(), next: new Map(), fail: undefined, ends: [] };
+}
+
+/** Every keyword of a rule set, read in one pass: an Aho-Corasick automaton over code units. */
+interface KeywordAutomaton {
+  words: number;
+  root: KeywordNode;
+}
+
+const AUTOMATA = new WeakMap<readonly CredentialRule[], KeywordAutomaton>();
+
+function keywordTrie(words: readonly string[]): KeywordNode {
+  const root = keywordNode();
+  for (const word of words) {
+    let node = root;
+    for (let i = 0; i < word.length; i += 1) {
+      const code = word.charCodeAt(i);
+      const child = node.goto.get(code) ?? keywordNode();
+      node.goto.set(code, child);
+      node = child;
+    }
+    node.ends.push(word);
+  }
+  return root;
+}
+
+/** Links each node of `root`'s trie to its longest proper suffix, breadth first, and folds that in. */
+function linkTrie(root: KeywordNode): void {
+  const queue: KeywordNode[] = [root];
+  for (let head = 0; head < queue.length; head += 1) {
+    const node = queue[head] ?? root;
+    const back = node.fail;
+    if (back) {
+      node.ends.push(...back.ends);
+      for (const [code, target] of back.next) node.next.set(code, target);
+    }
+    for (const [code, child] of node.goto) {
+      node.next.set(code, child);
+      child.fail = back?.next.get(code) ?? root;
+      queue.push(child);
+    }
+  }
+}
+
+function keywordAutomaton(rules: readonly CredentialRule[]): KeywordAutomaton {
+  const cached = AUTOMATA.get(rules);
+  if (cached) return cached;
+  const words = [...new Set(rules.flatMap((rule) => rule.keywords))];
+  const root = keywordTrie(words);
+  linkTrie(root);
+  const automaton = { words: words.length, root };
+  AUTOMATA.set(rules, automaton);
+  return automaton;
+}
+
+/** Where each keyword of `rules` is first in `lower`, by keyword: what `indexOf` finds. */
+function firstKeywords(lower: string, rules: readonly CredentialRule[]): Map<string, number> {
+  const { words, root } = keywordAutomaton(rules);
+  const first = new Map<string, number>();
+  let node = root;
+  for (let i = 0; i < lower.length && first.size < words; i += 1) {
+    node = node.next.get(lower.charCodeAt(i)) ?? root;
+    for (const word of node.ends) {
+      if (!first.has(word)) first.set(word, i + 1 - word.length);
+    }
+  }
+  return first;
+}
+
+/** Whether one of `rule`'s keywords is first in the text by `end`, as `firstKeywords` found them. */
+function keywordsBy(rule: CredentialRule, first: Map<string, number>, end: number): boolean {
+  return (
+    rule.keywords.length === 0 ||
+    rule.keywords.some((word) => {
+      const at = first.get(word);
+      return at !== undefined && at + word.length <= end;
+    })
+  );
+}
+
 /** Whether one of `rule`'s keywords is in `lower`, the text in lower case, by `end`. */
 function keywordsIn(rule: CredentialRule, lower: string, end = lower.length): boolean {
   return (
@@ -158,6 +250,18 @@ function keywordsIn(rule: CredentialRule, lower: string, end = lower.length): bo
 }
 
 const FINDERS = new WeakMap<RegExp, RegExp>();
+
+const GLOBALS = new WeakMap<RegExp, RegExp>();
+
+/** `pattern` reading every match. */
+function everyMatch(pattern: RegExp): RegExp {
+  let found = GLOBALS.get(pattern);
+  if (!found) {
+    found = new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`);
+    GLOBALS.set(pattern, found);
+  }
+  return found;
+}
 
 /** `pattern` with its indices, read from the start of a string. */
 function finder(pattern: RegExp): RegExp {
@@ -218,13 +322,13 @@ function credentialSpans(
   global: CredentialAllowlist,
 ): RedactSpan[] {
   const lower = text.toLowerCase();
+  const first = firstKeywords(lower, rules);
   const scan = scanOf(text);
   const spans: RedactSpan[] = [];
   for (const rule of rules) {
-    if (!keywordsIn(rule, lower)) continue;
-    const pattern = new RegExp(rule.pattern.source, `${rule.pattern.flags}g`);
-    for (const match of text.matchAll(pattern)) {
-      if (match[0] === '' || !keywordsIn(rule, lower, match.index + match[0].length)) continue;
+    if (!keywordsBy(rule, first, lower.length)) continue;
+    for (const match of text.matchAll(everyMatch(rule.pattern))) {
+      if (match[0] === '' || !keywordsBy(rule, first, match.index + match[0].length)) continue;
       const secret = credentialSecret(rule, global, text, match[0], match.index, scan);
       if (secret) spans.push({ ...secret, kind: 'sensitive' });
     }

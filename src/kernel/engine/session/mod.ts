@@ -361,9 +361,9 @@ async function applyOutbound(
   const out = batch.action === 'emit' ? batch.events : [];
   if (turnPhase !== 'complete') return out;
 
-  // why: The response is whole only once its verdict is in: `turn_complete` follows what the
-  // verdict released, and a withheld response ends on its error.
-  const said = out.filter((event) => !isTurnComplete(event));
+  // why: The response is whole only once its verdict is in: `turn_complete` and `done` follow what
+  // the verdict released, and a withheld response ends on its error.
+  const said = out.filter((event) => !isTurnComplete(event) && event.type !== 'done');
   const finalized = await finalizeLiveOutboundTurn(gate);
   if (finalized.action === 'withhold') {
     onWithhold();
@@ -377,7 +377,7 @@ async function applyOutbound(
     ...said,
     ...(finalized.action === 'emit' ? finalized.events : []),
     ...out.filter(isTurnComplete),
-    { type: 'done', stop: { kind: 'completed' } },
+    ...out.filter((event) => event.type === 'done'),
   ];
 }
 

@@ -779,6 +779,70 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
   await drain;
   await session.close();
 });
+/** The events of a live session that receives `frames`, one after another. */
+async function liveFrames(frames: Record<string, unknown>[]) {
+  clearProfiles();
+  resetTools();
+  const profile = defineProfile({
+    type: 'live',
+    id: 'session_live_frames',
+    identity: { handle: 'live', system: 'hi' },
+    models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
+    live: { voice: 'Aoede', ingress: { text: true } },
+    tools: { allow: [] },
+  });
+  registerProfile(profile);
+  let mock: MockLiveWebSocket | null = null;
+  const session = await runSession(
+    { profile: profile.id },
+    {
+      vault: { main: 'test-key' },
+      openWebSocket: () => {
+        mock = new MockLiveWebSocket();
+        setTimeout(() => mock?.open(), 0);
+        return Promise.resolve(mock as unknown as WebSocket);
+      },
+    },
+  );
+  await new Promise((r) => setTimeout(r, 0));
+  const events: TurnEvent[] = [];
+  const drain = (async () => {
+    for await (const event of session.events()) events.push(event);
+  })();
+  await session.sendText('hello');
+  for (const frame of frames) {
+    (mock as unknown as MockLiveWebSocket).deliver(frame);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  await new Promise((r) => setTimeout(r, 20));
+  await session.close();
+  (mock as unknown as MockLiveWebSocket).close();
+  await drain.catch(() => undefined);
+  return events;
+}
+
+Deno.test('a live reply ends on one done, after the text its verdict released', async () => {
+  const events = await liveFrames([
+    { sessionResumptionUpdate: { newHandle: 'h', resumable: true } },
+    { serverContent: { outputTranscription: { text: 'spoken' } } },
+    { serverContent: { generationComplete: true } },
+    { serverContent: { turnComplete: true } },
+  ]);
+  const dones = events.filter((event) => event.type === 'done');
+  assertEquals(
+    dones.map((event) => event.stop.kind),
+    ['generation_complete', 'completed'],
+  );
+  assertEquals(typeof dones[1]?.providerState, 'object');
+  assertEquals(events.at(-1), dones[1]);
+  assertEquals(
+    events.findIndex(
+      (event) => event.type === 'session' && event.session.kind === 'turn_complete',
+    ) < events.indexOf(dones[1] as TurnEvent),
+    true,
+  );
+});
+
 /** A live session over a mock socket whose events are collected as they arrive. */
 async function openToolSession(
   allow: string[],

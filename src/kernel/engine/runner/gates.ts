@@ -636,6 +636,8 @@ function* handleMissingAnswer(
 ): Generator<TurnEvent, 'continue' | 'pass'> {
   if (latestStructured !== undefined || state.lastStop?.kind !== 'completed') return 'pass';
   if (!answersByTool(flow.currentGen)) return 'pass';
+  // why: A rewrite that gives no answer leaves the reply it was fixing; the validation gate removes the refused items.
+  if (flow.pendingItemFix) return 'pass';
   const validation = profileTurnOutputs(profile)?.validation;
   if (validation && flow.currentAttempt < (validation.maxRetries ?? 0)) {
     const rejection = labelText('structured.answer_missing', { tool: ANSWER_TOOL }, profile.labels);

@@ -3,9 +3,14 @@ import '../fixtures/test-host.ts';
 import { assertRejects } from '@std/assert';
 import { z } from 'zod';
 import { ANSWER_TOOL } from '../../src/kernel/answer-tool.ts';
-import { registerProfile, registerTool } from '../../src/kernel/default-scope.ts';
+import {
+  registerProfile,
+  registerStructured,
+  registerTool,
+} from '../../src/kernel/default-scope.ts';
 import { assertEquals } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
+import { keptReply } from '../../src/kernel/turn-events.ts';
 import type {
   ModelEvent,
   ModelRequest,
@@ -203,6 +208,60 @@ Deno.test('with a validation retry left, a missed answer is repaired', async () 
     [{ message: 'Dry' }],
   );
   assertEquals(of(events, 'error'), []);
+});
+
+Deno.test('a rewrite that never calls the answer tool removes the refused items and keeps the reply', async () => {
+  registerStructured('claimedTurn', {
+    jsonSchema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string' },
+        claims: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['message'],
+    },
+  });
+  const cited = (item: unknown) =>
+    typeof item === 'object' && item !== null && 'source' in item
+      ? { isValid: true as const }
+      : { isValid: false as const, error: 'a claim needs a source' };
+  const profile = 'answer_fix_missed';
+  registerProfile(
+    defineProfile({
+      type: 'text',
+      identity: { handle: 'test', system: 'test' },
+      id: profile,
+      ...geminiModels('gemini35FlashLite'),
+      maxSteps: 3,
+      tools: { allow: ['fetch_sensor'] },
+      inputs: { text: true },
+      outputs: {
+        structured: 'claimedTurn',
+        validation: { maxRetries: 1, items: { claims: { check: cited, onFail: 'fix' } } },
+      },
+      guardrails: { quota: { perDay: 100 } },
+    }),
+  );
+  const { model } = scripted([
+    answered({ message: 'Dry', claims: [{ claim: 'bare' }, { claim: 'cited', source: 'a' }] }),
+    [
+      { type: 'text', text: 'The claim stands because of the soil.' },
+      { type: 'done', stop: { kind: 'completed' } },
+    ],
+  ]);
+  const events = await collect(profile, model);
+  assertEquals(of(events, 'error').length, 0);
+  assertEquals(of(events, 'done').at(-1)?.stop?.kind, 'completed');
+  const structured = of(keptReply(events), 'structured');
+  assertEquals(structured.length, 1);
+  assertEquals(structured[0]?.structured, {
+    message: 'Dry',
+    claims: [{ claim: 'cited', source: 'a' }],
+  });
+  assertEquals(
+    structured[0]?.removed?.map(({ reason }) => reason),
+    ['a claim needs a source'],
+  );
 });
 
 Deno.test('a structured turn without tools keeps its response format', async () => {

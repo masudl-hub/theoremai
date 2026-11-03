@@ -48,7 +48,7 @@ export interface LiveOutboundGateSession {
 
 /** What the gate does with a batch of a live model's events: `emit` what is released, `withhold` with an error, or stay `idle` when nothing is released yet. */
 export type LiveOutboundBatchResult =
-  | { action: 'emit'; events: TurnEvent[] }
+  | { action: 'emit'; events: TurnEvent[]; refused?: true }
   | { action: 'withhold'; error: TheoremError; events?: TurnEvent[] }
   | { action: 'idle' };
 
@@ -358,7 +358,7 @@ function finalEgressVerdict(
     // why: Live never rewrites: audio already spoken cannot be taken back for another try.
     if (blockedReply.onBlock === 'refuse') {
       const text = refusalAfter(shown, session.context.labels);
-      return { action: 'emit', events: [...events, { type: 'text', text }] };
+      return { action: 'emit', events: [...events, { type: 'text', text }], refused: true };
     }
     return {
       action: 'withhold',

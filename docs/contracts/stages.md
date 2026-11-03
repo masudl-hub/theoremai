@@ -359,7 +359,7 @@ OpenRouter, AI SDK, Gemini Live tool responses.
 | Tools done incl. awaiting; host UI may still be open | yes | yes (`completed` / …) | yes |
 | `stop.kind: 'gate'` | no | yes (`gate`) | yes — observe suspension |
 | Live interrupt ending cycle | yes | yes (`interrupted`) | yes |
-| Live reply withheld | yes | yes (`filtered`) | yes |
+| Live reply withheld or refused | yes | yes (`filtered`) | yes |
 | Deny mid-batch | no (not ending) | no | no — batch continues |
 | Cancelled (abort affordance) | if ending | yes (`cancelled`) | yes |
 
@@ -447,7 +447,7 @@ Same names. Cycle state `idle` | `open` on the session.
 | `before_end` | Cycle boundary (`interactionStatus: IDLE`, else `turnComplete`) or interrupt that will emit cycle-ending `done`; after batch known; after the reply's final verdict; before yield `done` | `events()` outbound path |
 | `post_turn` | After that `done`; cycle → `idle` | Same |
 
-`generation_complete` is not a cycle boundary: the `done` goes to the host and the cycle stays open until the verdict on the reply. A reply the verdict withholds ends the cycle with `stop: { kind: 'filtered', native: 'egress' }`.
+`generation_complete` is not a cycle boundary: the `done` goes to the host and the cycle stays open until the verdict on the reply. A reply the verdict withholds or refuses ends the cycle with `stop: { kind: 'filtered', native: 'egress' }`. A bare `interactionStatus: IDLE` after the reply's `turnComplete` ends nothing new: it sends no `done`.
 
 `sendContext` is not an ingress for this table: it opens no cycle, runs no `pre_turn`, and adds nothing to `StageContext.history`.
 

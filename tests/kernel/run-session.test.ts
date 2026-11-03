@@ -784,7 +784,7 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
 /** The events of a live session that receives `frames`, one after another. */
 async function liveFrames(
   frames: Record<string, unknown>[],
-  guarded?: { system: ProfileSystem; detect: DetectSpec },
+  guarded?: { system?: ProfileSystem; detect: DetectSpec; onBlock?: 'refuse' },
 ) {
   clearProfiles();
   resetTools();
@@ -795,7 +795,14 @@ async function liveFrames(
     models: { gemini31FlashLive: { ...HOST_BINDINGS.gemini31FlashLive, keySlot: 'main' } },
     live: { voice: 'Aoede', ingress: { text: true } },
     tools: { allow: [] },
-    ...(guarded ? { guardrails: { detect: guarded.detect } } : {}),
+    ...(guarded
+      ? {
+          guardrails: {
+            detect: guarded.detect,
+            ...(guarded.onBlock ? { blockedReply: { onBlock: guarded.onBlock } } : {}),
+          },
+        }
+      : {}),
   });
   registerProfile(profile);
   let mock: MockLiveWebSocket | null = null;
@@ -899,6 +906,71 @@ Deno.test('a withheld live reply ends filtered, and post_turn says so', async ()
   );
   assertEquals(stopsOf(events).includes('completed'), false);
   assertEquals(ends, ['filtered']);
+});
+
+Deno.test('a refused live reply ends filtered, as a text turn does', async () => {
+  const { events, ends } = await liveFrames(
+    [
+      SPOKEN,
+      { sessionResumptionUpdate: { newHandle: 'h', resumable: true } },
+      { serverContent: { generationComplete: true, turnComplete: true } },
+    ],
+    {
+      detect: {
+        'test.own': {
+          label: 'Test',
+          at: { live_reply: 'block' },
+          find: (text) => (text ? [{ start: 0, end: text.length }] : []),
+        },
+      },
+      onBlock: 'refuse',
+    },
+  );
+  assertEquals(stopsOf(events), ['generation_complete', 'filtered']);
+  assertEquals(ends, ['filtered']);
+  const ending = events.findLast((event) => event.type === 'done');
+  assertEquals(typeof ending?.providerState, 'object');
+  assertEquals(
+    events.some((event) => event.type === 'error'),
+    false,
+  );
+});
+
+Deno.test('an IDLE frame of its own after turnComplete ends nothing new', async () => {
+  const { events, ends } = await liveFrames([
+    SPOKEN,
+    { serverContent: { generationComplete: true } },
+    { serverContent: { turnComplete: true } },
+    HANDLE_FRAME,
+    { serverContent: { interactionStatus: 'IDLE' } },
+  ]);
+  assertEquals(stopsOf(events), ['generation_complete', 'completed']);
+  assertEquals(ends, ['completed']);
+  assertEquals(
+    events.some((event) => event.type === 'session' && event.session.kind === 'idle'),
+    true,
+  );
+});
+
+Deno.test('IDLE still ends a reply whose turnComplete said IN_PROGRESS', async () => {
+  const { events } = await liveFrames([
+    SPOKEN,
+    { serverContent: { generationComplete: true } },
+    { serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' } },
+    { serverContent: { interactionStatus: 'IDLE' } },
+  ]);
+  assertEquals(stopsOf(events), ['generation_complete', 'completed']);
+});
+
+Deno.test('a reply after a separate IDLE ends on its own turnComplete', async () => {
+  const { events } = await liveFrames([
+    SPOKEN,
+    { serverContent: { turnComplete: true } },
+    { serverContent: { interactionStatus: 'IDLE' } },
+    SPOKEN,
+    { serverContent: { turnComplete: true } },
+  ]);
+  assertEquals(stopsOf(events), ['completed', 'completed']);
 });
 
 Deno.test('a live reply ends on one done, after the text its verdict released', async () => {

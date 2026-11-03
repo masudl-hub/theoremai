@@ -24,7 +24,7 @@ import {
   liveFrameInput,
   newLiveFold,
 } from '../google/live/framing.ts';
-import { closeError, goAwayIn, turnPhaseFromMessage } from '../google/live/stream.ts';
+import { closeError, goAwayIn, isBareIdle, turnPhaseFromMessage } from '../google/live/stream.ts';
 import { asProtocolEvent } from '../shared/protocol-events.ts';
 import type { LiveTurnPhase } from '../types.ts';
 
@@ -131,6 +131,8 @@ function session(
   const send = (frame: Record<string, unknown>) => sendFrame(socket, frame);
   const fold = newLiveFold();
   let handle = resumedFrom;
+  /** The last reply's end was read, and no server content has come since. */
+  let ended = false;
   let goAway: { timeLeftMs?: number; atMs: number } | undefined;
   let closed: ReturnType<NonNullable<ProtocolSession['closeInfo']>>;
   return {
@@ -168,7 +170,11 @@ function session(
         for (const event of events)
           if (event.type === 'evidence' && event.sessionResumptionHandle)
             handle = event.sessionResumptionHandle;
-        yield* batch(events, turnPhaseFromMessage(frame, events), handle);
+        const phase = turnPhaseFromMessage(frame, events);
+        // why: IDLE may come in a frame of its own after `turnComplete`; that reply already ended.
+        yield* batch(events, ended && isBareIdle(frame) ? 'streaming' : phase, handle);
+        if (phase === 'complete') ended = true;
+        else if (frame.serverContent) ended = false;
       }
     },
     sendText: (text) => settled(() => send(buildGeminiLiveRealtimeInput({ type: 'text', text }))),

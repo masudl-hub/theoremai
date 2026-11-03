@@ -378,7 +378,27 @@ async function applyOutbound(
     ...said,
     ...(finalized.action === 'emit' ? finalized.events : []),
     ...out.filter(isTurnComplete),
-    ...out.filter((event) => event.type === 'done'),
+    ...(finalized.action === 'emit' && finalized.refused ? refusedDones(out) : doneEvents(out)),
+  ];
+}
+
+function doneEvents(events: TurnEvent[]): TurnEvent[] {
+  return events.filter((event) => event.type === 'done');
+}
+
+/** A refused reply ends `filtered`, as a text turn does; `generation_complete` stays news. */
+function refusedDones(events: TurnEvent[]): TurnEvent[] {
+  const dones = doneEvents(events);
+  const ending = dones.find((event) => !isGenerationDone(event));
+  return [
+    ...dones.filter(isGenerationDone),
+    {
+      ...(ending?.type === 'done' && ending.providerState
+        ? { providerState: ending.providerState }
+        : {}),
+      type: 'done',
+      stop: EGRESS_FILTERED_STOP,
+    },
   ];
 }
 

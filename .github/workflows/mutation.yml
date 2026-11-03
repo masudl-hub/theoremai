@@ -1,7 +1,8 @@
 name: Mutation
 
-# Stryker's command runner reruns the Deno suite once per mutant (~1s each), so the
-# guardrails config (~4.6k mutants) would take well over an hour in one job.
+# Stryker's command runner reruns a Deno test command once per mutant and stops at the
+# first failure, so the guardrails config (~4.6k mutants) still needs several jobs.
+# Two mutants at a time with two Deno jobs each fill the runner's four cores.
 # Mutate locally before pushing. A merge to main mutates only the changed files
 # each config covers; the weekly (or on-demand) sweep shards the full run across
 # parallel jobs. Every stryker.<name>.config.json except the legacy stryker.config.json
@@ -40,7 +41,10 @@ jobs:
           - config: guardrails
             # Mirrors the mutate globs in stryker.guardrails.config.json.
             files: '^src/guardrails/.*\.ts$'
-            exclude: '^src/guardrails/(corpus/|testing\.ts$|mod\.ts$)'
+            exclude: '^src/guardrails/(corpus/|eval/|testing\.ts$|mod\.ts$)'
+          - config: guardrails-eval
+            files: '^src/guardrails/eval/.*\.ts$'
+            exclude: '^$'
           - config: tools
             files: '^(src/kernel/tools/(execute|resolve)\.ts|src/providers/google/interactions/stream\.ts)$'
             exclude: '^$'
@@ -130,9 +134,10 @@ jobs:
         if: steps.scope.outputs.mutate != ''
         env:
           MUTATE: ${{ steps.scope.outputs.mutate }}
+          DENO_JOBS: 2
         run: |
           npx stryker run stryker.${{ matrix.config }}.config.json \
-            --mutate "$MUTATE" --concurrency 4 --force \
+            --mutate "$MUTATE" --concurrency 2 --force \
             --reporters clear-text,progress,html
 
       - name: Upload report
@@ -153,8 +158,8 @@ jobs:
       matrix:
         include:
           - shard: guardrails-eval
-            config: guardrails
-            mutate: 'src/guardrails/eval/**/*.ts'
+            config: guardrails-eval
+            mutate: ''
           - shard: guardrails-inbound
             config: guardrails
             mutate: 'src/guardrails/injection.ts,src/guardrails/tool-result.ts,src/guardrails/types.ts,src/guardrails/tool-directives.ts,src/guardrails/normalize.ts'
@@ -164,7 +169,7 @@ jobs:
           # Everything else the config covers, so new guardrails files land here.
           - shard: guardrails-rest
             config: guardrails
-            mutate: 'src/guardrails/**/*.ts,!src/guardrails/corpus/**,!src/guardrails/testing.ts,!src/guardrails/mod.ts,!src/guardrails/eval/**,!src/guardrails/injection.ts,!src/guardrails/tool-result.ts,!src/guardrails/types.ts,!src/guardrails/tool-directives.ts,!src/guardrails/normalize.ts,!src/guardrails/live-outbound-gate.ts,!src/guardrails/sanitize.ts,!src/guardrails/network.ts,!src/guardrails/error.ts,!src/guardrails/progressive-yield.ts'
+            mutate: 'src/guardrails/**/*.ts,!src/guardrails/corpus/**,!src/guardrails/eval/**,!src/guardrails/testing.ts,!src/guardrails/mod.ts,!src/guardrails/injection.ts,!src/guardrails/tool-result.ts,!src/guardrails/types.ts,!src/guardrails/tool-directives.ts,!src/guardrails/normalize.ts,!src/guardrails/live-outbound-gate.ts,!src/guardrails/sanitize.ts,!src/guardrails/network.ts,!src/guardrails/error.ts,!src/guardrails/progressive-yield.ts'
           - shard: tools
             config: tools
             mutate: ''
@@ -235,9 +240,10 @@ jobs:
       - name: Stryker (${{ matrix.shard }})
         env:
           MUTATE: ${{ matrix.mutate }}
+          DENO_JOBS: 2
         run: |
           npx stryker run stryker.${{ matrix.config }}.config.json \
-            ${MUTATE:+--mutate "$MUTATE"} --concurrency 4 --force \
+            ${MUTATE:+--mutate "$MUTATE"} --concurrency 2 --force \
             --reporters clear-text,progress,html
 
       - name: Upload report

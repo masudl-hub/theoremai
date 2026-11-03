@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-core.schema.json",
   "testRunner": "command",
   "commandRunner": {
-    "command": "deno test --allow-read --allow-write --allow-net --allow-sys --allow-env tests/"
+    "command": "deno test --parallel --fail-fast --allow-read --allow-write --allow-net --allow-sys --allow-env tests/"
   },
   "mutate": ["src/providers/**/*.ts", "!src/providers/mod.ts"],
   "ignorePatterns": [

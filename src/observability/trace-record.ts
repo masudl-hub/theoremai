@@ -3,7 +3,7 @@
 
 import { type StoredSides, storedHostSpans, storedSpans } from '../guardrails/detect-at.ts';
 import type { Detector, ResolvedDetect } from '../guardrails/detectors.ts';
-import { SENSITIVE_GROUPS } from '../guardrails/sensitive-groups.ts';
+import { SCRUBBED_GROUPS } from '../guardrails/sensitive-groups.ts';
 import { sha256, sha256Base64 } from '../kernel/engine/hash.ts';
 import { removeCanaries, tapeUpstream } from '../providers/shared/upstream-tape.ts';
 import { applySpans } from './spans.ts';
@@ -53,7 +53,7 @@ function sideOn(on: ResolvedScrubSwitch, side: keyof Exclude<StoredSides, true>)
 function scrubStoredText(text: string, { scrub, detect }: Resolver): string {
   const { sensitive, injection } = scrub;
   return applySpans(text, [
-    ...(sensitive ? storedSpans(text, SENSITIVE_GROUPS, sensitive, detect) : []),
+    ...(sensitive ? storedSpans(text, SCRUBBED_GROUPS, sensitive, detect) : []),
     ...(sideOn(sensitive, 'host') ? storedHostSpans(text, detect) : []),
     ...(injection ? storedSpans(text, INSTRUCTION_DETECTORS, injection, detect) : []),
   ]);

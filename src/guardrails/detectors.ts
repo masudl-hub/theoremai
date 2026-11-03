@@ -21,10 +21,10 @@ import {
   matchersOf,
   patternsProblem,
 } from './host-patterns.ts';
-import { SENSITIVE_GROUPS } from './sensitive-groups.ts';
+import { SENSITIVE_GROUPS, WORKING_GROUPS } from './sensitive-groups.ts';
 
 /**
- * What the kernel finds in text: the four families of sensitive data, prompt-injection phrasing,
+ * What the kernel finds in text: the families of sensitive data, prompt-injection phrasing,
  * a tool's text that instructs the agent, and what is the profile's own on its way out (the canary token, the system instruction, the
  * kernel's markers, an image or link to an address the model was not given, and the names of its
  * tools).
@@ -42,6 +42,11 @@ const DETECTORS = [
 ] as const;
 /** A detector recognizes a particular kind of content in text. Its configured action determines what happens when it finds a match. */
 type Detector = (typeof DETECTORS)[number];
+
+/** The detectors a text is cleaned with when no profile says how: every one but the working groups (`WORKING_GROUPS`). */
+const UNPROFILED_DETECTORS: readonly Detector[] = DETECTORS.filter(
+  (detector) => !(WORKING_GROUPS as readonly string[]).includes(detector),
+);
 
 /**
  * What the kernel does with a match, the same at every boundary:
@@ -328,6 +333,27 @@ const DETECTOR_META: Readonly<Record<Detector, DetectorDeclaration>> = {
       reply: 'flag',
       reply_structured: 'flag',
     },
+    patterns: true,
+  },
+  email: {
+    label: 'Email',
+    doc: 'Email addresses.',
+    group: 'data',
+    defaults: everywhere('flag'),
+    patterns: true,
+  },
+  phone: {
+    label: 'Phone',
+    doc: 'Phone numbers: international, North American, and national, or any number after a phone label.',
+    group: 'data',
+    defaults: everywhere('flag'),
+    patterns: true,
+  },
+  bank_account: {
+    label: 'Bank account',
+    doc: 'Account, routing, and sort-code numbers after a label that names them. IBANs are `financial`.',
+    group: 'data',
+    defaults: everywhere('flag'),
     patterns: true,
   },
   injection: {
@@ -799,4 +825,5 @@ export {
   PATTERN_DETECTORS,
   resolveAllow,
   resolveDetect,
+  UNPROFILED_DETECTORS,
 };

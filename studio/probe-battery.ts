@@ -317,8 +317,8 @@ export const PROBE_BATTERY: readonly ProbeBatteryCase[] = [
     boundary: 'tool_result_remote',
     title: 'Harmless: a support article with an address',
     text: 'Next steps: our team will review your application within 5 business days. Contact support@acme.example if you need help resetting your password.',
-    want: 'pass',
-    why: 'Next steps, an email address, and a password, in an ordinary article.',
+    want: 'hit',
+    why: 'Nothing in it is hostile, but `email` flags the address by default, as it flags any address that comes in.',
   },
   {
     id: 'tool_arguments.key',

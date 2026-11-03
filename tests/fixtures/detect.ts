@@ -15,6 +15,7 @@ import {
   type DetectSpec,
   NO_ALLOW,
   resolveDetect,
+  UNPROFILED_DETECTORS,
 } from '../../src/guardrails/detectors.ts';
 import {
   createEgressStream,
@@ -37,7 +38,7 @@ await loadEgressAutomata();
 
 /** `text` with every detector's matches replaced by its placeholder. */
 export function redactAll(text: string): string {
-  return redactDetectors(text, DETECTORS);
+  return redactDetectors(text, UNPROFILED_DETECTORS);
 }
 
 /** `text` read as it crosses `boundary` under a `guardrails.detect` setting. */

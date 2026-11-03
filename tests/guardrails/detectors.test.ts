@@ -19,6 +19,7 @@ import {
   detectProblem,
 } from '../../src/guardrails/detectors.ts';
 import { resolveGuardrailPolicy } from '../../src/guardrails/policy.ts';
+import { WORKING_GROUPS } from '../../src/guardrails/sensitive-groups.ts';
 import type { ProfileGuardrailsSpec } from '../../src/guardrails/types.ts';
 import { assertEquals, assertThrows } from '../../src/kernel/engine/assert.ts';
 import { defineProfile } from '../../src/kernel/registry/profiles.ts';
@@ -146,6 +147,15 @@ Deno.test('what comes in is flagged by default, and nothing the model writes is 
   for (const detector of DETECTORS.filter((d) => !others.includes(d))) {
     assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     assertEquals(where(undefined, detector, 'ignore').includes('thought'), true);
+    for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'flag');
+  }
+});
+
+Deno.test('an email, phone, or account number is flagged where it comes in, and never taken out by default', () => {
+  for (const detector of WORKING_GROUPS) {
+    assertEquals(where(undefined, detector, 'block'), []);
+    assertEquals(where(undefined, detector, 'redact'), []);
+    assertEquals(where(undefined, detector, 'ignore').includes('reply'), true);
     for (const boundary of INBOUND) assertEquals(DETECT_DEFAULTS[detector][boundary], 'flag');
   }
 });

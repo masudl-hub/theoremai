@@ -782,8 +782,11 @@ Deno.test('runSession StageContext.history seeds from SessionRequest.history', a
   await session.close();
 });
 /** The events of a live session that receives `frames`, one after another. */
+/** In `liveFrames`: the user sends text between server frames. */
+const USER_SPEAKS = 'user speaks';
+
 async function liveFrames(
-  frames: Record<string, unknown>[],
+  frames: (Record<string, unknown> | typeof USER_SPEAKS)[],
   guarded?: { system?: ProfileSystem; detect: DetectSpec; onBlock?: 'refuse' },
 ) {
   clearProfiles();
@@ -837,7 +840,8 @@ async function liveFrames(
   })();
   await session.sendText('hello');
   for (const frame of frames) {
-    (mock as unknown as MockLiveWebSocket).deliver(frame);
+    if (frame === USER_SPEAKS) await session.sendText('again');
+    else (mock as unknown as MockLiveWebSocket).deliver(frame);
     await new Promise((r) => setTimeout(r, 5));
   }
   await new Promise((r) => setTimeout(r, 20));
@@ -881,7 +885,7 @@ Deno.test('a reply cut off before it finished stays interrupted and keeps its ch
   assertEquals(events.filter((event) => event.type === 'provider_checkpoint').length > 0, true);
 });
 
-Deno.test('a reply that finished generating before the interrupt still completes', async () => {
+Deno.test('unconfirmed on real traffic: a reply that finished generating before the interrupt still completes', async () => {
   const { events } = await liveFrames([
     SPOKEN,
     { serverContent: { generationComplete: true } },
@@ -906,6 +910,39 @@ Deno.test('a withheld live reply ends filtered, and post_turn says so', async ()
   );
   assertEquals(stopsOf(events).includes('completed'), false);
   assertEquals(ends, ['filtered']);
+});
+
+Deno.test('unconfirmed on real traffic: an interrupt after turnComplete sends a second done', async () => {
+  const { events, ends } = await liveFrames([
+    SPOKEN,
+    { serverContent: { turnComplete: true } },
+    { serverContent: { interrupted: true } },
+  ]);
+  assertEquals(stopsOf(events), ['completed', 'interrupted']);
+  assertEquals(ends, ['completed']);
+});
+
+Deno.test('unconfirmed on real traffic: an interrupt after turnComplete closes the next open cycle', async () => {
+  const { events, ends } = await liveFrames([
+    SPOKEN,
+    { serverContent: { turnComplete: true } },
+    USER_SPEAKS,
+    { serverContent: { interrupted: true } },
+  ]);
+  assertEquals(stopsOf(events), ['completed', 'interrupted']);
+  assertEquals(ends, ['completed', 'interrupted']);
+});
+
+Deno.test('unconfirmed on real traffic: a reply with no generationComplete after an interrupt sends no completed', async () => {
+  const { events, ends } = await liveFrames([
+    SPOKEN,
+    { serverContent: { interrupted: true } },
+    { serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' } },
+    SPOKEN,
+    { serverContent: { turnComplete: true, interactionStatus: 'IDLE' } },
+  ]);
+  assertEquals(stopsOf(events), ['interrupted']);
+  assertEquals(ends, ['interrupted']);
 });
 
 Deno.test('a refused live reply ends filtered, as a text turn does', async () => {

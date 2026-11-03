@@ -1052,6 +1052,12 @@ export interface AgentRunRequest extends RunControls, ModelChoice {
    * resolves to a private address is refused (see `fetchGuarded`).
    */
   resolveHost?: ResolveHost;
+  /**
+   * Sends each request a remote tool makes (HTTP, MCP, a signed-in fetch, an image read), once
+   * that request's network checks pass. A page whose tools cannot reach a host directly sends them
+   * through its own server here. Default: the global `fetch`.
+   */
+  fetch?: typeof fetch;
   /** Text `runTurn` and `runSession` emit stages and apply the returned affordances. A session's is set once. */
   onStage?: StageHandler;
   /**

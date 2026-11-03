@@ -176,6 +176,18 @@ Deno.test('a server that requires a session gets one, and later calls reuse it',
   assert(!events.includes('sess-1'), 'the session ID never reaches events');
   assert(!events.includes('SECRET-INSTRUCTIONS'), "the server's instructions are never read");
 });
+Deno.test("the run's fetch sends every MCP request, the session's included", async () => {
+  const server = sessionServer({});
+  const unused: typeof fetch = () => Promise.reject(new Error('the global fetch was used'));
+  const { settlement } = await withFetch(unused, () =>
+    call(scopeWithTool(), { fetch: server.fetch }),
+  );
+  assertEquals(settlement.outputRaw, { answer: 'ok' });
+  assertEquals(
+    server.seen.map((s) => s.method),
+    ['tools/call', 'initialize', 'notifications/initialized', 'tools/call'],
+  );
+});
 Deno.test('an expired session is reopened once, and a server that keeps expiring it fails', async () => {
   const scope = scopeWithTool();
   const server = sessionServer({

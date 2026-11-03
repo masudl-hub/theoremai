@@ -167,6 +167,11 @@ export const REQUEST_FIELDS: Record<
     type: 'ResolveHost',
     doc: 'Resolves the host name of a remote tool before each request; a name that resolves to a private address is refused.',
   },
+  'runTurn.fetch': {
+    type: 'typeof fetch',
+    doc: "Sends each request a remote tool makes, once that request's network checks pass. A page whose tools cannot reach a host directly sends them through its own server here.",
+    unset: 'The global fetch',
+  },
   'runTurn.onStage': {
     type: 'StageHandler',
     doc: 'Your function that sees each stage of a text turn and can answer with what the stage allows.',

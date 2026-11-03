@@ -111,6 +111,7 @@ function withBrowserExecution(runtime: StudioBrowserRuntime, run: Engine) {
       decision: original.decision,
       signal: original.signal,
       resolveHost: original.resolveHost?.bind(original),
+      fetch: original.fetch,
       remoteTools: original.remoteTools,
       hostOptions: original.hostOptions?.bind(original),
       provider: original.provider?.bind(original),

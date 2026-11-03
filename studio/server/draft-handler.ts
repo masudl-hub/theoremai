@@ -39,6 +39,7 @@ import {
   theoremTurnRequestSchema,
 } from '@theoremjs/web/server';
 import { newConversationKey } from '../conversation-key.ts';
+import { FORWARD_ROUTE } from '../forwarded-fetch.ts';
 import type { LentKeys } from '../lent-keys.ts';
 import type { StructuredRegistration, ToolRegistration } from '../registrations.ts';
 import {
@@ -55,6 +56,7 @@ import { draftDecide } from './draft-decide.ts';
 import { draftEmbedding } from './draft-embedding.ts';
 import { draftProbe, type ProbeEntry } from './draft-probe.ts';
 import { errorJson, ndjsonEventStream } from './draft-replies.ts';
+import { forwardRequest } from './forward.ts';
 import { testConnection } from './test-connection.ts';
 import { testKey } from './test-key.ts';
 
@@ -411,6 +413,8 @@ export function createStudioDraftHandler(
         }),
       'test-connection': (asked) =>
         testConnection(asked, { resolveHost, draftNetwork: options.draftNetwork }),
+      [FORWARD_ROUTE]: (asked) =>
+        forwardRequest(asked, { resolveHost, draftNetwork: options.draftNetwork }),
       ...(lent ? lentRoutes(lent) : {}),
     };
     if (!Object.hasOwn(routes, route)) return Promise.resolve(notFound());

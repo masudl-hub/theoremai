@@ -141,6 +141,8 @@ export interface ToolContext {
   resume?: InvokeToolResume;
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
+  /** Sends this call's requests once their checks pass; the run's `fetch`. Default: the global `fetch`. */
+  fetch?: typeof fetch;
   /** Opaque application context from `TurnRequest.host` / `InvokeToolRequest.host`; the kernel never reads it. */
   host?: unknown;
   /** The page's answer to this call, for a tool with `answeredBy: 'page'`. */
@@ -536,6 +538,8 @@ export interface InvokeToolRequest extends RunControls {
   sessionPermissions?: string[];
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
+  /** Sends the call's requests once their checks pass. Default: the global `fetch`. */
+  fetch?: typeof fetch;
   path?: string;
   /** Handed to the tool as `ctx.host`; the kernel never reads it. */
   host?: unknown;

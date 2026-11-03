@@ -27,6 +27,7 @@ import {
   studioVault,
 } from '../browser-connection.ts';
 import type { StudioBrowserRuntime } from '../browser-transport.ts';
+import { forwardedFetch } from '../forwarded-fetch.ts';
 import {
   type LentKeys,
   type ModelRoute,
@@ -38,6 +39,7 @@ import {
 } from '../mod.ts';
 import { IconGemini, IconOpenRouter } from './brand-icons.tsx';
 import { InspectorSection } from './inspector.tsx';
+import { screenEndpoint } from './lib/project-address.ts';
 import { holdRuntime } from './lib/runtime-hold.ts';
 import type { StudioSupplies } from './studio-host.ts';
 
@@ -160,6 +162,7 @@ function useConnectionRuntime(
         mode,
         signal: controller.signal,
         remoteTools: hasLocal ? remoteTools : true,
+        fetch: forwardedFetch(screenEndpoint()),
         providers: { vault: slotted, ...(localConfig ? { local: localConfig } : {}) },
         decision: { vault: slotted },
         toolHandlers,

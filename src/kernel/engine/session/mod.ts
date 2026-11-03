@@ -573,6 +573,7 @@ function buildLiveSession(args: {
   host?: unknown;
   credentials?: ToolCredentialSource;
   resolveHost?: ResolveHost;
+  fetch?: typeof fetch;
   sessionPermissions?: string[];
   path?: string;
   snapshot: TurnToolSnapshot;
@@ -602,6 +603,7 @@ function buildLiveSession(args: {
     onStage,
     host: sessionHost,
     resolveHost,
+    fetch,
     path,
     snapshot,
     trace,
@@ -1040,6 +1042,7 @@ function buildLiveSession(args: {
         sessionPermissions,
         credentials: per.credentials ?? sessionCredentials,
         resolveHost,
+        fetch,
         path,
         signal,
         resume,
@@ -1627,6 +1630,7 @@ async function openTracedSession(
     host: req.host,
     credentials: req.credentials,
     resolveHost: req.resolveHost,
+    fetch: req.fetch,
     sessionPermissions: req.sessionPermissions,
     path: req.path,
     snapshot: gen0.tools,

@@ -48,6 +48,7 @@ import {
 import { differingSettings } from '../agreement.ts';
 import { compileWorkspace } from '../compile-workspace.ts';
 import { createBlankDraft, type StudioDraft, type ToolSpecDraft } from '../draft.ts';
+import { FORWARD_HEADERS, FORWARD_STATUS } from '../forwarded-fetch.ts';
 import { shownConnection, withoutCredentials } from '../held-credentials.ts';
 import { ON_OWN_KEYS } from '../lent-keys.ts';
 import {
@@ -559,6 +560,8 @@ export function corsHeaders(
     'access-control-allow-origin': request.headers.get('origin') ?? pageOrigins[0] ?? '',
     'access-control-allow-headers': `content-type, ${ACTING_AS_HEADER}`,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
+    // why: a tool request the page sends through this server reads its host's reply from these.
+    'access-control-expose-headers': `${FORWARD_STATUS}, ${FORWARD_HEADERS}`,
     vary: 'origin',
   };
 }

@@ -66,6 +66,8 @@ export interface StudioRuntimeBase {
   /** Answers every model call with a scripted model, in place of the profile's provider. */
   provider?: (profile: Profile, model?: string) => TurnModel;
   resolveHost?: ResolveHost;
+  /** Sends each tool request once the run's network checks pass; the run's `fetch`. */
+  fetch?: typeof fetch;
   remoteTools?: boolean;
   /** Handlers the host runs for function tools, by name. A tool with none answers with its stub. */
   toolHandlers?: StudioToolHandlers;

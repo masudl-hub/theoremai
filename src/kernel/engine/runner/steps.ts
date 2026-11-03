@@ -674,7 +674,7 @@ async function* handleModelCalls(
   profile: Profile,
   state: StepExecutionState,
   system: BoundSystem,
-  { onStage, signal, credentials, resolveHost }: Partial<TurnRequest> = {},
+  { onStage, signal, credentials, resolveHost, fetch }: Partial<TurnRequest> = {},
 ): AsyncGenerator<TurnEvent, boolean> {
   const { calls: upstreamCalls, reasoning } = outcome;
   if (upstreamCalls.length > 0) recordReply(state, stepReply(outcome), outcome.replyAt);
@@ -756,6 +756,7 @@ async function* handleModelCalls(
           turn,
           credentials,
           resolveHost,
+          fetch,
           host: generation.host,
           resume: undefined,
           signal,

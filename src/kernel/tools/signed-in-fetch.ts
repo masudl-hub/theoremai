@@ -52,6 +52,7 @@ export function signedInFetch(
         followRedirects: true,
         originBoundHeaders: prepared.authHeaders,
         resolveHost: ctx.resolveHost,
+        fetchFn: ctx.fetch,
         onCheck: checks.onCheck,
       },
     );

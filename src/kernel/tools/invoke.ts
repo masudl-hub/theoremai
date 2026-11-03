@@ -547,6 +547,7 @@ async function* invokePrepared(
       sessionPermissions: request.sessionPermissions,
       credentials: request.credentials,
       resolveHost: request.resolveHost,
+      fetch: request.fetch,
       path: request.path,
       signal: request.signal,
       resume: request.resume,

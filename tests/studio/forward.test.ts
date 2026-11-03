@@ -138,3 +138,39 @@ Deno.test("the page's abort reaches the host's request", async () => {
   );
   assert(hostAborted);
 });
+
+Deno.test('the forward route logs nothing of a request: not its headers, not its body', async () => {
+  const secret = 'sk-forward-secret-7Q';
+  const said: string[] = [];
+  const methods = ['log', 'info', 'warn', 'error', 'debug', 'trace'] as const;
+  const kept = methods.map((name) => console[name]);
+  for (const name of methods) {
+    console[name] = (...args: unknown[]) => {
+      said.push(
+        args
+          .map((arg) => (typeof arg === 'string' ? arg : Deno.inspect(arg, { depth: 8 })))
+          .join(' '),
+      );
+    };
+  }
+  try {
+    const send = (fails: boolean) =>
+      withNetwork(
+        createStudioDraftHandler(),
+        () => (fails ? Promise.reject(new Error('host down')) : new Response('ok')),
+        () =>
+          forwardedFetch(SERVER)('https://mcp.example.test/mcp', {
+            method: 'POST',
+            headers: { authorization: `Bearer ${secret}` },
+            body: JSON.stringify({ key: secret }),
+          }),
+      );
+    assertEquals(await (await send(false)).text(), 'ok');
+    await assertRejects(() => send(true));
+  } finally {
+    methods.forEach((name, at) => {
+      console[name] = kept[at] as (typeof console)[typeof name];
+    });
+  }
+  assert(!said.some((line) => line.includes(secret)), said.join('\n'));
+});

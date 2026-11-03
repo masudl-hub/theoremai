@@ -23,6 +23,10 @@ const DROPPED = new Set(['content-encoding', 'content-length', 'set-cookie', 'tr
  * `draftNetwork` is set: that server is the builder's alone, and the page has already held the
  * request to the draft's network rules. A name is checked against private addresses only through
  * `resolveHost`.
+ * invariant: a request's headers and body, the tool's credentials among them, pass through in
+ * memory only: this route never logs or stores them.
+ * The host's headers come back in one header, so a host whose headers outgrow the platform's
+ * header size limit (about 16KB on Cloudflare Workers) fails the request.
  */
 export async function forwardRequest(
   request: Request,

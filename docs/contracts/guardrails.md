@@ -663,7 +663,8 @@ box hint), which only `overrideLabels` changes. A failure more specific than its
 `errorCopy`, typed `ErrorCopies`), which wins over the kind's line. A failure
 that found several problems carries a list — one line per problem, joined by newlines (a refused
 turn's files: every reason, each naming its file). Tool-step wording may use
-`{tool}`.
+`{tool}`. A tool step whose request never reached its host reads `tool.unreachable`,
+not `error.network`, which names the model provider.
 
 Producers emit `toErrorEvent(err)` — a `ProducedError`, `{ type: 'error',
 errorKind, errorCopy?, errorInternal }` with the raw detail always set and no

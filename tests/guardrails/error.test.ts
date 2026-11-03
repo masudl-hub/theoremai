@@ -172,6 +172,28 @@ Deno.test('withPublicLabels words a failed tool step with its tool name', () => 
   assertEquals(failure(labels)?.message, 'blocked host');
 });
 
+Deno.test('withPublicLabels says a tool, not the model, could not be reached', () => {
+  const ev: TurnEvent = {
+    type: 'tool',
+    tool: {
+      name: 'web_search',
+      callId: 'c1',
+      at: 0,
+      phase: 'error',
+      failure: { code: 'network_error', kind: 'network', message: 'Failed to fetch' },
+    },
+  };
+  const failure = (labels?: LabelOverrides) =>
+    toolEventsOf([withPublicLabels(ev, labels)], 'error')[0]?.failure;
+  assertEquals(failure()?.error, "Sorry, a tool couldn't be reached. Please try again.");
+  const labels = { 'tool.unreachable': "Sorry, '{tool}' couldn't be reached." };
+  assertEquals(failure(labels)?.error, "Sorry, 'web_search' couldn't be reached.");
+  assertEquals(
+    failure({ 'error.network': 'Model copy.' })?.error,
+    labelDefault('tool.unreachable'),
+  );
+});
+
 Deno.test('withPublicLabels leaves other events untouched', () => {
   const ev = { type: 'text' as const, text: 'hi' };
   assertEquals(withPublicLabels(ev), ev);

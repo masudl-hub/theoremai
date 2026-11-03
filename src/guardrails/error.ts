@@ -173,7 +173,11 @@ function withPublicLabels(event: TurnEvent, labels?: LabelOverrides): TurnEvent 
     event.tool.failure.error === undefined
   ) {
     const { tool } = event;
-    const error = kindText(tool.failure.kind, labels, { tool: tool.name });
+    // why: a tool's network failure names the tool; error.network names the model provider.
+    const error =
+      tool.failure.kind === 'network'
+        ? labelText('tool.unreachable', { tool: tool.name }, labels)
+        : kindText(tool.failure.kind, labels, { tool: tool.name });
     return { ...event, tool: { ...tool, failure: { ...tool.failure, error } } };
   }
   return event;

@@ -186,6 +186,7 @@ export const LABEL_KEYS = [
   'tool.output_invalid_after_mutate',
   'tool.handler_no_output',
   'tool.did_not_run',
+  'tool.unreachable',
   'tool.page_no_answer',
   'tool.page_timed_out',
   'tool.output_invalid',
@@ -280,6 +281,7 @@ export const CLIENT_LABEL_KEYS = [
   'tool.awaiting_user',
   'tool.completed_hidden',
   'tool.execution_uncertain',
+  'tool.unreachable',
   'voice.unsupported',
   'voice.permission',
   'voice.unavailable',
@@ -587,6 +589,7 @@ const DEFAULTS: Record<LabelKey, LabelDefault> = {
     'This action has an unresolved execution. Check the destination before trying it again.',
   'tool.input_invalid': 'Tool input validation failed',
   'tool.did_not_run': "Tool '{tool}' did not run.",
+  'tool.unreachable': "Sorry, a tool couldn't be reached. Please try again.",
   'tool.input_invalid_after_mutate': 'Tool input validation failed after mutate',
   'tool.output_invalid_after_mutate': 'Tool output validation failed after mutate',
   'tool.handler_no_output': 'Handler returned no output',
@@ -758,7 +761,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'error.bad_response':
     'Shown to the user when the model provider answers with something that cannot be used. Takes {tool} when one step failed.',
   'error.network':
-    'Shown to the user when the request never reached the model provider. Takes {tool} when one step failed.',
+    'Shown to the user when the request never reached the model provider. A tool that could not be reached shows tool.unreachable.',
   'error.timeout':
     'Shown to the user when the model takes longer than the host allows. Takes {tool} when one step failed.',
   'error.safety':
@@ -928,6 +931,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'tool.input_invalid': "Told to the model when a tool call's input fails the tool's input schema.",
   'tool.did_not_run':
     'Given by runTool and runToolStep for a call that never settled when the invoke gave no error of its own. Takes {tool}.',
+  'tool.unreachable': 'Shown to the user when a tool call never reached its host. Takes {tool}.',
   'tool.input_invalid_after_mutate':
     "Told to the model when a tool call's input fails its schema after a guardrail changed it.",
   'tool.output_invalid_after_mutate':
@@ -1054,12 +1058,17 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'tool.not_allowed': ['tool', 'profile'],
   'tool.not_eligible': TOOL,
   'tool.did_not_run': TOOL,
+  'tool.unreachable': TOOL,
   'tool.unsupported_type': TOOL,
   'tool.agent_call_limit': TOOL,
   'tool.agent_failed': TOOL,
   'tool.activity_failed': TOOL,
+  // why: a tool that could not be reached is worded by tool.unreachable, so error.network never names one.
   ...Object.fromEntries(
-    LABEL_KEYS.filter((key) => key.startsWith('error.')).map((key) => [key, TOOL]),
+    LABEL_KEYS.filter((key) => key.startsWith('error.') && key !== 'error.network').map((key) => [
+      key,
+      TOOL,
+    ]),
   ),
 };
 

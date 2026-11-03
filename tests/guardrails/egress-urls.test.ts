@@ -431,9 +431,17 @@ Deno.test('reading a reply takes time in proportion to its length', () => {
       if (stream.push(text.slice(at, at + 64)).length > 0) break;
     return performance.now() - start;
   };
-  // The fastest of three: other work on the machine only ever adds time.
-  const fastest = (unit: string, n: number) =>
-    Math.min(...Array.from({ length: 3 }, () => read(unit, n)));
+  // why: A read is timed against four reads of an eighth of it, taken just before, so a burst of
+  // other work on the machine lands on both; the middle of five such ratios drops a burst that
+  // landed on one. Four short reads together are long enough for the clock, at five milliseconds.
+  const ratioOf = (unit: string) => {
+    const ratios = Array.from({ length: 5 }, () => {
+      let short = 0;
+      for (let i = 0; i < 4; i++) short += read(unit, 16_000);
+      return read(unit, 128_000) / (Math.max(short, 5) / 4);
+    });
+    return ratios.sort((a, b) => a - b)[2] as number;
+  };
   const units = [
     '[',
     '![',
@@ -455,11 +463,8 @@ Deno.test('reading a reply takes time in proportion to its length', () => {
     '<https:',
     'www.',
   ];
-  // The first long reads pay for compiling the scanners and growing the heap.
-  for (const unit of units) read(unit, 128_000);
   for (const unit of units) {
-    // Under five milliseconds the clock measures the machine, not the read.
-    const ratio = fastest(unit, 128_000) / Math.max(fastest(unit, 16_000), 5);
+    const ratio = ratioOf(unit);
     // Eight times the reply takes about eight times as long; a rescan at each step is sixty-four.
     assertEquals(
       [unit, ratio < 24 ? 'linear' : `128k/16k took ${ratio.toFixed(1)}x`],

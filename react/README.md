@@ -147,7 +147,7 @@ The profile, the keys, and the system prompt stay on the server. The browser rec
 | --- | --- |
 | `@theoremjs/react` | Hooks, transports, and client logic |
 | `@theoremjs/react/ui` | `TheoremChat`, `TheoremHost`, `TheoremDecision`, `TheoremEmbedding`, and their parts |
-| `@theoremjs/react/live` | `useLiveCall` and `LiveRunner`, the voice and video call and its UI |
+| `@theoremjs/react/live` | `useLiveCall`, `LiveRunner` and `LiveCallTile`, the voice and video call and its UI |
 | `@theoremjs/react/server` | `@theoremjs/web/server`: the handlers and the stores they use |
 | `@theoremjs/react/ui/theme` | `theoremTheme`, the base for your own Astryx theme |
 | `@theoremjs/react/ui/icons` | The icon set of the theme |
@@ -366,6 +366,16 @@ This code opens `wss://<your host>/api/live/relay?profile=<id>`. To send your ow
 The call lasts as long as the component that calls `useLiveCall`. Call it above your routes, and the call goes on while the person moves to another page. `LiveRunner` can unmount and mount again on the same call. The call ends when the component that holds it unmounts.
 
 Give `LiveRunner` an `onMinimize` to show a minimize control in the call. Theorem calls it and does not navigate: your code decides where to go, and the call goes on.
+
+`LiveCallTile` draws the same call small: the camera preview, or the ink waveform when the camera is off, then the call time, mute, end, and expand. It fills the box you give it, so your code places it and sizes it. A press on the tile or its expand control calls `onExpand`.
+
+```tsx
+import { LiveCallTile } from '@theoremjs/react/live';
+
+<LiveCallTile call={call} onExpand={() => navigate('/call')} />
+```
+
+Show `LiveRunner` or `LiveCallTile` for a call, not both: the camera preview is one element, and it shows in the one that mounted last.
 
 ### The page's part in a call
 

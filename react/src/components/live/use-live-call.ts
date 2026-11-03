@@ -28,6 +28,8 @@ function useLiveCallLifecycle(
 ) {
   const [callStarted, setCallStarted] = useState(false);
   const [ended, setEnded] = useState(false);
+  /** When this call first connected; a reconnect keeps it, a new call clears it. */
+  const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const videoOnConnectRef = useRef(false);
 
   const startCall = useCallback(
@@ -40,6 +42,10 @@ function useLiveCallLifecycle(
     [controls, videoAvailable],
   );
 
+  useEffect(() => {
+    if (sessionActive) setConnectedAt((at) => at ?? Date.now());
+  }, [sessionActive]);
+
   // why: Camera capture needs a live session, so a video call turns it on once connected.
   useEffect(() => {
     if (!sessionActive || !videoOnConnectRef.current) return;
@@ -51,6 +57,7 @@ function useLiveCallLifecycle(
     videoOnConnectRef.current = false;
     controls.teardownSession();
     setEnded(true);
+    setConnectedAt(null);
   }, [controls]);
 
   const [pastCalls, setPastCalls] = useState<LiveCaptionTurn[][]>([]);
@@ -59,6 +66,7 @@ function useLiveCallLifecycle(
     const previous = captionsRef.current.turns;
     setPastCalls((calls) => stashLiveCaptionCall(calls, previous));
     setEnded(false);
+    setConnectedAt(null);
     await controls.handleRestart();
   }, [controls, captionsRef]);
 
@@ -71,7 +79,7 @@ function useLiveCallLifecycle(
     };
   }, []);
 
-  return { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart };
+  return { callStarted, connectedAt, ended, pastCalls, startCall, handleEnd, handleRestart };
 }
 
 /** What `useLiveCall` takes: the profile, what the call opens, and the host's part in the call. */
@@ -186,7 +194,7 @@ export function useLiveCall({ iface, connection, ...options }: LiveCallInput) {
     setIsVideoOn: ui.setIsVideoOn,
   });
 
-  const { callStarted, ended, pastCalls, startCall, handleEnd, handleRestart } =
+  const { callStarted, connectedAt, ended, pastCalls, startCall, handleEnd, handleRestart } =
     useLiveCallLifecycle(controls, ui.captionsRef, ui.sessionActive, videoAvailable);
 
   // why: The page's context is compared by value, so a host may build it inline on each render.
@@ -214,6 +222,7 @@ export function useLiveCall({ iface, connection, ...options }: LiveCallInput) {
     handle: iface.identity.handle,
     traces,
     callStarted,
+    connectedAt,
     pastCalls,
     captions: ui.captions,
     failure: ui.failure,

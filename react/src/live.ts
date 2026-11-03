@@ -21,5 +21,6 @@ export {
   type LiveCallInput,
   useLiveCall,
 } from './components/live/use-live-call.ts';
+export { LiveCallTile, type LiveCallTileProps } from './ui/LiveCallTile.tsx';
 export type { LiveRunnerProps } from './ui/LiveRunner.tsx';
 export { LiveRunner } from './ui/LiveRunner.tsx';

@@ -1,4 +1,3 @@
-import { AspectRatio } from '@astryxdesign/core/AspectRatio';
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { Center } from '@astryxdesign/core/Center';
@@ -25,18 +24,11 @@ import {
   IconVideoOff,
 } from '@tabler/icons-react';
 import type { LiveToolGatePrompt, ToolGateResolution } from '@theoremjs/web/client';
-import {
-  type CSSProperties,
-  Fragment,
-  type ReactNode,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-} from 'react';
-import type { LiveFacingMode } from '../client/live/live-video.ts';
+import { type CSSProperties, Fragment, type ReactNode, useLayoutEffect, useRef } from 'react';
 import { InkWaveform } from '../components/InkWaveform.tsx';
 import type { LiveCall } from '../components/live/use-live-call.ts';
 import { LiveCaptionsPanel } from './LiveCaptionsPanel.tsx';
+import { LiveVideoPreview } from './LiveVideoPreview.tsx';
 import { liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import {
@@ -445,47 +437,6 @@ function LiveCaptions({ call }: { call: LiveCall }) {
         ) : null
       }
     />
-  );
-}
-
-/**
- * The camera preview, at the top of the captions panel. The capture element comes
- * from the session client, so it is mounted imperatively; it sits one level
- * below AspectRatio, so it carries its own fill and mirror styles.
- */
-function LiveVideoPreview({
-  video,
-  facingMode,
-}: {
-  video: HTMLVideoElement;
-  facingMode: LiveFacingMode;
-}) {
-  const t = useLabels();
-  const hostRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-    Object.assign(video.style, {
-      width: '100%',
-      height: '100%',
-      objectFit: 'cover',
-      display: 'block',
-    });
-    host.replaceChildren(video);
-    return () => {
-      if (video.parentElement === host) host.removeChild(video);
-    };
-  }, [video]);
-
-  useEffect(() => {
-    video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : '';
-  }, [video, facingMode]);
-
-  return (
-    <AspectRatio ratio={4 / 3} fit="cover">
-      <div ref={hostRef} aria-label={t('@theorem.live.camera_preview')} role="img" />
-    </AspectRatio>
   );
 }
 

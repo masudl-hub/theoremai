@@ -1332,6 +1332,10 @@ export const THEOREM_UI_CATALOG = {
     description: 'Switches front and back camera.',
   },
   '@theorem.live.end_call': { defaultMessage: 'End call', description: 'Hangs up.' },
+  '@theorem.live.expand': {
+    defaultMessage: 'Open call',
+    description: 'Asks the host to show a minimized call full size.',
+  },
   '@theorem.live.minimize': {
     defaultMessage: 'Minimize call',
     description: 'Asks the host to show the call small; the call goes on.',

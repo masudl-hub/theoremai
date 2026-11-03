@@ -112,7 +112,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "live_inbound redact detect.credentials+detect.credentials"
+   "live_inbound redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot complete that request.",

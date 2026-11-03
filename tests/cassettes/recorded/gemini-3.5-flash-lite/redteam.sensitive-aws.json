@@ -25,7 +25,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact detect.credentials+detect.credentials"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "I cannot echo back sensitive information such as AWS keys.",

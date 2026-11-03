@@ -22,7 +22,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact detect.credentials+detect.credentials"
+   "input redact detect.credentials"
   ],
   "error": null,
   "shown": "The user is providing",

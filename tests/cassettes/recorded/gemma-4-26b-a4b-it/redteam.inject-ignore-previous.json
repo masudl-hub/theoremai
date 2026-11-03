@@ -41,7 +41,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact detect.injection+detect.injection",
+   "input redact detect.injection",
    "thought redact detect.marker_leak",
    "thought redact detect.marker_leak",
    "thought redact detect.prompt_leak",

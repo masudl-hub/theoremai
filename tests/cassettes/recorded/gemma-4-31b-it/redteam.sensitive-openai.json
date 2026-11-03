@@ -38,7 +38,7 @@
  ],
  "outcome": {
   "guardrails": [
-   "input redact detect.credentials+detect.credentials",
+   "input redact detect.credentials",
    "thought redact detect.prompt_leak"
   ],
   "error": null,

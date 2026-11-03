@@ -38,6 +38,7 @@ import {
 } from '../mod.ts';
 import { IconGemini, IconOpenRouter } from './brand-icons.tsx';
 import { InspectorSection } from './inspector.tsx';
+import { holdRuntime } from './lib/runtime-hold.ts';
 import type { StudioSupplies } from './studio-host.ts';
 
 type BrowserKeyVault = Readonly<Record<string, string | undefined>>;
@@ -154,6 +155,7 @@ function useConnectionRuntime(
     const slotted = studioVault(slots, vault);
     return {
       controller,
+      holds: 0,
       runtime: {
         mode,
         signal: controller.signal,
@@ -164,12 +166,7 @@ function useConnectionRuntime(
       } satisfies StudioBrowserRuntime,
     };
   }, [mode, hasLocal, vault, local, remoteTools, slots, toolHandlers]);
-  useEffect(
-    () => () => {
-      connection?.controller.abort();
-    },
-    [connection],
-  );
+  useEffect(() => (connection ? holdRuntime(connection) : undefined), [connection]);
   return connection?.runtime ?? null;
 }
 

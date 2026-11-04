@@ -19,6 +19,8 @@ import type {
   TurnEventOf,
   TurnModel,
 } from '../../src/kernel/types.ts';
+import { memorySink } from '../../src/observability/trace.ts';
+import type { TraceRecord } from '../../src/observability/trace-schema.ts';
 import { geminiModels } from '../fixtures/models.ts';
 
 function registerAnswerProfile(
@@ -171,19 +173,28 @@ Deno.test('the step that must answer keeps the answer tool when its own tools ar
   );
 });
 
-Deno.test('a reply that never calls the answer tool fails as a bad response', async () => {
+Deno.test('a reply that never calls the answer tool fails as a bad response, stopping answer_missing', async () => {
   const { model } = scripted([
     [
       { type: 'text', text: 'It is dry.' },
       { type: 'done', stop: { kind: 'completed' } },
     ],
   ]);
-  const events = await collect(registerAnswerProfile('answer_missing'), model);
+  const records: TraceRecord[] = [];
+  const events = await Array.fromAsync(
+    runTurn(
+      { profile: registerAnswerProfile('answer_missing'), input: { text: 'Check soil' } },
+      model,
+      memorySink(records),
+    ),
+  );
   assertEquals(
     of(events, 'error').map((e) => e.errorKind),
     ['bad_response'],
   );
-  assertEquals(of(events, 'done').at(-1)?.stop.kind, 'provider_error');
+  assertEquals(of(events, 'done').at(-1)?.stop.kind, 'answer_missing');
+  const root = records[0]?.spans.find((span) => span.name.startsWith('invoke_agent'));
+  assertEquals(root?.status, { code: 'ERROR', message: 'bad_response' });
 });
 
 Deno.test('with a validation retry left, a missed answer is repaired', async () => {

@@ -40,7 +40,7 @@ Deno.test('a section left out is one written empty, read setting by setting', ()
   assertEquals(differingSettings({}, empty), []);
   // The kernel's own lists, written out, are the lists it reads a section left out as.
   const resumption = {
-    allowContinue: ['length', 'stream_incomplete', 'provider_error'],
+    allowContinue: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'],
     autoContinue: ['length', 'stream_incomplete'],
   };
   assertEquals(differingSettings({ turnBehaviour: {} }, { turnBehaviour: { resumption } }), []);

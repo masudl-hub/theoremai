@@ -319,6 +319,7 @@ Deno.test('a continue list the file leaves out opens as the kernel reads it, not
     'length',
     'stream_incomplete',
     'provider_error',
+    'answer_missing',
   ]);
   assertEquals(read.draft.turnBehaviour.resumeEnabled, true);
 });

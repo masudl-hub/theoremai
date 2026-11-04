@@ -139,6 +139,8 @@ export const TURN_STOP_KINDS = [
   'stream_incomplete',
   /** The turn made its last allowed model call and that call asked for tools: there is no answer. */
   'step_limit',
+  /** The model finished without calling the answer tool, and no repair was left. */
+  'answer_missing',
   'interrupted',
   /** Live: model finished generating audio/text for this utterance; turn may still be open. */
   'generation_complete',
@@ -152,7 +154,12 @@ export const ITEM_FAIL_ACTIONS = ['drop', 'fix'] as const;
 /** One of {@linkcode STEP_LIMIT_MODES}. */
 export type StepLimitMode = (typeof STEP_LIMIT_MODES)[number];
 /** Every other stop resumes by another host path, or not at all. */
-export const CONTINUE_STOP_KINDS = ['length', 'stream_incomplete', 'provider_error'] as const;
+export const CONTINUE_STOP_KINDS = [
+  'length',
+  'stream_incomplete',
+  'provider_error',
+  'answer_missing',
+] as const;
 /** One of {@linkcode CONTINUE_STOP_KINDS}. */
 export type ContinueStopKind = (typeof CONTINUE_STOP_KINDS)[number];
 /** The points in a turn where a stage handler runs. */

@@ -186,6 +186,10 @@ const STOP_KINDS: Readonly<Record<TurnStopKind | 'go_away', TraceOptionMeta>> = 
     label: 'Ran out of steps',
     doc: 'The last model call the profile allows asked for tools, so the turn ended without an answer.',
   },
+  answer_missing: {
+    label: 'No answer',
+    doc: 'The model finished without calling the answer tool, and no repair was left.',
+  },
   stream_incomplete: {
     label: 'Stream cut off',
     doc: "The provider's stream ended before the answer was complete.",

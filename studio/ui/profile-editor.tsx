@@ -3435,6 +3435,7 @@ const STOP_KIND_LABEL: Record<ContinueStopKind, string> = {
   length: 'Length',
   stream_incomplete: 'Dropped stream',
   provider_error: 'Provider error',
+  answer_missing: 'No answer',
 };
 
 /** Which stops a reply is continued after: `allow` offers a Continue, `auto` continues unasked. */

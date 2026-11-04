@@ -12,7 +12,7 @@ import {
   traceJson,
 } from '../../observability/trace-span.ts';
 import { historyMessageParts } from '../interaction-parts.ts';
-import { isFailedStopKind } from '../stop.ts';
+import { isFailedTurnStop } from '../stop.ts';
 import type { ToolCallEvent, ToolCallRequest, ToolFailure } from '../tools/types.ts';
 import type {
   InteractionPart,
@@ -1027,7 +1027,7 @@ function endTurnSpan(root: SpanHandle, end: TurnEnd): void {
   const publicError = errorEvent?.error;
   const threw = end.thrown !== undefined;
   if (threw) recordException(root, end.thrown);
-  const failed = threw || (stop !== undefined && isFailedStopKind(stop));
+  const failed = threw || (stop !== undefined && isFailedTurnStop(stop));
   const failure = threw ? errorKind(end.thrown) : (errorEvent?.errorKind ?? stop);
   // why: What the host received, beside each call's `output.messages` (what the model produced).
   const delivered: TraceMessage = {

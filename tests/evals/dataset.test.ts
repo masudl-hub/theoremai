@@ -230,6 +230,8 @@ Deno.test('a turn the provider failed before it answered errors instead of count
   );
   // Only a provider failure: a turn cut off at its length limit had its say.
   assertEquals((await labelOf(fromTool, { stop: 'length' }))[0], 'wrong');
+  // A model that finished without its answer had its say too.
+  assertEquals((await labelOf(fromTool, { stop: 'answer_missing' }))[0], 'wrong');
 });
 
 Deno.test('answer without expect.answer is wrong, and says so', async () => {

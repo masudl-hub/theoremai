@@ -29,6 +29,7 @@ import {
 import type { ProviderRegistry } from '../protocols/provider.ts';
 import {
   CONTEXT_SENDERS,
+  CONTINUE_STOP_KINDS,
   IMAGE_ATTACHMENT_ACCEPT_MIMES,
   PROFILE_FIELDS,
   PROFILE_HANDLE_MAX_CHARS,
@@ -431,7 +432,7 @@ function assertContinueKindList(
       throw new TheoremError(
         'config',
         `Profile ${profileId}: turnBehaviour.resumption.${path} may only include ContinueStopKind ` + // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
-          `(length | stream_incomplete | provider_error); got '${kind}'`,
+          `(${CONTINUE_STOP_KINDS.join(' | ')}); got '${kind}'`,
       );
     }
   }

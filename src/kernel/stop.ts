@@ -123,6 +123,11 @@ export function isFailedStopKind(kind: TurnStop['kind']): boolean {
   return FAILED_STOP_KINDS.has(kind);
 }
 
+/** True for a turn that ended in failure: its model call failed, or the model never gave its answer. */
+export function isFailedTurnStop(kind: TurnStop['kind']): boolean {
+  return isFailedStopKind(kind) || kind === 'answer_missing';
+}
+
 export function stageAbortStop(
   abort: true | { reason?: string },
 ): TurnStop & { kind: 'cancelled' } {

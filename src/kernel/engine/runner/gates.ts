@@ -659,7 +659,7 @@ function* handleMissingAnswer(
     new TheoremError('bad_response', `the model ended without calling ${ANSWER_TOOL}`), // labels-exempt: developer contract / internal diagnostic — not end-user or model copy (P2)
   );
   recordStepEvent(failure, state);
-  state.lastStop = { kind: 'provider_error' };
+  state.lastStop = { kind: 'answer_missing' };
   if (!held) yield failure;
   return 'pass';
 }

@@ -2,7 +2,11 @@
 
 import { assertEquals, assertThrows } from '@std/assert';
 import { labelText, TheoremError, type ToolGate, type TurnEvent } from '../../mod.ts';
-import { applyLiveTurnToolEvent } from '../../react/src/client/live/apply-live-turn-tool-event.ts';
+import {
+  applyLiveTurnToolEvent,
+  type LiveActiveTool,
+  nextActiveTool,
+} from '../../react/src/client/live/apply-live-turn-tool-event.ts';
 import {
   float32Rms,
   float32RmsToLevel,
@@ -226,6 +230,27 @@ Deno.test('downsampleAndConvertToInt16 converts sample rates and round-trips wit
   assertEquals(recoveredFloat32.length, float32.length);
   assertEquals(Math.abs(recoveredFloat32[0] - float32[0]) < 0.001, true);
   assertEquals(Math.abs(recoveredFloat32[1] - float32[1]) < 0.001, true);
+});
+
+Deno.test('a live tool keeps its activity label through its later phases', () => {
+  let shown: LiveActiveTool | null = null;
+  const args = {
+    gateCallId: undefined,
+    withdrawGate: () => {},
+    clearInterim: () => {},
+    clearActiveTool: () => {},
+    reportFailure: () => {},
+    setActiveTool: (tool: LiveActiveTool) => {
+      shown = nextActiveTool(shown, tool);
+    },
+  };
+  const base = { name: 'search_web', callId: 'call-1', operationId: 'call-1', at: 0 } as const;
+  applyLiveTurnToolEvent(
+    { type: 'tool', tool: { ...base, phase: 'running', activity: 'Searching the web' } },
+    args,
+  );
+  applyLiveTurnToolEvent({ type: 'tool', tool: { ...base, phase: 'progress', data: {} } }, args);
+  assertEquals(shown, { name: 'search_web', activity: 'Searching the web' });
 });
 
 function liveToolFailure(event: TurnEvent) {

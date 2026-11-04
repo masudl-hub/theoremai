@@ -15,7 +15,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import { applyLiveTurnToolEvent } from '../../client/live/apply-live-turn-tool-event.ts';
+import {
+  applyLiveTurnToolEvent,
+  type LiveActiveTool,
+  nextActiveTool,
+} from '../../client/live/apply-live-turn-tool-event.ts';
 import {
   applyLiveTurnEvent,
   clearLiveCaptionInterim,
@@ -40,7 +44,7 @@ export function useLiveRunnerUiState(labels: LabelOverrides) {
   }, []);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
-  const [activeTool, setActiveTool] = useState<string | null>(null);
+  const [activeTool, setActiveTool] = useState<LiveActiveTool | null>(null);
   const [captions, setCaptions] = useState<LiveCaptionState>(emptyLiveCaptionState);
   const [failure, setFailure] = useState<ClientFailure | null>(null);
   /** The user's line for a session the provider ended after warning it would. */
@@ -146,7 +150,7 @@ export function useLiveRunnerUiState(labels: LabelOverrides) {
 /** Gate prompt + live turn-tool event wiring. */
 export function useLiveRunnerGate(args: {
   setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
-  setActiveTool: Dispatch<SetStateAction<string | null>>;
+  setActiveTool: Dispatch<SetStateAction<LiveActiveTool | null>>;
   reportFailure: (err: unknown) => void;
 }) {
   const [gatePrompt, setGatePrompt] = useState<LiveToolGatePrompt | null>(null);
@@ -177,7 +181,9 @@ export function useLiveRunnerGate(args: {
           args.setActiveTool(null);
         },
         reportFailure: args.reportFailure,
-        setActiveTool: args.setActiveTool,
+        setActiveTool: (tool) => {
+          args.setActiveTool((prev) => nextActiveTool(prev, tool));
+        },
       });
     },
     [args, answerGate],

@@ -8,8 +8,9 @@
  * @module
  */
 
-import type { ComposerDrawerSummary, LiveState } from '@theoremjs/web/client';
+import { type ComposerDrawerSummary, humanize, type LiveState } from '@theoremjs/web/client';
 import { IntlMessageFormat } from 'intl-messageformat';
+import type { LiveActiveTool } from '../client/live/apply-live-turn-tool-event.ts';
 import type { TurnUsage, WorkStatus } from '../client/transcript-groups.ts';
 
 type LabelEntry = { defaultMessage: string; description: string; params?: readonly string[] };
@@ -1489,10 +1490,21 @@ export function workStatusLabel(t: LabelText, status: WorkStatus | null): string
     : t('@theorem.transcript.worked_for', { duration: workDuration(t, status.elapsedMs) });
 }
 
-/** A live call's status line; `calling_tool` names the tool. */
-export function liveStateLabel(t: LabelText, state: LiveState, toolName: string | null): string {
-  if (state === 'calling_tool')
-    return t('@theorem.live.state.calling_tool', { tool: toolName ?? '' });
+/**
+ * A live call's status line. While a tool runs it is the tool's activity label, as chat shows
+ * it, else `calling_tool` with the tool's name in words, as its gate names it.
+ */
+export function liveStateLabel(
+  t: LabelText,
+  state: LiveState,
+  tool: LiveActiveTool | null,
+): string {
+  if (state === 'calling_tool') {
+    return (
+      tool?.activity ??
+      t('@theorem.live.state.calling_tool', { tool: humanize(tool?.name ?? '').toLowerCase() })
+    );
+  }
   return t(`@theorem.live.state.${state}`);
 }
 

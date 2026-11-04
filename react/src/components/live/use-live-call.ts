@@ -119,7 +119,7 @@ export function useLiveCall({ iface, connection, ...options }: LiveCallInput) {
       liveState({
         status: ui.status,
         connectPhase: ui.connectPhase,
-        toolName: ui.activeTool,
+        toolName: ui.activeTool?.name ?? null,
         isMuted: ui.isMuted,
         voiceEnabled: voiceAvailable,
       }),
@@ -153,7 +153,6 @@ export function useLiveCall({ iface, connection, ...options }: LiveCallInput) {
     setCaptions: ui.setCaptions,
     setInputLevel: ui.setInputLevel,
     setOutputLevel: ui.setOutputLevel,
-    setActiveTool: ui.setActiveTool,
     setSessionPermissions: ui.setSessionPermissions,
     setVideoPreview: ui.setVideoPreview,
     setVideoFacingMode: ui.setVideoFacingMode,

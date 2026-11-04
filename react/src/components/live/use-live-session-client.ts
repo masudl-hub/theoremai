@@ -43,7 +43,6 @@ export type LiveClientBindings = LiveCallOptions & {
   setCaptions: Dispatch<SetStateAction<LiveCaptionState>>;
   setInputLevel: Dispatch<SetStateAction<number>>;
   setOutputLevel: Dispatch<SetStateAction<number>>;
-  setActiveTool: Dispatch<SetStateAction<string | null>>;
   setSessionPermissions: Dispatch<SetStateAction<string[]>>;
   setVideoPreview: Dispatch<SetStateAction<HTMLVideoElement | null>>;
   setVideoFacingMode: Dispatch<SetStateAction<LiveFacingMode>>;

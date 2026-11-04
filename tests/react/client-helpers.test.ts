@@ -450,8 +450,19 @@ Deno.test('inkWaveDriver and computeInkBarTargets calculate animations', () => {
 
 /** The default UI's status line for a live call's state. */
 function liveLine(args: Parameters<typeof liveState>[0]): string {
-  return liveStateLabel(t, liveState(args), args.toolName);
+  return liveStateLabel(t, liveState(args), args.toolName ? { name: args.toolName } : null);
 }
+
+Deno.test("a live call's tool line is the tool's activity label, else its name in words", () => {
+  assertEquals(
+    liveStateLabel(t, 'calling_tool', {
+      name: 'search_web',
+      activity: 'Searching the web for otters',
+    }),
+    'Searching the web for otters',
+  );
+  assertEquals(liveStateLabel(t, 'calling_tool', { name: 'search_web' }), 'calling search web');
+});
 
 Deno.test('liveState maps all states and connect phases; liveStateLabel words them', () => {
   assertEquals(

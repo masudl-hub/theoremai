@@ -4,11 +4,10 @@ import type { LiveCall } from '../components/live/use-live-call.ts';
 import { useLabels } from './labels-provider.tsx';
 import { ApprovalCard, AuthChallengeCard, GATE_CARD_WIDTH } from './ToolGateCard.tsx';
 
-/** Room around the gate card for its shadow. */
-const GATE_DIALOG_PADDING = 4;
-const GATE_DIALOG_WIDTH = GATE_CARD_WIDTH + 2 * GATE_DIALOG_PADDING * 4;
-/** The dialog draws no surface of its own: the card is the one chat shows, alone. */
-const GATE_DIALOG_BARE: CSSProperties = { background: 'transparent', boxShadow: 'none' };
+/** The dialog takes the card's corner (the bubble's --radius-chat), so none of its surface shows past the card. */
+const GATE_DIALOG_CORNER: CSSProperties = {
+  borderRadius: 'var(--radius-chat, var(--radius-container))',
+};
 
 /**
  * Tool approvals and credential prompts, as a dialog that must be answered. It shows the card
@@ -24,9 +23,11 @@ export function LiveToolGateDialog({ call }: { call: LiveCall }) {
     <Dialog
       isOpen={prompt !== null}
       purpose="required"
-      width={GATE_DIALOG_WIDTH}
-      padding={GATE_DIALOG_PADDING}
-      style={GATE_DIALOG_BARE}
+      // why: The card is the one chat shows, a tint made for a page. The dialog's own surface,
+      // the card's size and radius, is that page; over the bare backdrop the tint goes grey.
+      width={GATE_CARD_WIDTH}
+      padding={0}
+      style={GATE_DIALOG_CORNER}
       // why: "required" disables dismissal; should one slip through, it denies.
       onOpenChange={(open) => {
         if (!open) onResolve({ action: 'deny' });

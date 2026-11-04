@@ -367,7 +367,7 @@ The call lasts as long as the component that calls `useLiveCall`. Call it above 
 
 Give `LiveRunner` an `onMinimize` to show a minimize control in the call. Theorem calls it and does not navigate: your code decides where to go, and the call goes on.
 
-`LiveCallTile` draws the same call small: the camera preview, or the ink waveform when the camera is off, then the call time, mute, end, and expand. It fills the box you give it, so your code places it and sizes it. A press on the tile or its expand control calls `onExpand`.
+`LiveCallTile` draws the same call small: the camera preview, or the ink waveform when the camera is off, then the call time, mute, end, and expand. While a tool runs, its name shows in place of the time, and a tool gate opens the same dialog `LiveRunner` shows, so the person can answer it on any page. It fills the box you give it, so your code places it and sizes it. A press on the tile or its expand control calls `onExpand`.
 
 ```tsx
 import { LiveCallTile } from '@theoremjs/react/live';

@@ -14,9 +14,11 @@ import {
   IconMicrophoneOff,
   IconPhoneOff,
 } from '@tabler/icons-react';
+import type { CSSProperties } from 'react';
 import { InkWaveform } from '../components/InkWaveform.tsx';
 import type { LiveCall } from '../components/live/use-live-call.ts';
 import { useSecondTicker } from '../hooks/use-second-ticker.ts';
+import { LiveToolGateDialog } from './LiveToolGateDialog.tsx';
 import { LiveVideoPreview } from './LiveVideoPreview.tsx';
 import { liveDuration, liveStateLabel, type TheoremLabels } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
@@ -40,8 +42,10 @@ export type LiveCallTileProps = {
 
 /**
  * A small view of a running call: the camera preview, or the ink waveform
- * when the camera is off, then the call time, mute, end, and expand. It fills
- * the box the host gives it; the host places it.
+ * when the camera is off, then the call time, mute, end, and expand. While a
+ * tool runs, its name takes the time's place, and a tool gate opens the same
+ * dialog `LiveRunner` shows. It fills the box the host gives it; the host
+ * places it.
  */
 export function LiveCallTile({ theme, mode, labels, ...props }: LiveCallTileProps) {
   return (
@@ -53,29 +57,38 @@ export function LiveCallTile({ theme, mode, labels, ...props }: LiveCallTileProp
   );
 }
 
+/** why: The tile floats on its shadow; Astryx's default card has no borderless variant with its surface. */
+const TILE_BORDERLESS: CSSProperties = { borderWidth: 0 };
+/** The bars in the icon colour, as on `LiveRunner`'s stage. */
+const WAVE_COLOR: CSSProperties = { color: 'var(--color-icon-primary)' };
+
 function LiveCallTileBody({
   call,
   onExpand,
 }: Omit<LiveCallTileProps, 'theme' | 'mode' | 'labels'>) {
   const t = useLabels();
   return (
-    <ClickableCard
-      label={t('@theorem.live.expand')}
-      onClick={onExpand}
-      padding={0}
-      elevation="high"
-      width="100%"
-    >
-      <VStack>
-        <TileMedia call={call} />
-        <HStack gap={1} vAlign="center" padding={2}>
-          <StackItem size="fill">
-            <TileTime call={call} />
-          </StackItem>
-          <TileControls call={call} onExpand={onExpand} />
-        </HStack>
-      </VStack>
-    </ClickableCard>
+    <>
+      <ClickableCard
+        label={t('@theorem.live.expand')}
+        onClick={onExpand}
+        padding={0}
+        elevation="high"
+        width="100%"
+        style={TILE_BORDERLESS}
+      >
+        <VStack>
+          <TileMedia call={call} />
+          <HStack gap={1} vAlign="center" padding={2}>
+            <StackItem size="fill">
+              <TileTime call={call} />
+            </StackItem>
+            <TileControls call={call} onExpand={onExpand} />
+          </HStack>
+        </VStack>
+      </ClickableCard>
+      <LiveToolGateDialog call={call} />
+    </>
   );
 }
 
@@ -86,7 +99,8 @@ function TileMedia({ call }: { call: LiveCall }) {
   }
   return (
     <AspectRatio ratio={4 / 3}>
-      <VStack height="100%" vAlign="center" padding={4} aria-hidden="true">
+      {/* why: No side padding: the wave's own end gaps line it up with the row below. */}
+      <VStack height="100%" vAlign="center" paddingBlock={4} style={WAVE_COLOR} aria-hidden="true">
         <InkWaveform
           status={call.status}
           levelsRef={call.levelsRef}
@@ -98,10 +112,10 @@ function TileMedia({ call }: { call: LiveCall }) {
   );
 }
 
-/** How long the call has run, or its state before it connects and after it ends. */
+/** How long the call has run, or its state: before it connects, after it ends, and while a tool runs. */
 function TileTime({ call }: { call: LiveCall }) {
   const t = useLabels();
-  const since = call.sessionActive ? call.connectedAt : null;
+  const since = call.sessionActive && call.liveState !== 'calling_tool' ? call.connectedAt : null;
   const now = useSecondTicker(since !== null);
   return (
     <Text type="supporting" hasTabularNumbers maxLines={1}>

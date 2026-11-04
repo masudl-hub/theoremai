@@ -273,7 +273,9 @@ Deno.test('resumption lists name only continue stop kinds', () => {
       path,
     );
     check(
-      said(resumption({ [path]: ['length', 'stream_incomplete', 'provider_error'] })),
+      said(
+        resumption({ [path]: ['length', 'stream_incomplete', 'provider_error', 'answer_missing'] }),
+      ),
       'defined',
       `${path} ok`,
     );

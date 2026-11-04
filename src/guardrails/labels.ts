@@ -958,7 +958,7 @@ export const LABEL_NOTES: Record<LabelKey, string> = {
   'tool.background_field':
     "What the model reads on the background field of a tool that sets registerTool.background to ask. Read when the tool registers, so a profile's labels do not change it.",
   'tool.background_started':
-    'Told to the model when a call goes on after its reply: the call runs in the background and its result comes later.',
+    'Told to the model when a call goes on after its reply: the call runs in the background and its result comes later. Takes {tool}.',
   'tool.late_result':
     'Put in front of a tool call result that a host passes in input.lateResults. Takes {tool}.',
   'tool.after_field':
@@ -1051,6 +1051,7 @@ const LABEL_PLACEHOLDERS: Partial<Record<LabelKey, readonly string[]>> = {
   'sign_in.expired': SERVICE,
   'sign_in.out_of_scope': SERVICE,
   'tool.late_result': ['tool'],
+  'tool.background_started': TOOL,
   'tool.awaiting_user': ['kind', 'prompt'],
   'tool.t2_loader_needs_snapshot': TOOL,
   'tool.t2_loader_shape': TOOL,

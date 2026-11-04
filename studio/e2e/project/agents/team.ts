@@ -109,3 +109,36 @@ export const gatekeeper = defineProfile({
   id: 'gatekeeper',
   tools: { allow: ['lookup_city', 'wipe_desk'] },
 });
+
+// why: a long option value and two models, so a narrow composer has more to show than room.
+export const scout = defineProfile({
+  id: 'scout',
+  type: 'text',
+  identity: { handle: 'scout', system: 'Answer in one line.' },
+  models: {
+    full: {
+      protocol: 'openRouterOpenAi',
+      provider: 'router',
+      apiId: 'fake/full',
+      efforts: { normal: 'minimal' },
+    },
+    free: {
+      protocol: 'openRouterOpenAi',
+      provider: 'router',
+      apiId: 'fake/free',
+      efforts: { normal: 'minimal' },
+    },
+  },
+  defaultModel: 'full',
+  allowModelSelect: true,
+  tools: { allow: [] },
+  inputs: {
+    text: true,
+    options: {
+      source: {
+        label: 'Source',
+        choices: [{ value: 'Hugging Face Open Research' }, { value: 'arXiv' }],
+      },
+    },
+  },
+});

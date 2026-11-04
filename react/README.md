@@ -479,6 +479,8 @@ function MyChat() {
 
 To show the transcript and the composer, use `ChatTranscript` and `ChatComposerBar` from `/ui`. You can also draw your own from `chat.blocks`.
 
+The composer bar has a selector for the model, its effort, and each option. When their values do not fit the bar, each selector shows only its icon, and a tooltip gives its name and value. When the icons do not fit either, the row scrolls inside the composer. A control you pass as `generationSelect` keeps its own look and scrolls with the row.
+
 `ChatTranscript` places `citation` blocks after the answer text by default (the Sources strip under the prose). Pass `bodyKindPlacement={{}}` when citations must stay in stream order between text segments (inline citations).
 
 The hooks and the client write no English text. They return kinds, codes, and states. You write the words.

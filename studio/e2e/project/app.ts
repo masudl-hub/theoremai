@@ -36,6 +36,7 @@ export const theorem: TurnWiring = {
     registerProfile(team.picture);
     registerProfile(team.reader);
     registerProfile(team.line);
+    registerProfile(team.scout);
   },
   provider: {
     vault: { router_key: 'fixture-placeholder', google_key: 'fixture-placeholder' },

@@ -11,7 +11,6 @@ import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { HStack } from '@astryxdesign/core/HStack';
 import { IconButton } from '@astryxdesign/core/IconButton';
 import { Kbd } from '@astryxdesign/core/Kbd';
-import { Selector } from '@astryxdesign/core/Selector';
 import { StackItem } from '@astryxdesign/core/Stack';
 import { Text } from '@astryxdesign/core/Text';
 import { Thumbnail } from '@astryxdesign/core/Thumbnail';
@@ -74,6 +73,7 @@ import {
 import { stageComposerFiles } from '../client/composer-attachments.ts';
 import { useComposerVoice, type VoiceFailure } from '../components/use-composer-voice.ts';
 import { useEditorSelection } from '../components/use-editor-selection.ts';
+import { ComposerControls, ComposerSelector } from './ComposerControls.tsx';
 import { composerDrawerLabel } from './labels.ts';
 import { TheoremLabelsProvider, useLabels } from './labels-provider.tsx';
 import { VoiceNote } from './VoiceNote.tsx';
@@ -301,7 +301,7 @@ function ModelSelector(props: {
 }) {
   if (props.models.length === 0) return null;
   return (
-    <Selector
+    <ComposerSelector
       label={props.label}
       isLabelHidden
       size="sm"
@@ -329,7 +329,7 @@ function EffortSelector(props: {
 }) {
   if (props.efforts.length === 0) return null;
   return (
-    <Selector
+    <ComposerSelector
       label={props.label}
       isLabelHidden
       size="sm"
@@ -358,7 +358,7 @@ function OptionSelectors(props: { choices?: OptionChoices; isDisabled: boolean }
       description: choice.description,
     }));
     return (
-      <Selector
+      <ComposerSelector
         key={name}
         label={title}
         isLabelHidden
@@ -386,16 +386,24 @@ function GenerationSelect(props: {
 }) {
   const { models, efforts } = generationOptions(props.iface, props.selectedModel);
   const optionCount = Object.keys(props.optionChoices?.declared ?? {}).length;
+  // invariant: What the controls show; when it changes they unfold and measure again.
+  const fit = JSON.stringify([
+    props.control
+      ? null
+      : [models.length, efforts.length, props.selectedModel, props.selectedEffort],
+    props.optionChoices?.values,
+    optionCount,
+  ]);
   if (props.control)
     return (
-      <HStack gap={1}>
+      <ComposerControls fit={fit}>
         {props.control}
         <OptionSelectors choices={props.optionChoices} isDisabled={props.isDisabled} />
-      </HStack>
+      </ComposerControls>
     );
   if (models.length + efforts.length + optionCount === 0) return null;
   return (
-    <HStack gap={1}>
+    <ComposerControls fit={fit}>
       <ModelSelector
         label={labelText('composer.model', {}, props.iface.labels)}
         models={models}
@@ -413,7 +421,7 @@ function GenerationSelect(props: {
         }}
       />
       <OptionSelectors choices={props.optionChoices} isDisabled={props.isDisabled} />
-    </HStack>
+    </ComposerControls>
   );
 }
 

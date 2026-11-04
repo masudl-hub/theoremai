@@ -34,7 +34,7 @@
     "./vite": "./vite.mjs"
   },
   "dependencies": {
-    "@astryxdesign/richtext": "0.7.6",
+    "@astryxdesign/richtext": "0.7.7",
     "@fontsource/figtree": "^5.3.0",
     "@lexical/code": "^0.52.0",
     "@lexical/extension": "^0.52.0",
@@ -58,8 +58,8 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@astryxdesign/core": "0.7.6",
-    "@astryxdesign/theme-neutral": "0.7.6",
+    "@astryxdesign/core": "0.7.7",
+    "@astryxdesign/theme-neutral": "0.7.7",
     "@playwright/test": "1.63.0",
     "@stylexjs/stylex": "0.19.0",
     "@theoremjs/agents": "file:..",

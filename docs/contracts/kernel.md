@@ -1301,7 +1301,7 @@ On a turn that answers by tool:
 - The tool's description is the label `structured.answer_tool`.
 - A profile with `outputs.structured` cannot offer a tool of its own named as `ANSWER_TOOL`. The turn throws a `config` error.
 
-On every structured turn, a reply cut at `length` is repaired, with or without `outputs.validation`: once, or `outputs.validation.maxRetries` times when that is more. The repair carries what the model wrote, the rejection `structured.cut_off` and the guidance `repair.cut_off_guidance`. Cut off again with no repair left, the turn fails with a `bad_response` error and the stop `provider_error`.
+On every structured turn, a reply cut at `length` is repaired, with or without `outputs.validation`: once, or `outputs.validation.maxRetries` times when that is more. The repair carries what the model wrote, the rejection `structured.cut_off` and the guidance `repair.cut_off_guidance`. Cut off again with no repair left, the turn fails with a `bad_response` error and the stop `provider_error`. A response-format reply over `geminiInteractions` is not repaired yet: the protocol reads the cut text as JSON, so the turn fails at once with a `bad_response` error and the stop `provider_error`.
 
 On a turn that answers by response format, a reply that ended but is not valid JSON is repaired like any other reply that fails validation, while `outputs.validation.maxRetries` has a retry left. The repair carries the reply's text and the rejection `structured.not_json`. With no retry left, the turn ends with the `bad_response` error and the stop `provider_error`.
 

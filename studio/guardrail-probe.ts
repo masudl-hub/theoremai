@@ -51,6 +51,7 @@ export const PROBE_BOUNDARIES = [
   'system',
   'tool_result_local',
   'tool_result_remote',
+  'tool_failure',
   'tool_arguments',
   'reply',
   'thought',
@@ -59,12 +60,13 @@ export const PROBE_BOUNDARIES = [
 export type ProbeBoundary = (typeof PROBE_BOUNDARIES)[number];
 
 /** The kernel boundary a probe's text crosses. */
-const PROBE_READS: Record<ProbeBoundary, Boundary> = {
+export const PROBE_READS: Record<ProbeBoundary, Boundary> = {
   user: 'user',
   history: 'history',
   system: 'system',
   tool_result_local: 'tool_output_function',
   tool_result_remote: 'tool_output_agent',
+  tool_failure: 'tool_failure_function',
   tool_arguments: 'tool_arguments_function',
   reply: 'reply',
   thought: 'thought',
@@ -116,6 +118,12 @@ export const PROBE_BOUNDARY_NOTES: Record<ProbeBoundary, ProbeBoundaryNote> = {
     when: 'When the tool returns, and again at each call the model makes after it.',
     checks:
       'Replaced as a local result is, fenced as tool data, and read for orders to the agent (a claim of authority, an order, a callable tool’s name), which injection reports by default and which raise taint. Every later call is reported, and refused where taint.afterRemoteRead says.',
+  },
+  tool_failure: {
+    label: 'Tool error',
+    note: 'The message one of the host’s own functions fails with.',
+    when: 'When the tool fails, before the model reads the error.',
+    checks: 'Injection phrasing and sensitive data are replaced in the error the model reads.',
   },
   tool_arguments: {
     label: 'Tool arguments',
@@ -182,6 +190,7 @@ const LOCAL_TOOL = 'guardrail_probe_read';
 const REMOTE_TOOL = 'guardrail_probe_fetch';
 const SEND_TOOL = 'guardrail_probe_send';
 const ACT_TOOL = 'guardrail_probe_delete';
+const FAIL_TOOL = 'guardrail_probe_lookup';
 const REMOTE_AGENT = 'guardrail-probe.remote';
 /** The reply's deltas, in characters: short enough that a pattern spans several. */
 const REPLY_CHUNK = 7;
@@ -324,6 +333,7 @@ function probedDraft(
     probeTool(LOCAL_TOOL, 'read-only', { text }),
     probeTool(SEND_TOOL, 'read-write'),
     probeTool(ACT_TOOL, 'destructive'),
+    probeTool(FAIL_TOOL, 'read-only'),
     ...(live ? [] : [remoteTool()]),
   ];
   return {
@@ -341,6 +351,11 @@ function probedDraft(
     } as ProfileDefinition,
     customTools: [...customTools, ...tools],
     structured,
+    toolHandlers: {
+      [FAIL_TOOL]: () => {
+        throw new Error(text);
+      },
+    },
   };
 }
 
@@ -378,6 +393,8 @@ function script({ boundary, text }: GuardrailProbe): ModelEvent[][] {
   switch (boundary) {
     case 'tool_result_local':
       return [[call(LOCAL_TOOL, {})]];
+    case 'tool_failure':
+      return [[call(FAIL_TOOL, {})]];
     // The call after the read is the one `taint.afterRemoteRead` decides.
     case 'tool_result_remote':
       return [[call(REMOTE_TOOL, { text: 'read' })], [call(ACT_TOOL, {})]];
@@ -432,6 +449,8 @@ function hostCall({ boundary, text }: GuardrailProbe): { name: string; input: un
       return { name: REMOTE_TOOL, input: { text: 'read' } };
     case 'tool_arguments':
       return { name: SEND_TOOL, input: { text } };
+    case 'tool_failure':
+      return { name: FAIL_TOOL, input: {} };
     default:
       return { name: LOCAL_TOOL, input: {} };
   }
@@ -655,6 +674,8 @@ function passed(
       return readBack(events, LOCAL_TOOL);
     case 'tool_result_remote':
       return readBack(events, REMOTE_TOOL);
+    case 'tool_failure':
+      return readBack(events, FAIL_TOOL);
     case 'tool_arguments':
       return readBack(events, SEND_TOOL) === undefined ? undefined : seenArguments(events);
     case 'reply':
@@ -737,7 +758,7 @@ const TYPE_BOUNDARIES: Partial<Record<ProfileDefinition['type'], readonly ProbeB
   // calls no tool and writes no reply.
   speech: ['user', 'history'],
   // A host runs tools and no model: only what crosses a tool is read.
-  host: ['tool_result_local', 'tool_result_remote', 'tool_arguments'],
+  host: ['tool_result_local', 'tool_result_remote', 'tool_failure', 'tool_arguments'],
   // A Live session reads what is typed into it, what it is seeded with, what its tools take and
   // return, and what it says. A remote tool's reply and a thought are not probed.
   live: ['user', 'history', 'system', 'tool_result_local', 'tool_arguments', 'reply'],

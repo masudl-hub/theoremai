@@ -430,6 +430,8 @@ export interface StudioDependency {
   profile: ProfileDefinition;
   customTools: readonly ToolRegistration[];
   structured?: StructuredRegistration;
+  /** Handlers for custom tools without a stub, by name. */
+  toolHandlers?: StudioToolHandlers;
 }
 
 /**
@@ -492,6 +494,7 @@ export async function writtenScope(
       defineDraft(withDraftItemChecks(await withCompiledPatterns(draft.profile))),
       draft.customTools,
       draft.structured,
+      draft.toolHandlers,
     );
   }
   return { scope, profile };

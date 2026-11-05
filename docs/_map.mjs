@@ -407,7 +407,15 @@ const graph = {
           sections: ['Trust levels'],
         },
         { paths: ['src/guardrails/network.ts'], sections: ['Network'] },
-        { paths: ['src/guardrails/eval/**'], sections: ['Evaluation'] },
+        {
+          paths: [
+            'scripts/guardrails-bench.ts',
+            'scripts/guardrails-bench/**',
+            'studio/guardrail-bench.ts',
+            'studio/server/bench.ts',
+          ],
+          sections: ['Evaluation'],
+        },
         {
           paths: ['src/guardrails/tool-result.ts'],
           sections: ['Tool boundary', 'Guardrail events'],

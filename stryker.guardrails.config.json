@@ -7,7 +7,6 @@
   "mutate": [
     "src/guardrails/**/*.ts",
     "!src/guardrails/corpus/**",
-    "!src/guardrails/eval/**",
     "!src/guardrails/testing.ts",
     "!src/guardrails/mod.ts"
   ],

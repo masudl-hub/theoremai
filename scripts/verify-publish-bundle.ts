@@ -23,7 +23,6 @@ const ARTIFACT_DIRS = [
   'docs',
   'studio',
   'react',
-  'src/guardrails/eval',
 ] as const;
 
 const ARTIFACT_FILES = [

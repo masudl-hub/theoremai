@@ -28,6 +28,7 @@ import { newConversationKey } from '../conversation-key.ts';
 import { RUNNING_PATH } from '../ports.mjs';
 import { READ_STEPS, type ReadStep } from '../read-steps.ts';
 import { alertText, keyLine, loadedText } from './alerts.ts';
+import { answerBench } from './bench.ts';
 import { createEditedSession } from './edited-session.ts';
 import type { ProjectEdits } from './edits.ts';
 import { createEventLog, watchRun } from './events.ts';
@@ -631,6 +632,7 @@ const ROUTES: ((request: Request) => Response | undefined | Promise<Response | u
   running,
   watching,
   openedSaying,
+  (request) => answerBench(root, STUDIO_BASE, request, corsHeaders(request, pageOrigins)),
   answerStatus,
   answerEvents,
   answered,

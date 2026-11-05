@@ -488,3 +488,72 @@ button.inspector-origin:hover {
   padding-block: var(--spacing-1);
   background: var(--color-background-surface);
 }
+
+/* What a detector matched in a bench row's text. */
+.studio-bench-mark {
+  background: var(--color-background-yellow);
+  color: inherit;
+  border-radius: var(--radius-element);
+}
+
+.studio-bench-matrix-scroll {
+  overflow-x: auto;
+}
+
+.studio-bench-matrix {
+  display: grid;
+  width: max-content;
+  margin-inline: auto;
+  gap: 2px;
+  align-items: center;
+}
+
+.studio-bench-matrix-head {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  justify-self: center;
+  padding-block: 4px;
+}
+
+.studio-bench-cell {
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-element);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.studio-bench-cell-off {
+  display: block;
+  cursor: default;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-background-surface) 0 4px,
+    var(--color-background-gray) 4px 6px
+  );
+}
+
+.studio-bench-key {
+  width: 16px;
+  height: 12px;
+}
+
+.studio-bench-legend {
+  width: min(100%, 360px);
+  margin-inline: auto;
+}
+
+.studio-bench-strip {
+  height: 10px;
+  border-radius: var(--radius-element);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.studio-bench-cell-empty {
+  display: block;
+  cursor: default;
+  background: var(--color-background-surface);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}

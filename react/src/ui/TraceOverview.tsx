@@ -125,7 +125,8 @@ export function TurnPicker({
   );
 }
 
-function Stat({
+/** One figure in a card: its name, the figure, and lines that say more. */
+export function ChartStat({
   label,
   value,
   detail,
@@ -164,7 +165,7 @@ function FirstTextStat({ latency, format }: { latency: TraceLatency | undefined;
   if (latency?.firstTextMs === undefined) return null;
   const { t } = format;
   return (
-    <Stat
+    <ChartStat
       label={t('@theorem.panel.trace.firstText')}
       value={format.duration(latency.firstTextMs)}
       detail={[
@@ -182,7 +183,7 @@ function FirstTextStat({ latency, format }: { latency: TraceLatency | undefined;
 function CostStat({ totals, format }: { totals: TraceTotals; format: Format }) {
   if (!totals.cost) return null;
   return (
-    <Stat
+    <ChartStat
       label={traceAttributeMeta('theorem.usage.cost_usd')?.label ?? ''}
       value={format.sum(totals.cost, format.usd)}
     />
@@ -199,7 +200,7 @@ function TokensStat({ totals, format }: { totals: TraceTotals; format: Format })
   if (!input && !output) return null;
   const all = [input, output].reduce((sum, total) => sum + (total?.value ?? 0), 0);
   return (
-    <Stat
+    <ChartStat
       label={format.t('@theorem.panel.trace.tokens')}
       value={format.number(all)}
       detail={format.t('@theorem.panel.trace.tokens.detail', {
@@ -223,7 +224,7 @@ function StepsStat({
   // why: With no model, every step is a tool call the heading already counts.
   if (totals.calls === 0 && totals.errors === 0) return null;
   return (
-    <Stat
+    <ChartStat
       label={t('@theorem.panel.trace.steps')}
       value={format.number(totals.calls + tools)}
       detail={
@@ -249,7 +250,7 @@ function GuardrailsStat({
   const guardrails = latency?.guardrails;
   if (!guardrails) return null;
   return (
-    <Stat
+    <ChartStat
       label={format.t('@theorem.panel.trace.guardrails')}
       value={format.duration(guardrails.ms)}
       detail={format.t('@theorem.panel.trace.guardrails.detail', {
@@ -287,7 +288,7 @@ export function TurnStats({
   const format = useTraceFormat();
   return (
     <Grid columns={{ minWidth: 120, repeat: 'fit' }} gap={2}>
-      <Stat label={TRACE_FIELDS.duration.label} value={format.duration(totals.durationMs)} />
+      <ChartStat label={TRACE_FIELDS.duration.label} value={format.duration(totals.durationMs)} />
       <FirstTextStat latency={latency} format={format} />
       <CostStat totals={totals} format={format} />
       <TokensStat totals={totals} format={format} />

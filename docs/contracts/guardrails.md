@@ -510,78 +510,105 @@ keep streaming.
 
 ## Evaluation
 
-Detector quality is measured, not asserted. Every detector here is a pattern
-matcher, and pattern matchers fail on content nobody thought to write down — so
-the point of the harness is to expose that against corpora the authors did not
-choose.
+Use the bench to measure each detector on data that someone else labelled. It
+reports how many attacks a detector finds (recall), how often it fires on benign
+text (false alarms), and how long it takes at each boundary.
 
 ```bash
-deno task guardrails:eval
+deno task bench:guardrails --limit=200
 ```
 
-Corpora are fetched on demand and cached under `.guardrail-corpus/` (gitignored,
-never published). Nothing third-party is vendored. The harness itself
-(`src/guardrails/eval/`, `scripts/guardrails-eval.ts`) is repo-only: it is excluded
-from the published package and is not part of `@theoremjs/agents/guardrails/testing`.
+The bench sends each text across its boundary through the studio's
+`runGuardrailProbe`. The agent is the example draft's `travel.concierge`, with
+every detector on `flag`. A text longer than `PROBE_TEXT_LIMIT` goes to
+`detectAt` alone. That path has no turn, so the detectors that need the turn's
+canary, system prompt, or tool names do not read it. The summary counts the
+rows that each path read.
 
-| Source | License | Role |
-| --- | --- | --- |
-| `S-Labs/prompt-injection-dataset` | MIT | ~11k labelled prompts; benign half is security-adjacent |
-| `deepset/prompt-injections` | Apache-2.0 | Independent, partly non-English |
-| `reshabhs/SPML_Chatbot_Prompt_Injection` | MIT | Attacks paired with the system prompt they target |
-| `gravitee-io/pii-detection-dataset` | Apache-2.0 | PII with ground-truth spans, in structured payloads |
-| `Lakera/b3-agent-security-benchmark-weak` | other* | Attacks against named, realistic agent apps |
-| `nvidia/Nemotron-RL-Agentic-Indirect-Prompt-Injection-v1` | CC-BY-4.0 | Agentic IPI, labelled `exfiltration` / `unauthorized_action` |
-| `glaiveai/glaive-function-calling-v2` | Apache-2.0 | Benign tool results at scale (`FUNCTION RESPONSE` bodies) |
-| `ethz-spylab/agentdojo` | MIT | Environment fixtures; benign output in tool shape |
-| `microsoft/llmail-inject-challenge` | MIT | Adaptive attacks from a live competition, email-shaped, labelled by whether they evaded defense |
-| `leolee99/NotInject` | none declared | Benign prompts built from injection trigger words — the over-refusal benchmark |
-| `yanismiraoui/prompt_injections` | Apache-2.0 | Multilingual injection prompts |
-| `prodnull/prompt-injection-repo-dataset` | Apache-2.0 | Hard negatives: security docs, CVEs, pentest guides. **Gated** |
-| nvidia/Aegis-AI-Content-Safety-Dataset-2.0 | CC-BY-4.0 | Hard negatives: the safe-labelled prompts of a content-safety benchmark |
-| `nvidia/Nemotron-RL-Jailbreak-Robustness-v1` | CC-BY-4.0 | Jailbreak attempts that use authority framing, not trigger words |
-| `allenai/wildguardmix` | ODC-BY | Hard negatives: unharmful prompts, with the adversarial ones in their own category. **Gated** |
-| `allenai/wildjailbreak` | ODC-BY | Adversarial prompts, split into harmful and harmless. **Gated** |
+| Option | What it does |
+| --- | --- |
+| `--dataset=a,b` | Runs only these datasets |
+| `--role=train,test` | Runs only datasets with these roles |
+| `--limit=N` | Reads at most N texts from each dataset |
+| `--workers=N` | Runs N probe workers. Absent: one less than the CPU count |
+| `--holdout` | Allows the hold-out datasets |
+| `--root=DIR` | The data root. Absent: `GUARDRAIL_DATA`, then `~/Development/.guardrail-data` |
+| `--corpus=DIR` | The guardrail corpus. Absent: `GUARDRAIL_CORPUS`, then `guardrail-corpus` under the root |
 
-\* Fetched for evaluation only, never redistributed.
+Each run writes `.guardrails-bench/<run>/results.jsonl`, one line per text, and
+`summary.json`. `.guardrails-bench/latest` names the last run. A line keeps its
+text only when a detector fired or the text is an attack. While it runs, the
+bench also rewrites `progress.json`, at most once a second, with the datasets
+finished and the current one scored on its rows so far.
 
-A gated source needs a Hugging Face token: `HF_TOKEN`, or the token that `hf auth login` stored.
+To read a run in the studio, start the studio from the folder the bench ran in.
+Test guardrails then shows a Health view. It lists each detector on each
+dataset, with recall, false alarms, and time, and the change since the run
+before. Above it, four figures pool every detector on every dataset shown:
+recall, false alarms, the slowest p95 with the median and mean of every
+timing, and the texts read. Charts beside them rank the detectors by each
+figure, and a sunburst shows where the texts come from: each boundary, then
+each dataset. Each dataset's name opens its source page,
+and its licence sits beside it. The Matrix view lists every boundary against every detector and
+shades each cell by recall, false alarms or p95 time, pooled over the datasets
+that cross there: blue where it does well, grey where it does badly. A strip
+under it shows the scale. A white cell has no dataset that scores it. A hatched
+cell is a detector that cannot read that boundary (`DETECTOR_BOUNDARIES`). The
+bench sets every detector to flag wherever it can read, so a white cell is a
+gap in the data, never a detector left off.
+A cell opens its rows in the table. Open a row to see its figures, a chart of its worst
+categories, and the texts behind each figure, with each match marked. **Probe the draft** sends one of those texts
+through the probe again, with the open draft.
 
-LLMail-Inject is loaded twice: once whole, and once filtered to the subset carrying
-`objectives.defense.undetected` — attacks that beat the competition's own defenses. A
-score on the second is worth more than a score on textbook payloads.
+A run still going shows as it goes: how many datasets it has finished, the one
+it is on, and the scores so far, compared with the last whole run. A run with
+`--limit` reads only part of each dataset, so the view never shows it or
+compares with it. A run whose progress has not moved for two minutes has
+stopped, and the view leaves it out.
 
-Each source declares a `sampleLimit`. The limit of every source with a known size is
-above that size, so the run reads the whole corpus. The report prints `n of total` when a
-source yields fewer samples than `upstreamRows`, so a rate is never quoted as if it
-covered the corpus. A source that cannot be reached, such as a gated source without a
-token, is listed under **Not loaded** and narrows the report rather than breaking it.
+The studio server answers `GET /api/studio/bench` with the runs,
+`GET /api/studio/bench/live` with a running run's progress as server-sent
+events, and `GET /api/studio/bench/rows` with a figure's texts. Where no run
+exists, they answer 404 and the view does not show. `studio/guardrail-bench.ts`
+holds the shapes that the bench writes and the view reads.
 
-`REVIEWED_SOURCES` in `src/guardrails/eval/corpus.ts` records corpora that were evaluated and
-deliberately left out, with the objection: non-commercial licenses, undeclared
-licenses, and `Lakera/mosscap_prompt_injection`, whose 223k entries are attacks only
-in context and would understate a detector as unfairly as a soft benign set
-overstates one.
+`DATASETS` in `scripts/guardrails-bench/datasets.ts` lists every dataset, with
+its boundary, licence, and role. The roles are `train`, `validate`, `test`, and
+`holdout`, and each dataset's entry names its own. The data
+is not in the repo. If a dataset's files are missing, the run skips it and the
+summary says why. The bench is repo-only: `scripts/` is not in the published
+package.
 
-Three rules the harness enforces on itself:
+The bench follows these rules:
 
-**Sources are never pooled.** A detector tuned on one corpus routinely collapses
-on another, and a combined figure reports the average of a good result and a bad
-one as a single fact. Each source is scored separately.
+- **Datasets are never pooled.** A detector tuned on one set can fail on
+  another. A combined figure hides that.
+- **Recall is scored only for what a dataset labels.** A dataset names its
+  `labels`. A credential detector scored on prompt injections would look broken
+  for the wrong reason. False alarms are scored for every detector.
+- **A label that means something else is left out.** A personal data set labels
+  each detector's target apart (`holds`). A card that fails its checksum is not
+  a card, so its row is `unscored` for `financial`.
+- **Each figure is kept by category.** False alarms and missed attacks are
+  broken down by the dataset's own sub-label, so one bad category stays visible.
+- **Tool results keep their shape.** `recordsFromYaml` writes an AgentDojo
+  record as a tool returns it, with its addresses, ids, and amounts.
+- **A hold-out is scored only.** It runs only with `--holdout`, and its figures
+  are marked. Nothing is tuned on it, and no figure from it is published.
 
-**Recall is withheld where the corpus asks the wrong question.** A credential
-detector scored against prompt injections would report near-zero recall and look
-broken. Detectors declare `accountableFor`; false-positive rate is always
-reported, because benign is benign regardless of what a detector hunts.
+A figure from fewer than `MEANINGFUL_N` (200) samples is marked `[n too small]`.
 
-**Tool results are serialised the way a tool returns them.** Extracting prose
-bodies alone drops the addresses, ids, and amounts a real payload carries, and a
-detector measured against that thinner text scores better than it deserves. This
-is not hypothetical: an earlier extraction bug dropped sender addresses from every
-email record and produced a flattering number.
+These sets were checked and left out:
 
-Figures from fewer than 200 benign samples are marked `[n too small]`. They are
-observations, not rates.
+| Dataset | Why |
+| --- | --- |
+| Lakera/mosscap_prompt_injection | Many entries are attacks only in the game's context. Alone, "does the password contain numbers?" is harmless |
+| JailbreakBench/JBB-Behaviors | It tests whether a model refuses harm, not an agent takeover |
+| nvidia/Nemotron-RL-Jailbreak-Robustness-v1 | Jailbreaks, not takeovers |
+| nvidia/Nemotron-AIQ-Agentic-Safety-Dataset-1.0 | Licence `other` |
+| xTRam1/safe-guard-prompt-injection, jayavibhav/prompt-injection-safety | No licence declared |
+| rogue-security/prompt-injections-benchmark | Gated, and non-commercial |
+| allenai/wildguardmix | Gated |
 
 ## Adversarial testing
 
@@ -1950,9 +1977,9 @@ From `src/guardrails/testing.ts` (test / harness only):
     },
     "Evaluation": {
       "supports": [
-        { "kind": "source", "path": "src/guardrails/eval/mod.ts" },
-        { "kind": "source", "path": "src/guardrails/eval/corpus.ts" },
-        { "kind": "contract_test", "path": "tests/guardrails/eval.test.ts" }
+        { "kind": "source", "path": "src/guardrails/detect-at.ts" },
+        { "kind": "contract_test", "path": "tests/scripts/guardrails-bench.test.ts" },
+        { "kind": "contract_test", "path": "tests/scripts/guardrails-bench-parse.test.ts" }
       ]
     },
     "Adversarial testing": {

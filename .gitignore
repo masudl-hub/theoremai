@@ -57,3 +57,4 @@ tmp/probe-runs/*
 
 # The studio's browser tests
 studio/test-results/
+.guardrails-bench/

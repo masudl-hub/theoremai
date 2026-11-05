@@ -167,7 +167,7 @@ export function originLabel(origin: SettingOrigin): string {
   }
 }
 
-/** What a row says of its origin, at a glance: `Set by bonsaiGoogle`, `Set in code · …/profile.ts:101`. */
+/** What a row says of its origin, at a glance: `Set by gardenGoogle`, `Set in code · …/profile.ts:101`. */
 export function originShortLabel(origin: SettingOrigin): string {
   switch (origin.kind) {
     case 'constant':

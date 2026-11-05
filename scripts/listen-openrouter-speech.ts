@@ -33,7 +33,7 @@ const ALL: readonly Run[] = [
   {
     id: 'fish',
     apiId: 'fish-audio/s2.1-pro-free:free',
-    text: 'Your bonsai needs water today. The leaves look thirsty.',
+    text: 'Your fern needs water today. The leaves look thirsty.',
     speech: { format: 'mp3' },
     file: '01-fish-s2.1-pro-free.mp3',
   },

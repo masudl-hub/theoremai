@@ -54,15 +54,15 @@ Deno.test("a handler runs the application's own turn, given the application's co
     profile: profile('wiring-system'),
     provider: () => fixtureHostOptions(replying('hi', systems)),
     conversationStore: createMemoryConversationStore(),
-    host: () => ({ keeper: 'k1' }),
+    host: () => ({ user: 'u1' }),
     prepare: (turn) => {
       hosts.push(turn.host);
-      return { ...turn, system: 'the keeper waters on Sundays' };
+      return { ...turn, system: 'the user waters on Sundays' };
     },
   });
   const events = await turnOn(handler);
-  assertEquals(hosts, [{ keeper: 'k1' }]);
-  assertEquals(systems[0]?.includes('the keeper waters on Sundays'), true);
+  assertEquals(hosts, [{ user: 'u1' }]);
+  assertEquals(systems[0]?.includes('the user waters on Sundays'), true);
   assertEquals(
     events.filter((event) => event.type === 'text').map((event) => event.text),
     ['hi'],

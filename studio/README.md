@@ -143,7 +143,7 @@ import type { StudioActingAs, StudioPeople } from '@theoremjs/studio/people';
 
 export const people: StudioPeople = {
   places: [{ id: 'stage', label: 'Stage' }],
-  existing: (place) => [{ id: 'user-1', label: 'Test keeper' }], // optional
+  existing: (place) => [{ id: 'user-1', label: 'Test user' }], // optional
   fresh: (place) => makeTestUser(place), // optional; removing it later is yours
   start: undefined, // optional pick the studio opens on; without it, no one
 };

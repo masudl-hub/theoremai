@@ -2184,7 +2184,7 @@ Deno.test("a held call runs on, once answered, with the context the application'
   const handler = handlerFor({
     profile: profile('handler-prepared-host', ['handler_reads_host']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_reads_host', 'a')),
-    host: () => ({ keeper: 'k1' }),
+    host: () => ({ user: 'u1' }),
     prepare: (turn) => ({ ...turn, host: { ...(turn.host as object), loading: 'from prepare' } }),
   });
   const transport = transportFor(handler);
@@ -2196,7 +2196,7 @@ Deno.test("a held call runs on, once answered, with the context the application'
       onEvent,
     ),
   );
-  assertEquals(hostsSeen, [{ keeper: 'k1', loading: 'from prepare' }]);
+  assertEquals(hostsSeen, [{ user: 'u1', loading: 'from prepare' }]);
 });
 
 Deno.test("a turn's prepare sees a held call going on, and only a run's events reach onEvent", async () => {
@@ -2205,7 +2205,7 @@ Deno.test("a turn's prepare sees a held call going on, and only a run's events r
   const handler = handlerFor({
     profile: profile('handler-held-prepare', ['handler_reads_host']),
     provider: () => fixtureHostOptions(toolCallingProvider('handler_reads_host', 'a')),
-    host: () => ({ keeper: 'k1' }),
+    host: () => ({ user: 'u1' }),
     prepare: (turn) => {
       prepared.push(turn.answersHeldCall);
       return { ...turn, onEvent: (event) => void seen.push(event.type) };

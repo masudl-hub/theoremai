@@ -21,7 +21,7 @@ for (const text of [
   'Say hello.\n\nSay goodbye.',
   'when plan is free: Mention the trial.',
   'when plan is free and path is web: Mention the trial.',
-  '{private: when plan is free: ## FREE PLAN\n\n- The keeper is free.\n- They have a limit.}',
+  '{private: when plan is free: ## FREE PLAN\n\n- The user is free.\n- They have a limit.}',
   '{private: ## HEADING\nSome words.}',
   'Hello {private: secret words} and goodbye.',
   '- One\n- {private: Two}\n- Three',

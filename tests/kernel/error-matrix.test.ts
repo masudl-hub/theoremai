@@ -34,7 +34,7 @@ interface Observed {
   thrown?: unknown;
 }
 
-/** What the honest-errors rules say this failure must look like (docs/proposals/honest-errors.md). */
+/** What the honest-errors rules say this failure must look like. */
 interface Expected {
   /** Text from the injected failure and each cause the builder must read (R1.1). */
   reasons: string[];

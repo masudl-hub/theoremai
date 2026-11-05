@@ -1137,7 +1137,7 @@ The call counts as settled for its step at the reply. `waitFor` and one-at-a-tim
 | `stop(reason, { graceMs })` | The same, and a body that ignores its signal past this time is cut. The kernel drops its later events |
 | Any stop after settlement | Nothing |
 
-`steer(text, { id })` tells a detached agent tool's agent something new while it runs ([Steer a background call](../proposals/steer-background-calls.md)). The message waits, then joins the agent's own turn as a user message with `id` as its inject id. It lands at the next stage that takes an inject: `pre_turn` and `before_end` after the host's own injects, and `post_tool` once a step, after every call's own. It passes the agent profile's guardrails and lands only where a host inject could. The agent's turn emits its `stage` event with `injected`, and the host gets it as a `progress` event of the call. A steer that never landed before the call settled is in `unreadSteers` when `done` resolves. A tool inside the agent's turn never reads it.
+`steer(text, { id })` tells a detached agent tool's agent something new while it runs. The message waits, then joins the agent's own turn as a user message with `id` as its inject id. It lands at the next stage that takes an inject: `pre_turn` and `before_end` after the host's own injects, and `post_tool` once a step, after every call's own. It passes the agent profile's guardrails and lands only where a host inject could. The agent's turn emits its `stage` event with `injected`, and the host gets it as a `progress` event of the call. A steer that never landed before the call settled is in `unreadSteers` when `done` resolves. A tool inside the agent's turn never reads it.
 
 | `steer` answers | When |
 | --- | --- |
@@ -1496,7 +1496,7 @@ for await (const event of runTurn({
 }
 ```
 
-Orchid-style durable absorb belongs in the host `onStage` implementation (claim/accept/consume), not in the kernel.
+A durable absorb (claim, accept, consume) belongs in the host's `onStage` implementation, not in the kernel.
 
 Profile `guardrails`:
 

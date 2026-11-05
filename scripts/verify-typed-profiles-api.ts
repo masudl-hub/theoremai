@@ -393,7 +393,7 @@ if (selected.has('image')) {
       if (projected.type !== 'image') throw new Error(`Expected image, got ${projected.type}`);
       const events = await collect(
         runTurn(
-          { profile: profile.id, input: { text: 'A small green bonsai tree on a white table.' } },
+          { profile: profile.id, input: { text: 'A small green fern on a white table.' } },
           scriptProviderOptions(profile, gateway(openRouterKey)),
           traceSink,
         ),
@@ -434,7 +434,7 @@ if (selected.has('image')) {
       registerProfile(profile);
       const events = await collect(
         runTurn(
-          { profile: profile.id, input: { text: 'A small green bonsai tree on a white table.' } },
+          { profile: profile.id, input: { text: 'A small green fern on a white table.' } },
           scriptProviderOptions(profile, geminiTransport),
           traceSink,
         ),
@@ -468,7 +468,7 @@ if (selected.has('speech')) {
       const before = traces.length;
       const events = await collect(
         runTurn(
-          { profile: profile.id, input: { text: 'Your bonsai needs water today.' } },
+          { profile: profile.id, input: { text: 'Your fern needs water today.' } },
           scriptProviderOptions(profile, gateway(openRouterKey)),
           traceSink,
         ),
@@ -518,7 +518,7 @@ if (selected.has('speech')) {
         registerProfile(profile);
         const events = await collect(
           runTurn(
-            { profile: profile.id, input: { text: 'Your bonsai needs water today.' } },
+            { profile: profile.id, input: { text: 'Your fern needs water today.' } },
             scriptProviderOptions(profile, geminiTransport),
             traceSink,
           ),
@@ -552,7 +552,7 @@ if (selected.has('speech')) {
       registerProfile(profile);
       const events = await collect(
         runTurn(
-          { profile: profile.id, input: { text: 'Your bonsai needs water today.' } },
+          { profile: profile.id, input: { text: 'Your fern needs water today.' } },
           scriptProviderOptions(profile, geminiTransport),
           traceSink,
         ),

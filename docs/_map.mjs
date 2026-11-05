@@ -19,7 +19,6 @@ const graph = {
     package: {
       export: '.',
       doc: 'README.md',
-      realizes: ['docs/proposals/MIGRATION-boundary.md'],
       owns: ['mod.ts', 'package.json'],
       watches: [
         {
@@ -73,7 +72,6 @@ const graph = {
     'web-package': {
       export: '_internal/web-package',
       doc: 'web/README.md',
-      realizes: ['docs/proposals/host-owned-conversation.md'],
       owns: ['web/src/', 'web/package.json'],
       validates: ['tests/web/', 'scripts/docs-truth/graph.test.mjs'],
     },
@@ -88,7 +86,6 @@ const graph = {
     'studio-contract': {
       export: '_internal/studio-contract',
       doc: 'docs/contracts/studio.md',
-      realizes: ['docs/proposals/theorem-studio.md', 'docs/proposals/studio-trace-replay.md'],
       owns: [],
       watches: [
         {
@@ -148,7 +145,7 @@ const graph = {
           sections: ['Ownership', 'Rules'],
         },
       ],
-      validates: ['scripts/docs-truth/graph.test.mjs', 'scripts/docs-truth/proposals.test.mjs'],
+      validates: ['scripts/docs-truth/graph.test.mjs'],
       required_sections: [
         'Export',
         'Ownership',
@@ -163,7 +160,6 @@ const graph = {
             'scripts/docs-truth/export-drift.mjs',
             'scripts/docs-truth/copy-lint.mjs',
             'scripts/docs-truth/graph.test.mjs',
-            'scripts/docs-truth/proposals.mjs',
           ],
           sections: ['Rules'],
         },
@@ -200,15 +196,6 @@ const graph = {
     kernel: {
       export: './kernel',
       doc: 'docs/contracts/kernel.md',
-      realizes: [
-        'docs/proposals/MIGRATION-tool-system.md',
-        'docs/proposals/TOOL_RESULT_FIDELITY.md',
-        'docs/proposals/background-tool-calls.md',
-        'docs/proposals/honest-errors.md',
-        'docs/proposals/live-slots-greeting.md',
-        'docs/proposals/steer-background-calls.md',
-        'docs/proposals/turn-event-schema.md',
-      ],
       owns: ['src/kernel/'],
       owns_except: ['src/kernel/schema.ts'],
       validates: ['tests/kernel/'],
@@ -265,7 +252,6 @@ const graph = {
     providers: {
       export: './providers',
       doc: 'docs/contracts/providers.md',
-      realizes: ['docs/proposals/protocols-and-providers.md'],
       owns: ['src/providers/'],
       watches: [
         {
@@ -375,7 +361,6 @@ const graph = {
     guardrails: {
       export: './guardrails',
       doc: 'docs/contracts/guardrails.md',
-      realizes: ['docs/proposals/guardrail-detectors.md', 'docs/proposals/guardrail-invariants.md'],
       owns: ['src/guardrails/'],
       owns_except: [
         'src/guardrails/testing.ts',
@@ -487,10 +472,6 @@ const graph = {
     observability: {
       export: './observability',
       doc: 'docs/contracts/observability.md',
-      realizes: [
-        'docs/proposals/otel-turn-traces.md',
-        'docs/proposals/otel-turn-traces-example.md',
-      ],
       owns: ['src/observability/'],
       owns_except: [
         'src/observability/jsonl.ts',

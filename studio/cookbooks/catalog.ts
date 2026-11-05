@@ -71,7 +71,7 @@ const EXAMPLE_PICKS: ModelPicks = {
   },
 };
 
-/** Public cognitive block (bonsai.thinker) plus private research standards (`{private: …}`). */
+/** Public cognitive block plus private research standards (`{private: …}`). */
 export const DEMO_RESEARCH_SYSTEM = `Role: Advanced reasoning engine for research on how language models keep, retrieve, and recombine context. You solve high-complexity, ambiguous, and multi-variable problems through deep first-principles analysis.
 
 Cognitive Standards:
